@@ -158,5 +158,6 @@ if opts.verbose:
     tvals = (float(hoft.epoch) - float(P.tref)) +  np.arange(hoft.data.length)*hoft.deltaT
     plt.plot(tvals2,hoft2.data.data,label='Fr')
     plt.plot(tvals,hoft.data.data,label='orig')
+    plt.xlim(-8.0,0.3)
     plt.legend(); #plt.show()
     plt.savefig("injected-data_"+opts.instrument +".png")

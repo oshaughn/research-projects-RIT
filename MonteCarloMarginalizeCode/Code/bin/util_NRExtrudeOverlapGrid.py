@@ -59,7 +59,7 @@ parser = argparse.ArgumentParser()
 # Parameters
 parser.add_argument("--mtot-range",default='[50,110]')
 parser.add_argument("--mc-range",default=None, help='If specified, overrides the total mass range [24,38]')
-parser.add_argument("--grid-cartesian-npts",default=30)
+parser.add_argument("--grid-cartesian-npts",type=int,default=30)
 parser.add_argument("--group",default=None)
 parser.add_argument("--param", action='append', help='Explicit list of parameters to use')
 parser.add_argument("--insert-missing-spokes", action='store_true')
@@ -143,6 +143,7 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
     # WARNING: Assumes grid for mass-unit variables hass mass units (!)
     global xi_factor
     P_list = []
+    print(grid)
     for line in grid:
         Pgrid = P.manual_copy()
         # Set attributes that are being changed as necessary, leaving all others fixed
@@ -162,11 +163,13 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
     #  FIXME: More robust multiprocessing implementation -- very heavy!
 #    p=Pool(n_threads)
     # PROBLEM: Pool code doesn't work in new configuration.
+    print(IP)
     grid_out = np.array(map(functools.partial(eval_overlap, grid, P_list,IP), np.arange(len(grid))))
     # Remove mass units at end
     for p in ['mc', 'm1', 'm2', 'mtot']:
         if p in param_names:
             indx = param_names.index(p)
+            print(indx,grid_out[indx])
             grid_out[:,indx] /= lal.MSUN_SI
     # Truncate grid so overlap with the base point is > opts.min_match. Make sure to CONSISTENTLY truncate all lists (e.g., the P_list)
     grid_out_new = []
@@ -240,9 +243,13 @@ P.print_params()
 print("    -------INTERFACE ------")
 hfBase =None
 IP=None
+print("Here")
+print(opts.skip_overlap)
 if not opts.skip_overlap:
     hfBase = lalsimutils.complex_hoff(P)
     IP = lalsimutils.CreateCompatibleComplexOverlap(hfBase,analyticPSD_Q=analyticPSD_Q,psd=eff_fisher_psd,fMax=opts.fmax)
+    print("Using IP: ", IP)
+    exit()
     nmBase = IP.norm(hfBase)
     hfBase.data.data *= 1./nmBase
     if opts.verbose:

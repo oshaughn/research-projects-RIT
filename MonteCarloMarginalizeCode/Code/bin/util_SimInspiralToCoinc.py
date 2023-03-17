@@ -96,6 +96,10 @@ for indx in range(len(opts.ifo)):
     sngl.mchirp = lalsimutils.mchirp(sngl.mass1,sngl.mass2)
     sngl.eta = lalsimutils.symRatio(sngl.mass1,sngl.mass2)
     sngl.coa_phase = 0.
+    sngl.spin1x = P.s1x
+    sngl.spin2x = P.s2x
+    sngl.spin1y = P.s1y
+    sngl.spin2y = P.s2y
     sngl.spin1z = P.s1z
     sngl.spin2z = P.s2z
     sngl.eff_distance = P.dist/(1e6*lal.PC_SI)
