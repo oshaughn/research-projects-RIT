@@ -724,7 +724,7 @@ class EOSLindblomSpectralSoundSpeedVersusPressure(EOSConcrete):
 
 # https://github.com/oshaughn/RIT-matters/blob/master/communications/20230130-ROSKediaYelikar-EOSManagerSpectralUpdates/demo_reprimand.py
 class EOSReprimand(EOSConcrete):
-    def __init__(self,name,param_dict=None):
+    def __init__(self,name,param_dict=None,load_file=False):
         self.name=name
         self.eos = None   # NOT required, only would be useful for talking to lalsim
         self.eos_fam = None  # NOT required, only would be useful for talking to lalsim
@@ -736,6 +736,8 @@ class EOSReprimand(EOSConcrete):
 
         if param_dict:
             self.update(param_dict)
+       elif load_file:
+           True #  do something to load a file here! See https://github.com/oshaughn/RIT-matters/blob/master/communications/20230130-ROSKediaYelikar-EOSManagerSpectralUpdates/demo_reprimand.py
         else:
             print(" Warning: Empty EOS object created ... ")  # remove this warning later
         return None
@@ -744,7 +746,6 @@ class EOSReprimand(EOSConcrete):
         if not(param_dict):
             raise Exception("EOSReprimand requires input ")
     
-
         # minimum required input, cgs units like everything else above
         # for example, you could get this from QueryLS_EOS.extract_param(name, xvals) for xvals your parameter
         edens = param_dict['energy_density']
