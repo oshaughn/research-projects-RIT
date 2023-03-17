@@ -231,6 +231,99 @@ dirLALSimulationBase = os.environ["LALSIMULATION_DATADIR"]  # LAL table data
 ## Follow framework of NRWaveformCatalogManager3
 
 
+class EOSFromTabularData(EOSConcrete):
+    """ 
+    Input: 
+       * Tabular data (baryon_density = n , pressure = p, energy density = \rho)
+       * method for primitives: this information is partially redundant, in that \ln n_b/n_ref = \int   c^2 [d rho] / (P(rho) + rho c^2), etc
+          Need some specific choice for inter-edge interpolation (and redundance resolution) 
+       * Low-density approximation (if desired) for filling down to surface density.  
+           WARNING: Will generally match imperfectly, need some resolution to that procedure
+    Creates
+        * LALSimulation data structure as desired
+    Warning: 
+        * Currently generates intermediate data file by writing to disk
+    """
+
+    def __init__(self,name=None,eos_data=None,eos_units=None,reject_phase_transitions=True,debug=False, add_low_density=False):
+        eos_name = name
+        if eos_data is None:
+            raise Exception("EOS data required to use EOSFromTabularData")
+        if not(name):
+            eos_name="default"
+        
+        # Assuming CGS
+        try:
+            bdens = eos_data["baryon_density"]
+            press = eos_data["pressure"]
+            edens = eos_data["energy_density"]
+            # Convert to geometerized units 1/m^2
+            #press is in dyn/cm^2 
+            #edens is in gm/cm^3 and needs to be made to 1/m^2. The conversion factor is 
+            press *= PRESSURE_CGS_IN_MSQUARED
+            edens *= DENSITY_CGS_IN_MSQUARED
+            # Convert to SI units
+            # press *= 0.1                    #Converts CGS -> SI, i.e., [Ba] -> [Pa]
+            # edens *= 0.1*(lal.C_SI*100)**2
+            
+            
+            '''
+            Use https://www.seas.upenn.edu/~amyers/NaturalUnits.pdf for reference
+            Convert Pressure in CGS to SI.
+            Ba -> Pa is a factor of 0.1 because [Ba] = g/(cm s^2) = 0.1 kg/(m s^2) = 0.1 Pa
+            
+            Convert Density in CGS-mass density [Mass/Volume] to SI-energy density [Energy/Volume].
+            Converts CGS -> SI, i.e., mass density units to energy density units g/cm^3 -> J/m^3. 
+            Steps: 1 g/cm^3 -> 1000 kg/m^3 . Now multiply by c^2 to get 1000kg/m^3 * c^2 = 1000*lal.C_SI^2 J/m^3. 
+            OR Steps:  1 g/cm^3 multiplied by c^2 to get 1 g/cm^3 * c^2 = (lal.C_SI*100)^2 (g cm^2/s^2)/cm^3 = (lal.C_SI*100)^2 erg/cm^3 = (lal.C_SI*100)^2 *0.1 J/m^3. QED.
+            
+            Convert Pressure in CGS to Geometerized Units.
+            First Convert Pressure in CGS to SI units. I.e.,
+            Ba = 0.1 Pa
+            Then to go from Pa = kg/(m s^2) to 1/m^2 multiply by lal.G_SI/lal.C_SI^4
+            Hence, to go from Ba to 1/m^2, multiply by 0.1 lal.G_SI/lal.C_SI^4, or DENSITY_CGS_IN_MSQUARED/(lal.C_SI*100)**2 = 1000*lal.G_SI/lal.C_SI**2/(lal.C_SI*100)**2
+            
+            Convert Density in CGS to Geometerized Units
+            First convert CGS-mass density to  SI-energy density as above:
+            1 g/cm^3 -> 1000*lal.C_SI^2 J/m^3
+            Then to go from J/m^3 = kg/(m s^2) to 1/m^2 multiply by lal.G_SI/lal.C_SI^4
+            Hence, to go from g/cm^3 to 1/m^2, multiply by 1000 lal.G_SI/lal.C_SI^2
+            '''
+            
+        except:
+            press = eos_data[:,0]      #LALSim EOS format
+            edens = eos_data[:,1]
+        
+        if reject_phase_transitions:   # Normally lalsuite can't handle regions of constant pressure. Using a pressure/density only approach isn't suited to phase transitions
+            if not np.all(np.diff(press) > 0):    # BLOCKS PHASE TRANSITIONS
+                keep_idx = np.where(np.diff(press) > 0)[0] + 1
+                keep_idx = np.concatenate(([0], keep_idx))
+                print(keep_idx)
+                press = press[keep_idx]
+                edens = edens[keep_idx]
+            assert np.all(np.diff(press) > 0)
+            if not np.all(np.diff(edens) > 0):
+                keep_idx = np.where(np.diff(edens) > 0)[0] + 1
+                keep_idx = np.concatenate(([0], keep_idx))
+                press = press[keep_idx]
+                edens = edens[keep_idx]
+            assert np.all(np.diff(edens) > 0)
+        
+        # Create temporary file
+        # Creating temporary file in suitable units
+        if debug:
+                print("Dumping to %s" % self.fname)
+        eos_fname = "./" +eos_name + "_geom.dat" # assume write acces
+        np.savetxt(eos_fname, np.transpose((press, edens)), delimiter='\t', header='pressure\t energy_density')
+        eos = lalsim.SimNeutronStarEOSFromFile(eos_fname)
+        fam = lalsim.CreateSimNeutronStarFamily(eos)
+        
+        self.name = eos_name
+        self.eos =eos
+        self.eos_family =fam
+        return None
+
+
 class EOSFromDataFile(EOSConcrete):
     """ 
     FromDataFileEquationOfState
