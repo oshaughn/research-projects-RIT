@@ -981,6 +981,7 @@ class EOSSequenceLandry:
 #### General lalsimulation interfacing
 ####
 
+
 class QueryLS_EOS:
     """
     ExtractorFromEOS
@@ -989,20 +990,41 @@ class QueryLS_EOS:
     def __init__(self,eos):
         self.eos = eos
         # Primitive extractors.  Assume I need to vectorize these, and that it isn't available
+        
+        Den_SI_to_CGS = 0.001 # kg m^-3 -> g cm^-3
+        Energy_SI_to_CGS = 10/(lal.C_SI*100)**2 # J m^-3 *10 -> erg/cm^3 /c^2 -> g cm^-3
+        Press_SI_to_CGS = 10 # Pa -> Ba ~ g cm^-1 s^-2
+        
         extraction_dict_lalsim_raw = {
-            'pseudo_enthalpy': lambda x: x,
-            'rest_mass_density': lambda x: lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(x, eos)*.001,  # g cm^-3
-            'baryon_density': lambda x: (lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(x, eos)*.001)/(lal.AMU_SI*1e3),  #  cm^-3
-           'pressure': lambda x: lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(x, eos)*10,    # dyn cm^-2 ~ g cm^-1 s^-2
-           'energy_density': lambda x: lalsim.SimNeutronStarEOSEnergyDensityOfPseudoEnthalpy(x,eos)*10/(lal.C_SI*100)**2 , # J m^-3 *10/c^2 = g cm^-3
-           'sound_speed_over_c':lambda x: lalsim.SimNeutronStarEOSSpeedOfSound(x,eos)/lal.C_SI  
-          }
+            'pseudo_enthalpy'   : lambda x: x,
+            'rest_mass_density' : lambda x: lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(x, eos)*Den_SI_to_CGS,
+            'baryon_density'    : lambda x: lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(x, eos)*Den_SI_to_CGS/(lal.AMU_SI*1e3),  #  cm^-3
+            'pressure'          : lambda x: lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(x, eos)*Press_SI_to_CGS,
+            'energy_density'    : lambda x: lalsim.SimNeutronStarEOSEnergyDensityOfPseudoEnthalpy(x,eos)*Energy_SI_to_CGS,
+            'sound_speed_over_c': lambda x: lalsim.SimNeutronStarEOSSpeedOfSound(x,eos)/lal.C_SI
+            }
         self.extraction_dict_lalsim = {}
         for name in         extraction_dict_lalsim_raw:
             self.extraction_dict_lalsim[name] = np.vectorize(extraction_dict_lalsim_raw[name])
-
+    
+    def convert(self,var, var_name = None):
+        if not(var_name):
+            raise Exception("Variable required to convert.")
+        if var_name == 'rest_mass_density':
+            return var*5.6096*10**-13 # MeV fm^-3    ## c**2/(coulomb charge) * 1/(10**39 * 10**3 * 10**6) See https://en.wikipedia.org/wiki/Electronvolt#Mass for a handy conversion. lal.C_SI**2/(lal.QE_SI*10**48)
+        if var_name == 'energy_density':
+            return var*5.6096*10**-13 # MeV fm^-3
+        if var_name == 'energy_density':
+            return var/(2.7*10**14) # nuclear saturation density in cgs = 2.7*10**14. ~ 0.16 fm^-3
+        if var_name == 'sound_speed_over_c':
+            return var*lal.C_SI*100   # cm s-1
+        if var_name == 'pressure':
+            raise Exception('not yet implemented')
+            return ##Check this conversion. possibly same as density with or without c**2. [MeV fm^-3]
+        
         # IN PROGRESS
         #   - adiabatic index
-
+        #Gamma = (self.extraction_dict_lalsim['energy_density']()*(lal.C_SI*100)**2 + self.extraction_dict_lalsim['pressure']())/(self.extraction_dict_lalsim['pressure']()) *np.square(self.extraction_dict_lalsim['sound_speed_over_c']())
+    
     def extract_param(self, p, pseudo_enthalpy):
         return self.extraction_dict_lalsim[p](pseudo_enthalpy)
