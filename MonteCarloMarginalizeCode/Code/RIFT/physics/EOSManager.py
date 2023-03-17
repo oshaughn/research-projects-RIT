@@ -26,6 +26,13 @@ try:
 except:
     print(" - no natsorted - ")
 
+has_reprimand=False
+try: 
+    import pyreprimand as pyr
+    has_reprimand=True
+except:
+    has_reprimand=False
+
 #import gwemlightcurves.table as gw_eos_table
 
 from . import MonotonicSpline as ms
@@ -226,7 +233,10 @@ class EOSLALSimulation(EOSConcrete):
 
 # Example directory: EOS_Tables
 #dirEOSTablesBase = os.environ["EOS_TABLES"]
-dirLALSimulationBase = os.environ["LALSIMULATION_DATADIR"]  # LAL table data
+try:
+    dirLALSimulationBase = os.environ["LALSIMULATION_DATADIR"]  # LAL table data
+except:
+    dirLALSimulationBase=''
 ## Add routines to find, parse standard directory of EOS files and load suitable metadata into memory
 ## Follow framework of NRWaveformCatalogManager3
 
@@ -710,6 +720,124 @@ class EOSLindblomSpectralSoundSpeedVersusPressure(EOSConcrete):
         return new_eos_vals
 
 
+
+
+# https://github.com/oshaughn/RIT-matters/blob/master/communications/20230130-ROSKediaYelikar-EOSManagerSpectralUpdates/demo_reprimand.py
+class EOSReprimand(EOSConcrete):
+    def __init__(self,name,param_dict=None):
+        self.name=name
+        self.eos = None   # NOT required, only would be useful for talking to lalsim
+        self.eos_fam = None  # NOT required, only would be useful for talking to lalsim
+
+        self.pyr_eos = None # REQUIRED, new name for reprimand structure. Provided so we can also back-port converting between two
+        self.mMaxMsun=None  # required
+        self.lambda_from_m = None # required function.  Do NOT want to use EOSConcrete structure, as that assumes lalsim implementation
+        self._pyr_mrL_dat = None # internal data for M, R, lambda
+
+        if param_dict:
+            self.update(param_dict)
+        else:
+            print(" Warning: Empty EOS object created ... ")  # remove this warning later
+        return None
+
+    def update(self,param_dict):
+        if not(param_dict):
+            raise Exception("EOSReprimand requires input ")
+    
+
+        # minimum required input, cgs units like everything else above
+        # for example, you could get this from QueryLS_EOS.extract_param(name, xvals) for xvals your parameter
+        edens = param_dict['energy_density']
+        press = param_dict['pressure']
+#        p_enthalpy = param_dict['pseudo_enthalpy']
+        rho = param_dict['rest_mass_density']
+        cs = param_dict['sound_speed_over_c']
+
+        unew = pyr.units.geom_solar()
+        spec_int_energy = edens/rho -1
+        spec_int_energy_unew = spec_int_energy*1000/unew.density
+        rho_unew = rho*1000/unew.density
+        press_unew = press*0.1/unew.pressure
+        
+        temp, efrac= [], []
+        n_poly=1.7115960633290546  # polytropic index below lowest tabular data. Not good, should have full range.
+        eps_0 = 0.0  # energy density at zero pressure
+        pts_per_mag =1000  # points log spaced per decaded in some parameter
+        isentropic = True
+        rgrho = pyr.range(min(rho_unew)*1.0000001, max(rho_unew) / 1.0000001)
+
+        # Instantiate EOS
+        self.pyr_eos = pyr.make_eos_barotr_spline(rho_unew, press_unew, cs, temp, efrac, rgrho, n_poly, eps_0, unew, pts_per_mag)
+
+        # Pending/needed
+        #  - TOV sequence to find maximum mass
+        #  - m,r, lambda data generation for interpolation
+        self._pyr_mrL_dat = make_mr_lambda_reprimand(self.pyr_eos)
+
+        # Store maximum mass
+        # Generate interpolating function to store into self.lambda_from_m
+        # Generate interpolating
+
+        return None
+
+# RePrimAnd
+def make_mr_lambda_reprimand(eos,n_bins=100,save_tov_sequence=False,read_tov_sequence=False):
+    """
+    Construct mass-radius curve from EOS using RePrimAnd (https://wokast.github.io/RePrimAnd/tov_solver.html).
+    Parameter `eos` should be in RePrimAnd's eos object format, made with something like `make_eos_barotr_spline` (https://wokast.github.io/RePrimAnd/eos_barotr_ref.html).
+    """
+    
+    #Put a check for the cs because RePrimAnd does not accept cs > 1.
+    
+    """
+    For units refer: https://wokast.github.io/RePrimAnd/little_helpers.html#units
+    uni = pyr.units.geom_solar(g_si=6.673e-11)
+    uni.length, uni.time, uni.mass
+    pyr.units.geom_meter() is such that length = 1, time = 1/c, mass = Mo/1000 in [kg] . length and time are related (factor of c). mass is related to G.
+    geom_meter(g_si) : length = 1, time = length /3e8, mass = 1.3465e+27 * [6.6743e-11/g_si]
+    
+    pyr.units.geom_solar() is such that length = 1476, time = length/c, mass = Mo in [kg] . length and time are related (factor of c) and to G. mass is independent.
+    geom_solar(msun_si, g_si) : length = 1476*[g_si/6.6743e-11]*[msun_si/1.988e+30], time = length /3e8, mass = msun_si
+    
+    geom_umass(umass, g_si) : divides everything such that mass = umass given. DID NOT CHECK g_si dependence.
+    # Units of quantities
+    density is in SI/6.1758e+20 i.e. 1.98841e+30/1476.625**3 = pyr.units.geom_solar().mass / pyr.units.geom_solar().length**3
+    """
+    assert has_reprimand
+
+    #Make TOV sequence
+    
+    acc = pyr.tov_acc_simple(acc_tov=1e-10, acc_deform=1e-8, minsteps=500)
+    seq = pyr.make_tov_branch_stable(eos, acc, num_samp=2500, mgrav_min=0.3)
+    
+    if save_tov_sequence:
+        try:
+            #bpath = p.parent
+            #spath = bpath / "tov.seq.h5"
+            spath = "tov.seq.h5"
+            pyr.save_star_branch(str(spath), seq)
+        except:
+            raise Exception("Did not work. Need to send path properly.")
+    if read_tov_sequence:
+        seq = pyr.load_star_branch(str(seqfiles[0]), sol_units)
+    
+    #Make M-R-L relation
+    u = seq.units_to_SI
+    rggm1 = seq.range_center_gm1
+    gm1 = np.linspace(rggm1.min, rggm1.max, 800)
+    
+    mrL_dat = np.zeros((len(gm1),3))#((n_bins,3))
+    mrL_dat[:,0]  = seq.grav_mass_from_center_gm1(gm1) # Mg [Mo]
+    mrL_dat[:,1]  = seq.circ_radius_from_center_gm1(gm1)*u.length/1e3 #radius [km]
+    mrL_dat[:,2]  = seq.lambda_tidal_from_center_gm1(gm1)
+    
+    c = mrL_dat[:,0]/mrL_dat[:,1]    #compactness
+    
+    return mrL_dat
+
+
+####
+#### SUPPORT CODE FOLLOWS
 
 def gamma_of_x(x, coeffs):
         """
