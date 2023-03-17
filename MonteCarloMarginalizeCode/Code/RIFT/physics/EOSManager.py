@@ -739,7 +739,7 @@ class EOSReprimand(EOSConcrete):
 
         if param_dict:
             self.update(param_dict)
-       elif load_file:
+        elif load_file:
            True #  do something to load a file here! See https://github.com/oshaughn/RIT-matters/blob/master/communications/20230130-ROSKediaYelikar-EOSManagerSpectralUpdates/demo_reprimand.py
         else:
             print(" Warning: Empty EOS object created ... ")  # remove this warning later
