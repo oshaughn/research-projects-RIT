@@ -3,7 +3,7 @@
 #cupy  
 numpy
 h5py 
-numba 
+numba>=0.56
 pandas
 #vegas 
 corner 

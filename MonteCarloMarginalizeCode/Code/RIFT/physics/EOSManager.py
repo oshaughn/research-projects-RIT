@@ -26,13 +26,23 @@ try:
 except:
     print(" - no natsorted - ")
 
+has_reprimand=False
+try: 
+    import pyreprimand as pyr
+    has_reprimand=True
+except:
+    has_reprimand=False
+
 #import gwemlightcurves.table as gw_eos_table
 
 from . import MonotonicSpline as ms
 
 
-C_CGS=2.997925*10**10 # Argh, Monica!
-DENSITY_CGS_IN_MSQUARED=7.42591549e-25  # g/cm^3 m^2 //GRUnits. Multiply by this to convert from CGS -> 1/m^2 units (_geom)
+C_CGS=lal.C_SI*100
+DENSITY_CGS_IN_MSQUARED=1000*lal.G_SI/lal.C_SI**2  # g/cm^3 -> 1/m^2 //GRUnits. Multiply by this to convert from CGS -> 1/m^2 units (_geom). lal.G_SI/lal.C_SI**2 takes kg/m^3 -> 1/m^2  ||  https://lscsoft.docs.ligo.org/lalsuite/lalsimulation/_l_a_l_sim_neutron_star_8h_source.html
+PRESSURE_CGS_IN_MSQUARED = DENSITY_CGS_IN_MSQUARED/(lal.C_SI*100)**2
+#C_CGS=2.997925*10**10 # Argh, Monica!
+#DENSITY_CGS_IN_MSQUARED=7.42591549e-25  # g/cm^3 m^2 //GRUnits. Multiply by this to convert from CGS -> 1/m^2 units (_geom)
 
 
 def make_compactness_from_lambda_approximate(lambda_vals):
@@ -222,10 +232,109 @@ class EOSLALSimulation(EOSConcrete):
 ###
 
 # Example directory: EOS_Tables
-#dirEOSTablesBase = os.environ["EOS_TABLES"]
-dirLALSimulationBase = os.environ["LALSIMULATION_DATADIR"]  # LAL table data
+try:
+    dirEOSTablesBase = os.environ["EOS_TABLES"]
+except:
+    dirEOSTablesBase = ''
+try:
+    dirLALSimulationBase = os.environ["LALSIMULATION_DATADIR"]  # LAL table data
+except:
+    dirLALSimulationBase=''
 ## Add routines to find, parse standard directory of EOS files and load suitable metadata into memory
 ## Follow framework of NRWaveformCatalogManager3
+
+
+class EOSFromTabularData(EOSConcrete):
+    """ 
+    Input: 
+       * Tabular data (baryon_density = n , pressure = p, energy density = \rho)
+       * method for primitives: this information is partially redundant, in that \ln n_b/n_ref = \int   c^2 [d rho] / (P(rho) + rho c^2), etc
+          Need some specific choice for inter-edge interpolation (and redundance resolution) 
+       * Low-density approximation (if desired) for filling down to surface density.  
+           WARNING: Will generally match imperfectly, need some resolution to that procedure
+    Creates
+        * LALSimulation data structure as desired
+    Warning: 
+        * Currently generates intermediate data file by writing to disk
+    """
+
+    def __init__(self,name=None,eos_data=None,eos_units=None,reject_phase_transitions=True,debug=False, add_low_density=False):
+        eos_name = name
+        if eos_data is None:
+            raise Exception("EOS data required to use EOSFromTabularData")
+        if not(name):
+            eos_name="default"
+        
+        # Assuming CGS
+        try:
+            bdens = eos_data["baryon_density"]
+            press = eos_data["pressure"]
+            edens = eos_data["energy_density"]
+            # Convert to geometerized units 1/m^2
+            #press is in dyn/cm^2 
+            #edens is in gm/cm^3 and needs to be made to 1/m^2. The conversion factor is 
+            press *= PRESSURE_CGS_IN_MSQUARED
+            edens *= DENSITY_CGS_IN_MSQUARED
+            # Convert to SI units
+            # press *= 0.1                    #Converts CGS -> SI, i.e., [Ba] -> [Pa]
+            # edens *= 0.1*(lal.C_SI*100)**2
+            
+            
+            '''
+            Use https://www.seas.upenn.edu/~amyers/NaturalUnits.pdf for reference
+            Convert Pressure in CGS to SI.
+            Ba -> Pa is a factor of 0.1 because [Ba] = g/(cm s^2) = 0.1 kg/(m s^2) = 0.1 Pa
+            
+            Convert Density in CGS-mass density [Mass/Volume] to SI-energy density [Energy/Volume].
+            Converts CGS -> SI, i.e., mass density units to energy density units g/cm^3 -> J/m^3. 
+            Steps: 1 g/cm^3 -> 1000 kg/m^3 . Now multiply by c^2 to get 1000kg/m^3 * c^2 = 1000*lal.C_SI^2 J/m^3. 
+            OR Steps:  1 g/cm^3 multiplied by c^2 to get 1 g/cm^3 * c^2 = (lal.C_SI*100)^2 (g cm^2/s^2)/cm^3 = (lal.C_SI*100)^2 erg/cm^3 = (lal.C_SI*100)^2 *0.1 J/m^3. QED.
+            
+            Convert Pressure in CGS to Geometerized Units.
+            First Convert Pressure in CGS to SI units. I.e.,
+            Ba = 0.1 Pa
+            Then to go from Pa = kg/(m s^2) to 1/m^2 multiply by lal.G_SI/lal.C_SI^4
+            Hence, to go from Ba to 1/m^2, multiply by 0.1 lal.G_SI/lal.C_SI^4, or DENSITY_CGS_IN_MSQUARED/(lal.C_SI*100)**2 = 1000*lal.G_SI/lal.C_SI**2/(lal.C_SI*100)**2
+            
+            Convert Density in CGS to Geometerized Units
+            First convert CGS-mass density to  SI-energy density as above:
+            1 g/cm^3 -> 1000*lal.C_SI^2 J/m^3
+            Then to go from J/m^3 = kg/(m s^2) to 1/m^2 multiply by lal.G_SI/lal.C_SI^4
+            Hence, to go from g/cm^3 to 1/m^2, multiply by 1000 lal.G_SI/lal.C_SI^2
+            '''
+            
+        except:
+            press = eos_data[:,0]      #LALSim EOS format
+            edens = eos_data[:,1]
+        
+        if reject_phase_transitions:   # Normally lalsuite can't handle regions of constant pressure. Using a pressure/density only approach isn't suited to phase transitions
+            if not np.all(np.diff(press) > 0):    # BLOCKS PHASE TRANSITIONS
+                keep_idx = np.where(np.diff(press) > 0)[0] + 1
+                keep_idx = np.concatenate(([0], keep_idx))
+                print(keep_idx)
+                press = press[keep_idx]
+                edens = edens[keep_idx]
+            assert np.all(np.diff(press) > 0)
+            if not np.all(np.diff(edens) > 0):
+                keep_idx = np.where(np.diff(edens) > 0)[0] + 1
+                keep_idx = np.concatenate(([0], keep_idx))
+                press = press[keep_idx]
+                edens = edens[keep_idx]
+            assert np.all(np.diff(edens) > 0)
+        
+        # Create temporary file
+        # Creating temporary file in suitable units
+        if debug:
+                print("Dumping to %s" % self.fname)
+        eos_fname = "./" +eos_name + "_geom.dat" # assume write acces
+        np.savetxt(eos_fname, np.transpose((press, edens)), delimiter='\t', header='pressure\t energy_density')
+        eos = lalsim.SimNeutronStarEOSFromFile(eos_fname)
+        fam = lalsim.CreateSimNeutronStarFamily(eos)
+        
+        self.name = eos_name
+        self.eos =eos
+        self.eos_family =fam
+        return None
 
 
 class EOSFromDataFile(EOSConcrete):
@@ -523,6 +632,216 @@ class EOSLindblomSpectral(EOSConcrete):
         return new_eos_vals
 
 
+######################################################################
+###################### CAUSAL Spectral Lindblom ######################
+######################################################################
+
+class EOSLindblomSpectralSoundSpeedVersusPressure(EOSConcrete):
+    """
+    Based on https://journals.aps.org/prd/abstract/10.1103/PhysRevD.105.063031  <-> https://arxiv.org/pdf/2202.12285.pdf
+    
+    EOS spectral representation of sound speed versus pressure, as expansion of Upsilon(p): see Eq. (11).
+    Uses function call to lalsuite to implement low-level interface
+    
+    """
+    def __init__(self,name=None,spec_params=None,verbose=False,use_lal_spec_eos=True):
+        if name is None:
+            self.name = 'spectral'
+        else:
+            self.name=name
+        self.eos = None
+        self.eos_fam = None
+
+        self.spec_params = spec_params
+#        print spec_params
+
+        if use_lal_spec_eos:
+            self.eos = lalsim.SimNeutronStarEOS4ParamCausalSpectralDecomposition(spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4'])
+        else:
+            # Create data file
+            self.make_spec_param_eos(500,save_dat=True,ligo_units=True,verbose=verbose)
+            # Use data file
+            #print " Trying to load ",name+"_geom.dat"
+            import os; #print os.listdir('.')
+            cwd = os.getcwd()
+            self.eos=eos = lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
+        self.eos_fam = fam=lalsim.CreateSimNeutronStarFamily(self.eos)
+        mmass = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
+        self.mMaxMsun = mmass
+
+        return None
+    
+    def make_spec_param_eos(self, xvar='energy_density', yvar='pressure',npts=500, plot=False, verbose=False, save_dat=False,ligo_units=False,interpolate=False,eosname_lalsuite="SLY4"):
+        """
+        Load values from table of spectral parameterization values
+        from separate calculations.
+        Comments:
+            - eos_vals is recorded as *pressure,density* pairs, because the spectral representation is for energy density vs pressure
+            - units swap between geometric and CGS
+            - eosname_lalsuite is used for the low-density EOS
+        """
+        spec_params = self.spec_params
+        if not 'gamma3' in spec_params:
+            spec_params['gamma3']=spec_params['gamma4']=0
+        
+        try :
+            eos = lalsim.SimNeutronStarEOS4ParamCausalSpectralDecomposition(spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4'])
+        except:
+            raise Exception(" Did not load LALSimulation with Causal Spectral parameterization.")
+        
+        
+        maxenthalpy = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(eos)
+        #minenthalpy = lalsim.SimNeutronStarEOSMinAcausalPseudoEnthalpy(eos)
+        enthalpy_index = 0.005
+        enthalpy, rho, epsilon, press, speed = [], [], [], [], []
+        
+        Den_SI_to_CGS = 0.001 # kg m^-3 -> g cm^-3
+        Energy_SI_to_CGS = 10/(lal.C_SI*100)**2 # J m^-3 *10 -> erg/cm^3 /c^2 -> g cm^-3
+        Press_SI_to_CGS = 10 # Pa -> Ba ~ g cm^-1 s^-2
+        
+        while enthalpy_index < maxenthalpy:
+            rho.append(lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(enthalpy_index, eos)*Den_SI_to_CGS)
+            epsilon.append(lalsim.SimNeutronStarEOSEnergyDensityOfPseudoEnthalpy(enthalpy_index, eos)*Energy_SI_to_CGS) 
+            press.append(lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(enthalpy_index, eos)*Press_SI_to_CGS)
+            speed.append(lalsim.SimNeutronStarEOSSpeedOfSound(enthalpy_index,eos)*100)    # meters -> cm
+            enthalpy.append(enthalpy_index)
+            enthalpy_index = enthalpy_index*1.01
+        
+        enthalpy, rho, epsilon, press, speed  = np.array(enthalpy), np.array(rho), np.array(epsilon), np.array(press), np.array(speed)
+        
+        extraction_dict_lalsim_raw = {
+            'pseudo_enthalpy': enthalpy,
+            'rest_mass_density': rho,                     # g cm^-3
+            'baryon_density': rho/(lal.AMU_SI*1e3),       # cm^-3
+            'pressure': press,                            # dyn cm^-2 ~ g cm^-1 s^-2
+            'energy_density': epsilon,                    # g cm^-3
+            'sound_speed_over_c': speed/(lal.C_SI*100)    # [c]
+            }
+        
+        new_eos_vals = np.column_stack((extraction_dict_lalsim_raw[xvar], extraction_dict_lalsim_raw[yvar])) # CGS units
+        
+        return new_eos_vals
+
+
+
+
+# https://github.com/oshaughn/RIT-matters/blob/master/communications/20230130-ROSKediaYelikar-EOSManagerSpectralUpdates/demo_reprimand.py
+class EOSReprimand(EOSConcrete):
+    def __init__(self,name,param_dict=None,load_file=False):
+        self.name=name
+        self.eos = None   # NOT required, only would be useful for talking to lalsim
+        self.eos_fam = None  # NOT required, only would be useful for talking to lalsim
+
+        self.pyr_eos = None # REQUIRED, new name for reprimand structure. Provided so we can also back-port converting between two
+        self.mMaxMsun=None  # required
+        self.lambda_from_m = None # required function.  Do NOT want to use EOSConcrete structure, as that assumes lalsim implementation
+        self._pyr_mrL_dat = None # internal data for M, R, lambda
+
+        if param_dict:
+            self.update(param_dict)
+        elif load_file:
+           True #  do something to load a file here! See https://github.com/oshaughn/RIT-matters/blob/master/communications/20230130-ROSKediaYelikar-EOSManagerSpectralUpdates/demo_reprimand.py
+        else:
+            print(" Warning: Empty EOS object created ... ")  # remove this warning later
+        return None
+
+    def update(self,param_dict):
+        if not(param_dict):
+            raise Exception("EOSReprimand requires input ")
+    
+        # minimum required input, cgs units like everything else above
+        # for example, you could get this from QueryLS_EOS.extract_param(name, xvals) for xvals your parameter
+        edens = param_dict['energy_density']
+        press = param_dict['pressure']
+#        p_enthalpy = param_dict['pseudo_enthalpy']
+        rho = param_dict['rest_mass_density']
+        cs = param_dict['sound_speed_over_c']
+
+        unew = pyr.units.geom_solar()
+        spec_int_energy = edens/rho -1
+        spec_int_energy_unew = spec_int_energy*1000/unew.density
+        rho_unew = rho*1000/unew.density
+        press_unew = press*0.1/unew.pressure
+        
+        temp, efrac= [], []
+        n_poly=1.7115960633290546  # polytropic index below lowest tabular data. Not good, should have full range.
+        eps_0 = 0.0  # energy density at zero pressure
+        pts_per_mag =1000  # points log spaced per decaded in some parameter
+        isentropic = True
+        rgrho = pyr.range(min(rho_unew)*1.0000001, max(rho_unew) / 1.0000001)
+
+        # Instantiate EOS
+        self.pyr_eos = pyr.make_eos_barotr_spline(rho_unew, press_unew, cs, temp, efrac, rgrho, n_poly, eps_0, unew, pts_per_mag)
+
+        # Pending/needed
+        #  - TOV sequence to find maximum mass
+        #  - m,r, lambda data generation for interpolation
+        self._pyr_mrL_dat = make_mr_lambda_reprimand(self.pyr_eos)
+
+        # Store maximum mass
+        # Generate interpolating function to store into self.lambda_from_m
+        # Generate interpolating
+
+        return None
+
+# RePrimAnd
+def make_mr_lambda_reprimand(eos,n_bins=100,save_tov_sequence=False,read_tov_sequence=False):
+    """
+    Construct mass-radius curve from EOS using RePrimAnd (https://wokast.github.io/RePrimAnd/tov_solver.html).
+    Parameter `eos` should be in RePrimAnd's eos object format, made with something like `make_eos_barotr_spline` (https://wokast.github.io/RePrimAnd/eos_barotr_ref.html).
+    """
+    
+    #Put a check for the cs because RePrimAnd does not accept cs > 1.
+    
+    """
+    For units refer: https://wokast.github.io/RePrimAnd/little_helpers.html#units
+    uni = pyr.units.geom_solar(g_si=6.673e-11)
+    uni.length, uni.time, uni.mass
+    pyr.units.geom_meter() is such that length = 1, time = 1/c, mass = Mo/1000 in [kg] . length and time are related (factor of c). mass is related to G.
+    geom_meter(g_si) : length = 1, time = length /3e8, mass = 1.3465e+27 * [6.6743e-11/g_si]
+    
+    pyr.units.geom_solar() is such that length = 1476, time = length/c, mass = Mo in [kg] . length and time are related (factor of c) and to G. mass is independent.
+    geom_solar(msun_si, g_si) : length = 1476*[g_si/6.6743e-11]*[msun_si/1.988e+30], time = length /3e8, mass = msun_si
+    
+    geom_umass(umass, g_si) : divides everything such that mass = umass given. DID NOT CHECK g_si dependence.
+    # Units of quantities
+    density is in SI/6.1758e+20 i.e. 1.98841e+30/1476.625**3 = pyr.units.geom_solar().mass / pyr.units.geom_solar().length**3
+    """
+    assert has_reprimand
+
+    #Make TOV sequence
+    
+    acc = pyr.tov_acc_simple(acc_tov=1e-10, acc_deform=1e-8, minsteps=500)
+    seq = pyr.make_tov_branch_stable(eos, acc, num_samp=2500, mgrav_min=0.3)
+    
+    if save_tov_sequence:
+        try:
+            #bpath = p.parent
+            #spath = bpath / "tov.seq.h5"
+            spath = "tov.seq.h5"
+            pyr.save_star_branch(str(spath), seq)
+        except:
+            raise Exception("Did not work. Need to send path properly.")
+    if read_tov_sequence:
+        seq = pyr.load_star_branch(str(seqfiles[0]), sol_units)
+    
+    #Make M-R-L relation
+    u = seq.units_to_SI
+    rggm1 = seq.range_center_gm1
+    gm1 = np.linspace(rggm1.min, rggm1.max, 800)
+    
+    mrL_dat = np.zeros((len(gm1),3))#((n_bins,3))
+    mrL_dat[:,0]  = seq.grav_mass_from_center_gm1(gm1) # Mg [Mo]
+    mrL_dat[:,1]  = seq.circ_radius_from_center_gm1(gm1)*u.length/1e3 #radius [km]
+    mrL_dat[:,2]  = seq.lambda_tidal_from_center_gm1(gm1)
+    
+    c = mrL_dat[:,0]/mrL_dat[:,1]    #compactness
+    
+    return mrL_dat
+
+
+####
+#### SUPPORT CODE FOLLOWS
 
 def gamma_of_x(x, coeffs):
         """
@@ -887,6 +1206,7 @@ class EOSSequenceLandry:
 #### General lalsimulation interfacing
 ####
 
+
 class QueryLS_EOS:
     """
     ExtractorFromEOS
@@ -895,20 +1215,41 @@ class QueryLS_EOS:
     def __init__(self,eos):
         self.eos = eos
         # Primitive extractors.  Assume I need to vectorize these, and that it isn't available
+        
+        Den_SI_to_CGS = 0.001 # kg m^-3 -> g cm^-3
+        Energy_SI_to_CGS = 10/(lal.C_SI*100)**2 # J m^-3 *10 -> erg/cm^3 /c^2 -> g cm^-3
+        Press_SI_to_CGS = 10 # Pa -> Ba ~ g cm^-1 s^-2
+        
         extraction_dict_lalsim_raw = {
-            'pseudo_enthalpy': lambda x: x,
-            'rest_mass_density': lambda x: lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(x, eos)*.001,  # g cm^-3
-            'baryon_density': lambda x: (lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(x, eos)*.001)/(lal.AMU_SI*1e3),  #  cm^-3
-           'pressure': lambda x: lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(x, eos)*10,    # dyn cm^-2 ~ g cm^-1 s^-2
-           'energy_density': lambda x: lalsim.SimNeutronStarEOSEnergyDensityOfPseudoEnthalpy(x,eos)*10/(lal.C_SI*100)**2 , # J m^-3 *10/c^2 = g cm^-3
-           'sound_speed_over_c':lambda x: lalsim.SimNeutronStarEOSSpeedOfSound(x,eos)/lal.C_SI  
-          }
+            'pseudo_enthalpy'   : lambda x: x,
+            'rest_mass_density' : lambda x: lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(x, eos)*Den_SI_to_CGS,
+            'baryon_density'    : lambda x: lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(x, eos)*Den_SI_to_CGS/(lal.AMU_SI*1e3),  #  cm^-3
+            'pressure'          : lambda x: lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(x, eos)*Press_SI_to_CGS,
+            'energy_density'    : lambda x: lalsim.SimNeutronStarEOSEnergyDensityOfPseudoEnthalpy(x,eos)*Energy_SI_to_CGS,
+            'sound_speed_over_c': lambda x: lalsim.SimNeutronStarEOSSpeedOfSound(x,eos)/lal.C_SI
+            }
         self.extraction_dict_lalsim = {}
         for name in         extraction_dict_lalsim_raw:
             self.extraction_dict_lalsim[name] = np.vectorize(extraction_dict_lalsim_raw[name])
-
+    
+    def convert(self,var, var_name = None):
+        if not(var_name):
+            raise Exception("Variable required to convert.")
+        if var_name == 'rest_mass_density':
+            return var*5.6096*10**-13 # MeV fm^-3    ## c**2/(coulomb charge) * 1/(10**39 * 10**3 * 10**6) See https://en.wikipedia.org/wiki/Electronvolt#Mass for a handy conversion. lal.C_SI**2/(lal.QE_SI*10**48)
+        if var_name == 'energy_density':
+            return var*5.6096*10**-13 # MeV fm^-3
+        if var_name == 'energy_density':
+            return var/(2.7*10**14) # nuclear saturation density in cgs = 2.7*10**14. ~ 0.16 fm^-3
+        if var_name == 'sound_speed_over_c':
+            return var*lal.C_SI*100   # cm s-1
+        if var_name == 'pressure':
+            raise Exception('not yet implemented')
+            return ##Check this conversion. possibly same as density with or without c**2. [MeV fm^-3]
+        
         # IN PROGRESS
         #   - adiabatic index
-
+        #Gamma = (self.extraction_dict_lalsim['energy_density']()*(lal.C_SI*100)**2 + self.extraction_dict_lalsim['pressure']())/(self.extraction_dict_lalsim['pressure']()) *np.square(self.extraction_dict_lalsim['sound_speed_over_c']())
+    
     def extract_param(self, p, pseudo_enthalpy):
         return self.extraction_dict_lalsim[p](pseudo_enthalpy)

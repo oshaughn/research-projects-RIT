@@ -789,7 +789,8 @@ echo Starting ...
     if request_gpu:
         nGPUs=1
         ile_job.add_condor_cmd('request_GPUs', str(nGPUs)) 
-        requirements.append("CUDAGlobalMemoryMb >= 2048")
+# Claim we don't need to make this request anymore to avoid out-of-memory errors. Also, no longer in 'requirements'
+#        requirements.append("CUDAGlobalMemoryMb >= 2048")  
     if use_singularity:
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
@@ -922,7 +923,7 @@ echo Starting ...
 
 
 
-def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, **kwargs):
+def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=120,**kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -1011,12 +1012,18 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
     # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
 
+    # Periodic remove: kill jobs running longer than max runtime
+    # https://stackoverflow.com/questions/5900400/maximum-run-time-in-condor
+    if not(max_runtime_minutes is None):
+        remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60*max_runtime_minutes)
+        ile_job.add_condor_cmd('periodic_remove', remove_str)
+
 
     return ile_job, ile_sub_name
 
 
 
-def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, **kwargs):
+def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=60,**kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -1081,9 +1088,15 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
     except:
         print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
+    # Periodic remove: kill jobs running longer than max runtime
+    # https://stackoverflow.com/questions/5900400/maximum-run-time-in-condor
+    if not(max_runtime_minutes is None):
+        remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60*max_runtime_minutes)
+        ile_job.add_condor_cmd('periodic_remove', remove_str)
+
     return ile_job, ile_sub_name
 
-def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,universe="vanilla",arg_str='',log_dir=None, use_eos=False,ncopies=1, no_grid=False,**kwargs):
+def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,universe="vanilla",arg_str='',log_dir=None, use_eos=False,ncopies=1, no_grid=False,max_runtime_minutes=120,**kwargs):
     """
     Write a submit file for launching a 'convert' job
        convert_output_format_ile2inference
@@ -1138,6 +1151,12 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
         print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
+
+    # Periodic remove: kill jobs running longer than max runtime
+    # https://stackoverflow.com/questions/5900400/maximum-run-time-in-condor
+    if not(max_runtime_minutes is None):
+        remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60*max_runtime_minutes)
+        ile_job.add_condor_cmd('periodic_remove', remove_str)
 
     return ile_job, ile_sub_name
 

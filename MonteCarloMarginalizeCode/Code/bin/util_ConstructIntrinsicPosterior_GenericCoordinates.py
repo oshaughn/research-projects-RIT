@@ -406,6 +406,15 @@ if opts.using_eos!=None:
     elif 'lal_' in eos_name:
         eos_name = eos_name.replace('lal_','')
         my_eos = EOSManager.EOSLALSimulation(name=eos_name)
+    elif 'pyr_' in eos_name:
+        eos_name = eos_name.replace('pyr_','')
+        my_eos = EOSManager.EOSReprimand(name=eos_name)
+    elif 'tabular_cgs' in eos_name:
+        eos_name = eos_name.replace('tabular_cgs','')
+        # Format now defined by record structure needed : column data, header with 'baryon_density', 'pressure', and 'energy_density' in cgs
+        fname =EOSManager.dirEOSTablesBase+"/tabular_" + eos_name+".dat"
+        my_eos_dat = np.genfromtxt(fname, names=True)
+        my_eos = EOSManager.EOSFromTabularData(name=eos_name,eos_data=my_eos_dat)
     else:
         my_eos = EOSManager.EOSFromDataFile(name=eos_name,fname =EOSManager.dirEOSTablesBase+"/" + eos_name+".dat")
 
