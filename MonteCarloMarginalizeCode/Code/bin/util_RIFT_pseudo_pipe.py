@@ -260,6 +260,9 @@ if (opts.use_ini):
             os.environ["LIGO_USER_NAME"] = rift_items['accounting_group_user']
         if not('LIGO_ACCOUNTING'  in os.environ) and 'accounting_group' in rift_items:
             os.environ["LIGO_ACCOUNTING"] = rift_items['accounting_group']
+
+        if not('RIFT_REQUIRE_GPUS' in os.environ) and 'ile_require_gpus' in rift_items:
+            os.environ['RIFT_REQUIRE_GPUS'] = rift_items['ile_require_gpus']
         
         # attempt to lazy-select the command-line that are present in the ini file section
         for item in rift_items:
