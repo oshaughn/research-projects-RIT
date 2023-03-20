@@ -908,6 +908,9 @@ echo Starting ...
     if not(max_runtime_minutes is None):
         remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60*max_runtime_minutes)
         ile_job.add_condor_cmd('periodic_remove', remove_str)
+
+    if 'RIFT_REQUIRE_GPUS' in os.environ:  # new convention 'require_gpus = ' to specify conditions on GPU properties
+        ile_job.add_condor_cmd('require_gpus',os.environ['RIFT_REQUIRE_GPUS'])
     
 
     ###
