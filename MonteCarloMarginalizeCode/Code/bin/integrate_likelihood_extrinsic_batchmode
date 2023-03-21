@@ -1048,11 +1048,11 @@ def resample_samples(my_samples,
   # Loop over and resample in time, picking index according to weights
   t_out = np.zeros(n_samples)
   lnL_out = np.zeros(n_samples)
-  indx_list =np.arange(n_samples)
+  indx_list =np.arange(len(tvals))
   for indx in np.arange(n_samples):
     indx_choose = np.random.choice(indx_list, p=np.exp(lnLt[indx] - lnLt_norm[indx]))
-    t_out[indx] = t_out[indx_choose]
-    lnL_out[indx] = lnLt[indx_choose]
+    t_out[indx] = tvals[indx_choose]
+    lnL_out[indx] = lnLt[indx][indx_choose]
 #    print(' Resampled time offset {} '.format(t_out[indx])) #, lnLt[indx]-lnLt_norm[indx])
     
   my_samples['t_ref'] = fiducial_epoch+t_out # add sample time jitter from reweighting to samples
