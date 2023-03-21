@@ -24,7 +24,7 @@ def dist_prior_pseudo_cosmo(dL,nm=1,xpy=np):
      note it is not normalized, and the normalization depends on the d_max of interest 
     
     """
-    return nm*4* np.pi * dL**2 / xp.polyval( will_cosmo_const[::-1],dL/1e3)
+    return nm*4* np.pi * dL**2 / xpy.polyval( will_cosmo_const[::-1],dL/1e3)
 
 
 def dist_prior_pseudo_cosmo_eval_norm(dLmin,dLmax):
