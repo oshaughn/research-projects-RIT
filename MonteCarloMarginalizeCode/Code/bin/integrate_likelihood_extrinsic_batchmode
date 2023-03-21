@@ -136,11 +136,20 @@ def get_unpinned_params(opts, params):
     """
     return params - set([p for p, v in opts.__dict__.items() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None])
 
+def zero_like(*args,**kwargs):
+  arg0 = kwargs['psi']
+  return xpy_default.zeros(len(arg0))
+
+def unit_like(*args,**kwargs):
+  arg0 = kwargs['psi']
+  return xpy_default.ones(len(arg0))
+
 #
 # Option parsing
 #
 
 optp = OptionParser()
+optp.add_option( "--zero-likelihood", action='store_true', help="Run with exactly zero likelihood.  Prior test (e.g., alternative distance priors)")
 optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
 optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
 optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
@@ -1486,7 +1495,14 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # Integrate
     args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
     print( " --------> Arguments ", args)
-    res, var, neff, dict_return = sampler.integrate(likelihood_function, *unpinned_params, **pinned_params)
+    # if exactly zero likelihood function
+    like_to_integrate = likelihood_function
+    if opts.zero_likelihood:
+              if opts.internal_use_lnL:
+                   like_to_integrate = zero_like
+              else:
+                   like_to_integrate = unit_ilke
+    res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
 
     if not(res): # no resut
       raise ValueError(" No integral result returned")
