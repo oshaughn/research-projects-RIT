@@ -781,6 +781,8 @@ echo Starting ...
 
     if not use_osg:
         ile_job.add_condor_cmd('getenv', 'True')
+    else:
+        ile_job.add_condor_cmd('getenv', '*RIFT*')  # retrieve any RIFT commands -- specifically RIFT_LOWLATENCY
     ile_job.add_condor_cmd('request_memory', str(request_memory)) 
     if not(request_disk is False):
         ile_job.add_condor_cmd('request_disk', str(request_disk)) 
