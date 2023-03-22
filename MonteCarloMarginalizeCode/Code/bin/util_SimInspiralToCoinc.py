@@ -58,6 +58,8 @@ def _empty_row(obj):
             setattr(row,entry,'')
         elif entry == 'process_id':
             row.process_id = ilwd.ilwdchar("sim_inspiral:process_id:0")
+        elif entry == 'process:process_id':
+            row.process_id = 0  # don't care
         elif entry == 'simulation_id':
             row.simulation_id = ilwd.ilwdchar("sim_inspiral:simulation_id:0")
         elif entry == 'event_id':
@@ -107,6 +109,6 @@ for indx in range(len(opts.ifo)):
 output_file='coinc.xml'
 if opts.output:
     output_file = opts.output
-utils.write_filename(outdoc,output_file, gz=output_file.endswith('gz'))
+utils.write_filename(outdoc,output_file, compress=False) #gz=output_file.endswith('gz'))
 
 
