@@ -1148,7 +1148,7 @@ elif opts.propose_initial_grid:
         cmd += " --random-parameter lambda1 --random-parameter-range [{},{}] --random-parameter lambda2 --random-parameter-range [{},{}] ".format(lambda1_min,lambda1_max,lambda2_min,lambda2_max)
         grid_size *=2   # denser grid
     elif opts.assume_matter and opts.assume_matter_eos:
-        cmd += " --use-eos {} ".format(opts.assume_matter_eos)
+        cmd += " --use-eos {} ".format(opts.assume_matter_eos.replace('lal_', ''))
 
     if opts.propose_fit_strategy and not opts.internal_use_aligned_phase_coordinates:
         if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
