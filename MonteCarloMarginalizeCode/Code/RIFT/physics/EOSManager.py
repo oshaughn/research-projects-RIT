@@ -726,40 +726,57 @@ class EOSLindblomSpectralSoundSpeedVersusPressure(EOSConcrete):
 
 
 # https://github.com/oshaughn/RIT-matters/blob/master/communications/20230130-ROSKediaYelikar-EOSManagerSpectralUpdates/demo_reprimand.py
+# https://github.com/oshaughn/RIT-matters/blob/master/communications/20230130-ROSKediaYelikar-EOSManagerSpectralUpdates/demo_reprimand.py
 class EOSReprimand(EOSConcrete):
-    def __init__(self,name,param_dict=None,load_file=False):
-        self.name=name
-        self.eos = None   # NOT required, only would be useful for talking to lalsim
-        self.eos_fam = None  # NOT required, only would be useful for talking to lalsim
-
-        self.pyr_eos = None # REQUIRED, new name for reprimand structure. Provided so we can also back-port converting between two
-        self.mMaxMsun=None  # required
-        self.lambda_from_m = None # required function.  Do NOT want to use EOSConcrete structure, as that assumes lalsim implementation
-        self._pyr_mrL_dat = None # internal data for M, R, lambda
-
+    """Pass param_dict as the dictionary of 'pseudo_enthalpy','rest_mass_density','energy_density','pressure','sound_speed_over_c' for being resolved into a TOV sequence. CGS Units only except sound_speed_over_c.
+    Instead you can send a lalsim_eos which processes lalsim eos object type and produces a TOV sequence.
+    load_eos takes a 2D array with pressure, energy_density and rest_mass_density (not tested).
+    """
+    def __init__(self,name=None,param_dict=None,lalsim_eos=None,load_eos = None, specific_internal_energy = True):
+        self.name              = name
+        self.pyr_eos           = None # REQUIRED, new name for reprimand structure. Provided so we can also back-port converting between two
+        self.tov_seq_reprimand = None   # Stores RePrimAnd eos object
+        self.eos_lal           = lalsim_eos  # NOT required, only would be useful for talking to lalsim
+        self.mMaxMsun          = None  # required
+        self.lambda_from_m     = None
+        self._pyr_mrL_dat      = None # internal data for M_g, R, lambda, M_b
+        
         if param_dict:
-            self.update(param_dict)
-        elif load_file:
-           True #  do something to load a file here! See https://github.com/oshaughn/RIT-matters/blob/master/communications/20230130-ROSKediaYelikar-EOSManagerSpectralUpdates/demo_reprimand.py
+            self.update(param_dict,specific_internal_energy)
+        elif self.eos_lal is not None: # process LALSim EOS object
+            min_pseudo_enthalpy = 0.005
+            max_pseudo_enthalpy = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(self.eos_lal)
+            hvals = max_pseudo_enthalpy* 10**np.linspace( np.log10(min_pseudo_enthalpy/max_pseudo_enthalpy),  0,num=500)
+            param_dict['pseudo_enthalpy'] = self.eos_lal.extract_param('pseudo_enthalpy',hvals)
+            param_dict['rest_mass_density'] = self.eos_lal.extract_param('rest_mass_density',hvals)
+            param_dict['energy_density'] = self.eos_lal.extract_param('energy_density',hvals)
+            param_dict['pressure'] = self.eos_lal.extract_param('pressure',hvals)
+            param_dict['sound_speed_over_c'] = self.eos_lal.extract_param('sound_speed_over_c',hvals)
+            self.update(param_dict,specific_internal_energy)
+        elif load_eos is not None:
+            print("not yet implemented")
+            table_eos= EOSManager.EOSFromTabularData(eos_data=load_eos)
+            param_dict['energy_density'] = table_eos.edens
+            param_dict['rest_mass_density'] = table_eos.edens/table_eos.bdens -1
+            param_dict['pressure'] = table_eos.press
         else:
-            print(" Warning: Empty EOS object created ... ")  # remove this warning later
+            print(" Warning: Empty EOS object created")
         return None
-
-    def update(self,param_dict):
-        if not(param_dict):
-            raise Exception("EOSReprimand requires input ")
     
+    def update(self,param_dict,specific_internal_energy):
         # minimum required input, cgs units like everything else above
         # for example, you could get this from QueryLS_EOS.extract_param(name, xvals) for xvals your parameter
-        edens = param_dict['energy_density']
-        press = param_dict['pressure']
-#        p_enthalpy = param_dict['pseudo_enthalpy']
-        rho = param_dict['rest_mass_density']
-        cs = param_dict['sound_speed_over_c']
-
+        #p_enthalpy = param_dict['pseudo_enthalpy']
+        rho    = param_dict['rest_mass_density']
+        edens  = param_dict['energy_density']
+        press  = param_dict['pressure']
+        cs     = param_dict['sound_speed_over_c']
+        
         unew = pyr.units.geom_solar()
         spec_int_energy = edens/rho -1
-        spec_int_energy_unew = spec_int_energy*1000/unew.density
+        
+        # 1000, and 0.1 are converting cgs quantities to SI.
+        spec_int_energy_unew = spec_int_energy
         rho_unew = rho*1000/unew.density
         press_unew = press*0.1/unew.pressure
         
@@ -769,29 +786,28 @@ class EOSReprimand(EOSConcrete):
         pts_per_mag =1000  # points log spaced per decaded in some parameter
         isentropic = True
         rgrho = pyr.range(min(rho_unew)*1.0000001, max(rho_unew) / 1.0000001)
-
+        
         # Instantiate EOS
-        self.pyr_eos = pyr.make_eos_barotr_spline(rho_unew, press_unew, cs, temp, efrac, rgrho, n_poly, eps_0, unew, pts_per_mag)
-
-        # Pending/needed
-        #  - TOV sequence to find maximum mass
-        #  - m,r, lambda data generation for interpolation
-        self._pyr_mrL_dat = make_mr_lambda_reprimand(self.pyr_eos)
-
-        # Store maximum mass
+        if specific_internal_energy: self.pyr_eos = pyr.make_eos_barotr_spline(rho_unew, spec_int_energy_unew, press_unew, cs, temp, efrac, isentropic, rgrho, n_poly, unew, pts_per_mag)
+        else: self.pyr_eos = pyr.make_eos_barotr_spline(rho_unew, press_unew, cs, temp, efrac, rgrho, n_poly, eps_0, unew, pts_per_mag)
+        # pyr.make_eos_barotr_spline(gm1, rho_unew, spec_int_energy_unew, press_unew, cs, temp, efrac, isentropic, rgrho, n_poly, unew, pts_per_mag)
+        
+        self._pyr_mrL_dat, self.tov_seq_reprimand = make_mr_lambda_reprimand(self.pyr_eos,return_eos_object=True)
+        self.mMaxMsun = max(self._pyr_mrL_dat[:,0])
+        
         # Generate interpolating function to store into self.lambda_from_m
-        # Generate interpolating
-
+        
+        self.lambda_from_m = self.tov_seq_reprimand.lambda_tidal_from_grav_mass
+        
         return None
 
 # RePrimAnd
-def make_mr_lambda_reprimand(eos,n_bins=100,save_tov_sequence=False,read_tov_sequence=False):
+def make_mr_lambda_reprimand(eos,n_bins=800,save_tov_sequence=False,read_tov_sequence=False,return_eos_object=False):
     """
     Construct mass-radius curve from EOS using RePrimAnd (https://wokast.github.io/RePrimAnd/tov_solver.html).
     Parameter `eos` should be in RePrimAnd's eos object format, made with something like `make_eos_barotr_spline` (https://wokast.github.io/RePrimAnd/eos_barotr_ref.html).
+    By default this returns the Mass_g-Radius-Lambda-Mass_b. But if `return_eos_object` is True, this will also return the RePrimAnd EOS object.
     """
-    
-    #Put a check for the cs because RePrimAnd does not accept cs > 1.
     
     """
     For units refer: https://wokast.github.io/RePrimAnd/little_helpers.html#units
@@ -808,37 +824,94 @@ def make_mr_lambda_reprimand(eos,n_bins=100,save_tov_sequence=False,read_tov_seq
     density is in SI/6.1758e+20 i.e. 1.98841e+30/1476.625**3 = pyr.units.geom_solar().mass / pyr.units.geom_solar().length**3
     """
     assert has_reprimand
-
+    
     #Make TOV sequence
-    
-    acc = pyr.tov_acc_simple(acc_tov=1e-10, acc_deform=1e-8, minsteps=500)
-    seq = pyr.make_tov_branch_stable(eos, acc, num_samp=2500, mgrav_min=0.3)
-    
+    acc_tov=1e-10; acc_deform=1e-8; minsteps=500; num_samp=2500; mgrav_min=0.3
+    acc = pyr.tov_acc_simple(acc_tov, acc_deform, minsteps)
+    try: seq = pyr.make_tov_branch_stable(eos, acc, num_samp=num_samp, mgrav_min=mgrav_min)
+    except:
+        if read_tov_sequence:
+            sol_units = pyr.units.geom_solar()
+            seq = pyr.load_star_branch(eos, sol_units)
     if save_tov_sequence:
-        try:
-            #bpath = p.parent
-            #spath = bpath / "tov.seq.h5"
-            spath = "tov.seq.h5"
-            pyr.save_star_branch(str(spath), seq)
-        except:
-            raise Exception("Did not work. Need to send path properly.")
-    if read_tov_sequence:
-        seq = pyr.load_star_branch(str(seqfiles[0]), sol_units)
-    
+            try:
+                #bpath = p.parent
+                #spath = bpath / "tov.seq.h5"
+                spath = "tov.seq.h5"
+                pyr.save_star_branch(str(spath), seq)
+            except:
+                raise Exception("Did not work. Need to send path properly.")
     #Make M-R-L relation
     u = seq.units_to_SI
     rggm1 = seq.range_center_gm1
-    gm1 = np.linspace(rggm1.min, rggm1.max, 800)
+    gm1 = np.linspace(rggm1.min, rggm1.max, n_bins)
     
-    mrL_dat = np.zeros((len(gm1),3))#((n_bins,3))
+    mrL_dat = np.zeros((len(gm1),4))#((n_bins,3))
     mrL_dat[:,0]  = seq.grav_mass_from_center_gm1(gm1) # Mg [Mo]
     mrL_dat[:,1]  = seq.circ_radius_from_center_gm1(gm1)*u.length/1e3 #radius [km]
     mrL_dat[:,2]  = seq.lambda_tidal_from_center_gm1(gm1)
+    mrL_dat[:,3]  = seq.bary_mass_from_center_gm1(gm1)  # Mb [Mo]
     
     c = mrL_dat[:,0]/mrL_dat[:,1]    #compactness
     
+    if return_eos_object: return mrL_dat, seq
+    
     return mrL_dat
 
+
+
+
+def check_monotonic(monotonic_params, other_params=None, interpolate_to_same_length = False):
+    """
+    Checks monotonicity of monotonic_params and removes non-monotonic parts in it for both monotonic_params and other_params.
+    By default this will reduce the length of data due to deletion of non-monotonic patches, but interpolate_to_same_length can be turned true to keep length of data intact.
+    """
+    if not interpolate_to_same_length:    
+        for param in monotonic_params:
+            i = 0
+            while i < len(monotonic_params[param])-1:
+                if monotonic_params[param][i+1] <=monotonic_params[param][i]:
+                    for param2 in monotonic_params:
+                        try: monotonic_params[param2] = np.delete(monotonic_params[param2], i+1)
+                        except:    del monotonic_params[param2][i+1]
+                    if other_params is None: pass
+                    else:
+                        for param2 in other_params:
+                            try: other_params[param2] = np.delete(other_params[param2], i+1)
+                            except:    del other_params[param2][i+1]
+                    i-=1
+                i +=1
+    else:
+        raise Exception ("did not implement yet")                
+    return
+
+def check_sound_speed_causal(param_dict, truncate = True):
+    """Checks if sound speed exceeds 1 anywhere, and depending on option `truncate` removes that region or or forces it =1. """
+    below_speed_of_light = np.where(param_dict['sound_speed_over_c']<= 1)
+    if truncate :
+        param_dict = {'pseudo_enthalpy': param_dict['pseudo_enthalpy'][below_speed_of_light],
+                      'rest_mass_density': param_dict['rest_mass_density'][below_speed_of_light],
+                      'energy_density': param_dict['energy_density'][below_speed_of_light],
+                      'pressure': param_dict['pressure'][below_speed_of_light],
+                      'sound_speed_over_c': param_dict['sound_speed_over_c'][below_speed_of_light]}
+    else: param_dict['sound_speed_over_c'][np.where(param_dict['sound_speed_over_c']> 1)[0]] = 1
+    return param_dict
+
+
+def eos_monotonic_parts_and_causal_sound_speed(param_dict, interpolate_to_same_length = False):
+    param_dict_main = {'rest_mass_density': param_dict['rest_mass_density'], 'energy_density': param_dict['energy_density'],'pressure': param_dict['pressure']}
+    param_dict_others = {'pseudo_enthalpy': param_dict['pseudo_enthalpy'], 'sound_speed_over_c': param_dict['sound_speed_over_c']}
+    
+    check_monotonic(param_dict_main, param_dict_others, interpolate_to_same_length =interpolate_to_same_length)
+    
+    param_dict = {'pseudo_enthalpy': param_dict_others['pseudo_enthalpy'],
+                  'rest_mass_density': param_dict_main['rest_mass_density'],
+                  'energy_density':param_dict_main['energy_density'],
+                  'pressure':param_dict_main['pressure'],
+                  'sound_speed_over_c':param_dict_others['sound_speed_over_c']
+                  }
+    param_dict = check_sound_speed_causal(param_dict)
+    return param_dict
 
 ####
 #### SUPPORT CODE FOLLOWS
