@@ -35,8 +35,8 @@ except:
 
 #import gwemlightcurves.table as gw_eos_table
 
-from . import MonotonicSpline as ms
-#from RIFT.physics import MonotonicSpline as ms
+#from . import MonotonicSpline as ms
+from RIFT.physics import MonotonicSpline as ms
 
 
 C_CGS=lal.C_SI*100
@@ -210,20 +210,11 @@ class EOSConcrete:
 class EOSLALSimulation(EOSConcrete):
     def __init__(self,name):
         self.name=name
-        self.eos = None
-        self.eos_fam = None
-        self.mMaxMsun=None
-
-
-        eos = lalsim.SimNeutronStarEOSByName(name)
-        fam = lalsim.CreateSimNeutronStarFamily(eos)
-        mmass = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
-        self.eos = eos
-        self.eos_fam = fam
-        self.mMaxMsun = mmass
+        
+        self.eos       = lalsim.SimNeutronStarEOSByName(name)
+        self.eos_fam   = lalsim.CreateSimNeutronStarFamily(self.eos)
+        self.mMaxMsun  = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
         return None
-
-
 
 
 
@@ -264,6 +255,7 @@ class EOSFromTabularData(EOSConcrete):
             raise Exception("EOS data required to use EOSFromTabularData")
         if not(name):
             eos_name="default"
+        self.name = eos_name
         self.bdens = None
         self.press = None
         self.edens = None
@@ -328,13 +320,10 @@ class EOSFromTabularData(EOSConcrete):
         if debug:
                 print("Dumping to %s" % self.fname)
         eos_fname = "./" +eos_name + "_geom.dat" # assume write acces
-        np.savetxt(eos_fname, np.transpose((self.press, self.edens)), delimiter='\t', header='pressure [m^{-2}]\t energy_density [m^{-2}]')
-        eos = lalsim.SimNeutronStarEOSFromFile(eos_fname)
-        fam = lalsim.CreateSimNeutronStarFamily(eos)
+        np.savetxt(eos_fname, np.transpose((self.press, self.edens)), delimiter='\t', header='pressure \t energy_density ')
         
-        self.name = eos_name
-        self.eos =eos
-        self.eos_family =fam
+        self.eos = lalsim.SimNeutronStarEOSFromFile(eos_fname)
+        self.eos_fam = lalsim.CreateSimNeutronStarFamily(eos)
         return None
 
 
@@ -349,11 +338,11 @@ class EOSFromDataFile(EOSConcrete):
         self.fname=fname
         self.eos = None
         self.eos_fam = None
-        self.mMax = None
-
+        self.mMaxMsun = None
+        
         self.eos, self.eos_fam = self.eos_ls()
         return None
-
+    
     def eos_ls(self):
         # From Monica, but using code from GWEMLightcurves
         #  https://gwemlightcurves.github.io/_modules/gwemlightcurves/KNModels/table.html
@@ -395,8 +384,7 @@ class EOSFromDataFile(EOSConcrete):
             print(" No such file ", self.fname)
             sys.exit(0)
 
-        mmass = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
-        self.mMaxMsun = mmass
+        self.mMaxMsun = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
         return eos, fam
 
     def p_rho_arrays(self):
@@ -495,10 +483,9 @@ class EOSPiecewisePolytrope(EOSConcrete):
         self.eos_fam = None
         self.mMaxMsun=None
 
-
-        eos=self.eos=lalsim.SimNeutronStarEOS4ParameterPiecewisePolytrope(param_dict['logP1'], param_dict['gamma1'], param_dict['gamma2'], param_dict['gamma3'])
-        eos_fam=self.eos_fam=lalsim.CreateSimNeutronStarFamily(eos)
-        self.mMaxMsun = lalsim.SimNeutronStarMaximumMass(eos_fam) / lal.MSUN_SI
+        self.eos=lalsim.SimNeutronStarEOS4ParameterPiecewisePolytrope(param_dict['logP1'], param_dict['gamma1'], param_dict['gamma2'], param_dict['gamma3'])
+        self.eos_fam=lalsim.CreateSimNeutronStarFamily(self.eos)
+        self.mMaxMsun = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
 
         return None
 
@@ -528,9 +515,9 @@ class EOSLindblomSpectral(EOSConcrete):
             #print " Trying to load ",name+"_geom.dat"
             import os; #print os.listdir('.')
             cwd = os.getcwd()
-            self.eos=eos = lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
-        self.eos_fam = fam=lalsim.CreateSimNeutronStarFamily(self.eos)
-        mmass = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
+            self.eos= lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
+        self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
+        mmass = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
         self.mMaxMsun = mmass
 
         return None
@@ -650,7 +637,7 @@ class EOSLindblomSpectralSoundSpeedVersusPressure(EOSConcrete):
     """
     def __init__(self,name=None,spec_params=None,verbose=False,use_lal_spec_eos=True):
         if name is None:
-            self.name = 'spectral'
+            self.name = 'cs_spectral'
         else:
             self.name=name
         self.eos = None
@@ -670,9 +657,9 @@ class EOSLindblomSpectralSoundSpeedVersusPressure(EOSConcrete):
             #print " Trying to load ",name+"_geom.dat"
             import os; #print os.listdir('.')
             cwd = os.getcwd()
-            self.eos=eos = lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
-        self.eos_fam = fam=lalsim.CreateSimNeutronStarFamily(self.eos)
-        self.mMaxMsun = lalsim.SimNeutronStarMaximumMass(fam) / lal.MSUN_SI
+            self.eos=lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
+        self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
+        self.mMaxMsun = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
         
         return None
     
@@ -810,7 +797,7 @@ class EOSReprimand(EOSConcrete):
             mg = np.array(mg)
             if mg[0] <1e15: return self.tov_seq_reprimand.lambda_tidal_from_grav_mass(mg)
             return self.tov_seq_reprimand.lambda_tidal_from_grav_mass(mg/lal.MSUN_SI)
-        
+
 
 # RePrimAnd
 def make_mr_lambda_reprimand(eos,n_bins=800,save_tov_sequence=False,read_tov_sequence=False,return_eos_object=False, m_b_units = lal.MP_SI):
