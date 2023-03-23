@@ -250,12 +250,11 @@ class EOSFromTabularData(EOSConcrete):
     """
     
     def __init__(self,name=None,eos_data=None,eos_units=None,reject_phase_transitions=True,debug=False, add_low_density=False):
-        eos_name = name
         if eos_data is None:
             raise Exception("EOS data required to use EOSFromTabularData")
         if not(name):
-            eos_name="default"
-        self.name = eos_name
+            name="default"
+        self.name = name
         self.bdens = None
         self.press = None
         self.edens = None
@@ -319,11 +318,11 @@ class EOSFromTabularData(EOSConcrete):
         # Create temporary file
         if debug:
                 print("Dumping to %s" % self.fname)
-        eos_fname = "./" +eos_name + "_geom.dat" # assume write acces
+        eos_fname = "./" +name + "_geom.dat" # assume write acces
         np.savetxt(eos_fname, np.transpose((self.press, self.edens)), delimiter='\t', header='pressure \t energy_density ')
         
         self.eos = lalsim.SimNeutronStarEOSFromFile(eos_fname)
-        self.eos_fam = lalsim.CreateSimNeutronStarFamily(eos)
+        self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
         return None
 
 
