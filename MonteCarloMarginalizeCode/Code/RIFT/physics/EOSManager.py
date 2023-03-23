@@ -848,7 +848,7 @@ def make_mr_lambda_reprimand(eos,n_bins=800,save_tov_sequence=False,read_tov_seq
     mrL_dat[:,0]  = seq.grav_mass_from_center_gm1(gm1) # Mg [Mo]
     mrL_dat[:,1]  = seq.circ_radius_from_center_gm1(gm1)*u.length/1e3 #radius [km]
     mrL_dat[:,2]  = seq.lambda_tidal_from_center_gm1(gm1)
-    mrL_dat[:,3]  = seq.bary_mass_from_center_gm1(gm1)*m_b_units/1.66e-27  # Mb [Mo]
+    mrL_dat[:,3]  = seq.bary_mass_from_center_gm1(gm1)*m_b_units/1.66e-27  # Mb [Mo]. Value 1.66e-27 kg is the baryon mass used in reprimand. 
     
     c = mrL_dat[:,0]/mrL_dat[:,1]    #compactness
     
@@ -1315,11 +1315,11 @@ class QueryLS_EOS:
         if not(var_name):
             raise Exception("Variable required to convert.")
         if var_name == 'rest_mass_density':
-            return var*5.6096*10**-13 # MeV fm^-3    ## c**2/(coulomb charge) * 1/(10**39 * 10**3 * 10**6) See https://en.wikipedia.org/wiki/Electronvolt#Mass for a handy conversion. lal.C_SI**2/(lal.QE_SI*10**48)
+            return var*lal.C_SI**2/(lal.QE_SI*1e48) # MeV fm^-3    ## c**2/(coulomb charge) * 1/(10**39 * 10**3 * 10**6) See https://en.wikipedia.org/wiki/Electronvolt#Mass for a handy conversion. lal.C_SI**2/(lal.QE_SI*10**48) = 5.6096*10**-13
         if var_name == 'energy_density':
-            return var*5.6096*10**-13 # MeV fm^-3
+            return var*lal.C_SI**2/(lal.QE_SI*1e48) # MeV fm^-3
         if var_name == 'energy_density_n_sat':
-            return var/(2.7*10**14) # nuclear saturation density in cgs = 2.7*10**14. ~ 0.16 fm^-3
+            return var/(2.7e14) # nuclear saturation density in cgs = 2.7*10**14. ~ 0.16 fm^-3
         if var_name == 'sound_speed_over_c':
             return var*lal.C_SI*100   # cm s-1
         if var_name == 'pressure':
