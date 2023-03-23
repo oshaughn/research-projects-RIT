@@ -89,8 +89,11 @@ for indx in range(len(opts.ifo)):
     # add column values
     # note NOT all columns can be popoulated: the key thing is the event time
     sngl.ifo = opts.ifo[indx]
-    sngl.end_time = int(P.tref)
-    sngl.end_time_ns = int(1e9*(P.tref-int(P.tref)))
+    if hasattr(sngl,'end_time_ns'):
+        sngl.end_time = int(P.tref)
+        sngl.end_time_ns = int(1e9*(P.tref-int(P.tref)))
+    else:
+        sngl.end_time = P.tref  
     sngl.mass1 = P.m1/lal.MSUN_SI
     sngl.mass2 = P.m2/lal.MSUN_SI
     sngl.mtotal = sngl.mass1 + sngl.mass2
