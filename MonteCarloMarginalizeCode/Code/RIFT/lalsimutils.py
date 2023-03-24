@@ -1261,7 +1261,15 @@ class ChooseWaveformParams:
             a = a[:len(a)-1] # drop last
             a = a[8:]
             terms = a.split(',')
-            vals = map(self.extract_param, terms) # recurse to parse lower-level quantities
+            vals = list(map(self.extract_param, terms)) # recurse to parse lower-level quantities
+            return np.prod(vals)
+        if 'inverse(' in p:
+            # Drop first and last characters
+            a=p.replace(' ', '') # drop spaces
+            a = a[:len(a)-1] # drop last
+            a = a[8:]
+            terms = a.split(',')
+            vals = list(map(self.extract_param, terms)) # recurse to parse lower-level quantities
             return np.prod(vals)
         # assign an attribute
         if hasattr(self,p):
@@ -1770,7 +1778,7 @@ class ChooseWaveformParams:
                 basename = simattr.replace('_ns', '')
                 val = float(getattr(swigrow, basename))
                 dt = float(getattr(row, simattr))
-                setattr( swigrow, basename, (val+dt))
+                setattr( swigrow, basename, (val+1e-9*dt))
             else:
                 try:
                     setattr( swigrow, simattr, getattr(row, simattr) )

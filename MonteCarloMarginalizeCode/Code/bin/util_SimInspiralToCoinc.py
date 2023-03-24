@@ -58,6 +58,8 @@ def _empty_row(obj):
             setattr(row,entry,'')
         elif entry == 'process_id':
             row.process_id = ilwd.ilwdchar("sim_inspiral:process_id:0")
+        elif entry == 'process:process_id':
+            row.process_id = 0  # don't care
         elif entry == 'simulation_id':
             row.simulation_id = ilwd.ilwdchar("sim_inspiral:simulation_id:0")
         elif entry == 'event_id':
@@ -87,8 +89,11 @@ for indx in range(len(opts.ifo)):
     # add column values
     # note NOT all columns can be popoulated: the key thing is the event time
     sngl.ifo = opts.ifo[indx]
-    sngl.end_time = int(P.tref)
-    sngl.end_time_ns = int(1e9*(P.tref-int(P.tref)))
+    if hasattr(sngl,'end_time_ns'):
+        sngl.end_time = int(P.tref)
+        sngl.end_time_ns = int(1e9*(P.tref-int(P.tref)))
+    else:
+        sngl.end_time = P.tref  
     sngl.mass1 = P.m1/lal.MSUN_SI
     sngl.mass2 = P.m2/lal.MSUN_SI
     sngl.mtotal = sngl.mass1 + sngl.mass2
@@ -107,6 +112,6 @@ for indx in range(len(opts.ifo)):
 output_file='coinc.xml'
 if opts.output:
     output_file = opts.output
-utils.write_filename(outdoc,output_file, gz=output_file.endswith('gz'))
+utils.write_filename(outdoc,output_file, compress=False) #gz=output_file.endswith('gz'))
 
 

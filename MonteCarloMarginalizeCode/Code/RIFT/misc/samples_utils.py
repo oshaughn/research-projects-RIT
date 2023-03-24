@@ -121,6 +121,13 @@ def extract_combination_from_LI(samples_LI, p):
     if p == "q"  and 'm1' in samples_LI.dtype.names:
         return samples_LI["m2"]/samples_LI["m1"]
 
+    if 'inverse(' in p:
+        # Drop first and last characters
+        a=p.replace(' ', '') # drop spaces
+        a = a[:len(a)-1] # drop last
+        a = a[8:]
+        if a =='q' and 'm1' in samples_LI.dtype.names:
+            return samples_LI["m1"]/samples_LI["m2"]
 
     print(" No access for parameter ", p)
     return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure

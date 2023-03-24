@@ -7,6 +7,7 @@ import numpy as np
 from scipy import integrate
 from scipy.special import erfcinv, erf, erfcx, i0e
 import warnings
+import functools
 
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 
@@ -48,8 +49,8 @@ def prior(d):
 if opts.d_prior =='pseudo_cosmo':
     # exactly as in ILE itself
     import RIFT.likelihood.priors_utils as priors_utils
-    nm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(param_limits["distance"][0],param_limits["distance"][1])
-    dist_prior_pdf =functools.partial( priors_utils.dist_prior_pseudo_cosmo, nm=nm,xpy_default=cupy)
+    nm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(opts.d_min,opts.d_max)
+    dist_prior_pdf =functools.partial( priors_utils.dist_prior_pseudo_cosmo, nm=nm,xpy=np) # doesn't matter here!
 
     # assign
     prior = dist_prior_pdf

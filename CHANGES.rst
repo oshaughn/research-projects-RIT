@@ -17,7 +17,9 @@ Since last release
      more for matter jobs; bugfix tidal export to XML; EOSManager updates.  Note incompatible with lalsuite 7.13 still (rc4)
    - fix CI; dmarg+phasemarg patch from soichiro (nonprecessing only); add --manual-extra-puff-args; add forward-looking approx
      names; add --force-adapt-all to ILE; add non-time-marginalized likelihood output if user is resampling in time
-     (i.e., an snr-like output).
+     (i.e., an snr-like output).  EOSManager QueryLS, repirmand and causal-spectral; xml patch for lalsuite >=7.13; cosmo prior
+     on gpu debug; dmarg allows pseudo_cosmo prior; misc osg minor updates; ILE --zero-likelihood for testing;
+     various --manual-extra-X-args; 
 
 0.0.15.7
 -----------

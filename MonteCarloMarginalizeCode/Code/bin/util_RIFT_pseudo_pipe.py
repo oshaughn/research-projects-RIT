@@ -111,12 +111,16 @@ def unsafe_parse_arg_string(my_argstr,match):
 parser = argparse.ArgumentParser()
 parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
 parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration")
+parser.add_argument("--bilby-ini-file",default=None,type=str,help="Pass ini file for parsing. Intended to use for calibration reweighting. Full path recommended")
+parser.add_argument("--bilby-pickle-file",default=None,type=str,help="Bilby Pickle file with event settings. Intended to use for calibration reweighting. Full path recommended")
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
 parser.add_argument("--use-rundir",default=None,type=str,help="Intended to reproduce lalinference_pipe functionality. Must be absolute path.")
 parser.add_argument("--use-online-psd-file",default=None,type=str,help="Provides specific online PSD file, so no downloads are needed")
 parser.add_argument("--use-coinc",default=None,type=str,help="Intended to reproduce lalinference_pipe functionality")
 parser.add_argument("--manual-ifo-list",default=None,type=str,help="Overrides IFO list normally retrieve by event ID.  Use with care (e.g., glitch studies) or for events specified with --event-time.")
 parser.add_argument("--online",action='store_true')
+parser.add_argument("--calibration-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to calibration uncertainty.")
+parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
 parser.add_argument("--gracedb-id",default=None,type=str)
@@ -135,6 +139,7 @@ parser.add_argument("--assume-nospin",action='store_true', help="Force analysis 
 parser.add_argument("--assume-precessing",action='store_true', help="Force analysis *with* transverse spins")
 parser.add_argument("--assume-nonprecessing",action='store_true', help="Force analysis *without* transverse spins")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
+parser.add_argument("--assume-matter-eos",default=None,type=str, help="Force analysis *with* matter. Really only matters for BNS")
 parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
@@ -551,6 +556,8 @@ if opts.force_initial_grid_size:
 if opts.assume_matter:
         cmd += " --assume-matter "
         npts_it = 1000
+        if opts.assume_matter_eos:
+            cmd += " --assume-matter-eos {} ".format(opts.assume_matter_eos)
         if opts.assume_matter_but_primary_bh:
             cmd+= " --assume-matter-but-primary-bh "
         if opts.internal_tabular_eos_file:
@@ -1084,6 +1091,13 @@ if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
 if opts.assume_eccentric:
     cmd += " --use-eccentricity "
+if opts.calibration_reweighting and (not opts.bilby_pickle_file):
+    cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-ini-file {} --bilby-pickle-exe `which bilby_pipe_generation` ".format(str(opts.bilby_ini_file))
+elif opts.calibration_reweighting and opts.bilby_pickle_file:
+    cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-pickle-file {} ".format(str(opts.bilby_pickle_file))
+
+if opts.distance_reweighting:
+    cmd += " --comov-distance-reweighting --comov-distance-reweighting-exe `which make_uni_comov_skymap.py` --convert-ascii2h5-exe `which convert_output_format_ascii2h5.py` "
 if opts.use_gauss_early:
     cmd += " --cip-exe-G `which util_ConstructIntrinsicPosterior_GaussianResampling.py ` "
 if opts.internal_use_amr:
