@@ -7,3 +7,4 @@ sphinx-argparse
 sphinx-tabs
 graphviz
 sphinx-multiversion
+sphinx-toolbox

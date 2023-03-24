@@ -7,9 +7,10 @@ Rapid inference via Iterative FiTting: this algorithm provides a framework for e
     :members:
 
 .. toctree::
-   :maxdepth: 5
+   :maxdepth: 20
    :caption: Contents:
 
+   overview
    installation
    using-pipeline
    examples-ini
