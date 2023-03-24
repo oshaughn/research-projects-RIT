@@ -1432,7 +1432,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     phi_orb_true = (P.phiref + P.psi)/2.
                     psi_true = (P.phiref - P.psi)/2.
                     P.psi= psi_true
-                    P.phi = phi_orb_true
+                    P.phiref = phi_orb_true
 
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
