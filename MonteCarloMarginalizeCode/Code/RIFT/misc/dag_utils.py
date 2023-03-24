@@ -1968,7 +1968,7 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     ile_job.add_opt('number_of_calibration_curves', '100')
     ile_job.add_opt('reevaluate_likelihood', 'True')
     ile_job.add_opt('use_rift_samples', 'True')
-    ile_job.add_opt('time-marginalization', str(time_marg))
+    ile_job.add_opt('time_marginalization', str(time_marg))
 
 
 
