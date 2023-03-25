@@ -137,11 +137,17 @@ def get_unpinned_params(opts, params):
     return params - set([p for p, v in opts.__dict__.items() if p in LIKELIHOOD_PINNABLE_PARAMS and v is not None])
 
 def zero_like(*args,**kwargs):
-  arg0 = kwargs['psi']
+  if len(kwargs)>0:
+    arg0 = kwargs['psi']
+  else:
+    arg0 = args[0]
   return xpy_default.zeros(len(arg0))
 
 def unit_like(*args,**kwargs):
-  arg0 = kwargs['psi']
+  if len(kwargs)>0:
+    arg0 = kwargs['psi']
+  else:
+    arg0 = args[0]
   return xpy_default.ones(len(arg0))
 
 #
