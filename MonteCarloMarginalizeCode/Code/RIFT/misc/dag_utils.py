@@ -1930,7 +1930,7 @@ def write_subdagILE_sub(tag='subdag_ile', full_path_name=True, exe=None, univers
     return ile_job, ile_sub_name
 
 
-def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',**kwargs):
+def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',no_grid=False,**kwargs):
     """
     Write a submit file for launching jobs to reweight final posterior samples due to calibration uncertainty 
 
@@ -1992,6 +1992,11 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     ile_job.add_condor_cmd('getenv', 'True')
     ile_job.add_condor_cmd('request_memory', str(request_memory))
 
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
+
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
@@ -2004,7 +2009,7 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
 
     return ile_job, ile_sub_name
 
-def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log_dir=None, ncopies=1,request_memory=4096,bilby_ini_file=None,**kwargs):
+def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log_dir=None, ncopies=1,request_memory=4096,bilby_ini_file=None,no_grid=False,**kwargs):
     """
     Write a submit file for launching a job to generate a pickle file based off a bilby ini file; needed for  reweight final posterior samples due to calibration uncertainty
     
@@ -2060,6 +2065,11 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
     ile_job.add_condor_cmd('getenv', 'True')
     ile_job.add_condor_cmd('request_memory', str(request_memory))
 
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
+
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
@@ -2072,7 +2082,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
 
     return ile_job, ile_sub_name
 
-def write_comov_distance_reweighting_sub(tag='Comov_dist', comov_distance_reweighting_exe=None, reweight_location=None, universe='vanilla', log_dir=None, ncopies=1,request_memory=4096,posterior_file=None,**kwargs):
+def write_comov_distance_reweighting_sub(tag='Comov_dist', comov_distance_reweighting_exe=None, reweight_location=None, universe='vanilla', log_dir=None, ncopies=1,request_memory=4096,posterior_file=None,no_grid=False**kwargs):
     """
     Write a submit file for launching a job to generate reweight posterior samples to reflect a comoving distance prior
     
@@ -2128,6 +2138,12 @@ def write_comov_distance_reweighting_sub(tag='Comov_dist', comov_distance_reweig
     ile_job.add_condor_cmd('getenv', 'True')
     ile_job.add_condor_cmd('request_memory', str(request_memory))
 
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
+
+
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
@@ -2140,7 +2156,7 @@ def write_comov_distance_reweighting_sub(tag='Comov_dist', comov_distance_reweig
 
     return ile_job, ile_sub_name
 
-def write_convert_ascii_to_h5_sub(tag='Convert_ascii2h5', convert_ascii_to_h5_exe=None,output_file=None, universe='vanilla', log_dir=None, ncopies=1,request_memory=4096,posterior_file=None,**kwargs):
+def write_convert_ascii_to_h5_sub(tag='Convert_ascii2h5', convert_ascii_to_h5_exe=None,output_file=None, universe='vanilla', log_dir=None, ncopies=1,request_memory=4096,posterior_file=None,no_grid=False,**kwargs):
     """
     Converts posterior samples file from ascii to h5 format
     
@@ -2196,6 +2212,11 @@ def write_convert_ascii_to_h5_sub(tag='Convert_ascii2h5', convert_ascii_to_h5_ex
 
     ile_job.add_condor_cmd('getenv', 'True')
     ile_job.add_condor_cmd('request_memory', str(request_memory))
+
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
 
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))

@@ -1036,13 +1036,13 @@ if opts.gridinit_args:
 
 if opts.calibration_reweighting:
     if opts.last_iteration_extrinsic_time_resampling and opts.bilby_pickle_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=False,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe)
+        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=False,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid)
     elif opts.last_iteration_extrinsic_time_resampling and opts.bilby_ini_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=False,pickle_file=opts.working_directory+"/bilby_defaults_output/data/"+opts.bilby_ini_file.split('/')[-1].split('.')[0]+"_data_dump.pickle",exe=opts.calibration_reweighting_exe,universe=local_worker_universe)
+        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=False,pickle_file=opts.working_directory+"/bilby_defaults_output/data/"+opts.bilby_ini_file.split('/')[-1].split('.')[0]+"_data_dump.pickle",exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid)
     elif (not opts.last_iteration_extrinsic_time_resampling) and opts.bilby_ini_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.working_directory+"/bilby_defaults_output/data/"+opts.bilby_ini_file.split('/')[-1].split('.')[0]+"_data_dump.pickle",exe=opts.calibration_reweighting_exe,universe=local_worker_universe)
+        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.working_directory+"/bilby_defaults_output/data/"+opts.bilby_ini_file.split('/')[-1].split('.')[0]+"_data_dump.pickle",exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid)
     elif (not opts.last_iteration_extrinsic_time_resampling) and opts.bilby_pickle_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe)
+        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid)
         
     calibration_job.set_log_file(opts.working_directory+"/calibration-$(cluster)-$(process).log")
     calibration_job.set_stderr_file(opts.working_directory+"/calibration-$(cluster)-$(process).err")
@@ -1055,7 +1055,7 @@ if opts.calibration_reweighting:
     calibration_job.write_sub_file()
     
     if opts.bilby_ini_file:
-        pickle_job, pickle_job_name = dag_utils.write_bilby_pickle_sub(tag='Bilby_pickle',log_dir=None,bilby_ini_file=opts.bilby_ini_file,exe=opts.bilby_pickle_exe,universe=local_worker_universe)
+        pickle_job, pickle_job_name = dag_utils.write_bilby_pickle_sub(tag='Bilby_pickle',log_dir=None,bilby_ini_file=opts.bilby_ini_file,exe=opts.bilby_pickle_exe,universe=local_worker_universe,no_grid=no_worker_grid)
         pickle_job.set_log_file(opts.working_directory+"/pickle-$(cluster)-$(process).log")
         pickle_job.set_stderr_file(opts.working_directory+"/pickle-$(cluster)-$(process).err")
         pickle_job.set_stdout_file(opts.working_directory+"/pickle-$(cluster)-$(process).out")
@@ -1069,7 +1069,7 @@ if opts.calibration_reweighting:
 if opts.comov_distance_reweighting:
     if opts.calibration_reweighting:
         print(opts.convert_ascii2h5_exe)
-        convert_ascii_job, convert_ascii_job_name = dag_utils.write_convert_ascii_to_h5_sub(tag='Convert_ascii2h5',log_dir=None,output_file=opts.working_directory+"/posterior_samples.h5",posterior_file=opts.working_directory+"/reweighted_posterior_samples.dat",convert_ascii_to_h5_exe=opts.convert_ascii2h5_exe,universe=local_worker_universe)
+        convert_ascii_job, convert_ascii_job_name = dag_utils.write_convert_ascii_to_h5_sub(tag='Convert_ascii2h5',log_dir=None,output_file=opts.working_directory+"/posterior_samples.h5",posterior_file=opts.working_directory+"/reweighted_posterior_samples.dat",convert_ascii_to_h5_exe=opts.convert_ascii2h5_exe,universe=local_worker_universe,no_grid=no_worker_grid)
         convert_ascii_job.set_log_file(opts.working_directory+"/convert-ascii-$(cluster)-$(process).log")
         convert_ascii_job.set_stderr_file(opts.working_directory+"/convert_ascii-$(cluster)-$(process).err")
         convert_ascii_job.set_stdout_file(opts.working_directory+"/convert_ascii-$(cluster)-$(process).out")
