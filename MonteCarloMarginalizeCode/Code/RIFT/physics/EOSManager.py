@@ -35,7 +35,7 @@ except:
 
 #import gwemlightcurves.table as gw_eos_table
 
-from .            import MonotonicSpline as ms
+from . import MonotonicSpline as ms
 #from RIFT.physics import MonotonicSpline as ms
 
 C_CGS=lal.C_SI*100
