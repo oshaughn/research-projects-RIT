@@ -5210,7 +5210,7 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
     """
     try:
-        import EOSManager  # be careful to avoid recursive dependence!
+        import RIFT.physics.EOSManager  as EOSManager # be careful to avoid recursive dependence!
     except:
         print( " - Failed to load EOSManager - ")  # this will occur at the start
     assert not (eos_class==None)
