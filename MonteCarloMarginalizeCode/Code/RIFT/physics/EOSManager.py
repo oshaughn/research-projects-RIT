@@ -38,7 +38,6 @@ except:
 from . import MonotonicSpline as ms
 #from RIFT.physics import MonotonicSpline as ms
 
-
 C_CGS=lal.C_SI*100
 DENSITY_CGS_IN_MSQUARED=1000*lal.G_SI/lal.C_SI**2  # g/cm^3 -> 1/m^2 //GRUnits. Multiply by this to convert from CGS -> 1/m^2 units (_geom). lal.G_SI/lal.C_SI**2 takes kg/m^3 -> 1/m^2  ||  https://lscsoft.docs.ligo.org/lalsuite/lalsimulation/_l_a_l_sim_neutron_star_8h_source.html
 PRESSURE_CGS_IN_MSQUARED = DENSITY_CGS_IN_MSQUARED/(lal.C_SI*100)**2
@@ -249,7 +248,7 @@ class EOSFromTabularData(EOSConcrete):
         * Currently generates intermediate data file by writing to disk
     """
     
-    def __init__(self,name=None,eos_data=None,eos_units=None,reject_phase_transitions=True,debug=False, add_low_density=False):
+    def __init__(self,name=None,eos_data=None,eos_units=None,reject_phase_transitions=False,debug=False, add_low_density=False):
         if eos_data is None:
             raise Exception("EOS data required to use EOSFromTabularData")
         if not(name):
@@ -301,20 +300,11 @@ class EOSFromTabularData(EOSConcrete):
             self.edens = eos_data[:,1]
         
         if reject_phase_transitions:   # Normally lalsuite can't handle regions of constant pressure. Using a pressure/density only approach isn't suited to phase transitions
-            if not np.all(np.diff(self.press) > 0):    # BLOCKS PHASE TRANSITIONS
-                keep_idx = np.where(np.diff(self.press) > 0)[0] + 1
-                keep_idx = np.concatenate(([0], keep_idx))
-                print(keep_idx)
-                self.press = self.press[keep_idx]
-                self.edens = self.edens[keep_idx]
-            assert np.all(np.diff(self.press) > 0)
-            if not np.all(np.diff(self.edens) > 0):
-                keep_idx = np.where(np.diff(self.edens) > 0)[0] + 1
-                keep_idx = np.concatenate(([0], keep_idx))
-                self.press = self.press[keep_idx]
-                self.edens = self.edens[keep_idx]
-            assert np.all(np.diff(self.edens) > 0)
-        
+            param_dict = {'energy_density': self.edens,'pressure': self.press}
+            check_monotonic(param_dict,preserve_same_length = True)
+            
+            self.edens = param_dict['energy_density']
+            self.press = param_dict['pressure']
         # Create temporary file
         if debug:
                 print("Dumping to %s" % self.fname)
@@ -745,7 +735,9 @@ class EOSReprimand(EOSConcrete):
             param_dict['energy_density'] = qry_object.extract_param('energy_density',hvals)
             param_dict['pressure'] = qry_object.extract_param('pressure',hvals)
             param_dict['sound_speed_over_c'] = qry_object.extract_param('sound_speed_over_c',hvals)
-            param_dict = eos_monotonic_parts_and_causal_sound_speed(param_dict)
+            
+            #just_check_monotonicity_and_causality(param_dict)
+            #param_dict = eos_monotonic_parts_and_causal_sound_speed(param_dict,preserve_same_length = False) # Don't enable by default. First check if monotonicity or causality is violated indeed, and document if it does.
             self.update(param_dict,specific_internal_energy)
         else:
             print(" Warning: Empty EOS object created")
@@ -804,6 +796,8 @@ def make_mr_lambda_reprimand(eos,n_bins=800,save_tov_sequence=False,read_tov_seq
     Construct mass-radius curve from EOS using RePrimAnd (https://wokast.github.io/RePrimAnd/tov_solver.html).
     Parameter `eos` should be in RePrimAnd's eos object format, made with something like `make_eos_barotr_spline` (https://wokast.github.io/RePrimAnd/eos_barotr_ref.html).
     By default this returns the Mass_g-Radius-Lambda-Mass_b. But if `return_eos_object` is True, this will also return the RePrimAnd EOS object.
+    Wolfgang Kastaun, Jay Vijay Kalinani, and Riccardo Ciolfi. Robust recovery of primitive variables in relativistic ideal magnetohydrodynamics. Phys. Rev. D, 103(2):023018, 2021. doi:10.1103/PhysRevD.103.023018.
+    Roland Haas and Wolfgang Kastaun. (2023). wokast/RePrimAnd: Release 1.6 (v1.6). Zenodo. https://doi.org/10.5281/zenodo.7700296
     """
     
     """
@@ -830,6 +824,7 @@ def make_mr_lambda_reprimand(eos,n_bins=800,save_tov_sequence=False,read_tov_seq
         if read_tov_sequence:
             sol_units = pyr.units.geom_solar(msun_si=lal.MSUN_SI)
             seq = pyr.load_star_branch(eos, sol_units)
+        else: raise Exception("No EOS supplied.")
     if save_tov_sequence:
             try:
                 #bpath = p.parent
@@ -856,6 +851,22 @@ def make_mr_lambda_reprimand(eos,n_bins=800,save_tov_sequence=False,read_tov_seq
     return mrL_dat
 
 
+def just_check_monotonicity_and_causality(param_dict):
+    """
+    To be used for only checking monotonicity and causality
+    True means good. False means violation.
+    """
+    monotonicity_and_causality = {'pseudo_enthalpy_is_monotonic': True,
+                      'rest_mass_density_is_monotonic': True,
+                      'energy_density_is_monotonic': True,
+                      'pressure_is_monotonic': True,
+                      'sound_speed_over_c_is_causal': True}
+    for param in param_dict:
+        if param == 'sound_speed_over_c':
+            if not all(param_dict[param]<=1): monotonicity_and_causality['sound_speed_over_c_is_causal'] = False
+        else:
+            if not all(np.diff(param_dict[param])>0) : monotonicity_and_causality[param+'_is_monotonic'] = False
+    return monotonicity_and_causality
 
 
 def check_monotonic(monotonic_params, other_params=None, preserve_same_length = False):
@@ -867,7 +878,7 @@ def check_monotonic(monotonic_params, other_params=None, preserve_same_length = 
         for param in monotonic_params:
             i = 0
             while i < len(monotonic_params[param])-1:
-                if monotonic_params[param][i+1] < monotonic_params[param][i]:
+                if monotonic_params[param][i+1] <= monotonic_params[param][i]:
                     for param2 in monotonic_params:
                         try: monotonic_params[param2] = np.delete(monotonic_params[param2], i+1)
                         except:    del monotonic_params[param2][i+1]
@@ -877,23 +888,22 @@ def check_monotonic(monotonic_params, other_params=None, preserve_same_length = 
                             try: other_params[param2] = np.delete(other_params[param2], i+1)
                             except:    del other_params[param2][i+1]
                     i-=1
-                i +=1
+                i+=1
     else:
         for param in monotonic_params:
             i = 0
             while i < len(monotonic_params[param])-1:
-                if monotonic_params[param][i+1] < monotonic_params[param][i]:
-                    for param2 in monotonic_params:
-                        monotonic_params[param][i+1] = monotonic_params[param][i]*1.0001
-                    if 'pseudo_enthalpy' in other_params: other_params['sound_speed_over_c'][i+1] = other_params['sound_speed_over_c'][i]*1.0001
-                    if 'sound_speed_over_c' in other_params:other_params['sound_speed_over_c'][i+1] = 0
-                i +=1
+                if monotonic_params[param][i+1] <= monotonic_params[param][i]:
+                    monotonic_params[param][i+1] = monotonic_params[param][i]*1.01
+                    if other_params is not None: 
+                        if 'sound_speed_over_c' in other_params:other_params['sound_speed_over_c'][i+1] = 0
+                i+=1
     return
 
-def check_sound_speed_causal(param_dict, truncate = True):
-    """Checks if sound speed exceeds 1 anywhere, and depending on option `truncate` removes that region or or forces it =1. """
+def check_sound_speed_causal(param_dict, preserve_same_length = False):
+    """Checks if sound speed exceeds 1 anywhere, and depending on the option `preserve_same_length` removes that region or forces it =1. """
     below_speed_of_light = np.where(param_dict['sound_speed_over_c']<= 1)
-    if truncate :
+    if not preserve_same_length :
         param_dict = {'pseudo_enthalpy': param_dict['pseudo_enthalpy'][below_speed_of_light],
                       'rest_mass_density': param_dict['rest_mass_density'][below_speed_of_light],
                       'energy_density': param_dict['energy_density'][below_speed_of_light],
@@ -907,7 +917,7 @@ def eos_monotonic_parts_and_causal_sound_speed(param_dict, preserve_same_length 
     param_dict_main = {'rest_mass_density': param_dict['rest_mass_density'], 'energy_density': param_dict['energy_density'],'pressure': param_dict['pressure']}
     param_dict_others = {'pseudo_enthalpy': param_dict['pseudo_enthalpy'], 'sound_speed_over_c': param_dict['sound_speed_over_c']}
     
-    check_monotonic(param_dict_main, param_dict_others, preserve_same_length =preserve_same_length)
+    check_monotonic(param_dict_main, param_dict_others, preserve_same_length=preserve_same_length)
     
     param_dict = {'pseudo_enthalpy': param_dict_others['pseudo_enthalpy'],
                   'rest_mass_density': param_dict_main['rest_mass_density'],
@@ -915,7 +925,7 @@ def eos_monotonic_parts_and_causal_sound_speed(param_dict, preserve_same_length 
                   'pressure':param_dict_main['pressure'],
                   'sound_speed_over_c':param_dict_others['sound_speed_over_c']
                   }
-    param_dict = check_sound_speed_causal(param_dict)
+    param_dict = check_sound_speed_causal(param_dict, preserve_same_length=preserve_same_length)
     return param_dict
 
 ####
