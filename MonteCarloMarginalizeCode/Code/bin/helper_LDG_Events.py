@@ -189,6 +189,7 @@ parser.add_argument("--psd-file", action="append", help="instrument=psd-file, e.
 parser.add_argument("--assume-fiducial-psd-files", action="store_true", help="Will populate the arguments --psd-file IFO=IFO-psd.xml.gz for all IFOs being used, based on data availability.   Intended for user to specify PSD files later, or for DAG to build BW PSDs. ")
 parser.add_argument("--use-online-psd",action='store_true',help='Use PSD from gracedb, if available')
 parser.add_argument("--assume-matter",action='store_true',help="If present, the code will add options necessary to manage tidal arguments. The proposed fit strategy and initial grid will allow for matter")
+parser.add_argument("--assume-matter-eos",type=str,default=None,help="If present, AND --assume-matter is present, the code will adopt this specific EOS.  CIP will generate tidal parameters according to (exactly) that EOS.  Not recommended -- better to do this by postprocessing")
 parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!. NOT YET IMPLEMENTED (initial grids, etc)")
 parser.add_argument("--assume-eccentric",action='store_true',help="If present, the code will add options necessary to manage eccentric arguments. The proposed fit strategy and initial grid will allow for eccentricity")
@@ -223,6 +224,7 @@ parser.add_argument("--force-fit-method",type=str,default=None,help="Force speci
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Does nothing!  extrinsic implemented with CEP call, user must do this elsewhere")
 parser.add_argument("--no-propose-limits",action='store_true',help="If a fit strategy is proposed, the default strategy will propose limits on mc and eta.  This option disables those limits, so the user can specify their own" )
 parser.add_argument("--hint-snr",default=None,type=float,help="If provided, use as a hint for the signal SNR when choosing ILE and CIP options (e.g., to avoid overflow or underflow).  Mainly important for synthetic sources with very high SNR")
+parser.add_argument("--ile-distance-prior",default=None,help="If present, passed through to the distance prior option.  If dmarg active, passed to dmarg so the correct prior used when building the marginalization table. ")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help='Create options to marginalize over distance in the pipeline. Also create any necessary marginalization files at runtime, based on the maximum distance assumed')
 parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,default=None,help='If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances')
@@ -1002,9 +1004,13 @@ if opts.lowlatency_propose_approximant:
 
 if not(internal_dmax is None):
     helper_ile_args +=  " --d-max " + str(int(internal_dmax))
+    if opts.ile_distance_prior:
+        helper_ile_args += " --d-prior {} ".format(opts.ile_distance_prior)   # moving here from pseudo_pipe
     if opts.internal_marginalize_distance and not(opts.internal_marginalize_distance_file):
         # Generate marginalization file (should probably be in DAG? But we may also want to override it with internal file)
         cmd_here = " util_InitMargTable --d-max {} ".format(internal_dmax)
+        if opts.ile_distance_prior:
+            cmd_here += " --d-prior {} ".format(opts.ile_distance_prior)
         os.system(cmd_here)
         prefix_file = "{}/".format(opts.working_directory)
         if opts.use_osg:
@@ -1116,7 +1122,7 @@ elif opts.propose_initial_grid:
             # Handle problems with SEOBNRv3 failing for aligned binaries -- add small amount of misalignment in the initial grid
             cmd += " --parameter s1x --parameter-range [0.00001,0.00003] "
 
-    if opts.assume_matter:
+    if opts.assume_matter and not opts.assume_matter_eos:
         # Do the initial grid assuming matter, with tidal parameters set by the AP4 EOS provided by lalsuite
         # We will leverage working off this to find the lambdaTilde dependence
 #        cmd += " --use-eos AP4 "  
@@ -1141,6 +1147,8 @@ elif opts.propose_initial_grid:
         lambda2_max = np.min([1500,P.lambda2*2])
         cmd += " --random-parameter lambda1 --random-parameter-range [{},{}] --random-parameter lambda2 --random-parameter-range [{},{}] ".format(lambda1_min,lambda1_max,lambda2_min,lambda2_max)
         grid_size *=2   # denser grid
+    elif opts.assume_matter and opts.assume_matter_eos:
+        cmd += " --use-eos {} ".format(opts.assume_matter_eos.replace('lal_', ''))
 
     if opts.propose_fit_strategy and not opts.internal_use_aligned_phase_coordinates:
         if (P.extract_param('mc')/lal.MSUN_SI < 10):   # assume a maximum NS mass of 3 Msun
@@ -1452,7 +1460,7 @@ if opts.propose_fit_strategy:
         for indx in np.arange(1,n_levels):  # do NOT constrain the first CIP, as it has so few points!
             helper_cip_arg_list[indx] += " --lnL-offset " + str( lnL_start*(1.- 1.*indx/(n_levels-1.))  + lnL_end*indx/(n_levels-1.) )
 
-    if opts.assume_matter and not(opts.internal_tabular_eos_file):
+    if opts.assume_matter and not(opts.internal_tabular_eos_file) and not(opts.assume_matter_eos):
         helper_puff_args += " --parameter LambdaTilde  --downselect-parameter s1z --downselect-parameter-range [-0.9,0.9] --downselect-parameter s2z --downselect-parameter-range [-0.9,0.9]  "  # Probably should also aggressively force sampling of low-lambda region
         helper_cip_args += " --input-tides --parameter-implied LambdaTilde  --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
         if not(opts.assume_matter_but_primary_bh):
@@ -1474,6 +1482,12 @@ if opts.propose_fit_strategy:
         puff_max_it= np.sum(n_its) # puff all the way to the end
     elif opts.internal_tabular_eos_file:
         helper_cip_args = " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
+        for indx in np.arange(len(helper_cip_arg_list)):
+            helper_cip_arg_list[indx] += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
+    elif opts.assume_matter_eos:
+        helper_cip_args += " --using-eos {} ".format(opts.assume_matter_eos)
+        for indx in np.arange(len(helper_cip_arg_list)):
+            helper_cip_arg_list[indx] += " --using-eos {} ".format(opts.assume_matter_eos)
 # lnL-offset was already enforced
 #    if opts.internal_fit_strategy_enforces_cut:
 #        for indx in np.arange(len(helper_cip_arg_list))[1:]:

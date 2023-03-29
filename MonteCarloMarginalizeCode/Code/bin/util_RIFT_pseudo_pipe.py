@@ -111,12 +111,16 @@ def unsafe_parse_arg_string(my_argstr,match):
 parser = argparse.ArgumentParser()
 parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
 parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration")
+parser.add_argument("--bilby-ini-file",default=None,type=str,help="Pass ini file for parsing. Intended to use for calibration reweighting. Full path recommended")
+parser.add_argument("--bilby-pickle-file",default=None,type=str,help="Bilby Pickle file with event settings. Intended to use for calibration reweighting. Full path recommended")
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
 parser.add_argument("--use-rundir",default=None,type=str,help="Intended to reproduce lalinference_pipe functionality. Must be absolute path.")
 parser.add_argument("--use-online-psd-file",default=None,type=str,help="Provides specific online PSD file, so no downloads are needed")
 parser.add_argument("--use-coinc",default=None,type=str,help="Intended to reproduce lalinference_pipe functionality")
 parser.add_argument("--manual-ifo-list",default=None,type=str,help="Overrides IFO list normally retrieve by event ID.  Use with care (e.g., glitch studies) or for events specified with --event-time.")
 parser.add_argument("--online",action='store_true')
+parser.add_argument("--calibration-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to calibration uncertainty.")
+parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
 parser.add_argument("--gracedb-id",default=None,type=str)
@@ -137,6 +141,7 @@ parser.add_argument("--assume-nospin",action='store_true', help="Force analysis 
 parser.add_argument("--assume-precessing",action='store_true', help="Force analysis *with* transverse spins")
 parser.add_argument("--assume-nonprecessing",action='store_true', help="Force analysis *without* transverse spins")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
+parser.add_argument("--assume-matter-eos",default=None,type=str, help="Force analysis *with* matter. Really only matters for BNS")
 parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
@@ -156,6 +161,7 @@ parser.add_argument("--internal-flat-strategy",action='store_true',help="Use the
 parser.add_argument("--internal-use-amr",action='store_true',help="Changes refinement strategy (and initial grid) to use. PRESENTLY WE CAN'T MIX AND MATCH AMR, CIP ITERATIONS, so this is fixed for the whole run right now; use continuation and 'fetch' to augment")
 parser.add_argument("--internal-use-amr-bank",default="",type=str,help="Bank used for template")
 parser.add_argument("--internal-use-amr-puff",action='store_true',help="Use puffball with AMR (as usual).  May help with stalling")
+parser.add_argument("--internal-use-force-away",type=float,default=None,help="Specific force-away value")
 parser.add_argument("--internal-use-aligned-phase-coordinates", action='store_true', help="If present, instead of using mc...chi-eff coordinates for aligned spin, will use SM's phase-based coordinates. Requires spin for now")
 parser.add_argument("--internal-use-rescaled-transverse-spin-coordinates",action='store_true',help="If present, use coordinates which rescale the unit sphere with special transverse sampling")
 parser.add_argument("--external-fetch-native-from",type=str,help="Directory name of run where grids will be retrieved.  Recommend this is for an ACTIVE run, or otherwise producing a large grid so the retrieved grid changes/isn't fixed")
@@ -226,6 +232,8 @@ parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrou
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
+parser.add_argument("--manual-extra-puff-args",default=None,type=str,help="Avenue to adjoin extra PUFF arguments.  ")
+parser.add_argument("--manual-extra-test-args",default=None,type=str,help="Avenue to adjoin extra TEST arguments.  ")
 parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--use-downscale-early",action='store_true', help="If provided, the first block of iterations are performed with lnL-downscale-factor passed to CIP, such that rho*2/2 * lnL-downscale-factor ~ (15)**2/2, if rho_hint > 15 ")
 parser.add_argument("--use-gauss-early",action='store_true',help="If provided, use gaussian resampling in early iterations ('G'). Note this is a different CIP instance than using a quadratic likelihood!")
@@ -262,6 +270,9 @@ if (opts.use_ini):
             os.environ["LIGO_USER_NAME"] = rift_items['accounting_group_user']
         if not('LIGO_ACCOUNTING'  in os.environ) and 'accounting_group' in rift_items:
             os.environ["LIGO_ACCOUNTING"] = rift_items['accounting_group']
+
+        if not('RIFT_REQUIRE_GPUS' in os.environ) and 'ile_require_gpus' in rift_items:
+            os.environ['RIFT_REQUIRE_GPUS'] = rift_items['ile_require_gpus']
         
         # attempt to lazy-select the command-line that are present in the ini file section
         for item in rift_items:
@@ -550,6 +561,8 @@ if opts.force_initial_grid_size:
 if opts.assume_matter:
         cmd += " --assume-matter "
         npts_it = 1000
+        if opts.assume_matter_eos:
+            cmd += " --assume-matter-eos {} ".format(opts.assume_matter_eos)
         if opts.assume_matter_but_primary_bh:
             cmd+= " --assume-matter-but-primary-bh "
         if opts.internal_tabular_eos_file:
@@ -658,7 +671,9 @@ if not(opts.force_hint_snr is None):
     cmd += " --hint-snr {} ".format(opts.force_hint_snr)
 if not(opts.event_time is None) and not(opts.manual_ifo_list is None):
     cmd += " --manual-ifo-list {} ".format(opts.manual_ifo_list)
-if (opts.internal_marginalize_distance) and not opts.ile_distance_prior:
+if opts.ile_distance_prior:
+    cmd += " --ile-distance-prior {} ".format(opts.ile_distance_prior)
+if (opts.internal_marginalize_distance): #  and not opts.ile_distance_prior:
     cmd += " --internal-marginalize-distance "
 if (opts.internal_marginalize_distance_file ):
     cmd += " --internal-marginalize-distance-file {} ".format(opts.internal_marginalize_distance_file)
@@ -776,6 +791,8 @@ with open ("helper_test_args.txt",'r') as f:
     if opts.add_extrinsic: 
         # We NEVER want to terminate if we're doing extrinsic at the end.  Block termination, so extrinsic occurs on schedule
         line += " --always-succeed "
+    if opts.manual_extra_test_args:
+        line += " {} ".format(opts.manual_extra_test_args)  # avenue to add extra tests or change test settings
     with open("args_test.txt",'w') as g:
         g.write(line)
 
@@ -1027,6 +1044,10 @@ with open("args_puff.txt",'w') as f:
             puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away'),'')
         if opts.data_LI_seglen:
                 puff_args+= " --enforce-duration-bound " +str(opts.data_LI_seglen)
+        if opts.internal_use_force_away:
+            puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away')," --force-away {} ".format(str(opts.internal_use_force_away)))
+        if not(opts.manual_extra_puff_args is None):
+            puff_args += " {} ".format(opts.manual_extra_puff_args)  # embed with space on each side, avoid collisions
         f.write("X " + puff_args)
 
 # Create archive dag.  Based on Udall's experience/code
@@ -1080,6 +1101,13 @@ if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
 if opts.assume_eccentric:
     cmd += " --use-eccentricity "
+if opts.calibration_reweighting and (not opts.bilby_pickle_file):
+    cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-ini-file {} --bilby-pickle-exe `which bilby_pipe_generation` ".format(str(opts.bilby_ini_file))
+elif opts.calibration_reweighting and opts.bilby_pickle_file:
+    cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-pickle-file {} ".format(str(opts.bilby_pickle_file))
+
+if opts.distance_reweighting:
+    cmd += " --comov-distance-reweighting --comov-distance-reweighting-exe `which make_uni_comov_skymap.py` --convert-ascii2h5-exe `which convert_output_format_ascii2h5.py` "
 if opts.use_gauss_early:
     cmd += " --cip-exe-G `which util_ConstructIntrinsicPosterior_GaussianResampling.py ` "
 if opts.internal_use_amr:

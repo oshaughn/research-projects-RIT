@@ -5,8 +5,9 @@
 import argparse
 import numpy as np
 from scipy import integrate
-from scipy.special import erfcinv, erf, erfcx
+from scipy.special import erfcinv, erf, erfcx, i0e
 import warnings
+import functools
 
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 
@@ -15,8 +16,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--d-min", default=1, type=float, help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 parser.add_argument("--d-max", default=10000, type=float, help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 parser.add_argument("--max-snr", default=1e4, type=float, help="Maximum SNR at a reference distance.")
-parser.add_argument("--relative-error", default=1e-3, type=float, help="Relative error of numerical integration.")
+parser.add_argument("--likelihood-threshold", default=1e-30, type=float, help="Likelihood threshold to determine distance integration range. Distance range where likelihood is smaller than its maximum multiplied by the threshold is discarded.")
+parser.add_argument("--hermgauss-degree", default=50, type=int, help="Degree of Gauss-Hermite quadrature used for high SNR.")
+parser.add_argument("--laggauss-degree", default=50, type=int, help="Degree of Gauss-Laguerre quadrature used for high SNR.")
 parser.add_argument("--out", default="distance_marginalization_lookup.npz", help="Output file (format should be .npz)")
+parser.add_argument("--phase-marginalization", default=False, action="store_true", help="Analytical phase marginalization is used if True. Applicable only for 2-2-mode model.")
+parser.add_argument("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean) and 'pseudo-cosmo'  .")
 opts=  parser.parse_args()
 
 dmin = opts.d_min
@@ -25,66 +30,105 @@ dref = factored_likelihood.distMpcRef
 # x = Dref / D
 xmin = dref / dmax
 xmax = dref / dmin
-x0min = -10. * xmax
+if opts.phase_marginalization:
+    x0min = 0.
+else:
+    x0min = -10. * xmax
 x0max = 10. * xmax
-bmax = opts.max_snr
+bmax = opts.max_snr**2
 bref = 1. / ((xmax - xmin) * max(xmin + xmax - 2. * x0min, 2. * x0max - xmin - xmax))
+log_likelihood_threshold = np.log(opts.likelihood_threshold)
 delta_s = 0.1
 delta_t = 0.1
-eps = opts.relative_error
+
+
+def prior(d):
+    """Distance prior. Currently, only distance-squared prior is supported."""
+    return 3 * d**2 / (dmax**3 - dmin**3)
+
+if opts.d_prior =='pseudo_cosmo':
+    # exactly as in ILE itself
+    import RIFT.likelihood.priors_utils as priors_utils
+    nm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(opts.d_min,opts.d_max)
+    dist_prior_pdf =functools.partial( priors_utils.dist_prior_pseudo_cosmo, nm=nm,xpy=np) # doesn't matter here!
+
+    # assign
+    prior = dist_prior_pdf
+
+
+def effective_prior(x, a):
+    """Prior of x=dref/d. The exponentially scaled Bessel function is multiplied if phase marginalization is used."""
+    tmp = dref / x**2 * prior(dref / x)
+    if opts.phase_marginalization:
+        tmp *= i0e(a * x)
+    return tmp
 
 
 def exponent(x, x0, b):
     return b / 2. * (x0**2. - (x - x0)**2.)
 
 
+def get_max_exponent(x0, b):
+    return exponent(np.clip(x0, xmin, xmax), x0, b)
+
+
+def get_integration_range(x0, b):
+    """Return distance integration range where likelihood is smaller than the threshold"""
+    max_exponent = get_max_exponent(x0, b)
+    if b > 0.:
+        tmp = np.sqrt(x0**2 - 2 / b * (max_exponent + log_likelihood_threshold))
+        return max(x0 - tmp, xmin), min(x0 + tmp, xmax)
+    else:
+        return xmin, xmax
+
+
+hermgauss_samples, hermgauss_weights = np.polynomial.hermite.hermgauss(opts.hermgauss_degree)
+laggauss_samples, laggauss_weights = np.polynomial.laguerre.laggauss(opts.laggauss_degree)
+
+
 @np.vectorize
 def lnI(x0, b):
-    if x0 < xmin:
-        exponent_max = exponent(xmin, x0, b)
-        xmin_integral = xmin
-        # determine the upper limit of the integral
-        alpha1 = np.sqrt(b / 2.) * (xmin - x0 + 4. / (b * xmin))
-        alpha2 = np.sqrt(b / 2.) * (xmax - x0 + 4. / (b * xmin))
-        tmp = eps * (erfcx(alpha1) - np.exp(-(alpha2**2. - alpha1**2.)) * erfcx(alpha2))
-        if 0. < tmp < 1.:
-            A = -np.log(tmp)
-            dx = 2. * A / (np.sqrt(b**2. * (xmin - x0)**2. + 2. * b * A) + b * (xmin - x0))
-            xmax_integral = min(xmin + dx, xmax)
-        else:
-            xmax_integral = xmax
-    elif x0 > xmax:
-        exponent_max = exponent(xmax, x0, b)
-        xmax_integral = xmax
-        # determine the lower limit of the integral
-        gamma1 = np.sqrt(b / 2.) * (x0 - xmax - 4. / (b * xmax))
-        gamma2 = np.sqrt(b / 2.) * (x0 - xmin - 4. / (b * xmax))
-        # catch numerical overflow from erfcx, which happens for low b.
-        with warnings.catch_warnings():
-            warnings.filterwarnings("error")
-            try:
-                tmp = eps * xmin**4. / xmax**4. * (erfcx(gamma1) - np.exp(-(gamma2**2. - gamma1**2.)) * erfcx(gamma2))
-            except RuntimeWarning:
-                tmp = np.inf
-        if 0. < tmp < 1.:
-            C = -np.log(tmp)
-            dx = 2. * C / (np.sqrt(b**2. * (x0 - xmax)**2. + 2. * b * C) + b * (x0 - xmax))
-            xmin_integral = max(xmax - dx, xmin)
-        else:
-            xmin_integral = xmin
+    """Calculate logarithm of marginalized likelihood subtracted by the max
+    exponent. For large b, the Gaussian-Hermite quadrature is used for xmin <
+    x0 < xmax and the Gauss-Laguerre quadrature is used otherwise. For moderate
+    b, scipy.integrate.quad is used."""
+    if (
+        xmin < x0 < xmax and
+        b * x0**2 > 10000 and
+        x0 + np.min(hermgauss_samples) * np.sqrt(2 / b) > xmin and
+        x0 + np.max(hermgauss_samples) * np.sqrt(2 / b) < xmax
+    ):
+        result = np.sqrt(2 / b) * np.sum(
+            effective_prior(np.sqrt(2 / b) * hermgauss_samples + x0, b * x0) *
+            hermgauss_weights
+        )
+    elif (
+        x0 < xmin and
+        b * (xmin - x0) * xmin > 100 and
+        x0 + np.sqrt(2 / b * np.max(laggauss_samples) + (xmin - x0)**2) < xmax
+    ):
+        tmp = np.sqrt(2 / b * laggauss_samples + (xmin - x0)**2)
+        result = np.sum(
+            laggauss_weights / (b * tmp) * effective_prior(x0 + tmp, b * x0)
+        )
+    elif (
+        x0 > xmax and
+        b * (x0 - xmax) * xmax > 100 and
+        x0 - np.sqrt(2 / b * np.max(laggauss_samples) + (x0 - xmax)**2) > xmin
+    ):
+        tmp = np.sqrt(2 / b * laggauss_samples + (x0 - xmax)**2)
+        result = np.sum(
+            laggauss_weights / (b * tmp) * effective_prior(x0 - tmp, b * x0)
+        )
     else:
-        exponent_max = exponent(x0, x0, b)
-        # determine the lower and upper limits of the integral
-        beta1 = np.sqrt(b / 2.) * (xmin - x0 + 4. / (b * x0))
-        beta2 = np.sqrt(b / 2.) * (xmax - x0 + 4. / (b * x0))
-        tmp = eps / 2. * (xmin / x0)**4. * (erf(beta2) - erf(beta1))
-        if 0. < tmp < 1.:
-            dx = np.sqrt(2. / b) * erfcinv(tmp)
-            xmin_integral, xmax_integral = max(x0 - dx, xmin), min(x0 + dx, xmax)
-        else:
-            xmin_integral, xmax_integral = xmin, xmax
-    result, _ = integrate.quad(lambda x, x0, b: x**(-4.) * np.exp(exponent(x, x0, b) - exponent_max),
-                               xmin_integral, xmax_integral, args=(x0, b), epsabs=-1, epsrel=eps)
+        max_exponent = get_max_exponent(x0, b)
+        xmin_integral, xmax_integral = get_integration_range(x0, b)
+        result, _ = integrate.quad(
+            lambda x, x0, b: effective_prior(x, b * x0) * np.exp(exponent(x, x0, b) - max_exponent),
+            xmin_integral,
+            xmax_integral,
+            args=(x0, b)
+        )
     return np.log(result)
 
 
@@ -101,7 +145,7 @@ def s_to_x0(s):
     shigh = x0_to_s(x0high)
     # bisection search
     x0mid = (x0low + x0high) / 2.
-    while shigh - slow > 1e-2 * delta_s:
+    while shigh - slow > 1e-5 * delta_s:
         smid = x0_to_s(x0mid)
         if smid > s:
             x0high = x0mid
@@ -129,12 +173,11 @@ t_array = np.linspace(0., tmax, int(tmax / delta_t))
 x0_array = np.append(x0min, np.append(s_to_x0(s_array[1:-1]), x0max))
 b_array = t_to_b(t_array)
 x0_grid, b_grid = np.meshgrid(x0_array, b_array, indexing="ij")
-lnI_array = np.ones(shape=x0_grid.shape)
-lnI_array[:, 0] *= np.log((xmin**(-3.) - xmax**(-3.)) / 3.)  # analytical solution for b=0
-lnI_array[:, 1:] = lnI(x0_grid[:, 1:], b_grid[:, 1:])
+lnI_array = np.zeros(shape=x0_grid.shape)
+lnI_array[:, 1:] = lnI(x0_grid[:, 1:], b_grid[:, 1:])  # lnI is vanishing for b=0, so don't compute it for the 0-th column.
 
 # save the list
-np.savez(opts.out, phase_marginalization=False,
+np.savez(opts.out, phase_marginalization=opts.phase_marginalization,
          bmax=bmax, bref=bref, x0min=x0min, x0max=x0max,
          dmin=dmin,dmax=dmax,
          s_array=s_array, t_array=t_array, lnI_array=lnI_array)

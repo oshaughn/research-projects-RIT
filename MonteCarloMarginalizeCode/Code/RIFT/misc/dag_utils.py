@@ -781,6 +781,8 @@ echo Starting ...
 
     if not use_osg:
         ile_job.add_condor_cmd('getenv', 'True')
+    else:
+        ile_job.add_condor_cmd('getenv', '*RIFT*')  # retrieve any RIFT commands -- specifically RIFT_LOWLATENCY
     ile_job.add_condor_cmd('request_memory', str(request_memory)) 
     if not(request_disk is False):
         ile_job.add_condor_cmd('request_disk', str(request_disk)) 
@@ -789,7 +791,8 @@ echo Starting ...
     if request_gpu:
         nGPUs=1
         ile_job.add_condor_cmd('request_GPUs', str(nGPUs)) 
-        requirements.append("CUDAGlobalMemoryMb >= 2048")
+# Claim we don't need to make this request anymore to avoid out-of-memory errors. Also, no longer in 'requirements'
+#        requirements.append("CUDAGlobalMemoryMb >= 2048")  
     if use_singularity:
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
@@ -907,6 +910,9 @@ echo Starting ...
     if not(max_runtime_minutes is None):
         remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60*max_runtime_minutes)
         ile_job.add_condor_cmd('periodic_remove', remove_str)
+
+    if 'RIFT_REQUIRE_GPUS' in os.environ:  # new convention 'require_gpus = ' to specify conditions on GPU properties
+        ile_job.add_condor_cmd('require_gpus',os.environ['RIFT_REQUIRE_GPUS'])
     
 
     ###
@@ -922,7 +928,7 @@ echo Starting ...
 
 
 
-def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, **kwargs):
+def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=120,**kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -946,7 +952,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     # Add manual options for input, output
     ile_job.add_arg(base) # what directory to load
     ile_job.add_arg(target) # where to put the output (label), in CWD
-
+    ile_job.add_arg(arg_str)
     #
     # NO OPTIONS
     #
@@ -1011,12 +1017,18 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
     # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
 
+    # Periodic remove: kill jobs running longer than max runtime
+    # https://stackoverflow.com/questions/5900400/maximum-run-time-in-condor
+    if not(max_runtime_minutes is None):
+        remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60*max_runtime_minutes)
+        ile_job.add_condor_cmd('periodic_remove', remove_str)
+
 
     return ile_job, ile_sub_name
 
 
 
-def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, **kwargs):
+def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=60,**kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -1081,9 +1093,15 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
     except:
         print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
 
+    # Periodic remove: kill jobs running longer than max runtime
+    # https://stackoverflow.com/questions/5900400/maximum-run-time-in-condor
+    if not(max_runtime_minutes is None):
+        remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60*max_runtime_minutes)
+        ile_job.add_condor_cmd('periodic_remove', remove_str)
+
     return ile_job, ile_sub_name
 
-def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,universe="vanilla",arg_str='',log_dir=None, use_eos=False,ncopies=1, no_grid=False,**kwargs):
+def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,universe="vanilla",arg_str='',log_dir=None, use_eos=False,ncopies=1, no_grid=False,max_runtime_minutes=120,**kwargs):
     """
     Write a submit file for launching a 'convert' job
        convert_output_format_ile2inference
@@ -1138,6 +1156,12 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
         print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
+
+    # Periodic remove: kill jobs running longer than max runtime
+    # https://stackoverflow.com/questions/5900400/maximum-run-time-in-condor
+    if not(max_runtime_minutes is None):
+        remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60*max_runtime_minutes)
+        ile_job.add_condor_cmd('periodic_remove', remove_str)
 
     return ile_job, ile_sub_name
 
@@ -1905,4 +1929,304 @@ def write_subdagILE_sub(tag='subdag_ile', full_path_name=True, exe=None, univers
 
     return ile_job, ile_sub_name
 
+
+def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',no_grid=False,**kwargs):
+    """
+    Write a submit file for launching jobs to reweight final posterior samples due to calibration uncertainty 
+
+    Inputs:
+     - posterior samples, event pickle file (generated by Bilby)
+    Outputs:
+     - reweighted samples due to calibration uncertainty and corresponding weights
+    """
+    exe = exe or which("calibration_reweighting.py")
+    if exe is None:
+        print(" Calibration Reweighting code not available. ")
+        sys.exit(0)
+
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+    # This is a hack since CondorDAGJob hides the queue property
+    ile_job._CondorJob__queue = ncopies
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+#    if not(request_disk is False):
+#        ile_job.add_condor_cmd('request_disk', str(request_disk))
+
+
+    requirements =[]
+    #
+    # Logging options
+    #
+    uniq_str = "$(macroevent)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    #
+    # Add mandatory options
+    ile_job.add_opt('data_dump_file', str(pickle_file))
+    ile_job.add_opt('posterior_sample_file', str(posterior_file))
+    ile_job.add_opt('number_of_calibration_curves', '100')
+    ile_job.add_opt('reevaluate_likelihood', 'True')
+    ile_job.add_opt('use_rift_samples', 'True')
+    ile_job.add_opt('time_marginalization', str(time_marg))
+
+
+
+    #
+    # Add normal arguments
+    #
+    for opt, param in list(kwargs.items()):
+        if isinstance(param, list) or isinstance(param, tuple):
+            # NOTE: Hack to get around multiple instances of the same option
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
+        elif param is True:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None or param is False:
+            continue
+        else:
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    ile_job.add_condor_cmd('request_memory', str(request_memory))
+
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
+
+    # Write requirements
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+         print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
+
+
+    return ile_job, ile_sub_name
+
+def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log_dir=None, ncopies=1,request_memory=4096,bilby_ini_file=None,no_grid=False,**kwargs):
+    """
+    Write a submit file for launching a job to generate a pickle file based off a bilby ini file; needed for  reweight final posterior samples due to calibration uncertainty
+    
+    Inputs:
+     - bilby ini file
+    Outputs:
+     - pickle file of event settings; needed as input for calibration reweighting
+    """
+    exe = exe or which("bilby_pipe_generation")
+    if exe is None:
+        print(" Pickle generation code unavailable. ")
+        sys.exit(0)
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+    # This is a hack since CondorDAGJob hides the queue property
+    ile_job._CondorJob__queue = ncopies
+    requirements=[]
+    if universe=='local':
+        requirements.append("IS_GLIDEIN=?=undefined")
+
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    # Add manual options for input, output
+    ile_job.add_opt('data-dump-file', str('bilby.pickle'))
+    ile_job.add_arg(str(bilby_ini_file)) # needs to be a bilby ini file for the particular event being analyzed
+
+    #
+    #Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+
+
+    #
+    # Add normal arguments
+    #
+    for opt, param in list(kwargs.items()):
+        if isinstance(param, list) or isinstance(param, tuple):
+            # NOTE: Hack to get around multiple instances of the same option
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
+        elif param is True:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None or param is False:
+            continue
+        else:
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    ile_job.add_condor_cmd('request_memory', str(request_memory))
+
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
+
+    # Write requirements
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+         print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
+
+
+    return ile_job, ile_sub_name
+
+def write_comov_distance_reweighting_sub(tag='Comov_dist', comov_distance_reweighting_exe=None, reweight_location=None, universe='vanilla', log_dir=None, ncopies=1,request_memory=4096,posterior_file=None,no_grid=False,**kwargs):
+    """
+    Write a submit file for launching a job to generate reweight posterior samples to reflect a comoving distance prior
+    
+    Inputs:
+     - posterior samples in h5 format
+    Outputs:
+     - reweighted samples in h5 format
+    """
+    exe = comov_distance_reweighting_exe or which("make_uni_comov_skymap.py")
+    if exe is None:
+        print(" Comoving distance reweighting code unavailable. ")
+        sys.exit(0)
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+    # This is a hack since CondorDAGJob hides the queue property
+    ile_job._CondorJob__queue = ncopies
+    requirements=[]
+    if universe=='local':
+        requirements.append("IS_GLIDEIN=?=undefined")
+
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    # Add manual options for input, output
+    ile_job.add_opt('resampled-file', str(reweight_location))
+    ile_job.add_arg(str(posterior_file)) # needs to be a bilby ini file for the particular event being analyzed
+
+    #
+    #Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+
+
+    #
+    # Add normal arguments
+    #
+    for opt, param in list(kwargs.items()):
+        if isinstance(param, list) or isinstance(param, tuple):
+            # NOTE: Hack to get around multiple instances of the same option
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
+        elif param is True:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None or param is False:
+            continue
+        else:
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    ile_job.add_condor_cmd('request_memory', str(request_memory))
+
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
+
+
+    # Write requirements
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+         print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
+
+
+    return ile_job, ile_sub_name
+
+def write_convert_ascii_to_h5_sub(tag='Convert_ascii2h5', convert_ascii_to_h5_exe=None,output_file=None, universe='vanilla', log_dir=None, ncopies=1,request_memory=4096,posterior_file=None,no_grid=False,**kwargs):
+    """
+    Converts posterior samples file from ascii to h5 format
+    
+    Inputs:
+     - posterior samples in ascii format
+    Outputs:
+     - posterior samples in h5 format
+    """
+    exe = convert_ascii_to_h5_exe or which("convert_output_format_ascii2h5.py")
+    if exe is None:
+        print(" Converting code unavailable. ")
+        sys.exit(0)
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+    # This is a hack since CondorDAGJob hides the queue property
+    ile_job._CondorJob__queue = ncopies
+    requirements=[]
+    if universe=='local':
+        requirements.append("IS_GLIDEIN=?=undefined")
+
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    # Add manual options for input, output
+    ile_job.add_opt('output-file', str(output_file))
+    ile_job.add_opt('posterior-file', str(posterior_file))
+#    ile_job.add_arg(str(posterior_file)) # needs to be a bilby ini file for the particular event being analyzed
+
+    #
+    #Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+
+
+    #
+    # Add normal arguments
+    #
+    for opt, param in list(kwargs.items()):
+        if isinstance(param, list) or isinstance(param, tuple):
+            # NOTE: Hack to get around multiple instances of the same option
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
+        elif param is True:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None or param is False:
+            continue
+        else:
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
+
+    ile_job.add_condor_cmd('getenv', 'True')
+    ile_job.add_condor_cmd('request_memory', str(request_memory))
+
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
+
+    # Write requirements
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+         print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
+
+
+    return ile_job, ile_sub_name
 

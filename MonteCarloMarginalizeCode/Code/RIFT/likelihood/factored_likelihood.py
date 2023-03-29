@@ -1734,7 +1734,7 @@ def _factored_lnL_helper(kappa_sq, rho_sq):
     return kappa_sq - 0.5 * rho_sq
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time. 
@@ -1782,7 +1782,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
     # Used to accumulate kappa^2 and rho^2 over all detectors.  They are just
     # the sum in quadrature of the individual detector contributions.
-    kappa_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
+    kappa_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
     rho_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
 
     if (xpy is np) or (optimized_gpu_tools is None):
@@ -1842,13 +1842,6 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         ifirst = (xpy.rint((tfirst) / deltaT) + 0.5).astype(np.int32)  # C uses 32 bit integers : be careful
 #        ilast = ifirst + npts
 
-        Q = xpy.ascontiguousarray(rholmsArrayDict[det].T)
-        # # Note: Very inefficient, need to avoid making `Qlms` by doing the
-        # # inner product in a CUDA kernel.
-        # det_rholms = xpy.asarray(rholmsArrayDict[det])
-        # Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=complex)
-        # for i in range(npts_extrinsic):
-        #     Qlms[i] = det_rholms[...,ifirst[i]:ilast[i]].T
 
         # Has shape (npts_extrinsic,)
         rho_sq_det = (
@@ -1871,23 +1864,48 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         # into using rho_sq directly
         rho_sq_det *= 0.5 * xpy.square(distMpcRef / distMpc)
 
+        # If phase_marginalization is turned on, the (2, -2) term should be
+        # replaced by its complex conjugate before the absolute value of
+        # kappa_sq is calculated
+        if phase_marginalization:
+            Ylms_vec[:, 1] = xpy.conj(Ylms_vec[:, 1])
+            Q = xpy.ascontiguousarray(
+                xpy.concatenate(
+                    [
+                        rholmsArrayDict[det][0][..., np.newaxis],
+                        xpy.conj(rholmsArrayDict[det][1][..., np.newaxis])
+                    ],
+                    axis=1
+                )
+            )
+            F_vec_dummy_lm = xpy.concatenate(
+                [F_vec[..., np.newaxis], xpy.conj(F_vec[..., np.newaxis])],
+                axis=1
+            )
+        else:
+            Q = xpy.ascontiguousarray(rholmsArrayDict[det].T)
+            # # Note: Very inefficient, need to avoid making `Qlms` by doing the
+            # # inner product in a CUDA kernel.
+            # det_rholms = xpy.asarray(rholmsArrayDict[det])
+            # Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=complex)
+            # for i in range(npts_extrinsic):
+            #     Qlms[i] = det_rholms[...,ifirst[i]:ilast[i]].T
 
-        # Has shape (npts_extrinsic, npts).
-        # Starts as term1, and accumulates term2 after.
+            # Has shape (npts_extrinsic, npts).
+            # Starts as term1, and accumulates term2 after.
 
-        # View into F with shape (npts_extrinsic, n_lms)
-        F_vec_dummy_lm = F_vec[..., np.newaxis]
-        # # View into F * Ylm with shape (npts_extrinsic, npts, n_lms)
-        # FY_dummy_t = xpy.broadcast_to(
-        #     (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
-        #     Qlms.shape,
-        # )
+            # View into F with shape (npts_extrinsic, n_lms)
+            F_vec_dummy_lm = F_vec[..., np.newaxis]
+            # # View into F * Ylm with shape (npts_extrinsic, npts, n_lms)
+            # FY_dummy_t = xpy.broadcast_to(
+            #     (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
+            #     Qlms.shape,
+            # )
 
-        # lnL_t_accum += xpy.einsum(
-        #     "...i,...i",
-        #     xpy.conj(FY_dummy_t), Qlms,
-        # ).real * (distMpcRef/distMpc)[...,None]
-
+            # lnL_t_accum += xpy.einsum(
+            #     "...i,...i",
+            #     xpy.conj(FY_dummy_t), Qlms,
+            # ).real * (distMpcRef/distMpc)[...,None]
 
         if not (xpy is np):
           FY_conj = xpy.conj(F_vec_dummy_lm * Ylms_vec)
@@ -1897,12 +1915,14 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
           Q_prod_result = Q_inner_product.Q_inner_product_cupy(
             Q, FY_conj,
             ifirst, npts,
-            ).real
+            )
         else:
           # Use old code completely unchanged ... very wasteful on memory management!
           Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
           for i in range(npts_extrinsic):
               Qlms[i] = rholmsArrayDict[det][...,ifirst[i]:(ifirst[i]+npts)].T
+          if phase_marginalization:
+              Qlms[:, :, 1] = xpy.conj(Qlms[:, :, 1])
 
           FY_dummy_t = np.broadcast_to(
             (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
@@ -1912,8 +1932,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
           Q_prod_result =  np.einsum(
             "...i,...i",
             np.conj(FY_dummy_t), Qlms,
-            ).real 
-
+            )
 
         kappa_sq += Q_prod_result * (distMpcRef/distMpc)[..., np.newaxis]
         # lnL_t_accum += Q_prod_result * (distMpcRef/distMpc)[...,None]
@@ -1934,7 +1953,10 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 #        lnL_t_accum += lnL_t
 
 
-    lnL_t = loglikelihood(kappa_sq, rho_sq)
+    if phase_marginalization:
+        lnL_t = loglikelihood(xpy.abs(kappa_sq), rho_sq)
+    else:
+        lnL_t = loglikelihood(kappa_sq.real, rho_sq)
 
     # Take exponential of the log likelihood in-place.
     lnLmax  = xpy.max(lnL_t)

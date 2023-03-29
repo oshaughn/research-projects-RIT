@@ -21,8 +21,10 @@ built from the SWIG wrappings of LAL and LALSimulation.
 import sys
 import copy
 import types
+has_external_teobresum=False
 try:
     import EOBRun_module
+    has_external_teobresum=True
 except:
     True; # print(" - no EOBRun (TEOBResumS) - ")
 from six.moves import range
@@ -45,6 +47,12 @@ sci_ver = list(map(safe_int, scipy.version.version.split('.')))  # scipy version
 
 from ligo.lw import lsctables, utils, ligolw #, table, ,ilwd # check all are needed
 from glue.lal import Cache
+
+lalmetaio_old_style=True
+import lalmetaio
+if not(hasattr(lalmetaio.SimInspiralTable, 'geocent_end_time_ns')):
+#    print(" NEW style lalmetaio ")
+    lalmetaio_old_style=False  # no geocent_end_time_ns
 
 import lal
 import lalsimulation as lalsim
@@ -1253,7 +1261,15 @@ class ChooseWaveformParams:
             a = a[:len(a)-1] # drop last
             a = a[8:]
             terms = a.split(',')
-            vals = map(self.extract_param, terms) # recurse to parse lower-level quantities
+            vals = list(map(self.extract_param, terms)) # recurse to parse lower-level quantities
+            return np.prod(vals)
+        if 'inverse(' in p:
+            # Drop first and last characters
+            a=p.replace(' ', '') # drop spaces
+            a = a[:len(a)-1] # drop last
+            a = a[8:]
+            terms = a.split(',')
+            vals = list(map(self.extract_param, terms)) # recurse to parse lower-level quantities
             return np.prod(vals)
         # assign an attribute
         if hasattr(self,p):
@@ -1627,40 +1643,49 @@ class ChooseWaveformParams:
         self.s2x = row.spin2x
         self.s2y = row.spin2y
         self.s2z = row.spin2z
-        self.fmin = row.f_lower
+        if hasattr(row, 'f_lower'):
+            self.fmin = row.f_lower
         self.dist = row.distance * lsu_PC * 1.e6
         self.incl = row.inclination
-        self.ampO = row.amp_order
-        if not (str(row.waveform).find("Taylor") == -1 ) or ("Eccentric" in row.waveform):  # Not meaningful to have an order for EOB, etc
-            self.phaseO = lalsim.GetOrderFromString(str(row.waveform))
-        else:
-            self.phaseO = -1
-        self.approx = lalsim.GetApproximantFromString(str(row.waveform))  # this is buggy for SEOB waveforms, adding irrelevant PN terms
-        if row.waveform == 'SEOBNRv3': 
-            self.approx = lalsim.SEOBNRv3
-        if row.waveform == 'SEOBNRv2':
-            self.approx = lalsim.SEOBNRv2
-        if row.waveform ==  'SEOBNRv4T':
-            self.approx = lalTEOBv4
-        if row.waveform == 'SEOBNRv4HM'   and lalSEOBNRv4HM > 0 :
-            self.approx = lalSEOBNRv4HM
-        if rosDebugMessagesContainer[0]:
-            print( " Loaded approximant ", self.approx,  " AKA ", lalsim.GetStringFromApproximant(self.approx), " from ", row.waveform)
+        if hasattr(row, 'amp_order'):
+            self.ampO = row.amp_order
+        if hasattr(row, 'waveform'):
+            if not (str(row.waveform).find("Taylor") == -1 ) or ("Eccentric" in row.waveform):  # Not meaningful to have an order for EOB, etc
+                self.phaseO = lalsim.GetOrderFromString(str(row.waveform))
+            else:
+                self.phaseO = -1
+            self.approx = lalsim.GetApproximantFromString(str(row.waveform))  # this is buggy for SEOB waveforms, adding irrelevant PN terms
+            if row.waveform == 'SEOBNRv3': 
+                self.approx = lalsim.SEOBNRv3
+            if row.waveform == 'SEOBNRv2':
+                self.approx = lalsim.SEOBNRv2
+            if row.waveform ==  'SEOBNRv4T':
+                self.approx = lalTEOBv4
+            if row.waveform == 'SEOBNRv4HM'   and lalSEOBNRv4HM > 0 :
+                self.approx = lalSEOBNRv4HM
+            if rosDebugMessagesContainer[0]:
+                print( " Loaded approximant ", self.approx,  " AKA ", lalsim.GetStringFromApproximant(self.approx), " from ", row.waveform)
         self.theta = row.latitude # Declination
         self.phi = row.longitude # Right ascension
         self.radec = True # Flag to interpret (theta,phi) as (DEC,RA)
         self.psi = row.polarization
-        self.tref = row.geocent_end_time + 1e-9*row.geocent_end_time_ns
-        self.taper = lalsim.GetTaperFromString(str(row.taper))
+        self.tref = row.geocent_end_time
+        if lalmetaio_old_style or hasattr(row, 'geocent_end_time_ns'):
+            self.tref += 1e-9*row.geocent_end_time_ns
+        if hasattr(row, 'taper'):
+            self.taper = lalsim.GetTaperFromString(str(row.taper))
         # FAKED COLUMNS (nonstandard)
         self.lambda1 = row.alpha5
         self.lambda2 = row.alpha6
         self.eccentricity=row.alpha4
         self.snr = row.alpha3   # lnL info
         # WARNING: alpha1, alpha2 used by ILE for weights!
-        self.eos_table_index = row.alpha
-        if not(row.alpha):
-            self.eos_table_index = None
+        if hasattr(row, 'alpha'):
+            self.eos_table_index = row.alpha
+            if not(row.alpha):
+                self.eos_table_index = None
+        else:
+            self.eos_table_index=None
     
 
     def create_sim_inspiral(self):
@@ -1671,7 +1696,9 @@ class ChooseWaveformParams:
         if rosDebugMessagesContainer[0]:
             print( " --- Creating XML row for the following ---- ")
             self.print_params()
-        sim_valid_cols = [ "simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"] # ,  "alpha1", "alpha2", "alpha3"
+        sim_valid_cols = [ "simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time",  "coa_phase", "distance", "mass1", "mass2", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"] # ,  "alpha1", "alpha2", "alpha3"
+        if lalmetaio_old_style:
+            sim_valid_cols += [ "geocent_end_time_ns"]
         si_table = lsctables.New(lsctables.SimInspiralTable, sim_valid_cols)
         row = si_table.RowType()
         row.simulation_id = si_table.get_next_id()
@@ -1693,8 +1720,11 @@ class ChooseWaveformParams:
         row.polarization = self.psi
         row.coa_phase = self.phiref
         # http://stackoverflow.com/questions/6032781/pythonnumpy-why-does-numpy-log-throw-an-attribute-error-if-its-operand-is-too
-        row.geocent_end_time = np.floor( float(self.tref))
-        row.geocent_end_time_ns = np.floor( float(1e9*(self.tref - row.geocent_end_time)))
+        if lalmetaio_old_style:
+            row.geocent_end_time = np.floor( float(self.tref))
+            row.geocent_end_time_ns = np.floor( float(1e9*(self.tref - row.geocent_end_time)))
+        else:
+            row.geocent_end_time = float(self.tref)
         row.distance = self.dist/(1e6*lsu_PC)
         row.amp_order = self.ampO
         # PROBLEM: This line is NOT ROBUST, because of type conversions
@@ -1737,12 +1767,23 @@ class ChooseWaveformParams:
         swigrow = lalmetaio.SimInspiralTable()
         for simattr in lsctables.SimInspiralTable.validcolumns.keys():
             if simattr in ['process_id','simulation_id','process::process_id','process:process_id']:
-                setattr(swigrow, simattr,0)
+                try:
+                    setattr(swigrow, simattr,0)
+                except:
+                    True  # we don't really care if this doesn't happen
             elif simattr in ["waveform", "source", "numrel_data", "taper","process_id"]:
                 # unicode -> char* doesn't work
                 setattr( swigrow, simattr, str(getattr(row, simattr)) )
+            elif not(lalmetaio_old_style) and ('end_time_ns' in simattr ):
+                basename = simattr.replace('_ns', '')
+                val = float(getattr(swigrow, basename))
+                dt = float(getattr(row, simattr))
+                setattr( swigrow, basename, (val+1e-9*dt))
             else:
-                setattr( swigrow, simattr, getattr(row, simattr) )
+                try:
+                    setattr( swigrow, simattr, getattr(row, simattr) )
+                except:
+                    raise Exception(" Failed to set  attribute {}".format(simattr))
         # Call the function to read lalmetaio.SimInspiral format
         self.copy_sim_inspiral(swigrow)
 
@@ -2729,7 +2770,7 @@ def hoft(P, Fp=None, Fc=None):
 #        print " Using ridiculous tweak for equal-mass line EOB"
         P.m2 = P.m1*(1-1e-6)
     extra_params = P.to_lal_dict()
-    if P.approx==lalsim.TEOBResumS:
+    if P.approx==lalsim.TEOBResumS and has_external_teobresum:
         Lmax=8
         modes_used = []
         distance_s = P.dist/lal.C_SI
@@ -3154,7 +3195,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
 
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
-    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM or P.approx == lalNRSur7dq4 or P.approx == lalNRSur7dq2 or P.approx==lalNRHybSur3dq8 or P.approx == lalIMRPhenomTPHM):
+    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM or P.approx == lalNRSur7dq4 or P.approx == lalNRSur7dq2 or P.approx==lalNRHybSur3dq8 or P.approx == lalIMRPhenomTPHM) or (P.approx ==lalsim.TEOBResumS and not(has_external_teobresum)):
         # approximant likst: see https://git.ligo.org/lscsoft/lalsuite/blob/master/lalsimulation/lib/LALSimInspiral.c#2541
         extra_params = P.to_lal_dict()
         # prevent segmentation fault when hitting nyquist frequency violations
@@ -3169,7 +3210,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
 	    P.s2x, P.s2y, P.s2z, \
             P.fmin, P.fref, P.dist, extra_params, \
              Lmax, P.approx)
-    elif P.approx ==lalsim.TEOBResumS:
+    elif P.approx ==lalsim.TEOBResumS and has_external_teobresum:
         print("Using TEOBResumS hlms")
         modes_used = []
         distance_s = P.dist/lal.C_SI
@@ -5169,7 +5210,7 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
     """
     try:
-        import EOSManager  # be careful to avoid recursive dependence!
+        import RIFT.physics.EOSManager  as EOSManager # be careful to avoid recursive dependence!
     except:
         print( " - Failed to load EOSManager - ")  # this will occur at the start
     assert not (eos_class==None)
