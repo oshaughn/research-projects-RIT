@@ -18,7 +18,7 @@ set -e
 # loop over all bin/ scripts
 for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
    # skip scripts with explicit bilby dependence
-   if [[ ${EXE} == 'calibration_reweighting.py' ]]; then
+   if [[ ${EXE} == '*calibration_reweighting.py' ]]; then
        continue
    fi
    # skip non-python scripts
