@@ -505,8 +505,8 @@ class EOSLindblomSpectral(EOSConcrete):
 #        print spec_params
 
         if use_lal_spec_eos:
-#            self.eos=lalsim.SimNeutronStarEOS4ParameterSpectralDecomposition(spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4'])   # Should have this function! but only on master
-            self.eos=lalsim.SimNeutronStarEOSSpectralDecomposition_for_plot(spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4'],4)
+            self.eos=lalsim.SimNeutronStarEOS4ParameterSpectralDecomposition(spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4'])  
+#            self.eos=lalsim.SimNeutronStarEOSSpectralDecomposition_for_plot(spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4'],4)        
         else:
             # Create data file
             self.make_spec_param_eos(500,save_dat=True,ligo_units=True,verbose=verbose)
