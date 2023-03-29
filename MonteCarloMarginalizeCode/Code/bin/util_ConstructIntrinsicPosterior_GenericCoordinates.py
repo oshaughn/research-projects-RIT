@@ -313,7 +313,8 @@ parser.add_argument("--no-plots",action='store_true')
 parser.add_argument("--tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--tabular-eos-file-format",type=str,default=None,help="Format of tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--tabular-eos-order-statistic",type=str,default=None,help="Order statistic to use.  Options will include R1p4, LambdaTildeQ1, and ...}")
-parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS.  Fit parameter list should physically use lambda1, lambda2 information (but need not) ")
+parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS.  Fit parameter list should physically use lambda1, lambda2 information (but need not). If starts with 'file:', uses a filename with EOS parameters ")
+parser.add_argument("--using-eos-index", type=int, default=None, help="Index of EOS parameters in file.")
 parser.add_argument("--no-use-lal-eos",action='store_true',help="Do not use LAL EOS interface. Used for spectral EOS. Do not use this.")
 parser.add_argument("--no-matter1", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
 parser.add_argument("--no-matter2", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
@@ -362,9 +363,43 @@ if opts.using_eos!=None:
     import RIFT.physics.EOSManager as EOSManager
     eos_name=opts.using_eos
     if opts.verbose:
-        print(" Using EOS ", eos_name, opts.eos_param, opts.eos_param_values)
+        print(" Using EOS ", eos_name, opts.using_eos_index, opts.eos_param, opts.eos_param_values)
 
-    if opts.eos_param == 'spectral':
+    if eos_name.startswith("file:") and not(opts.using_eos_index is None):
+        # Load in filename
+        fname = eos_name.replace('file:', '')
+        # Retrieve row with parameters
+        dat = np.loadtxt(fname)[opts.using_eos_index]
+        spec_param_array = dat[2:]  # drop first two as lnL, sigma_lnL
+        if opts.eos_param == 'spectral':
+            spec_params ={}
+            spec_params['gamma1']=spec_param_array[0]
+            spec_params['gamma2']=spec_param_array[1]
+            if len(spec_param_array) <3:
+                spec_params['gamma3']=spec_params['gamma4']=0
+            else:
+                spec_params['gamma3']=spec_param_array[2]
+                spec_params['gamma4']=spec_param_array[3]
+            eos_base = EOSManager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
+            my_eos=eos_base
+        elif opts.eos_param == 'cs_spectral' and len(spec_param_array >=4):
+            spec_params['gamma1']=spec_param_array[0]
+            spec_params['gamma2']=spec_param_array[1]
+            spec_params['gamma3']=spec_params['gamma4']=0
+            spec_params['gamma3']=spec_param_array[2]
+            spec_params['gamma4']=spec_param_array[3]
+            eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
+            my_eos = eos_base
+        elif opts.eos_param == 'PP' and len(spec_param_array >=4):
+            spec_params['logP1'] = spec_param_array[0]
+            spec_params['gamma1'] = spec_param_array[1]
+            spec_params['gamma2'] = spec_param_array[2]
+            spec_params['gamma3'] = spec_param_array[3]
+            eos_base = EOSManager.EOSPiecewisePolytrope(name=eos_name,params_dict=spec_params)
+            my_eos = eos_base
+        else:
+            raise Exception("Unknown method for parametric EOS data file {} : {} ".format(eos_name,opts.eos_param))
+    elif opts.eos_param == 'spectral':
         # Will not work yet -- need to modify to parse command-line arguments
         spec_param_packed=eval(opts.eos_param_values) # two lists: first are 'fixed' and second are specific
         fixed_param_array=spec_param_packed[0]
@@ -2390,7 +2425,7 @@ if neff < opts.n_eff:
 np.savetxt(opts.fname_output_integral+".dat", [np.log(res)+lnL_shift])
 eos_extra = []
 annotation_header = "lnL sigmaL neff "
-if opts.using_eos:
+if opts.using_eos and not(opts.using_eos.startswith('file:')):
     eos_extra = [opts.using_eos]
     annotation_header += 'eos_name '
     if opts.eos_param == 'spectral':
