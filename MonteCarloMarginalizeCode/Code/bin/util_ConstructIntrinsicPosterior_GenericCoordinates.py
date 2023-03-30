@@ -336,6 +336,11 @@ parser.add_argument("--tripwire-fraction",default=0.05,type=float,help="Fraction
 parser.add_argument("--fixed-parameter", action="append")
 parser.add_argument("--fixed-parameter-value", action="append")
 
+# Supplemental likelihood factors: convenient way to effectively change the mass/spin prior in arbitrary ways for example
+# Note this supplemental factor is passed the *fitting* arguments, directly.  Use with extreme caution, since we often change the dimension in a DAG 
+parser.add_argument("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external likelihood. EXPERTS ONLY")
+parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
+
 opts=  parser.parse_args()
 if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
@@ -348,6 +353,12 @@ if opts.lnL_shift_prevent_overflow:
     lnL_shift  = opts.lnL_shift_prevent_overflow
 if not(opts.force_no_adapt):
     opts.force_no_adapt=False  # force explicit boolean false
+
+ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu']
+if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
+  print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)
+  sys.exit(99)
+
 
 source_redshift=opts.source_redshift
 
@@ -460,6 +471,7 @@ with open('args.txt','w') as fp:
 
 if opts.fit_method == "quadratic":
     opts.fit_order = 2  # overrride
+
 
 ###
 ### Comparison data (from LI)
@@ -624,6 +636,35 @@ if opts.fit_method =="polynomial" or opts.fit_method == 'quadratic':
 print(" Coordinate names for Monte Carlo :, ", low_level_coord_names)
 if not(opts.no_plots):
     print(" Rendering coordinate names : ", list(map(lambda x: tex_dictionary[x], low_level_coord_names)))
+
+
+
+###
+### Supplemental likelihood: load (as in ILE)
+###
+supplemental_ln_likelihood= None
+supplemental_ln_likelhood_prep=None
+supplemental_ln_likelhood_parsed_ini=None
+# Supplemental likelihood factor. Must have identical call sequence to 'likelihood_function'. Called with identical raw inputs (including cosines/etc)
+if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_factor_function:
+  print(" EXTERNAL SUPPLEMENTARY LIKELIHOOD FACTOR : {}.{} ".format(opts.supplementary_likelihood_factor_code,opts.supplementary_likelihood_factor_function))
+  __import__(opts.supplementary_likelihood_factor_code)
+  external_likelihood_module = sys.modules[opts.supplementary_likelihood_factor_code]
+  supplemental_ln_likelihood = getattr(external_likelihood_module,opts.supplementary_likelihood_factor_function)
+  name_prep = "prepare_"+opts.supplementary_likelihood_factor_function
+  if hasattr(external_likelihood_module,name_prep):
+    supplemental_ln_likelhood_prep=getattr(external_likelihood_module,name_prep)
+    # Check for and load in ini file associated with external library
+    if opts.supplementary_likelihood_factor_ini:
+      import configparser as ConfigParser
+      config = ConfigParser.ConfigParser()
+      config.optionxform=str # force preserve case! 
+      config.read(opts.supplementary_likelihood_factor_ini)
+      supplemental_ln_likelhood_parsed_ini=config
+
+    # Call the ini file, tell it what coordinates we are using by name
+    supplemental_lnl_liklehood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=coord_names)
+
 
 
 ###
@@ -2359,8 +2400,12 @@ if opts.force_no_adapt:
     tempering_adapt=False
 # Result shifted by lnL_shift
 fn_passed = likelihood_function
-if opts.sampler_method=="GMM" and opts.internal_use_lnL:
+if supplemental_ln_likelihood:
+    fn_passed =  lambda x: likelhood_function(x)*np.exp(supplemental_ln_likelihood(x))
+if opts.internal_use_lnL:
     fn_passed = log_likelihood_function   # helps regularize large values
+    if supplemental_ln_likelihood:
+        fn_passed =  lambda x: log_likelhood_function(x) + supplemental_ln_likelihood(x)
     extra_args.update({"use_lnL":True,"return_lnI":True})
 if opts.internal_temper_log:
     extra_args.update({'temper_log':True})
