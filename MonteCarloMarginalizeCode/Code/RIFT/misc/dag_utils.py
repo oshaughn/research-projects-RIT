@@ -2033,10 +2033,6 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
-    # Add manual options for input, output
-    ile_job.add_opt('data-dump-file', str('bilby.pickle'))
-    ile_job.add_arg(str(bilby_ini_file)) # needs to be a bilby ini file for the particular event being analyzed
-
     #
     #Logging options
     #
@@ -2046,9 +2042,19 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
 
+    # Add manual options for input, output.  Hopefully this all happens in order as needed, if not we will just concatenate
+    # 
+    ile_job.add_arg(str(bilby_ini_file)) # needs to be a bilby ini file for the particular event being analyzed
+    ile_job.add_arg(' --data-dump-file calmarg/data/calmarg_data_dump.pickle')
+
+
+    # Add outdir, label so we can control filename for output
+    ile_job.add_arg(" --outdir calmarg ")
+    ile_job.add_arg(" --label calmarg ")
 
     #
     # Add normal arguments
+    # Note these need to appear *after* the bilby ini file
     #
     for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
@@ -2061,6 +2067,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
             continue
         else:
             ile_job.add_opt(opt.replace("_", "-"), str(param))
+
 
     ile_job.add_condor_cmd('getenv', 'True')
     ile_job.add_condor_cmd('request_memory', str(request_memory))
