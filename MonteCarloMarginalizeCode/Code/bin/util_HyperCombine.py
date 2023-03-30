@@ -37,7 +37,7 @@ for fname in opts.fname[0]: #sys.argv[1:]:
 #    data = np.loadtxt(fname)  # this will FAIL if we have a heterogeneous data source!  BE CAREFUL
     data = np.genfromtxt(fname,invalid_raise=False)  #  Protect against inhomogeneous data
     for line in data:
-      if True: # try:
+      try:
         line = np.around(line, decimals=my_digits)
         if tuple(line[2:]) in data_at_intrinsic:
 #            print " repeated occurrence ", line[1:9]
@@ -45,7 +45,7 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         else:
 #            print " new key ", line[1:9]
             data_at_intrinsic[tuple(line[2:])] = [line[:2]]
-      else: # except:
+      except:
           continue
 
 for key in data_at_intrinsic:
