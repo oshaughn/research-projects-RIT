@@ -204,6 +204,7 @@ parser.add_argument("--link-reference-psds",action='store_true',help="If present
 parser.add_argument("--make-bw-psds",action='store_true',help='If present, adds nodes to create BW PSDs to the dag.  If at all possible, avoid this and re-use existing PSDs')
 parser.add_argument("--link-bw-psds",action='store_true',help='If present, uses the script retrieve_bw_psd_for_event.sh  to find a precomputed BW psd, and convert it to our format')
 parser.add_argument("--use-online-psd",action='store_true', help="If present, will use the online PSD estimates")
+parser.add_argument("--ile-copes",default=1,type=int)
 parser.add_argument("--ile-retries",default=3,type=int)
 parser.add_argument("--general-retries",default=3,type=int)
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
@@ -247,7 +248,6 @@ parser.add_argument("--archive-pesummary-event-label",default="this_event",help=
 opts=  parser.parse_args()
 
 
-
 if (opts.use_ini):
     # Attempt to lazy-parse all command line arguments from ini file
     config = ConfigParser.ConfigParser()
@@ -281,6 +281,9 @@ if (opts.use_ini):
                 else:
                     config_dict[item_renamed] = True
         print(config_dict)
+
+if opts.ile_copies <=0:
+    raise Exception(" Must have 1 or more ILE instances per intrinsic point")
 
 if opts.internal_loud_signal_mitigation_suite:
     opts.internal_ile_freezeadapt=False  # make sure to adapt every iteration, and adapt in distance if present
@@ -1082,7 +1085,7 @@ if opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # m
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies 1" + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if opts.assume_matter or opts.assume_eccentric:
     cmd +=  " --convert-args `pwd`/helper_convert_args.txt "
 if not(opts.ile_runtime_max_minutes is None):
