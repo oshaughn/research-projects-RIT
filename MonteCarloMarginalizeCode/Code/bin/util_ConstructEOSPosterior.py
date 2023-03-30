@@ -1,18 +1,9 @@
 #! /usr/bin/env python
 #
-# GOAL
-#   - load in lnL data
-#   - fit peak to quadratic (standard), GP, etc. 
-#   - pass as input to mcsampler, to generate posterior samples
-#
-# FORMAT
-#   - pankow simplification of standard format
-#
-# COMPARE TO
-#   util_NRQuadraticFit.py
-#   postprocess_1d_cumulative
-#   util_QuadraticMassPosterior.py
-#
+#  util_ConstructEOSPosterior.py
+#     - takes in *generic-format* hyperparameter likelihood data
+#     - uses *uniform* prior on hyperparameters.  [non-uniform priors can  be applied by the user with a supplementary function]
+#     - generates posterior distribution by weighted Monte Carlo
 #
 # EXAMPLE:
 #   python `which util_ConstructEOSPosterior.py` --fname fake_int_grid.dat  --parameter gamma1 --parameter gamma2 --lnL-offset 50
@@ -25,10 +16,6 @@ import numpy as np
 import numpy.lib.recfunctions
 import scipy
 import scipy.stats
-import RIFT.lalsimutils as lalsimutils
-import lalsimulation as lalsim
-import lalframe
-import lal
 import functools
 import itertools
 
@@ -37,7 +24,6 @@ import joblib  # http://scikit-learn.org/stable/modules/model_persistence.html
 no_plots = True
 internal_dtype = np.float32  # only use 32 bit storage! Factor of 2 memory savings for GP code in high dimensions
 
-C_CGS=2.997925*10**10 # Argh, Monica!
  
 try:
     import matplotlib.pyplot as plt
@@ -66,80 +52,7 @@ import RIFT.integrators.mcsampler as mcsampler
 
 
 
-def render_coord(x):
-    if x in lalsimutils.tex_dictionary.keys():
-        return lalsimutils.tex_dictionary[x]
-    if 'product(' in x:
-        a=x.replace(' ', '') # drop spaces
-        a = a[:len(a)-1] # drop last
-        a = a[8:]
-        terms = a.split(',')
-        exprs =map(render_coord, terms)
-        exprs = map( lambda x: x.replace('$', ''), exprs)
-        my_label = ' '.join(exprs)
-        return '$'+my_label+'$'
-    else:
-        return x
 
-def render_coordinates(coord_names):
-    return map(render_coord, coord_names)
-
-
-def extract_combination_from_LI(samples_LI, p):
-    """
-    extract_combination_from_LI
-      - reads in known columns from posterior samples
-      - for selected known combinations not always available, it will compute them from standard quantities
-    """
-    if p in samples_LI.dtype.names:  # e.g., we have precomputed it
-        return samples_LI[p]
-    if p in remap_ILE_2_LI.keys():
-       if remap_ILE_2_LI[p] in samples_LI.dtype.names:
-         return samples_LI[ remap_ILE_2_LI[p] ]
-    # Return cartesian components of spin1, spin2.  NOTE: I may already populate these quantities in 'Add important quantities'
-    if p == 'chiz_plus':
-        print(" Transforming ")
-        if 'a1z' in samples_LI.dtype.names:
-            return (samples_LI['a1z']+ samples_LI['a2z'])/2.
-        if 'theta1' in samples_LI.dtype.names:
-            return (samples_LI['a1']*np.cos(samples_LI['theta1']) + samples_LI['a2']*np.cos(samples_LI['theta2']) )/2.
-#        return (samples_LI['a1']+ samples_LI['a2'])/2.
-    if p == 'chiz_minus':
-        print(" Transforming ")
-        if 'a1z' in samples_LI.dtype.names:
-            return (samples_LI['a1z']- samples_LI['a2z'])/2.
-        if 'theta1' in samples_LI.dtype.names:
-            return (samples_LI['a1']*np.cos(samples_LI['theta1']) - samples_LI['a2']*np.cos(samples_LI['theta2']) )/2.
-#        return (samples_LI['a1']- samples_LI['a2'])/2.
-    if  'theta1' in samples_LI.dtype.names:
-        if p == 's1x':
-            return samples_LI["a1"]*np.sin(samples_LI[ 'theta1']) * np.cos( samples_LI['phi1'])
-        if p == 's1y' :
-            return samples_LI["a1"]*np.sin(samples_LI[ 'theta1']) * np.sin( samples_LI['phi1'])
-        if p == 's2x':
-            return samples_LI["a2"]*np.sin(samples_LI[ 'theta2']) * np.cos( samples_LI['phi2'])
-        if p == 's2y':
-            return samples_LI["a2"]*np.sin(samples_LI[ 'theta2']) * np.sin( samples_LI['phi2'])
-        if p == 'chi1_perp' :
-            return samples_LI["a1"]*np.sin(samples_LI[ 'theta1']) 
-        if p == 'chi2_perp':
-            return samples_LI["a2"]*np.sin(samples_LI[ 'theta2']) 
-    if 'lambdat' in samples_LI.dtype.names:  # LI does sampling in these tidal coordinates
-        lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(samples_LI["m1"], samples_LI["m2"], samples_LI["lambdat"], samples_LI["dlambdat"])
-        if p == "lambda1":
-            return lambda1
-        if p == "lambda2":
-            return lambda2
-    if p == 'delta' or p=='delta_mc':
-        return (samples_LI['m1']  - samples_LI['m2'])/((samples_LI['m1']  + samples_LI['m2']))
-    # Return cartesian components of Lhat
-    if p == 'product(sin_beta,sin_phiJL)':
-        return np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.sin(  samples_LI['phi_jl'])
-    if p == 'product(sin_beta,cos_phiJL)':
-        return np.sin(samples_LI[ remap_ILE_2_LI['beta'] ]) * np.cos(  samples_LI['phi_jl'])
-
-    print(" No access for parameter ", p)
-    return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
 
 def add_field(a, descr):
     """Return a new array that is like "a", but has additional fields.
@@ -174,16 +87,15 @@ def add_field(a, descr):
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--fname",help="filename of *.dat file [EOS table: int_res gamma1 gamma2 ...]")
+parser.add_argument("--fname",help="filename of *.dat file (EOS-format: lnL sigma_lnL p1 p2 ... .  ASSUME any stacking over events already performed.")
 parser.add_argument("--fname-output-samples",default="output-EOS-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
 parser.add_argument("--n-output-samples",default=2000,type=int,help="output posterior samples (default 3000)")
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state [spectral only, for now]")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior. Currently can only specify gamma1,gamma2, ..., and these MUST be columns in --fname")
-parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo")
+parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo. For EOS objects, only possible for physical quantities like R1.4, etc. NOT YET PROVIDED")
 #parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrained, and the a prior sampler is well-chosen.")
-parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters")
-parser.add_argument("--trust-sample-parameter-box",action='store_true', help="If used, sets the prior range to the SAMPLE range for any parameters. NOT IMPLEMENTED. This should be automatically done for mc!")
-parser.add_argument("--plots-do-not-force-large-range",action='store_true', help = "If used, the plots do NOT automatically set the chieff range to [-1,1], the eta range to [0,1/4], etc")
+parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters.")
+parser.add_argument("--integration-parameter-range",action='append', help="Integration parameter ranges. Syntax is name:[a,b]")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--no-downselect",action='store_true')
@@ -201,24 +113,33 @@ parser.add_argument("--save-plots",default=False,action='store_true', help="Writ
 parser.add_argument("--n-max",default=3e5,type=float)
 parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
+parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde.  Note 'polynomial' with --fit-order 0  will fit a constant")
 parser.add_argument("--fit-load-gp",default=None,type=str,help="Filename of GP fit to load. Overrides fitting process, but user MUST correctly specify coordinate system to interpret the fit with.  Does not override loading and converting the data.")
 parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename of GP fit to save. ")
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 parser.add_argument("--no-plots",action='store_true')
-parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS if not already determined in lnL")
+parser.add_argument("--using-eos-type", type=str, default=None, help="Name of EOS parameterization (must match what is used for inputs). Will use EOS parameterization to identify appropriate field headers")
+parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
+parser.add_argument("--internal-use-lnL",action='store_true',help="integrator internally manipulates lnL. ")
+parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
+parser.add_argument("--internal-n-comp",default=1,type=int,help="number of components to use for GMM sampling. Default is 1, because we expect a unimodal posterior in well-adapted coordinates.  If you have crappy coordinates, use more")
+parser.add_argument("--force-no-adapt",action='store_true',help="Disable adaptation, both of the tempering exponent *and* the individual sampling prior(s)")
+parser.add_argument("--tripwire-fraction",default=0.05,type=float,help="Fraction of nmax of iterations after which n_eff needs to be greater than 1+epsilon for a small number epsilon")
+
+# Supplemental likelihood factors: convenient way to effectively change the mass/spin prior in arbitrary ways for example
+# Note this supplemental factor is passed the *fitting* arguments, directly.  Use with extreme caution, since we often change the dimension in a DAG 
+parser.add_argument("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., imposing alternate EOS priors)")
+parser.add_argument("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external likelihood. EXPERTS ONLY")
+parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
 opts=  parser.parse_args()
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
+lnL_default_large_negative = -500
 if opts.lnL_shift_prevent_overflow:
     lnL_shift  = opts.lnL_shift_prevent_overflow
 
 
 
-with open('args.txt','w') as fp:
-    import sys
-    fp.write(' '.join(sys.argv))
-
-###
 ### Comparison data (from LI)
 ###
 
@@ -259,46 +180,74 @@ if opts.parameter_nofit:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
 error_factor = len(coord_names)
 # TeX dictionary
-#tex_dictionary = lalsimutils.tex_dictionary
 print(" Coordinate names for fit :, ", coord_names)
 print(" Coordinate names for Monte Carlo :, ", low_level_coord_names)
-#print " Rendering coordinate names : ", map(lambda x: tex_dictionary[x], low_level_coord_names)
 
 
 ###
-### Prior functions : a dictionary
+### Integration ranges
 ###
 
-def eos_param_uniform_prior(x):
+param_ranges = {}
+for range_code  in opts.integration_parameter_range:
+    name, range_str  = range_code.split(':')
+    range_expr =     eval(range_str)  # define. Better to split on , for example
+    param_ranges[name]  = range_expr
+
+
+
+###
+### Prior functions : default is UNIFORM, since it is unmodeled and generic
+###
+
+def uniform_prior(x):
     return np.ones(x.shape)
 
-
-prior_map  = { 'gamma1':eos_param_uniform_prior, 'gamma2':eos_param_uniform_prior,
-}
-# Les: somewhat more aggressive: 
-#    gamma1: 0.2,2
-#    gamma2: -1.67, 1.7
-prior_range_map = { 'gamma1':  [0.707899,1.31], 'gamma2':[-1.6,1.7], 'gamma3':[-0.6,0.6], 'gamma4':[-0.02,0.02]
-}
+prior_map = {}
+for name in low_level_coord_names:
+    prior_map[name] = uniform_prior
+    if not(name in param_ranges):
+        raise Exception(" {} not provided a parameter range ".format(name))  # change later, should fall back to using prior range from above
 
 
-# tex_dictionary  = {
-#  "mtot": '$M$',
-#  "mc": '${\cal M}_c$',
-#  "m1": '$m_1$',
-#  "m2": '$m_2$',
-#   "q": "$q$",
-#   "delta" : "$\delta$",
-#   "DeltaOverM2_perp" : "$\Delta_\perp$",
-#   "DeltaOverM2_L" : "$\Delta_{||}$",
-#   "SOverM2_perp" : "$S_\perp$",
-#   "SOverM2_L" : "$S_{||}$",
-#   "eta": "$\eta$",
-#   "chi_eff": "$\chi_{eff}$",
-#   "xi": "$\chi_{eff}$",
-#   "s1z": "$\chi_{1,z}$",
-#   "s2z": "$\chi_{2,z}$"
+prior_range_map = param_ranges
+
+# prior_map  = { 'gamma1':eos_param_uniform_prior, 'gamma2':eos_param_uniform_prior,
 # }
+# # Les: somewhat more aggressive: 
+# #    gamma1: 0.2,2
+# #    gamma2: -1.67, 1.7
+# prior_range_map = { 'gamma1':  [0.707899,1.31], 'gamma2':[-1.6,1.7], 'gamma3':[-0.6,0.6], 'gamma4':[-0.02,0.02]
+# }
+
+
+###
+### Supplemental likelihood: load (as in ILE)
+###
+supplemental_ln_likelihood= None
+supplemental_ln_likelihood_prep =None
+supplemental_ln_likelihood_parsed_ini=None
+# Supplemental likelihood factor. Must have identical call sequence to 'likelihood_function'. Called with identical raw inputs (including cosines/etc)
+if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_factor_function:
+  print(" EXTERNAL SUPPLEMENTARY LIKELIHOOD FACTOR : {}.{} ".format(opts.supplementary_likelihood_factor_code,opts.supplementary_likelihood_factor_function))
+  __import__(opts.supplementary_likelihood_factor_code)
+  external_likelihood_module = sys.modules[opts.supplementary_likelihood_factor_code]
+  supplemental_ln_likelihood = getattr(external_likelihood_module,opts.supplementary_likelihood_factor_function)
+  name_prep = "prepare_"+opts.supplementary_likelihood_factor_function
+  if hasattr(external_likelihood_module,name_prep):
+    supplemental_ln_likelhood_prep=getattr(external_likelihood_module,name_prep)
+    # Check for and load in ini file associated with external library
+    if opts.supplementary_likelihood_factor_ini:
+      import configparser as ConfigParser
+      config = ConfigParser.ConfigParser()
+      config.optionxform=str # force preserve case! 
+      config.read(opts.supplementary_likelihood_factor_ini)
+      supplemental_ln_likelhood_parsed_ini=config
+
+      # Call the ini file, tell it what coordinates we are using by name
+      supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=coord_names)
+
+
 
 
 from sklearn.gaussian_process import GaussianProcessRegressor
@@ -390,6 +339,37 @@ def fit_gp_pool(x,y,n_pool=10,**kwargs):
     return fn_out
 
 
+def fit_rf(x,y,y_errors=None,fname_export='nn_fit'):
+#    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.ensemble import ExtraTreesRegressor
+    # Instantiate model. Usually not that many structures to find, don't overcomplicate
+    #   - should scale like number of samples
+    rf = ExtraTreesRegressor(n_estimators=100, verbose=True,n_jobs=-1) # no more than 5% of samples in a leaf
+    if y_errors is None:
+        rf.fit(x,y)
+    else:
+        rf.fit(x,y,sample_weight=1./y_errors**2)
+
+    ### reject points with infinities : problems for inputs
+    def fn_return(x_in,rf=rf):
+        f_out = -lnL_default_large_negative*np.ones(len(x_in))
+        # remove infinity or Nan
+        indx_ok = np.all(np.isfinite(np.array(x_in,dtype=float)),axis=-1)
+        # rf internally uses float32, so we need to remove points > 10^37 or so ! 
+        #    ... this *should* never happen due to bounds constraints, but ...
+        indx_ok_size = np.all( np.logical_not(np.greater(np.abs(x_in),1e37)), axis=-1)
+        indx_ok = np.logical_and(indx_ok, indx_ok_size)
+        f_out[indx_ok] = rf.predict(x_in[indx_ok])
+        return f_out
+#    fn_return = lambda x_in: rf.predict(x_in) 
+
+    print( " Demonstrating RF")   # debugging
+    residuals = rf.predict(x)-y
+    print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
+    return fn_return
+
+
+
 
 
 # initialize
@@ -407,7 +387,7 @@ dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questi
 print(" Original data size = ", len(dat), dat.shape)
 
  ###
- ### Convert data.  
+ ### Convert data.   RIGHT NOW JUST DOWNSELECTING, no intermediate fitting parameters defined
  ###
 
 dat_out = []
@@ -429,15 +409,6 @@ Y_err = dat_out[:,-1]
 X_orig = X.copy()
 Y_orig = Y.copy()
 
-# Plot cumulative distribution in lnL, for all points.  Useful sanity check for convergence.  Start with RAW
-if not opts.no_plots:
-    Yvals_copy = Y_orig.copy()
-    Yvals_copy = Yvals_copy[Yvals_copy.argsort()[::-1]]
-    pvals = np.arange(len(Yvals_copy))*1.0/len(Yvals_copy)
-    plt.plot(Yvals_copy, pvals)
-    plt.xlabel(r"$\ln{\cal L}$")
-    plt.ylabel(r"evaluation fraction $(<\ln{\cal L})$")
-    plt.savefig("lnL_cumulative_distribution_of_input_points.png"); plt.clf()
 
 
 # Eliminate values with Y too small
@@ -460,7 +431,7 @@ elif sum(indx_ok) < 10: # and max_lnL > 30:
 X_raw = X.copy()
 
 my_fit= None
-if True:
+if opts.fit_method =='gp':
     print(" FIT METHOD : GP")
     # some data truncation IS used for the GP, but beware
     print(" Truncating data set used for GP, to reduce memory usage needed in matrix operations")
@@ -475,25 +446,26 @@ if True:
         X=X[indx]
         Y_err=Y_err[indx]
     my_fit = fit_gp(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'rf':
+    print( " FIT METHOD ", opts.fit_method, " IS RF ")
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+    my_fit = fit_rf(X,Y,y_errors=Y_err)
 
 
 # Sort for later convenience (scatterplots, etc)
 indx = Y.argsort()#[::-1]
 X=X[indx]
 Y=Y[indx]
-
-# Make grid plots for all pairs of points, to facilitate direct validation of where posterior support lies
-if not no_plots:
- import itertools
- for i, j in itertools.product( np.arange(len(coord_names)),np.arange(len(coord_names)) ):
-  if i < j:
-    plt.scatter( X[:,i],X[:,j],label='rapid_pe',c=Y); plt.legend(); plt.colorbar()
-    x_name = str(coord_names[i])
-    y_name = str(coord_names[j])
-    plt.xlabel( x_name)
-    plt.ylabel( y_name )
-    plt.title("rapid_pe evaluations (=inputs); no fits")
-    plt.savefig("scatter_"+coord_names[i]+"_"+coord_names[j]+".png"); plt.clf()
 
 
 
@@ -585,12 +557,80 @@ if len(coord_names) ==10:
             return np.exp(my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f,g])))
 
 
+
+
 n_step = 1e5
 my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
 #my_exp = np.max([my_exp,  1/np.log(n_step)]) # do not allow extreme contrast in adaptivity, to the point that one iteration will dominate
 print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto")
 
+
+extra_args={}
+if opts.sampler_method == "GMM":
+    n_max_blocks = ((1.0*int(opts.n_max))/n_step) 
+    n_comp = opts.internal_n_comp # default
+    def parse_corr_params(my_str):
+        """
+        Takes a string with no spaces, and returns a tuple
+        """
+        corr_param_names = my_str.replace(',',' ').split()
+        corr_param_indexes = []
+        for param in corr_param_names:
+            try:
+                indx = low_level_coord_names.index(param)
+                corr_param_indexes.append(indx)
+            except:
+                continue
+        return tuple(corr_param_indexes)
+    if opts.internal_correlate_parameters == 'all':
+        gmm_dict = {tuple(range(len(low_level_coord_names))):None} # integrate *jointly* in all parameters together
+    elif not (opts.internal_correlate_parameters is None):
+        # Correlate identified parameters
+        my_blocks = opts.internal_correlate_parameters.split()
+        my_tuples = list(map( parse_corr_params, my_blocks))
+        gmm_dict = {x:None for x in my_tuples}
+        # What about un-labelled parameters? Make a null tuple for them as well
+        correlated_params = set(()); correlated_params = correlated_params.union( *list(map(set,my_tuples)))
+        uncorrelated_params = set(np.arange(len(low_level_coord_names))); 
+        uncorrelated_params = uncorrelated_params.difference(correlated_params)
+        for x in uncorrelated_params:
+            gmm_dict[(x,)] = None
+        print( " Using correlated GMM sampling on sampling variable indexes " , gmm_dict, " out of ", low_level_coord_names)
+    else:
+        param_indexes = range(len(low_level_coord_names))
+        gmm_dict  = {(k,):None for k in param_indexes} # no correlations
+    if opts.internal_gmm_memory_chisquared_factor:
+        lnL_offset_saving = len(low_level_coord_names)*opts.internal_gmm_memory_chisquared_factor  # based on chisquared distribution, we should not be keeping more than this for output.  This is PURELY FOR MEMORY MANAGEMENT
+    else:
+        lnL_offset_saving = opts.lnL_offset
+    extra_args = {'n_comp':n_comp,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - lnL_offset_saving)),'gmm_dict':gmm_dict,'max_err':50}  # made up for now, should adjust
+extra_args.update({
+    "n_adapt": 100, # Number of chunks to allow adaption over
+    "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1D histograms with, 
+    "force_no_adapt":opts.force_no_adapt,
+    "tripwire_fraction":opts.tripwire_fraction
+})
+
+fn_passed = likelihood_function
+if supplemental_ln_likelihood:
+    fn_passed =  lambda *x: likelihood_function(*x)*np.exp(supplemental_ln_likelihood(*x))
+if opts.internal_use_lnL:
+    fn_passed = log_likelihood_function   # helps regularize large values
+    if supplemental_ln_likelihood:
+        fn_passed =  lambda *x: log_likelihood_function(*x) + supplemental_ln_likelihood(*x)
+    extra_args.update({"use_lnL":True,"return_lnI":True})
+
+
+
 res, var, neff, dict_return = sampler.integrate(likelihood_function, *coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True)  # weight ecponent needs better choice. We are using arbitrary-name functions
+
+n_ESS = -1
+if True:
+    # Compute n_ESS.  Should be done by integrator!
+    weights_scaled = sampler._rvs["integrand"]*sampler._rvs["joint_prior"]/sampler._rvs["joint_s_prior"]
+    weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
+    n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
+    print(" n_eff n_ESS ", neff, n_ESS)
 
 
 # Save result -- needed for odds ratios, etc.
@@ -633,55 +673,16 @@ weights = np.exp(lnL-lnLmax)*p/ps
 
 
 
-
-if not no_plots:
- for indx in np.arange(len(coord_names)):
-   if True:
-    dat_out = []; dat_out_LI=[]
-    p = coord_names[indx]
-    print(" -- 1d cumulative "+ str(indx)+ ":"+ coord_names[indx]+" ----")
-    dat_here = samples[coord_names[indx]]
-    range_x = [np.min(dat_here), np.max(dat_here)]
-    for x in np.linspace(range_x[0],range_x[1],200):
-         dat_out.append([x, np.sum( weights[ dat_here< x])/np.sum(weights)])
-    
-    np.savetxt(p+"_cdf_nocut_beware.dat", np.array(dat_out))
-    dat_out = np.array(dat_out); 
-    plt.plot(dat_out[:,0],dat_out[:,1],label="rapid_pe")
-   
-    x_name = p
-    plt.xlabel(x_name); plt.legend()
-    y_name  = x_name.replace('$','')
-    y_name = "$P(<"+y_name + ")$"
-    plt.ylabel(y_name)
-    plt.title("CDF: "+x_name)
-    plt.savefig(p+"_cdf_nocut_beware.png"); plt.clf()
-   else:
-      plt.clf()  # clear plot, just in case
-      print(" No 1d plot for variable")
-
-
-
 print(" ---- Subset for posterior samples (and further corner work) --- ")
 
-# pick random numbers
-p_thresholds =  np.random.uniform(low=0.0,high=1.0,size=opts.n_output_samples)
-if opts.verbose:
-    print(" output size: selected thresholds N=", len(p_thresholds))
-# find sample indexes associated with the random numbers
-#    - FIXME: first truncate the bad ones
-# idx_sorted_index = numpy.lexsort((numpy.arange(len(weights)), weights))  # Sort the array of weights, recovering index values
-# indx_list = numpy.array( [[k, weights[k]] for k in idx_sorted_index])     # pair up with the weights again
-# cum_weights = np.cumsum(indx_list[:,1)
-# cum_weights = cum_weights/cum_weights[-1]
-# indx_list = [indx_list[k, 0] for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probabilit
-cum_sum  = np.cumsum(weights)
-cum_sum = cum_sum/cum_sum[-1]
-indx_list = np.array(map(lambda x : np.sum(cum_sum < x),  p_thresholds))  # this can lead to duplicates
 
-dat_out = np.zeros( (len(p_thresholds),len(coord_names)))
+p_norm = (weights/np.sum(weights))
+indx_list = np.random.choice(np.arange(len(weights)), p=p_norm.astype(np.float64),size=opts.n_output_samples)
+
+
+dat_out = np.zeros( (opts.n_output_samples,2+len(coord_names)) )
 for indx in np.arange(len(coord_names)):
-    dat_out[:,indx] = samples[coord_names[indx]][indx_list]
+    dat_out[:,2+indx] = samples[coord_names[indx]][indx_list]
 
 print(" Saving to ", opts.fname_output_samples+".dat")
-np.savetxt(opts.fname_output_samples+".dat",dat_out,header=' '.join(coord_names))
+np.savetxt(opts.fname_output_samples+".dat",dat_out,header=" lnL sigma_lnL " + ' '.join(coord_names))
