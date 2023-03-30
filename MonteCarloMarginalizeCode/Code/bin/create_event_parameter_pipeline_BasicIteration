@@ -1124,6 +1124,7 @@ if opts.comov_distance_reweighting:
 #    
 
 parent_fit_node = None
+last_node=None
 
 if opts.gridinit_args:
    grid_node = pipeline.CondorDAGNode(gridinit_job) 
@@ -1549,8 +1550,10 @@ if opts.last_iteration_extrinsic:
    
     if not(opts.last_iteration_extrinsic_time_resampling):
         dag.add_node(cat_node)
+        last_node=cat_node
     else:
         dag.add_node(convert_node)   # this is the time resampling task
+        last_node=convert_node
 
 # Creating calibration uncertainty job
 if opts.calibration_reweighting:
@@ -1558,20 +1561,26 @@ if opts.calibration_reweighting:
         pickle_node = pipeline.CondorDAGNode(pickle_job)
         pickle_node.add_macro("macroiteration",it)
         pickle_node.set_category("PICKLE")
+        pickle_node.add_parent(last_node)
+        last_node=pickle_node
         dag.add_node(pickle_node)
     calibration_node = pipeline.CondorDAGNode(calibration_job)
     calibration_node.add_macro("macroiteration",it)
     calibration_node.set_category("CALIBRATION")
+    calibration_node.add_parent(last_node)
     dag.add_node(calibration_node)
     
 if opts.comov_distance_reweighting:
     convert_ascii_node = pipeline.CondorDAGNode(convert_ascii_job)
     convert_ascii_node.add_macro("macroiteration",it)
     convert_ascii_node.set_category("CONVERT_ASCII")
+    convert_ascii_node.add_parent(last_node)
     dag.add_node(convert_ascii_node)
     distance_node = pipeline.CondorDAGNode(distance_job)
     distance_node.add_macro("macroiteration",it)
     distance_node.set_category("COMOV")
+    distance_node.add_parent(convert_ascii_node)
+    last_node=distance_node
     dag.add_node(distance_node)
 # Create final node for overall plots.  (Note: default setup is designed to enable plots of the last two iterations *at each step* but this seems like overkill)
 if plot_args:
