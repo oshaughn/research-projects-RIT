@@ -338,6 +338,7 @@ parser.add_argument("--fixed-parameter-value", action="append")
 
 # Supplemental likelihood factors: convenient way to effectively change the mass/spin prior in arbitrary ways for example
 # Note this supplemental factor is passed the *fitting* arguments, directly.  Use with extreme caution, since we often change the dimension in a DAG 
+parser.add_argument("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., external astro priors). EXPERTS-ONLY")
 parser.add_argument("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external likelihood. EXPERTS ONLY")
 parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
 
@@ -643,8 +644,8 @@ if not(opts.no_plots):
 ### Supplemental likelihood: load (as in ILE)
 ###
 supplemental_ln_likelihood= None
-supplemental_ln_likelhood_prep=None
-supplemental_ln_likelhood_parsed_ini=None
+supplemental_ln_likelihood_prep =None
+supplemental_ln_likelihood_parsed_ini=None
 # Supplemental likelihood factor. Must have identical call sequence to 'likelihood_function'. Called with identical raw inputs (including cosines/etc)
 if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_factor_function:
   print(" EXTERNAL SUPPLEMENTARY LIKELIHOOD FACTOR : {}.{} ".format(opts.supplementary_likelihood_factor_code,opts.supplementary_likelihood_factor_function))
@@ -662,8 +663,8 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
       config.read(opts.supplementary_likelihood_factor_ini)
       supplemental_ln_likelhood_parsed_ini=config
 
-    # Call the ini file, tell it what coordinates we are using by name
-    supplemental_lnl_liklehood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=coord_names)
+      # Call the ini file, tell it what coordinates we are using by name
+      supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=coord_names)
 
 
 
@@ -2401,11 +2402,11 @@ if opts.force_no_adapt:
 # Result shifted by lnL_shift
 fn_passed = likelihood_function
 if supplemental_ln_likelihood:
-    fn_passed =  lambda x: likelhood_function(x)*np.exp(supplemental_ln_likelihood(x))
+    fn_passed =  lambda *x: likelihood_function(*x)*np.exp(supplemental_ln_likelihood(*x))
 if opts.internal_use_lnL:
     fn_passed = log_likelihood_function   # helps regularize large values
     if supplemental_ln_likelihood:
-        fn_passed =  lambda x: log_likelhood_function(x) + supplemental_ln_likelihood(x)
+        fn_passed =  lambda *x: log_likelihood_function(*x) + supplemental_ln_likelihood(*x)
     extra_args.update({"use_lnL":True,"return_lnI":True})
 if opts.internal_temper_log:
     extra_args.update({'temper_log':True})
