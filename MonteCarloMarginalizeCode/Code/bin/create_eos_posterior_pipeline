@@ -34,7 +34,9 @@ parser.add_argument("--input-grid",default=None,help="EOS parameters ")
 parser.add_argument("--event-file",default=None,action='append',help="Specify the events here.  Will be copied into 'event-X.net' ")
 parser.add_argument("--marg-event-args",default=None,help="filename of args_marg_event.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified.   ")
 parser.add_argument("--marg-explode-jobs",default=2,type=int,help="Number of MARG jobs to use in posterior generation.")
+parser.add_argument("--marg-explode-jobs-last",default=2,type=int,help="Number of MARG jobs to use in posterior generation on the final stage (if desired).")
 parser.add_argument("--marg-event-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
+parser.add_argument("--request-memory-marg",default=16384,type=int,help="Memory request for condor (in Mb) for fitting jobs.")
 parser.add_argument("--puff-exe",default=None,help="similar to PUFF, but cannot be the same executable since format different")
 parser.add_argument("--puff-args",default=None,help=" argumetns")
 parser.add_argument("--puff-max-it",default=-1,type=int,help="Maximum iteration number that puffball is applied.  If negative, puffball is not applied ")
@@ -53,6 +55,7 @@ parser.add_argument("--condor-local-nonworker",action='store_true',help="Uses lo
 parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="Uses local flocking for non-worker condor jobs. Important to run in non-NFS location, as other jobs don't have file transfer set up.")
 parser.add_argument('--n-iterations',default=3,type=int,help="Number of iterations to perform")
 parser.add_argument("--start-iteration",default=0,type=int,help="starting iteration. If >0, does not copy over --input-grid. DOES rewrite sub files.  This allows you to change the arguments provided (e.g., use more iterations or settings at late times). Note this overwrites the .sub files ")
+parser.add_argument("--use-full-submit-paths",action='store_true',help="DAG created has full paths to submit files generated. Note this is implemented on a per-file/as-needed basis, mainly to facilitate using this dag as an external subdag")
 
 opts=  parser.parse_args()
 print(opts)
@@ -107,6 +110,11 @@ marg_event_args = marg_event_args.replace(']', ']\'')
 marg_event_args=marg_event_args.rstrip()
 print("MARG", marg_event_args)
 
+marg_exe_master = None
+if opts.marg_event_exe:
+    marg_exe_master = "{}".format(marg_exe) # force clpy, so NOT BY REFERENCE
+
+
 
 puff_args=None
 puff_cadence = None
@@ -138,6 +146,11 @@ if True: # not (opts.eos_post_args is None):
     eos_post_args=eos_post_args.rstrip()
     eos_post_args += ' --no-plots '  
     print("EOS_POST", eos_post_args)
+
+eospost_exe = which('util_ConstructEOSPosterior.py')
+if opts.eos_post_exe:
+    eospost_exe = "{}".format(opts.eos_post_exe) # force clpy, so NOT BY REFERENCE
+
 
 
 # Copy seed grid into place as grid-0.dat
@@ -172,6 +185,10 @@ for indx in np.arange(it_start,opts.n_iterations+1):
     cip_dir = opts.working_directory+"/iteration_"+str(indx)+"_post"
     consolidate_dir = opts.working_directory+"/iteration_"+str(indx)+"_con"
     mkdir(ile_dir); mkdir(ile_dir+"/logs")
+    indx=0
+    for event in opts.event_file:
+        mkdir(ile_dir + "/event_{}".format(indx))
+        indx+=1
     mkdir(cip_dir);  mkdir(cip_dir+"/logs")
     mkdir(consolidate_dir); mkdir(consolidate_dir+"/logs")
 
@@ -188,7 +205,7 @@ for indx in np.arange(it_start,opts.n_iterations+1):
 #   - issue is that transfer files depend on event
 #   - all output goes into the same iter*_marg directory
 #   - join script will merge all together
-cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='MARG',log_dir=None,arg_str=cip_args_base,request_memory=opts.request_memory_CIP,input_net=working_dir_inside_cip+'/event-$(event_input).net',output='MARG-$(event_input)-$(event)-$(macroiterationnext)',out_dir=out_dir_inside_cip,exe=cip_exe_master,universe=local_worker_universe,no_grid=cip_no_grid,use_osg=opts.use_osg_cip,use_singularity=opts.use_osg_cip and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg_cip,transfer_files=['../event-$(event_input).net'])
+cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='MARG',log_dir=None,arg_str=marg_event_args,request_memory=opts.request_memory_marg,input_net=working_dir_inside_local+'/event-$(event_input).net',output='MARG-$(event_input)-$(event)',out_dir=out_dir_inside_marg,exe=marg_exe_master,universe=local_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../event-$(event_input).net'])
 # Modify: set 'initialdir'
 cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg")
 # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -219,6 +236,7 @@ con_marg_job.add_condor_cmd("initialdir",opts.working_directory)
 con_marg_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).log")
 con_marg_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).err")
 con_marg_job.add_condor_cmd('request_disk',opts.general_request_disk)
+con_marg_job.write_sub_file()
         
 
 ##   unify job
@@ -228,13 +246,145 @@ with open("unify.sh",'w') as f:
 cat *.net_marg > all.net
 """)
     os.system("chmod a+x unify.sh")
-
 unify_marg_job, unify_marg_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/unify.sh",tag='CON',log_dir=None,arg_str='',file_input="$(macroiteration)  ",file_output="/dev/null", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
 unify_marg_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_marg_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).log")
 unify_marg_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).err")
 unify_marg_job.add_condor_cmd('request_disk',opts.general_request_disk)
+unify_marg_job.write_sub_file()
 
 
-##   EOS_POST job
-#  - 
+##   EOS_POST job  (workers)
+#  - main hyperparameter integration executable
+eospost_marg_job, eospost_marg_job_name = dag_utils.write_hyperpost_sub(exe=eospost_exe,tag='EOS_POST_worker',arg_str=eos_post_args,out_dir=opts.working_directory,output='iteration_$(macroiteration)_post/output-$(macroiterationnext)-$(cluster)')
+eospost_marg_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_post")
+eospost_marg_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_post/logs/post-$(cluster)-$(process).log")
+eospost_marg_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_post/logs/post-$(cluster)-$(process).err")
+eospost_marg_job.add_condor_cmd('request_disk',opts.general_request_disk)
+eospost_marg_job.write_sub_file()
+
+
+# worker join job
+with open("join_post.sh",'w') as f:
+    f.write("""#! /bin/bash
+cat $1/output*.dat > $2
+""")
+    os.system("chmod a+x join_post.sh")
+join_post_job, join_post_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/join_post.sh",tag='JOIN_POST',log_dir=None,arg_str='',file_input=opts.working_directory+"/iteration_$(macroiteration)_post/    "+opts.working_directory+"/output-$(macroiterationnext).dat",file_output="/dev/null", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
+join_post_job.add_condor_cmd("initialdir",opts.working_directory)
+join_post_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(macroevent).log")
+join_post_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(macroevent).err")
+join_post_job.add_condor_cmd('request_disk',opts.general_request_disk)
+join_post_job.write_sub_file()
+
+
+# ++++
+# Create workflow 
+# ++++
+
+# Create workflow
+#   - Create grid node as needed
+#   - Loop over iterations
+#      - if iteration0, use seed grid (should already be copied in place)
+#      - if not iteration 0, grid should be in place (from previous stage)
+#      - Loop over events, make ILE node per event
+#      - create consolidate job, make it depend on all events in that iteration
+#      - create fit job, make it depend on consolidate job
+#    
+
+parent_fit_node = None
+last_node=None
+
+
+unify_node_list = []
+for it in np.arange(it_start,opts.n_iterations):
+    print(it, opts.n_iterations)
+    consolidate_now = None
+    fit_node_now = None
+    marg_nodes_now =[]
+    # Create consolidate job
+    con_node = pipeline.CondorDAGNode(con_marg_job)
+    con_node.add_macro("macroiteration",it)
+    con_node.set_retry(opts.general_retries)
+    # Create unify job
+    unify_node = pipeline.CondorDAGNode(unify_marg_job)
+    unify_node.add_macro("macroiteration",it)
+    unify_node.add_parent(con_node)
+    unify_node.set_retry(opts.general_retries)
+    if not(it ==0): # and not(opts.first_iteration_jumpstart):  # don't require first composite to be nonempty if we are running a jumpstart!
+        unify_node_list.append(unify_node)
+    
+    # Create one node per job
+    n_group = 1
+    n_jobs_this_time = opts.n_samples_per_job # hardcode for now?
+    if it ==it_start:
+        n_jobs_this_time = n_initial
+    indx_max = int((1.0*n_jobs_this_time)/n_group)
+    if indx_max*n_jobs_this_time < n_group:
+        indx_max+=1
+
+    if True: #not(it==it_start): # and opts.first_iteration_jumpstart):   # if on first iteration ,don't do this for jumpstart
+      for event in np.arange(indx_max): #np.arange(n_jobs_this_time):
+        # Add task per ILE operation
+        cip_node = pipeline.CondorDAGNode(cip_job)
+#        cip_node.set_priority(JOB_PRIORITIES["ILE"])
+        cip_node.set_retry(opts.general_retries)
+        cip_node.add_macro("macroevent", event*n_group)
+        cip_node.add_macro("macroiteration", it)
+        if not(parent_fit_node is None):
+            cip_node.add_parent(parent_fit_node)
+        con_node.add_parent(cip_node) # consolidate depends on all of the individual jobs
+        dag.add_node(cip_node)
+    if puff_args and puff_cadence:
+     if it>it_start and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
+        print(" ILE jobs for puffball on iteration ", it)
+        for event in np.arange(indx_max):
+            cip_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
+            cip_node.set_retry(opts.ile_retries)
+            cip_node.add_macro("macroevent", event*n_group)
+            cip_node.add_macro("macroiteration", it)
+            if not(parent_fit_node is None):
+                cip_node.add_parent(parent_fit_node)
+            con_node.add_parent(cip_node) # consolidate depends on all of the individual jobs
+            dag.add_node(cip_node)
+
+
+    # add con job
+    dag.add_node(con_node)
+    dag.add_node(unify_node)
+    parent_fit_node=unify_node
+
+    # Create EOS_POST nodes. Explode out workers
+    # Create fit node, which depends on consolidate node
+    print(" Exploding workers out ")
+        # Create job to consolidate worker outputs
+    join_node =pipeline.CondorDAGNode(join_post_job)
+    join_node.add_macro("macroiteration", it)
+    join_node.add_macro("macroiterationnext", it+1)
+    join_node.set_category("join_post")
+    join_node.set_retry(opts.general_retries)
+        
+        # Create exploded worker job nodes
+    n_explode = opts.marg_explode_jobs
+    # if we are on the last iteration and we want to use more exploded jobs now, explode more jobs
+    if opts.marg_explode_jobs_last and (it == opts.n_iterations-1): # last iteration
+        print("   Last iteration explode size ", opts.marg_explode_jobs_last)
+        n_explode = opts.marg_explode_jobs_last
+    for indx in np.arange(n_explode):
+                worker_node =pipeline.CondorDAGNode(cip_job)
+                worker_node.add_macro("macroiteration", it)
+                worker_node.add_macro("macroiterationnext", it+1)
+                worker_node.set_category("EOS_post_worker")
+                worker_node.add_parent(parent_fit_node)  # only fit if we have results from the previous iteration
+                worker_node.set_retry(opts.general_retries)
+                join_node.add_parent(worker_node)  # make sure to add worker node as parent
+                dag.add_node(worker_node)
+    dag.add_node(join_node)
+    parent_fit_node=join_node
+
+
+
+
+dag_name="marginalize_hyperparameters"
+dag.set_dag_file(dag_name)
+dag.write_concrete_dag()
