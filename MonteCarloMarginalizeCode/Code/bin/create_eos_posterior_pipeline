@@ -92,6 +92,7 @@ indx=0
 for event in opts.event_file:
     shutil.copyfile(event,opts.working_directory+"/event-{}.net".format(indx))  # put in working directory !
     indx+=1
+n_events = len(opts.event_file)
 
 
 
@@ -205,7 +206,7 @@ for indx in np.arange(it_start,opts.n_iterations+1):
 #   - issue is that transfer files depend on event
 #   - all output goes into the same iter*_marg directory
 #   - join script will merge all together
-cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='MARG',log_dir=None,arg_str=marg_event_args,request_memory=opts.request_memory_marg,input_net=working_dir_inside_local+'/event-$(event_input).net',output='MARG-$(event_input)-$(event)',out_dir=out_dir_inside_marg,exe=marg_exe_master,universe=local_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../event-$(event_input).net'])
+cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='MARG',log_dir=None,arg_str=marg_event_args,request_memory=opts.request_memory_marg,input_net=working_dir_inside_local+'/event-$(macroid).net',output='MARG-$(macroid)-$(event)',out_dir=out_dir_inside_marg,exe=marg_exe_master,universe=local_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../event-$(macroid).net'])
 # Modify: set 'initialdir'
 cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg")
 # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -243,10 +244,10 @@ con_marg_job.write_sub_file()
 #  - joins together all files into one
 with open("unify.sh",'w') as f:
     f.write("""#! /bin/bash
-cat *.net_marg > all.net
+cat *.net_marg > all.marg_net
 """)
     os.system("chmod a+x unify.sh")
-unify_marg_job, unify_marg_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/unify.sh",tag='CON',log_dir=None,arg_str='',file_input="$(macroiteration)  ",file_output="/dev/null", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
+unify_marg_job, unify_marg_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/unify.sh",tag='CON',log_dir=None,arg_str='',file_input='',file_output="/dev/null", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
 unify_marg_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_marg_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).log")
 unify_marg_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).err")
@@ -324,12 +325,14 @@ for it in np.arange(it_start,opts.n_iterations):
         indx_max+=1
 
     if True: #not(it==it_start): # and opts.first_iteration_jumpstart):   # if on first iteration ,don't do this for jumpstart
-      for event in np.arange(indx_max): #np.arange(n_jobs_this_time):
+     for event in np.arange(n_events):
+      for row in np.arange(indx_max): #np.arange(n_jobs_this_time):
         # Add task per ILE operation
         cip_node = pipeline.CondorDAGNode(cip_job)
 #        cip_node.set_priority(JOB_PRIORITIES["ILE"])
         cip_node.set_retry(opts.general_retries)
-        cip_node.add_macro("macroevent", event*n_group)
+        cip_node.add_macro("macroid",event)
+        cip_node.add_macro("macroevent", row*n_group)
         cip_node.add_macro("macroiteration", it)
         if not(parent_fit_node is None):
             cip_node.add_parent(parent_fit_node)
@@ -339,7 +342,7 @@ for it in np.arange(it_start,opts.n_iterations):
      if it>it_start and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
         print(" ILE jobs for puffball on iteration ", it)
         for event in np.arange(indx_max):
-            cip_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
+            cip_node = pipeline.CondorDAGNode(cip_puff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
             cip_node.set_retry(opts.ile_retries)
             cip_node.add_macro("macroevent", event*n_group)
             cip_node.add_macro("macroiteration", it)
