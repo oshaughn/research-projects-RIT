@@ -22,11 +22,21 @@ import sys
 import copy
 import types
 has_external_teobresum=False
-try:
+import os
+info_use_ext = True
+if 'RIFT_NO_EXTERNAL' in os.environ:
+    info_use_ext = False
+    has_external_teobresum=False
+else:
+ try:
     import EOBRun_module
     has_external_teobresum=True
-except:
+ except:
+    has_external_teobresum=False
     True; # print(" - no EOBRun (TEOBResumS) - ")
+info_use_resum_polarizations = False
+if 'RIFT_RESUM_POLARIZATIONS' in os.environ:
+    info_use_resum_polarizations=True  # fallback to ChooseTDModesFromPolarizations for TEOBResumS (since ChooseTDModes is not available at present)
 from six.moves import range
 
 import numpy as np
@@ -2770,7 +2780,7 @@ def hoft(P, Fp=None, Fc=None):
 #        print " Using ridiculous tweak for equal-mass line EOB"
         P.m2 = P.m1*(1-1e-6)
     extra_params = P.to_lal_dict()
-    if P.approx==lalsim.TEOBResumS and has_external_teobresum:
+    if P.approx==lalsim.TEOBResumS and has_external_teobresum and info_use_ext:
         Lmax=8
         modes_used = []
         distance_s = P.dist/lal.C_SI
@@ -3195,7 +3205,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
 
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
-    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM or P.approx == lalNRSur7dq4 or P.approx == lalNRSur7dq2 or P.approx==lalNRHybSur3dq8 or P.approx == lalIMRPhenomTPHM) or (P.approx ==lalsim.TEOBResumS and not(has_external_teobresum)):
+    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM or P.approx == lalNRSur7dq4 or P.approx == lalNRSur7dq2 or P.approx==lalNRHybSur3dq8 or P.approx == lalIMRPhenomTPHM) or (P.approx ==lalsim.TEOBResumS and not(has_external_teobresum) and not(info_use_resum_polarizations)):
         # approximant likst: see https://git.ligo.org/lscsoft/lalsuite/blob/master/lalsimulation/lib/LALSimInspiral.c#2541
         extra_params = P.to_lal_dict()
         # prevent segmentation fault when hitting nyquist frequency violations
@@ -3210,7 +3220,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
 	    P.s2x, P.s2y, P.s2z, \
             P.fmin, P.fref, P.dist, extra_params, \
              Lmax, P.approx)
-    elif P.approx ==lalsim.TEOBResumS and has_external_teobresum:
+    elif P.approx ==lalsim.TEOBResumS and has_external_teobresum and not(info_use_resum_polarizations):  # don't call external if fallback to polarizations
         print("Using TEOBResumS hlms")
         modes_used = []
         distance_s = P.dist/lal.C_SI
