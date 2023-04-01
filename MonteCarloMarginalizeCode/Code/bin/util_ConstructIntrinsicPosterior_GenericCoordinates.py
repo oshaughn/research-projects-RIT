@@ -2480,10 +2480,22 @@ if opts.using_eos and not(opts.using_eos.startswith('file:')):
         eos_extra += list(map( lambda x: str(my_eos_params[x]), ["gamma1", "gamma2", "gamma3", "gamma4", "p0", "epsilon0", "xmax"]))
 #        eos_extra += opts.eos_param
         annotation_header += "gamma1 gamma2 gamma3 gamma4 p0 epsilon0 xmax"
+elif opts.using_eos and opts.using_eos.startswith('file:'):
+    fname = opts.using_eos.replace('file:','')
+    params_here = np.loadtxt(fname)[opts.using_eos_index]
+    linefirst =''
+    with open(fname) as f:
+        linefirst = f.readline()
+    linefirst = linefirst[1:]
+    annotation_header = linefirst # this will/must be lnL sigma_lnL and then parameter names, which we want to preserve
 with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
+  if not(opts.using_eos.startswith('file:'))
     str_out =list( map(str,[np.log(res), np.sqrt(var)/res, neff]))
     file_out.write("# " + annotation_header + "\n")
     file_out.write(' '.join( str_out + eos_extra + ["\n"]))
+  else:
+    file_out.write("# " + annotation_header + "\n")
+    file_out.write(" {} {} ".format(np.log(res), np.sqrt(var)/res) + ' '.join(map(str,params_here)))
 #np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
 # since not EOS, can just use np.savetxt
 np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[np.log(res), np.sqrt(var)/res, neff, n_ESS]],header=" lnL sigmaL neff n_ESS ")
