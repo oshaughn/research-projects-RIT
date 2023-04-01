@@ -27,7 +27,7 @@ opts = parser.parse_args()
 
 #print opts.fname
 from pathlib import Path
-for fname in opts.fname[0]: #sys.argv[1:]:
+for fname in opts.fname: #sys.argv[1:]:
     fname  = Path(fname).resolve()
     if not( os.path.exists(fname)):  # skip symbolic links that don't resolve : important for .composite files
         continue
@@ -36,6 +36,8 @@ for fname in opts.fname[0]: #sys.argv[1:]:
     sys.stderr.write(str(fname)+"\n")
 #    data = np.loadtxt(fname)  # this will FAIL if we have a heterogeneous data source!  BE CAREFUL
     data = np.genfromtxt(fname,invalid_raise=False)  #  Protect against inhomogeneous data
+    if len(data.shape)==1:
+        data = np.array([data])
     for line in data:
       try:
         line = np.around(line, decimals=my_digits)
@@ -48,6 +50,12 @@ for fname in opts.fname[0]: #sys.argv[1:]:
       except:
           continue
 
+header_str=''
+with open(opts.fname[0],'r') as f:
+    header_str = f.readline()
+
+if header_str.startswith('#'):
+    print(header_str)  # repeat the header, so we recapture al the syntax
 for key in data_at_intrinsic:
     lnL, sigmaOverL =   np.transpose(data_at_intrinsic[key])
     lnLmax = np.max(lnL)
