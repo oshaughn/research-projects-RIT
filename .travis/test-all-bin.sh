@@ -21,6 +21,16 @@ for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
    if [[ ${EXE} == *'calibration_reweighting.py' ]]; then
        continue
    fi
+   # skip scripts with pesummary dependence
+   if [[ ${EXE} == *'convert_output_format_ascii2h5.py' ]]; then
+       continue
+   fi
+   if [[ ${EXE} == *'make_uni_comov_skymap.py' ]]; then
+       continue
+   fi
+#   if [[ ${EXE} == *'resample_uniform_comoving.py' ]]; then
+#       continue
+#   fi
    # skip non-python scripts
    if  [[ ${EXE} == *".sh" ]]; then
         echo " Not python : " ${EXE}
