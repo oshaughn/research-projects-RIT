@@ -67,7 +67,7 @@ for key in data_at_intrinsic:
     sigmaNetOverL = (np.sqrt(1./np.sum(1./sigma/sigma)))/np.exp(lnLmeanMinusLmax)
 
     if opts.combination =='sum':
-        lnLmeanMinusLmax += np.log(len(wts))
+        lnLmeanMinusLmax *= len(wts)   # not an average !
         sigmaNetOverL *= np.sqrt(len(wts))
                               
     print(" {} {} ".format(lnLmeanMinusLmax+lnLmax, sigmaNetOverL) + ' '.join(map(str,key)) )
