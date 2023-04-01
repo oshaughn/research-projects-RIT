@@ -293,7 +293,7 @@ with open("unify.sh",'w') as f:
 cat *.net_marg | sort -r  > all.marg_net
 """)
     os.system("chmod a+x unify.sh")
-unify_marg_job, unify_marg_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/unify.sh",tag='CON',log_dir=None,arg_str='',file_input='',file_output="/dev/null", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
+unify_marg_job, unify_marg_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/unify.sh",tag='UNIFY',log_dir=None,arg_str='',file_input='',file_output="/dev/null", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
 unify_marg_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_marg_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).log")
 unify_marg_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).err")
