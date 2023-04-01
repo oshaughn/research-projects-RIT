@@ -2489,7 +2489,7 @@ elif opts.using_eos and opts.using_eos.startswith('file:'):
     linefirst = linefirst[1:]
     annotation_header = linefirst # this will/must be lnL sigma_lnL and then parameter names, which we want to preserve
 with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
-  if not(opts.using_eos.startswith('file:'))
+  if not(opts.using_eos.startswith('file:')):
     str_out =list( map(str,[np.log(res), np.sqrt(var)/res, neff]))
     file_out.write("# " + annotation_header + "\n")
     file_out.write(' '.join( str_out + eos_extra + ["\n"]))
