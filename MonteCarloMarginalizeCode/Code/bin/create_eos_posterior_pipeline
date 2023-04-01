@@ -271,7 +271,7 @@ con_marg_job.write_sub_file()
 #  - skip for now, just have one event at firsty ==>? SONOT QUTE CORRECT because likelihoods are averaged, which reduces net significance.  FIXME: two-stage process
 with open("con_prod.sh",'w') as f:
     f.write("""#! /bin/bash
-{} --sum {}/iteration_$1_marg/consolidated_*_*.net_marg  > {}/consolidated_$1.net_marg
+{} --combination sum {}/iteration_$1_marg/consolidated_*_*.net_marg  > {}/consolidated_$1.net_marg
 """.format(dag_utils.which('util_HyperCombine.py'),opts.working_directory,opts.working_directory) )
     os.system("chmod a+x con_prod.sh")
 
@@ -290,7 +290,7 @@ con_prod_job.write_sub_file()
 #  - joins together all files into one
 with open("unify.sh",'w') as f:
     f.write("""#! /bin/bash
-cat *.net_marg > all.marg_net
+cat *.net_marg | sort -r  > all.marg_net
 """)
     os.system("chmod a+x unify.sh")
 unify_marg_job, unify_marg_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/unify.sh",tag='CON',log_dir=None,arg_str='',file_input='',file_output="/dev/null", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
@@ -320,7 +320,8 @@ eospost_marg_job.write_sub_file()
 # worker join job
 with open("join_post.sh",'w') as f:
     f.write("""#! /bin/bash
-cat $1/output*.dat > $2
+head -n 1 grid-0.dat > $2
+cat $1/output*.dat  | sort -r | uniq >> $2
 """)
     os.system("chmod a+x join_post.sh")
 join_post_job, join_post_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/join_post.sh",tag='JOIN_POST',log_dir=None,arg_str='',file_input=opts.working_directory+"/iteration_$(macroiteration)_post/    "+opts.working_directory+"/output-$(macroiterationnext).dat",file_output="/dev/null", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
