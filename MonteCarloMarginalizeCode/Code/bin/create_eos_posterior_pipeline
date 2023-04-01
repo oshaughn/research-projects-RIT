@@ -249,7 +249,7 @@ cipPuff_job.write_sub_file()
 
 with open("con_marg.sh",'w') as f:
     f.write("""#! /bin/bash
-{} {}/iteration_$1_marg/event_$2/MARG*.dat  > {}/iteration_$1_marg/consolidated_$1_$2.net_marg
+{} {}/iteration_$1_marg/event_$2/MARG*[0-9]+annotation.dat  > {}/iteration_$1_marg/consolidated_$1_$2.net_marg
 """.format(dag_utils.which('util_HyperCombine.py'),opts.working_directory,opts.working_directory) )
     os.system("chmod a+x con_marg.sh")
 
@@ -261,6 +261,9 @@ con_marg_job.add_condor_cmd('request_disk',opts.general_request_disk)
 if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+con_marg_job.get_sub_file()
     con_marg_job.set_sub_file(fname)
+if opts.use_osg:
+    con_marg_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+    con_marg_job.add_condor_cmd("+flock_local",'true')
 con_marg_job.write_sub_file()
 
 
@@ -283,6 +286,9 @@ con_prod_job.add_condor_cmd('request_disk',opts.general_request_disk)
 if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+con_prod_job.get_sub_file()
     con_prod_job.set_sub_file(fname)
+if opts.use_osg:
+    con_prod_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+    con_prod_job.add_condor_cmd("+flock_local",'true')
 con_prod_job.write_sub_file()
         
 
@@ -301,6 +307,9 @@ unify_marg_job.add_condor_cmd('request_disk',opts.general_request_disk)
 if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+unify_marg_job.get_sub_file()
     unify_marg_job.set_sub_file(fname)
+if opts.use_osg:
+    unify_marg_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+    unify_marg_job.add_condor_cmd("+flock_local",'true')
 unify_marg_job.write_sub_file()
 
 
@@ -333,6 +342,9 @@ if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+join_post_job.get_sub_file()
     join_post_job.set_sub_file(fname)
 join_post_job.write_sub_file()
+if opts.use_osg:
+    join_post_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+    join_post_job.add_condor_cmd("+flock_local",'true')
 
 
 # PUFF job
@@ -350,6 +362,9 @@ if puff_args and puff_cadence:
         fname = opts.working_directory+"/"+puff_job.get_sub_file()
         puff_job.set_sub_file(fname)
     puff_job.write_sub_file()
+    if opts.use_osg:
+        puff_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        puff_job.add_condor_cmd("+flock_local",'true')
 
 
 # ++++
