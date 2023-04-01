@@ -39,7 +39,7 @@ parser.add_argument("--marg-event-exe",default=None,help="filename of CIP or equ
 parser.add_argument("--request-memory-marg",default=16384,type=int,help="Memory request for condor (in Mb) for fitting jobs.")
 parser.add_argument("--puff-exe",default=None,help="similar to PUFF, but cannot be the same executable since format different")
 parser.add_argument("--puff-args",default=None,help=" argumetns")
-parser.add_argument("--puff-max-it",default=-1,type=int,help="Maximum iteration number that puffball is applied.  If negative, puffball is not applied ")
+parser.add_argument("--puff-max-it",default=np.inf,type=int,help="Maximum iteration number that puffball is applied.  default to infinity ")
 parser.add_argument("--eos-post-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--eos-post-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--eos-post-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
@@ -334,6 +334,23 @@ if opts.use_full_submit_paths:
 join_post_job.write_sub_file()
 
 
+# PUFF job
+#   ... pending
+if puff_args and puff_cadence:
+    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_marg,input_net=opts.working_directory+'/grid-$(macroiterationnext).dat',output=opts.working_directory+'/puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+    # Modify: set 'initialdir' to CIP WORKING DIR 
+    puff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_post")
+    # Modify output argument: change logs and working directory to be subdirectory for the run
+    puff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_post/logs/puff-$(cluster)-$(process).log")
+    puff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_post/logs/puff-$(cluster)-$(process).err")
+    puff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_post/logs/puff-$(cluster)-$(process).out")
+    puff_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+puff_job.get_sub_file()
+        puff_job.set_sub_file(fname)
+    puff_job.write_sub_file()
+
+
 # ++++
 # Create workflow 
 # ++++
@@ -434,6 +451,22 @@ for it in np.arange(it_start,opts.n_iterations):
                 dag.add_node(worker_node)
     dag.add_node(join_node)
     parent_fit_node=join_node
+
+
+    # Check if puffball being created, and if so create it *immediately* after the above join  creates the final 'grid-X.dat' file
+    if puff_args and puff_cadence:
+      if it > -1 and it <= puff_max_it and it%puff_cadence ==0:
+        print(" Puffball for iteration ", it)
+        puff_node = pipeline.CondorDAGNode(puff_job)
+        puff_node.add_macro("macroiteration", it)
+        puff_node.add_macro("macroiterationnext", it+1)
+        puff_node.set_category("PUFF")
+        puff_node.set_retry(opts.general_retries)
+        if not (parent_fit_node is None):
+            puff_node.add_parent(parent_fit_node)  # only fit if we have results from the previous iteration
+        dag.add_node(puff_node) 
+        
+        parent_fit_node = puff_node
 
 
 
