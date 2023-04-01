@@ -72,7 +72,12 @@ if opts.condor_nogrid_nonworker:
 
 working_dir_inside_local = working_dir_inside = opts.working_directory
 out_dir_inside_marg = opts.working_directory
-out_dir_inside_marg+= "/iteration_$(macroiteration)_marg/event_$(event)/"
+out_dir_inside_marg+= "/iteration_$(macroiteration)_marg/event_$(macroid)/"
+if opts.use_singularity or opts.use_osg:
+    working_dir_inside = "./" # all files on the remote machine are in the current directory
+    if opts.use_osg_cip:
+        working_dir_inside_cip = "./"
+        out_dir_inside_cip = "./"
 
 singularity_image = None
 if opts.use_singularity:
@@ -115,6 +120,8 @@ marg_exe_master = None
 if opts.marg_event_exe:
     marg_exe_master = "{}".format(marg_exe) # force clpy, so NOT BY REFERENCE
 
+with open('command-single.sh','w') as f:
+    f.write('util_ConstructIntrinsicPosterior_GenericCoordinates.py {} '.format(marg_event_args))
 
 
 puff_args=None
@@ -206,7 +213,7 @@ for indx in np.arange(it_start,opts.n_iterations+1):
 #   - issue is that transfer files depend on event
 #   - all output goes into the same iter*_marg directory
 #   - join script will merge all together
-cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='MARG',log_dir=None,arg_str=marg_event_args,request_memory=opts.request_memory_marg,input_net=working_dir_inside_local+'/event-$(macroid).net',output='MARG-$(macroid)-$(event)',out_dir=out_dir_inside_marg,exe=marg_exe_master,universe=local_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../event-$(macroid).net'])
+cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='MARG',log_dir=None,arg_str=marg_event_args,using_eos='file:'+working_dir_inside_local+"/grid-$(macroiteration).dat",using_eos_index='$(macroevent)',request_memory=opts.request_memory_marg,input_net=working_dir_inside_local+'/event-$(macroid).net',output='MARG-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,exe=marg_exe_master,universe=local_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../event-$(macroid).net'])
 # Modify: set 'initialdir'
 cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg")
 # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -237,6 +244,9 @@ con_marg_job.add_condor_cmd("initialdir",opts.working_directory)
 con_marg_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).log")
 con_marg_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).err")
 con_marg_job.add_condor_cmd('request_disk',opts.general_request_disk)
+if opts.use_full_submit_paths:
+    fname = opts.working_directory+"/"+con_marg_job.get_sub_file()
+    con_marg_job.set_sub_file(fname)
 con_marg_job.write_sub_file()
         
 
@@ -252,6 +262,9 @@ unify_marg_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_marg_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).log")
 unify_marg_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).err")
 unify_marg_job.add_condor_cmd('request_disk',opts.general_request_disk)
+if opts.use_full_submit_paths:
+    fname = opts.working_directory+"/"+unify_marg_job.get_sub_file()
+    unify_marg_job.set_sub_file(fname)
 unify_marg_job.write_sub_file()
 
 
@@ -262,6 +275,9 @@ eospost_marg_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_
 eospost_marg_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_post/logs/post-$(cluster)-$(process).log")
 eospost_marg_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_post/logs/post-$(cluster)-$(process).err")
 eospost_marg_job.add_condor_cmd('request_disk',opts.general_request_disk)
+if opts.use_full_submit_paths:
+    fname = opts.working_directory+"/"+eospost_marg_job.get_sub_file()
+    eospost_marg_job.set_sub_file(fname)
 eospost_marg_job.write_sub_file()
 
 
@@ -276,6 +292,9 @@ join_post_job.add_condor_cmd("initialdir",opts.working_directory)
 join_post_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(macroevent).log")
 join_post_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(macroevent).err")
 join_post_job.add_condor_cmd('request_disk',opts.general_request_disk)
+if opts.use_full_submit_paths:
+    fname = opts.working_directory+"/"+join_post_job.get_sub_file()
+    join_post_job.set_sub_file(fname)
 join_post_job.write_sub_file()
 
 
