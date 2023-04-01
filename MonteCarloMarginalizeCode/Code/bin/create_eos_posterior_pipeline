@@ -413,6 +413,19 @@ for it in np.arange(it_start,opts.n_iterations):
                     cip_node.add_parent(parent_fit_node)
                 con_node.add_parent(cip_node) # consolidate depends on all of the individual jobs
                 dag.add_node(cip_node)
+                # if PUFF is done for this event, also add MARG_PUFF nodes.  Note grid size assumed identical, so don't need another loop over 'id'/row
+                if puff_args and puff_cadence:
+                    if it>it_start and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
+                        cipPuff_node = pipeline.CondorDAGNode(cipPuff_job)
+                        cipPuff_node.set_retry(opts.general_retries)
+                        cipPuff_node.add_macro("macroid",event)
+                        cipPuff_node.add_macro("macroevent", row*n_group)
+                        cipPuff_node.add_macro("macroiteration", it)
+                        if not(parent_fit_node is None):
+                            cipPuff_node.add_parent(parent_fit_node)
+                        con_node.add_parent(cipPuff_node) # consolidate depends on all of the individual jobs
+                        dag.add_node(cipPuff_node)
+                        
             # Add node to combine event into consolidated_*_*.net_marg in subdirectory, at end of for loop
             dag.add_node(con_node)
     # Add node to combine all events. Note indent relative to line before !
