@@ -10,6 +10,7 @@ import os
 
 import numpy as np
 import RIFT.misc.weight_simulations as weight_simulations
+import scipy.special.logsumexp
 
 import fileinput
 #import StringIO
@@ -63,7 +64,7 @@ for key in data_at_intrinsic:
 
     # This is an average, treating them as independent measurements
     wts = weight_simulations.AverageSimulationWeights(None, None,sigma)   
-    lnLmeanMinusLmax = np.log(np.sum(np.exp(lnL - lnLmax)*wts))
+    lnLmeanMinusLmax = scipy.special.logsumexp((lnL - lnLmax)*wts)
     sigmaNetOverL = (np.sqrt(1./np.sum(1./sigma/sigma)))/np.exp(lnLmeanMinusLmax)
 
     if opts.combination =='sum':
