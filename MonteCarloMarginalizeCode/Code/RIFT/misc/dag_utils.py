@@ -2078,10 +2078,11 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
             for indx in np.arange(len(cache_lines)):
                 ifo = cache_lines[indx][0]+"1"
                 bilby_data_dict[ifo] = cache_lines[indx][-1].replace('file://localhost','')
-        # add to command-line arguments
-        data_argstr = '{}'.format(bilby_data_dict)
-        data_argstr = " --data_dict " + data_argstr.replace(' ','')
-        ile_job.add_arg(data_argstr)
+        # add to command-line arguments, IF NONEMPTY.  Otherwise we're stuck, and we have to hope magic works
+        if len(list(bilby_data_dict))>0:
+            data_argstr = '{}'.format(bilby_data_dict)
+            data_argstr = " --data_dict " + data_argstr.replace(' ','')
+            ile_job.add_arg(data_argstr)
 
     # approximant: if ile_args present, ALWAYS parse it and set it that way, so we are consistent with our own analysis
     if ile_args:
