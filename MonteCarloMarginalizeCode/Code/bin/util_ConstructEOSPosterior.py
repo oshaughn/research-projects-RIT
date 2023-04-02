@@ -92,7 +92,7 @@ parser.add_argument("--fname-output-samples",default="output-EOS-samples",help="
 parser.add_argument("--fname-output-integral",default="output-EOS-samples",help="for evidencees and pipeline compatibility")
 parser.add_argument("--n-output-samples",default=2000,type=int,help="output posterior samples (default 3000)")
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state [spectral only, for now]")
-parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior. Currently can only specify gamma1,gamma2, ..., and these MUST be columns in --fname")
+parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior. Currently can only specify gamma1,gamma2, ..., and these MUST be columns in --fname. IF NOT PROVIDED, DEFAULTS TO LIST IN FILE.  ")
 parser.add_argument("--parameter-implied", action='append', help="Parameter used in fit, but not independently varied for Monte Carlo. For EOS objects, only possible for physical quantities like R1.4, etc. NOT YET PROVIDED")
 #parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptive sampling in a parameter. Useful in cases where a parameter is not well-constrained, and the a prior sampler is well-chosen.")
 parser.add_argument("--parameter-nofit", action='append', help="Parameter used to initialize the implied parameters, and varied at a low level, but NOT the fitting parameters.")
@@ -165,12 +165,26 @@ if opts.no_downselect:
 test_converged={}
 
 ###
+### Retrieve data
+###
+#  int_sig sigma/L gamma1 gamma2 ...
+col_lnL = 0
+dat_orig = dat = np.loadtxt(opts.fname)
+dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
+print(" Original data size = ", len(dat), dat.shape)
+dat_orig_names = None
+with open(opts.fname,'r') as f:
+    header_str = f.readline()
+    header_str = header_str.rstrip()
+dat_orig_names = header_str.replace('#','').split()[2:]
+
+###
 ### Parameters in use
 ###
 
 coord_names = opts.parameter # Used  in fit
 if coord_names is None:
-    coord_names = []
+    coord_names = dat_orig_names
 low_level_coord_names = coord_names # Used for Monte Carlo
 if opts.parameter_implied:
     coord_names = coord_names+opts.parameter_implied
@@ -180,8 +194,14 @@ if opts.parameter_nofit:
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
 error_factor = len(coord_names)
+name_index_dict ={}
+for name in dat_orig_names:
+    try:
+        name_index_dict[name] = 2+dat_orig_names.index(name)
+    except:
+        raise Exception(" Currently fitting parameter names must match columns in data file ")
 # TeX dictionary
-print(" Coordinate names for fit :, ", coord_names)
+print(" Coordinate names for fit :, ", coord_names, " from ", dat_orig_names, " indexed as ", name_index_dict)
 print(" Coordinate names for Monte Carlo :, ", low_level_coord_names)
 
 
@@ -195,7 +215,11 @@ for range_code  in opts.integration_parameter_range:
     range_expr =     eval(range_str)  # define. Better to split on , for example
     param_ranges[name]  = range_expr
 
-
+# Add in integration range for everything else, if nothing specified
+for name in dat_orig_names:
+    if not name in param_ranges:
+        vals = dat_orig[:,name_index_dict[name]]
+        param_ranges[name] = [np.min(vals), np.max(vals)]
 
 ###
 ### Prior functions : default is UNIFORM, since it is unmodeled and generic
@@ -378,14 +402,6 @@ dat_mass  = []
 weights = []
 n_params = -1
 
-###
-### Retrieve data
-###
-#  int_sig sigma/L gamma1 gamma2 ...
-col_lnL = 0
-dat_orig = dat = np.loadtxt(opts.fname)
-dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
-print(" Original data size = ", len(dat), dat.shape)
 
  ###
  ### Convert data.   RIGHT NOW JUST DOWNSELECTING, no intermediate fitting parameters defined
@@ -681,9 +697,11 @@ p_norm = (weights/np.sum(weights))
 indx_list = np.random.choice(np.arange(len(weights)), p=p_norm.astype(np.float64),size=opts.n_output_samples)
 
 
-dat_out = np.zeros( (opts.n_output_samples,2+len(coord_names)) )
+dat_out = np.zeros( (opts.n_output_samples,2+len(dat_orig_names)) )
 for indx in np.arange(len(coord_names)):
-    dat_out[:,2+indx] = samples[coord_names[indx]][indx_list]
+    vals = samples[coord_names[indx]][indx_list]   # load in data for this column
+    outindx = name_index_dict[ coord_names[indx]]   # write in correct place
+    dat_out[:,outindx] = vals
 
 print(" Saving to ", opts.fname_output_samples+".dat")
-np.savetxt(opts.fname_output_samples+".dat",dat_out,header=" lnL sigma_lnL " + ' '.join(coord_names))
+np.savetxt(opts.fname_output_samples+".dat",dat_out,header=" lnL sigma_lnL " + ' '.join(dat_orig_names))
