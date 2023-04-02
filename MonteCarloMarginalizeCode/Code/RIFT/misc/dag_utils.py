@@ -2051,7 +2051,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
     # Problem: bilby ini file may not have 'data-dict', in which case we need to backstop it with data from 'frames_dir' or 'cache_file'
     # Problem: bilby ini file does not have sections.
     # Workaround: https://stackoverflow.com/questions/2885190/using-configparser-to-read-a-file-without-section-name
-    config = ConfigParser.ConfigParser()
+    config = configparser.ConfigParser()
     config.optionxform=str # force preserve case! Important for --choose-data-LI-seglen
     with open(bilby_ini_file) as stream:
         config.read_string("[top]\n" + stream.read())
