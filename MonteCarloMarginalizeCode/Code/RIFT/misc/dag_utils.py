@@ -2059,7 +2059,15 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
         ifo_list = list(bilby_items['channel-dict'])  # PSDs must be listed, implicitly provides all ifos
     bilby_data_dict = {}
     if not('data_dict' in bilby_items):
-        if frames_dir:
+        if cache_file:
+            print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from (host) directory: {} ".format(frames_dir))
+            cache_lines = np.loadtxt(cache_file,dtype=str)
+            if len(cache_lines) > len(ifo_list):
+                raise Exception(" Pipeline failure: cache file must contain one line per IFO to identify files in this approach")
+            for indx in np.arange(len(cache_lines)):
+                ifo = cache_lines[indx][0]+"1"
+                bilby_data_dict[ifo] = cache_lines[indx][-1].replace('file://localhost','')
+        elif frames_dir:  # Danger : this directory might be EMPTY and generated at runtile
             import glob
             print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from directory: {} ".format(frames_dir))
             fnames_gwf = list(glob.glob(frames_dir+"/*.gwf")  )
@@ -2070,14 +2078,8 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
                     if name.startswith(frames_dir+"/{}-".format(ifo)):
                         this_frame_ifo=ifo
                 bilby_data_dict[ifo] = this_frame_ifo
-        elif cache_file:
-            print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from directory: {} ".format(frames_dir))
-            cache_lines = np.loadtxt(cache_file,dtype=str)
-            if len(cache_lines) > len(ifo_list):
-                raise Exception(" Pipeline failure: cache file must contain one line per IFO to identify files in this approach")
-            for indx in np.arange(len(cache_lines)):
-                ifo = cache_lines[indx][0]+"1"
-                bilby_data_dict[ifo] = cache_lines[indx][-1].replace('file://localhost','')
+            if len(list(bilby_data_dict)) ==0 :
+                print("  Failed to find files in frames_dir, warning! ")
         else:
             print(" ==== WARNING FALLTHROUGH : calmarg attempting to identify correct frame files to use but falling back to 'magic' options from bilby ===")
         # add to command-line arguments, IF NONEMPTY.  Otherwise we're stuck, and we have to hope magic works
@@ -2085,6 +2087,9 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
             data_argstr = '{}'.format(bilby_data_dict)
             data_argstr = " --data_dict " + data_argstr.replace(' ','')
             ile_job.add_arg(data_argstr)
+        else:
+            print(" ==== WARNING FALLTHROUGH : calmarg failed to pull out options  ===",bilby_data_dict)
+
 
     # approximant: if ile_args present, ALWAYS parse it and set it that way, so we are consistent with our own analysis
     if ile_args:
