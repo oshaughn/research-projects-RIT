@@ -204,7 +204,7 @@ parser.add_argument("--link-reference-psds",action='store_true',help="If present
 parser.add_argument("--make-bw-psds",action='store_true',help='If present, adds nodes to create BW PSDs to the dag.  If at all possible, avoid this and re-use existing PSDs')
 parser.add_argument("--link-bw-psds",action='store_true',help='If present, uses the script retrieve_bw_psd_for_event.sh  to find a precomputed BW psd, and convert it to our format')
 parser.add_argument("--use-online-psd",action='store_true', help="If present, will use the online PSD estimates")
-parser.add_argument("--ile-copes",default=1,type=int)
+parser.add_argument("--ile-copies",default=1,type=int)
 parser.add_argument("--ile-retries",default=3,type=int)
 parser.add_argument("--general-retries",default=3,type=int)
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
