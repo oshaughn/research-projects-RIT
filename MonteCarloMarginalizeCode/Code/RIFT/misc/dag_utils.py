@@ -24,6 +24,7 @@ from time import time
 from hashlib import md5
 
 from glue import pipeline
+import configparser
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
@@ -2009,7 +2010,7 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
 
     return ile_job, ile_sub_name
 
-def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log_dir=None, ncopies=1,request_memory=4096,bilby_ini_file=None,no_grid=False,**kwargs):
+def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log_dir=None, ncopies=1,request_memory=4096,bilby_ini_file=None,no_grid=False,frames_dir=None,cache_file=None,ile_args=None,**kwargs):
     """
     Write a submit file for launching a job to generate a pickle file based off a bilby ini file; needed for  reweight final posterior samples due to calibration uncertainty
     
@@ -2047,6 +2048,50 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
     ile_job.add_arg(str(bilby_ini_file)) # needs to be a bilby ini file for the particular event being analyzed
     ile_job.add_arg(' --data-dump-file calmarg/data/calmarg_data_dump.pickle')
 
+    # Problem: bilby ini file may not have 'data-dict', in which case we need to backstop it with data from 'frames_dir' or 'cache_file'
+    # Problem: bilby ini file does not have sections.
+    # Workaround: https://stackoverflow.com/questions/2885190/using-configparser-to-read-a-file-without-section-name
+    config = ConfigParser.ConfigParser()
+    config.optionxform=str # force preserve case! Important for --choose-data-LI-seglen
+    with open(bilby_ini_file) as stream:
+        config.read_string("[top]\n" + stream.read())
+        bilby_items = dict(config["top"])
+        ifo_list = list(channel_dict)  # PSDs must be listed, implicitly provides all ifos
+    bilby_data_dict = {}
+    if not('data_dict' in bilby_items):
+        if frames_dir:
+            import glob
+            print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from directory: {} ".format(frames_dir))
+            fnames_gwf = list(glob.glob(frames_dir+"/*.gwf")  )
+            # get dictionary matching files
+            for name in fnames_gwf:
+                this_frame_ifo = None
+                for ifo in ifo_list:
+                    if name.startswith(frames_dir+"/{}-".format(ifo)):
+                        this_frame_ifo=ifo
+                bilby_data_dict[ifo] = this_frame_ifo
+        elif cache_file:
+            print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from directory: {} ".format(frames_dir))
+            cache_lines = np.loadtxt(cache_file,dtype=str)
+            if len(cache_lines) > len(ifo_list):
+                raise Exception(" Pipeline failure: cache file must contain one line per IFO to identify files in this approach")
+            for indx in np.arange(len(cache_lines)):
+                ifo = cache_lines[indx][0]+"1"
+                bilby_data_dict[ifo] = cache_lines[indx][-1].replace('file://localhost','')
+        # add to command-line arguments
+        data_argstr = '{}'.format(bilby_data_dict)
+        data_argstr = " --data_dict " + data_argstr.replace(' ','')
+        ile_job.add_arg(data_argstr)
+
+    # approximant: if ile_args present, ALWAYS parse it and set it that way, so we are consistent with our own analysis
+    if ile_args:
+        approx = bilby_items['waveform-approximant']
+        ile_args_split = ile_args.split('--')
+        for line in ile_args_split:
+            line_split = line.split()
+            if len(line_split) >1 and line_split[0]=='approx':
+                approx = line_split[1]
+        ile_job.add_arg(" --waveform-approximant {} ".format(approx))
 
     # Add outdir, label so we can control filename for output
     ile_job.add_arg(" --outdir calmarg ")
