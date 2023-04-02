@@ -2056,7 +2056,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
     with open(bilby_ini_file) as stream:
         config.read_string("[top]\n" + stream.read())
         bilby_items = dict(config["top"])
-        ifo_list = list(channel_dict)  # PSDs must be listed, implicitly provides all ifos
+        ifo_list = list(bilby_items['channel_dict'])  # PSDs must be listed, implicitly provides all ifos
     bilby_data_dict = {}
     if not('data_dict' in bilby_items):
         if frames_dir:
