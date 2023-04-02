@@ -88,7 +88,8 @@ def add_field(a, descr):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file (EOS-format: lnL sigma_lnL p1 p2 ... .  ASSUME any stacking over events already performed.")
-parser.add_argument("--fname-output-samples",default="output-EOS-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
+parser.add_argument("--fname-output-samples",default="output-EOS-samples",help="output grid")
+parser.add_argument("--fname-output-integral",default="output-EOS-samples",help="for evidencees and pipeline compatibility")
 parser.add_argument("--n-output-samples",default=2000,type=int,help="output posterior samples (default 3000)")
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state [spectral only, for now]")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior. Currently can only specify gamma1,gamma2, ..., and these MUST be columns in --fname")
