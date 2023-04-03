@@ -311,11 +311,11 @@ if opts.resample_time_marginalization and not(opts.fairdraw_extrinsic_output):
   raise Exception(" Resampled time output requires --fairdraw-extrinsic-output ")
 
 # Fairdraw is NOT YET IMPLEMENTED for these other integrators!
-if opts.fairdraw_extrinsic_output:
+#if opts.fairdraw_extrinsic_output:
 #  if opts.sampler_method == 'adaptive_cartesian_gpu':
 #    raise Exception(" Fairdraw not available  for this sampler")
-  if opts.sampler_method == 'GMM':
-    raise Exception(" Fairdraw not available  for this sampler")
+#  if opts.sampler_method == 'GMM':
+#    raise Exception(" Fairdraw not available  for this sampler")
 
 
 supplemental_ln_likelihood= None
