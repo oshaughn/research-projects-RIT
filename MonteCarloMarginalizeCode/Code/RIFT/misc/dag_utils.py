@@ -2085,7 +2085,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
         # add to command-line arguments, IF NONEMPTY.  Otherwise we're stuck, and we have to hope magic works
         if len(list(bilby_data_dict))>0:
             data_argstr = '{}'.format(bilby_data_dict)
-            data_argstr = '  --data-dict {}  '.format(data_argstr.replace(' ',''))
+            data_argstr = '  --data-dict "{}"  '.format(data_argstr.replace(' ',''))
             ile_job.add_arg(data_argstr)
         else:
             print(" ==== WARNING FALLTHROUGH : calmarg failed to pull out options  ===",bilby_data_dict)
@@ -2101,6 +2101,9 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
         trigger_time =None
         rift_window_shape=None    # remember this is a dimensionless number, not a time
         rift_srate =None
+        fmin_list = []
+        channel_list=[]
+        fmax=None
         for line in ile_args_split:
             line_split = line.split()
             if len(line_split)>1:
@@ -2116,6 +2119,12 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
                     rift_window_shape = float(line_split[1])
                 elif line_split[0] == 'srate':
                     rift_srate = int(line_split[1])
+                elif line_split[0] == 'fmin-ifo':
+                    fmin_list += line_split[1]
+                elif line_split[0] == 'fmax':
+                    fmax = int(line_split[1])
+                elif line_split[0] == 'channel-name':
+                    channel_list += line_split[1]
         ile_job.add_arg(" --waveform-approximant {} ".format(approx))
         if rift_srate:
             ile_job.add_arg(" --sampling-frequency {} ".format(rift_srate))
@@ -2124,6 +2133,31 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
         # t_tukey
         t_tukey = (end_time-start_time)*rift_window_shape/2   # basically the fraction of time not in the window; see formula in helper
         ile_job.add_arg(" --tukey-roll-off {} ".format(t_tukey))
+        # channel list
+        channel_dict ={}
+        for channel_id in channel_list:
+            ifo, channel_name = channel_list.split('=')
+            channel_dict[ifo] = channel_name
+            channel_argstr = '{}'.format(channel_dict)
+            channel_argstr = '  --channel-dict "{}"  '.format(channel_argstr.replace(' ',''))
+            ile_job.add_arg(channel_argstr)
+        # fmin
+        if len(fmin_list)>0:
+            fmin_dict = {}
+            for fmin_id in fmin_list:
+                ifo, fmin = fmin_id.split('=')
+                fmin_dict[ifo] = float(fmin)
+            fmin_argstr = '{}'.format(fmin_data_dict)
+            fmin_argstr = '  --minimum-frequency "{}"  '.format(fmin_argstr.replace(' ',''))
+            ile_job.add_arg(fmin_argstr)
+            # fmax.  Use previous to get ifo list
+            if fmax:
+                fmax_dict = {}
+                for ifo in fmin_dict:
+                    fmax_dict[ifo] =fmax
+                fmax_argstr = '{}'.format(fmax_data_dict)
+                fmax_argstr = '  --maximum-frequency "{}"  '.format(fmax_argstr.replace(' ',''))
+                ile_job.add_arg(fmax_argstr)
 
     # Add outdir, label so we can control filename for output
     ile_job.add_arg(" --outdir calmarg ")
