@@ -357,7 +357,7 @@ class MCSampler(object):
 
         # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
         if bFairdraw and not(n_extr is None):
-           n_extr = int(numpy.min([n_extr,1.5*eff_samp,1.5*neff]))
+           n_extr = int(np.min([n_extr,1.5*eff_samp,1.5*neff]))
            print(" Fairdraw size : ", n_extr)
            if return_lnI:
                ln_wt =  integrator.cumulative_values
@@ -366,7 +366,7 @@ class MCSampler(object):
            ln_wt += np.log(prior_array/p_array)
            ln_wt += - scipy.special.logsumexp(ln_wt)
            wt = np.exp(ln_wt)
-           if n_extr < len(self._rvs["log_integrand"]):
+           if n_extr < len(value_array):
                indx_list = np.random.choice(np.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
                # FIXME: See previous FIXME
                for key in list(self._rvs.keys()):
