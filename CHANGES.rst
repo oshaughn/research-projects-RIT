@@ -20,6 +20,7 @@ Since last release
      (i.e., an snr-like output).  EOSManager QueryLS, repirmand and causal-spectral; xml patch for lalsuite >=7.13; cosmo prior
      on gpu debug; dmarg allows pseudo_cosmo prior; misc osg minor updates; ILE --zero-likelihood for testing;
      various --manual-extra-X-args; cal marg from Jake (rc5)
+   - fix CI again; hyperpipe/hyperpost, framed for EOS; cal marg debug; Atul EOSManager updates (reprimand, etc); add missing fairdraw code to GMM and AC+lnL
 
 0.0.15.7
 -----------
