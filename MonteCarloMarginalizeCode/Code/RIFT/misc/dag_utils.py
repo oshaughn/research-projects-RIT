@@ -2124,7 +2124,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
                 elif line_split[0] == 'fmax':
                     fmax = int(float(line_split[1]))  # safety
                 elif line_split[0] == 'channel-name':
-                    channel_list += line_split[1]
+                    channel_list += [line_split[1]]
         ile_job.add_arg(" --waveform-approximant {} ".format(approx))
         if rift_srate:
             ile_job.add_arg(" --sampling-frequency {} ".format(rift_srate))
@@ -2136,11 +2136,12 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
         # channel list
         channel_dict ={}
         for channel_id in channel_list:
-            ifo, channel_name = channel_id.split('=')
-            channel_dict[ifo] = channel_name
-            channel_argstr = '{}'.format(channel_dict)
-            channel_argstr = '  --channel-dict "{}"  '.format(channel_argstr.replace(' ',''))
-            ile_job.add_arg(channel_argstr)
+            if '=' in channel_id:
+                ifo, channel_name = channel_id.split('=')
+                channel_dict[ifo] = channel_name
+        channel_argstr = '{}'.format(channel_dict)
+        channel_argstr = '  --channel-dict "{}"  '.format(channel_argstr.replace(' ',''))
+        ile_job.add_arg(channel_argstr)
         # fmin
         if len(fmin_list)>0:
             fmin_dict = {}
