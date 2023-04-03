@@ -2118,11 +2118,11 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
                 elif line_split[0] == 'window-shape':
                     rift_window_shape = float(line_split[1])
                 elif line_split[0] == 'srate':
-                    rift_srate = int(line_split[1])
+                    rift_srate = int(float(line_split[1]))  # safety
                 elif line_split[0] == 'fmin-ifo':
                     fmin_list += line_split[1]
                 elif line_split[0] == 'fmax':
-                    fmax = int(line_split[1])
+                    fmax = int(float(line_split[1]))  # safety
                 elif line_split[0] == 'channel-name':
                     channel_list += line_split[1]
         ile_job.add_arg(" --waveform-approximant {} ".format(approx))
