@@ -2149,7 +2149,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
                 if '=' in fmin_id:
                     ifo, fmin = fmin_id.split('=')
                     fmin_dict[ifo] = float(fmin)
-            fmin_argstr = '{}'.format(fmin_data_dict)
+            fmin_argstr = '{}'.format(fmin_dict)
             fmin_argstr = '  --minimum-frequency "{}"  '.format(fmin_argstr.replace(' ',''))
             ile_job.add_arg(fmin_argstr)
             # fmax.  Use previous to get ifo list
@@ -2157,7 +2157,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
                 fmax_dict = {}
                 for ifo in fmin_dict:
                     fmax_dict[ifo] =fmax
-                fmax_argstr = '{}'.format(fmax_data_dict)
+                fmax_argstr = '{}'.format(fmax_dict)
                 fmax_argstr = '  --maximum-frequency "{}"  '.format(fmax_argstr.replace(' ',''))
                 ile_job.add_arg(fmax_argstr)
 
