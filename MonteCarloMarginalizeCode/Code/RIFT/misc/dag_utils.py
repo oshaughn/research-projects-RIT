@@ -2120,7 +2120,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
                 elif line_split[0] == 'srate':
                     rift_srate = int(float(line_split[1]))  # safety
                 elif line_split[0] == 'fmin-ifo':
-                    fmin_list += line_split[1]
+                    fmin_list += [line_split[1]]
                 elif line_split[0] == 'fmax':
                     fmax = int(float(line_split[1]))  # safety
                 elif line_split[0] == 'channel-name':
@@ -2146,8 +2146,9 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
         if len(fmin_list)>0:
             fmin_dict = {}
             for fmin_id in fmin_list:
-                ifo, fmin = fmin_id.split('=')
-                fmin_dict[ifo] = float(fmin)
+                if '=' in fmin_id:
+                    ifo, fmin = fmin_id.split('=')
+                    fmin_dict[ifo] = float(fmin)
             fmin_argstr = '{}'.format(fmin_data_dict)
             fmin_argstr = '  --minimum-frequency "{}"  '.format(fmin_argstr.replace(' ',''))
             ile_job.add_arg(fmin_argstr)
