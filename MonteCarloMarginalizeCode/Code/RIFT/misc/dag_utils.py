@@ -2106,15 +2106,15 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
             if len(line_split)>1:
                 if line_split[0]=='approx':
                     approx = line_split[1]
-                elif line_split[0] = 'event-time':
+                elif line_split[0] == 'event-time':
                     event_time = float(line_split[1])
-                elif line_split[0] = 'data-start-time':
+                elif line_split[0] == 'data-start-time':
                     start_time = float(line_split[1])
-                elif line_split[0] = 'data-end-time':
+                elif line_split[0] == 'data-end-time':
                     end_time = float(line_split[1])
-                elif line_split[0] = 'window-shape':
+                elif line_split[0] == 'window-shape':
                     rift_window_shape = float(line_split[1])
-                elif line_split[0] = 'srate':
+                elif line_split[0] == 'srate':
                     rift_rate = int(line_split[1])
         ile_job.add_arg(" --waveform-approximant {} ".format(approx))
         ile_job.add_arg(" --sampling-frequency {} ".format(rift_srate))
