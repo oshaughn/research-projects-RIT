@@ -2058,7 +2058,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
         bilby_items = dict(config["top"])
         ifo_list = list(bilby_items['channel-dict'])  # PSDs must be listed, implicitly provides all ifos
     bilby_data_dict = {}
-    if not('data_dict' in bilby_items):
+    if not('data-dict' in bilby_items):
         if cache_file:
             print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from (host) directory: {} ".format(frames_dir))
             cache_lines = np.loadtxt(cache_file,dtype=str)
@@ -2085,21 +2085,44 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
         # add to command-line arguments, IF NONEMPTY.  Otherwise we're stuck, and we have to hope magic works
         if len(list(bilby_data_dict))>0:
             data_argstr = '{}'.format(bilby_data_dict)
-            data_argstr = " --data_dict " + data_argstr.replace(' ','')
+            data_argstr = '  --data-dict {}  '.format(data_argstr.replace(' ',''))
             ile_job.add_arg(data_argstr)
         else:
             print(" ==== WARNING FALLTHROUGH : calmarg failed to pull out options  ===",bilby_data_dict)
 
 
+    # Other required settings from ILE
     # approximant: if ile_args present, ALWAYS parse it and set it that way, so we are consistent with our own analysis
     if ile_args:
         approx = bilby_items['waveform-approximant']
         ile_args_split = ile_args.split('--')
+        start_time =None
+        end_time=None
+        trigger_time =None
+        rift_window_shape=None    # remember this is a dimensionless number, not a time
+        rift_srate =None
         for line in ile_args_split:
             line_split = line.split()
-            if len(line_split) >1 and line_split[0]=='approx':
-                approx = line_split[1]
+            if len(line_split)>1:
+                if line_split[0]=='approx':
+                    approx = line_split[1]
+                elif line_split[0] = 'event-time':
+                    event_time = float(line_split[1])
+                elif line_split[0] = 'data-start-time':
+                    start_time = float(line_split[1])
+                elif line_split[0] = 'data-end-time':
+                    end_time = float(line_split[1])
+                elif line_split[0] = 'window-shape':
+                    rift_window_shape = float(line_split[1])
+                elif line_split[0] = 'srate':
+                    rift_rate = int(line_split[1])
         ile_job.add_arg(" --waveform-approximant {} ".format(approx))
+        ile_job.add_arg(" --sampling-frequency {} ".format(rift_srate))
+        if event_time:
+            ile_job.add_arg(" --trigger-time {} ".format(event_time))
+        # t_tukey
+        t_tukey = (end_time-start_time)*rift_window_shape   # basically the fraction of time not in the window
+        ile_job.add_arg(" --tukey-roll-off {} ".format(t_tukey))
 
     # Add outdir, label so we can control filename for output
     ile_job.add_arg(" --outdir calmarg ")
