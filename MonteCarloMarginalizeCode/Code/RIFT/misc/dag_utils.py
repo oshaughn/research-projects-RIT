@@ -2136,7 +2136,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
         # channel list
         channel_dict ={}
         for channel_id in channel_list:
-            ifo, channel_name = channel_list.split('=')
+            ifo, channel_name = channel_id.split('=')
             channel_dict[ifo] = channel_name
             channel_argstr = '{}'.format(channel_dict)
             channel_argstr = '  --channel-dict "{}"  '.format(channel_argstr.replace(' ',''))
