@@ -2115,9 +2115,10 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
                 elif line_split[0] == 'window-shape':
                     rift_window_shape = float(line_split[1])
                 elif line_split[0] == 'srate':
-                    rift_rate = int(line_split[1])
+                    rift_srate = int(line_split[1])
         ile_job.add_arg(" --waveform-approximant {} ".format(approx))
-        ile_job.add_arg(" --sampling-frequency {} ".format(rift_srate))
+        if rift_srate:
+            ile_job.add_arg(" --sampling-frequency {} ".format(rift_srate))
         if event_time:
             ile_job.add_arg(" --trigger-time {} ".format(event_time))
         # t_tukey
