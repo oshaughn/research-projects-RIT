@@ -2121,7 +2121,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
         if event_time:
             ile_job.add_arg(" --trigger-time {} ".format(event_time))
         # t_tukey
-        t_tukey = (end_time-start_time)*rift_window_shape   # basically the fraction of time not in the window
+        t_tukey = (end_time-start_time)*rift_window_shape/2   # basically the fraction of time not in the window; see formula in helper
         ile_job.add_arg(" --tukey-roll-off {} ".format(t_tukey))
 
     # Add outdir, label so we can control filename for output
