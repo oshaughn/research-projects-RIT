@@ -9,6 +9,8 @@ import numpy as np
 import itertools
 import functools
 
+import scipy.special
+
 #from statutils import cumvar
 
 from multiprocessing import Pool
@@ -272,7 +274,10 @@ class MCSampler(object):
 
         use_lnL = kwargs["use_lnL"] if "use_lnL" in kwargs else False 
         return_lnI = kwargs["return_lnI"] if "return_lnI" in kwargs else False
-        
+
+        bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
+        n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
+
         # set up a lot of preliminary stuff
         self.func = func
         self.curr_args = args
@@ -349,6 +354,26 @@ class MCSampler(object):
         self._rvs['joint_prior'] = prior_array
         self._rvs['joint_s_prior'] = p_array
         self._rvs['integrand'] = value_array
+
+        # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
+        if bFairdraw and not(n_extr is None):
+           n_extr = int(numpy.min([n_extr,1.5*eff_samp,1.5*neff]))
+           print(" Fairdraw size : ", n_extr)
+           if return_lnI:
+               ln_wt =  integrator.cumulative_values
+           else:
+               ln_wt = np.log(value_array)
+           ln_wt += np.log(prior_array/p_array)
+           ln_wt += - scipy.special.logsumexp(ln_wt)
+           wt = np.exp(ln_wt)
+           if n_extr < len(self._rvs["log_integrand"]):
+               indx_list = np.random.choice(np.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
+               # FIXME: See previous FIXME
+               for key in list(self._rvs.keys()):
+                   if isinstance(key, tuple):
+                       self._rvs[key] = self._rvs[key][:,indx_list]
+                   else:
+                       self._rvs[key] = self._rvs[key][indx_list]
 
         # if special return structure, fill it
         dict_return = {}
