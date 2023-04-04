@@ -595,13 +595,13 @@ if opts.internal_cip_use_lnL:
 if not(opts.ile_n_eff is None):
     cmd += " --ile-n-eff {} ".format(opts.ile_n_eff)
 if opts.limit_mc_range:
-    cmd+= " --limit-mc-range {} ".format(opts.limit_mc_range)
+    cmd+= " --limit-mc-range  " + str(opts.limit_mc_range).replace(' ','')
 if not(opts.force_mc_range is None):
-    cmd+= " --force-mc-range {} ".format(opts.force_mc_range)
+    cmd+= " --force-mc-range  " + str(opts.force_mc_range).replace(' ','')
 elif opts.scale_mc_range:
-    cmd += " --scale-mc-range {} ".format(opts.scale_mc_range)
+    cmd += " --scale-mc-range  " + str(opts.scale_mc_range).replace(' ','')
 if not(opts.force_eta_range is None):
-    cmd+= " --force-eta-range {} ".format(opts.force_eta_range)
+    cmd+= " --force-eta-range  " + str(opts.force_eta_range).replace(' ','')
 if opts.force_chi_max:
     cmd+= " --force-chi-max {} ".format(opts.force_chi_max)
 if opts.force_chi_small_max:
