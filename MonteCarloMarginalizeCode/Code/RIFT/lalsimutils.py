@@ -1679,9 +1679,12 @@ class ChooseWaveformParams:
         self.phi = row.longitude # Right ascension
         self.radec = True # Flag to interpret (theta,phi) as (DEC,RA)
         self.psi = row.polarization
-        self.tref = row.geocent_end_time
-        if lalmetaio_old_style or hasattr(row, 'geocent_end_time_ns'):
-            self.tref += 1e-9*row.geocent_end_time_ns
+        if 'time_geocent' in dir(row):
+            self.tref = row.time_geocent
+        else:
+            self.tref = row.geocent_end_time
+            if lalmetaio_old_style or hasattr(row, 'geocent_end_time_ns'):
+                self.tref += 1e-9*row.geocent_end_time_ns
         if hasattr(row, 'taper'):
             self.taper = lalsim.GetTaperFromString(str(row.taper))
         # FAKED COLUMNS (nonstandard)
