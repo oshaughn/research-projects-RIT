@@ -1730,7 +1730,7 @@ class ChooseWaveformParams:
         row.polarization = self.psi
         row.coa_phase = self.phiref
         # http://stackoverflow.com/questions/6032781/pythonnumpy-why-does-numpy-log-throw-an-attribute-error-if-its-operand-is-too
-        if lalmetaio_old_style:
+        if lalmetaio_old_style or hasattr(row, 'geocent_time_ns'):
             row.geocent_end_time = np.floor( float(self.tref))
             row.geocent_end_time_ns = np.floor( float(1e9*(self.tref - row.geocent_end_time)))
         else:
