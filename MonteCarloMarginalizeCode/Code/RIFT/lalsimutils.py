@@ -1707,7 +1707,7 @@ class ChooseWaveformParams:
             print( " --- Creating XML row for the following ---- ")
             self.print_params()
         sim_valid_cols = [ "simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time",  "coa_phase", "distance", "mass1", "mass2", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"] # ,  "alpha1", "alpha2", "alpha3"
-        if lalmetaio_old_style:
+        if True: #lalmetaio_old_style:
             sim_valid_cols += [ "geocent_end_time_ns"]
         si_table = lsctables.New(lsctables.SimInspiralTable, sim_valid_cols)
         row = si_table.RowType()
@@ -1729,8 +1729,11 @@ class ChooseWaveformParams:
         row.inclination = self.incl
         row.polarization = self.psi
         row.coa_phase = self.phiref
+        # New code for managing times in output: see https://git.ligo.org/kipp.cannon/python-ligo-lw/-/blob/master/ligo/lw/lsctables.py
+        if 'time_geocent' in dir(row):
+            row.time_geocent = float(self.tref)
         # http://stackoverflow.com/questions/6032781/pythonnumpy-why-does-numpy-log-throw-an-attribute-error-if-its-operand-is-too
-        if lalmetaio_old_style or hasattr(row, 'geocent_time_ns'):
+        elif  hasattr(row, 'geocent_time_ns'):   # old school approach, will not work now
             row.geocent_end_time = np.floor( float(self.tref))
             row.geocent_end_time_ns = np.floor( float(1e9*(self.tref - row.geocent_end_time)))
         else:
