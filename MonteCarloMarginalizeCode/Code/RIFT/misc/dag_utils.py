@@ -2010,6 +2010,12 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
 
     return ile_job, ile_sub_name
 
+def bilby_prior_dict_string_from_mc_q(mc_range,dmax_Mpc):
+    out_str = """chirp-mass: bilby.gw.prior.UniformInComponentsChirpMass(minimum={}, maximum={}, name='chirp_mass', boundary=None), mass-ratio: bilby.gw.prior.UniformInComponentsMassRatio(minimum=0.05, maximum=1.0, name='mass_ratio', latex_label='$q$', unit=None, boundary=None), mass-1: Constraint(minimum=1, maximum=1000, name='mass_1', latex_label='$m_1$', unit=None), mass-2: Constraint(minimum=1, maximum=1000, name='mass_2', latex_label='$m_2$', unit=None), a-1: Uniform(minimum=0, maximum=0.99, name='a_1', latex_label='$a_1$', unit=None, boundary=None), a-2: Uniform(minimum=0, maximum=0.99, name='a_2', latex_label='$a_2$', unit=None, boundary=None), tilt-1: Sine(minimum=0, maximum=3.141592653589793, name='tilt_1'), tilt-2: Sine(minimum=0, maximum=3.141592653589793, name='tilt_2'), phi-12: Uniform(minimum=0, maximum=6.283185307179586, name='phi_12', boundary='periodic'), phi-jl: Uniform(minimum=0, maximum=6.283185307179586, name='phi_jl', boundary='periodic'), luminosity-distance: PowerLaw(alpha=2, minimum=10, maximum={}, name='luminosity_distance', latex_label='$d_L$', unit='Mpc', boundary=None), theta-jn: Sine(minimum=0, maximum=3.141592653589793, name='theta_jn'), psi: Uniform(minimum=0, maximum=3.141592653589793, name='psi', boundary='periodic'), phase: Uniform(minimum=0, maximum=6.283185307179586, name='phase', boundary='periodic'), dec: Cosine(name='dec'), ra: Uniform(name='ra', minimum=0, maximum=2 * np.pi, boundary='periodic')
+""".format(mc_range[0],mc_range[1],dmax_Mpc)
+    out_str = "{" + out_str.rstrip() + "}"
+    return out_str
+
 def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log_dir=None, ncopies=1,request_memory=4096,bilby_ini_file=None,no_grid=False,frames_dir=None,cache_file=None,ile_args=None,**kwargs):
     """
     Write a submit file for launching a job to generate a pickle file based off a bilby ini file; needed for  reweight final posterior samples due to calibration uncertainty
@@ -2058,6 +2064,11 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
         bilby_items = dict(config["top"])
         ifo_list = list(bilby_items['channel-dict'])  # PSDs must be listed, implicitly provides all ifos
     bilby_data_dict = {}
+    # remove entries with the None keyword, as misleading
+    dict_names = list(bilby_data_dict)
+    for name in dict_names:
+        if bilby_data_dict[name] == 'None':
+            del bilby_data_dict[name]
     if not('data-dict' in bilby_items):
         if cache_file:
             print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from (host) directory: {} ".format(frames_dir))
