@@ -29,7 +29,7 @@ class integrator:
     d : int
         Total number of dimensions.
 
-    bounds : np.ndarray
+    bounds : dictionary with array bounds, with keys matching gmm_dict
         Limits of integration, where each row represents [left_lim, right_lim]
         for its corresponding dimension.
 
@@ -198,7 +198,11 @@ class integrator:
         else:
             lnL = np.log(self.value_array+regularize_log_scale)
         # strip off any samples with likelihoods less than our cutoff
-        mask = lnL > (np.log(self.L_cutoff) if self.L_cutoff > 0 else -np.inf)
+        mask = np.ones(lnL.shape,dtype=bool)
+        if not(self.L_cutoff is None):  # if not none
+            if not(np.isinf(self.L_cutoff)):  # and not infinite, then apply the cutoff
+                mask = lnL > (np.log(self.L_cutoff) if self.L_cutoff > 0 else -np.inf)
+#        print(mask, self.L_cutoff, lnL)
         lnL = lnL[mask]
         prior = self.prior_array[mask]
         sampling_prior = self.sampling_prior_array[mask]
