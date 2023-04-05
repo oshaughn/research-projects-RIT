@@ -1977,13 +1977,17 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     if ile_args:
         ile_args_split = ile_args.split('--')
         fmin_list = []
+        fmin_template = None
         for line in ile_args_split:
             line_split = line.split()
             if len(line_split)>1:
                 if line_split[0] == 'fmin-ifo':
                     fmin_list += [line_split[1]]
-        fmin = np.min(fmin_list)
-        ile_job.add_arg(" --fmin {} ".format(fmin))
+                if line_split[0] == 'fmin-template':
+                    fmin_template = line_split[1]
+#        fmin = np.min(fmin_list)
+        if fmin_template:
+            ile_job.add_arg(" --fmin-template {} ".format(fmin_template))  # code will fail without this, and it is always written anyways, but 
 
 
     #
