@@ -1931,7 +1931,7 @@ def write_subdagILE_sub(tag='subdag_ile', full_path_name=True, exe=None, univers
     return ile_job, ile_sub_name
 
 
-def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',no_grid=False,**kwargs):
+def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',no_grid=False,ile_args=None,**kwargs):
     """
     Write a submit file for launching jobs to reweight final posterior samples due to calibration uncertainty 
 
@@ -1973,6 +1973,17 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     ile_job.add_opt('use_rift_samples', 'True')
     ile_job.add_opt('time_marginalization', str(time_marg))
 
+
+    if ile_args:
+        ile_args_split = ile_args.split('--')
+        fmin_list = []
+        for line in ile_args_split:
+            line_split = line.split()
+            if len(line_split)>1:
+                if line_split[0] == 'fmin-ifo':
+                    fmin_list += [line_split[1]]
+        fmin = np.min(fmin_list)
+        ile_job.add_arg(" --fmin {} ".format(fmin))
 
 
     #
