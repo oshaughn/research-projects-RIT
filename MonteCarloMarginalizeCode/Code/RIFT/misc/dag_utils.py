@@ -2096,7 +2096,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
         # add to command-line arguments, IF NONEMPTY.  Otherwise we're stuck, and we have to hope magic works
         if len(list(bilby_data_dict))>0:
             data_argstr = '{}'.format(bilby_data_dict)
-            data_argstr = '  --data-dict "{}"  '.format(data_argstr.replace(' ',''))
+            data_argstr = '  --data-dict ""{}""  '.format(data_argstr.replace(' ',''))  # double "" because we are in a condor submit script!  Annoying but seemt to be correct
             ile_job.add_arg(data_argstr)
         else:
             print(" ==== WARNING FALLTHROUGH : calmarg failed to pull out options  ===",bilby_data_dict)
