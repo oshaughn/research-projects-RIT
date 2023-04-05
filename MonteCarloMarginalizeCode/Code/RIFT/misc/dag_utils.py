@@ -2031,7 +2031,7 @@ def bilby_prior_dict_string_from_mc_q(mc_range,dmax_Mpc):
     out_str = "{" + out_str.rstrip() + "}"
     return out_str
 
-def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log_dir=None, ncopies=1,request_memory=4096,bilby_ini_file=None,no_grid=False,frames_dir=None,cache_file=None,ile_args=None,**kwargs):
+def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_dir=None, ncopies=1,request_memory=4096,bilby_ini_file=None,no_grid=False,frames_dir=None,cache_file=None,ile_args=None,**kwargs):
     """
     Write a submit file for launching a job to generate a pickle file based off a bilby ini file; needed for  reweight final posterior samples due to calibration uncertainty
     
@@ -2039,6 +2039,9 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
      - bilby ini file
     Outputs:
      - pickle file of event settings; needed as input for calibration reweighting
+
+     Notes:
+       - local universe is generally safer: we need access to frame files in a standard location (typically datafind returns cvmfs, etc). That may not be available on remote nodes.
     """
     exe = exe or which("bilby_pipe_generation")
     if exe is None:
