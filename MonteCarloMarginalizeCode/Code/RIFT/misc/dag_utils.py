@@ -2169,7 +2169,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
                 ifo, channel_name = channel_id.split('=')
                 channel_dict[ifo] = channel_name
         channel_argstr = '{}'.format(channel_dict)
-        channel_argstr = '  --channel-dict "{}"  '.format(channel_argstr.replace(' ',''))
+        channel_argstr = '  --channel-dict ""{}""  '.format(channel_argstr.replace(' ',''))
         ile_job.add_arg(channel_argstr)
         # fmin
         if len(fmin_list)>0:
@@ -2179,7 +2179,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
                     ifo, fmin = fmin_id.split('=')
                     fmin_dict[ifo] = float(fmin)
             fmin_argstr = '{}'.format(fmin_dict)
-            fmin_argstr = '  --minimum-frequency "{}"  '.format(fmin_argstr.replace(' ',''))
+            fmin_argstr = '  --minimum-frequency ""{}""  '.format(fmin_argstr.replace(' ',''))  # inside condor
             ile_job.add_arg(fmin_argstr)
             # fmax.  Use previous to get ifo list
             if fmax:
@@ -2187,7 +2187,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
                 for ifo in fmin_dict:
                     fmax_dict[ifo] =fmax
                 fmax_argstr = '{}'.format(fmax_dict)
-                fmax_argstr = '  --maximum-frequency "{}"  '.format(fmax_argstr.replace(' ',''))
+                fmax_argstr = '  --maximum-frequency ""{}""  '.format(fmax_argstr.replace(' ',''))
                 ile_job.add_arg(fmax_argstr)
 
     # Add outdir, label so we can control filename for output
