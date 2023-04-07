@@ -21,6 +21,8 @@ Since last release
      on gpu debug; dmarg allows pseudo_cosmo prior; misc osg minor updates; ILE --zero-likelihood for testing;
      various --manual-extra-X-args; cal marg from Jake (rc5)
    - fix CI again; hyperpipe/hyperpost, framed for EOS; cal marg debug; Atul EOSManager updates (reprimand, etc); add missing fairdraw code to GMM and AC+lnL
+     mcsamplerAC minor normalization cleaning for low-precision GPU arithmetic (right-edge CDF effect); row.time_geocent
+     method in lalsimutils (rc6)
 
 0.0.15.7
 -----------
