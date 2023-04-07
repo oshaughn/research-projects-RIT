@@ -1973,7 +1973,7 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     ile_job.add_opt('use_rift_samples', 'True')
     ile_job.add_opt('time_marginalization', str(time_marg))
 
-
+    lmax=None
     if ile_args:
         ile_args_split = ile_args.split('--')
         fmin_list = []
@@ -1985,10 +1985,13 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
                     fmin_list += [line_split[1]]
                 if line_split[0] == 'fmin-template':
                     fmin_template = line_split[1]
+                elif line_split[0] == 'l-max':
+                    lmax = int(line_split[1])
 #        fmin = np.min(fmin_list)
         if fmin_template:
             ile_job.add_arg(" --fmin-template {} ".format(fmin_template))  # code will fail without this, and it is always written anyways, but 
-
+        if lmax:
+            ile_job.add_arg(" --l-max {} ".format(lmax))
 
     #
     # Add normal arguments
