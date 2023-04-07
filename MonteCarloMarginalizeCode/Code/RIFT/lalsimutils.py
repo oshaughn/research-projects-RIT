@@ -274,7 +274,7 @@ except:
    lalSEOBNRv4HM_ROM = -16
    lalIMRPhenomXPHM = -17
 
-pending_FD_approx = ['IMRPhenomXP_NRTidalv2', 'IMRPhenomXAS_NRTidalv2']
+pending_FD_approx = ['IMRPhenomXP_NRTidalv2', 'IMRPhenomXAS_NRTidalv2','IMRPhenomXO4a']
 pending_approx_code = {}
 pending_default_code = -18
 for name in pending_FD_approx:
