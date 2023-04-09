@@ -205,6 +205,7 @@ parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry att
 parser.add_argument("--general-retries",default=0,type=int,help="Number of retry attempts for internal jobs (convert, CIP, ...). (These can fail, albeit more rarely, usually due to filesystem problems)")
 parser.add_argument("--general-request-disk",default="10M",type=str,help="Request disk passed to condor. Must be done for all jobs now")
 parser.add_argument("--ile-request-disk",default="10M",type=str,help="Request disk passed to condor for ILE. Must be done for all jobs now")
+parser.add_argument("--cal-request-disk",default="8G",type=str,help="Request disk passed to condor for ILE. Must be done for all jobs now")
 parser.add_argument("--ile-n-events-to-analyze",default=1,type=int,help="If >1, you are using ILE_batchmode.  Structures the DAG correctly to account for batch cadence")
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
@@ -215,6 +216,7 @@ parser.add_argument("--plot-exe",default=None,help="filename of plot code or equ
 parser.add_argument("--gridinit-exe",default=None,help="filename of initial grid creation or equivalent executable.  Will default to `which util_ManualOverlapGrid.py`.  Must create overlap-grid-0.xml.gz")
 parser.add_argument("--calibration-reweighting-exe",default=None,help="Calibration reweighting script")
 parser.add_argument("--calibration-reweighting",action='store_true',help="Run calibration reweighting on final posterior samples")
+parser.add_argument("--calibration-reweighting-batchsize",type=int,default=None,help="If not 'None', tries to group the final set of points based on jobs of a fixed size")
 parser.add_argument("--convert-ascii2h5-exe",default=None,help="Converting ascii to h5 file script")
 parser.add_argument("--comov-distance-reweighting-exe",default=None,help="Comoving distance reweighting script")
 parser.add_argument("--comov-distance-reweighting",action='store_true',help="Run comoving distance reweighting on final posterior samples")
@@ -1044,15 +1046,40 @@ if opts.calibration_reweighting:
     elif (not opts.last_iteration_extrinsic_time_resampling) and opts.bilby_pickle_file:
         calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args)
         
-    calibration_job.set_log_file(opts.working_directory+"/calibration-$(cluster)-$(process).log")
-    calibration_job.set_stderr_file(opts.working_directory+"/calibration-$(cluster)-$(process).err")
-    calibration_job.set_stdout_file(opts.working_directory+"/calibration-$(cluster)-$(process).out")
+    if not(opts.calibration_reweighting_batchsize): # single run
+        calibration_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/calibration-$(cluster)-$(process).log")
+        calibration_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/calibration-$(cluster)-$(process).err")
+        calibration_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/calibration-$(cluster)-$(process).out")
+    else:
+        calibration_job.add_arg(" --start_index $(macrostartidx) ")
+        calibration_job.add_arg(" --end_index $(macroendidx) ")
+        calibration_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/calibration-$(macrostartidx)-$(cluster)-$(process).log")
+        calibration_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/calibration-$(macrostartidx)-$(cluster)-$(process).err")
+        calibration_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/calibration-$(macrostartidx)-$(cluster)-$(process).out")
     calibration_job.add_condor_cmd('request_disk',opts.general_request_disk)
 
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+calibration_job.get_sub_file()
         calibration_job.set_sub_file(fname)
     calibration_job.write_sub_file()
+
+    # job to combine things. Write here to make logic human-readable
+    if (opts.calibration_reweighting_batchsize): # single run
+        reweight_merge_job, reweight_merge_job_name = dag_utils.write_convert_sub(exe=which('combine_weights_and_rejection_sample.py'),tag='CAL_REWEIGHT_COMBINE',log_dir=None,arg_str='',file_input=opts.working_directory+'/extrinsic_posterior_samples.dat ../weight_files/',file_output=None, out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
+        reweight_merge_job.add_condor_cmd("initialdir",opts.working_directory)
+        reweight_merge_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/reweight-merge-$(cluster)-$(process).log")
+        reweight_merge_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/reweight-merge-$(cluster)-$(process).err")
+        reweight_merge_job.add_condor_cmd('request_disk',opts.cal_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory+"/"+reweight_merge_job.get_sub_file()
+            reweight_merge_job.set_sub_file(fname)
+        if opts.use_osg:
+            reweight_merge_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+            reweight_merge_job.add_condor_cmd("+flock_local",'true')
+        reweight_merge_job.write_sub_file()
+
+
+
     
     if opts.bilby_ini_file:
         pickle_job, pickle_job_name = dag_utils.write_bilby_pickle_sub(tag='Bilby_pickle',log_dir=None,bilby_ini_file=opts.bilby_ini_file,exe=opts.bilby_pickle_exe,universe='local',no_grid=no_worker_grid,cache_file=opts.cache_file,frames_dir=opts.frames_dir,ile_args=ile_args)
@@ -1566,11 +1593,32 @@ if opts.calibration_reweighting:
         pickle_node.add_parent(last_node)
         last_node=pickle_node
         dag.add_node(pickle_node)
-    calibration_node = pipeline.CondorDAGNode(calibration_job)
-    calibration_node.add_macro("macroiteration",it)
-    calibration_node.set_category("CALIBRATION")
-    calibration_node.add_parent(last_node)
-    dag.add_node(calibration_node)
+    # Do single job if only one needed, otherwise loop
+    if not(opts.calibration_reweighting_batchsize):
+        calibration_node = pipeline.CondorDAGNode(calibration_job)
+        calibration_node.add_macro("macroiteration",it)
+        calibration_node.set_category("CALIBRATION")
+        calibration_node.add_parent(last_node)
+        dag.add_node(calibration_node)
+    else:
+        # Make job to reweight everything, after producing samples
+        reweight_merge_node =    pipeline.CondorDAGNode(reweight_merge_job)
+        reweight_merge_node.add_macro("macroiteration",it)
+
+        # Make individual calibration nodes
+        for start_indx in np.arange(start=0,stop=opts.last_iteration_extrinsic_nsamples,step=opts.calibration_reweighting_batchsize):
+            end_indx = start_indx + opts.calibration_reweighting_batchsize  # end index is not included, python-style indexing so no fencepost problems
+            calibration_node.add_macro("macroiteration",it)
+            calibration_node.add_macro("macrostartidx",start_indx)
+            calibration_node.add_macro("macroendidx",end_indx)
+            calibration_node = pipeline.CondorDAGNode(calibration_job)
+            calibration_node.set_category("CALIBRATION")
+            calibration_node.add_parent(last_node)
+            reweight_merge_node.add_parent(calibration_node)
+            dag.add_node(calibration_node)
+            
+        # add the merge node.  Thouls be the last node
+        dag.add_node(reweight_merge_node)
     
 if opts.comov_distance_reweighting:
     convert_ascii_node = pipeline.CondorDAGNode(convert_ascii_job)
