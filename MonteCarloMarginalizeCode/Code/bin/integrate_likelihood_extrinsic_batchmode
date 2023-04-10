@@ -1764,7 +1764,7 @@ for indx in numpy.arange(len(P_list)):
 #  if len(exception_failure) >0:
 #    if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
 #      sys.exit(1) 
-  if ("CUDA" in str(exception_failure)) or ('CUBLAS' in str(exception_failure) or ('cuda' in str(exception_failure)): # Hard fail if a cuda error with a catchable error code
+  if ("CUDA" in str(exception_failure)) or ('CUBLAS' in str(exception_failure) or ('cuda' in str(exception_failure))): # Hard fail if a cuda error with a catchable error code
     sys.exit(62)
   str_err = " {} ".format(exception_failure)
   if 'Zero prior failure' in str_err:
