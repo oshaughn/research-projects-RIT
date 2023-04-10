@@ -254,16 +254,17 @@ class integrator:
             self.eff_samp = self.total_value / self.max_value
         else: # using lnI return values
             # Evaluate integral and effective sample count
-            log_sum_weights = logsumexp(log_weights) - log_scale_factor
+            # Note with lnI return values, no more need to keep track of a scale factor at all
+            log_sum_weights = logsumexp(log_weights) 
             log_integral_here = log_sum_weights - np.log(self.n)
             if not(self.integral ):
-                self.integral = log_integral_here + log_scale_factor
-                self.total_value = log_sum_weights +log_scale_factor
+                self.integral = log_integral_here  
+                self.total_value = log_sum_weights  
                 self.max_value = log_scale_factor
             else:
                 self.integral = logsumexp([ self.integral +np.log(self.iterations), log_integral_here]) - np.log(self.iterations+1)
-                self.total_value= logsumexp([self.total_value, log_sum_weights+log_scale_factor])
-                self.max_value = np.max([self.max_value,log_scale_factor])
+                self.total_value= logsumexp([self.total_value, log_sum_weights])
+                self.max_value = np.max([self.max_value,np.max(log_weights)])
             self.eff_samp = np.exp(self.total_value - (self.max_value  ))
 
             # Evaluate error squared, avoiding overflow
