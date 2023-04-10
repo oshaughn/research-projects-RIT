@@ -1466,6 +1466,8 @@ if opts.propose_fit_strategy:
         helper_cip_args += " --input-tides --parameter-implied LambdaTilde  --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
         if not(opts.assume_matter_but_primary_bh):
             helper_cip_args+= " --parameter-nofit lambda1 "
+        else:
+            helper_puff_args = helper_puff_args.replace(" --parameter LambdaTilde ", " --parameter lambda2 ")  # if primary a BH, only varying lambda2
         # Add LambdaTilde on top of the aligned spin runs
         for indx in np.arange(len(helper_cip_arg_list)):
             helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde  --parameter-nofit lambda2 " 
