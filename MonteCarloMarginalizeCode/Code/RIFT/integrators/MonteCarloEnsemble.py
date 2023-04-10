@@ -268,7 +268,8 @@ class integrator:
             self.eff_samp = np.exp(self.total_value - (self.max_value  ))
 
             # Evaluate error squared, avoiding overflow
-            log_scaled_error_squared = np.log(np.var(np.exp(log_weights - log_scale_factor)))
+            tmp_max = np.max(log_weights)
+            log_scaled_error_squared = np.log(np.var(np.exp(log_weights - tmp_max))) + 2*tmp_max   
             if not(self.scaled_error_squared):
                 self.scaled_error_squared = log_scaled_error_squared
             else:
@@ -362,7 +363,10 @@ class integrator:
                 continue
             self.iterations += 1
             self.ntotal += self.n
-            if self.iterations >= min_iter and np.log(self.scaled_error_squared) + self.log_error_scale_factor < np.log(var_thresh):
+            testval =self.scaled_error_squared
+            if not(self.return_lnI):
+                testval = np.log(self.scaled_error_squared) + self.log_error_scale_factor
+            if self.iterations >= min_iter and testval < np.log(var_thresh):
                 break
             try:
                 if adapting:
@@ -386,8 +390,8 @@ class integrator:
             if verbose:
                 # Standard mcsampler message, to monitor convergence
                 if not(self.return_lnI):
-                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*np.log(self.integral)), "-" ) )
+                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*(np.log(self.integral))),  "-" ) )
                 else:
-                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*self.integral), "-" ) )
+                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*self.integral), np.exp(self.scaled_error_squared )) )
         print('cumulative eval time: ', cumulative_eval_time)
         print('integrator iterations: ', self.iterations)
