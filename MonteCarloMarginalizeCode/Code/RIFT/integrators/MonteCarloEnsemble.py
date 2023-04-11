@@ -269,7 +269,7 @@ class integrator:
 
             # Evaluate error squared, avoiding overflow
             tmp_max = np.max(log_weights)
-            log_scaled_error_squared = np.log(np.var(np.exp(log_weights - tmp_max))) + 2*tmp_max   
+            log_scaled_error_squared = np.log(np.var(np.exp(log_weights - tmp_max))) + 2*tmp_max   - np.log(self.n)
             if not(self.scaled_error_squared):
                 self.scaled_error_squared = log_scaled_error_squared
             else:
@@ -390,8 +390,8 @@ class integrator:
             if verbose:
                 # Standard mcsampler message, to monitor convergence
                 if not(self.return_lnI):
-                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*(np.log(self.integral))),  "-" ) )
+                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*(np.log(self.integral))),  np.sqrt(self.scaled_error_squared )/self.integral/np.sqrt(self.iterations ) ) )
                 else:
-                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*self.integral), np.exp(self.scaled_error_squared )) )
+                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*self.integral), np.exp(0.5*(self.scaled_error_squared - self.integral*2) )/np.sqrt(self.iterations)))
         print('cumulative eval time: ', cumulative_eval_time)
         print('integrator iterations: ', self.iterations)
