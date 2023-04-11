@@ -839,6 +839,7 @@ for indx in np.arange(len(instructions_cip)):
         n_workers_last = opts.cip_explode_jobs_last
     n_eff_cip_last = int(n_sample_target/n_workers_last)
     if indx < len(instructions_cip)-1: # on all but 
+        n_eff_cip_here= int(n_sample_target/n_workers)
         n_eff_cip_here = np.amin([opts.internal_cip_cap_neff/n_workers + 1, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
     else:
         n_eff_cip_here = n_eff_cip_last
