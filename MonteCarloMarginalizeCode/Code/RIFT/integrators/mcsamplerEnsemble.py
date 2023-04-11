@@ -333,9 +333,9 @@ class MCSampler(object):
         integral = integrator.integral
         print("Result ",integrator.scaled_error_squared, integrator.integral)
         if not(return_lnI):
-            error_squared = integrator.scaled_error_squared * np.exp(integrator.log_error_scale_factor)
+            error_squared = integrator.scaled_error_squared * np.exp(integrator.log_error_scale_factor)/ (self.ntotal/self.n)
         else:
-            error_squared = integrator.scaled_error_squared + 2*integral
+            error_squared = integrator.scaled_error_squared  - np.log(self.ntotal/self.n)
         eff_samp = integrator.eff_samp
         sample_array = integrator.cumulative_samples
         if not(return_lnI):
