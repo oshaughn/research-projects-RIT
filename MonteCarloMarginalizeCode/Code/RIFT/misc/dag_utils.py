@@ -886,7 +886,7 @@ echo Starting ...
         if line:
             name_list = line.split(',')
             for name in name_list:
-                requirements.append("TARGET.Machine =!= {} ".format(name))
+                requirements.append('TARGET.Machine =!= "{}" '.format(name))
 
     # Write requirements
     # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
