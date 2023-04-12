@@ -23,6 +23,9 @@ Since last release
    - fix CI again; hyperpipe/hyperpost, framed for EOS; cal marg debug; Atul EOSManager updates (reprimand, etc); add missing fairdraw code to GMM and AC+lnL
      mcsamplerAC minor normalization cleaning for low-precision GPU arithmetic (right-edge CDF effect); row.time_geocent
      method in lalsimutils (rc6)
+   - catch various ILE errors; correctly set n_eff goal for CIP workers for last iteration consistent with
+     cip-explode-jobs-last; add (inaccessible) option to manage XPHM version change; bugfix mcsamplerGMM error estimate;
+     bugfix mcsamplerGMM in case of use-lnL/use-lnI; NSBH puffball fix lambda_BH=0; calmarg can use --calibration-reweighting-batchsize
 
 0.0.15.7
 -----------
