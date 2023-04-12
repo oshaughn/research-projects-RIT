@@ -1772,9 +1772,15 @@ for indx in numpy.arange(len(P_list)):
 #      sys.exit(1) 
   if ("CUDA" in str(exception_failure)) or ('CUBLAS' in str(exception_failure) or ('cuda' in str(exception_failure))): # Hard fail if a cuda error with a catchable error code
     sys.exit(62)
+  if 'Out of memory' in str(exception_failure):   # should never happen, most likely a crappy node or failure to set correct memory limit for ILE.
+    sys.exit(63)
   str_err = " {} ".format(exception_failure)
-  if 'Zero prior failure' in str_err:
+  if ('Zero prior failure' in str_err) or ('effective samples' in str_err):
+    # common failures that require reset of sampler
+    #    - zero prior : very rare case where the prior is exactly zero for some reason. User error most likely (floors, etc). Should never happen
+    #    - effective samples = nan : error with AC where the integrator gets confused. Reset
     # reset all variables sampling, so we don't contaminate subsequent versions
+    #    - again, this should only be a problem if we are using multiply adaptive sampling, so it should NEVER happen on the first time through
     for name in sampler.params:
       sampler.reset_sampling(param)
 
