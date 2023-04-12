@@ -879,6 +879,15 @@ echo Starting ...
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
+    # Avoid undesirable hosts in RIFT_AVOID_HOSTS
+    if 'RIFT_AVOID_HOSTS' in os.environ:
+        line = os.environ['RIFT_AVOID_HOSTS']
+        line = line.rstrip()
+        if line:
+            name_list = line.split(',')
+            for name in name_list:
+                requirements.append("TARGET.Machine =!= {} ".format(name))
+
     # Write requirements
     # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
