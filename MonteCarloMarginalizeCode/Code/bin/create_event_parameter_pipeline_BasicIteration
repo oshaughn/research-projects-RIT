@@ -1069,6 +1069,7 @@ if opts.calibration_reweighting:
         reweight_merge_job.add_condor_cmd("initialdir",opts.working_directory)
         reweight_merge_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/reweight-merge-$(cluster)-$(process).log")
         reweight_merge_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/reweight-merge-$(cluster)-$(process).err")
+        reweight_merge_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/reweight-merge-$(cluster)-$(process).out")
         reweight_merge_job.add_condor_cmd('request_disk',opts.cal_request_disk)
         if opts.use_full_submit_paths:
             fname = opts.working_directory+"/"+reweight_merge_job.get_sub_file()
@@ -1608,10 +1609,10 @@ if opts.calibration_reweighting:
         # Make individual calibration nodes
         for start_indx in np.arange(start=0,stop=opts.last_iteration_extrinsic_nsamples,step=opts.calibration_reweighting_batchsize):
             end_indx = start_indx + opts.calibration_reweighting_batchsize  # end index is not included, python-style indexing so no fencepost problems
+            calibration_node = pipeline.CondorDAGNode(calibration_job)
             calibration_node.add_macro("macroiteration",it)
             calibration_node.add_macro("macrostartidx",start_indx)
             calibration_node.add_macro("macroendidx",end_indx)
-            calibration_node = pipeline.CondorDAGNode(calibration_job)
             calibration_node.set_category("CALIBRATION")
             calibration_node.add_parent(last_node)
             reweight_merge_node.add_parent(calibration_node)
