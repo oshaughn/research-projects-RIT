@@ -713,10 +713,15 @@ if not(opts.use_ini is None):
         for name in fhigh_dict:
             opts.fmax = float(fhigh_dict[name])
 
-    srate = int(np.max([unsafe_config_get(config,['engine','srate']),srate]))  # raise the srate, but never lower it below the fiducial value
+    srate = int(unsafe_config_get(config,['engine','srate']))  # raise the srate
     if not(is_int_power_of_2(srate)):
         print("srate must be power of 2!")
         sys.exit(0)
+    # Print warning if srate < 4096
+    if srate < 4096:
+        print("""WARNING WARNING WARNING : 
+You are requesting srate < 4096 with your ini file.  Use at your own risk - all our comprehensive testing is at higher sampling rates.
+""")
     
     opts.fmin = fmin_fiducial # used only to estimate length; overridden later
 
