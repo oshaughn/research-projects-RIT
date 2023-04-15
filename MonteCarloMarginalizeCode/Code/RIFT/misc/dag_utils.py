@@ -2093,13 +2093,13 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
         config.read_string("[top]\n" + stream.read())
         bilby_items = dict(config["top"])
         ifo_list = list(bilby_items['channel-dict'])  # PSDs must be listed, implicitly provides all ifos
-    bilby_data_dict = {}
     # remove entries with the None keyword, as misleading
-    dict_names = list(bilby_data_dict)
+    dict_names = list(bilby_items)
     for name in dict_names:
-        if bilby_data_dict[name] == 'None':
-            del bilby_data_dict[name]
+        if bilby_items[name] == 'None':
+            del bilby_items[name]
     if not('data-dict' in bilby_items):
+        bilby_data_dict = {}
         if cache_file:
             print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from (host) directory: {} ".format(frames_dir))
             cache_lines = np.loadtxt(cache_file,dtype=str)
@@ -2129,7 +2129,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
             data_argstr = '  --data-dict ""{}""  '.format(data_argstr.replace(' ',''))  # double "" because we are in a condor submit script!  Annoying but seemt to be correct
             ile_job.add_arg(data_argstr)
         else:
-            print(" ==== WARNING FALLTHROUGH : calmarg failed to pull out options  ===",bilby_data_dict)
+            print(" ==== WARNING FALLTHROUGH : calmarg failed to pull out options  ===",bilby_data_dict,bilby_items)
 
 
     # Other required settings from ILE
