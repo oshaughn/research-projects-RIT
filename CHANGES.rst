@@ -25,7 +25,9 @@ Since last release
      method in lalsimutils (rc6)
    - catch various ILE errors; correctly set n_eff goal for CIP workers for last iteration consistent with
      cip-explode-jobs-last; add (inaccessible) option to manage XPHM version change; bugfix mcsamplerGMM error estimate;
-     bugfix mcsamplerGMM in case of use-lnL/use-lnI; NSBH puffball fix lambda_BH=0; calmarg can use --calibration-reweighting-batchsize
+     bugfix mcsamplerGMM in case of use-lnL/use-lnI; NSBH puffball fix lambda_BH=0; calmarg can use --calibration-reweighting-batchsize;
+     remove print in hlmoft; calmarg more fixes paths; calibration_reweighting fix missing data for BBHs; add
+     RIFT_AVOID_HOSTS variable so user can identify hosts for ILE to avoid (rc7)
 
 0.0.15.7
 -----------
