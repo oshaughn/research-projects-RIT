@@ -783,7 +783,11 @@ echo Starting ...
     if not use_osg:
         ile_job.add_condor_cmd('getenv', 'True')
     else:
-        ile_job.add_condor_cmd('getenv', '*RIFT*')  # retrieve any RIFT commands -- specifically RIFT_LOWLATENCY
+        env_statement="*RIFT*"
+        # special-purpose  environment variable to help tweak remote execution/driver issues
+        if 'CUDA_LAUNCH_BLOCKING' in os.environ:
+            env_statement+= ",CUDA_LAUNCH_BLOCKING"
+        ile_job.add_condor_cmd('getenv', env_statement)  # retrieve any RIFT commands -- specifically RIFT_LOWLATENCY
     ile_job.add_condor_cmd('request_memory', str(request_memory)) 
     if not(request_disk is False):
         ile_job.add_condor_cmd('request_disk', str(request_disk)) 
