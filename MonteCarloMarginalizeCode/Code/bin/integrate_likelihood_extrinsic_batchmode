@@ -237,6 +237,7 @@ integration_params.add_option("--convergence-tests-on",default=False,action='sto
 integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
 integration_params.add_option("--no-adapt", action="store_true", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
 integration_params.add_option("--force-adapt-all", action="store_true", help="Force adaptive sampling for all parameters.")
+integration_params.add_option("--force-reset-all", action="store_true", help="Force reset of sampling every iteration. (Recommended if AC and not using no-adapt-after-first)")
 integration_params.add_option("--no-adapt-distance", action="store_true", help="Turn off adaptive sampling, just for distance. Adaptive sampling is on by default.")
 integration_params.add_option("--no-adapt-after-first",action='store_true',help="Disables adaptation after first iteration with significant lnL")
 integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
@@ -1751,6 +1752,9 @@ for indx in numpy.arange(len(P_list)):
  try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   lnL_sofar = np.max([lnL_sofar,res])
+  if opts.force_reset_all:
+    for name in sampler.params:
+      sampler.reset_sampling(param)
   if opts.no_adapt_after_first and (not no_adapt_sky):
     if lnL_sofar > 20:  # Use absolute threshold.  Expect this will give modest sky localization.
       # remove right_ascension, declination from adaptive parameters
