@@ -582,7 +582,11 @@ for indx in np.arange(it_start,opts.n_iterations+1):
         plot_dir = opts.working_directory+"/iteration_"+str(indx)+"_plot"
         mkdir(plot_dir); mkdir(plot_dir+'/logs')
 
-
+# make calmarg directory and log directory
+if opts.calibration_reweighting:
+    cal_dir = opts.working_directory+"/calmarg"
+    mkdir(cal_dir)
+    mkdir(cal_dir+"/logs")
 
 # ++++
 # Create workflow tasks
@@ -1047,16 +1051,16 @@ if opts.calibration_reweighting:
         calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args)
         
     if not(opts.calibration_reweighting_batchsize): # single run
-        calibration_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/calibration-$(cluster)-$(process).log")
-        calibration_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/calibration-$(cluster)-$(process).err")
-        calibration_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/calibration-$(cluster)-$(process).out")
+        calibration_job.set_log_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).log")
+        calibration_job.set_stderr_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).err")
+        calibration_job.set_stdout_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).out")
     else:
         calibration_job.add_condor_cmd("initialdir",opts.working_directory+"/calmarg/")
         calibration_job.add_arg(" --start_index $(macrostartidx) ")
         calibration_job.add_arg(" --end_index $(macroendidx) ")
-        calibration_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/calibration-$(macrostartidx)-$(cluster)-$(process).log")
-        calibration_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/calibration-$(macrostartidx)-$(cluster)-$(process).err")
-        calibration_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/calibration-$(macrostartidx)-$(cluster)-$(process).out")
+        calibration_job.set_log_file(opts.working_directory+"/calmarg/logs/calibration-$(macrostartidx)-$(cluster)-$(process).log")
+        calibration_job.set_stderr_file(opts.working_directory+"/calmarg/logs/calibration-$(macrostartidx)-$(cluster)-$(process).err")
+        calibration_job.set_stdout_file(opts.working_directory+"/calmarg/logs/calibration-$(macrostartidx)-$(cluster)-$(process).out")
     calibration_job.add_condor_cmd('request_disk',opts.general_request_disk)
 
     if opts.use_full_submit_paths:
@@ -1068,9 +1072,9 @@ if opts.calibration_reweighting:
     if (opts.calibration_reweighting_batchsize): # single run
         reweight_merge_job, reweight_merge_job_name = dag_utils.write_convert_sub(exe=which('combine_weights_and_rejection_sample.py'),tag='CAL_REWEIGHT_COMBINE',log_dir=None,arg_str='',file_input=opts.working_directory+'/extrinsic_posterior_samples.dat weight_files/',file_output=None, out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
         reweight_merge_job.add_condor_cmd("initialdir",opts.working_directory+"/calmarg/")
-        reweight_merge_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/reweight-merge-$(cluster)-$(process).log")
-        reweight_merge_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/reweight-merge-$(cluster)-$(process).err")
-        reweight_merge_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/reweight-merge-$(cluster)-$(process).out")
+        reweight_merge_job.set_log_file(opts.working_directory+"/calmarg/logs/reweight-merge-$(cluster)-$(process).log")
+        reweight_merge_job.set_stderr_file(opts.working_directory+"/calmarg/logs/reweight-merge-$(cluster)-$(process).err")
+        reweight_merge_job.set_stdout_file(opts.working_directory+"/calmarg/logs/reweight-merge-$(cluster)-$(process).out")
         reweight_merge_job.add_condor_cmd('request_disk',opts.cal_request_disk)
         if opts.use_full_submit_paths:
             fname = opts.working_directory+"/"+reweight_merge_job.get_sub_file()
