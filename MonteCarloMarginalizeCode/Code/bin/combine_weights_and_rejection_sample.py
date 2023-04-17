@@ -1,3 +1,4 @@
+#! /usr/bin/env python
 """
 Code to load and combine all the  weights and then rejection sample the results
 """
