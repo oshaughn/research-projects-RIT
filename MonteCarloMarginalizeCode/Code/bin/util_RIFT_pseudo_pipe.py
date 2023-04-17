@@ -223,6 +223,8 @@ parser.add_argument("--internal-ile-sky-network-coordinates",action='store_true'
 parser.add_argument("--internal-ile-rotate-phase", action='store_true')
 parser.add_argument("--internal-loud-signal-mitigation-suite",action='store_true',help="Enable more aggressive adaptation - make sure we adapt in distance, sky location, etc rather than use uniform sampling, because we are constraining normally subdominant parameters")
 parser.add_argument("--internal-ile-freezeadapt",action='store_true',help="Passthrough to ILE ")
+parser.add_argument("--internal-ile-reset-adapt",action='store_true',help="Force reset of adaptation")
+parser.add_argument("--internal-ile-force-noreset-adapt",action='store_true',help="Undo any attempt to --force-reset-adapt")
 parser.add_argument("--internal-ile-adapt-log",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE via helper.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset for ILE")
@@ -765,6 +767,11 @@ elif ("SEOBNR" in opts.approx) or ("NRHybSur" in opts.approx) or ("NRSur7d" in o
 else:
         print( " Unknown approx ", opts.approx)
         sys.exit(1)
+if opts.internal_ile_reset_adapt or ((opts.ile_sampler_methods =='adaptive_cartesian_gpu' or not(opts.ile_sampler_method)) and not(opts.internal_ile_freezeadapt) ):
+    # force reset if
+    #   - requested or
+    #   - AC + not freezeadapt
+    line += " --force-reset-adapt "
 if not(opts.manual_extra_ile_args is None):
     line += " {} ".format(opts.manual_extra_ile_args)  # embed with space on each side, avoid collisions
     if '--declination ' in opts.manual_extra_ile_args:   # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.
@@ -775,6 +782,8 @@ if opts.internal_ile_sky_network_coordinates:
     line += " --internal-sky-network-coordinates "
 if opts.ile_no_gpu:  # make sure we are using the standard code path if not using GPUs
     line += " --force-xpy " 
+if opts.internal_ile_force_noreset_adapt:
+    line = line.replace(' --force-reset-adapt ', ' ')
 with open('args_ile.txt','w') as f:
         f.write(line)
 
