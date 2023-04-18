@@ -7,12 +7,13 @@
 import numpy as np
 
 import lalsimulation as lalsim
-import lalsimutils
+import RIFT.lalsimutils as lalsimutils
 import numpy.lib.recfunctions as rfn
-
+from optparse import OptionParser
 
 optp = OptionParser()
 optp.add_option("--extrinsic-posterior-file",default=None,type=str,help="Input file")
+optp.add_option("--fname-out",default="rotated-samples.dat",type=str,help="output file")
 optp.add_option("--fref",default=20,type=float,help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
 opts, args = optp.parse_args()
 
@@ -21,7 +22,7 @@ opts, args = optp.parse_args()
 # 
 dat = np.genfromtxt(opts.extrinsic_posterior_file, names=True)
 npts = len(dat['m1'])
-dat_out =np.recarray(dat)
+dat_out =dat.copy()
 
 
 for indx in np.arange(npts):
@@ -36,13 +37,17 @@ for indx in np.arange(npts):
     P.assign_param('s2x', dat['a2x'][indx])
     P.assign_param('s2y', dat['a2y'][indx])
     P.assign_param('s2z', dat['a2z'][indx])
+    P.phiref = dat['phiorb'][indx]   # phase convention for this waveform specifically, its modes, might be needed here
     P.assign_param('fref', opts.fref)
-    # stable extrinsic parameters that we *need* to assign
+    # stable extrinsic parameters that we *need* to assign: we've done PE with waveforms such that the z axis is 'J', and thus
     P.assign_param('psiJ', dat['psi'][indx])
-    P.assign_param('thetaJN', dat['iota'][indx])
-    P.assign_param('phiJL',dat['phiorb'][indx])
-    dat_out['psi'][indx] = P.psi
-    dat_out['iota'][indx] = P.incl
-    dat_out['phiorb'][indx] = P.phiref
+    P.assign_param('thetaJN', dat['incl'][indx])
+    # Should do something to phiJL. This needs to be one of the two points such that the cone specified by thetaJN intersects the cone specified by thetaJL, then converted to polar angle...
 
-np.savetxt(dat_out, opts.fname_out,header='# ' + ' '.join(dat_out.dtype.names))
+    # We could do it via a frame transformation: the z axis (L) maps to the direction specified by 
+    P.assign_param('phiJL',0)  # 
+    dat_out['psi'][indx] = P.psi
+    dat_out['incl'][indx] = P.incl
+    dat_out['phiorb'][indx] = np.mod(P.phiref, 2*np.pi)
+
+np.savetxt( opts.fname_out,dat_out,header='# ' + ' '.join(dat_out.dtype.names))
