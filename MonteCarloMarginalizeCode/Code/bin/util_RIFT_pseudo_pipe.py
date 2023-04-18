@@ -1226,6 +1226,9 @@ if opts.use_osg_simple_requirements:
 if opts.archive_pesummary_label:
 #    cmd += " --plot-exe `which summarypages` --plot-args  args_plot.txt "
     cmd += " --plot-exe summarypages --plot-args  args_plot.txt "
+# Horribly annoying XPHM/XO4a fix because ChooseFDWaveform called.  Seems to be UNIVERSAL for the approximant name
+if approx == 'IMRPhenomXPHM' or 'XO4a' in approx:
+    cmd += " --frame-rotation "
 print(cmd)
 os.system(cmd)
 
