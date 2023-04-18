@@ -214,6 +214,7 @@ parser.add_argument("--use-eccentricity",default=False,action='store_true')
 parser.add_argument("--test-exe",default=None,help="filename of test code or equivalent executable.  Must have a --test-output <fname> argument.  Used for convergence testing or other termination. NOT ACTIVE; see 'convergence_test_samples.py' for example")
 parser.add_argument("--plot-exe",default=None,help="filename of plot code or equivalent executable.  Will default to `which plot_posterior_corner.py`.  Default is to plot last set of samples")
 parser.add_argument("--gridinit-exe",default=None,help="filename of initial grid creation or equivalent executable.  Will default to `which util_ManualOverlapGrid.py`.  Must create overlap-grid-0.xml.gz")
+parser.add_argument("--frame-rotation",action='store_true',help=" Calculation was done in J frame, not L frame.  Rotate at end. Only if extrinsic samples.")
 parser.add_argument("--calibration-reweighting-exe",default=None,help="Calibration reweighting script")
 parser.add_argument("--calibration-reweighting",action='store_true',help="Run calibration reweighting on final posterior samples")
 parser.add_argument("--calibration-reweighting-batchsize",type=int,default=None,help="If not 'None', tries to group the final set of points based on jobs of a fixed size")
@@ -1040,6 +1041,37 @@ if opts.gridinit_args:
         gridinit_job.set_sub_file(fname)
     gridinit_job.write_sub_file()
 
+if opts.frame_rotation:
+    # Wriite command to do the conversion
+    extra_arg=''
+    if 'fref' in ile_args:
+        # retrieve fref
+        tmp_args = ile_args.split('--')
+        lines = [x for x in tmp_args if x.startswith('reference-freq')]
+        fref_str = lines[-1].split()[-1]
+        extra_arg = ' --fref {} '.format(fref_str)
+    with open('fix_frame_rot.sh','w') as f:
+        f.write("""#!/bin/bash
+if [ ! -e extrinsic_posterior_samples_orig.dat ]; then
+   mv extrinsic_posterior_samples.dat  extrinsic_posterior_samples_orig.dat;
+   convert_ascii_framechange_xphm.py --extrinsic-posterior-file   extrinsic_posterior_samples_orig .dat --fname-out extrinsic_posterior_samples.dat {}
+fi;
+""".format(extra_arg))
+    # Write submit file for the conversion
+    rotate_job, rotate_job_name = dag_utils.write_convert_sub(exe=which('fix_frame_rot.sh'),tag='ROTATE',log_dir=None,arg_str='',file_input='',file_output=None, out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
+    rotate_job.add_condor_cmd("initialdir",opts.working_directory)
+    rotate_job.set_log_file(opts.working_directory+"/reweight-merge-$(cluster)-$(process).log")
+    rotate_job.set_stderr_file(opts.working_directory+"/reweight-merge-$(cluster)-$(process).err")
+    rotate_job.set_stdout_file(opts.working_directory+"/reweight-merge-$(cluster)-$(process).out")
+    rotate_job.add_condor_cmd('request_disk',opts.cal_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+rotate_job.get_sub_file()
+        rotate_job.set_sub_file(fname)
+    if opts.use_osg:
+        rotate_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        rotate_job.add_condor_cmd("+flock_local",'true')
+    rotate_job.write_sub_file()
+
 if opts.calibration_reweighting:
     if opts.last_iteration_extrinsic_time_resampling and opts.bilby_pickle_file:
         calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=False,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args)
@@ -1589,6 +1621,14 @@ if opts.last_iteration_extrinsic:
     else:
         dag.add_node(convert_node)   # this is the time resampling task
         last_node=convert_node
+
+# Create rotation job (if extrinsic available)
+if opts.frame_rotation and opts.add_extrinsic:
+    rotate_node = pipeline.CondorDAGNode(rotate_job)
+    rotate_node.set_category("ROTATE")
+    rotate_node.add_parent(last_node)
+    last_node=rotate_node
+    dag.add_node(rotate_node)
 
 # Creating calibration uncertainty job
 if opts.calibration_reweighting:
