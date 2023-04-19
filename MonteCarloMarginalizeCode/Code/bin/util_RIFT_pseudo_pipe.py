@@ -767,7 +767,7 @@ elif ("SEOBNR" in opts.approx) or ("NRHybSur" in opts.approx) or ("NRSur7d" in o
 else:
         print( " Unknown approx ", opts.approx)
         sys.exit(1)
-if opts.internal_ile_reset_adapt or ((opts.ile_sampler_methods =='adaptive_cartesian_gpu' or not(opts.ile_sampler_method)) and not(opts.internal_ile_freezeadapt) ):
+if opts.internal_ile_reset_adapt or ((opts.ile_sampler_method =='adaptive_cartesian_gpu' or not(opts.ile_sampler_method)) and not(opts.internal_ile_freezeadapt) ):
     # force reset if
     #   - requested or
     #   - AC + not freezeadapt
@@ -1227,7 +1227,7 @@ if opts.archive_pesummary_label:
 #    cmd += " --plot-exe `which summarypages` --plot-args  args_plot.txt "
     cmd += " --plot-exe summarypages --plot-args  args_plot.txt "
 # Horribly annoying XPHM/XO4a fix because ChooseFDWaveform called.  Seems to be UNIVERSAL for the approximant name, but only if precessing
-if (approx == 'IMRPhenomXPHM' or 'XO4a' in approx) and opts.assume_precessing:
+if (opts.approx == 'IMRPhenomXPHM' or 'XO4a' in opts.approx) and opts.assume_precessing:
     cmd += " --frame-rotation "
 print(cmd)
 os.system(cmd)
