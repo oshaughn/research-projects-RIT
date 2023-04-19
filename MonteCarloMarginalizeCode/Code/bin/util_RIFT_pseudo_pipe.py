@@ -224,7 +224,7 @@ parser.add_argument("--internal-ile-rotate-phase", action='store_true')
 parser.add_argument("--internal-loud-signal-mitigation-suite",action='store_true',help="Enable more aggressive adaptation - make sure we adapt in distance, sky location, etc rather than use uniform sampling, because we are constraining normally subdominant parameters")
 parser.add_argument("--internal-ile-freezeadapt",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-reset-adapt",action='store_true',help="Force reset of adaptation")
-parser.add_argument("--internal-ile-force-noreset-adapt",action='store_true',help="Undo any attempt to --force-reset-adapt")
+parser.add_argument("--internal-ile-force-noreset-adapt",action='store_true',help="Undo any attempt to --force-reset-all")
 parser.add_argument("--internal-ile-adapt-log",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE via helper.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset for ILE")
@@ -771,7 +771,7 @@ if opts.internal_ile_reset_adapt or ((opts.ile_sampler_methods =='adaptive_carte
     # force reset if
     #   - requested or
     #   - AC + not freezeadapt
-    line += " --force-reset-adapt "
+    line += " --force-reset-all "
 if not(opts.manual_extra_ile_args is None):
     line += " {} ".format(opts.manual_extra_ile_args)  # embed with space on each side, avoid collisions
     if '--declination ' in opts.manual_extra_ile_args:   # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.
