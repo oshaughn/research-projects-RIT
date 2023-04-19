@@ -783,7 +783,7 @@ if opts.internal_ile_sky_network_coordinates:
 if opts.ile_no_gpu:  # make sure we are using the standard code path if not using GPUs
     line += " --force-xpy " 
 if opts.internal_ile_force_noreset_adapt:
-    line = line.replace(' --force-reset-adapt ', ' ')
+    line = line.replace(' --force-reset-all ', ' ')
 with open('args_ile.txt','w') as f:
         f.write(line)
 
