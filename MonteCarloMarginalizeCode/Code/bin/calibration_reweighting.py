@@ -125,8 +125,12 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
         # add tides if not present
         if not('lambda_1' in result.posterior):
             print(" Populating empty tidal params to avoid hang")
-            result.posterior['lambda_1'] = np.zeros(end_index-start_index)
-            result.posterior['lambda_2'] = np.zeros(end_index-start_index)
+            if end_index:
+              result.posterior['lambda_1'] = np.zeros(end_index-start_index)
+              result.posterior['lambda_2'] = np.zeros(end_index-start_index)
+            else:
+              result.posterior['lambda_1'] = np.zeros(len(result.posterior['mass_1']))
+              result.posterior['lambda_2'] = np.zeros(len(result.posterior['mass_1']))
 
 outdir = os.path.dirname(os.path.abspath(args.posterior_sample_file))
 
