@@ -46,6 +46,14 @@ for weight_file in weight_files:
 weights = np.concatenate(weights_individual_list)
 np.savetxt(f'{outdir}/weights.dat', weights)
 
+# Truncate samples to weight size, if larger
+npts_wts = len(weights)
+npts_samples = len(result.posterior['m1'])
+print(" Sizes ", npts_samples, npts_wts)
+if npts_samples > len(weights):
+    print(" Truncating input samples to weight size (=requested output size) ")
+    result.posterior = result.posterior.truncate(after=npts_wts-1)
+
 print(f'Importance sampling efficiency: {np.sum(weights)**2/np.sum(weights**2)/len(weights)}')
 result.posterior = bilby.core.result.rejection_sample(result.posterior, weights)
 result.save_posterior_samples(filename=outdir+'/reweighted_posterior_samples.dat', outdir=outdir)
