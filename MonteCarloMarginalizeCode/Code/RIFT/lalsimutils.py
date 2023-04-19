@@ -3118,7 +3118,7 @@ def non_herm_hoff(P):
 #argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
 
-def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, **kwargs ):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.9,**kwargs ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -3128,6 +3128,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     and all values of m for these l.
 
     nr_polarization_convention : apply a factor -1 to all modes provided by lalsuite
+
+    fd_standoff_factor: for ChooseFDWaveform, reduce starting frequency P.fmin by this factor internally when generating, so it is more stable at fmin
     """
     assert Lmax >= 2
 
@@ -3150,16 +3152,43 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        hlms_struct = lalsim.SimInspiralChooseFDModes(P.m1, P.m2, \
                                                      P.s1x, P.s1y, P.s1z, \
                                                      P.s2x, P.s2y, P.s2z, \
-                                                     P.deltaF, P.fmin, fNyq, P.fref, P.phiref, P.dist, P.incl, extra_params, P.approx)
+                                                     P.deltaF, P.fmin*fd_standoff_factor, fNyq, P.fref, P.phiref, P.dist, P.incl, extra_params, P.approx)
        hlmsT = {}
        hlms = {}
        hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct,Lmax)
+       # Base taper, based on 1% of waveform length
+       ntaper = int(0.01*TDlen)  # fixed 1% of waveform length, at start
+       ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
+       vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+
+       # Taper any wraparound that has happened after the peak
+       #    - Based on SimInspiralTDFromTD  https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
+       tchirp = lalsim.SimInspiralChirpTimeBound(P.fmin, P.m1,P.m2, P.s1z, P.s2z)
+       s = lalsim.SimInspiralFinalBlackHoleSpinBound(P.s1z,P.s2z)
+       t_merge = lalsim.SimInspiralMergeTimeBound(P.m1,P.m2) + lalsim.SimInspiralRingdownTimeBound(P.m1+P.m2,s)
+       t_extra = 3./P.fmin
+       indx_crit = int(TDlen/2) + int((t_merge+t_extra)/P.deltaT)  # t_extra is a lot of time generally if fmin is low
+       if indx_crit + ntaper > TDlen:
+           indx_crit = TDlen - ntaper
+
        for mode in hlmsdict:
           hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
           hlmsT[mode] = DataInverseFourier(hlmsdict[mode])
           hlmsT[mode].data.data = -1*hlmsT[mode].data.data
           hlmsT[mode].data.data = np.roll(hlmsT[mode].data.data,-int(hlmsT[mode].data.length/2))
           hlmsT[mode].epoch = -(hlmsT[mode].data.length*hlmsT[mode].deltaT/2)
+          # Taper at the start of the segment
+          hlmsT[mode].data.data[:ntaper]*=vectaper
+          # Taper anything at the *end* of the segment. This could be  important when interacting with real data, which when wrapped is strongly discontinuous
+          #     - this generally will NOT taper everything, because some of the turn-on generally extends well past this
+          if TDlen-ntaper < indx_crit:
+              # just multiply the very end by a small amount of tapering
+              hlmsT[mode].data.data[TDlen-ntaper:]*=vectaper[::-1]
+          else:
+              # zero out a a lot of time at the end, and taper time as we approach this critical extra time
+              hlmsT[mode].data.data[indx_crit:indx_crit+ntaper] *= vectaper[::-1]
+              hlmsT[mode].data.data[indx_crit+ntaper:] = 0
+
        if P.deltaF is not None:
           if not silent:
               print(hlmsT[mode].data.length,TDlen, " and in seconds ", hlmsT[mode].data.length*hlmsT[mode].deltaT,TDlen*P.deltaT, " with deltaT={} {}".format(hlmsT[mode].deltaT,P.deltaT))
