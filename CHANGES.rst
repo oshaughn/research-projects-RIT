@@ -28,6 +28,8 @@ Since last release
      bugfix mcsamplerGMM in case of use-lnL/use-lnI; NSBH puffball fix lambda_BH=0; calmarg can use --calibration-reweighting-batchsize;
      remove print in hlmoft; calmarg more fixes paths; calibration_reweighting fix missing data for BBHs; add
      RIFT_AVOID_HOSTS variable so user can identify hosts for ILE to avoid (rc7)
+   - XPHM J frame workaround draft; cal marg workflow minor fixes so runs; some cupy/cuda workflow  error handling,
+     including --force-reset-all from top level (rc8)
 
 0.0.15.7
 -----------
