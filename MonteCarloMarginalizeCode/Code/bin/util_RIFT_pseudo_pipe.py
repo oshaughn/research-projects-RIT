@@ -105,7 +105,15 @@ def unsafe_parse_arg_string(my_argstr,match):
         if match in x:
             return x
     return None
-        
+def unsafe_parse_arg_string_dict(my_argstr):
+    arglist  = [x for x in my_argstr.split("--") if len(x)>0]
+    dict_return = {}
+    for x in arglist:
+        net = x.split(' ')
+        if len(net)>0:
+            dict_return[net[0]] = net[1]
+    return dict_return
+
 
 
 parser = argparse.ArgumentParser()
@@ -741,6 +749,30 @@ line = ' '.join(instructions_ile)
 if opts.internal_ile_n_max:
     line = line.replace('--n-max 4000000 ', str(opts.internal_ile_n_max)+" ")
 line += " --l-max " + str(opts.l_max) 
+if 'data-start-time' in line:
+    # Print warnings based on duration and fmin
+    line_dict = unsafe_parse_arg_string_dict(line)
+    data_start_time = line_dict['data-start-time']
+    data_end_time = line_dict['data-end-time']
+    P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
+    P.fmin = opts.fmin  #  fmin we will use internally
+    if opts.fmin_template:
+        P.fmin = opts.fmin_template
+    if opts.l_max > 2 and (("IMRPhenomXP" in opts.approx) or ('XO4a' in opts.approx)):
+        # fmin is start for all modes.   If Lmax>2, use fmin*(2/Lmax) to estimate starting frequecy
+        P_temp = P.copy()
+        P_temp.fmin *= 2./opts.l_max
+        t_HM = lalsimutils.estimateWaveformDuration(P_temp)
+        if  opts.data_LI_seglen < t_HM/2:
+            print("""  WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING 
+Your choice of fmin, lmax, and approximant suggests waveform wraparound will occur.  We recommend a longer segment length
+"""
+)
+    elif opts.l_max > 2 and opts.fmin_template:
+        # all modes start at the same time, possibly with different frequencies. Starting frequency needs to be reduced 
+        # User has specified fmin_template, and therefore overridden our default plan to lower the starting frequency
+        if opts.l_max/2 * opts.fmin_template > opts.fmin:
+            print(" WARNING WARNING WARNING: You have modes starting in band. You should probably reduce your starting frequency")
 if (opts.use_ini is None) and not('--d-max' in line):
     line += " --d-max " + str(dmax_guess)
 if opts.ile_distance_prior:
