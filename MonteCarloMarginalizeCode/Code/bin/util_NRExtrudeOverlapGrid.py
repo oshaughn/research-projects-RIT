@@ -164,12 +164,13 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
 #    p=Pool(n_threads)
     # PROBLEM: Pool code doesn't work in new configuration.
     print(IP)
-    grid_out = np.array(map(functools.partial(eval_overlap, grid, P_list,IP), np.arange(len(grid))))
+    grid_out = np.array(list(map(functools.partial(eval_overlap, grid, P_list,IP), np.arange(len(grid)))))
+    print(grid_out)
     # Remove mass units at end
     for p in ['mc', 'm1', 'm2', 'mtot']:
         if p in param_names:
             indx = param_names.index(p)
-            print(indx,grid_out[indx])
+#            print(indx,grid_out[indx])
             grid_out[:,indx] /= lal.MSUN_SI
     # Truncate grid so overlap with the base point is > opts.min_match. Make sure to CONSISTENTLY truncate all lists (e.g., the P_list)
     grid_out_new = []

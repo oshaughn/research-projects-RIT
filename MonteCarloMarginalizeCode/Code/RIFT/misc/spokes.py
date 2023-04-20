@@ -222,7 +222,7 @@ def LoadSpokeXML(fname):
     for P in P_list:
 #        spoke_id = str( [round(elem, 3) for elem in ChooseWaveformParams_to_spoke_label(P)])
         spoke_id = str(ChooseWaveformParams_to_spoke_label(P))
-        if sdHere.has_key(spoke_id):
+        if spoke_id in sdHere:
             sdHere[spoke_id].append(P)
         else:
             sdHere[spoke_id] = [P]
@@ -239,7 +239,7 @@ def CleanSpokeEntries(spoke_entries,digits=4):
     # Group entries by their total mass (data in spoke: M, lnL, deltalnL
     for line in spoke_entries:
         mtot, lnL, sigmaOverlnL = line
-        if data_at_intrinsic.has_key(mtot):
+        if mtot in data_at_intrinsic:
             data_at_intrinsic[mtot].append( [lnL,sigmaOverlnL])
         else:
             data_at_intrinsic[mtot] = [[lnL,sigmaOverlnL]]

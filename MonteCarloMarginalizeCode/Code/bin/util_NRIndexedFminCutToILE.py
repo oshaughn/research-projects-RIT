@@ -40,13 +40,14 @@ npts_here=0
 
 
 dat_out = []
+dat2_out = []
 with open(opts.fname) as f:
  for line_str in f:
      # string split
      line = line_str.split()
      # Get NR data
      group = line[3]
-     if not nrwf.internal_ParametersAreExpressions.has_key(group):
+     if group not in nrwf.internal_ParametersAreExpressions:
          if opts.verbose:
              print(" Cannot parse ",group)
          continue
@@ -101,6 +102,7 @@ with open(opts.fname) as f:
          if opts.reference_spins:
              if not 'LAtReference' in nrwf.internal_WaveformMetadata[group][param]:
                  continue
+             print("Here?")
              L = nrwf.internal_WaveformMetadata[group][param]['LAtReference']
              Lhat = L/np.sqrt(np.dot(L,L))
              frmL = lalsimutils.VectorToFrame(Lhat)
@@ -137,10 +139,13 @@ with open(opts.fname) as f:
                      print(" ARRGH 2", group,param, np.sqrt(s2x**2 + s2y**2+s2z**2), np.sqrt(np.dot(chi2,chi2)))
 
          if f0 < opts.flow:
+             print("Good?")
              line_out = [ -1, m1, m2, s1x,s1y,s1z, s2x,s2y,s2z, lnLhere, sigma_here,npts_here, float(line[-2])]
+             line2_out = [-1, line[1], line[2], line[3], line[4], line[5], line[6], line[7], -1]
              if opts.verbose:
                  print(' '.join(map(str,line_out)))
              dat_out.append(line_out)
+             dat2_out.append(line2_out)
          else:
              if opts.verbose:
                  print(" Skipping line as too high frequency ", f0, line)
@@ -151,3 +156,4 @@ with open(opts.fname) as f:
 
 
 np.savetxt(opts.fname.replace('indexed', 'composite_cleaned'), np.array(dat_out))
+np.savetxt(opts.fname.replace('indexed', 'indexed_cleaned'), np.array(dat2_out), delimiter=" ", fmt="%s")

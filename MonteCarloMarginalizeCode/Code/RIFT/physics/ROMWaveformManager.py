@@ -726,9 +726,9 @@ class WaveformModeCatalog:
                 taper_end_duration =40.0
                 print(params_here[0],params_here[1],params_here[2])
             if P.fref >0 and use_reference_spins:
-                time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0], params_here[1],params_here[2],f_ref=P.fref, MTot=(P.m1+P.m2)/lal.MSUN_SI, times=tvals_dimensionless[indx_ok]*m_total_s,f_low=0,taper_end_duration=taper_end_duration) #,f_low=0)
+                time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0], params_here[1],params_here[2],f_ref=P.fref, M=(P.m1+P.m2)/lal.MSUN_SI, times=tvals_dimensionless[indx_ok]*m_total_s,f_low=0,taper_end_duration=taper_end_duration) #,f_low=0)
             else:
-                time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0],params_here[1],params_here[2],times=tvals_dimensionless[indx_ok],f_low=0,taper_end_duration=taper_end_duration)
+                time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0],params_here[1],params_here[2], times=tvals_dimensionless[indx_ok],f_low=0,taper_end_duration=taper_end_duration)
             for mode in self.modes_available:
                 hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
                 hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]

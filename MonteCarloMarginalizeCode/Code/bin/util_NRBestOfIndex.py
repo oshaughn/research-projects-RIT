@@ -74,7 +74,7 @@ with open(opts.fname) as f:
      if float(line[1])+float(line[2]) > opts.M_max_cut:
          continue
      group = line[3]
-     if not nrwf.internal_ParametersAreExpressions.has_key(group):
+     if group not in nrwf.internal_ParametersAreExpressions:
          continue
      param = None
      if nrwf.internal_ParametersAreExpressions[group]:
@@ -103,9 +103,10 @@ with open(opts.fname) as f:
          failure_mode=True
          continue  # DO NOT RECORD ITEMS which are completely unconverged (one point). Insane answers likely.  (should ALSO have tunable cutoff on accuracy)
      if not failure_mode:
-      if best_matches.has_key(key):
-         if best_matches[key] < lnLhere:
-                best_matches[key] = lnLhere
+      if key in best_matches:
+#         print(best_matches[key],lnLhere)
+         if float(best_matches[key]) < lnLhere:
+                best_matches[key] = float(lnLhere)
                 best_matches_masses[key] = (float(line[1]),float(line[2]))
       else:
          best_matches[key] = line[5]
@@ -113,7 +114,7 @@ with open(opts.fname) as f:
 
       # Add to spoke
       mtot = float(line[1])+ float(line[2])
-      if full_spoke.has_key(key):
+      if key in full_spoke:
         full_spoke[key].append([mtot, lnLhere,sigma_here])
       else:
          full_spoke[key] = [[mtot,lnLhere, sigma_here]]
@@ -193,13 +194,13 @@ if  opts.fit:
 for key in best_matches:
   try:
     tmax =0
-    if nrwf.internal_EstimatePeakL2M2Emission[key[0]].has_key(key[1]):
+    if key[1] in nrwf.internal_EstimatePeakL2M2Emission[key[0]]:
         tmax = nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]]
     af = -1000
     Mf = -1000
-    if nrwf.internal_WaveformMetadata[key[0]][key[1]].has_key('ChiFMagnitude'):
+    if 'ChiFMagnitude' in nrwf.internal_WaveformMetadata[key[0]][key[1]]:
         af = nrwf.internal_WaveformMetadata[key[0]][key[1]]['ChiFMagnitude']
-    if nrwf.internal_WaveformMetadata[key[0]][key[1]].has_key('MF'):
+    if 'MF' in nrwf.internal_WaveformMetadata[key[0]][key[1]]:
         Mf = nrwf.internal_WaveformMetadata[key[0]][key[1]]['MF']
     wfP = nrwf.WaveformModeCatalog(key[0],key[1], metadata_only=True)
     xi = wfP.P.extract_param('xi')
