@@ -30,6 +30,7 @@ Since last release
      RIFT_AVOID_HOSTS variable so user can identify hosts for ILE to avoid (rc7)
    - XPHM J frame workaround draft; cal marg workflow minor fixes so runs; some cupy/cuda workflow  error handling,
      including --force-reset-all from top level (rc8)
+   - bugfix argparsing/typo in pipeline from last commits in rc8; add hlmoft conditioning for ChooseFDModes (rc9)
 
 0.0.15.7
 -----------
