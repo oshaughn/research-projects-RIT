@@ -13,6 +13,7 @@ from RIFT.integrators import mcsampler, mcsamplerEnsemble, mcsamplerGPU
 import optparse
 parser = optparse.OptionParser()
 parser.add_option("--n-max",type=int,default=40000)
+parser.add_option("--n-eff",type=int,default=1000)
 parser.add_option("--use-lnL",action='store_true')
 parser.add_option("--save-plot",action='store_true')
 parser.add_option("--as-test",action='store_true')
@@ -87,7 +88,7 @@ for p in params:
 n_comp = 1
 
 ### integrate
-extra_args = {"n": opts.n_chunk,"n_adapt":100, "floor_level":opts.floor_level,"tempering_exp" :tempering_exp}
+extra_args = {"n": opts.n_chunk,"n_adapt":100, "floor_level":opts.floor_level,"tempering_exp" :tempering_exp,"neff":opts.n_eff}  # don't terminate
 integral_1, var_1, eff_samp_1, _ = sampler.integrate(f, *params, 
         no_protect_names=True, nmax=nmax, save_intg=True,verbose=verbose,**extra_args)
 print(" default {} {} {} ".format(integral_1, np.sqrt(var_1)/integral_1, eff_samp_1))
@@ -108,9 +109,13 @@ else:
 print(" AC {} {} {} ".format(integral_1b, rel_error, eff_samp_1b))
 print(" --- finished AC --")
 integral_2, var_2, eff_samp_2, _ = samplerEnsemble.integrate(infunc, *params, 
-        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=verbose,verbose=verbose,use_lnL=use_lnL,return_lnI=return_lnI,**extra_args)
+        min_iter=n_iters, max_iter=n_iters, correlate_all_dims=True, n_comp=n_comp,super_verbose=False,verbose=verbose,use_lnL=use_lnL,return_lnI=return_lnI,**extra_args)
 if return_lnI and use_lnL:
+    rel_error_2 = np.exp(var_2/2 - integral_2)
     integral_2 = np.exp(integral_2)
+else:
+    rel_error_2 = np.sqrt(var_2)/integral_2
+print(" GMM {} {} {} ".format(integral_2, rel_error_2, eff_samp_2))
 print(" --- finished GMM --")
 print(np.array([integral_1,integral_1b,integral_2])*width**3)  # remove prior factor, should get result of normal over domain
 print(" AC/default ",  integral_1b/integral_1, np.sqrt(var_1)/integral_1)  # off by width**3

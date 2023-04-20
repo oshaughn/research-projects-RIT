@@ -257,6 +257,7 @@ class MCSampler(object):
         )
 
         # Initialize output array for CDF.
+        # Reminder:   histogram_cdf[0] ==0 (hardcoded) and we *should* have histogram_cdf[-1 == n_bins+1] == 1
         histogram_cdf = self.xpy.empty(n_bins+1, dtype=numpy.float64)
 
         # Store basic setup parameters
@@ -281,6 +282,12 @@ class MCSampler(object):
             xpy=self.xpy,
             weights=weights
         )
+        # *renormalize* histogram
+        #   - ideally this isn't necessary, BUT mainly for GPUs there can be some points lost to the nbins+1 region due to truncation
+        #   - this slightly breaks normalization, and produces an overabundance in the highest bin when we build the CDF. Which (I think) cascades.
+        #    - because we use a histogram CDF later
+        histogram_values *= 1./self.xpy.sum(histogram_values)
+
         # Smooth the histogram
 #        kernel_size =3
 #        histogram_values = self.xpy.convolve( histogram_values, self.xpy.ones(kernel_size)/kernel_size,mode='same')
@@ -795,6 +802,24 @@ class MCSampler(object):
                     self._rvs[key] = self._rvs[key][:,indx_list]
                 else:
                     self._rvs[key] = self._rvs[key][indx_list]
+
+        # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
+        if bFairdraw and not(n_extr is None):
+           n_extr = int(numpy.min([n_extr,1.5*eff_samp,1.5*neff]))
+           print(" Fairdraw size : ", n_extr)
+           ln_wt = self.xpy.array(self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"] ,dtype=float)
+           ln_wt = identity_convert(ln_wt)  # send to CPU
+           ln_wt += - scipy.special.logsumexp(ln_wt)
+           wt = xpy.exp(identity_convert_togpu(ln_wt))
+           if n_extr < len(self._rvs["log_integrand"]):
+               indx_list = self.xpy.random.choice(self.xpy.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
+               # FIXME: See previous FIXME
+               for key in list(self._rvs.keys()):
+                   if isinstance(key, tuple):
+                       self._rvs[key] = identity_convert(self._rvs[key][:,indx_list])
+                   else:
+                       self._rvs[key] = identity_convert(self._rvs[key][indx_list])
+
 
         # Create extra dictionary to return things
         dict_return ={}

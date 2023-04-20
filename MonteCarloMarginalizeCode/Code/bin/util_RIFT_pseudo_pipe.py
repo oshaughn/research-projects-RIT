@@ -105,7 +105,15 @@ def unsafe_parse_arg_string(my_argstr,match):
         if match in x:
             return x
     return None
-        
+def unsafe_parse_arg_string_dict(my_argstr):
+    arglist  = [x for x in my_argstr.split("--") if len(x)>0]
+    dict_return = {}
+    for x in arglist:
+        net = x.split(' ')
+        if len(net)>0:
+            dict_return[net[0]] = net[1]
+    return dict_return
+
 
 
 parser = argparse.ArgumentParser()
@@ -120,6 +128,7 @@ parser.add_argument("--use-coinc",default=None,type=str,help="Intended to reprod
 parser.add_argument("--manual-ifo-list",default=None,type=str,help="Overrides IFO list normally retrieve by event ID.  Use with care (e.g., glitch studies) or for events specified with --event-time.")
 parser.add_argument("--online",action='store_true')
 parser.add_argument("--calibration-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to calibration uncertainty.")
+parser.add_argument("--calibration-reweighting-batchsize",type=int,default=None,help="If not 'None', tries to group the final set of points based on jobs of a fixed size")
 parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
@@ -207,6 +216,7 @@ parser.add_argument("--link-reference-psds",action='store_true',help="If present
 parser.add_argument("--make-bw-psds",action='store_true',help='If present, adds nodes to create BW PSDs to the dag.  If at all possible, avoid this and re-use existing PSDs')
 parser.add_argument("--link-bw-psds",action='store_true',help='If present, uses the script retrieve_bw_psd_for_event.sh  to find a precomputed BW psd, and convert it to our format')
 parser.add_argument("--use-online-psd",action='store_true', help="If present, will use the online PSD estimates")
+parser.add_argument("--ile-copies",default=1,type=int)
 parser.add_argument("--ile-retries",default=3,type=int)
 parser.add_argument("--n-ile-copies",default=2,type=int)
 parser.add_argument("--general-retries",default=3,type=int)
@@ -226,6 +236,8 @@ parser.add_argument("--internal-ile-sky-network-coordinates",action='store_true'
 parser.add_argument("--internal-ile-rotate-phase", action='store_true')
 parser.add_argument("--internal-loud-signal-mitigation-suite",action='store_true',help="Enable more aggressive adaptation - make sure we adapt in distance, sky location, etc rather than use uniform sampling, because we are constraining normally subdominant parameters")
 parser.add_argument("--internal-ile-freezeadapt",action='store_true',help="Passthrough to ILE ")
+parser.add_argument("--internal-ile-reset-adapt",action='store_true',help="Force reset of adaptation")
+parser.add_argument("--internal-ile-force-noreset-adapt",action='store_true',help="Undo any attempt to --force-reset-all")
 parser.add_argument("--internal-ile-adapt-log",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE via helper.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset for ILE")
@@ -250,7 +262,6 @@ parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Pr
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 opts=  parser.parse_args()
-
 
 
 if (opts.use_ini):
@@ -286,6 +297,9 @@ if (opts.use_ini):
                 else:
                     config_dict[item_renamed] = True
         print(config_dict)
+
+if opts.ile_copies <=0:
+    raise Exception(" Must have 1 or more ILE instances per intrinsic point")
 
 if opts.internal_loud_signal_mitigation_suite:
     opts.internal_ile_freezeadapt=False  # make sure to adapt every iteration, and adapt in distance if present
@@ -597,13 +611,13 @@ if opts.internal_cip_use_lnL:
 if not(opts.ile_n_eff is None):
     cmd += " --ile-n-eff {} ".format(opts.ile_n_eff)
 if opts.limit_mc_range:
-    cmd+= " --limit-mc-range {} ".format(opts.limit_mc_range)
+    cmd+= " --limit-mc-range  " + str(opts.limit_mc_range).replace(' ','')
 if not(opts.force_mc_range is None):
-    cmd+= " --force-mc-range {} ".format(opts.force_mc_range)
+    cmd+= " --force-mc-range  " + str(opts.force_mc_range).replace(' ','')
 elif opts.scale_mc_range:
-    cmd += " --scale-mc-range {} ".format(opts.scale_mc_range)
+    cmd += " --scale-mc-range  " + str(opts.scale_mc_range).replace(' ','')
 if not(opts.force_eta_range is None):
-    cmd+= " --force-eta-range {} ".format(opts.force_eta_range)
+    cmd+= " --force-eta-range  " + str(opts.force_eta_range).replace(' ','')
 if opts.force_chi_max:
     cmd+= " --force-chi-max {} ".format(opts.force_chi_max)
 if opts.force_chi_small_max:
@@ -741,6 +755,30 @@ line = ' '.join(instructions_ile)
 if opts.internal_ile_n_max:
     line = line.replace('--n-max 4000000 ', str(opts.internal_ile_n_max)+" ")
 line += " --l-max " + str(opts.l_max) 
+if 'data-start-time' in line:
+    # Print warnings based on duration and fmin
+    line_dict = unsafe_parse_arg_string_dict(line)
+    data_start_time = line_dict['data-start-time']
+    data_end_time = line_dict['data-end-time']
+    P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
+    P.fmin = opts.fmin  #  fmin we will use internally
+    if opts.fmin_template:
+        P.fmin = opts.fmin_template
+    if opts.l_max > 2 and (("IMRPhenomXP" in opts.approx) or ('XO4a' in opts.approx)):
+        # fmin is start for all modes.   If Lmax>2, use fmin*(2/Lmax) to estimate starting frequecy
+        P_temp = P.copy()
+        P_temp.fmin *= 2./opts.l_max
+        t_HM = lalsimutils.estimateWaveformDuration(P_temp)
+        if  opts.data_LI_seglen < t_HM/2:
+            print("""  WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING 
+Your choice of fmin, lmax, and approximant suggests waveform wraparound will occur.  We recommend a longer segment length
+"""
+)
+    elif opts.l_max > 2 and opts.fmin_template:
+        # all modes start at the same time, possibly with different frequencies. Starting frequency needs to be reduced 
+        # User has specified fmin_template, and therefore overridden our default plan to lower the starting frequency
+        if opts.l_max/2 * opts.fmin_template > opts.fmin:
+            print(" WARNING WARNING WARNING: You have modes starting in band. You should probably reduce your starting frequency")
 if (opts.use_ini is None) and not('--d-max' in line):
     line += " --d-max " + str(dmax_guess)
 if opts.ile_distance_prior:
@@ -771,6 +809,11 @@ elif ("SEOBNR" in opts.approx) or ("NRHybSur" in opts.approx) or ("NRSur7d" in o
 else:
         print( " Unknown approx ", opts.approx)
         sys.exit(1)
+if opts.internal_ile_reset_adapt or ((opts.ile_sampler_method =='adaptive_cartesian_gpu' or not(opts.ile_sampler_method)) and not(opts.internal_ile_freezeadapt) ):
+    # force reset if
+    #   - requested or
+    #   - AC + not freezeadapt
+    line += " --force-reset-all "
 if not(opts.manual_extra_ile_args is None):
     line += " {} ".format(opts.manual_extra_ile_args)  # embed with space on each side, avoid collisions
     if '--declination ' in opts.manual_extra_ile_args:   # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.
@@ -781,6 +824,8 @@ if opts.internal_ile_sky_network_coordinates:
     line += " --internal-sky-network-coordinates "
 if opts.ile_no_gpu:  # make sure we are using the standard code path if not using GPUs
     line += " --force-xpy " 
+if opts.internal_ile_force_noreset_adapt:
+    line = line.replace(' --force-reset-all ', ' ')
 with open('args_ile.txt','w') as f:
         f.write(line)
 
@@ -840,9 +885,15 @@ for indx in np.arange(len(instructions_cip)):
     n_workers = 1
     if opts.cip_explode_jobs:
         n_workers = opts.cip_explode_jobs
-    n_eff_cip_here = int(n_sample_target/n_workers)
+    n_workers_last =n_workers
+    if opts.cip_explode_jobs_last:
+        n_workers_last = opts.cip_explode_jobs_last
+    n_eff_cip_last = int(n_sample_target/n_workers_last)
     if indx < len(instructions_cip)-1: # on all but 
+        n_eff_cip_here= int(n_sample_target/n_workers)
         n_eff_cip_here = np.amin([opts.internal_cip_cap_neff/n_workers + 1, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
+    else:
+        n_eff_cip_here = n_eff_cip_last
     n_sample_min_per_worker = int(n_eff_cip_here/100)+2  # need at least 2 samples, and don't have any worker fall down on the job too much compared to the target
 
     # Analyze the iteration report
@@ -1092,7 +1143,7 @@ if opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # m
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies 1" + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if opts.assume_matter or opts.assume_eccentric:
     cmd +=  " --convert-args `pwd`/helper_convert_args.txt "
 if not(opts.ile_runtime_max_minutes is None):
@@ -1103,6 +1154,8 @@ if opts.assume_eccentric:
     cmd += " --use-eccentricity "
 if opts.calibration_reweighting and (not opts.bilby_pickle_file):
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-ini-file {} --bilby-pickle-exe `which bilby_pipe_generation` ".format(str(opts.bilby_ini_file))
+    if opts.calibration_reweighting_batchsize:
+        cmd += " --calibration-reweighting-batchsize {} ".format(opts.calibration_reweighting_batchsize)
 elif opts.calibration_reweighting and opts.bilby_pickle_file:
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-pickle-file {} ".format(str(opts.bilby_pickle_file))
 
@@ -1215,6 +1268,9 @@ if opts.use_osg_simple_requirements:
 if opts.archive_pesummary_label:
 #    cmd += " --plot-exe `which summarypages` --plot-args  args_plot.txt "
     cmd += " --plot-exe summarypages --plot-args  args_plot.txt "
+# Horribly annoying XPHM/XO4a fix because ChooseFDWaveform called.  Seems to be UNIVERSAL for the approximant name, but only if precessing
+if (opts.approx == 'IMRPhenomXPHM' or 'XO4a' in opts.approx) and opts.assume_precessing:
+    cmd += " --frame-rotation "
 print(cmd)
 os.system(cmd)
 

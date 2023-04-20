@@ -39,7 +39,7 @@ RUN python3.9 -m pip --no-cache-dir install -U pip setuptools  && \
       cython \
       pypandoc \
       NRSur7dq2 \
-      RIFT==0.0.15.7rc1 && \
+      RIFT==0.0.15.8rc7 && \
       python3.9 -c "import gwsurrogate; gwsurrogate.catalog.pull('NRHybSur3dq8'); gwsurrogate.catalog.pull('NRSur7dq4')"
 
 # Needs numpy to finish first:

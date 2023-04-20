@@ -177,7 +177,8 @@ parser.add_argument("--fmin-template",default=20,type=float,help="Minimum freque
 parser.add_argument("--fmax",default=None,type=float,help="fmax. Use this ONLY if you want to override the default settings, which are set based on the PSD used")
 parser.add_argument("--data-start-time",default=None)
 parser.add_argument("--data-end-time",default=None,help="If both data-start-time and data-end-time are provided, this interval will be used.")
-parser.add_argument("--data-LI-seglen",default=None,type=float,help="If provided, use a buffer this long, placing the signal 2s after this, and try to use 0.4s tukey windowing on each side, to be consistent with LI.  ")
+parser.add_argument("--data-LI-seglen",default=None,type=float,help="If provided, use a buffer this long, placing the signal 2s after this, and try to use 0.4s tukey windowing on each side, to be consistent with LI.  Note next argument to change windowing")
+parser.add_argument("--data-tukey-window-time",default=0.4,type=float,help="The default amount of time (in seconds) during the turn-on phase of the tukey window. Note that for massive signals, the amount of unfiltered data is (seglen - 2s  - window_time), and can be as short as 1.6 s by default")
 parser.add_argument("--no-enforce-duration-bound",action='store_true',help="Allow user to perform LI-style behavior and reequest signals longer than the seglen. Argh, by request.")
 #parser.add_argument("--enforce-q-min",default=None,type=float,help='float.  If provided ,the grid will go down to this mass ratio. SEGMENT LENGTH WILL BE ADJUSTED')
 parser.add_argument("--working-directory",default=".")
@@ -712,10 +713,15 @@ if not(opts.use_ini is None):
         for name in fhigh_dict:
             opts.fmax = float(fhigh_dict[name])
 
-    srate = int(np.max([unsafe_config_get(config,['engine','srate']),srate]))  # raise the srate, but never lower it below the fiducial value
+    srate = int(unsafe_config_get(config,['engine','srate']))  # raise the srate
     if not(is_int_power_of_2(srate)):
         print("srate must be power of 2!")
         sys.exit(0)
+    # Print warning if srate < 4096
+    if srate < 4096:
+        print("""WARNING WARNING WARNING : 
+You are requesting srate < 4096 with your ini file.  Use at your own risk - all our comprehensive testing is at higher sampling rates.
+""")
     
     opts.fmin = fmin_fiducial # used only to estimate length; overridden later
 
@@ -999,7 +1005,7 @@ if opts.lowlatency_propose_approximant:
         data_start_time = np.max([int(P.tref - T_window_raw -2 )  , data_start_time_orig])  # don't request data we don't have! 
         data_end_time = int(P.tref + 2)
         T_window = data_start_time - data_end_time
-        window_shape = 0.4*2/T_window
+        window_shape = opts.data_tukey_window_time*2/T_window  # make it clear that this is a one-sided interval
         helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape " + str(window_shape)
 
 if not(internal_dmax is None):
@@ -1465,6 +1471,8 @@ if opts.propose_fit_strategy:
         helper_cip_args += " --input-tides --parameter-implied LambdaTilde  --parameter-nofit lambda2 " # For early fitting, just fit LambdaTilde
         if not(opts.assume_matter_but_primary_bh):
             helper_cip_args+= " --parameter-nofit lambda1 "
+        else:
+            helper_puff_args = helper_puff_args.replace(" --parameter LambdaTilde ", " --parameter lambda2 ")  # if primary a BH, only varying lambda2
         # Add LambdaTilde on top of the aligned spin runs
         for indx in np.arange(len(helper_cip_arg_list)):
             helper_cip_arg_list[indx]+= " --input-tides --parameter-implied LambdaTilde  --parameter-nofit lambda2 " 

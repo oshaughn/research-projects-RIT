@@ -20,6 +20,17 @@ Since last release
      (i.e., an snr-like output).  EOSManager QueryLS, repirmand and causal-spectral; xml patch for lalsuite >=7.13; cosmo prior
      on gpu debug; dmarg allows pseudo_cosmo prior; misc osg minor updates; ILE --zero-likelihood for testing;
      various --manual-extra-X-args; cal marg from Jake (rc5)
+   - fix CI again; hyperpipe/hyperpost, framed for EOS; cal marg debug; Atul EOSManager updates (reprimand, etc); add missing fairdraw code to GMM and AC+lnL
+     mcsamplerAC minor normalization cleaning for low-precision GPU arithmetic (right-edge CDF effect); row.time_geocent
+     method in lalsimutils (rc6)
+   - catch various ILE errors; correctly set n_eff goal for CIP workers for last iteration consistent with
+     cip-explode-jobs-last; add (inaccessible) option to manage XPHM version change; bugfix mcsamplerGMM error estimate;
+     bugfix mcsamplerGMM in case of use-lnL/use-lnI; NSBH puffball fix lambda_BH=0; calmarg can use --calibration-reweighting-batchsize;
+     remove print in hlmoft; calmarg more fixes paths; calibration_reweighting fix missing data for BBHs; add
+     RIFT_AVOID_HOSTS variable so user can identify hosts for ILE to avoid (rc7)
+   - XPHM J frame workaround draft; cal marg workflow minor fixes so runs; some cupy/cuda workflow  error handling,
+     including --force-reset-all from top level (rc8)
+   - bugfix argparsing/typo in pipeline from last commits in rc8; add hlmoft conditioning for ChooseFDModes (rc9)
 
 0.0.15.7
 -----------

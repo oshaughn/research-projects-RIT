@@ -29,7 +29,7 @@ class integrator:
     d : int
         Total number of dimensions.
 
-    bounds : np.ndarray
+    bounds : dictionary with array bounds, with keys matching gmm_dict
         Limits of integration, where each row represents [left_lim, right_lim]
         for its corresponding dimension.
 
@@ -198,7 +198,11 @@ class integrator:
         else:
             lnL = np.log(self.value_array+regularize_log_scale)
         # strip off any samples with likelihoods less than our cutoff
-        mask = lnL > (np.log(self.L_cutoff) if self.L_cutoff > 0 else -np.inf)
+        mask = np.ones(lnL.shape,dtype=bool)
+        if not(self.L_cutoff is None):  # if not none
+            if not(np.isinf(self.L_cutoff)):  # and not infinite, then apply the cutoff
+                mask = lnL > (np.log(self.L_cutoff) if self.L_cutoff > 0 else -np.inf)
+#        print(mask, self.L_cutoff, lnL)
         lnL = lnL[mask]
         prior = self.prior_array[mask]
         sampling_prior = self.sampling_prior_array[mask]
@@ -250,20 +254,22 @@ class integrator:
             self.eff_samp = self.total_value / self.max_value
         else: # using lnI return values
             # Evaluate integral and effective sample count
-            log_sum_weights = logsumexp(log_weights) - log_scale_factor
+            # Note with lnI return values, no more need to keep track of a scale factor at all
+            log_sum_weights = logsumexp(log_weights) 
             log_integral_here = log_sum_weights - np.log(self.n)
             if not(self.integral ):
-                self.integral = log_integral_here + log_scale_factor
-                self.total_value = log_sum_weights +log_scale_factor
+                self.integral = log_integral_here  
+                self.total_value = log_sum_weights  
                 self.max_value = log_scale_factor
             else:
                 self.integral = logsumexp([ self.integral +np.log(self.iterations), log_integral_here]) - np.log(self.iterations+1)
-                self.total_value= logsumexp([self.total_value, log_sum_weights+log_scale_factor])
-                self.max_value = np.max([self.max_value,log_scale_factor])
+                self.total_value= logsumexp([self.total_value, log_sum_weights])
+                self.max_value = np.max([self.max_value,np.max(log_weights)])
             self.eff_samp = np.exp(self.total_value - (self.max_value  ))
 
             # Evaluate error squared, avoiding overflow
-            log_scaled_error_squared = np.log(np.var(np.exp(log_weights - log_scale_factor)))
+            tmp_max = np.max(log_weights)
+            log_scaled_error_squared = np.log(np.var(np.exp(log_weights - tmp_max))) + 2*tmp_max   - np.log(self.n)
             if not(self.scaled_error_squared):
                 self.scaled_error_squared = log_scaled_error_squared
             else:
@@ -357,7 +363,10 @@ class integrator:
                 continue
             self.iterations += 1
             self.ntotal += self.n
-            if self.iterations >= min_iter and np.log(self.scaled_error_squared) + self.log_error_scale_factor < np.log(var_thresh):
+            testval =self.scaled_error_squared
+            if not(self.return_lnI):
+                testval = np.log(self.scaled_error_squared) + self.log_error_scale_factor
+            if self.iterations >= min_iter and testval < np.log(var_thresh):
                 break
             try:
                 if adapting:
@@ -381,8 +390,8 @@ class integrator:
             if verbose:
                 # Standard mcsampler message, to monitor convergence
                 if not(self.return_lnI):
-                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*np.log(self.integral)), "-" ) )
+                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*(np.log(self.integral))),  np.sqrt(self.scaled_error_squared )/self.integral/np.sqrt(self.iterations ) ) )
                 else:
-                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*self.integral), "-" ) )
+                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*self.integral), np.exp(0.5*(self.scaled_error_squared - self.integral*2) )/np.sqrt(self.iterations)))
         print('cumulative eval time: ', cumulative_eval_time)
         print('integrator iterations: ', self.iterations)

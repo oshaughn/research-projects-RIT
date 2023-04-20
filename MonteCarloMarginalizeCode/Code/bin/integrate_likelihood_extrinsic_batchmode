@@ -19,6 +19,7 @@ try:
   xpy_default=cupy
   identity_convert = cupy.asnumpy
   identity_convert_togpu = cupy.asarray
+  identity_convert_lnL= identity_convert # see later, will be assigned something different if cupy active AND AC  AND gpu
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
   if not('RIFT_LOWLATENCY' in os.environ):
     print(cupy.show_config())  # print provenance/debugging information
@@ -38,6 +39,7 @@ except:
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   identity_convert = lambda x: x  # trivial return itself
   identity_convert_togpu = lambda x: x
+  identity_convert_lnL= lambda x:x # see later
   cupy_success=False
 
 import lal
@@ -218,6 +220,7 @@ optp.add_option("-S", "--save-samples", action="store_true", help="Save sample p
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0.1, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("--internal-hard-fail-on-error",action='store_true',help='If true, fails with exit code 1 if any point is unsuccessful')
+optp.add_option("--internal-soft-fail-on-cuda-error",action='store_true',help='If true, returns with exit code 0 on any CUDA error. Use with care (e.g., if many jobs failing)')
 optp.add_option("--internal-make-empty-file-on-error",action='store_true',help='If true, failed points generate empty output file. Protects against OSG workflow problems')
 optp.add_option("--verbose",action='store_true')
 optp.add_option("--save-eccentricity", action="store_true")
@@ -234,6 +237,7 @@ integration_params.add_option("--convergence-tests-on",default=False,action='sto
 integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
 integration_params.add_option("--no-adapt", action="store_true", help="Turn off adaptive sampling. Adaptive sampling is on by default.")
 integration_params.add_option("--force-adapt-all", action="store_true", help="Force adaptive sampling for all parameters.")
+integration_params.add_option("--force-reset-all", action="store_true", help="Force reset of sampling every iteration. (Recommended if AC and not using no-adapt-after-first)")
 integration_params.add_option("--no-adapt-distance", action="store_true", help="Turn off adaptive sampling, just for distance. Adaptive sampling is on by default.")
 integration_params.add_option("--no-adapt-after-first",action='store_true',help="Disables adaptation after first iteration with significant lnL")
 integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0, help="Exponent to use with weights (likelihood integrand) when doing adaptive sampling. Used in tandem with --adapt-floor-level to prevent overconvergence. Default is 1.0.")
@@ -304,6 +308,10 @@ ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu']
 if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
   print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)
   sys.exit(99)
+# if we are on a GPU and using a GPU-accelerated likelihood, don't send the likelihood data back from the GPU needlessly
+if cupy_success and opts.gpu and opts.sampler_method == 'adaptive_cartesian_gpu':
+  identity_convert_lnL  = lambda x:x
+
 
 if opts.resample_time_marginalization:
   import scipy.special
@@ -311,11 +319,11 @@ if opts.resample_time_marginalization and not(opts.fairdraw_extrinsic_output):
   raise Exception(" Resampled time output requires --fairdraw-extrinsic-output ")
 
 # Fairdraw is NOT YET IMPLEMENTED for these other integrators!
-if opts.fairdraw_extrinsic_output:
+#if opts.fairdraw_extrinsic_output:
 #  if opts.sampler_method == 'adaptive_cartesian_gpu':
 #    raise Exception(" Fairdraw not available  for this sampler")
-  if opts.sampler_method == 'GMM':
-    raise Exception(" Fairdraw not available  for this sampler")
+#  if opts.sampler_method == 'GMM':
+#    raise Exception(" Fairdraw not available  for this sampler")
 
 
 supplemental_ln_likelihood= None
@@ -1303,8 +1311,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 if supplemental_ln_likelihood:
                   lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist,xpy=xpy_default) # use these variables so they are already float-type
                 if return_lnL:
-                  return lnL -manual_avoid_overflow_logarithm
-                return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
+                  return identity_convert_lnL(lnL -manual_avoid_overflow_logarithm)
+                return identity_convert_lnL(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
             else:
               print( " Using direct distance marginalization  ")
               xmin = factored_likelihood.distMpcRef / dmax
@@ -1405,8 +1413,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
                   if return_lnL:
-                    return lnL -manual_avoid_overflow_logarithm
-                  return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
+                    return identity_convert_lnL(lnL -manual_avoid_overflow_logarithm)
+                  return identity_convert_lnL(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 
               else:
 
@@ -1448,8 +1456,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
                   if return_lnL:
-                    return lnL -manual_avoid_overflow_logarithm
-                  return identity_convert(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
+                    return identity_convert_lnL(lnL -manual_avoid_overflow_logarithm)
+                  return identity_convert_lnL(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
 
      else: # integrate over intrinsic variables. Right now those variables ahave HARDCODED NAMES, alas
         def likelihood_function(right_ascension, declination, phi_orb, inclination,
@@ -1744,6 +1752,9 @@ for indx in numpy.arange(len(P_list)):
  try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   lnL_sofar = np.max([lnL_sofar,res])
+  if opts.force_reset_all:
+    for name in sampler.params:
+      sampler.reset_sampling(param)
   if opts.no_adapt_after_first and (not no_adapt_sky):
     if lnL_sofar > 20:  # Use absolute threshold.  Expect this will give modest sky localization.
       # remove right_ascension, declination from adaptive parameters
@@ -1764,11 +1775,19 @@ for indx in numpy.arange(len(P_list)):
 #  if len(exception_failure) >0:
 #    if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
 #      sys.exit(1) 
-  if ("CUDA" in str(exception_failure)) or ('CUBLAS' in str(exception_failure)): # Hard fail if a cuda error with a catchable error code
+  if ("CUDA" in str(exception_failure)) or ('CUBLAS' in str(exception_failure) or ('cuda' in str(exception_failure))): # Hard fail if a cuda error with a catchable error code
+    if (opts.internal_soft_fail_on_cuda_error):
+      sys.exit(0)
     sys.exit(62)
+  if 'Out of memory' in str(exception_failure):   # should never happen, most likely a crappy node or failure to set correct memory limit for ILE.
+    sys.exit(63)
   str_err = " {} ".format(exception_failure)
-  if 'Zero prior failure' in str_err:
+  if ('Zero prior failure' in str_err) or ('effective samples' in str_err):
+    # common failures that require reset of sampler
+    #    - zero prior : very rare case where the prior is exactly zero for some reason. User error most likely (floors, etc). Should never happen
+    #    - effective samples = nan : error with AC where the integrator gets confused. Reset
     # reset all variables sampling, so we don't contaminate subsequent versions
+    #    - again, this should only be a problem if we are using multiply adaptive sampling, so it should NEVER happen on the first time through
     for name in sampler.params:
       sampler.reset_sampling(param)
 

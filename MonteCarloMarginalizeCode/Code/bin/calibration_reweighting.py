@@ -53,8 +53,8 @@ import bilby_pipe
 
 # So I can import the RIFT source while not making this some setup.py-able package
 # TODO this should not be a hardcoded path!
-sys.path.append('/home/ethan.payne/code_libraries/generic-calibration-reweighting')
-import rift_source
+
+import RIFT.calmarg.rift_source as rift_source
 
 parser = argparse.ArgumentParser(description='calibration marginalization via reweighting of posterior samples')
 parser.add(
@@ -85,6 +85,7 @@ parser.add(
     "--use_rift_samples", type=bool, default=False,
     help="Uses a different waveform function if using RIFT samples. This matches the phase definitions in RIFT")
 parser.add("--fmin", default=None, type=float)
+parser.add("--l-max", default=4, type=int)
 parser.add("--start_index", default=None, type=int)
 parser.add("--end_index", default=None, type=int)
 
@@ -115,12 +116,21 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
     if args.use_rift_samples:
         key_swap_dict = {'m1':'mass_1', 'm2':'mass_2', 'a1x':'spin_1x', 'a1y':'spin_1y', 'a1z':'spin_1z',
             'a2x':'spin_2x', 'a2y':'spin_2y', 'a2z':'spin_2z', 'incl':'iota', 'time':'geocent_time',
-            'phiorb':'phase', 'p':'log_prior', 'distance':'luminosity_distance'}
+        'phiorb':'phase', 'p':'log_prior', 'distance':'luminosity_distance', 'lambda1':'lambda_1', 'lambda2':'lambda_2'}
 
         for old_key in result.posterior.keys():
             if old_key in key_swap_dict:
                 result.posterior[key_swap_dict[old_key]] = result.posterior[old_key]
                 del result.posterior[old_key]
+        # add tides if not present
+        if not('lambda_1' in result.posterior):
+            print(" Populating empty tidal params to avoid hang")
+            if end_index:
+              result.posterior['lambda_1'] = np.zeros(end_index-start_index)
+              result.posterior['lambda_2'] = np.zeros(end_index-start_index)
+            else:
+              result.posterior['lambda_1'] = np.zeros(len(result.posterior['mass_1']))
+              result.posterior['lambda_2'] = np.zeros(len(result.posterior['mass_1']))
 
 outdir = os.path.dirname(os.path.abspath(args.posterior_sample_file))
 
@@ -150,8 +160,8 @@ waveform_arguments = dict(
     sampling_frequency=ifos.sampling_frequency)
 
 if args.use_rift_samples:
-    waveform_arguments['Lmax'] = 4
-    waveform_arguments['waveform_approximant'] = 'SEOBNRv4PHM'
+    waveform_arguments['Lmax'] = args.l_max
+#    waveform_arguments['waveform_approximant'] = 'SEOBNRv4PHM'
     wf_func = rift_source.RIFT_lal_binary_black_hole
 else:
     wf_func = eval('bilby.gw.source.'+data.meta_data['command_line_args']['frequency_domain_source_model'])

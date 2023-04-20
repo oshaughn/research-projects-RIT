@@ -24,6 +24,7 @@ from time import time
 from hashlib import md5
 
 from glue import pipeline
+import configparser
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
@@ -782,7 +783,11 @@ echo Starting ...
     if not use_osg:
         ile_job.add_condor_cmd('getenv', 'True')
     else:
-        ile_job.add_condor_cmd('getenv', '*RIFT*')  # retrieve any RIFT commands -- specifically RIFT_LOWLATENCY
+        env_statement="*RIFT*"
+        # special-purpose  environment variable to help tweak remote execution/driver issues
+        if 'CUDA_LAUNCH_BLOCKING' in os.environ:
+            env_statement+= ",CUDA_LAUNCH_BLOCKING"
+        ile_job.add_condor_cmd('getenv', env_statement)  # retrieve any RIFT commands -- specifically RIFT_LOWLATENCY
     ile_job.add_condor_cmd('request_memory', str(request_memory)) 
     if not(request_disk is False):
         ile_job.add_condor_cmd('request_disk', str(request_disk)) 
@@ -877,6 +882,15 @@ echo Starting ...
     #   condor_qedit
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    # Avoid undesirable hosts in RIFT_AVOID_HOSTS
+    if 'RIFT_AVOID_HOSTS' in os.environ:
+        line = os.environ['RIFT_AVOID_HOSTS']
+        line = line.rstrip()
+        if line:
+            name_list = line.split(',')
+            for name in name_list:
+                requirements.append('TARGET.Machine =!= "{}" '.format(name))
 
     # Write requirements
     # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
@@ -1930,7 +1944,7 @@ def write_subdagILE_sub(tag='subdag_ile', full_path_name=True, exe=None, univers
     return ile_job, ile_sub_name
 
 
-def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',no_grid=False,**kwargs):
+def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',no_grid=False,ile_args=None,**kwargs):
     """
     Write a submit file for launching jobs to reweight final posterior samples due to calibration uncertainty 
 
@@ -1970,9 +1984,29 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     ile_job.add_opt('number_of_calibration_curves', '100')
     ile_job.add_opt('reevaluate_likelihood', 'True')
     ile_job.add_opt('use_rift_samples', 'True')
-    ile_job.add_opt('time_marginalization', str(time_marg))
+    if time_marg:
+        # problem with this argument: 'False' is often parsed as 'True' by argparsing (weird). Default is 'false'
+        ile_job.add_opt('time_marginalization', str(time_marg))
 
-
+    lmax=None
+    if ile_args:
+        ile_args_split = ile_args.split('--')
+        fmin_list = []
+        fmin_template = None
+        for line in ile_args_split:
+            line_split = line.split()
+            if len(line_split)>1:
+                if line_split[0] == 'fmin-ifo':
+                    fmin_list += [line_split[1]]
+                if line_split[0] == 'fmin-template':
+                    fmin_template = line_split[1]
+                elif line_split[0] == 'l-max':
+                    lmax = int(line_split[1])
+#        fmin = np.min(fmin_list)
+        if fmin_template:
+            ile_job.add_arg(" --fmin {} ".format(fmin_template))  # code will fail without this, and it is always written anyways, but 
+        if lmax:
+            ile_job.add_arg(" --l-max {} ".format(lmax))
 
     #
     # Add normal arguments
@@ -2009,7 +2043,13 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
 
     return ile_job, ile_sub_name
 
-def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log_dir=None, ncopies=1,request_memory=4096,bilby_ini_file=None,no_grid=False,**kwargs):
+def bilby_prior_dict_string_from_mc_q(mc_range,dmax_Mpc):
+    out_str = """chirp-mass: bilby.gw.prior.UniformInComponentsChirpMass(minimum={}, maximum={}, name='chirp_mass', boundary=None), mass-ratio: bilby.gw.prior.UniformInComponentsMassRatio(minimum=0.05, maximum=1.0, name='mass_ratio', latex_label='$q$', unit=None, boundary=None), mass-1: Constraint(minimum=1, maximum=1000, name='mass_1', latex_label='$m_1$', unit=None), mass-2: Constraint(minimum=1, maximum=1000, name='mass_2', latex_label='$m_2$', unit=None), a-1: Uniform(minimum=0, maximum=0.99, name='a_1', latex_label='$a_1$', unit=None, boundary=None), a-2: Uniform(minimum=0, maximum=0.99, name='a_2', latex_label='$a_2$', unit=None, boundary=None), tilt-1: Sine(minimum=0, maximum=3.141592653589793, name='tilt_1'), tilt-2: Sine(minimum=0, maximum=3.141592653589793, name='tilt_2'), phi-12: Uniform(minimum=0, maximum=6.283185307179586, name='phi_12', boundary='periodic'), phi-jl: Uniform(minimum=0, maximum=6.283185307179586, name='phi_jl', boundary='periodic'), luminosity-distance: PowerLaw(alpha=2, minimum=10, maximum={}, name='luminosity_distance', latex_label='$d_L$', unit='Mpc', boundary=None), theta-jn: Sine(minimum=0, maximum=3.141592653589793, name='theta_jn'), psi: Uniform(minimum=0, maximum=3.141592653589793, name='psi', boundary='periodic'), phase: Uniform(minimum=0, maximum=6.283185307179586, name='phase', boundary='periodic'), dec: Cosine(name='dec'), ra: Uniform(name='ra', minimum=0, maximum=2 * np.pi, boundary='periodic')
+""".format(mc_range[0],mc_range[1],dmax_Mpc)
+    out_str = "{" + out_str.rstrip() + "}"
+    return out_str
+
+def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_dir=None, ncopies=1,request_memory=4096,bilby_ini_file=None,no_grid=False,frames_dir=None,cache_file=None,ile_args=None,**kwargs):
     """
     Write a submit file for launching a job to generate a pickle file based off a bilby ini file; needed for  reweight final posterior samples due to calibration uncertainty
     
@@ -2017,6 +2057,9 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
      - bilby ini file
     Outputs:
      - pickle file of event settings; needed as input for calibration reweighting
+
+     Notes:
+       - local universe is generally safer: we need access to frame files in a standard location (typically datafind returns cvmfs, etc). That may not be available on remote nodes.
     """
     exe = exe or which("bilby_pipe_generation")
     if exe is None:
@@ -2033,10 +2076,6 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
 
-    # Add manual options for input, output
-    ile_job.add_opt('data-dump-file', str('bilby.pickle'))
-    ile_job.add_arg(str(bilby_ini_file)) # needs to be a bilby ini file for the particular event being analyzed
-
     #
     #Logging options
     #
@@ -2046,9 +2085,136 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
 
+    # Add manual options for input, output.  Hopefully this all happens in order as needed, if not we will just concatenate
+    # 
+    ile_job.add_arg(str(bilby_ini_file)) # needs to be a bilby ini file for the particular event being analyzed
+    ile_job.add_arg(' --data-dump-file calmarg/data/calmarg_data_dump.pickle')
+
+    # Problem: bilby ini file may not have 'data-dict', in which case we need to backstop it with data from 'frames_dir' or 'cache_file'
+    # Problem: bilby ini file does not have sections.
+    # Workaround: https://stackoverflow.com/questions/2885190/using-configparser-to-read-a-file-without-section-name
+    config = configparser.ConfigParser()
+    config.optionxform=str # force preserve case! Important for --choose-data-LI-seglen
+    with open(bilby_ini_file) as stream:
+        config.read_string("[top]\n" + stream.read())
+        bilby_items = dict(config["top"])
+        ifo_list = list(bilby_items['channel-dict'])  # PSDs must be listed, implicitly provides all ifos
+    # remove entries with the None keyword, as misleading
+    dict_names = list(bilby_items)
+    for name in dict_names:
+        if bilby_items[name] == 'None':
+            del bilby_items[name]
+    if not('data-dict' in bilby_items):
+        bilby_data_dict = {}
+        if cache_file:
+            print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from (host) directory: {} ".format(frames_dir))
+            cache_lines = np.loadtxt(cache_file,dtype=str)
+            if len(cache_lines) > len(ifo_list):
+                raise Exception(" Pipeline failure: cache file must contain one line per IFO to identify files in this approach")
+            for indx in np.arange(len(cache_lines)):
+                ifo = cache_lines[indx][0]+"1"
+                bilby_data_dict[ifo] = cache_lines[indx][-1].replace('file://localhost','')
+        elif frames_dir:  # Danger : this directory might be EMPTY and generated at runtile
+            import glob
+            print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from directory: {} ".format(frames_dir))
+            fnames_gwf = list(glob.glob(frames_dir+"/*.gwf")  )
+            # get dictionary matching files
+            for name in fnames_gwf:
+                this_frame_ifo = None
+                for ifo in ifo_list:
+                    if name.startswith(frames_dir+"/{}-".format(ifo)):
+                        this_frame_ifo=ifo
+                bilby_data_dict[ifo] = this_frame_ifo
+            if len(list(bilby_data_dict)) ==0 :
+                print("  Failed to find files in frames_dir, warning! ")
+        else:
+            print(" ==== WARNING FALLTHROUGH : calmarg attempting to identify correct frame files to use but falling back to 'magic' options from bilby ===")
+        # add to command-line arguments, IF NONEMPTY.  Otherwise we're stuck, and we have to hope magic works
+        if len(list(bilby_data_dict))>0:
+            data_argstr = '{}'.format(bilby_data_dict)
+            data_argstr = '  --data-dict ""{}""  '.format(data_argstr.replace(' ',''))  # double "" because we are in a condor submit script!  Annoying but seemt to be correct
+            ile_job.add_arg(data_argstr)
+        else:
+            print(" ==== WARNING FALLTHROUGH : calmarg failed to pull out options  ===",bilby_data_dict,bilby_items)
+
+
+    # Other required settings from ILE
+    # approximant: if ile_args present, ALWAYS parse it and set it that way, so we are consistent with our own analysis
+    if ile_args:
+        approx = bilby_items['waveform-approximant']
+        ile_args_split = ile_args.split('--')
+        start_time =None
+        end_time=None
+        trigger_time =None
+        rift_window_shape=None    # remember this is a dimensionless number, not a time
+        rift_srate =None
+        fmin_list = []
+        channel_list=[]
+        fmax=None
+        for line in ile_args_split:
+            line_split = line.split()
+            if len(line_split)>1:
+                if line_split[0]=='approx':
+                    approx = line_split[1]
+                elif line_split[0] == 'event-time':
+                    event_time = float(line_split[1])
+                elif line_split[0] == 'data-start-time':
+                    start_time = float(line_split[1])
+                elif line_split[0] == 'data-end-time':
+                    end_time = float(line_split[1])
+                elif line_split[0] == 'window-shape':
+                    rift_window_shape = float(line_split[1])
+                elif line_split[0] == 'srate':
+                    rift_srate = int(float(line_split[1]))  # safety
+                elif line_split[0] == 'fmin-ifo':
+                    fmin_list += [line_split[1]]
+                elif line_split[0] == 'fmax':
+                    fmax = int(float(line_split[1]))  # safety
+                elif line_split[0] == 'channel-name':
+                    channel_list += [line_split[1]]
+        ile_job.add_arg(" --waveform-approximant {} ".format(approx))
+        if rift_srate:
+            ile_job.add_arg(" --sampling-frequency {} ".format(rift_srate))
+        if event_time:
+            ile_job.add_arg(" --trigger-time {} ".format(event_time))
+        # t_tukey
+        t_tukey = (end_time-start_time)*rift_window_shape/2   # basically the fraction of time not in the window; see formula in helper
+        ile_job.add_arg(" --tukey-roll-off {} ".format(t_tukey))
+        # channel list
+        channel_dict ={}
+        for channel_id in channel_list:
+            if '=' in channel_id:
+                ifo, channel_name = channel_id.split('=')
+                channel_dict[ifo] = channel_name
+        channel_argstr = '{}'.format(channel_dict)
+        channel_argstr = '  --channel-dict ""{}""  '.format(channel_argstr.replace(' ',''))
+        ile_job.add_arg(channel_argstr)
+        # fmin
+        if len(fmin_list)>0:
+            fmin_dict = {}
+            for fmin_id in fmin_list:
+                if '=' in fmin_id:
+                    ifo, fmin = fmin_id.split('=')
+                    fmin_dict[ifo] = float(fmin)
+            fmin_argstr = '{}'.format(fmin_dict)
+            fmin_argstr = '  --minimum-frequency ""{}""  '.format(fmin_argstr.replace(' ',''))  # inside condor
+            ile_job.add_arg(fmin_argstr)
+            # fmax.  Use previous to get ifo list
+            if fmax:
+                fmax_dict = {}
+                for ifo in fmin_dict:
+                    fmax_dict[ifo] =fmax
+                fmax_argstr = '{}'.format(fmax_dict)
+                fmax_argstr = '  --maximum-frequency ""{}""  '.format(fmax_argstr.replace(' ',''))
+                ile_job.add_arg(fmax_argstr)
+
+    # Add outdir, label so we can control filename for output
+    ile_job.add_arg(" --outdir calmarg ")
+    ile_job.add_arg(" --label calmarg ")
 
     #
     # Add normal arguments
+    # Note these need to appear *after* the bilby ini file
     #
     for opt, param in list(kwargs.items()):
         if isinstance(param, list) or isinstance(param, tuple):
@@ -2061,6 +2227,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='vanilla', log
             continue
         else:
             ile_job.add_opt(opt.replace("_", "-"), str(param))
+
 
     ile_job.add_condor_cmd('getenv', 'True')
     ile_job.add_condor_cmd('request_memory', str(request_memory))
@@ -2226,6 +2393,184 @@ def write_convert_ascii_to_h5_sub(tag='Convert_ascii2h5', convert_ascii_to_h5_ex
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
     except:
          print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
+
+
+    return ile_job, ile_sub_name
+
+
+def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='output-samples',universe="vanilla",out_dir=None,log_dir=None, ncopies=1,arg_str=None,request_memory=8192,arg_vals=None, no_grid=False,request_disk=False, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,max_runtime_minutes=None,condor_commands=None,**kwargs):
+    """
+    Write a submit file for launching jobs to marginalize the likelihood over hyperparameters.
+    Almost identical to CIP 
+
+    Inputs:
+    Outputs:
+        - An instance of the CondorDAGJob that was generated for ILE
+    """
+
+    if use_singularity and (singularity_image == None)  :
+        print(" FAIL : Need to specify singularity_image to use singularity ")
+        sys.exit(0)
+    if use_singularity and (transfer_files == None)  :
+        print(" FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file ")
+        sys.exit(0)
+
+
+    exe = exe or which("util_ConstructEOSPosterior.py")
+    if use_singularity:
+        path_split = exe.split("/")
+        print((" Executable: name breakdown ", path_split, " from ", exe))
+        singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
+        if 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()) :
+            singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
+        exe=singularity_base_exe_path + path_split[-1]
+        if path_split[-1] == 'true':  # special universal path for /bin/true, don't override it!
+            exe = "/usr/bin/true"
+    ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+    # This is a hack since CondorDAGJob hides the queue property
+    ile_job._CondorJob__queue = ncopies
+
+
+    # no grid
+    if no_grid:
+        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("+flock_local",'true')
+
+    requirements=[]
+    if universe=='local':
+        requirements.append("IS_GLIDEIN=?=undefined")
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    #
+    # Add options en mass, by brute force
+    #
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  
+
+    ile_job.add_opt("fname", input_net)
+    ile_job.add_opt("fname-output-samples", out_dir+"/"+output)
+    ile_job.add_opt("fname-output-integral", out_dir+"/"+output)
+
+    #
+    # Macro based options.
+    #     - select EOS from list (done via macro)
+    #     - pass spectral parameters
+    #
+
+    #
+    # Logging options
+    #
+    uniq_str = "$(macroevent)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    if "fname_output_samples" in kwargs and kwargs["fname_output_samples"] is not None:
+        #
+        # Need to modify the output file so it's unique
+        #
+        ofname = kwargs["fname_output_samples"].split(".")
+        ofname, ext = ofname[0], ".".join(ofname[1:])
+        ile_job.add_file_opt("fname-output-samples", "%s-%s.%s" % (ofname, uniq_str, ext))
+
+    #
+    # Add normal arguments
+    # FIXME: Get valid options from a module
+    #
+    for opt, param in list(kwargs.items()):
+        if isinstance(param, list) or isinstance(param, tuple):
+            # NOTE: Hack to get around multiple instances of the same option
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
+        elif param is True:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None or param is False:
+            continue
+        else:
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
+
+    if not use_osg:
+        ile_job.add_condor_cmd('getenv', 'True')
+    ile_job.add_condor_cmd('request_memory', str(request_memory)) 
+    if not(request_disk is False):
+        ile_job.add_condor_cmd('request_disk', str(request_disk)) 
+    # To change interactively:
+    #   condor_qedit
+    # for example: 
+    #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
+
+    requirements = []
+    if use_singularity:
+        # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+        ile_job.add_condor_cmd('request_CPUs', str(1))
+        ile_job.add_condor_cmd('transfer_executable', 'False')
+        ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
+        ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        requirements.append("HAS_SINGULARITY=?=TRUE")
+
+    if use_osg:
+           # avoid black-holing jobs to specific machines that consistently fail. Uses history attribute for ad
+           ile_job.add_condor_cmd('periodic_release','(HoldReasonCode == 45) && (HoldReasonSubCode == 0)')
+           ile_job.add_condor_cmd('job_machine_attrs','Machine')
+           ile_job.add_condor_cmd('job_machine_attrs_history_length','4')
+#           for indx in [1,2,3,4]:
+#               requirements.append("TARGET.GLIDEIN_ResourceName=!=MY.MachineAttrGLIDEIN_ResourceName{}".format(indx))
+           if "OSG_DESIRED_SITES" in os.environ:
+               ile_job.add_condor_cmd('+DESIRED_SITES',os.environ["OSG_DESIRED_SITES"])
+           if "OSG_UNDESIRED_SITES" in os.environ:
+               ile_job.add_condor_cmd('+UNDESIRED_SITES',os.environ["OSG_UNDESIRED_SITES"])
+           # Some options to automate restarts, acts on top of RETRY in dag
+    if use_singularity or use_osg:
+            # Set up file transfer options
+           ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
+
+           # Stream log info
+           if not ('RIFT_NOSTREAM_LOG' in os.environ):
+               ile_job.add_condor_cmd("stream_error",'True')
+               ile_job.add_condor_cmd("stream_output",'True')
+
+
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
+    # Stream log info: always stream CIP error, it is a critical bottleneck
+    if True: # not ('RIFT_NOSTREAM_LOG' in os.environ):
+        ile_job.add_condor_cmd("stream_error",'True')
+        ile_job.add_condor_cmd("stream_output",'True')
+
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
+        
+    
+    if not transfer_files is None:
+        if not isinstance(transfer_files, list):
+            fname_str=transfer_files
+        else:
+            fname_str = ','.join(transfer_files)
+        fname_str=fname_str.strip()
+        ile_job.add_condor_cmd('transfer_input_files', fname_str)
+        ile_job.add_condor_cmd('should_transfer_files','YES')
+
+    # Periodic remove: kill jobs running longer than max runtime
+    # https://stackoverflow.com/questions/5900400/maximum-run-time-in-condor
+    if not(max_runtime_minutes is None):
+        remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60*max_runtime_minutes)
+        ile_job.add_condor_cmd('periodic_remove', remove_str)
+
+
+    ###
+    ### SUGGESTION FROM STUART (for later)
+    # request_memory = ifthenelse( (LastHoldReasonCode=!=34 && LastHoldReasonCode=!=26), InitialRequestMemory, int(1.5 * NumJobStarts * MemoryUsage) )
+    # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
+    # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
+    if condor_commands is not None:
+        for cmd, value in condor_commands.iteritems():
+            ile_job.add_condor_cmd(cmd, value)
 
 
     return ile_job, ile_sub_name

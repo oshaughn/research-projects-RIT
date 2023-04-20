@@ -22,11 +22,21 @@ import sys
 import copy
 import types
 has_external_teobresum=False
-try:
+import os
+info_use_ext = True
+if 'RIFT_NO_EXTERNAL' in os.environ:
+    info_use_ext = False
+    has_external_teobresum=False
+else:
+ try:
     import EOBRun_module
     has_external_teobresum=True
-except:
+ except:
+    has_external_teobresum=False
     True; # print(" - no EOBRun (TEOBResumS) - ")
+info_use_resum_polarizations = False
+if 'RIFT_RESUM_POLARIZATIONS' in os.environ:
+    info_use_resum_polarizations=True  # fallback to ChooseTDModesFromPolarizations for TEOBResumS (since ChooseTDModes is not available at present)
 from six.moves import range
 
 import numpy as np
@@ -264,7 +274,7 @@ except:
    lalSEOBNRv4HM_ROM = -16
    lalIMRPhenomXPHM = -17
 
-pending_FD_approx = ['IMRPhenomXP_NRTidalv2', 'IMRPhenomXAS_NRTidalv2']
+pending_FD_approx = ['IMRPhenomXP_NRTidalv2', 'IMRPhenomXAS_NRTidalv2','IMRPhenomXO4a']
 pending_approx_code = {}
 pending_default_code = -18
 for name in pending_FD_approx:
@@ -1669,9 +1679,12 @@ class ChooseWaveformParams:
         self.phi = row.longitude # Right ascension
         self.radec = True # Flag to interpret (theta,phi) as (DEC,RA)
         self.psi = row.polarization
-        self.tref = row.geocent_end_time
-        if lalmetaio_old_style or hasattr(row, 'geocent_end_time_ns'):
-            self.tref += 1e-9*row.geocent_end_time_ns
+        if 'time_geocent' in dir(row):
+            self.tref = row.time_geocent
+        else:
+            self.tref = row.geocent_end_time
+            if lalmetaio_old_style or hasattr(row, 'geocent_end_time_ns'):
+                self.tref += 1e-9*row.geocent_end_time_ns
         if hasattr(row, 'taper'):
             self.taper = lalsim.GetTaperFromString(str(row.taper))
         # FAKED COLUMNS (nonstandard)
@@ -1697,7 +1710,7 @@ class ChooseWaveformParams:
             print( " --- Creating XML row for the following ---- ")
             self.print_params()
         sim_valid_cols = [ "simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time",  "coa_phase", "distance", "mass1", "mass2", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"] # ,  "alpha1", "alpha2", "alpha3"
-        if lalmetaio_old_style:
+        if True: #lalmetaio_old_style:
             sim_valid_cols += [ "geocent_end_time_ns"]
         si_table = lsctables.New(lsctables.SimInspiralTable, sim_valid_cols)
         row = si_table.RowType()
@@ -1719,8 +1732,11 @@ class ChooseWaveformParams:
         row.inclination = self.incl
         row.polarization = self.psi
         row.coa_phase = self.phiref
+        # New code for managing times in output: see https://git.ligo.org/kipp.cannon/python-ligo-lw/-/blob/master/ligo/lw/lsctables.py
+        if 'time_geocent' in dir(row):
+            row.time_geocent = float(self.tref)
         # http://stackoverflow.com/questions/6032781/pythonnumpy-why-does-numpy-log-throw-an-attribute-error-if-its-operand-is-too
-        if lalmetaio_old_style:
+        elif  hasattr(row, 'geocent_time_ns'):   # old school approach, will not work now
             row.geocent_end_time = np.floor( float(self.tref))
             row.geocent_end_time_ns = np.floor( float(1e9*(self.tref - row.geocent_end_time)))
         else:
@@ -2770,7 +2786,7 @@ def hoft(P, Fp=None, Fc=None):
 #        print " Using ridiculous tweak for equal-mass line EOB"
         P.m2 = P.m1*(1-1e-6)
     extra_params = P.to_lal_dict()
-    if P.approx==lalsim.TEOBResumS and has_external_teobresum:
+    if P.approx==lalsim.TEOBResumS and has_external_teobresum and info_use_ext:
         Lmax=8
         modes_used = []
         distance_s = P.dist/lal.C_SI
@@ -3102,7 +3118,7 @@ def non_herm_hoff(P):
 #argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
 
-def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,**kwargs ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -3112,6 +3128,13 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
     and all values of m for these l.
 
     nr_polarization_convention : apply a factor -1 to all modes provided by lalsuite
+
+    fd_standoff_factor: for ChooseFDWaveform, reduce starting frequency P.fmin by this factor internally when generating.
+          FD waveform calculation implicitly assumes fmin is in the inspiral regime (if not you are making bad life choices).
+          Default value of 0.964 is based on changing inspiral duration by 10% (1.1^(3/8) ~ 1.036). Any constant factor will change
+          the inspiral duration by a factor (1./fd_standoff_factor)^(8/3) or so.
+
+    no_condition: disable conditioning (for ChooseFDModes specifically). For diagnostic plots on impact of/need for conditioning.
     """
     assert Lmax >= 2
 
@@ -3128,21 +3151,53 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
        fNyq = 0.5/P.deltaT
        TDlen = int(1./(P.deltaT*P.deltaF))
        fNyq_offset = fNyq - P.deltaF
+       # Argh: https://git.ligo.org/waveforms/reviews/imrphenomxhm-amplitude-recalibration/-/wikis/home#review-statement
+       if P.approx == lalIMRPhenomXPHM and 'release' in kwargs:
+           lalsim.SimInspiralWaveformParamsInsertPhenomXHMReleaseVersion(extra_params, kwargs['release'])
        hlms_struct = lalsim.SimInspiralChooseFDModes(P.m1, P.m2, \
                                                      P.s1x, P.s1y, P.s1z, \
                                                      P.s2x, P.s2y, P.s2z, \
-                                                     P.deltaF, P.fmin, fNyq, P.fref, P.phiref, P.dist, P.incl, extra_params, P.approx)
+                                                     P.deltaF, P.fmin*fd_standoff_factor, fNyq, P.fref, P.phiref, P.dist, P.incl, extra_params, P.approx)
        hlmsT = {}
        hlms = {}
        hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct,Lmax)
+       # Base taper, based on 1% of waveform length
+       ntaper = int(0.01*TDlen)  # fixed 1% of waveform length, at start
+       ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
+       vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+
+       # Taper any wraparound that has happened after the peak
+       #    - Based on SimInspiralTDFromTD  https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
+       tchirp = lalsim.SimInspiralChirpTimeBound(P.fmin, P.m1,P.m2, P.s1z, P.s2z)
+       s = lalsim.SimInspiralFinalBlackHoleSpinBound(P.s1z,P.s2z)
+       t_merge = lalsim.SimInspiralMergeTimeBound(P.m1,P.m2) + lalsim.SimInspiralRingdownTimeBound(P.m1+P.m2,s)
+       t_extra = 3./P.fmin
+       indx_crit = int(TDlen/2) + int((t_merge+t_extra)/P.deltaT)  # t_extra is a lot of time generally if fmin is low
+       if indx_crit + ntaper > TDlen:
+           indx_crit = TDlen - ntaper
+
        for mode in hlmsdict:
           hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
           hlmsT[mode] = DataInverseFourier(hlmsdict[mode])
           hlmsT[mode].data.data = -1*hlmsT[mode].data.data
           hlmsT[mode].data.data = np.roll(hlmsT[mode].data.data,-int(hlmsT[mode].data.length/2))
           hlmsT[mode].epoch = -(hlmsT[mode].data.length*hlmsT[mode].deltaT/2)
+          if not(no_condition):
+              # Taper at the start of the segment
+              hlmsT[mode].data.data[:ntaper]*=vectaper
+              # Taper anything at the *end* of the segment. This could be  important when interacting with real data, which when wrapped is strongly discontinuous
+              #     - this generally will NOT taper everything, because some of the turn-on generally extends well past this
+              if TDlen-ntaper < indx_crit:
+                  # just multiply the very end by a small amount of tapering
+                  hlmsT[mode].data.data[TDlen-ntaper:]*=vectaper[::-1]
+              else:
+                  # zero out a a lot of time at the end, and taper time as we approach this critical extra time
+                  hlmsT[mode].data.data[indx_crit:indx_crit+ntaper] *= vectaper[::-1]
+                  hlmsT[mode].data.data[indx_crit+ntaper:] = 0
+
        if P.deltaF is not None:
-          print(hlmsT[mode].data.length,TDlen, " and in seconds ", hlmsT[mode].data.length*hlmsT[mode].deltaT,TDlen*P.deltaT, " with deltaT={} {}".format(hlmsT[mode].deltaT,P.deltaT))
+          if not silent:
+              print(hlmsT[mode].data.length,TDlen, " and in seconds ", hlmsT[mode].data.length*hlmsT[mode].deltaT,TDlen*P.deltaT, " with deltaT={} {}".format(hlmsT[mode].deltaT,P.deltaT))
           for mode in hlmsT:
              hlms[mode] = lal.ResizeCOMPLEX16TimeSeries(hlmsT[mode],0,TDlen)
        return hlms
@@ -3195,7 +3250,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
 
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
-    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM or P.approx == lalNRSur7dq4 or P.approx == lalNRSur7dq2 or P.approx==lalNRHybSur3dq8 or P.approx == lalIMRPhenomTPHM) or (P.approx ==lalsim.TEOBResumS and not(has_external_teobresum)):
+    elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM or P.approx == lalNRSur7dq4 or P.approx == lalNRSur7dq2 or P.approx==lalNRHybSur3dq8 or P.approx == lalIMRPhenomTPHM) or (P.approx ==lalsim.TEOBResumS and not(has_external_teobresum) and not(info_use_resum_polarizations)):
         # approximant likst: see https://git.ligo.org/lscsoft/lalsuite/blob/master/lalsimulation/lib/LALSimInspiral.c#2541
         extra_params = P.to_lal_dict()
         # prevent segmentation fault when hitting nyquist frequency violations
@@ -3210,7 +3265,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False ):
 	    P.s2x, P.s2y, P.s2z, \
             P.fmin, P.fref, P.dist, extra_params, \
              Lmax, P.approx)
-    elif P.approx ==lalsim.TEOBResumS and has_external_teobresum:
+    elif P.approx ==lalsim.TEOBResumS and has_external_teobresum and not(info_use_resum_polarizations):  # don't call external if fallback to polarizations
         print("Using TEOBResumS hlms")
         modes_used = []
         distance_s = P.dist/lal.C_SI
