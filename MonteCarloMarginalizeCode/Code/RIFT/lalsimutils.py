@@ -3118,7 +3118,7 @@ def non_herm_hoff(P):
 #argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
 
-def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,**kwargs ):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,**kwargs ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -3133,6 +3133,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
           FD waveform calculation implicitly assumes fmin is in the inspiral regime (if not you are making bad life choices).
           Default value of 0.964 is based on changing inspiral duration by 10% (1.1^(3/8) ~ 1.036). Any constant factor will change
           the inspiral duration by a factor (1./fd_standoff_factor)^(8/3) or so.
+
+    no_condition: disable conditioning (for ChooseFDModes specifically). For diagnostic plots on impact of/need for conditioning.
     """
     assert Lmax >= 2
 
@@ -3180,17 +3182,18 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
           hlmsT[mode].data.data = -1*hlmsT[mode].data.data
           hlmsT[mode].data.data = np.roll(hlmsT[mode].data.data,-int(hlmsT[mode].data.length/2))
           hlmsT[mode].epoch = -(hlmsT[mode].data.length*hlmsT[mode].deltaT/2)
-          # Taper at the start of the segment
-          hlmsT[mode].data.data[:ntaper]*=vectaper
-          # Taper anything at the *end* of the segment. This could be  important when interacting with real data, which when wrapped is strongly discontinuous
-          #     - this generally will NOT taper everything, because some of the turn-on generally extends well past this
-          if TDlen-ntaper < indx_crit:
-              # just multiply the very end by a small amount of tapering
-              hlmsT[mode].data.data[TDlen-ntaper:]*=vectaper[::-1]
-          else:
-              # zero out a a lot of time at the end, and taper time as we approach this critical extra time
-              hlmsT[mode].data.data[indx_crit:indx_crit+ntaper] *= vectaper[::-1]
-              hlmsT[mode].data.data[indx_crit+ntaper:] = 0
+          if not(no_condition):
+              # Taper at the start of the segment
+              hlmsT[mode].data.data[:ntaper]*=vectaper
+              # Taper anything at the *end* of the segment. This could be  important when interacting with real data, which when wrapped is strongly discontinuous
+              #     - this generally will NOT taper everything, because some of the turn-on generally extends well past this
+              if TDlen-ntaper < indx_crit:
+                  # just multiply the very end by a small amount of tapering
+                  hlmsT[mode].data.data[TDlen-ntaper:]*=vectaper[::-1]
+              else:
+                  # zero out a a lot of time at the end, and taper time as we approach this critical extra time
+                  hlmsT[mode].data.data[indx_crit:indx_crit+ntaper] *= vectaper[::-1]
+                  hlmsT[mode].data.data[indx_crit+ntaper:] = 0
 
        if P.deltaF is not None:
           if not silent:
