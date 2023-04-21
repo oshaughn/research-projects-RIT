@@ -31,6 +31,9 @@ for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
    if [[ ${EXE} == *'make_uni_comov_skymap.py' ]]; then
        continue
    fi
+   if [[ ${EXE} == *'util_shuffle_file.py' ]]; then
+       continue
+   fi
 #   if [[ ${EXE} == *'resample_uniform_comoving.py' ]]; then
 #       continue
 #   fi
