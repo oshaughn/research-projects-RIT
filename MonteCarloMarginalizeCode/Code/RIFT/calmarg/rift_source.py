@@ -30,6 +30,9 @@ def RIFT_lal_binary_black_hole(
     waveform_dictionary = waveform_kwargs.get(
         'lal_waveform_dictionary', lal.CreateDict()
     )
+    h_method = 'hlmoft'
+    if 'h_method' in kwargs:
+        h_method = kwargs['h_method']
 
     approximant = lalsim.GetApproximantFromString(waveform_approximant)
 
@@ -51,17 +54,24 @@ def RIFT_lal_binary_black_hole(
     P.approx = approximant
     P.taper = lalsim.SIM_INSPIRAL_TAPER_START
 
-    hlmT = lalsimutils.hlmoft(P,Lmax=Lmax)
-    h22T = hlmT[(2,2)]
-    hT = lal.CreateCOMPLEX16TimeSeries("hoft", h22T.epoch, h22T.f0, h22T.deltaT, h22T.sampleUnits, h22T.data.length)
-    hT.data.data = np.zeros(hT.data.length)
+    if h_method == 'hlmoft':
+        # Waveform generator used internally in RIFT. ILE internally assumes phiref==0, so set this.
+        # Note ILE also assumes L-frame waveforms, so this will not work as expected for J-frame output
+        P.phiref = 0
+        hlmT = lalsimutils.hlmoft(P,Lmax=Lmax)
+        P.phiref = phase
+        h22T = hlmT[(2,2)]
+        hT = lal.CreateCOMPLEX16TimeSeries("hoft", h22T.epoch, h22T.f0, h22T.deltaT, h22T.sampleUnits, h22T.data.length)
+        hT.data.data = np.zeros(hT.data.length)
 
-    # combine modes
-    phase_offset = 0#np.pi/2 # TODO this could be a different value i.e. np.pi/2
-    for mode in hlmT:
-        hT.data.data += hlmT[mode].data.data * lal.SpinWeightedSphericalHarmonic(
-            P.incl,phase_offset - 1.0*P.phiref, -2, int(mode[0]), int(mode[1]))
-
+        # combine modes
+        phase_offset = 0#np.pi/2 # TODO this could be a different value i.e. np.pi/2
+        for mode in hlmT:
+            hT.data.data += hlmT[mode].data.data * lal.SpinWeightedSphericalHarmonic(
+                P.incl,phase_offset - 1.0*P.phiref, -2, int(mode[0]), int(mode[1]))
+    else:
+        # Backstop waveform generator. Includes all L modes. Use cases where waveforms are J-frame calculations for hlm.
+        hT = lalsimutils.complex_hoft(P)
     tvals = lalsimutils.evaluate_tvals(hT)
     t_max = tvals[np.argmax(np.abs(hT.data.data))]
 
