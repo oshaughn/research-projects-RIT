@@ -24,8 +24,11 @@ def sortKeyFunc(s):
 sample_file = sys.argv[1]
 weights_file_directory = sys.argv[2]
 allow_alternate=False
+allow_duplicates = False
 if len(sys.argv) > 3:   # if 3 arguments passed, target the effective sample size as output size
     allow_alternate=True
+if len(sys.argv) > 4:
+    allow_duplicates=True
 
 outdir = os.path.dirname(os.path.abspath(sample_file))
 
@@ -62,5 +65,5 @@ if not(allow_alternate):
     result.posterior = bilby.core.result.rejection_sample(result.posterior, weights)
 else:
     n_est = int(len(weights)*np.sum(weights)**2/np.sum(weights**2)/len(weights))+1  # effective sample size used to draw
-    result.posterior = result.posterior.sample(n=n_est,weights=weights/np.sum(weights))
+    result.posterior = result.posterior.sample(n=n_est,weights=weights/np.sum(weights),replace=allow_duplicates)
 result.save_posterior_samples(filename=outdir+'/reweighted_posterior_samples.dat', outdir=outdir)
