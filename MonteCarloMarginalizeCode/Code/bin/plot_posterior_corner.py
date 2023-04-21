@@ -231,6 +231,7 @@ parser.add_argument("--lnL-cut",default=None,type=float)
 parser.add_argument("--sigma-cut",default=0.4,type=float)
 parser.add_argument("--eccentricity", action="store_true", help="Read sample files in format including eccentricity")
 parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Relies entirely on user to set plot options for plot styles from matplotlibrc")
+parser.add_argument("--no-mod-psi",action="store_true",help="Default is to take psi mod pi. If present, does not do this")
 parser.add_argument("--verbose",action='store_true',help='print matplotlibrc data')
 opts=  parser.parse_args()
 
@@ -342,6 +343,8 @@ if opts.posterior_file:
  for fname in opts.posterior_file:
     samples = np.genfromtxt(fname,names=True,replace_space=None)  # don't replace underscores in names
     samples = standard_expand_samples(samples)
+    if not(opts.no_mod_psi) and 'psi' in samples:
+        samples['psi'] = np.mod(samples['psi'],np.pi)
     # if not 'mtotal' in samples.dtype.names and 'mc' in samples.dtype.names:  # raw LI samples use 
     #     q_here = samples['q']
     #     eta_here = q_here/(1+q_here)
