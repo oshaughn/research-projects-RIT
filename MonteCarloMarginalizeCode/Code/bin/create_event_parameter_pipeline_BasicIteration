@@ -218,6 +218,7 @@ parser.add_argument("--frame-rotation",action='store_true',help=" Calculation wa
 parser.add_argument("--calibration-reweighting-exe",default=None,help="Calibration reweighting script")
 parser.add_argument("--calibration-reweighting",action='store_true',help="Run calibration reweighting on final posterior samples")
 parser.add_argument("--calibration-reweighting-batchsize",type=int,default=None,help="If not 'None', tries to group the final set of points based on jobs of a fixed size")
+parser.add_argument("--calibration-reweighting-extra-args",type=str,default='',help="Passed to the combination script as extra arguments. ")
 parser.add_argument("--convert-ascii2h5-exe",default=None,help="Converting ascii to h5 file script")
 parser.add_argument("--comov-distance-reweighting-exe",default=None,help="Comoving distance reweighting script")
 parser.add_argument("--comov-distance-reweighting",action='store_true',help="Run comoving distance reweighting on final posterior samples")
@@ -1102,7 +1103,7 @@ if opts.calibration_reweighting:
 
     # job to combine things. Write here to make logic human-readable
     if (opts.calibration_reweighting_batchsize): # single run
-        reweight_merge_job, reweight_merge_job_name = dag_utils.write_convert_sub(exe=which('combine_weights_and_rejection_sample.py'),tag='CAL_REWEIGHT_COMBINE',log_dir=None,arg_str='',file_input=opts.working_directory+'/extrinsic_posterior_samples.dat weight_files/',file_output=None, out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
+        reweight_merge_job, reweight_merge_job_name = dag_utils.write_convert_sub(exe=which('combine_weights_and_rejection_sample.py'),tag='CAL_REWEIGHT_COMBINE',log_dir=None,arg_str=opts.calibration_reweighting_extra_args,file_input=opts.working_directory+'/extrinsic_posterior_samples.dat weight_files/',file_output=None, out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
         reweight_merge_job.add_condor_cmd("initialdir",opts.working_directory+"/calmarg/")
         reweight_merge_job.set_log_file(opts.working_directory+"/calmarg/logs/reweight-merge-$(cluster)-$(process).log")
         reweight_merge_job.set_stderr_file(opts.working_directory+"/calmarg/logs/reweight-merge-$(cluster)-$(process).err")
