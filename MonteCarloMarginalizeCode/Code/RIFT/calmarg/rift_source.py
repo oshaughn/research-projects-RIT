@@ -78,9 +78,9 @@ def RIFT_lal_binary_black_hole(
     # end max is cutting the signal such that it ends 2s after merger
     n_max = np.argmax(np.abs(hT.data.data))
 
-    hp = lal.CreateREAL8TimeSeries("h(t)", h22T.epoch, h22T.f0, h22T.deltaT, h22T.sampleUnits, h22T.data.length)
+    hp = lal.CreateREAL8TimeSeries("h(t)", hT.epoch, hT.f0, hT.deltaT, hT.sampleUnits, hT.data.length)
     hp.data.data = np.real(hT.data.data)
-    hc = lal.CreateREAL8TimeSeries("h(t)", h22T.epoch, h22T.f0, h22T.deltaT, h22T.sampleUnits, h22T.data.length)
+    hc = lal.CreateREAL8TimeSeries("h(t)", hT.epoch, hT.f0, hT.deltaT, hT.sampleUnits, hT.data.length)
     hc.data.data = -np.imag(hT.data.data)
 
     lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
