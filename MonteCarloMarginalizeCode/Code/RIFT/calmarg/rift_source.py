@@ -57,9 +57,12 @@ def RIFT_lal_binary_black_hole(
     if h_method == 'hlmoft':
         # Waveform generator used internally in RIFT. ILE internally assumes phiref==0, so set this.
         # Note ILE also assumes L-frame waveforms, so this will not work as expected for J-frame output
+        # Note several underlying interfaces like ChooseTDModes will enforce these conditions already, but not all. Better safe than sorry.
         P.phiref = 0
+        P.incl = 0  # L direction frame
         hlmT = lalsimutils.hlmoft(P,Lmax=Lmax)
         P.phiref = phase
+        P.incl =  iota # restore
         h22T = hlmT[(2,2)]
         hT = lal.CreateCOMPLEX16TimeSeries("hoft", h22T.epoch, h22T.f0, h22T.deltaT, h22T.sampleUnits, h22T.data.length)
         hT.data.data = np.zeros(hT.data.length)
