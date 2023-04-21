@@ -164,7 +164,7 @@ waveform_arguments = dict(
     minimum_frequency=args.fmin,
     waveform_approximant=data.meta_data['command_line_args']['waveform_approximant'],
     sampling_frequency=ifos.sampling_frequency,
-    h_method=opts.h_method)
+    h_method=args.h_method)
 
 if args.use_rift_samples:
     waveform_arguments['Lmax'] = args.l_max
