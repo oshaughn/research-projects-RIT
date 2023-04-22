@@ -3118,7 +3118,7 @@ def non_herm_hoff(P):
 #argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
 
-def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,**kwargs ):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,**kwargs ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -3135,6 +3135,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
           the inspiral duration by a factor (1./fd_standoff_factor)^(8/3) or so.
 
     no_condition: disable conditioning (for ChooseFDModes specifically). For diagnostic plots on impact of/need for conditioning.
+    fd_L_frame: rotate hlmoft to L frame from J frame for return values from ChooseFDModes (XO4/XPHM). 
     """
     assert Lmax >= 2
 
@@ -3194,6 +3195,12 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                   # zero out a a lot of time at the end, and taper time as we approach this critical extra time
                   hlmsT[mode].data.data[indx_crit:indx_crit+ntaper] *= vectaper[::-1]
                   hlmsT[mode].data.data[indx_crit+ntaper:] = 0
+
+       # Rotate if requested, and if P.fref is specified
+       if fd_L_frame and P.fref:
+           alpha,beta,gamma =extract_JL_angles(P)
+           hlmsT_alt = rotate_hlm_static(hlmsT, alpha,beta,gamma)
+           hlmsT = hlmsT_alt
 
        if P.deltaF is not None:
           if not silent:
@@ -5419,3 +5426,69 @@ def guess_mc_range_mdc(P,force_mc_range=None):
 
     return mc_min,mc_max
 
+
+def rotate_hlm_static(hlm,alphaA,betaA,gammaA):
+    """
+    Rotate output hlm by these Euler angles
+    Note this is a full system rotation, and therefore should be associated with rotation of the physical quantities (e.g., spin vectors, J,L)
+    """
+    hCatOut = {}
+    modes = list(hlm)
+    Lmax = np.max(np.array(modes)[:,0]) # Lmax
+    h0 = hlm[modes[0]] # some reference mode, for types
+    lal_type=False
+
+    for L in range(2, Lmax+1):
+        for M in range(-L,L+1):
+            hCatOut[(L,M)] = None
+            # Define output data
+            if isinstance(hlm[(L,M)], lal.COMPLEX16TimeSeries):
+                hCatOut[(L,M)] = lal.CreateCOMPLEX16TimeSeries("Template h(t)", 
+                                                 h0.epoch, h0.f0, h0.deltaT, lsu_DimensionlessUnit, 
+                                                 h0.data.length)
+                hCatOut[(L,M)].data.data *=0 # initialize
+                lal_type=True
+            elif isinstance(hlm[(L,M)] , lal.Complex16FrequencySeries):
+                hCatOut[(L,M)] =  lal.CreateCOMPLEX16FrequencySeries("Template h(t)", 
+                                                                     h0.epoch, h0.f0, h0.deltaF, lsu_HertzUnit ,
+                                                                     h0.data.length)
+                hCatOut[(L,M)].data.data *=0 # initialize
+                lal_type=True
+            elif isinstance(hlm[(L,M)], np.ndarray):
+                hCatOut[(L,M)] = np.zeros(h0.shape)
+            else:
+                raise ValueError(" hlm unknown data type for rotation")
+            # Loop and populate, based on input modes. Does not need to be full in input, but will be full output
+            for mode in modes:
+                if mode[0]==L:
+                    if lal_type:
+                        hCatOut[(L,M)].data.data += lal.WignerDMatrix(L,M,mode[1], alphaA, betaA,gammaA)*hlm[mode].data.data
+                    else:
+                        hCatOut[(L,M)] += lal.WignerDMatrix(L,M,mode[1], alphaA, betaA,gammaA)*hlm[mode]
+
+    return hCatOut
+
+
+def extract_JL_angles(P):
+    Lref = P.OrbitalAngularMomentumAtReferenceOverM2()
+    Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
+    Jref = P.TotalAngularMomentumAtReferenceOverM2()
+    Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
+
+    nhat_obs = np.array([ np.sin(P.incl)*np.cos(np.pi/2-P.phiref), np.sin(P.incl)*np.sin(np.pi/2-P.phiref), np.cos(P.incl)])  # base vector
+    vecZ = np.array([0,0,1])
+    vecY = np.array([0,1,0])
+
+    # thetaJL == beta
+    theta_JL = P.extract_param('beta')
+    phi_JL = P.extract_param('phiJL')   # note should be related to euler angles of 
+
+    # rotation from J to point along L for example
+    rot = np.matmul(rotation_matrix( vecY, -theta_JL), rotation_matrix( vecZ, -phi_JL))
+
+    # Rotation around L needed to rotate viewing direction
+    nhat_rot = np.matmul(rot, nhat_obs)
+    last_angle = np.angle( nhat_rot[0]+1j*nhat_rot[1])
+
+    # Phase conventions as in XPHM paper https://journals.aps.org/prd/abstract/10.1103/PhysRevD.103.104056
+    return np.pi - last_angle, theta_JL, np.pi-phi_JL
