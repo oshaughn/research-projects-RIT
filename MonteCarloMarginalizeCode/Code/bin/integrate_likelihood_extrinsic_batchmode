@@ -1754,7 +1754,7 @@ for indx in numpy.arange(len(P_list)):
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.force_reset_all:
     for name in sampler.params:
-      sampler.reset_sampling(param)
+      sampler.reset_sampling(name)
   if opts.no_adapt_after_first and (not no_adapt_sky):
     if lnL_sofar > 20:  # Use absolute threshold.  Expect this will give modest sky localization.
       # remove right_ascension, declination from adaptive parameters
