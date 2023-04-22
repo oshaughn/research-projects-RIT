@@ -750,11 +750,11 @@ line = ' '.join(instructions_ile)
 if opts.internal_ile_n_max:
     line = line.replace('--n-max 4000000 ', str(opts.internal_ile_n_max)+" ")
 line += " --l-max " + str(opts.l_max) 
-if 'data-start-time' in line:
+if 'data-start-time' in line and 's1z' in event_dict:  # only call this if we have (a) fixed time interval and (b) CBC parameters for event
     # Print warnings based on duration and fmin
     line_dict = unsafe_parse_arg_string_dict(line)
-    data_start_time = line_dict['data-start-time']
-    data_end_time = line_dict['data-end-time']
+    data_start_time = float(line_dict['data-start-time'])
+    data_end_time = float(line_dict['data-end-time'])
     P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
     P.fmin = opts.fmin  #  fmin we will use internally
     if opts.fmin_template:
@@ -764,7 +764,7 @@ if 'data-start-time' in line:
         P_temp = P.copy()
         P_temp.fmin *= 2./opts.l_max
         t_HM = lalsimutils.estimateWaveformDuration(P_temp)
-        if  opts.data_LI_seglen < t_HM/2:
+        if  data_end_time - data_start_time < t_HM/2:
             print("""  WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING 
 Your choice of fmin, lmax, and approximant suggests waveform wraparound will occur.  We recommend a longer segment length
 """
