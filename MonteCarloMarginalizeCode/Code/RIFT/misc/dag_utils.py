@@ -1981,7 +1981,7 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     # Add mandatory options
     ile_job.add_opt('data_dump_file', str(pickle_file))
     ile_job.add_opt('posterior_sample_file', str(posterior_file))
-    ile_job.add_opt('number_of_calibration_curves', n_cal)
+    ile_job.add_opt('number_of_calibration_curves', str(n_cal))
     ile_job.add_opt('reevaluate_likelihood', 'True')
     ile_job.add_opt('use_rift_samples', 'True')
     if time_marg:
