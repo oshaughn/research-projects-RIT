@@ -3764,8 +3764,8 @@ def conj_hlmoff(P, Lmax=2):
 
     return Hlms
 
-def std_and_conj_hlmoff(P, Lmax=2):
-    hlms = hlmoft(P, Lmax)
+def std_and_conj_hlmoff(P, Lmax=2,**kwargs):
+    hlms = hlmoft(P, Lmax,**kwargs)
     if isinstance(hlms,dict):
         hlmsF = {}
         hlms_conj_F = {}
