@@ -1624,7 +1624,7 @@ if opts.last_iteration_extrinsic:
         last_node=convert_node
 
 # Create rotation job (if extrinsic available)
-if opts.frame_rotation and opts.add_extrinsic:
+if opts.frame_rotation and opts.last_iteration_extrinsic:
     rotate_node = pipeline.CondorDAGNode(rotate_job)
     rotate_node.set_category("ROTATE")
     rotate_node.add_parent(last_node)
