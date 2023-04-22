@@ -219,6 +219,7 @@ parser.add_argument("--calibration-reweighting-exe",default=None,help="Calibrati
 parser.add_argument("--calibration-reweighting",action='store_true',help="Run calibration reweighting on final posterior samples")
 parser.add_argument("--calibration-reweighting-batchsize",type=int,default=None,help="If not 'None', tries to group the final set of points based on jobs of a fixed size")
 parser.add_argument("--calibration-reweighting-extra-args",type=str,default='',help="Passed to the combination script as extra arguments. ")
+parser.add_argument("--calibration-reweighting-count",type=int,default=100,help="Number of calibration marginalization realizations. Default is 100")
 parser.add_argument("--convert-ascii2h5-exe",default=None,help="Converting ascii to h5 file script")
 parser.add_argument("--comov-distance-reweighting-exe",default=None,help="Comoving distance reweighting script")
 parser.add_argument("--comov-distance-reweighting",action='store_true',help="Run comoving distance reweighting on final posterior samples")
@@ -1075,13 +1076,13 @@ fi;
 
 if opts.calibration_reweighting:
     if opts.last_iteration_extrinsic_time_resampling and opts.bilby_pickle_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=False,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args)
+        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=False,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args,n_cal=opts.calibration_reweighting_count)
     elif opts.last_iteration_extrinsic_time_resampling and opts.bilby_ini_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=False,pickle_file=opts.working_directory+"/calmarg/data/calmarg_data_dump.pickle",exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args)
+        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=False,pickle_file=opts.working_directory+"/calmarg/data/calmarg_data_dump.pickle",exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args,n_cal=opts.calibration_reweighting_count)
     elif (not opts.last_iteration_extrinsic_time_resampling) and opts.bilby_ini_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.working_directory+"/calmarg/data/calmarg_data_dump.pickle",exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,lle_args=ile_args)
+        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.working_directory+"/calmarg/data/calmarg_data_dump.pickle",exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,lle_args=ile_args,n_cal=opts.calibration_reweighting_count)
     elif (not opts.last_iteration_extrinsic_time_resampling) and opts.bilby_pickle_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args)
+        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args,n_cal=opts.calibration_reweighting_count)
         
     if not(opts.calibration_reweighting_batchsize): # single run
         calibration_job.set_log_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).log")
