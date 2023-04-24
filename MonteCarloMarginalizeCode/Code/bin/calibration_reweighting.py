@@ -169,9 +169,9 @@ waveform_arguments = dict(
     h_method=args.h_method)
 
 extra_waveform_kwargs={}
-if opts.internal_waveform_fd_L_frame:
+if args.internal_waveform_fd_L_frame:
     extra_waveform_kwargs = {'fd_L_frame':True}
-if opts.internal_waveform_fd_no_condition:
+if args.internal_waveform_fd_no_condition:
     extra_waveform_kwargs['no_condition'] = True
 waveform_arguments['extra_waveform_kwargs'] = extra_waveform_kwargs
 
