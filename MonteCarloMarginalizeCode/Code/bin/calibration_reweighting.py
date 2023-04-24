@@ -87,6 +87,8 @@ parser.add(
 parser.add(
     "--h_method", type=str, default='hlmoft',
     help="For RIFT, uses two different options for h(t) reconstruction ")
+parser.add("--internal-waveform-fd-L-frame",action='store_true',help='If true, passes extra_waveform_kwargs = {fd_L_frame=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only.')
+parser.add("--internal-waveform-fd-no-condition",action='store_true',help='If true, adds extra_waveform_kwargs = {no_condition=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only. Provided to enable controlled tests of conditioning impact on PE')
 parser.add("--fmin", default=None, type=float)
 parser.add("--l-max", default=4, type=int)
 parser.add("--start_index", default=None, type=int)
@@ -165,6 +167,13 @@ waveform_arguments = dict(
     waveform_approximant=data.meta_data['command_line_args']['waveform_approximant'],
     sampling_frequency=ifos.sampling_frequency,
     h_method=args.h_method)
+
+extra_waveform_kwargs={}
+if opts.internal_waveform_fd_L_frame:
+    extra_waveform_kwargs = {'fd_L_frame':True}
+if opts.internal_waveform_fd_no_condition:
+    extra_waveform_kwargs['no_condition'] = True
+waveform_arguments['extra_waveform_kwargs'] = extra_waveform_kwargs
 
 if args.use_rift_samples:
     waveform_arguments['Lmax'] = args.l_max
