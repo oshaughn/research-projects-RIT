@@ -1279,6 +1279,8 @@ if opts.archive_pesummary_label:
 # Horribly annoying XPHM/XO4a fix because ChooseFDWaveform called.  Seems to be UNIVERSAL for the approximant name, but only if precessing
 if opts.internal_mitigate_fd_J_frame == 'rotate' and (opts.approx == 'IMRPhenomXPHM' or 'XO4a' in opts.approx) and opts.assume_precessing:
     cmd += " --frame-rotation "
+if opts.internal_mitigate_fd_J_frame =="L_frame":
+    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame' "
 print(cmd)
 os.system(cmd)
 
