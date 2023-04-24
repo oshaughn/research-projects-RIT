@@ -258,6 +258,7 @@ parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="NOW ST
 parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
+parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
 opts=  parser.parse_args()
 
 
@@ -297,6 +298,11 @@ if (opts.use_ini):
 
 if opts.ile_copies <=0:
     raise Exception(" Must have 1 or more ILE instances per intrinsic point")
+
+if not(opts.internal_mitigate_fd_J_frame in ['L_frame', 'rotate']):
+    raise Exception(" Unknown option for internal_mitigate_fd_J_frame")
+if (opts.approx in ['IMRPhenomXPHM' or 'IMRPhenomXO4']) and opts.assume_precessing:
+    print(" NOTE NOTE NOTE : Mitigation of ChooseFDWaveform frame being applied : {} ".format(opts.internal_mitigate_fd_J_frame))
 
 if opts.internal_loud_signal_mitigation_suite:
     opts.internal_ile_freezeadapt=False  # make sure to adapt every iteration, and adapt in distance if present
@@ -818,6 +824,8 @@ if opts.ile_no_gpu:  # make sure we are using the standard code path if not usin
     line += " --force-xpy " 
 if opts.internal_ile_force_noreset_adapt:
     line = line.replace(' --force-reset-all ', ' ')
+if opts.internal_mitigate_fd_J_frame == 'L_frame':
+    line += " --internal-waveform-fd-L-frame "
 with open('args_ile.txt','w') as f:
         f.write(line)
 
@@ -1269,7 +1277,7 @@ if opts.archive_pesummary_label:
 #    cmd += " --plot-exe `which summarypages` --plot-args  args_plot.txt "
     cmd += " --plot-exe summarypages --plot-args  args_plot.txt "
 # Horribly annoying XPHM/XO4a fix because ChooseFDWaveform called.  Seems to be UNIVERSAL for the approximant name, but only if precessing
-if (opts.approx == 'IMRPhenomXPHM' or 'XO4a' in opts.approx) and opts.assume_precessing:
+if opts.internal_mitigate_fd_J_frame == 'rotate' and (opts.approx == 'IMRPhenomXPHM' or 'XO4a' in opts.approx) and opts.assume_precessing:
     cmd += " --frame-rotation "
 print(cmd)
 os.system(cmd)
