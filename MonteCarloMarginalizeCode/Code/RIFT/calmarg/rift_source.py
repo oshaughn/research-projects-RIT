@@ -19,7 +19,8 @@ def RIFT_lal_binary_black_hole(
     waveform_kwargs = dict(
         waveform_approximant='SEOBNRv4PHM', reference_frequency=15.0,
         minimum_frequency=15.0, maximum_frequency=frequency_array[-1], Lmax=4,
-        sampling_frequency=2*frequency_array[-1])
+        sampling_frequency=2*frequency_array[-1],
+        extra_waveform_kwargs={})
     waveform_kwargs.update(kwargs)
     waveform_approximant = waveform_kwargs['waveform_approximant']
     reference_frequency = waveform_kwargs['reference_frequency']
@@ -31,6 +32,7 @@ def RIFT_lal_binary_black_hole(
         'lal_waveform_dictionary', lal.CreateDict()
     )
     h_method = 'hlmoft'
+    extra_waveform_kwargs = waveform_kwargs['extra_waveform_kwargs']
     if 'h_method' in kwargs:
         h_method = kwargs['h_method']
 
@@ -60,7 +62,7 @@ def RIFT_lal_binary_black_hole(
         # Note several underlying interfaces like ChooseTDModes will enforce these conditions already, but not all. Better safe than sorry.
         P.phiref = 0
         P.incl = 0  # L direction frame
-        hlmT = lalsimutils.hlmoft(P,Lmax=Lmax)
+        hlmT = lalsimutils.hlmoft(P,Lmax=Lmax,extra_waveform_kwargs=extra_waveform_kwargs) # extra needed to control ChooseFDWaveform
         P.phiref = phase
         P.incl =  iota # restore
         h22T = hlmT[(2,2)]
