@@ -5480,8 +5480,14 @@ def extract_JL_angles(P):
     vecY = np.array([0,1,0])
 
     # thetaJL == beta
-    theta_JL = P.extract_param('beta')
-    phi_JL = P.extract_param('phiJL')   # note should be related to euler angles of 
+    # To make review-stable, be VERY explicit : try to use lalsuite function calls, not above
+    my_cos = np.dot(Lhat, Jhat)
+    theta_JL = P.incl   # this is pretty close. Good enough if we are nearly aligned
+    if my_cos < 1-1e-5:  # but if we are even slightly misaligned, use the acos of above
+        theta_JL = np.arccos( my_cos ) #P.extract_param('beta')  # this is just Jhat.Jhat
+    theta_jn, phi_JL, theta_1, theta_2, phi_12, a_1, a_2 =lalsim.SimInspiralTransformPrecessingWvf2PE(
+            P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.m1, P.m2, P.fref, P.phiref)
+#    phi_JL = P.extract_param('phiJL')   # note should be related to euler angles of 
 
     # rotation from J to point along L for example
     rot = np.matmul(rotation_matrix( vecY, -theta_JL), rotation_matrix( vecZ, -phi_JL))
