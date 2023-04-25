@@ -37,6 +37,8 @@ Since last release
      typo fix (rc11)
    - calmarg J--> L frame access (rc12)
 
+release is rc12
+
 0.0.15.7
 -----------
 Since last release
