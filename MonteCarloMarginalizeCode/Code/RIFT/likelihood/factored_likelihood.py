@@ -115,6 +115,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,quiet=False,
          NR_group=None,NR_param=None,
         ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
+        extra_waveform_kwargs={},
         use_gwsignal=False,
         use_gwsignal_approx=None,
        use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False):
@@ -245,7 +246,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         #         hlms_conj = lsu.SphHarmFrequencySeries_to_dict(hlms_conj_list, Lmax) # a dictionary
         # else:
         #         hlms_conj = hlms_conj_list
-        hlms, hlms_conj = lsu.std_and_conj_hlmoff(P,Lmax)
+        hlms, hlms_conj = lsu.std_and_conj_hlmoff(P,Lmax,**extra_waveform_kwargs)
     elif (nr_lookup or NR_group) and useNR:
 	    # look up simulation
 	    # use nrwf to get hlmf

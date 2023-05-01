@@ -19,7 +19,8 @@ def RIFT_lal_binary_black_hole(
     waveform_kwargs = dict(
         waveform_approximant='SEOBNRv4PHM', reference_frequency=15.0,
         minimum_frequency=15.0, maximum_frequency=frequency_array[-1], Lmax=4,
-        sampling_frequency=2*frequency_array[-1])
+        sampling_frequency=2*frequency_array[-1],
+        extra_waveform_kwargs={})
     waveform_kwargs.update(kwargs)
     waveform_approximant = waveform_kwargs['waveform_approximant']
     reference_frequency = waveform_kwargs['reference_frequency']
@@ -30,6 +31,10 @@ def RIFT_lal_binary_black_hole(
     waveform_dictionary = waveform_kwargs.get(
         'lal_waveform_dictionary', lal.CreateDict()
     )
+    h_method = 'hlmoft'
+    extra_waveform_kwargs = waveform_kwargs['extra_waveform_kwargs']
+    if 'h_method' in kwargs:
+        h_method = kwargs['h_method']
 
     approximant = lalsim.GetApproximantFromString(waveform_approximant)
 
@@ -51,26 +56,36 @@ def RIFT_lal_binary_black_hole(
     P.approx = approximant
     P.taper = lalsim.SIM_INSPIRAL_TAPER_START
 
-    hlmT = lalsimutils.hlmoft(P,Lmax=Lmax)
-    h22T = hlmT[(2,2)]
-    hT = lal.CreateCOMPLEX16TimeSeries("hoft", h22T.epoch, h22T.f0, h22T.deltaT, h22T.sampleUnits, h22T.data.length)
-    hT.data.data = np.zeros(hT.data.length)
+    if h_method == 'hlmoft':
+        # Waveform generator used internally in RIFT. ILE internally assumes phiref==0, so set this.
+        # Note ILE also assumes L-frame waveforms, so this will not work as expected for J-frame output
+        # Note several underlying interfaces like ChooseTDModes will enforce these conditions already, but not all. Better safe than sorry.
+        P.phiref = 0
+        P.incl = 0  # L direction frame
+        hlmT = lalsimutils.hlmoft(P,Lmax=Lmax,extra_waveform_kwargs=extra_waveform_kwargs) # extra needed to control ChooseFDWaveform
+        P.phiref = phase
+        P.incl =  iota # restore
+        h22T = hlmT[(2,2)]
+        hT = lal.CreateCOMPLEX16TimeSeries("hoft", h22T.epoch, h22T.f0, h22T.deltaT, h22T.sampleUnits, h22T.data.length)
+        hT.data.data = np.zeros(hT.data.length)
 
-    # combine modes
-    phase_offset = 0#np.pi/2 # TODO this could be a different value i.e. np.pi/2
-    for mode in hlmT:
-        hT.data.data += hlmT[mode].data.data * lal.SpinWeightedSphericalHarmonic(
-            P.incl,phase_offset - 1.0*P.phiref, -2, int(mode[0]), int(mode[1]))
-
+        # combine modes
+        phase_offset = 0#np.pi/2 # TODO this could be a different value i.e. np.pi/2
+        for mode in hlmT:
+            hT.data.data += hlmT[mode].data.data * lal.SpinWeightedSphericalHarmonic(
+                P.incl,phase_offset - 1.0*P.phiref, -2, int(mode[0]), int(mode[1]))
+    else:
+        # Backstop waveform generator. Includes all L modes. Use cases where waveforms are J-frame calculations for hlm.
+        hT = lalsimutils.complex_hoft(P)
     tvals = lalsimutils.evaluate_tvals(hT)
     t_max = tvals[np.argmax(np.abs(hT.data.data))]
 
     # end max is cutting the signal such that it ends 2s after merger
     n_max = np.argmax(np.abs(hT.data.data))
 
-    hp = lal.CreateREAL8TimeSeries("h(t)", h22T.epoch, h22T.f0, h22T.deltaT, h22T.sampleUnits, h22T.data.length)
+    hp = lal.CreateREAL8TimeSeries("h(t)", hT.epoch, hT.f0, hT.deltaT, hT.sampleUnits, hT.data.length)
     hp.data.data = np.real(hT.data.data)
-    hc = lal.CreateREAL8TimeSeries("h(t)", h22T.epoch, h22T.f0, h22T.deltaT, h22T.sampleUnits, h22T.data.length)
+    hc = lal.CreateREAL8TimeSeries("h(t)", hT.epoch, hT.f0, hT.deltaT, hT.sampleUnits, hT.data.length)
     hc.data.data = -np.imag(hT.data.data)
 
     lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)

@@ -84,6 +84,11 @@ parser.add(
 parser.add(
     "--use_rift_samples", type=bool, default=False,
     help="Uses a different waveform function if using RIFT samples. This matches the phase definitions in RIFT")
+parser.add(
+    "--h_method", type=str, default='hlmoft',
+    help="For RIFT, uses two different options for h(t) reconstruction ")
+parser.add("--internal-waveform-fd-L-frame",action='store_true',help='If true, passes extra_waveform_kwargs = {fd_L_frame=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only.')
+parser.add("--internal-waveform-fd-no-condition",action='store_true',help='If true, adds extra_waveform_kwargs = {no_condition=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only. Provided to enable controlled tests of conditioning impact on PE')
 parser.add("--fmin", default=None, type=float)
 parser.add("--l-max", default=4, type=int)
 parser.add("--start_index", default=None, type=int)
@@ -114,11 +119,14 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
     result.meta_data = {}
 
     if args.use_rift_samples:
+        result.posterior  = result.posterior.drop(columns=['lnL','ps'])
+        result.posterior['p'] = np.log(result.posterior['p'])  # not sure if used, but if so define correctly
         key_swap_dict = {'m1':'mass_1', 'm2':'mass_2', 'a1x':'spin_1x', 'a1y':'spin_1y', 'a1z':'spin_1z',
             'a2x':'spin_2x', 'a2y':'spin_2y', 'a2z':'spin_2z', 'incl':'iota', 'time':'geocent_time',
         'phiorb':'phase', 'p':'log_prior', 'distance':'luminosity_distance', 'lambda1':'lambda_1', 'lambda2':'lambda_2'}
 
-        for old_key in result.posterior.keys():
+        names = list(result.posterior.keys())  # dangerous to have iterator tied to changing structure
+        for old_key in names:
             if old_key in key_swap_dict:
                 result.posterior[key_swap_dict[old_key]] = result.posterior[old_key]
                 del result.posterior[old_key]
@@ -157,7 +165,15 @@ waveform_arguments = dict(
     reference_frequency=data.meta_data['command_line_args']['reference_frequency'],
     minimum_frequency=args.fmin,
     waveform_approximant=data.meta_data['command_line_args']['waveform_approximant'],
-    sampling_frequency=ifos.sampling_frequency)
+    sampling_frequency=ifos.sampling_frequency,
+    h_method=args.h_method)
+
+extra_waveform_kwargs={}
+if args.internal_waveform_fd_L_frame:
+    extra_waveform_kwargs = {'fd_L_frame':True}
+if args.internal_waveform_fd_no_condition:
+    extra_waveform_kwargs['no_condition'] = True
+waveform_arguments['extra_waveform_kwargs'] = extra_waveform_kwargs
 
 if args.use_rift_samples:
     waveform_arguments['Lmax'] = args.l_max

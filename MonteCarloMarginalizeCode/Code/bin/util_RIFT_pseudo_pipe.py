@@ -129,6 +129,8 @@ parser.add_argument("--manual-ifo-list",default=None,type=str,help="Overrides IF
 parser.add_argument("--online",action='store_true')
 parser.add_argument("--calibration-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to calibration uncertainty.")
 parser.add_argument("--calibration-reweighting-batchsize",type=int,default=None,help="If not 'None', tries to group the final set of points based on jobs of a fixed size")
+parser.add_argument("--calibration-reweighting-count",type=int,default=None,help="If not 'None', the number of calibration curves to request when marginalizing. Default is 100")
+parser.add_argument("--calibration-reweighting-extra-args",type=str,default=None,help="If not 'None', pass through. One argument targets effective sample size, other duplicates inoutput")
 parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
@@ -261,6 +263,7 @@ parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="NOW ST
 parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
+parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
 opts=  parser.parse_args()
 
 
@@ -300,6 +303,11 @@ if (opts.use_ini):
 
 if opts.ile_copies <=0:
     raise Exception(" Must have 1 or more ILE instances per intrinsic point")
+
+if not(opts.internal_mitigate_fd_J_frame in ['L_frame', 'rotate']):
+    raise Exception(" Unknown option for internal_mitigate_fd_J_frame")
+if (opts.approx in ['IMRPhenomXPHM' or 'IMRPhenomXO4']) and opts.assume_precessing:
+    print(" NOTE NOTE NOTE : Mitigation of ChooseFDWaveform frame being applied : {} ".format(opts.internal_mitigate_fd_J_frame))
 
 if opts.internal_loud_signal_mitigation_suite:
     opts.internal_ile_freezeadapt=False  # make sure to adapt every iteration, and adapt in distance if present
@@ -755,11 +763,11 @@ line = ' '.join(instructions_ile)
 if opts.internal_ile_n_max:
     line = line.replace('--n-max 4000000 ', str(opts.internal_ile_n_max)+" ")
 line += " --l-max " + str(opts.l_max) 
-if 'data-start-time' in line:
+if 'data-start-time' in line and 's1z' in event_dict:  # only call this if we have (a) fixed time interval and (b) CBC parameters for event
     # Print warnings based on duration and fmin
     line_dict = unsafe_parse_arg_string_dict(line)
-    data_start_time = line_dict['data-start-time']
-    data_end_time = line_dict['data-end-time']
+    data_start_time = float(line_dict['data-start-time'])
+    data_end_time = float(line_dict['data-end-time'])
     P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
     P.fmin = opts.fmin  #  fmin we will use internally
     if opts.fmin_template:
@@ -769,7 +777,7 @@ if 'data-start-time' in line:
         P_temp = P.copy()
         P_temp.fmin *= 2./opts.l_max
         t_HM = lalsimutils.estimateWaveformDuration(P_temp)
-        if  opts.data_LI_seglen < t_HM/2:
+        if  data_end_time - data_start_time < t_HM/2:
             print("""  WARNING WARNING WARNING WARNING WARNING WARNING WARNING WARNING 
 Your choice of fmin, lmax, and approximant suggests waveform wraparound will occur.  We recommend a longer segment length
 """
@@ -826,6 +834,8 @@ if opts.ile_no_gpu:  # make sure we are using the standard code path if not usin
     line += " --force-xpy " 
 if opts.internal_ile_force_noreset_adapt:
     line = line.replace(' --force-reset-all ', ' ')
+if opts.internal_mitigate_fd_J_frame == 'L_frame':
+    line += " --internal-waveform-fd-L-frame "
 with open('args_ile.txt','w') as f:
         f.write(line)
 
@@ -1154,10 +1164,18 @@ if opts.assume_eccentric:
     cmd += " --use-eccentricity "
 if opts.calibration_reweighting and (not opts.bilby_pickle_file):
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-ini-file {} --bilby-pickle-exe `which bilby_pipe_generation` ".format(str(opts.bilby_ini_file))
+    if opts.calibration_reweighting_count:
+        cmd+= " --calibration-reweighting-count {} ".format(opts.calibration_reweighting_count)
     if opts.calibration_reweighting_batchsize:
         cmd += " --calibration-reweighting-batchsize {} ".format(opts.calibration_reweighting_batchsize)
+    if opts.calibration_reweighting_extra_args:
+        cmd += " --calibration-reweighting-extra-args '{}' ".format(opts.calibration_reweighting_extra_args)
 elif opts.calibration_reweighting and opts.bilby_pickle_file:
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-pickle-file {} ".format(str(opts.bilby_pickle_file))
+    if opts.calibration_reweighting_count:
+        cmd+= " --calibration-reweighting-count {} ".format(opts.calibration_reweighting_count)
+    if opts.calibration_reweighting_extra_args:
+        cmd += " --calibration-reweighting-extra-args '{}' ".format(opts.calibration_reweighting_extra_args)
 
 if opts.distance_reweighting:
     cmd += " --comov-distance-reweighting --comov-distance-reweighting-exe `which make_uni_comov_skymap.py` --convert-ascii2h5-exe `which convert_output_format_ascii2h5.py` "
@@ -1269,8 +1287,10 @@ if opts.archive_pesummary_label:
 #    cmd += " --plot-exe `which summarypages` --plot-args  args_plot.txt "
     cmd += " --plot-exe summarypages --plot-args  args_plot.txt "
 # Horribly annoying XPHM/XO4a fix because ChooseFDWaveform called.  Seems to be UNIVERSAL for the approximant name, but only if precessing
-if (opts.approx == 'IMRPhenomXPHM' or 'XO4a' in opts.approx) and opts.assume_precessing:
+if opts.internal_mitigate_fd_J_frame == 'rotate' and (opts.approx == 'IMRPhenomXPHM' or 'XO4a' in opts.approx) and opts.assume_precessing:
     cmd += " --frame-rotation "
+if opts.internal_mitigate_fd_J_frame =="L_frame":
+    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame' "
 print(cmd)
 os.system(cmd)
 

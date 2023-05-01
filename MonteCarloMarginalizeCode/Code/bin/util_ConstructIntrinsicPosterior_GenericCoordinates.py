@@ -914,7 +914,12 @@ if opts.aligned_prior == 'alignedspin-zprior':
             prior_map['chiz_plus'] = s_component_gaussian_prior
             prior_map['chiz_minus'] = s_component_gaussian_prior
 
-if opts.transverse_prior == 'uniform-mag':
+if opts.transverse_prior == 'uniform':
+    # Don't do anything: let the default uniform priros for s1x, s1y ... OR chi1_perp-bar, etc used be used
+    # Note these have different physical meaning!
+    print(" Transverse prior: Uniform in PROPOSED COORDINATES (defaults). Note physical meaning depends on coordinate choice!")
+    True
+elif opts.transverse_prior == 'uniform-mag':   # intent: only for these chi1_perp_bar, chi2_perp_bar coordinates
     # allow for better transverse spin prior, 
     prior_map['chi1_perp_bar'] = unnormalized_uniform_prior
     prior_map['chi2_perp_bar'] = unnormalized_uniform_prior

@@ -31,6 +31,13 @@ Since last release
    - XPHM J frame workaround draft; cal marg workflow minor fixes so runs; some cupy/cuda workflow  error handling,
      including --force-reset-all from top level (rc8)
    - bugfix argparsing/typo in pipeline from last commits in rc8; add hlmoft conditioning for ChooseFDModes (rc9)
+   - cal marg pass --calibration-reweighting-count, alternate recombination methods, access (low-level-only) to
+     alternate h_method, and minor bugfixes from typos (rc10)
+   - pipeline-level access to XPHM L-frame and condition control; XPHM workaround for L frame; ILE --force-reset-all
+     typo fix (rc11)
+   - calmarg J--> L frame access (rc12)
+
+release is rc12
 
 0.0.15.7
 -----------
