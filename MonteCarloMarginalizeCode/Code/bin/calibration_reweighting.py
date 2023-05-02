@@ -64,6 +64,9 @@ parser.add(
     "--data_dump_file", default=None,
     help="Bilby pipe data_dump file. This stores all the relevant data for PE")
 parser.add(
+    "--waveform_approximant", default=None,
+    help="Approximant. Override what is in the pickle file (as expected if running across settings)")
+parser.add(
     "--number_of_calibration_curves", type=int, default=1000,
     help="Number of calibration curve realizations to use to reweight samples.")
 parser.add(
@@ -174,6 +177,8 @@ if args.internal_waveform_fd_L_frame:
 if args.internal_waveform_fd_no_condition:
     extra_waveform_kwargs['no_condition'] = True
 waveform_arguments['extra_waveform_kwargs'] = extra_waveform_kwargs
+if args.waveform_approximant:
+    waveform_arguments['waveform_approximant'] = args.waveform_approximant
 
 if args.use_rift_samples:
     waveform_arguments['Lmax'] = args.l_max
