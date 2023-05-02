@@ -1989,6 +1989,7 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         ile_job.add_opt('time_marginalization', str(time_marg))
 
     lmax=None
+    approx=None
     if ile_args:
         ile_args_split = ile_args.split('--')
         fmin_list = []
@@ -2002,12 +2003,15 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
                     fmin_template = line_split[1]
                 elif line_split[0] == 'l-max':
                     lmax = int(line_split[1])
+                elif line_split[0] == 'approx':
+                    approx = line_split[1]
 #        fmin = np.min(fmin_list)
         if fmin_template:
             ile_job.add_arg(" --fmin {} ".format(fmin_template))  # code will fail without this, and it is always written anyways, but 
         if lmax:
             ile_job.add_arg(" --l-max {} ".format(lmax))
-
+        if approx:
+            ile_job.add_arg(" --waveform_approximant {} ".format(approx))
     #
     # Add normal arguments
     #
