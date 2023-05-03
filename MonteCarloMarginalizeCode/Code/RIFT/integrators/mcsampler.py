@@ -219,7 +219,7 @@ class MCSampler(object):
             # FIXME: UGH! Really? This was the most elegant thing you could come
             # up with?
             rvs_tmp = [numpy.random.uniform(0,1,(len(p), int(rvs))) for p in [(i,) if not isinstance(i, tuple) else i for i in args]]
-            rvs_tmp = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(rvs_tmp, args)], dtype=numpy.object)
+            rvs_tmp = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(rvs_tmp, args)], dtype=object)
         else:
             rvs_tmp = numpy.array(rvs)
 
