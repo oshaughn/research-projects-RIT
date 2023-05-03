@@ -402,8 +402,8 @@ def gauss_samp(mu, std, x):
 def gauss_samp_withfloor(mu, std, myfloor, x):
     return 1.0/np.sqrt(2*np.pi*std**2)*np.exp(-(x-mu)**2/2/std**2) + myfloor
 
-#gauss_samp_withfloor_vector = np.vectorize(gauss_samp_withfloor,excluded=['mu','std','myfloor'],otypes=[np.float])
-gauss_samp_withfloor_vector = np.vectorize(gauss_samp_withfloor,otypes=[np.float])
+#gauss_samp_withfloor_vector = np.vectorize(gauss_samp_withfloor,excluded=['mu','std','myfloor'],otypes=[np.float64])
+gauss_samp_withfloor_vector = np.vectorize(gauss_samp_withfloor,otypes=[np.float64])
 
 
 # Mass ratio. PDF propto 1/(1+q)^2.  Defined so mass ratio is < 1
@@ -430,8 +430,8 @@ def cos_samp(x):
 def dec_samp(x):
         return np.sin(x+np.pi/2)/2   # x from 0, pi
 
-cos_samp_vector = np.vectorize(cos_samp,otypes=[np.float])
-dec_samp_vector = np.vectorize(dec_samp,otypes=[np.float])
+cos_samp_vector = np.vectorize(cos_samp,otypes=[np.float64])
+dec_samp_vector = np.vectorize(dec_samp,otypes=[np.float64])
 def cos_samp_cdf_inv_vector(p):
     return np.arccos( 2*p-1)   # returns from 0 to pi
 def dec_samp_cdf_inv_vector(p):
@@ -441,18 +441,18 @@ def dec_samp_cdf_inv_vector(p):
 def pseudo_dist_samp(r0,r):
         return r*r*np.exp( - (r0/r)*(r0/r)/2. + r0/r)+0.01  # put a floor on probability, so we converge. Note this floor only cuts out NEARBY distances
 
-#pseudo_dist_samp_vector = np.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[np.float])
-pseudo_dist_samp_vector = np.vectorize(pseudo_dist_samp,otypes=[np.float])
+#pseudo_dist_samp_vector = np.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[np.float64])
+pseudo_dist_samp_vector = np.vectorize(pseudo_dist_samp,otypes=[np.float64])
 
 def delta_func_pdf(x_0, x):
     return 1.0 if x == x_0 else 0.0
 
-delta_func_pdf_vector = np.vectorize(delta_func_pdf, otypes=[np.float])
+delta_func_pdf_vector = np.vectorize(delta_func_pdf, otypes=[np.float64])
 
 def delta_func_samp(x_0, x):
     return x_0
 
-delta_func_samp_vector = np.vectorize(delta_func_samp, otypes=[np.float])
+delta_func_samp_vector = np.vectorize(delta_func_samp, otypes=[np.float64])
 
 class HealPixSampler(object):
     """
@@ -593,8 +593,8 @@ class HealPixSampler(object):
         else:
             raise ValueError("%s is not a recgonized sampling type" % stype)
 
-#pseudo_dist_samp_vector = np.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[np.float])
-pseudo_dist_samp_vector = np.vectorize(pseudo_dist_samp,otypes=[np.float])
+#pseudo_dist_samp_vector = np.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[np.float64])
+pseudo_dist_samp_vector = np.vectorize(pseudo_dist_samp,otypes=[np.float64])
 
 
 def sanityCheckSamplerIntegrateUnity(sampler,*args,**kwargs):
