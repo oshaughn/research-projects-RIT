@@ -682,8 +682,7 @@ class MCSampler(object):
                 self._hist[p], edges = numpy.histogram( points,
                     bins = 100,
                     range = (self.llim[p], self.rlim[p]),
-                    weights = weights,
-                    normed = True
+                    weights = weights
                 )
                 # FIXME: numpy.hist can't normalize worth a damn
                 self._hist[p] /= self._hist[p].sum()
