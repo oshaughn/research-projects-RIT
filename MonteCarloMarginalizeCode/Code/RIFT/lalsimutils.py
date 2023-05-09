@@ -3985,8 +3985,8 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
         if TDlen > 0:
             if P.approx != lalsim.IMRPhenomP:
                 assert TDlen/2+1 >= hptilde.data.length  # validates nyqist for real-valued series
-            hptilde = lal.ResizeCOMPLEX16FrequencySeries(hptilde, 0, TDlen/2+1)
-            hctilde = lal.ResizeCOMPLEX16FrequencySeries(hctilde, 0, TDlen/2+1)
+            hptilde = lal.ResizeCOMPLEX16FrequencySeries(hptilde, 0, int(TDlen/2)+1)
+            hctilde = lal.ResizeCOMPLEX16FrequencySeries(hctilde, 0, int(TDlen/2)+1)
 
 
         # Pack so f=0 occurs at one side
@@ -3996,9 +3996,9 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
 
         # create the 2-sided hoff
         tmp  = hptilde.data.data + sgn*1j*hctilde.data.data
-        hoff.data.data[-TDlen/2-2:-1] = tmp
+        hoff.data.data[-int(TDlen/2)-2:-1] = tmp
         tmp= np.conj(hptilde.data.data) + sgn*1j*np.conj(hctilde.data.data)
-        hoff.data.data[0:TDlen/2+1] = tmp[::-1]
+        hoff.data.data[0:int(TDlen/2)+1] = tmp[::-1]
 
         # Translate the wavefront to the detector, if we are not at the origin of spacetime
         # Implement by just changing 'epoch', not by any fancy frequency-domain modulation? 
