@@ -1,3 +1,9 @@
+0.0.15.9
+-----------
+Since last release
+   - compatibility minor updates for numpy>=1.24 (see #27); calmarg import for conda build fix; plot_posterior_corner
+     psi mod pi plot option; query_singularity_path executable; CI adds test-build.sh (rc1)
+
 0.0.15.8
 -----------
 Since last release
