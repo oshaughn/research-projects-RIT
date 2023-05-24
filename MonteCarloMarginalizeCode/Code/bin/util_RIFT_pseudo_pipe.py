@@ -1285,6 +1285,8 @@ print(cmd)
 os.system(cmd)
 
 if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
+    if opts.fake_data_cache:
+        shutil.copyfile(opts.fake_data_cache, 'local.cache')
     # build truncated frames.  Note this parses ILE arguments, so must be done last
     os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
 
