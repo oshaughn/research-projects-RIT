@@ -35,6 +35,8 @@ def dist_prior_pseudo_cosmo(dL,nm=1,xpy=np,p_in=p_in):
      note it is not normalized, and the normalization depends on the d_max of interest 
     
     """
+    if isinstance(dL, np.ndarray):
+        return nm*4* np.pi * dL**2 / np.polyval( will_cosmo_const[::-1], dL/1e3)
     return nm*4* np.pi * dL**2 / xpy.polyval( p_in,dL/1e3)
 
 
