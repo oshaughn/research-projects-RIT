@@ -152,6 +152,11 @@ def unit_like(*args,**kwargs):
     arg0 = args[0]
   return xpy_default.ones(len(arg0))
 
+
+def sampler_param_tuple(sampler,args):
+  param_list = sampler.params_ordered
+  return tuple( [param_list.index(x) for x in args])
+
 #
 # Option parsing
 #
@@ -1007,6 +1012,7 @@ if opts.sampler_method == "GMM":
 #    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,(0,1):None} 
 #    comp_dict = {tuple([2]):1,tuple([4]):1,(3,5):3,(0,1):4} 
     default_phipsi = mcsamplerEnsemble.create_wide_single_component_prior( [ param_limits['psi'], param_limits['phi_orb']])
+#    pair_sky = sampler_param_tuple(sampler, ['right_ascension','declination'])
     gmm_dict = {(2,3):None,(4,5):None,(0,1):default_phipsi} 
     gmm_adapt = {(2,3): True, (4,5): True, (0,1): False}
 #    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,tuple([0]):None,tuple([1]):None} 
@@ -1023,9 +1029,14 @@ if opts.sampler_method == "GMM":
         comp_dict = {(1,2):n_sky,tuple([4]):1,(0,):2}
       else:
         gmm_dict = {(2,3):None,tuple([4]):None,(0,1):None}
+        gmm_dict = {(2,3):True,tuple([4]):True,(0,1):True}
         comp_dict = {(2,3):n_sky,tuple([4]):1,(0,1):4}
       extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict}  # made up for now, should adjust
 
+    # force adapt in all parameters, if we request it. Requires pass-by-reference in above
+    if opts.force_adapt_all:
+        for param in gmm_adapt:
+            gmm_adapt[param] = True
     pinned_params.update(extra_args)
 
     # cannot pin params at present
@@ -1517,6 +1528,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       if 'distance' in sampler.params:
         sampler.reset_sampling('distance')
       sampler.reset_sampling('inclination')
+    elif opts.sampler_method == "GMM":
+      if (not opts.distance_marginalization) and (2,3) in gmm_dict:
+        gmm_dict[(2,3)] = None # reset inclination/distance sampling
+
 
     # Integrate
     args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
@@ -1759,9 +1774,17 @@ for indx in numpy.arange(len(P_list)):
  try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   lnL_sofar = np.max([lnL_sofar,res])
-  if opts.force_reset_all:
-    for name in sampler.params:
-      sampler.reset_sampling(name)
+  if opts.force_reset_all:  # depends on integrator!  May not always be availble
+    if opts.sampler_method == "adaptive_cartesian_gpu": 
+      for name in sampler.params:
+        sampler.reset_sampling(name)
+    elif opts.sampler_method == "GMM":
+      # reset the GMM dictionary
+      for component in gmm_dict:
+          gmm_dict[component] = None
+    else:
+      print(" force-reset-all not defined for this integrator ")
+      sys.exit(1)
   if opts.no_adapt_after_first and (not no_adapt_sky):
     if lnL_sofar > 20:  # Use absolute threshold.  Expect this will give modest sky localization.
       # remove right_ascension, declination from adaptive parameters
