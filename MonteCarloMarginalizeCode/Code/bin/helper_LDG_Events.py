@@ -524,9 +524,9 @@ if use_gracedb_event:
         # After O3, switch to using psd embedded in coinc file!
         if P.tref > 1369054567 - 24*60*60*365: # guesstimate of changeover in gracedb
             for ifo  in event_dict["IFOs"]:
-                cmd_event = "ligolw_print -t {}:array -d ' '  coinc.xml  > {}_psd_ascii.dat".format(ifo)
+                cmd_event = "ligolw_print -t {}:array -d ' '  coinc.xml  > {}_psd_ascii.dat".format(ifo,ifo)
                 os.system(cmd_event)
-                cmd_event = "convert_psd_ascii2xml  -fname-psd-ascii {}_psd_ascii.dat --conventional-postfix --ifo {}  ".format(ifo,ifo)
+                cmd_event = "convert_psd_ascii2xml  --fname-psd-ascii {}_psd_ascii.dat --conventional-postfix --ifo {}  ".format(ifo,ifo)
                 os.system(cmd_event)
                 if not opts.use_osg:
                     psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
