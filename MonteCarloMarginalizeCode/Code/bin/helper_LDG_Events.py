@@ -521,18 +521,30 @@ if use_gracedb_event:
 
     # Get PSD
     if opts.use_online_psd:
-        fmax = 1000.
-        cmd_event = gracedb_exe + download_request + opts.gracedb_id + " psd.xml.gz"
-        os.system(cmd_event)
-        cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
-        # Convert PSD to a useful format
-        for ifo in event_dict["IFOs"]:
-            if not opts.use_osg:
-                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
-            else:
-                psd_names[ifo] =  ifo + "-psd.xml.gz"
-            cmd += " --ifo " + ifo
-        os.system(cmd)
+        # After O3, switch to using psd embedded in coinc file!
+        if P.tref > 1369054567 - 24*60*60*365: # guesstimate of changeover in gracedb
+            for ifo  in event_dict["IFOs"]:
+                cmd_event = "ligolw_print -t {}:array -d ' '  coinc.xml  > {}_psd_ascii.dat".format(ifo)
+                os.system(cmd_event)
+                cmd_event = "convert_psd_ascii2xml  -fname-psd-ascii {}_psd_ascii.dat --conventional-postfix --ifo {}  ".format(ifo,ifo)
+                os.system(cmd_event)
+                if not opts.use_osg:
+                    psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+                else:
+                    psd_names[ifo] =  ifo + "-psd.xml.gz"
+        else:
+            fmax = 1000.
+            cmd_event = gracedb_exe + download_request + opts.gracedb_id + " psd.xml.gz"
+            os.system(cmd_event)
+            cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
+            # Convert PSD to a useful format
+            for ifo in event_dict["IFOs"]:
+                if not opts.use_osg:
+                    psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+                else:
+                    psd_names[ifo] =  ifo + "-psd.xml.gz"
+                cmd += " --ifo " + ifo
+            os.system(cmd)
   except:
       print(" ==> probably not a CBC event, attempting to proceed anyways, FAKING central value <=== ")
       P=lalsimutils.ChooseWaveformParams()
