@@ -1529,8 +1529,12 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         sampler.reset_sampling('distance')
       sampler.reset_sampling('inclination')
     elif opts.sampler_method == "GMM":
-      if (not opts.distance_marginalization) and (2,3) in gmm_dict:
-        gmm_dict[(2,3)] = None # reset inclination/distance sampling
+      pair_d_incl = sampler_param_tuple(sampler, ['distance','inclination'])
+      if (not opts.distance_marginalization) and pair_d_incl in gmm_dict:
+        gmm_dict[pair_d_incl] = None # reset inclination/distance sampling
+      single_incl = sampler_param_tuple(sampler, ['inclination'])
+      if (opts.distance_marginalization) and single_incl in gmm_dict:
+        gmm_dict[single_incl] = None # reset inclination sampling
 
 
     # Integrate
