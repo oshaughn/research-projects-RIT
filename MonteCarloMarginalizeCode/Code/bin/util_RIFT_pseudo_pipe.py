@@ -404,7 +404,11 @@ else:
 # if empty, fails and tells you to run ligo-proxy-init
     if not("X509_USER_PROXY" in os.environ.keys()):
         import subprocess
-        str_proxy =subprocess.check_output(['grid-proxy-info','-path']).rstrip()
+        from RIFT.misc.dag_utils import which
+        cmd_grid = which("ecp-cert-info")  # current default
+        if not cmd_grid:
+            cmd_grid = which('grid-proxy-info')  # old behavior
+        str_proxy =subprocess.check_output([cmd_grid,'-path']).rstrip()
         if len(str_proxy) < 1:
             print( " Run ligo-proxy-init or otherwise have a method to query gracedb / use CVMFS frames as you need! ! ")
             sys.exit(1)
