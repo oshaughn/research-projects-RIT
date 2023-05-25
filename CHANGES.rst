@@ -3,6 +3,8 @@
 Since last release
    - compatibility minor updates for numpy>=1.24 (see #27); calmarg import for conda build fix; plot_posterior_corner
      psi mod pi plot option; query_singularity_path executable; CI adds test-build.sh (rc1)
+   - minor corner-case bugfixes re gpu/cpu typing; ILE_batchmode correctly resets when using GMM each iteration for dL/incl, and
+     GMM+force-adapt-all implemented (not silently ignored); misc updates for contemporary online operation (ecp-cert-info; psd inside coinc.xml)
 
 0.0.15.8
 -----------
