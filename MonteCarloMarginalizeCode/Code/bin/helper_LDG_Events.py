@@ -1505,7 +1505,7 @@ if opts.propose_fit_strategy:
         for indx in np.arange(len(helper_cip_arg_list)):
             helper_cip_arg_list[indx] += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
     elif opts.assume_matter_eos:
-        helper_cip_args += " --using-eos {} ".format(opts.assume_matter_eos)
+        helper_cip_args += "  --input-tides --using-eos {} ".format(opts.assume_matter_eos)
         for indx in np.arange(len(helper_cip_arg_list)):
             helper_cip_arg_list[indx] += " --using-eos {} ".format(opts.assume_matter_eos)
 # lnL-offset was already enforced
