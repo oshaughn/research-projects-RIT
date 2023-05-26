@@ -5,11 +5,12 @@ import scipy.integrate
 xpy_default=np
 has_cupy = False
 try:
-    import cupy
+    import cupy   # can proceed even if cupy doesn't actually work
+    junk_to_check_installed = cupy.array(5)
     xpy_default=cupy
     has_cupy=True
 except:
-    True
+    has_cupy=False  # just to be sure
 # try:
 #     import numba
 #     from numba import vectorize, complex128, float64, int64
