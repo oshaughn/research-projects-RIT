@@ -117,6 +117,7 @@ def unsafe_parse_arg_string_dict(my_argstr):
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--skip-reproducibility",action='store_true')
 parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
 parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration")
 parser.add_argument("--bilby-ini-file",default=None,type=str,help="Pass ini file for parsing. Intended to use for calibration reweighting. Full path recommended")
@@ -541,11 +542,13 @@ if opts.make_bw_psds:
     helper_psd_args += " --assume-fiducial-psd-files --fmax " + str(srate/2-1)
 
 # Create provenance info : we want run to be reproducible
-# for low-latency analysis, we can assume we have provenance.
-if not(assume_lowlatency):
+# for low-latency analysis, we can assume we have provenance?
+if not(opts.skip_reproducibility): # not(assume_lowlatency):
+        import shutil, json
+        if opts.use_ini:
+            shutil.copyfile(opts.use_ini, "local.ini") # copy into current directory
         os.mkdir("reproducibility")
         # Write this script and its arguments
-        import shutil, json
 #        thisfile = os.path.realpath(__file__)
 #        shutil.copyfile(thisfile, "reproducibility/the_script_used.py")
         argparse_dict = vars(opts)
