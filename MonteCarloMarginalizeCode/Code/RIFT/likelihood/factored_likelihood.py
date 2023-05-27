@@ -1273,8 +1273,8 @@ def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetec
         lookupNumberToNumberConjugation[indx] = indxOut
         
     ### Step 1: Convert crossTermsForDetector explicitly into a matrix
-    crossTermsArrayU = np.zeros((nKeys,nKeys),dtype=np.complex)   # Make sure complex numbers can be stored
-    crossTermsArrayV = np.zeros((nKeys,nKeys),dtype=np.complex)   # Make sure complex numbers can be stored
+    crossTermsArrayU = np.zeros((nKeys,nKeys),dtype=np.complex64)   # Make sure complex numbers can be stored
+    crossTermsArrayV = np.zeros((nKeys,nKeys),dtype=np.complex64)   # Make sure complex numbers can be stored
     for pair1 in pairKeys:
         for pair2 in pairKeys:
             indx1 = lookupKeysToNumber[pair1]
@@ -1287,7 +1287,7 @@ def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetec
         print(" Built cross-terms matrix ", crossTermsArray)
 
     ### Step 2: Convert rholmsDictionaryForDetector
-    rholmArray = np.zeros((nKeys,npts),dtype=np.complex)
+    rholmArray = np.zeros((nKeys,npts),dtype=np.complex64)
     for pair1 in pairKeys:
         indx1 = lookupKeysToNumber[pair1]
         rholmArray[indx1][:] = rholmsDictionaryForDetector[pair1].data.data  # Copy the array of time values.
