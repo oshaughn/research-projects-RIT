@@ -1258,14 +1258,14 @@ def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetec
 
 
     ### Step 0: Create two lookup tables: index->pair and pair->index
-    lookupNumberToKeys = np.zeros((nKeys,2),dtype=np.int)
+    lookupNumberToKeys = np.zeros((nKeys,2),dtype=int)
     lookupKeysToNumber = {}
     for indx, val in enumerate(pairKeys):
         lookupNumberToKeys[indx][0]= val[0]  
         lookupNumberToKeys[indx][1]= val[1]  
         lookupKeysToNumber[val] = indx
     # Now create a *second* lookup table, for complex-conjugation-in-time: (l,m)->(l,-m)
-    lookupNumberToNumberConjugation = np.zeros(nKeys,dtype=np.int)
+    lookupNumberToNumberConjugation = np.zeros(nKeys,dtype=int)
     for indx in np.arange(nKeys):
         l = lookupNumberToKeys[indx][0]
         m = lookupNumberToKeys[indx][1]
