@@ -6,7 +6,8 @@ Since last release
    - minor corner-case bugfixes re gpu/cpu typing; ILE_batchmode correctly resets when using GMM each iteration for dL/incl, and
      GMM+force-adapt-all implemented (not silently ignored); misc updates for contemporary online operation (ecp-cert-info; psd inside coinc.xml)
      dump reproducibility info and ini by default; prior_utils better checking cupy active; still more compatibility
-     updates for numpy >=1.24; placate XML backend change;  --assume-matter-eos correctly set CIP tide option; 
+     updates for numpy >=1.24, including follow-on changes to mcsamplerGPU n_eff test; placate XML backend change;
+     --assume-matter-eos correctly set CIP tide option;  ILE-specific GMM setup cleaned up (rc2)
 
 0.0.15.8
 -----------
