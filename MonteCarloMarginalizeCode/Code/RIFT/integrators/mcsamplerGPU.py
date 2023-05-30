@@ -1102,7 +1102,11 @@ class MCSampler(object):
             # FIXME: Likely redundant with int_val1
             mean = identity_convert_togpu(xpy_default.float64(int_val1/self.ntotal))
 
-            eff_samp = int_val1/maxval
+            # this test should not be required (!), but ...
+            if not(np.isinf(maxval)):
+              eff_samp = int_val1/maxval
+            else:
+              eff_samp = 1 # fallback in case of insanity
 
             # Throw exception if we get infinity or nan
             if math.isnan(eff_samp):
