@@ -110,7 +110,7 @@ def calculate_js(samplesA, samplesB, ntests=100, xsteps=100):
         A_pdf = gaussian_kde(A)(x)
         B_pdf = gaussian_kde(B)(x)
 
-        js_array[j] = np.nan_to_num(np.power(jensenshannon(A_pdf, B_pdf), 2))
+        js_array[j] = np.nan_to_num(np.power(jensenshannon(A_pdf, B_pdf,base=2), 2)) # other papers use base 2, not base e
 
     return np.median(js_array)
 
