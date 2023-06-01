@@ -4,10 +4,22 @@ import numpy as np
 import numpy
 
 def histogram(samples, n_bins, xpy=numpy,weights=None):
+    """
+    samples : data between [0,1]
+    n_bins:    number of bins of output
+    weights:  weights in histogram
+    """
     n_samples = samples.size
 
+    # sometimes due to input conditioning issues (floats!) the samples may be very slightly out of range - negative or greater than 1! Prevent this
+    blank_array = xpy.zeros((n_samples,))
+    samples_conditioned = xpy.maximum(samples, blank_array)
+#samples * xpy.heavyside(samples,1)   # zero out any samples which are <0
+    blank_array += 1 - 1./1e-3/n_samples
+    samples_conditioned = xpy.minimum(samples_conditioned, blank_array) # don't let any samples be larger than 1
+
     # Compute the histogram counts.
-    indices = xpy.trunc(samples * n_bins).astype(np.int32)
+    indices = xpy.trunc(samples_conditioned * n_bins).astype(np.int32)
     if isinstance(weights,type(None)):
         wts  =xpy.broadcast_to(
             xpy.asarray([float(n_bins)/n_samples]),
