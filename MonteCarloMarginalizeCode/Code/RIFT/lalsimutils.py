@@ -5265,7 +5265,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             x_out[:,indx_p_out] = Lt
             coord_names_reduced.remove('LambdaTilde')
             if 'DeltaLambdaTilde' in coord_names_reduced:
-                indx_q_out = coord_names.index('DeltLambdaTilde')
+                indx_q_out = coord_names.index('DeltaLambdaTilde')
                 x_out[:,indx_q_out] = dLt
                 coord_names_reduced.remove('DeltaLambdaTilde')
 
