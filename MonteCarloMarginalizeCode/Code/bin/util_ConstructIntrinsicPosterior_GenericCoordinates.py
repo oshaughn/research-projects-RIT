@@ -328,6 +328,7 @@ parser.add_argument("--internal-temper-log",action='store_true',help="integrator
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
 parser.add_argument("--internal-n-comp",default=1,type=int,help="number of components to use for GMM sampling. Default is 1, because we expect a unimodal posterior in well-adapted coordinates.  If you have crappy coordinates, use more")
 parser.add_argument("--internal-gmm-memory-chisquared-factor",default=None,type=float,help="Multiple of the number of degrees of freedom to save. 5 is a part in 10^6, 4 is 10^{-4}, and None keeps all up to lnL_offset.  Note that low-weight points can contribute notably to n_eff, and it can be dangerous to assume a simple chisquared likelihood!  Provided in case we need very long runs")
+parser.add_argument("--assume-eos-but-primary-bh",action='store_true',help="Special case of known EOS, but primary is a BH")
 parser.add_argument("--use-eccentricity", action="store_true")
 parser.add_argument("--tripwire-fraction",default=0.05,type=float,help="Fraction of nmax of iterations after which n_eff needs to be greater than 1+epsilon for a small number epsilon")
 
@@ -2885,7 +2886,12 @@ for indx_here in indx_list:
 #            print indx_here, coord_to_assign, line[indx]
         # Test for downselect
         # Perform tabular EOS calculations: compute reference index, lambda1, lambda2
-        if opts.tabular_eos_file:
+        if my_eos:
+            # only define lambda1, lambda2 as parameters if they are used in sampling! Otherwise may cause problems (e.g.,we are assuming it is zero for a BH)
+            if not(opts.assume_eos_but_primary_bh):
+                Pgrid.lambda1 = my_eos.lambda_of_m(Pgrid.m1/lal.MSUN_SI)
+            Pgrid.lambda2 = my_eos.lambda_of_m(Pgrid.m2/lal.MSUN_SI)
+        elif opts.tabular_eos_file:
             # save the index of the SORTED SIMULATION (because that's how I'll be accessing it!)
             eos_indx_here = my_eos_sequence.lookup_closest(samples['ordering'][indx_here])
             Pgrid.eos_table_index = eos_indx_here
