@@ -152,6 +152,7 @@ parser.add_argument("--assume-precessing",action='store_true', help="Force analy
 parser.add_argument("--assume-nonprecessing",action='store_true', help="Force analysis *without* transverse spins")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
 parser.add_argument("--assume-matter-eos",default=None,type=str, help="Force analysis *with* matter. Really only matters for BNS")
+parser.add_argument("--assume-matter-conservatively",action='store_true',help="If present, the code will use the full prior range for exploration and sampling. [Without this option, the initial grid is limited to a physically plausible range in lambda-i")
 parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
@@ -591,6 +592,8 @@ if opts.assume_matter:
             cmd+= " --assume-matter-but-primary-bh "
         if opts.internal_tabular_eos_file:
             cmd += " --internal-tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
+        if opts.assume_matter_conservatively:
+            cmd += " --assume-matter-conservatively "
 if  opts.assume_nospin:
     cmd += " --assume-nospin "
 else:  
