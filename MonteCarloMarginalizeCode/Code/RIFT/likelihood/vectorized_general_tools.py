@@ -15,7 +15,7 @@ def histogram(samples, n_bins, xpy=numpy,weights=None):
     blank_array = xpy.zeros((n_samples,))
     samples_conditioned = xpy.maximum(samples, blank_array)
 #samples * xpy.heavyside(samples,1)   # zero out any samples which are <0
-    blank_array += 1 - 1./1e-3/n_samples
+    blank_array += 1 - 1e-3/n_bins
     samples_conditioned = xpy.minimum(samples_conditioned, blank_array) # don't let any samples be larger than 1
 
     # Compute the histogram counts.
