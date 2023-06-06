@@ -1,3 +1,17 @@
+0.0.15.9
+-----------
+Since last release
+   - compatibility minor updates for numpy>=1.24 (see #27); calmarg import for conda build fix; plot_posterior_corner
+     psi mod pi plot option; query_singularity_path executable; CI adds test-build.sh (rc1)
+   - minor corner-case bugfixes re gpu/cpu typing; ILE_batchmode correctly resets when using GMM each iteration for dL/incl, and
+     GMM+force-adapt-all implemented (not silently ignored); misc updates for contemporary online operation (ecp-cert-info; psd inside coinc.xml)
+     dump reproducibility info and ini by default; prior_utils better checking cupy active; still more compatibility
+     updates for numpy >=1.24, including follow-on changes to mcsamplerGPU n_eff test; placate XML backend change;
+     --assume-matter-eos correctly set CIP tide option;  ILE-specific GMM setup cleaned up (rc2)
+   - --assume-matter-conservatively (allow crazy tides), --rom-group (gwsurrogate) implies initial tapering, 
+      CIP --assume-eos-but-primary-bh, convergence_test_samples JS base 2 not e, vectorized_general_tools histogram try
+      to avoid memory errors
+
 0.0.15.8
 -----------
 Since last release

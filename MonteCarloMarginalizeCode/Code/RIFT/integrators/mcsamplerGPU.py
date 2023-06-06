@@ -805,11 +805,11 @@ class MCSampler(object):
 
         # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
         if bFairdraw and not(n_extr is None):
-           n_extr = int(numpy.min([n_extr,1.5*eff_samp,1.5*neff]))
+           n_extr = int(numpy.min([n_extr,1.5*identity_convert(eff_samp),1.5*neff]))
            print(" Fairdraw size : ", n_extr)
            ln_wt = self.xpy.array(self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"] ,dtype=float)
            ln_wt = identity_convert(ln_wt)  # send to CPU
-           ln_wt += - scipy.special.logsumexp(ln_wt)
+           ln_wt += - special.logsumexp(ln_wt)
            wt = xpy.exp(identity_convert_togpu(ln_wt))
            if n_extr < len(self._rvs["log_integrand"]):
                indx_list = self.xpy.random.choice(self.xpy.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
@@ -1102,7 +1102,11 @@ class MCSampler(object):
             # FIXME: Likely redundant with int_val1
             mean = identity_convert_togpu(xpy_default.float64(int_val1/self.ntotal))
 
-            eff_samp = int_val1/maxval
+            # this test should not be required (!), but ...
+            if not(np.isinf(maxval)):
+              eff_samp = int_val1/maxval
+            else:
+              eff_samp = 1 # fallback in case of insanity
 
             # Throw exception if we get infinity or nan
             if math.isnan(eff_samp):
@@ -1360,18 +1364,18 @@ def M_samp_vector(Mmin,Mmax,x):
 def pseudo_dist_samp(r0,r):
         return r*r*numpy.exp( - (r0/r)*(r0/r)/2. + r0/r)+0.01  # put a floor on probability, so we converge. Note this floor only cuts out NEARBY distances
 
-#pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])
-pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float])
+#pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float64])
+pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float64])
 
 def delta_func_pdf(x_0, x):
     return 1.0 if x == x_0 else 0.0
 
-delta_func_pdf_vector = numpy.vectorize(delta_func_pdf, otypes=[numpy.float])
+delta_func_pdf_vector = numpy.vectorize(delta_func_pdf, otypes=[numpy.float64])
 
 def delta_func_samp(x_0, x):
     return x_0
 
-delta_func_samp_vector = numpy.vectorize(delta_func_samp, otypes=[numpy.float])
+delta_func_samp_vector = numpy.vectorize(delta_func_samp, otypes=[numpy.float64])
 
 
 
@@ -1415,7 +1419,7 @@ def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativ
     weights = rvs["integrand"]* rvs["joint_prior"]/rvs["joint_s_prior"]  # rvs["weights"] # rvs["weights"] is *sorted* (side effect?), breaking test. Recalculated weights are not.  Use explicitly calculated weights until sorting effect identified
 #    weights = weights /numpy.sum(weights)    # Keep original normalization, so the integral values printed to stdout have meaning relative to the overall integral value.  No change in code logic : this factor scales out (from the log, below)
     igrandValues = numpy.zeros(ncopies)
-    len_part = numpy.int(len(weights)/ncopies)  # deprecated: np.floor->np.int
+    len_part = int(len(weights)/ncopies)  # deprecated: np.floor->np.int
     for indx in numpy.arange(ncopies):
         igrandValues[indx] = numpy.log(numpy.mean(weights[indx*len_part:(indx+1)*len_part]))  # change to mean rather than sum, so sub-integrals have meaning
     igrandValues= numpy.sort(igrandValues)#[2:]                            # Sort.  Useful in reports 

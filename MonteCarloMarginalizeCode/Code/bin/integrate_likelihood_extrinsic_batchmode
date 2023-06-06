@@ -152,6 +152,11 @@ def unit_like(*args,**kwargs):
     arg0 = args[0]
   return xpy_default.ones(len(arg0))
 
+
+def sampler_param_tuple(sampler,args):
+  param_list = sampler.params_ordered
+  return tuple( [param_list.index(x) for x in args])
+
 #
 # Option parsing
 #
@@ -1007,25 +1012,50 @@ if opts.sampler_method == "GMM":
 #    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,(0,1):None} 
 #    comp_dict = {tuple([2]):1,tuple([4]):1,(3,5):3,(0,1):4} 
     default_phipsi = mcsamplerEnsemble.create_wide_single_component_prior( [ param_limits['psi'], param_limits['phi_orb']])
-    gmm_dict = {(2,3):None,(4,5):None,(0,1):default_phipsi} 
-    gmm_adapt = {(2,3): True, (4,5): True, (0,1): False}
-#    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,tuple([0]):None,tuple([1]):None} 
+#    pair_sky = sampler_param_tuple(sampler, ['right_ascension','declination'])
+    pair_ra_dec =   sampler_param_tuple(sampler, ["right_ascension", "declination"])
+    n_d =  2  # 2 distance-inclination lobes by default
     n_sky = 4
+    n_phase =4
+    adapt_phase = False
+    if 'distance' in sampler.params:
+         pair_d_incl = sampler_param_tuple(sampler, ['distance','inclination'])
+    else:
+         pair_d_incl = sampler_param_tuple(sampler, ['inclination'])
+         n_d = 1 # one peak in distance by default
+    if 'phi_orb' in sampler.params:
+         pair_phi_psi = sampler_param_tuple(sampler, ['psi', "phi_orb"])
+    else:
+         pair_phi_psi = sampler_param_tuple(sampler, ['psi'])
+         adapt_phase = True
+         n_phase = 2
+    gmm_dict = {pair_ra_dec:None,pair_d_incl:None,pair_phi_psi:default_phipsi} 
+    gmm_adapt = {pair_ra_dec: True, pair_d_incl: True, pair_phi_psi: False}
+    if opts.internal_rotate_phase:
+      gmm_adapt[pair_phi_psi] = True
+#    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,tuple([0]):None,tuple([1]):None} 
 #    if len(psd_dict.keys()) > 2:
 #        n_sky=2  # presumably we have localized better, avoid failure modes
 #    comp_dict = {tuple([2]):1,tuple([4]):1,(3,5):3,tuple([0]):n_sky,tuple([1]):n_sky} 
-    comp_dict = {(2,3):n_sky,(4,5):2,(0,1):4} 
+    comp_dict = {pair_ra_dec:n_sky,pair_d_incl:n_d,pair_phi_psi:n_phase} 
     extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict, 'gmm_adapt':gmm_adapt}  # made up for now, should adjust
-    if opts.distance_marginalization:
-      if lookup_table["phase_marginalization"]:
-        gmm_dict = {(1,2):None,(3,4):None,(0,):None}
-        gmm_adapt = {(1,2): True, (3,4): True, (0,): True}
-        comp_dict = {(1,2):n_sky,tuple([4]):1,(0,):2}
-      else:
-        gmm_dict = {(2,3):None,tuple([4]):None,(0,1):None}
-        comp_dict = {(2,3):n_sky,tuple([4]):1,(0,1):4}
-      extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict}  # made up for now, should adjust
+    print("GMM:",extra_args)
+    print("GMM:",sampler.params_ordered)
+    # if opts.distance_marginalization:
+    #   if lookup_table["phase_marginalization"]:
+    #     gmm_dict = {pair_ra_dec:None,(3,4):None,(0,):None}
+    #     gmm_adapt = {pair_ra_dec: True, (3,4): True, (0,): True}
+    #     comp_dict = {pair_ra_dec:n_sky,tuple([4]):1,(0,):2}
+    #   else:
+    #     gmm_dict = {pair_ra_dec:None,tuple([4]):None,(0,1):None}
+    #     gmm_adapt = {pair_ra_dec:True,tuple([4]):True,(0,1):True}
+    #     comp_dict = {pair_ra_dec:n_sky,tuple([4]):1,(0,1):4}
+#      extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict}  # made up for now, should adjust
 
+    # force adapt in all parameters, if we request it. Requires pass-by-reference in above
+    if opts.force_adapt_all:
+        for param in gmm_adapt:
+            gmm_adapt[param] = True
     pinned_params.update(extra_args)
 
     # cannot pin params at present
@@ -1108,6 +1138,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       extra_waveform_kwargs = {'fd_L_frame':True}
     if opts.internal_waveform_fd_no_condition:
       extra_waveform_kwargs['no_condition'] = True
+    if opts.rom_group:
+      extra_waveform_kwargs['rom_taper_start'] = True  # really for NRHyb3dq8 given discussion with Aasim for high-SNR sources, but valuable generally
     # Precompute
     t_window = 0.15
     rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest=factored_likelihood.PrecomputeLikelihoodTerms(
@@ -1517,6 +1549,15 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       if 'distance' in sampler.params:
         sampler.reset_sampling('distance')
       sampler.reset_sampling('inclination')
+    elif opts.sampler_method == "GMM":
+      if 'distance' in sampler.params:
+         pair_d_incl = sampler_param_tuple(sampler, ['distance','inclination'])
+         if  pair_d_incl in gmm_dict:
+            gmm_dict[pair_d_incl] = None # reset inclination/distance sampling
+      single_incl = sampler_param_tuple(sampler, ['inclination'])
+      if (opts.distance_marginalization) and single_incl in gmm_dict:
+        gmm_dict[single_incl] = None # reset inclination sampling
+
 
     # Integrate
     args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
@@ -1627,6 +1668,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["alpha4"] =numpy.ones(samples["psi"].shape)*P.eccentricity
             samples["alpha5"] =numpy.ones(samples["psi"].shape)*P.lambda1
             samples["alpha6"] =numpy.ones(samples["psi"].shape)*P.lambda2
+            # Below exist solely to placate XML export; new issue as of latest lalsuite say 7.15+ or so
+            samples["alpha2"] = numpy.zeros(samples["psi"].shape)
+            samples["alpha3"] = numpy.zeros(samples["psi"].shape)
 
       if opts.resample_time_marginalization:
         samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict)
@@ -1759,9 +1803,17 @@ for indx in numpy.arange(len(P_list)):
  try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   lnL_sofar = np.max([lnL_sofar,res])
-  if opts.force_reset_all:
-    for name in sampler.params:
-      sampler.reset_sampling(name)
+  if opts.force_reset_all:  # depends on integrator!  May not always be availble
+    if opts.sampler_method == "adaptive_cartesian_gpu": 
+      for name in sampler.params:
+        sampler.reset_sampling(name)
+    elif opts.sampler_method == "GMM":
+      # reset the GMM dictionary
+      for component in gmm_dict:
+          gmm_dict[component] = None
+    else:
+      print(" force-reset-all not defined for this integrator ")
+      sys.exit(1)
   if opts.no_adapt_after_first and (not no_adapt_sky):
     if lnL_sofar > 20:  # Use absolute threshold.  Expect this will give modest sky localization.
       # remove right_ascension, declination from adaptive parameters

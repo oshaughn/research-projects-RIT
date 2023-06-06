@@ -7,9 +7,10 @@ import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
 import matplotlib
-from bilby.core import utils
-from matplotlib import pyplot as plt
-import matplotlib.pyplot as plt
+try:
+    from bilby.core import utils
+except:
+    True
 
 
 def RIFT_lal_binary_black_hole(
@@ -106,6 +107,8 @@ def RIFT_lal_binary_black_hole(
 
 
 if __name__ == '__main__':
+    from matplotlib import pyplot as plt
+
     # For testing purposes we evaluate one waveform and plot it here
     frequency_array = np.arange(15, 1024., 1./8)
     waveform_kwargs = {'Lmax':4, 'maximum_frequency':1024, 'minimum_frequency':10}

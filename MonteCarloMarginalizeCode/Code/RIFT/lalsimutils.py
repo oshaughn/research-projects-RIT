@@ -3985,8 +3985,8 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
         if TDlen > 0:
             if P.approx != lalsim.IMRPhenomP:
                 assert TDlen/2+1 >= hptilde.data.length  # validates nyqist for real-valued series
-            hptilde = lal.ResizeCOMPLEX16FrequencySeries(hptilde, 0, TDlen/2+1)
-            hctilde = lal.ResizeCOMPLEX16FrequencySeries(hctilde, 0, TDlen/2+1)
+            hptilde = lal.ResizeCOMPLEX16FrequencySeries(hptilde, 0, int(TDlen/2)+1)
+            hctilde = lal.ResizeCOMPLEX16FrequencySeries(hctilde, 0, int(TDlen/2)+1)
 
 
         # Pack so f=0 occurs at one side
@@ -3996,9 +3996,9 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
 
         # create the 2-sided hoff
         tmp  = hptilde.data.data + sgn*1j*hctilde.data.data
-        hoff.data.data[-TDlen/2-2:-1] = tmp
+        hoff.data.data[-int(TDlen/2)-2:-1] = tmp
         tmp= np.conj(hptilde.data.data) + sgn*1j*np.conj(hctilde.data.data)
-        hoff.data.data[0:TDlen/2+1] = tmp[::-1]
+        hoff.data.data[0:int(TDlen/2)+1] = tmp[::-1]
 
         # Translate the wavefront to the detector, if we are not at the origin of spacetime
         # Implement by just changing 'epoch', not by any fancy frequency-domain modulation? 
@@ -4921,7 +4921,6 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         elif ('eta' in low_level_coord_names):
             indx_eta = low_level_coord_names.index('eta')
             eta_vals = x_in[:,indx_eta]
-            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
         m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
         x_out[:,indx_p_out] = (m1_vals*x_in[:,indx_s1z] + m2_vals*x_in[:,indx_s2z])/(m1_vals+m2_vals)
         coord_names_reduced.remove('xi')
@@ -5243,6 +5242,33 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         x_out[:,indx_pout_chip] = Sp/(A1*m1_vals**2)
         coord_names_reduced.remove('chi_p')
         
+
+    if ('LambdaTilde' in coord_names_reduced) and ('lambda1' in low_level_coord_names and 'lambda2' in low_level_coord_names):
+        # deal with scenario where only one of lambda1, lambda2 specified IN FUTURE
+        indx_p_out = coord_names.index('LambdaTilde')
+        indx_la1 = low_level_coord_names.index('lambda1')
+        indx_la2 = low_level_coord_names.index('lambda2')
+        la1_vals = x_in[:,indx_la1]
+        la2_vals = x_in[:,indx_la2]
+        if 'mc' in low_level_coord_names and 'delta_mc' in low_level_coord_names:
+            eta_vals = np.zeros(len(x_in))  
+            m1_vals =np.zeros(len(x_in))  
+            m2_vals =np.zeros(len(x_in))  
+            if ('delta_mc' in low_level_coord_names):
+                indx_delta = low_level_coord_names.index('delta_mc')
+                eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
+            elif ('eta' in low_level_coord_names):
+                indx_eta = low_level_coord_names.index('eta')
+                eta_vals = x_in[:,indx_eta]
+            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+            Lt, dLt   = tidal_lambda_tilde(m1_vals, m2_vals, la1_vals, la2_vals)
+            x_out[:,indx_p_out] = Lt
+            coord_names_reduced.remove('LambdaTilde')
+            if 'DeltaLambdaTilde' in coord_names_reduced:
+                indx_q_out = coord_names.index('DeltaLambdaTilde')
+                x_out[:,indx_q_out] = dLt
+                coord_names_reduced.remove('DeltaLambdaTilde')
+
 
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
     if len(coord_names_reduced)<1:

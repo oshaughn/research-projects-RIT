@@ -117,6 +117,7 @@ def unsafe_parse_arg_string_dict(my_argstr):
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--skip-reproducibility",action='store_true')
 parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
 parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration")
 parser.add_argument("--bilby-ini-file",default=None,type=str,help="Pass ini file for parsing. Intended to use for calibration reweighting. Full path recommended")
@@ -153,6 +154,7 @@ parser.add_argument("--assume-precessing",action='store_true', help="Force analy
 parser.add_argument("--assume-nonprecessing",action='store_true', help="Force analysis *without* transverse spins")
 parser.add_argument("--assume-matter",action='store_true', help="Force analysis *with* matter. Really only matters for BNS")
 parser.add_argument("--assume-matter-eos",default=None,type=str, help="Force analysis *with* matter. Really only matters for BNS")
+parser.add_argument("--assume-matter-conservatively",action='store_true',help="If present, the code will use the full prior range for exploration and sampling. [Without this option, the initial grid is limited to a physically plausible range in lambda-i")
 parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
@@ -409,7 +411,11 @@ else:
 # if empty, fails and tells you to run ligo-proxy-init
     if not("X509_USER_PROXY" in os.environ.keys()):
         import subprocess
-        str_proxy =subprocess.check_output(['grid-proxy-info','-path']).rstrip()
+        from RIFT.misc.dag_utils import which
+        cmd_grid = which("ecp-cert-info")  # current default
+        if not cmd_grid:
+            cmd_grid = which('grid-proxy-info')  # old behavior
+        str_proxy =subprocess.check_output([cmd_grid,'-path']).rstrip()
         if len(str_proxy) < 1:
             print( " Run ligo-proxy-init or otherwise have a method to query gracedb / use CVMFS frames as you need! ! ")
             sys.exit(1)
@@ -542,11 +548,13 @@ if opts.make_bw_psds:
     helper_psd_args += " --assume-fiducial-psd-files --fmax " + str(srate/2-1)
 
 # Create provenance info : we want run to be reproducible
-# for low-latency analysis, we can assume we have provenance.
-if not(assume_lowlatency):
+# for low-latency analysis, we can assume we have provenance?
+if not(opts.skip_reproducibility): # not(assume_lowlatency):
+        import shutil, json
+        if opts.use_ini:
+            shutil.copyfile(opts.use_ini, "local.ini") # copy into current directory
         os.mkdir("reproducibility")
         # Write this script and its arguments
-        import shutil, json
 #        thisfile = os.path.realpath(__file__)
 #        shutil.copyfile(thisfile, "reproducibility/the_script_used.py")
         argparse_dict = vars(opts)
@@ -589,6 +597,8 @@ if opts.assume_matter:
             cmd+= " --assume-matter-but-primary-bh "
         if opts.internal_tabular_eos_file:
             cmd += " --internal-tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
+        if opts.assume_matter_conservatively:
+            cmd += " --assume-matter-conservatively "
 if  opts.assume_nospin:
     cmd += " --assume-nospin "
 else:  
@@ -1295,6 +1305,8 @@ print(cmd)
 os.system(cmd)
 
 if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
+    if opts.fake_data_cache:
+        shutil.copyfile(opts.fake_data_cache, 'local.cache')
     # build truncated frames.  Note this parses ILE arguments, so must be done last
     os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
 

@@ -343,7 +343,7 @@ if opts.posterior_file:
  for fname in opts.posterior_file:
     samples = np.genfromtxt(fname,names=True,replace_space=None)  # don't replace underscores in names
     samples = standard_expand_samples(samples)
-    if not(opts.no_mod_psi) and 'psi' in samples:
+    if not(opts.no_mod_psi) and 'psi' in samples.dtype.names:
         samples['psi'] = np.mod(samples['psi'],np.pi)
     # if not 'mtotal' in samples.dtype.names and 'mc' in samples.dtype.names:  # raw LI samples use 
     #     q_here = samples['q']

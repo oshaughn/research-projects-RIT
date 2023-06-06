@@ -219,7 +219,7 @@ class MCSampler(object):
             # FIXME: UGH! Really? This was the most elegant thing you could come
             # up with?
             rvs_tmp = [numpy.random.uniform(0,1,(len(p), int(rvs))) for p in [(i,) if not isinstance(i, tuple) else i for i in args]]
-            rvs_tmp = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(rvs_tmp, args)], dtype=numpy.object)
+            rvs_tmp = numpy.array([self.cdf_inv[param](*rv) for (rv, param) in zip(rvs_tmp, args)], dtype=object)
         else:
             rvs_tmp = numpy.array(rvs)
 
@@ -682,8 +682,7 @@ class MCSampler(object):
                 self._hist[p], edges = numpy.histogram( points,
                     bins = 100,
                     range = (self.llim[p], self.rlim[p]),
-                    weights = weights,
-                    normed = True
+                    weights = weights
                 )
                 # FIXME: numpy.hist can't normalize worth a damn
                 self._hist[p] /= self._hist[p].sum()
@@ -778,7 +777,7 @@ def uniform_samp_cdf_inv_vector(a,b,p):
     out = p*(b-a) + a
     return out
 #uniform_samp_vector = numpy.vectorize(uniform_samp,excluded=['a','b'],otypes=[numpy.float])
-uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float])
+uniform_samp_vector = numpy.vectorize(uniform_samp,otypes=[numpy.float64])
 
 def ret_uniform_samp_vector_alt(a,b):
     return lambda x: numpy.where( (x>a) & (x<b), numpy.reciprocal(b-a),0.0)
@@ -826,7 +825,7 @@ def quadratic_samp(rmax,x):
         else:
                 return 0
 
-quadratic_samp_vector = numpy.vectorize(quadratic_samp, otypes=[numpy.float])
+quadratic_samp_vector = numpy.vectorize(quadratic_samp, otypes=[numpy.float64])
 
 def inv_uniform_cdf(a, b, x):
     return (b-a)*x+a
@@ -838,7 +837,7 @@ def gauss_samp_withfloor(mu, std, myfloor, x):
     return 1.0/numpy.sqrt(2*numpy.pi*std**2)*numpy.exp(-(x-mu)**2/2/std**2) + myfloor
 
 #gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,excluded=['mu','std','myfloor'],otypes=[numpy.float])
-gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,otypes=[numpy.float])
+gauss_samp_withfloor_vector = numpy.vectorize(gauss_samp_withfloor,otypes=[numpy.float64])
 
 
 # Mass ratio. PDF propto 1/(1+q)^2.  Defined so mass ratio is < 1
@@ -866,8 +865,8 @@ def dec_samp(x):
         return numpy.sin(x+numpy.pi/2)/2   # x from 0, pi
 
 
-cos_samp_vector = lambda x: cos_samp(numpy.array(x,dtype=numpy.float))
-dec_samp_vector = lambda x: dec_samp(numpy.array(x,dtype=numpy.float))
+cos_samp_vector = lambda x: cos_samp(numpy.array(x,dtype=numpy.float64))
+dec_samp_vector = lambda x: dec_samp(numpy.array(x,dtype=numpy.float64))
 
 #cos_samp_vector = numpy.vectorize(cos_samp,otypes=[numpy.float])
 #dec_samp_vector = numpy.vectorize(dec_samp,otypes=[numpy.float])
@@ -881,17 +880,17 @@ def pseudo_dist_samp(r0,r):
         return r*r*numpy.exp( - (r0/r)*(r0/r)/2. + r0/r)+0.01  # put a floor on probability, so we converge. Note this floor only cuts out NEARBY distances
 
 #pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])
-pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float])
+pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float64])
 
 def delta_func_pdf(x_0, x):
     return 1.0 if x == x_0 else 0.0
 
-delta_func_pdf_vector = numpy.vectorize(delta_func_pdf, otypes=[numpy.float])
+delta_func_pdf_vector = numpy.vectorize(delta_func_pdf, otypes=[numpy.float64])
 
 def delta_func_samp(x_0, x):
     return x_0
 
-delta_func_samp_vector = numpy.vectorize(delta_func_samp, otypes=[numpy.float])
+delta_func_samp_vector = numpy.vectorize(delta_func_samp, otypes=[numpy.float64])
 
 
 def linear_down_samp(x,xmin=0,xmax=1):
@@ -1060,7 +1059,7 @@ class HealPixSampler(object):
             raise ValueError("%s is not a recgonized sampling type" % stype)
 
 #pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float])
-pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float])
+pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float64])
 
 
 def sanityCheckSamplerIntegrateUnity(sampler,*args,**kwargs):
@@ -1103,7 +1102,7 @@ def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativ
     weights = rvs["integrand"]* rvs["joint_prior"]/rvs["joint_s_prior"]  # rvs["weights"] # rvs["weights"] is *sorted* (side effect?), breaking test. Recalculated weights are not.  Use explicitly calculated weights until sorting effect identified
 #    weights = weights /numpy.sum(weights)    # Keep original normalization, so the integral values printed to stdout have meaning relative to the overall integral value.  No change in code logic : this factor scales out (from the log, below)
     igrandValues = numpy.zeros(ncopies)
-    len_part = numpy.int(len(weights)/ncopies)  # deprecated: np.floor->np.int
+    len_part = int(len(weights)/ncopies)  # deprecated: np.floor->np.int
     for indx in numpy.arange(ncopies):
         igrandValues[indx] = numpy.log(numpy.mean(weights[indx*len_part:(indx+1)*len_part]))  # change to mean rather than sum, so sub-integrals have meaning
     igrandValues= numpy.sort(igrandValues)#[2:]                            # Sort.  Useful in reports 

@@ -190,6 +190,7 @@ parser.add_argument("--psd-file", action="append", help="instrument=psd-file, e.
 parser.add_argument("--assume-fiducial-psd-files", action="store_true", help="Will populate the arguments --psd-file IFO=IFO-psd.xml.gz for all IFOs being used, based on data availability.   Intended for user to specify PSD files later, or for DAG to build BW PSDs. ")
 parser.add_argument("--use-online-psd",action='store_true',help='Use PSD from gracedb, if available')
 parser.add_argument("--assume-matter",action='store_true',help="If present, the code will add options necessary to manage tidal arguments. The proposed fit strategy and initial grid will allow for matter")
+parser.add_argument("--assume-matter-conservatively",action='store_true',help="If present, the code will use the full prior range for exploration and sampling. [Without this option, the initial grid is limited to a physically plausible range in lambda-i")
 parser.add_argument("--assume-matter-eos",type=str,default=None,help="If present, AND --assume-matter is present, the code will adopt this specific EOS.  CIP will generate tidal parameters according to (exactly) that EOS.  Not recommended -- better to do this by postprocessing")
 parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!. NOT YET IMPLEMENTED (initial grids, etc)")
@@ -521,18 +522,30 @@ if use_gracedb_event:
 
     # Get PSD
     if opts.use_online_psd:
-        fmax = 1000.
-        cmd_event = gracedb_exe + download_request + opts.gracedb_id + " psd.xml.gz"
-        os.system(cmd_event)
-        cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
-        # Convert PSD to a useful format
-        for ifo in event_dict["IFOs"]:
-            if not opts.use_osg:
-                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
-            else:
-                psd_names[ifo] =  ifo + "-psd.xml.gz"
-            cmd += " --ifo " + ifo
-        os.system(cmd)
+        # After O3, switch to using psd embedded in coinc file!
+        if P.tref > 1369054567 - 24*60*60*365: # guesstimate of changeover in gracedb
+            for ifo  in event_dict["IFOs"]:
+                cmd_event = "ligolw_print -t {}:array -d ' '  coinc.xml  > {}_psd_ascii.dat".format(ifo,ifo)
+                os.system(cmd_event)
+                cmd_event = "convert_psd_ascii2xml  --fname-psd-ascii {}_psd_ascii.dat --conventional-postfix --ifo {}  ".format(ifo,ifo)
+                os.system(cmd_event)
+                if not opts.use_osg:
+                    psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+                else:
+                    psd_names[ifo] =  ifo + "-psd.xml.gz"
+        else:
+            fmax = 1000.
+            cmd_event = gracedb_exe + download_request + opts.gracedb_id + " psd.xml.gz"
+            os.system(cmd_event)
+            cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
+            # Convert PSD to a useful format
+            for ifo in event_dict["IFOs"]:
+                if not opts.use_osg:
+                    psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+                else:
+                    psd_names[ifo] =  ifo + "-psd.xml.gz"
+                cmd += " --ifo " + ifo
+            os.system(cmd)
   except:
       print(" ==> probably not a CBC event, attempting to proceed anyways, FAKING central value <=== ")
       P=lalsimutils.ChooseWaveformParams()
@@ -1145,12 +1158,18 @@ elif opts.propose_initial_grid:
             P.lambda1 = lambda_m_estimate(P.m1/lal.MSUN_SI)
             lambda1_min = np.min([50,P.lambda1*0.2])
             lambda1_max = np.min([1500,P.lambda1*2])
+            if opts.assume_matter_conservatively:
+                lambda1_min =10
+                lambda1_max = 5000
         else:
             lambda1_min = 0
             lambda1_max=0
         P.lambda2 = lambda_m_estimate(P.m2/lal.MSUN_SI)
         lambda2_min = np.min([50,P.lambda2*0.2])
         lambda2_max = np.min([1500,P.lambda2*2])
+        if opts.assume_matter_conservatively:
+            lambda2_min =10
+            lambda2_max = 5000
         cmd += " --random-parameter lambda1 --random-parameter-range [{},{}] --random-parameter lambda2 --random-parameter-range [{},{}] ".format(lambda1_min,lambda1_max,lambda2_min,lambda2_max)
         grid_size *=2   # denser grid
     elif opts.assume_matter and opts.assume_matter_eos:
@@ -1479,7 +1498,8 @@ if opts.propose_fit_strategy:
             if not(opts.assume_matter_but_primary_bh):
                 helper_cip_arg_list[indx] += " --parameter-nofit lambda1 "
         # add --prior-lambda-linear to first iteration, to sample better at low lambda
-        helper_cip_arg_list[0] += " --prior-lambda-linear "
+        if not (opts.assume_matter_conservatively):
+            helper_cip_arg_list[0] += " --prior-lambda-linear "
         # Remove LambdaTilde from *first* batch of iterations .. too painful ? NO, otherwise we wander off into wilderness
 #        helper_cip_arg_list[0] = helper_cip_arg_list[0].replace('--parameter-implied LambdaTilde','')
         # Add one line with deltaLambdaTilde
@@ -1493,9 +1513,12 @@ if opts.propose_fit_strategy:
         for indx in np.arange(len(helper_cip_arg_list)):
             helper_cip_arg_list[indx] += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
     elif opts.assume_matter_eos:
-        helper_cip_args += " --using-eos {} ".format(opts.assume_matter_eos)
+        helper_cip_args += "  --input-tides --using-eos {} ".format(opts.assume_matter_eos)
+        if opts.assume_matter_but_primary_bh:
+            helper_cip_args += " --assume-eos-but-primary-bh "
         for indx in np.arange(len(helper_cip_arg_list)):
             helper_cip_arg_list[indx] += " --using-eos {} ".format(opts.assume_matter_eos)
+            helper_cip_args_list[indx] += " --assume-eos-but-primary-bh "
 # lnL-offset was already enforced
 #    if opts.internal_fit_strategy_enforces_cut:
 #        for indx in np.arange(len(helper_cip_arg_list))[1:]:

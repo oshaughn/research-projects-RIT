@@ -178,9 +178,10 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 hlms[mode].data.data *=rom_basis_scale
                 hlms_conj[mode].data.data *=rom_basis_scale
        else:
+           # enforce tapering of this waveform at start, based on discussion with Aasim
            # this code is modular but inefficient: the waveform is regenerated twice
-           hlms = acatHere.hlmoff(P, use_basis=False,deltaT=P.deltaT,force_T=1./P.deltaF,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # Must force duration consistency, very annoying
-           hlms_conj = acatHere.conj_hlmoff(P, force_T=1./P.deltaF, use_basis=False,deltaT=P.deltaT,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # Must force duration consistency, very annoying
+           hlms = acatHere.hlmoff(P, use_basis=False,deltaT=P.deltaT,force_T=1./P.deltaF,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method,**extra_waveform_kwargs)  # Must force duration consistency, very annoying
+           hlms_conj = acatHere.conj_hlmoff(P, force_T=1./P.deltaF, use_basis=False,deltaT=P.deltaT,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method,**extra_waveform_kwargs)  # Must force duration consistency, very annoying
            mode_list = list(hlms.keys())  # make copy: dictionary will change during iteration
            for mode in mode_list:
                    if no_memory and mode[1]==0 and P.SoftAlignedQ():
@@ -1258,14 +1259,14 @@ def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetec
 
 
     ### Step 0: Create two lookup tables: index->pair and pair->index
-    lookupNumberToKeys = np.zeros((nKeys,2),dtype=np.int)
+    lookupNumberToKeys = np.zeros((nKeys,2),dtype=int)
     lookupKeysToNumber = {}
     for indx, val in enumerate(pairKeys):
         lookupNumberToKeys[indx][0]= val[0]  
         lookupNumberToKeys[indx][1]= val[1]  
         lookupKeysToNumber[val] = indx
     # Now create a *second* lookup table, for complex-conjugation-in-time: (l,m)->(l,-m)
-    lookupNumberToNumberConjugation = np.zeros(nKeys,dtype=np.int)
+    lookupNumberToNumberConjugation = np.zeros(nKeys,dtype=int)
     for indx in np.arange(nKeys):
         l = lookupNumberToKeys[indx][0]
         m = lookupNumberToKeys[indx][1]
@@ -1273,8 +1274,8 @@ def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetec
         lookupNumberToNumberConjugation[indx] = indxOut
         
     ### Step 1: Convert crossTermsForDetector explicitly into a matrix
-    crossTermsArrayU = np.zeros((nKeys,nKeys),dtype=np.complex)   # Make sure complex numbers can be stored
-    crossTermsArrayV = np.zeros((nKeys,nKeys),dtype=np.complex)   # Make sure complex numbers can be stored
+    crossTermsArrayU = np.zeros((nKeys,nKeys),dtype=np.complex128)   # Make sure complex numbers can be stored
+    crossTermsArrayV = np.zeros((nKeys,nKeys),dtype=np.complex128)   # Make sure complex numbers can be stored
     for pair1 in pairKeys:
         for pair2 in pairKeys:
             indx1 = lookupKeysToNumber[pair1]
@@ -1287,7 +1288,7 @@ def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetec
         print(" Built cross-terms matrix ", crossTermsArray)
 
     ### Step 2: Convert rholmsDictionaryForDetector
-    rholmArray = np.zeros((nKeys,npts),dtype=np.complex)
+    rholmArray = np.zeros((nKeys,npts),dtype=np.complex128)
     for pair1 in pairKeys:
         indx1 = lookupKeysToNumber[pair1]
         rholmArray[indx1][:] = rholmsDictionaryForDetector[pair1].data.data  # Copy the array of time values.
