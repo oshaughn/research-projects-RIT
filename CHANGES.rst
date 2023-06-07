@@ -10,7 +10,7 @@ Since last release
      --assume-matter-eos correctly set CIP tide option;  ILE-specific GMM setup cleaned up (rc2)
    - --assume-matter-conservatively (allow crazy tides), --rom-group (gwsurrogate) implies initial tapering, 
       CIP --assume-eos-but-primary-bh, convergence_test_samples JS base 2 not e, vectorized_general_tools histogram try
-      to avoid memory errors
+      to avoid memory errors (rc3)
 
 0.0.15.8
 -----------
