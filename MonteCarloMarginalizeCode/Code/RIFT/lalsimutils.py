@@ -2847,19 +2847,19 @@ def hoft(P, Fp=None, Fc=None):
                 'ecc'                : P.eccentricity,
                 'ecc_freq'           : 1 #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
             }
-            print("Starting EOBRun_module")
-            t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
-            print("EOBRun_module done")
-            hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
-            hplen = len(hptmp)
-            hp = {}
-            hc = {}
-            hp = lal.CreateREAL8TimeSeries("hoft", hpepoch, 0,
-                                           P.deltaT, lsu_DimensionlessUnit, hplen)
-            hc = lal.CreateREAL8TimeSeries("hoft", hpepoch, 0,
-                                           P.deltaT, lsu_DimensionlessUnit, hplen)
-            hp.data.data = hptmp
-            hc.data.data = hctmp
+        print("Starting EOBRun_module")
+        t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
+        print("EOBRun_module done",hptmp)
+        hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+        hplen = len(hptmp)
+        hp = {}
+        hc = {}
+        hp = lal.CreateREAL8TimeSeries("hoft", hpepoch, 0,
+                                       P.deltaT, lsu_DimensionlessUnit, hplen)
+        hc = lal.CreateREAL8TimeSeries("hoft", hpepoch, 0,
+                                       P.deltaT, lsu_DimensionlessUnit, hplen)
+        hp.data.data = hptmp
+        hc.data.data = hctmp
 
 
 
