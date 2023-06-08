@@ -816,8 +816,10 @@ if opts.use_gwsignal:
     line += " --use-gwsignal  --approx " + opts.approx
 elif not 'NR' in opts.approx:
         line += " --approx " + opts.approx
-elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
+elif opts.use_gwsurrogate and ('NRHybSur' and not 'Tidal' in opts.approx):
         line += " --rom-group {} --rom-param NRHybSur3dq8.h5 --approx {} ".format(sur_location_prefix,opts.approx)
+elif opts.use_gwsurrogate and ('NRHybSur' and 'Tidal' in opts.approx):
+        line += " --rom-group {} --rom-param NRHybSur3dq8Tidal --approx {} ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7dq2" in opts.approx:
         line += " --rom-group {} --rom-param NRSur7dq2.h5 --approx {}  ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7dq4" in opts.approx:
