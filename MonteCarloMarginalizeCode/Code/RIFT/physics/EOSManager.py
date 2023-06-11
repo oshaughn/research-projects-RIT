@@ -35,8 +35,8 @@ except:
 
 #import gwemlightcurves.table as gw_eos_table
 
-from . import MonotonicSpline as ms
-#from RIFT.physics import MonotonicSpline as ms
+try:    from .            import MonotonicSpline as ms
+except: from RIFT.physics import MonotonicSpline as ms
 
 C_CGS=lal.C_SI*100
 DENSITY_CGS_IN_MSQUARED=1000*lal.G_SI/lal.C_SI**2  # g/cm^3 -> 1/m^2 //GRUnits. Multiply by this to convert from CGS -> 1/m^2 units (_geom). lal.G_SI/lal.C_SI**2 takes kg/m^3 -> 1/m^2  ||  https://lscsoft.docs.ligo.org/lalsuite/lalsimulation/_l_a_l_sim_neutron_star_8h_source.html
@@ -638,7 +638,7 @@ class EOSLindblomSpectralSoundSpeedVersusPressure(EOSConcrete):
             try:
                 self.eos = lalsim.SimNeutronStarEOS4ParamCausalSpectralDecomposition(spec_params['gamma1'], spec_params['gamma2'], spec_params['gamma3'], spec_params['gamma4'])
             except:
-                raise Exception("Did not send spec_params along. Please do, or turn 'use_lal_spec_eos' = False and expect a table to be read.")
+                raise Exception("A reasonable spec_params was not provided by the user. Please provide spec_params, or turn 'use_lal_spec_eos' = False and the code will expect an EoS table to be read.")
         else:
             # Create data file
             self.make_spec_param_eos(500,save_dat=True,ligo_units=True,verbose=verbose)
@@ -711,18 +711,18 @@ class EOSReprimand(EOSConcrete):
     Instead you can send a lalsim_eos which processes lalsim eos object type and produces a TOV sequence.
     load_eos takes a 2D array with pressure, energy_density and rest_mass_density (not tested).
     """
-    def __init__(self,name=None,param_dict=None,lalsim_eos=None,load_eos = None, specific_internal_energy = True, m_b_units = lal.MP_SI):
+    def __init__(self,name=None,param_dict=None,lalsim_eos=None,load_eos = None, specific_internal_energy = True, m_b_units = lal.MP_SI, RePrimAnd_scale = 1e-6):
         self.name              = name
         self.pyr_eos           = None # REQUIRED, new name for reprimand structure. Provided so we can also back-port converting between two
         self.tov_seq_reprimand = None   # Stores RePrimAnd eos object
         self.eos_lal           = lalsim_eos  # NOT required, only would be useful for talking to lalsim
         self.mMaxMsun          = None  # required
         self._pyr_mrL_dat      = None # internal data for M_g, R, lambda, M_b
-        self.m_b_units         = m_b_units # Base units for baryon mass for the EOS. Leave this as it is unless you want tune mass of nucleons from 1.66e-27 to 1.67e-27 kg.
+        self.m_b_units         = m_b_units # Base units for baryon mass for the EOS. To see why it was added in the first place, see RIFT v 0.0.15.8 and https://git.ligo.org/rapidpe-rift/rapidpe_rift_review_o4/-/wikis/Review:20230509.
         if self.eos_lal is None and load_eos is not None: self.eos_lal = EOSFromTabularData(eos_data=load_eos).eos
         
         if param_dict:
-            self.update(param_dict,specific_internal_energy)
+            self.update(param_dict,specific_internal_energy, RePrimAnd_scale)
         elif self.eos_lal is not None: # process LALSim EOS object
             min_pseudo_enthalpy = 0.005
             max_pseudo_enthalpy = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(self.eos_lal)
@@ -738,12 +738,12 @@ class EOSReprimand(EOSConcrete):
             
             #just_check_monotonicity_and_causality(param_dict)
             #param_dict = eos_monotonic_parts_and_causal_sound_speed(param_dict,preserve_same_length = False) # Don't enable by default. First check if monotonicity or causality is violated indeed, and document if it does.
-            self.update(param_dict,specific_internal_energy)
+            self.update(param_dict,specific_internal_energy, RePrimAnd_scale)
         else:
             print(" Warning: Empty EOS object created")
         return None
     
-    def update(self,param_dict,specific_internal_energy):
+    def update(self,param_dict,specific_internal_energy, RePrimAnd_scale = 1e-6):
         # minimum required input, cgs units like everything else above
         # for example, you could get this from QueryLS_EOS.extract_param(name, xvals) for xvals your parameter
         #p_enthalpy = param_dict['pseudo_enthalpy']
@@ -757,13 +757,13 @@ class EOSReprimand(EOSConcrete):
         
         # 1000, and 0.1 are converting cgs quantities to SI.
         spec_int_energy_unew = spec_int_energy
-        rho_unew = rho*1000/unew.density
+        rho_unew = rho*1.66e-27/self.m_b_units*1000/unew.density # 1.66e-27/self.m_b_units is multiplied to convert rho to RePrimAnd's mass scale.
         press_unew = press*0.1/unew.pressure
         
         temp, efrac= [], []
         n_poly=1.7115960633290546  # polytropic index below lowest tabular data. Not good, should have full range.
         eps_0 = 0.0  # energy density at zero pressure
-        pts_per_mag =1000  # points log spaced per decaded in some parameter
+        pts_per_mag =800  # points log spaced per decaded in some parameter
         isentropic = True
         rgrho = pyr.range(min(rho_unew)*1.0000001, max(rho_unew) / 1.0000001)
         
@@ -772,7 +772,7 @@ class EOSReprimand(EOSConcrete):
         else: self.pyr_eos = pyr.make_eos_barotr_spline(rho_unew, press_unew, cs, temp, efrac, rgrho, n_poly, eps_0, unew, pts_per_mag)
         # pyr.make_eos_barotr_spline(gm1, rho_unew, spec_int_energy_unew, press_unew, cs, temp, efrac, isentropic, rgrho, n_poly, unew, pts_per_mag)
         
-        self._pyr_mrL_dat, self.tov_seq_reprimand = make_mr_lambda_reprimand(self.pyr_eos,return_eos_object=True, m_b_units = self.m_b_units)
+        self._pyr_mrL_dat, self.tov_seq_reprimand = make_mr_lambda_reprimand(self.pyr_eos,return_eos_object=True, m_b_units = self.m_b_units, RePrimAnd_scale = RePrimAnd_scale)
         self.mMaxMsun = max(self._pyr_mrL_dat[:,0])
         
         return None
@@ -782,16 +782,18 @@ class EOSReprimand(EOSConcrete):
     
     def lambda_from_m(self,mg):
         try:    # single element
+            # If mg is in solar mass units(~2), it is << 1e15
             if mg <1e15: return self.tov_seq_reprimand.lambda_tidal_from_grav_mass(mg)
+            # If mg is in SI units (~4e30), it is >> 1e15            
             return self.tov_seq_reprimand.lambda_tidal_from_grav_mass(mg/lal.MSUN_SI)
-        except: # multi element
+        except: # multi element array
             mg = np.array(mg)
             if mg[0] <1e15: return self.tov_seq_reprimand.lambda_tidal_from_grav_mass(mg)
             return self.tov_seq_reprimand.lambda_tidal_from_grav_mass(mg/lal.MSUN_SI)
 
 
 # RePrimAnd
-def make_mr_lambda_reprimand(eos,n_bins=800,save_tov_sequence=False,read_tov_sequence=False,return_eos_object=False, m_b_units = lal.MP_SI):
+def make_mr_lambda_reprimand(eos,n_bins=800,save_tov_sequence=False,read_tov_sequence=False,return_eos_object=False, m_b_units = lal.MP_SI, RePrimAnd_scale = 1e-6):
     """
     Construct mass-radius curve from EOS using RePrimAnd (https://wokast.github.io/RePrimAnd/tov_solver.html).
     Parameter `eos` should be in RePrimAnd's eos object format, made with something like `make_eos_barotr_spline` (https://wokast.github.io/RePrimAnd/eos_barotr_ref.html).
@@ -817,7 +819,7 @@ def make_mr_lambda_reprimand(eos,n_bins=800,save_tov_sequence=False,read_tov_seq
     assert has_reprimand
     
     #Make TOV sequence
-    acc_tov=1e-10; acc_deform=1e-8; minsteps=500; num_samp=2500; mgrav_min=0.3
+    acc_tov=RePrimAnd_scale*1e-2; acc_deform=RePrimAnd_scale; minsteps=500; num_samp=2000; mgrav_min=0.3
     acc = pyr.tov_acc_simple(acc_tov, acc_deform, minsteps)
     try: seq = pyr.make_tov_branch_stable(eos, acc, num_samp=num_samp, mgrav_min=mgrav_min)
     except:
@@ -914,6 +916,8 @@ def check_sound_speed_causal(param_dict, preserve_same_length = False):
 
 
 def eos_monotonic_parts_and_causal_sound_speed(param_dict, preserve_same_length = False):
+    """rest_mass_density , energy_density, pressure, pseudo_enthalpy, and sound_speed_over_c are the dictionary parameters that this function expects.
+    """
     param_dict_main = {'rest_mass_density': param_dict['rest_mass_density'], 'energy_density': param_dict['energy_density'],'pressure': param_dict['pressure']}
     param_dict_others = {'pseudo_enthalpy': param_dict['pseudo_enthalpy'], 'sound_speed_over_c': param_dict['sound_speed_over_c']}
     
@@ -1311,7 +1315,7 @@ class QueryLS_EOS:
         extraction_dict_lalsim_raw = {
             'pseudo_enthalpy'   : lambda x: x,
             'rest_mass_density' : lambda x: lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(x, eos)*Den_SI_to_CGS,
-            'baryon_density'    : lambda x: lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(x, eos)*Den_SI_to_CGS/(lal.AMU_SI*1e3),  #  cm^-3
+            'baryon_density'    : lambda x: lalsim.SimNeutronStarEOSRestMassDensityOfPseudoEnthalpy(x, eos)*Den_SI_to_CGS/(lal.MP_SI*1e3),  #  cm^-3
             'pressure'          : lambda x: lalsim.SimNeutronStarEOSPressureOfPseudoEnthalpy(x, eos)*Press_SI_to_CGS,
             'energy_density'    : lambda x: lalsim.SimNeutronStarEOSEnergyDensityOfPseudoEnthalpy(x,eos)*Energy_SI_to_CGS,
             'sound_speed_over_c': lambda x: lalsim.SimNeutronStarEOSSpeedOfSound(x,eos)/lal.C_SI
@@ -1329,8 +1333,8 @@ class QueryLS_EOS:
             return var*lal.C_SI**2/(lal.QE_SI*1e48) # MeV fm^-3
         if var_name == 'energy_density_n_sat':
             return var/(2.7e14) # nuclear saturation density in cgs = 2.7*10**14. ~ 0.16 fm^-3
-        if var_name == 'sound_speed_over_c':
-            return var*lal.C_SI*100   # cm s-1
+        if var_name == 'sound_speed_to_cm_s':
+            return var*lal.C_SI*1e2   # cm s-1
         if var_name == 'pressure':
             raise Exception('not yet implemented')
             return ##Check this conversion. possibly same as density with or without c**2. [MeV fm^-3]
