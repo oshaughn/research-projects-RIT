@@ -74,9 +74,11 @@ if True: #opts.convention == 'LI':
   if opts.export_tides:
       print( "lambda1 lambda2 lam_tilde",end=' ')
   if opts.export_cosmology:
-      print( " m1_source m2_source mc_source mtotal_source redshift ",end=' ')
+      print( " m1_source m2_source mc_source mtotal_source redshift",end=' ')
   if opts.export_weights:
-      print( " weights ", )
+      print( " weights", )
+  if opts.export_eccentricity:
+      print( " eccentricity", )
   print('')
 
 
@@ -89,6 +91,9 @@ for fname in args:
     ps = np.array([row.alpha3 for row in points])
     Nmax = np.max([int(row.simulation_id) for row in points])+1    # Nmax. Assumes NOT mixed samples.
 
+    if opts.export_eccentricity:
+        ecc = [row.alpha4 for row in points]
+        
     lnLmax = np.max(lnL)
     weights = np.exp(lnL - lnLmax) * (p/ps)
     # replace weights if nan
@@ -118,6 +123,8 @@ for fname in args:
         P.s2y = pt.spin2y
         P.s2z = pt.spin2z
         P.fmin=opts.fref
+        if opts.export_eccentricity:
+            P.eccentricity = ecc
         try:
             P.fmin = pt.f_lower  # should use this first
         except:
