@@ -33,7 +33,7 @@ except:
 
 
 def std_and_conj_hlmoff(P, Lmax=2,approx_string=None,**kwargs):
-    hlms = hlmoft(P, Lmax,approx_string=approx_string)
+    hlms = hlmoft(P, Lmax,approx_string=approx_string,**kwargs)
     hlmsF = {}
     hlms_conj_F = {}
     for mode in hlms:
@@ -43,7 +43,7 @@ def std_and_conj_hlmoff(P, Lmax=2,approx_string=None,**kwargs):
     return hlmsF, hlms_conj_F
 
 def hlmoff(P, Lmax=2,approx_string=None,**kwargs):
-    hlms = hlmoft(P, Lmax,approx_string=approx_string)
+    hlms = hlmoft(P, Lmax,approx_string=approx_string,**kwargs)
     hlmsF = {}
     for mode in hlms:
         hlmsF[mode] = lalsimutils.DataFourier(hlms[mode])
@@ -80,6 +80,8 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
               'longAscNodes' : P.psi*u.rad,
               'meanPerAno' : P.meanPerAno*u.rad,
               'condition' : taper}
+    if 'lmax_nyquist' in kwargs:
+        python_dict['lmax_nyquist'] = kwargs['lmax_nyquist']
 
     # if needed
 #    lal_dict = gws.core.utils.to_lal_dict(python_dict)
