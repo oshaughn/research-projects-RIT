@@ -828,6 +828,7 @@ if not(opts.force_eta_range is None):
     tmp = opts.force_eta_range 
     eta_range_parsed = list(map(float,tmp.replace('[','').replace(']','').split(',')))
     delta_min_tight = np.sqrt(1 - 4*eta_range_parsed[1]) + 1e-4
+    delta_max_tight = np.sqrt(1 - 4*eta_range_parsed[0])
 if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
     import scipy.optimize
     # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
