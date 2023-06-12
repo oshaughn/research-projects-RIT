@@ -1367,16 +1367,21 @@ def pseudo_dist_samp(r0,r):
 #pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,excluded=['r0'],otypes=[numpy.float64])
 pseudo_dist_samp_vector = numpy.vectorize(pseudo_dist_samp,otypes=[numpy.float64])
 
-def delta_func_pdf(x_0, x):
-    return 1.0 if x == x_0 else 0.0
+if xpy_default == numpy:
+  def delta_func_pdf(x_0, x):
+     return 1.0 if x == x_0 else 0.0
+  delta_func_pdf_vector = xpy_default.vectorize(delta_func_pdf, otypes=[xpy_default.float64])
+else:
+   # only called on data which already satisfies the constraint, so return 1
+   delta_func_pdf_vector = lambda x,y: xpy_default.ones(y.shape)
 
-delta_func_pdf_vector = numpy.vectorize(delta_func_pdf, otypes=[numpy.float64])
-
-def delta_func_samp(x_0, x):
-    return x_0
-
-delta_func_samp_vector = numpy.vectorize(delta_func_samp, otypes=[numpy.float64])
-
+if xpy_default==numpy:
+ def delta_func_samp(x_0, x):
+     return x_0
+ delta_func_samp_vector = xpy_default.vectorize(delta_func_samp, otypes=[xpy_default.float64])
+else:
+ # return value equal to the requested floating point constant
+ delta_func_samp_vector = lambda x,y: x*xpy_default.ones(y.shape)
 
 
 def sanityCheckSamplerIntegrateUnity(sampler,*args,**kwargs):
