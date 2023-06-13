@@ -80,7 +80,10 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
               'longAscNodes' : P.psi*u.rad,
               'meanPerAno' : P.meanPerAno*u.rad,
               'condition' : taper}
+
+    print(kwargs)
     if 'lmax_nyquist' in kwargs:
+        print("lmax_nyquist being passed to GWSignal")
         python_dict['lmax_nyquist'] = kwargs['lmax_nyquist']
 
     # if needed
