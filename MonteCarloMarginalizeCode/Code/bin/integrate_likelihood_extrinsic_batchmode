@@ -1140,7 +1140,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     if opts.internal_waveform_fd_no_condition:
       extra_waveform_kwargs['no_condition'] = True
     if opts.rom_group:
-      extra_waveform_kwargs['rom_taper_start'] = True  # really for NRHyb3dq8 given discussion with Aasim for high-SNR sources, but valuable generally
+      extra_waveform_kwargs['rom_taper_start'] = False  # really for NRHyb3dq8 given discussion with Aasim for high-SNR sources, but valuable generally
     if opts.use_gwsignal_lmax_nyquist:
       extra_waveform_kwargs['lmax_nyquist'] = int(opts.use_gwsignal_lmax_nyquist)
     # Precompute
