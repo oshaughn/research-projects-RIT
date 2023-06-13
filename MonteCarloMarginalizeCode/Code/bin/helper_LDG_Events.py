@@ -1518,8 +1518,9 @@ if opts.propose_fit_strategy:
         if opts.assume_matter_but_primary_bh:
             helper_cip_args += " --assume-eos-but-primary-bh "
         for indx in np.arange(len(helper_cip_arg_list)):
-            helper_cip_arg_list[indx] += " --using-eos {} ".format(opts.assume_matter_eos)
-            helper_cip_args_list[indx] += " --assume-eos-but-primary-bh "
+            helper_cip_args_list[indx] += " --using-eos {} ".format(opts.assume_matter_eos)
+            if opts.assume_matter_but_primary_bh:
+                helper_cip_args_list[indx] += " --assume-eos-but-primary-bh "
 # lnL-offset was already enforced
 #    if opts.internal_fit_strategy_enforces_cut:
 #        for indx in np.arange(len(helper_cip_arg_list))[1:]:
