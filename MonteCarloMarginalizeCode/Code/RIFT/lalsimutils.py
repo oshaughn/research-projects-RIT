@@ -2409,7 +2409,7 @@ def CreateCompatibleComplexOverlap(hlmf,**kwargs):
     """
     if isinstance(hlmf, dict):
         modes = hlmf.keys()
-        hbase = hlmf[modes[0]]
+        hbase = hlmf[list(modes)[0]]
     else:
         hbase =hlmf
     deltaF = hbase.deltaF
@@ -2426,7 +2426,7 @@ def CreateCompatibleComplexIP(hlmf,**kwargs):
     """
     if isinstance(hlmf, dict):
         modes = hlmf.keys()
-        hbase = hlmf[modes[0]]
+        hbase = hlmf[list(modes)[0]]
     else:
         hbase =hlmf
     deltaF = hbase.deltaF
