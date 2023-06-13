@@ -28,13 +28,13 @@ before_script:
   # Create alias for /usr/bin/python3 -> /usr/bin/python
   - ln -s /usr/bin/python3 /usr/bin/python
   # upgrade pip
-  - python -m pip install --quiet --upgrade pip
+  - python -m pip install --quiet --upgrade pip  --break-system-packages
   # install requirements
-  - python -m pip install -r requirements.txt
+  - python -m pip install -r requirements.txt --break-system-packages
   # install test-only requirements
-  - python -m pip install coverage pytest
+  - python -m pip install coverage pytest --break-system-packages
   # install this package (need editable for coverage)
-  - python -m pip install --editable .
+  - python -m pip install --editable . --break-system-packages
 
 help_check:
   stage: system tests
