@@ -11,7 +11,10 @@ Since last release
    - --assume-matter-conservatively (allow crazy tides), --rom-group (gwsurrogate) implies initial tapering, 
       CIP --assume-eos-but-primary-bh, convergence_test_samples JS base 2 not e, vectorized_general_tools histogram try
       to avoid memory errors (rc3)
-   - EOSManager+reprimand minor review updates; mcsamplerGPU works on GPUs when fixing parameters
+   - EOSManager+reprimand minor review updates; mcsamplerGPU works on GPUs when fixing parameters; CI updates;
+     fix --assume-matter-eos / --assume-eos-but-primary-bh again; lalsimutils CreateCompatibleComplexOverlap update for
+     contemporary python; lmax_nyquist for gwsignal (ILE: --use-gwsignal-lmax-nyquist); helper sets both eta limits on
+     initial grid with --force-eta-range; extrinsic export with eccentricity bugfix
 
 0.0.15.8
 -----------
