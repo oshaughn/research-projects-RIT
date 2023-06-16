@@ -2889,10 +2889,10 @@ for indx_here in indx_list:
         if my_eos:
             # only define lambda1, lambda2 as parameters if they are used in sampling! Otherwise may cause problems (e.g.,we are assuming it is zero for a BH)
             if not(opts.assume_eos_but_primary_bh):
-                Pgrid.lambda1 = my_eos.lambda_of_m(Pgrid.m1/lal.MSUN_SI)
+                Pgrid.lambda1 = my_eos.lambda_from_m(Pgrid.m1/lal.MSUN_SI)
             else:
                 Pgrid.lambda1 = 0 # BH
-            Pgrid.lambda2 = my_eos.lambda_of_m(Pgrid.m2/lal.MSUN_SI)
+            Pgrid.lambda2 = my_eos.lambda_from_m(Pgrid.m2/lal.MSUN_SI)
         elif opts.tabular_eos_file:
             # save the index of the SORTED SIMULATION (because that's how I'll be accessing it!)
             eos_indx_here = my_eos_sequence.lookup_closest(samples['ordering'][indx_here])
