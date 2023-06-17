@@ -1521,7 +1521,7 @@ if opts.propose_fit_strategy:
         if opts.assume_matter_but_primary_bh:
             helper_cip_args += " --assume-eos-but-primary-bh "
         for indx in np.arange(len(helper_cip_arg_list)):
-            helper_cip_arg_list[indx] += " --parameter-implied LambdaTilde --using-eos {} ".format(opts.assume_matter_eos)
+            helper_cip_arg_list[indx] += " --input-tides  --parameter-implied LambdaTilde --using-eos {} ".format(opts.assume_matter_eos)
             if opts.assume_matter_but_primary_bh:
                 helper_cip_arg_list[indx] += " --assume-eos-but-primary-bh "
         helper_cip_arg_list[-1] += "  --parameter-implied DeltaLambdaTilde "
