@@ -12,9 +12,10 @@ Since last release
       CIP --assume-eos-but-primary-bh, convergence_test_samples JS base 2 not e, vectorized_general_tools histogram try
       to avoid memory errors (rc3)
    - EOSManager+reprimand minor review updates; mcsamplerGPU works on GPUs when fixing parameters; CI updates;
-     fix --assume-matter-eos / --assume-eos-but-primary-bh again; lalsimutils CreateCompatibleComplexOverlap update for
+     fix --assume-matter-eos / --assume-eos-but-primary-bh again; CIP lambda export with --use-eos fix; helper fixes for
+     --assume-matter-eos; lalsimutils CreateCompatibleComplexOverlap update for
      contemporary python; lmax_nyquist for gwsignal (ILE: --use-gwsignal-lmax-nyquist); helper sets both eta limits on
-     initial grid with --force-eta-range; extrinsic export with eccentricity bugfix
+     initial grid with --force-eta-range; extrinsic export with eccentricity bugfix (rc4)
 
 0.0.15.8
 -----------
