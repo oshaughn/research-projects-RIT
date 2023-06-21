@@ -2969,7 +2969,7 @@ def hoff_TD(P, Fp=None, Fc=None, fwdplan=None):
     
     if fwdplan==None:
         fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
-    FDlen = TDlen/2+1
+    FDlen = int(TDlen/2+1)
     hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
             ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lsu_HertzUnit, 
             FDlen)
@@ -4025,7 +4025,7 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
     if fwdplan==None:
         fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)
 
-    FDlen = TDlen/2+1
+    FDlen = int(TDlen/2+1)
     hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
             ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lsu_HertzUnit, 
             TDlen)
@@ -4819,7 +4819,7 @@ def rotation_matrix(axis,theta):
 def DataFourierREAL8(ht):   # Complex fft wrapper (REAL8Time ->COMPLEX16Freq. No error checking or padding!
     TDlen = ht.data.length
     fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
-    FDlen = TDlen/2+1
+    FDlen = int(TDlen/2+1)
     hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
             ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lsu_HertzUnit, 
             FDlen)
@@ -4860,7 +4860,7 @@ def DataFourier(ht):   # Complex fft wrapper (COMPLEX16Time ->COMPLEX16Freq. No 
 def DataFourierREAL8(ht):   # Complex fft wrapper (REAL8Time ->COMPLEX16Freq. No error checking or padding!
     TDlen = ht.data.length
     fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
-    FDlen = TDlen/2+1
+    FDlen = int(TDlen/2+1)
     hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
             ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lsu_HertzUnit, 
             FDlen)
