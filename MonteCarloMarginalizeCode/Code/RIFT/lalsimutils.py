@@ -2969,7 +2969,7 @@ def hoff_TD(P, Fp=None, Fc=None, fwdplan=None):
     
     if fwdplan==None:
         fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
-    FDlen = TDlen/2+1
+    FDlen = int(TDlen/2+1)
     hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
             ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lsu_HertzUnit, 
             FDlen)
@@ -4025,7 +4025,7 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
     if fwdplan==None:
         fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)
 
-    FDlen = TDlen/2+1
+    FDlen = int(TDlen/2+1)
     hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
             ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lsu_HertzUnit, 
             TDlen)
@@ -4819,7 +4819,7 @@ def rotation_matrix(axis,theta):
 def DataFourierREAL8(ht):   # Complex fft wrapper (REAL8Time ->COMPLEX16Freq. No error checking or padding!
     TDlen = ht.data.length
     fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
-    FDlen = TDlen/2+1
+    FDlen = int(TDlen/2+1)
     hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
             ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lsu_HertzUnit, 
             FDlen)
@@ -4860,7 +4860,7 @@ def DataFourier(ht):   # Complex fft wrapper (COMPLEX16Time ->COMPLEX16Freq. No 
 def DataFourierREAL8(ht):   # Complex fft wrapper (REAL8Time ->COMPLEX16Freq. No error checking or padding!
     TDlen = ht.data.length
     fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
-    FDlen = TDlen/2+1
+    FDlen = int(TDlen/2+1)
     hf = lal.CreateCOMPLEX16FrequencySeries("Template h(f)", 
             ht.epoch, ht.f0, 1./ht.deltaT/TDlen, lsu_HertzUnit, 
             FDlen)
@@ -5251,6 +5251,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         la1_vals = x_in[:,indx_la1]
         la2_vals = x_in[:,indx_la2]
         if 'mc' in low_level_coord_names and 'delta_mc' in low_level_coord_names:
+            indx_mc = low_level_coord_names.index('mc')
             eta_vals = np.zeros(len(x_in))  
             m1_vals =np.zeros(len(x_in))  
             m2_vals =np.zeros(len(x_in))  

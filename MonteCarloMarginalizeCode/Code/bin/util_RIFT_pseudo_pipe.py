@@ -534,7 +534,7 @@ if not(opts.use_ini is None):
         # use more workers for high-q triggers
         # worker scale = (1+2/q), max of 50
         q = P.m2/P.m1
-        opts.cip_explode_jobs = np.min([int(2+3./q),50])
+        opts.cip_explode_jobs = int(np.min([int(2+3./q),50]))
 
 
 helper_psd_args = ''
