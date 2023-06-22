@@ -396,6 +396,7 @@ if opts.using_eos!=None:
             eos_base = EOSManager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
             my_eos=eos_base
         elif opts.eos_param == 'cs_spectral' and len(spec_param_array >=4):
+            spec_params ={}
             spec_params['gamma1']=spec_param_array[0]
             spec_params['gamma2']=spec_param_array[1]
             spec_params['gamma3']=spec_params['gamma4']=0
@@ -404,6 +405,7 @@ if opts.using_eos!=None:
             eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
             my_eos = eos_base
         elif opts.eos_param == 'PP' and len(spec_param_array >=4):
+            spec_params ={}
             spec_params['logP1'] = spec_param_array[0]
             spec_params['gamma1'] = spec_param_array[1]
             spec_params['gamma2'] = spec_param_array[2]
@@ -2293,7 +2295,7 @@ if len(low_level_coord_names) ==9:
         if isinstance(x,float):
             return my_fit([x,y,z,a,b,c,d,e,f]) + my_log_prior_scale([x,y,z,a,b,c,d,e,f])
         else:
-            return my_fit(convert_coords(np.c_[x,y,z,a,v,c,d,e,f]))+ my_log_prior_scale(np.c_[x,y,z,a,b,c,d,e,f])
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f]))+ my_log_prior_scale(np.c_[x,y,z,a,b,c,d,e,f])
 if len(low_level_coord_names) ==10:
     def likelihood_function(x,y,z,a,b,c,d,e,f,g):  
         if isinstance(x,float):
