@@ -462,6 +462,8 @@ if opts.fit_method =='gp':
         Y=Y[indx]
         X=X[indx]
         Y_err=Y_err[indx]
+    if opts.ignore_errors_in_data:
+        Y_err=None
     my_fit = fit_gp(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'rf':
     print( " FIT METHOD ", opts.fit_method, " IS RF ")
