@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#!/usr/bin/env python
 #
 #  util_ConstructEOSPosterior.py
 #     - takes in *generic-format* hyperparameter likelihood data
@@ -476,6 +476,8 @@ elif opts.fit_method == 'rf':
         Y=Y[indx]
         X=X[indx]
         Y_err=Y_err[indx]
+    if opts.ignore_errors_in_data:
+        Y_err=None
     my_fit = fit_rf(X,Y,y_errors=Y_err)
 
 
