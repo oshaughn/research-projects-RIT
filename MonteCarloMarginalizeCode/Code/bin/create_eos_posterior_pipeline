@@ -241,9 +241,9 @@ if opts.marg_event_args:
     # Modify: set 'initialdir'
     cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg")
     # Modify output argument: change logs and working directory to be subdirectory for the run
-    cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(cluster)-$(process).log")
-    cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(cluster)-$(process).err")
-    cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(cluster)-$(process).out")
+    cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(cluster)-$(process).log")
+    cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(cluster)-$(process).err")
+    cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(cluster)-$(process).out")
     cip_job.add_condor_cmd('request_disk',opts.general_request_disk)
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+cip_job.get_sub_file()
@@ -255,9 +255,9 @@ if opts.marg_event_args:
     # Modify: set 'initialdir'
     cipPuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg")
     # Modify output argument: change logs and working directory to be subdirectory for the run
-    cipPuff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(cluster)-$(process).log")
-    cipPuff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(cluster)-$(process).err")
-    cipPuff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(cluster)-$(process).out")
+    cipPuff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(macroevent)-$(cluster)-$(process).log")
+    cipPuff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(macroevent)-$(cluster)-$(process).err")
+    cipPuff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(macroevent)-$(cluster)-$(process).out")
     cipPuff_job.add_condor_cmd('request_disk',opts.general_request_disk)
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+cipPuff_job.get_sub_file()
@@ -270,9 +270,9 @@ else:
         # Modify: set 'initialdir'
         cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg")
         # Modify output argument: change logs and working directory to be subdirectory for the run
-        cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(cluster)-$(process).log")
-        cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(cluster)-$(process).err")
-        cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(cluster)-$(process).out")
+        cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(cluster)-$(process).log")
+        cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(cluster)-$(process).err")
+        cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(cluster)-$(process).out")
         cip_job.add_condor_cmd('request_disk',opts.general_request_disk)
         if opts.use_full_submit_paths:
             fname = opts.working_directory+"/"+cip_job.get_sub_file()
