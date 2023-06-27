@@ -478,8 +478,9 @@ if opts.composite_file:
     else:
         samples = np.genfromtxt(fname,names=True)
     samples = samples[ ~np.isnan(samples["lnL"])] # remove nan likelihoods -- they can creep in with poor settings/overflows
+    name_ref = samples.dtype.names[0]
     if opts.sigma_cut >0:
-        npts = len(samples["m1"])
+        npts = len(samples[name_ref])
         # strip NAN
         sigma_vals = samples["sigmaOverL"]
         good_sigma = sigma_vals < opts.sigma_cut
@@ -493,25 +494,26 @@ if opts.composite_file:
 #    samples = np.recarray(samples.T,names=field_names,dtype=field_formats) #,formats=field_formats)
     # If no record names
     # Add mtotal, q, 
-    samples=add_field(samples,[('mtotal',float)]); samples["mtotal"]= samples["m1"]+samples["m2"]; 
-    samples=add_field(samples,[('q',float)]); samples["q"]= samples["m2"]/samples["m1"]; 
-    samples=add_field(samples,[('mc',float)]); samples["mc"] = lalsimutils.mchirp(samples["m1"], samples["m2"])
-    samples=add_field(samples,[('eta',float)]); samples["eta"] = lalsimutils.symRatio(samples["m1"], samples["m2"])
-    samples=add_field(samples,[('chi_eff',float)]); samples["chi_eff"]= (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["mtotal"]); 
-    chi1_perp = np.sqrt(samples['a1x']*samples["a1x"] + samples['a1y']**2)
-    chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
-    samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
-    samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
+    if 'm1' in samples.dtype.names:
+        samples=add_field(samples,[('mtotal',float)]); samples["mtotal"]= samples["m1"]+samples["m2"]; 
+        samples=add_field(samples,[('q',float)]); samples["q"]= samples["m2"]/samples["m1"]; 
+        samples=add_field(samples,[('mc',float)]); samples["mc"] = lalsimutils.mchirp(samples["m1"], samples["m2"])
+        samples=add_field(samples,[('eta',float)]); samples["eta"] = lalsimutils.symRatio(samples["m1"], samples["m2"])
+        samples=add_field(samples,[('chi_eff',float)]); samples["chi_eff"]= (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["mtotal"]); 
+        chi1_perp = np.sqrt(samples['a1x']*samples["a1x"] + samples['a1y']**2)
+        chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
+        samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
+        samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
 
-    if ('lambda1' in samples.dtype.names):
-        Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
-        samples= add_field(samples, [('LambdaTilde',float), ('DeltaLambdaTilde',float),('lambdat',float),('dlambdat',float)])
-        samples['LambdaTilde'] = samples['lambdat']= Lt
-        samples['DeltaLambdaTilde'] = samples['dlambdat']= dLt
+        if ('lambda1' in samples.dtype.names):
+            Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
+            samples= add_field(samples, [('LambdaTilde',float), ('DeltaLambdaTilde',float),('lambdat',float),('dlambdat',float)])
+            samples['LambdaTilde'] = samples['lambdat']= Lt
+            samples['DeltaLambdaTilde'] = samples['dlambdat']= dLt
 
     samples_orig = samples
     if opts.lnL_cut:
-        npts = len(samples["m1"])
+        npts = len(samples[name_ref])
         # strip NAN
         lnL_vals = samples["lnL"]
         not_nan = np.logical_not(np.isnan(lnL_vals))
@@ -534,8 +536,8 @@ if opts.composite_file:
         samples = new_samples
 
 
-    print(" Loaded samples from ", fname , len(samples["m1"]))
-    if True:
+    print(" Loaded samples from ", fname , len(samples[name_ref]))
+    if 'm1' in samples.dtype.names:
         # impose Kerr limit
         npts = len(samples["m1"])
         indx_ok =np.arange(npts)
