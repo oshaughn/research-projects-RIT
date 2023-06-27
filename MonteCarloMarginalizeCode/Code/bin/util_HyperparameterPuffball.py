@@ -13,8 +13,8 @@ import itertools
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--fname", help="Name of dat file")
-parser.add_argument("--fname-out", default="output-puffball.dat", help="Name of dat file")
+parser.add_argument("--inj-file", help="Name of dat file")
+parser.add_argument("--inj-file-out", default="output-puffball.dat", help="Name of dat file")
 parser.add_argument("--puff-factor", default=1,type=float)
 parser.add_argument("--force-away", default=0,type=float,help="If >0, uses the icov to compute a metric, and discards points which are close to existing points")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
