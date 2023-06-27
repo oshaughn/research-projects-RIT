@@ -755,9 +755,11 @@ if composite_list:
   for pIndex in [0]: # np.arange(len(composite_list)):  # should NEVER have more than one
     samples = composite_list[pIndex]
     samples_orig = composite_full_list[pIndex]
+    samples_ref_name = samples.dtype.names[0]
+    samples_orig_ref_name = samples_orig.dtype.names[0]
     # Create data for corner plot
-    dat_mass = np.zeros( (len(samples["m1"]), len(labels_tex)) )
-    dat_mass_orig = np.zeros( (len(samples_orig["m1"]), len(labels_tex)) )
+    dat_mass = np.zeros( (len(samples[samples_ref_name]), len(labels_tex)) )
+    dat_mass_orig = np.zeros( (len(samples_orig[samples_orig_ref_name]), len(labels_tex)) )
     lnL = samples["lnL"]
     indx_sorted = lnL.argsort()
     if len(lnL)<1:
