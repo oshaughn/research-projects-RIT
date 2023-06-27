@@ -205,6 +205,7 @@ parser.add_argument("--truth-file",type=str, help="file containing the true para
 parser.add_argument("--posterior-distance-factor",action='append',help="Sequence of factors used to correct the distances")
 parser.add_argument("--truth-event",type=int, default=0,help="file containing the true parameters")
 parser.add_argument("--composite-file",action='append',help="filename of *.dat file [standard ILE intermediate]")
+parser.add_argument("--composite-file-has-labels",action='store_true',help="Assume header for composite file")
 parser.add_argument("--use-all-composite-but-grayscale",action='store_true',help="Composite")
 parser.add_argument("--flag-tides-in-composite",action='store_true',help='Required, if you want to parse files with tidal parameters')
 parser.add_argument("--flag-eos-index-in-composite",action='store_true',help='Required, if you want to parse files with EOS index in composite (and tides)')
@@ -472,7 +473,10 @@ if opts.composite_file:
  print(opts.composite_file)
  for fname in opts.composite_file[:1]:  # Only load the first one!
     print(" Loading ... ", fname)
-    samples = np.loadtxt(fname,dtype=composite_dtype)  # Names are not always available
+    if not(opts.composite_file_has_labels):
+        samples = np.loadtxt(fname,dtype=composite_dtype)  # Names are not always available
+    else:
+        samples = np.genfromtxt(fname,names=True)
     samples = samples[ ~np.isnan(samples["lnL"])] # remove nan likelihoods -- they can creep in with poor settings/overflows
     if opts.sigma_cut >0:
         npts = len(samples["m1"])
