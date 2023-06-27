@@ -74,7 +74,7 @@ for indx in np.arange(len(dlist_ranges)):
 
 
 # Load data, keep parameter names
-dat_raw = np.genfromtxt(opts.fname,names=True)
+dat_raw = np.genfromtxt(opts.inj_file,names=True)
 X= np.zeros((len(dat_raw), len(coord_names)))
 # Copy over the parameters we use.  Note we have no way to create linear combinations or alternate coordinates here
 for p in coord_names:
@@ -124,4 +124,4 @@ for p in coord_names:
     indx_in = coord_names.index(p)
     dat_raw[p] = X_out[:,indx_in]
 
-np.savetxt(opts.fname_out, dat_raw,header=" ".join(dat_raw.dtype.names))
+np.savetxt(opts.inj_file_out, dat_raw,header=" ".join(dat_raw.dtype.names))
