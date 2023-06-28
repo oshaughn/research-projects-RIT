@@ -172,8 +172,8 @@ if True: # not (opts.eos_post_args is None):
     eos_post_args = ' '.join(eos_post_args.split(' ')[1:])
     # Some argument protection for later.  Make sure spaces in place to avoid breaking compound arguments like g0:[a,b] for ranges.
     # intended to make sure any spaces in arguments like [a, b] are encoded as '[a, b]' 
-    eos_post_args = eos_post_args.replace(' [', '  \'[')
-    eos_post_args = eos_post_args.replace('] ', ']\' ')
+#    eos_post_args = eos_post_args.replace(' [', '  \'[')
+#    eos_post_args = eos_post_args.replace('] ', ']\' ')
     eos_post_args=eos_post_args.rstrip()
     eos_post_args += ' --no-plots '  
     print("EOS_POST", eos_post_args)
