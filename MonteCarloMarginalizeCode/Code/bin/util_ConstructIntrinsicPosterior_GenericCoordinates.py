@@ -224,6 +224,7 @@ parser.add_argument("--input-distance",action='store_true',help="Use input forma
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
 parser.add_argument("--fname-output-integral",default="integral_result",help="output filename for integral result. Postfixes appended")
+parser.add_argument("--no-save-samples",action='store_true')
 parser.add_argument("--approx-output",default="SEOBNRv2", help="approximant to use when writing output XML files.")
 parser.add_argument("--amplitude-order",default=-1,type=int,help="Set ampO for grid. Used in PN")
 parser.add_argument("--phase-order",default=7,type=int,help="Set phaseO for grid. Used in PN")
@@ -2514,6 +2515,9 @@ np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[np.log(res), np.sq
 #     file_out.write(' '.join( str_out +  ["\n"]))
 #np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
 
+
+if opts.no_save_samples:
+    sys.exit(0)
 
 if neff < len(low_level_coord_names):
     print(" PLOTS WILL FAIL ")
