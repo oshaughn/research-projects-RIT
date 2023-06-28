@@ -13,8 +13,8 @@ import itertools
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--fname", help="Name of dat file")
-parser.add_argument("--fname-out", default="output-puffball.dat", help="Name of dat file")
+parser.add_argument("--inj-file", help="Name of dat file")
+parser.add_argument("--inj-file-out", default="output-puffball.dat", help="Name of dat file")
 parser.add_argument("--puff-factor", default=1,type=float)
 parser.add_argument("--force-away", default=0,type=float,help="If >0, uses the icov to compute a metric, and discards points which are close to existing points")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior")
@@ -74,7 +74,7 @@ for indx in np.arange(len(dlist_ranges)):
 
 
 # Load data, keep parameter names
-dat_raw = np.genfromtxt(opts.fname,names=True)
+dat_raw = np.genfromtxt(opts.inj_file,names=True)
 X= np.zeros((len(dat_raw), len(coord_names)))
 # Copy over the parameters we use.  Note we have no way to create linear combinations or alternate coordinates here
 for p in coord_names:
@@ -124,4 +124,4 @@ for p in coord_names:
     indx_in = coord_names.index(p)
     dat_raw[p] = X_out[:,indx_in]
 
-np.savetxt(opts.fname_out, dat_raw,header=" ".join(dat_raw.dtype.names))
+np.savetxt(opts.inj_file_out, dat_raw,header=" ".join(dat_raw.dtype.names))
