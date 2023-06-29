@@ -221,6 +221,8 @@ parser.add_argument("--seglen", type=float,default=256*2., help="Default window 
 parser.add_argument("--fref",type=float,default=0.);
 # External grid
 parser.add_argument("--use-eos", default=None, help="Equation of state to determine lambdas for given mass ranges. Filename, not EOS name (no internal database)")
+parser.add_argument("--tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
+parser.add_argument("--tabular-eos-file-format",type=str,default=None,help="Format of tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--external-grid-xml", default=None,help="Inspiral XML file (injection form) for alternate grid")
 parser.add_argument("--external-grid-txt", default=None, help="Cartesian grid. Must provide parameter names in header. Exactly like output of code. Last column not used.")
 # Base point
@@ -251,6 +253,11 @@ if opts.verbose:
     True
     #lalsimutils.rosDebugMessagesContainer[0]=True   # enable error logging inside lalsimutils
 
+if opts.tabular_eos_file:
+    import RIFT.physics.EOSManager as EOSManager
+    # Find reference mass in msun: pick a TYPICAL chirp mass in grid, as all should be close enough for our purposes! 
+    # note this is NOT DETERMINISTIC and will depend on our grid input/what survives, but for BNS should be fine
+    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=opts.tabular_eos_file,load_ns=True,oned_order_name='Lambda', oned_order_mass=m_ref)
 
 ###
 ### Handle NR arguments
@@ -801,7 +808,6 @@ if opts.external_grid_txt:
 
 #if using an external EOS add lambda to grid (Richard, you may want to fix this to be more general)
 elif opts.use_eos!=None:
-#   from gwemlightcurves.KNModels import table 
    import RIFT.physics.EOSManager as EOSManager
    grid_tmp=np.zeros((len(grid[:,0]), len(grid[0,:])+2))
    anEOS = EOSManager.EOSLALSimulation(opts.use_eos)
@@ -838,6 +844,41 @@ elif opts.use_eos!=None:
    indx_ok  = np.logical_and(grid_tmp[:,lam1_indx]>0 ,grid_tmp[:,lam2_indx]>0 )
    grid=grid_tmp[indx_ok]
 
+elif opts.tabular_eos_file:
+   grid_tmp=np.zeros((len(grid[:,0]), len(grid[0,:])+3))
+   for i in range(0,len(grid[0,:])):
+       grid_tmp[:,i]=grid[:,i]
+
+    # lambda1, lambda2 will be recorded into the structure
+   param_names.append('lambda1')
+   param_names.append('lambda2')
+   param_names.append('eos_table_index')
+
+   mc_indx=param_names.index('mc')
+   my_transform = lambda x: x
+   if 'eta' in param_names:
+       eta_indx=param_names.index('eta')
+   else:
+       eta_indx = param_names.index('delta_mc')
+       my_transform = lambda x: 0.25*(1.-x*x)
+   lam1_indx=param_names.index('lambda1')
+   lam2_indx=param_names.index('lambda2')
+
+   npts = len(len(grid[:,mc_indx]))
+
+   random_event_indx = np.random.randint(0,high=len(my_eos_sequence.eos_names)-1,size=npts)
+   grid_tmp[:,param_names.index('eos_table_index')]
+
+   for i in range(0,npts): # Ridiculously inefficient
+       # fail to assign anything if m1 or m2 is out of range
+       m1=lalsimutils.mass1(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
+       if m1/lal.MSUN_SI < anEOS.mMaxMsun:
+           grid_tmp[i,lam1_indx]= my_eos_sequence.lambda_of_m_indx.lambda_from_m(m1, random_event_indx[i])  # calc_lambda_from_m(m1,eos_fam)
+       m2=lalsimutils.mass2(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
+       if m2/lal.MSUN_SI < anEOS.mMaxMsun:
+           grid_tmp[i,lam2_indx]=my_eos_sequence.lambda_of_m_indx.lambda_from_m(m2, random_event_indx[i])
+
+   grid = grid_tmp
 
 grid_out, P_list = evaluate_overlap_on_grid(hfBase, param_names, grid)
 if len(grid_out)==0:
