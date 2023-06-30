@@ -269,6 +269,8 @@ if opts.condor_local_nonworker:
 if opts.condor_nogrid_nonworker:
     no_worker_grid=True
 
+if not opts.cip_explode_jobs_last:  # set realistic default, if not specified
+    opts.cip_explode_jobs_last = opts.cip_explode_jobs
 
 working_dir_inside_local = working_dir_inside = opts.working_directory
 working_dir_inside_cip = working_dir_inside_local
@@ -956,7 +958,7 @@ else:
            cip_args_extra = cip_args_extra.replace('my_fit','my_fit.pkl')
            # if the last set of workers, we are making extrinsic samples, so change the output samples  
            if indx == len(cip_args_lines) -1 and opts.last_iteration_extrinsic: # on last iteration, doing extrinsic phase
-               n_samples_per_job = int(opts.last_iteration_extrinsic_nsamples/(1.0*opts.cip_explode_jobs))
+               n_samples_per_job = int(opts.last_iteration_extrinsic_nsamples/(1.0*opts.cip_explode_jobs_last))
                cip_args_extra +=" --n-eff {} --n-output-samples {} ".format(n_samples_per_job,n_samples_per_job)
            transfer_files_cip=['../all.net']
            if opts.use_osg_cip and 'fit-method gp' in cip_args_base:
