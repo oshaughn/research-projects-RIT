@@ -23,7 +23,7 @@ my_digits=7  # safety for high-SNR BNS
 import argparse
 parser = argparse.ArgumentParser(usage="util_CleanILE.py fname1.dat fname2.dat ... ")
 parser.add_argument("fname",action='append',nargs='+')
-parser.add_argument("--combination",default='average',help='average|sum, depends on if we treat them as independent trials of the same quantity or independent')
+parser.add_argument("--combination",default='average',help='average|sum|product, depends on if we treat them as independent trials of the same quantity or independent')
 opts = parser.parse_args()
 
 #print opts.fname
