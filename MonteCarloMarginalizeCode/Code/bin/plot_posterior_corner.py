@@ -21,6 +21,7 @@ from RIFT.misc.samples_utils import add_field, extract_combination_from_LI, stan
 import lal
 import numpy as np
 import argparse
+import numpy.lib.recfunctions as rfn
 
 eos_param_names = ['logp1', 'gamma1','gamma2', 'gamma3', 'R1_km', 'R2_km']
 
@@ -477,6 +478,7 @@ if opts.composite_file:
         samples = np.loadtxt(fname,dtype=composite_dtype)  # Names are not always available
     else:
         samples = np.genfromtxt(fname,names=True)
+        samples = rfn.rename_fields(samples, {'sigmalnL': 'sigmaOverL'})   # standardize names, some drift in labels
     samples = samples[ ~np.isnan(samples["lnL"])] # remove nan likelihoods -- they can creep in with poor settings/overflows
     name_ref = samples.dtype.names[0]
     if opts.sigma_cut >0:
