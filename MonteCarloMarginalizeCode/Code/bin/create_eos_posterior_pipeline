@@ -331,7 +331,7 @@ con_marg_job.write_sub_file()
 #  - skip for now, just have one event at firsty ==>? SONOT QUTE CORRECT because likelihoods are averaged, which reduces net significance.  FIXME: two-stage process
 with open("con_prod.sh",'w') as f:
     f.write("""#! /bin/bash
-{} --combination sum {}/iteration_$1_marg/consolidated_*_*.net_marg  > {}/consolidated_$1.net_marg
+{} --combination product {}/iteration_$1_marg/consolidated_*_*.net_marg  > {}/consolidated_$1.net_marg
 """.format(dag_utils.which('util_HyperCombine.py'),opts.working_directory,opts.working_directory) )
     os.system("chmod a+x con_prod.sh")
 
