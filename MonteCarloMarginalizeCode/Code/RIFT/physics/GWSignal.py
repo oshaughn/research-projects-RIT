@@ -126,3 +126,88 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
         hlmT[mode] = h
 
     return hlmT
+
+
+
+#
+# Functions to generate waveforms
+#
+def hoft(P, Fp=None, Fc=None):
+    """
+    Generate a TD waveform from ChooseWaveformParams P
+    Based on https://git.ligo.org/waveforms/reviews/newwfinterface/-/blob/main/example_usage/example_usage_using_gwsignal_in_lalsimulation.ipynb
+    You may pass in antenna patterns Fp, Fc. If none are provided, they will
+    be computed from the information in ChooseWaveformParams.
+
+    Returns a REAL8TimeSeries object
+    """
+
+    # special sauce for EOB, because it is so finicky regarding
+    if P.approx == lalsim.EOBNRv2HM and P.m1 == P.m2:
+#        print " Using ridiculous tweak for equal-mass line EOB"
+        P.m2 = P.m1*(1-1e-6)
+    extra_params = P.to_lal_dict()
+
+
+    assert (not np.isnan(P.m1)) and (not np.isnan(P.m2)), " masses are NaN "
+    taper=0
+    if P.taper != lalsim.SIM_INSPIRAL_TAPER_NONE:
+        taper = 1
+    python_dict = {'mass1' : P.m1/lal.MSUN_SI * u.solMass,
+              'mass2' : P.m2/lal.MSUN_SI * u.solMass,
+              'spin1x' : P.s1x*u.dimensionless_unscaled,
+              'spin1y' : P.s1y*u.dimensionless_unscaled,
+              'spin1z' : P.s1z*u.dimensionless_unscaled,
+              'spin2x' : P.s2x*u.dimensionless_unscaled,
+              'spin2y' : P.s2y*u.dimensionless_unscaled,
+              'spin2z' : P.s2z*u.dimensionless_unscaled,
+              'deltaT' : P.deltaT*u.s,
+              'f22_start' : P.fmin*u.Hz,
+              'f22_ref': P.fref*u.Hz,
+              'phi_ref' : P.phiref*u.rad,
+              'distance' : P.dist/(1e6*lal.PC_SI)*u.Mpc,
+              'inclination' : P.incl*u.rad,
+              'eccentricity' : P.eccentricity*u.dimensionless_unscaled,
+              'longAscNodes' : P.psi*u.rad,
+              'meanPerAno' : P.meanPerAno*u.rad,
+              'condition' : taper}
+    if 'lmax_nyquist' in kwargs:
+        python_dict['lmax_nyquist'] = kwargs['lmax_nyquist']
+
+    # if needed
+#    lal_dict = gws.core.utils.to_lal_dict(python_dict)
+
+    approx_string_here = approx_string
+    if not(approx_string):
+        approx_string_here = lalsim.GetStringFromApproximant(P.approx)
+
+    # Fork on calling different generators
+    gen = gws.models.gwsignal_get_waveform_generator(approx_string_here)
+
+    hp, hc = gwsignal.core.waveform.GenerateTDWaveform(python_dict, gen)
+
+    if Fp!=None and Fc!=None:
+        hp.data.data *= Fp
+        hc.data.data *= Fc
+        hp = lal.AddREAL8TimeSeries(hp, hc)
+        ht = hp
+    elif P.radec==False:
+        fp = Fplus(P.theta, P.phi, P.psi)
+        fc = Fcross(P.theta, P.phi, P.psi)
+        hp.data.data *= fp
+        hc.data.data *= fc
+        hp = lal.AddREAL8TimeSeries(hp, hc)
+        ht = hp
+    else:
+        hp.epoch = hp.epoch + P.tref
+        hc.epoch = hc.epoch + P.tref
+        ht = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc, 
+                P.phi, P.theta, P.psi, 
+                lalsim.DetectorPrefixToLALDetector(str(P.detector)))
+    if P.taper != lsu_TAPER_NONE: # Taper if requested
+        lalsim.SimInspiralREAL8WaveTaper(ht.data, P.taper)
+    if P.deltaF is not None:
+        TDlen = int(1./P.deltaF * 1./P.deltaT)
+        assert TDlen >= ht.data.length
+        ht = lal.ResizeREAL8TimeSeries(ht, 0, TDlen)
+    return ht
