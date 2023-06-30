@@ -3443,8 +3443,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
         # Create a taper, matching exactly what is used in hoft
         hp = lal.CreateREAL8TimeSeries('junk',
-                    lal.LIGOTimeGPS(0.), 0., P.deltaT,
+                    lal.LIGOTimeGPS(0.), 1., P.deltaT,
                     lsu_DimensionlessUnit, len(hlm[(2,2)]) )
+        hp.data.data = np.ones(len(hp.data.data))
         lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
         # apply taper to all modes
         for mode in hlm:
