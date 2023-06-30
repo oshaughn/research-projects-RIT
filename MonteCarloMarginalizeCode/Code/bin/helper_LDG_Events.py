@@ -1511,16 +1511,20 @@ if opts.propose_fit_strategy:
         puff_max_it= np.sum(n_its) # puff all the way to the end
     elif opts.internal_tabular_eos_file:
         helper_cip_args = " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
+        helper_cip_args+= " --parameter-implied LambdaTilde "
         for indx in np.arange(len(helper_cip_arg_list)):
-            helper_cip_arg_list[indx] += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
+            helper_cip_arg_list[indx] += " --parameter-implied LambdaTilde --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
+        helper_cip_arg_list[-1] += "  --parameter-implied DeltaLambdaTilde "
     elif opts.assume_matter_eos:
         helper_cip_args += "  --input-tides --using-eos {} ".format(opts.assume_matter_eos)
+        helper_cip_args+= " --parameter-implied LambdaTilde "
         if opts.assume_matter_but_primary_bh:
             helper_cip_args += " --assume-eos-but-primary-bh "
         for indx in np.arange(len(helper_cip_arg_list)):
-            helper_cip_args_list[indx] += " --using-eos {} ".format(opts.assume_matter_eos)
+            helper_cip_arg_list[indx] += " --input-tides  --parameter-implied LambdaTilde --using-eos {} ".format(opts.assume_matter_eos)
             if opts.assume_matter_but_primary_bh:
-                helper_cip_args_list[indx] += " --assume-eos-but-primary-bh "
+                helper_cip_arg_list[indx] += " --assume-eos-but-primary-bh "
+        helper_cip_arg_list[-1] += "  --parameter-implied DeltaLambdaTilde "
 # lnL-offset was already enforced
 #    if opts.internal_fit_strategy_enforces_cut:
 #        for indx in np.arange(len(helper_cip_arg_list))[1:]:

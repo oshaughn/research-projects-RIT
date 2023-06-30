@@ -224,6 +224,7 @@ parser.add_argument("--input-distance",action='store_true',help="Use input forma
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
 parser.add_argument("--fname-output-integral",default="integral_result",help="output filename for integral result. Postfixes appended")
+parser.add_argument("--no-save-samples",action='store_true')
 parser.add_argument("--approx-output",default="SEOBNRv2", help="approximant to use when writing output XML files.")
 parser.add_argument("--amplitude-order",default=-1,type=int,help="Set ampO for grid. Used in PN")
 parser.add_argument("--phase-order",default=7,type=int,help="Set phaseO for grid. Used in PN")
@@ -396,6 +397,7 @@ if opts.using_eos!=None:
             eos_base = EOSManager.EOSLindblomSpectral(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
             my_eos=eos_base
         elif opts.eos_param == 'cs_spectral' and len(spec_param_array >=4):
+            spec_params ={}
             spec_params['gamma1']=spec_param_array[0]
             spec_params['gamma2']=spec_param_array[1]
             spec_params['gamma3']=spec_params['gamma4']=0
@@ -404,6 +406,7 @@ if opts.using_eos!=None:
             eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
             my_eos = eos_base
         elif opts.eos_param == 'PP' and len(spec_param_array >=4):
+            spec_params ={}
             spec_params['logP1'] = spec_param_array[0]
             spec_params['gamma1'] = spec_param_array[1]
             spec_params['gamma2'] = spec_param_array[2]
@@ -2293,7 +2296,7 @@ if len(low_level_coord_names) ==9:
         if isinstance(x,float):
             return my_fit([x,y,z,a,b,c,d,e,f]) + my_log_prior_scale([x,y,z,a,b,c,d,e,f])
         else:
-            return my_fit(convert_coords(np.c_[x,y,z,a,v,c,d,e,f]))+ my_log_prior_scale(np.c_[x,y,z,a,b,c,d,e,f])
+            return my_fit(convert_coords(np.c_[x,y,z,a,b,c,d,e,f]))+ my_log_prior_scale(np.c_[x,y,z,a,b,c,d,e,f])
 if len(low_level_coord_names) ==10:
     def likelihood_function(x,y,z,a,b,c,d,e,f,g):  
         if isinstance(x,float):
@@ -2512,6 +2515,9 @@ np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[np.log(res), np.sq
 #     file_out.write(' '.join( str_out +  ["\n"]))
 #np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
 
+
+if opts.no_save_samples:
+    sys.exit(0)
 
 if neff < len(low_level_coord_names):
     print(" PLOTS WILL FAIL ")
@@ -2889,10 +2895,10 @@ for indx_here in indx_list:
         if my_eos:
             # only define lambda1, lambda2 as parameters if they are used in sampling! Otherwise may cause problems (e.g.,we are assuming it is zero for a BH)
             if not(opts.assume_eos_but_primary_bh):
-                Pgrid.lambda1 = my_eos.lambda_of_m(Pgrid.m1/lal.MSUN_SI)
+                Pgrid.lambda1 = my_eos.lambda_from_m(Pgrid.m1/lal.MSUN_SI)
             else:
                 Pgrid.lambda1 = 0 # BH
-            Pgrid.lambda2 = my_eos.lambda_of_m(Pgrid.m2/lal.MSUN_SI)
+            Pgrid.lambda2 = my_eos.lambda_from_m(Pgrid.m2/lal.MSUN_SI)
         elif opts.tabular_eos_file:
             # save the index of the SORTED SIMULATION (because that's how I'll be accessing it!)
             eos_indx_here = my_eos_sequence.lookup_closest(samples['ordering'][indx_here])
