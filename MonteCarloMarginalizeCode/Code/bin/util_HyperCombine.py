@@ -61,15 +61,20 @@ if header_str.startswith('#'):
 for key in data_at_intrinsic:
     lnL, sigmaOverL =   np.transpose(data_at_intrinsic[key])
     lnLmax = np.max(lnL)
-    sigma = sigmaOverL*np.exp(lnL-lnLmax)  # remove overall Lmax factor, which factors out from the weights constructed from \sigma
+    if opts.combination =='product':
+        lnLnet = np.sum(lnL)
+        sigma = np.sqrt(np.sum(sigmaOverL**2))
+        print(" {} {} ".format(lnLnet, sigma) + ' '.join(map(str,key)) )
+    else:
+        sigma = sigmaOverL*np.exp(lnL-lnLmax)  # remove overall Lmax factor, which factors out from the weights constructed from \sigma
 
-    # This is an average, treating them as independent measurements
-    wts = weight_simulations.AverageSimulationWeights(None, None,sigma)   
-    lnLmeanMinusLmax = scipy.special.logsumexp((lnL - lnLmax)*wts)
-    sigmaNetOverL = (np.sqrt(1./np.sum(1./sigma/sigma)))/np.exp(lnLmeanMinusLmax)
+        # This is an average, treating them as independent measurements
+        wts = weight_simulations.AverageSimulationWeights(None, None,sigma)   
+        lnLmeanMinusLmax = scipy.special.logsumexp((lnL - lnLmax)*wts)
+        sigmaNetOverL = (np.sqrt(1./np.sum(1./sigma/sigma)))/np.exp(lnLmeanMinusLmax)
 
-    if opts.combination =='sum':
-        lnLmeanMinusLmax *= len(wts)   # not an average !
-        sigmaNetOverL *= np.sqrt(len(wts))
+        if opts.combination =='sum':
+            lnLmeanMinusLmax *= len(wts)   # not an average !
+            sigmaNetOverL *= np.sqrt(len(wts))
                               
-    print(" {} {} ".format(lnLmeanMinusLmax+lnLmax, sigmaNetOverL) + ' '.join(map(str,key)) )
+        print(" {} {} ".format(lnLmeanMinusLmax+lnLmax, sigmaNetOverL) + ' '.join(map(str,key)) )
