@@ -67,7 +67,7 @@ if header_str.startswith('#'):
 for key in data_at_intrinsic:
     if enforce_length:
         if len(data_at_intrinsic[key]) < n_terms:
-            print(" Incomplete data for {} ".format(key).file=sys.stderr)
+            print(" Incomplete data for {} ".format(key),file=sys.stderr)
     lnL, sigmaOverL =   np.transpose(data_at_intrinsic[key])
     lnLmax = np.max(lnL)
     if opts.combination =='product':
