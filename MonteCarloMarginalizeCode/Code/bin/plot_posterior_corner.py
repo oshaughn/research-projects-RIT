@@ -478,7 +478,7 @@ if opts.composite_file:
         samples = np.loadtxt(fname,dtype=composite_dtype)  # Names are not always available
     else:
         samples = np.genfromtxt(fname,names=True)
-        samples = rfn.rename_fields(samples, {'sigmalnL': 'sigmaOverL'})   # standardize names, some drift in labels
+        samples = rfn.rename_fields(samples, {'sigmalnL': 'sigmaOverL'}, {'sigma_lnL', 'sigmaOverL'})   # standardize names, some drift in labels
     samples = samples[ ~np.isnan(samples["lnL"])] # remove nan likelihoods -- they can creep in with poor settings/overflows
     name_ref = samples.dtype.names[0]
     if opts.sigma_cut >0:
