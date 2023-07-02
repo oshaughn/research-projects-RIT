@@ -26,6 +26,11 @@ parser.add_argument("fname",action='append',nargs='+')
 parser.add_argument("--combination",default='average',help='average|sum|product, depends on if we treat them as independent trials of the same quantity or independent')
 opts = parser.parse_args()
 
+n_terms = 0
+enforce_length=False
+if opts.combination != 'average':
+    enforce_length=True
+
 #print opts.fname
 from pathlib import Path
 for fname in opts.fname[0]: #sys.argv[1:]:
@@ -48,6 +53,7 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         else:
 #            print " new key ", line[1:9]
             data_at_intrinsic[tuple(line[2:])] = [line[:2]]
+        n_terms = np.max([n_terms, data_at_intrinsic[tuple(line[2:])] ])
       except:
           continue
 
@@ -59,6 +65,9 @@ with open(opts.fname[0][0],'r') as f:
 if header_str.startswith('#'):
     print(header_str)  # repeat the header, so we recapture al the syntax
 for key in data_at_intrinsic:
+    if enforce_length:
+        if len(data_at_intrinsic[key]) < n_terms:
+            print(" Incomplete data for {} ".format(key).file=sys.stderr)
     lnL, sigmaOverL =   np.transpose(data_at_intrinsic[key])
     lnLmax = np.max(lnL)
     if opts.combination =='product':
