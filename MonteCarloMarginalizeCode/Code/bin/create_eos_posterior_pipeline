@@ -172,8 +172,8 @@ if True: # not (opts.eos_post_args is None):
     eos_post_args = ' '.join(eos_post_args.split(' ')[1:])
     # Some argument protection for later.  Make sure spaces in place to avoid breaking compound arguments like g0:[a,b] for ranges.
     # intended to make sure any spaces in arguments like [a, b] are encoded as '[a, b]' 
-    eos_post_args = eos_post_args.replace(' [', '  \'[')
-    eos_post_args = eos_post_args.replace('] ', ']\' ')
+#    eos_post_args = eos_post_args.replace(' [', '  \'[')
+#    eos_post_args = eos_post_args.replace('] ', ']\' ')
     eos_post_args=eos_post_args.rstrip()
     eos_post_args += ' --no-plots '  
     print("EOS_POST", eos_post_args)
@@ -242,9 +242,9 @@ if opts.marg_event_args:
     # Modify: set 'initialdir'
     cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg")
     # Modify output argument: change logs and working directory to be subdirectory for the run
-    cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(cluster)-$(process).log")
-    cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(cluster)-$(process).err")
-    cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(cluster)-$(process).out")
+    cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(macroid)-$(cluster)-$(process).log")
+    cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(macroid)-$(cluster)-$(process).err")
+    cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(macroid)-$(cluster)-$(process).out")
     cip_job.add_condor_cmd('request_disk',opts.general_request_disk)
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+cip_job.get_sub_file()
@@ -271,9 +271,9 @@ else:
         # Modify: set 'initialdir'
         cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg")
         # Modify output argument: change logs and working directory to be subdirectory for the run
-        cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(cluster)-$(process).log")
-        cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(cluster)-$(process).err")
-        cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(cluster)-$(process).out")
+        cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(macroid)-$(cluster)-$(process).log")
+        cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(macroid)-$(cluster)-$(process).err")
+        cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(macroid)-$(cluster)-$(process).out")
         cip_job.add_condor_cmd('request_disk',opts.general_request_disk)
         if opts.use_full_submit_paths:
             fname = opts.working_directory+"/"+cip_job.get_sub_file()
@@ -286,9 +286,9 @@ else:
     # Modify: set 'initialdir'
         cipPuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg")
     # Modify output argument: change logs and working directory to be subdirectory for the run
-        cipPuff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(cluster)-$(process).log")
-        cipPuff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(cluster)-$(process).err")
-        cipPuff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(cluster)-$(process).out")
+        cipPuff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(macroevent)-$(macroid)-$(cluster)-$(process).log")
+        cipPuff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(macroevent)-$(macroid)-$(cluster)-$(process).err")
+        cipPuff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(macroevent)-$(macroid)-$(cluster)-$(process).out")
         cipPuff_job.add_condor_cmd('request_disk',opts.general_request_disk)
         if opts.use_full_submit_paths:
             fname = opts.working_directory+"/"+cipPuff_job.get_sub_file()
@@ -331,7 +331,7 @@ con_marg_job.write_sub_file()
 #  - skip for now, just have one event at firsty ==>? SONOT QUTE CORRECT because likelihoods are averaged, which reduces net significance.  FIXME: two-stage process
 with open("con_prod.sh",'w') as f:
     f.write("""#! /bin/bash
-{} --combination sum {}/iteration_$1_marg/consolidated_*_*.net_marg  > {}/consolidated_$1.net_marg
+{} --combination product {}/iteration_$1_marg/consolidated_*_*.net_marg  > {}/consolidated_$1.net_marg
 """.format(dag_utils.which('util_HyperCombine.py'),opts.working_directory,opts.working_directory) )
     os.system("chmod a+x con_prod.sh")
 
@@ -408,7 +408,7 @@ if opts.use_osg:
 # PUFF job
 #   ... pending
 if puff_args and puff_cadence:
-    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_marg,input_net=opts.working_directory+'/grid-$(macroiterationnext).dat',output=opts.working_directory+'/puffball-$(macroiterationnext).dat',out_dir=opts.working_directory,exe=opts.puff_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_marg,input_net=opts.working_directory+'/grid-$(macroiterationnext).dat',output=opts.working_directory+'/grid_puff-$(macroiterationnext).dat',out_dir=opts.working_directory,exe=opts.puff_exe,universe=local_worker_universe,no_grid=no_worker_grid)
     # Modify: set 'initialdir' to CIP WORKING DIR 
     puff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_post")
     # Modify output argument: change logs and working directory to be subdirectory for the run

@@ -23,8 +23,13 @@ my_digits=7  # safety for high-SNR BNS
 import argparse
 parser = argparse.ArgumentParser(usage="util_CleanILE.py fname1.dat fname2.dat ... ")
 parser.add_argument("fname",action='append',nargs='+')
-parser.add_argument("--combination",default='average',help='average|sum, depends on if we treat them as independent trials of the same quantity or independent')
+parser.add_argument("--combination",default='average',help='average|sum|product, depends on if we treat them as independent trials of the same quantity or independent')
 opts = parser.parse_args()
+
+n_terms = 0
+enforce_length=False
+if opts.combination != 'average':
+    enforce_length=True
 
 #print opts.fname
 from pathlib import Path
@@ -48,6 +53,7 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         else:
 #            print " new key ", line[1:9]
             data_at_intrinsic[tuple(line[2:])] = [line[:2]]
+        n_terms = np.max([n_terms, data_at_intrinsic[tuple(line[2:])] ])
       except:
           continue
 
@@ -59,17 +65,25 @@ with open(opts.fname[0][0],'r') as f:
 if header_str.startswith('#'):
     print(header_str)  # repeat the header, so we recapture al the syntax
 for key in data_at_intrinsic:
+    if enforce_length:
+        if len(data_at_intrinsic[key]) < n_terms:
+            print(" Incomplete data for {} ".format(key),file=sys.stderr)
     lnL, sigmaOverL =   np.transpose(data_at_intrinsic[key])
     lnLmax = np.max(lnL)
-    sigma = sigmaOverL*np.exp(lnL-lnLmax)  # remove overall Lmax factor, which factors out from the weights constructed from \sigma
+    if opts.combination =='product':
+        lnLnet = np.sum(lnL)
+        sigma = np.sqrt(np.sum(sigmaOverL**2))
+        print(" {} {} ".format(lnLnet, sigma) + ' '.join(map(str,key)) )
+    else:
+        sigma = sigmaOverL*np.exp(lnL-lnLmax)  # remove overall Lmax factor, which factors out from the weights constructed from \sigma
 
-    # This is an average, treating them as independent measurements
-    wts = weight_simulations.AverageSimulationWeights(None, None,sigma)   
-    lnLmeanMinusLmax = scipy.special.logsumexp((lnL - lnLmax)*wts)
-    sigmaNetOverL = (np.sqrt(1./np.sum(1./sigma/sigma)))/np.exp(lnLmeanMinusLmax)
+        # This is an average, treating them as independent measurements
+        wts = weight_simulations.AverageSimulationWeights(None, None,sigma)   
+        lnLmeanMinusLmax = scipy.special.logsumexp((lnL - lnLmax)*wts)
+        sigmaNetOverL = (np.sqrt(1./np.sum(1./sigma/sigma)))/np.exp(lnLmeanMinusLmax)
 
-    if opts.combination =='sum':
-        lnLmeanMinusLmax *= len(wts)   # not an average !
-        sigmaNetOverL *= np.sqrt(len(wts))
+        if opts.combination =='sum':
+            lnLmeanMinusLmax *= len(wts)   # not an average !
+            sigmaNetOverL *= np.sqrt(len(wts))
                               
-    print(" {} {} ".format(lnLmeanMinusLmax+lnLmax, sigmaNetOverL) + ' '.join(map(str,key)) )
+        print(" {} {} ".format(lnLmeanMinusLmax+lnLmax, sigmaNetOverL) + ' '.join(map(str,key)) )
