@@ -77,6 +77,9 @@ class EOSConcrete:
         if m<10**15:
             m=m*lal.MSUN_SI
 
+        if m/lal.MSUN_SI > 0.999*self.mMaxMsun:
+            return 1e-8  # not exactly zero, but tiny
+
         k2=lalsim.SimNeutronStarLoveNumberK2(m, eos_fam)
         r=lalsim.SimNeutronStarRadius(m, eos_fam)
 

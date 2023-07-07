@@ -581,6 +581,9 @@ if len(dlist) != len(dlist_ranges):
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
+# If using an EOS, reject samples that are out of range for that EOS (remember, we interpolate!)
+if my_eos:
+    print(" WARNING: output not enforcing masses consistent with EOS maximum mass! Returning nearly zero tides in this case, but will run. ")
 
 chi_max = opts.chi_max
 chi_small_max = chi_max
