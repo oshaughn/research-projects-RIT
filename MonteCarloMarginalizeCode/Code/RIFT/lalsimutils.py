@@ -3449,7 +3449,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
         # apply taper to all modes
         for mode in hlm:
-            hlm[mode].data.data*= hp.data
+            hlm[mode].data.data*= hp.data.data
 
         return hlm
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
