@@ -19,6 +19,9 @@ Since last release
    - misc hyperpipe/hyperpuff/CEP fixes (filenames/interface issues); plot_posterior_corner allow for composite with
      labelled fields; lalsimutils convert_vector_coordinates prevent fallthrough to non-vectorized; CIP 9-parameter fit
      variable typo; pipeline transfer gp pickle if on OSG; various int casts for modern / in python (rc5)
+   - plot_posterior_corner can use composite files with labelled fields; hypercombine product outcome, length
+     consistency; EOSManager protect lambda_from_m for BHs; hyperpipe handoffs; CEPP set n_eff ofor last iteration
+     tied to cip-explode-jobs-last (rc6)
 
 0.0.15.8
 -----------
