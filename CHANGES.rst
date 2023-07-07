@@ -22,6 +22,7 @@ Since last release
    - plot_posterior_corner can use composite files with labelled fields; hypercombine product outcome, length
      consistency; EOSManager protect lambda_from_m for BHs; hyperpipe handoffs; CEPP set n_eff ofor last iteration
      tied to cip-explode-jobs-last (rc6)
+release is rc6
 
 0.0.15.8
 -----------
