@@ -872,10 +872,10 @@ elif opts.tabular_eos_file:
    for i in range(0,npts): # Ridiculously inefficient
        # fail to assign anything if m1 or m2 is out of range
        m1=lalsimutils.mass1(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
-       if m1/lal.MSUN_SI < anEOS.mMaxMsun:
+       if m1/lal.MSUN_SI < my_eos_sequence.m_max_of_indx(random_event_indx[i]):
            grid_tmp[i,lam1_indx]= my_eos_sequence.lambda_of_m_indx.lambda_from_m(m1, random_event_indx[i])  # calc_lambda_from_m(m1,eos_fam)
        m2=lalsimutils.mass2(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
-       if m2/lal.MSUN_SI < anEOS.mMaxMsun:
+       if m2/lal.MSUN_SI < my_eos_sequence.m_max_of_indx(random_event_indx[i]):
            grid_tmp[i,lam2_indx]=my_eos_sequence.lambda_of_m_indx.lambda_from_m(m2, random_event_indx[i])
 
    grid = grid_tmp
