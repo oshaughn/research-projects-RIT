@@ -21,6 +21,11 @@ import itertools
 
 import joblib  # http://scikit-learn.org/stable/modules/model_persistence.html
 
+# GPU acceleration: NOT YET, just do usual
+xpy_default=numpy  # just in case, to make replacement clear and to enable override
+identity_convert = lambda x: x  # trivial return itself
+cupy_success=False
+
 no_plots = True
 internal_dtype = np.float32  # only use 32 bit storage! Factor of 2 memory savings for GP code in high dimensions
 
@@ -49,6 +54,20 @@ from ligo.lw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 import RIFT.integrators.mcsampler as mcsampler
+try:
+    import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
+    mcsampler_gmm_ok = True
+except:
+    print(" No mcsamplerEnsemble ")
+    mcsampler_gmm_ok = False
+try:
+    import RIFT.integrators.mcsamplerGPU as mcsamplerGPU
+    mcsampler_gpu_ok = True
+    mcsamplerGPU.xpy_default =xpy_default  # force consistent, in case GPU present
+    mcsamplerGPU.identity_convert = identity_convert
+except:
+    print( " No mcsamplerGPU ")
+    mcsampler_gpu_ok = False
 
 
 
@@ -121,7 +140,7 @@ parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial
 parser.add_argument("--no-plots",action='store_true')
 parser.add_argument("--using-eos-type", type=str, default=None, help="Name of EOS parameterization (must match what is used for inputs). Will use EOS parameterization to identify appropriate field headers")
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
-parser.add_argument("--internal-use-lnL",action='store_true',help="integrator internally manipulates lnL. ")
+parser.add_argument("--internal-use-lnL",action='store_true',help="integrator internally manipulates lnL..   ")
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
 parser.add_argument("--internal-n-comp",default=1,type=int,help="number of components to use for GMM sampling. Default is 1, because we expect a unimodal posterior in well-adapted coordinates.  If you have crappy coordinates, use more")
 parser.add_argument("--force-no-adapt",action='store_true',help="Disable adaptation, both of the tempering exponent *and* the individual sampling prior(s)")
@@ -133,6 +152,10 @@ parser.add_argument("--supplementary-likelihood-factor-code", default=None,type=
 parser.add_argument("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external likelihood. EXPERTS ONLY")
 parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
 opts=  parser.parse_args()
+
+print(" WARNING: Always use internal_use_lnL for now ")
+opts.internal_use_lnL=True
+
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
@@ -213,7 +236,7 @@ param_ranges = {}
 for range_code  in opts.integration_parameter_range:
     name, range_str  = range_code.split(':')
     range_expr =     eval(range_str)  # define. Better to split on , for example
-    param_ranges[name]  = range_expr
+    param_ranges[name]  = np.array(range_expr)
 
 # Add in integration range for everything else, if nothing specified
 for name in dat_orig_names:
@@ -421,6 +444,8 @@ dat_out= np.array(dat_out)
 # Repack data
 X =dat_out[:,0:len(coord_names)]
 Y = dat_out[:,-2]
+if np.max(Y)<0 and lnL_shift ==0: 
+    lnL_shift  = -100 - np.max(Y)   # force it to be offset/positive -- may help some configurations. Remember our adaptivity is silly.
 Y_err = dat_out[:,-1]
 # Save copies for later (plots)
 X_orig = X.copy()
@@ -496,6 +521,18 @@ Y=Y[indx]
 
 
 sampler = mcsampler.MCSampler()
+if opts.sampler_method == "adaptive_cartesian_gpu":
+    sampler = mcsamplerGPU.MCSampler()
+    sampler.xpy = xpy_default
+    sampler.identity_convert=identity_convert
+    mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
+
+    # if opts.sampler_xpy == "numpy":
+    #   mcsampler.set_xpy_to_numpy()
+    #   sampler.xpy= numpy
+    #   sampler.identity_convert= lambda x: x
+if opts.sampler_method == "GMM":
+    sampler = mcsamplerEnsemble.MCSampler()
 
 
 ##
@@ -508,14 +545,17 @@ for p in coord_names:
     sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=True)
 
 likelihood_function = None
+log_likelihood_function = None
 def convert_coords(x):
     return x
+def log_likelihood_function(*args):
+    return my_fit(convert_coords(np.array([*args])))
+
 if len(coord_names) ==1:
     def likelihood_function(x):  
         if isinstance(x,float):
             return np.exp(my_fit([x]))
         else:
-#            return np.exp(my_fit(convert_coords(np.array([x],dtype=internal_dtype).T) ))
             return np.exp(my_fit(convert_coords(np.c_[x])))
 if len(coord_names) ==2:
     def likelihood_function(x,y):  
@@ -582,6 +622,8 @@ if len(coord_names) ==10:
 
 n_step = 1e5
 my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
+if np.max(Y_orig) < 0:   # for now, don't use a weight exponent if we are negative: can't use guess based from GW experience
+    my_exp = 1
 #my_exp = np.max([my_exp,  1/np.log(n_step)]) # do not allow extreme contrast in adaptivity, to the point that one iteration will dominate
 print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto")
 
@@ -620,10 +662,8 @@ if opts.sampler_method == "GMM":
     else:
         param_indexes = range(len(low_level_coord_names))
         gmm_dict  = {(k,):None for k in param_indexes} # no correlations
-    if opts.internal_gmm_memory_chisquared_factor:
-        lnL_offset_saving = len(low_level_coord_names)*opts.internal_gmm_memory_chisquared_factor  # based on chisquared distribution, we should not be keeping more than this for output.  This is PURELY FOR MEMORY MANAGEMENT
-    else:
-        lnL_offset_saving = opts.lnL_offset
+#    lnL_offset_saving = opts.lnL_offset
+    lnL_offset_saving = -20  # for simplicity, hardcode for now for preserving points
     extra_args = {'n_comp':n_comp,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - lnL_offset_saving)),'gmm_dict':gmm_dict,'max_err':50}  # made up for now, should adjust
 extra_args.update({
     "n_adapt": 100, # Number of chunks to allow adaption over
