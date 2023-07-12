@@ -261,6 +261,7 @@ class MCSampler(object):
         gmm_epsilon = kwargs['gmm_epsilon'] if "gmm_epsilon" in kwargs else None
         L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 1.0
+        lnw_failure_cut = kwargs["lnw_failure_cut"] if "lnw_failure_cut" in kwargs else None
 #        tempering_exp = kwargs["adapt_weight_exponent"] if "adapt_weight_exponent" in kwargs else 1.0
 
         max_err = kwargs["max_err"] if "max_err" in kwargs else 10  # default
@@ -324,7 +325,7 @@ class MCSampler(object):
             print(" ==> input assumed as lnL ")
         if return_lnI:
             print(" ==> internal calculations and return values are lnI ")
-        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,verbose=verbose,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsion=tripwire_epsilon,use_lnL=use_lnL,return_lnI=return_lnI)
+        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,verbose=verbose,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsion=tripwire_epsilon,use_lnL=use_lnL,return_lnI=return_lnI,lnw_failure_cut=lnw_failure_cut)
 
         # get results
 

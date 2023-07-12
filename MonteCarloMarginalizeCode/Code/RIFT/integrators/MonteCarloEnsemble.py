@@ -61,7 +61,7 @@ class integrator:
     '''
 
     def __init__(self, d, bounds, gmm_dict, n_comp, n=None, prior=None,
-                user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,return_lnI=False,gmm_adapt=None,gmm_epsilon=None,tempering_exp=1,temper_log=False):
+                user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,return_lnI=False,gmm_adapt=None,gmm_epsilon=None,tempering_exp=1,temper_log=False,lnw_failure_cut=None):
         # if 'return_lnI' is active, 'integral' holds the *logarithm* of the integral.
         # user-specified parameters
         self.d = d
@@ -90,6 +90,10 @@ class integrator:
         self.scaled_error_squared = 0.
         if self.return_lnI:
             self.scaled_error_squared = None
+        if not(lnw_failure_cut):
+            self.terrible_lnw_threshold = -1000
+        else:
+            self.terrible_lnw_threshold = lnw_failure_cut
         self.log_error_scale_factor = 0.
         self.integral = 0
         if self.return_lnI:
@@ -218,9 +222,10 @@ class integrator:
         if np.any(np.isnan(log_weights)):
             print(" NAN weight ")
             raise ValueError
-        if np.max(log_weights) <-1000:  #this is a terrible fit
-           print(" TERRIBLE FIT ")
-           raise ValueError
+        if self.terrible_lnw_threshold: 
+            if np.max(log_weights) <self.terrible_lnw_threshold:  #this is a terrible fit. Note the ABSOLUTE SCALE, which is problem dependent!
+                print(" TERRIBLE FIT ")
+                raise ValueError
 
         # do a shift so that the highest log weight is 0, keeping track of the shift
         log_scale_factor = np.max(log_weights) # don't insert nan here
