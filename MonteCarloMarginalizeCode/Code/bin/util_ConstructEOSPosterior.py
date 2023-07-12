@@ -131,6 +131,7 @@ parser.add_argument("--lnL-peak-insane-cut",type=float,default=np.inf,help="Thro
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
 parser.add_argument("--n-max",default=3e5,type=float)
+parser.add_argument("--n-step",default=1e5,type=int)
 parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
 parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde.  Note 'polynomial' with --fit-order 0  will fit a constant")
@@ -620,7 +621,7 @@ if len(coord_names) ==10:
 
 
 
-n_step = 1e5
+n_step = opts.n_step
 my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
 if np.max(Y_orig) < 0:   # for now, don't use a weight exponent if we are negative: can't use guess based from GW experience
     my_exp = 1
@@ -652,8 +653,9 @@ if opts.sampler_method == "GMM":
         my_blocks = opts.internal_correlate_parameters.split()
         my_tuples = list(map( parse_corr_params, my_blocks))
         gmm_dict = {x:None for x in my_tuples}
+        print(" GMM: Proposed correlated ", gmm_dict)
         # What about un-labelled parameters? Make a null tuple for them as well
-        correlated_params = set(()); correlated_params = correlated_params.union( *list(map(set,my_tuples)))
+        correlated_params = set(); correlated_params = correlated_params.union( *list(map(set,my_tuples)))
         uncorrelated_params = set(np.arange(len(low_level_coord_names))); 
         uncorrelated_params = uncorrelated_params.difference(correlated_params)
         for x in uncorrelated_params:
@@ -664,6 +666,7 @@ if opts.sampler_method == "GMM":
         gmm_dict  = {(k,):None for k in param_indexes} # no correlations
 #    lnL_offset_saving = opts.lnL_offset
     lnL_offset_saving = -20  # for simplicity, hardcode for now for preserving points
+    print("GMM ", gmm_dict)
     extra_args = {'n_comp':n_comp,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - lnL_offset_saving)),'gmm_dict':gmm_dict,'max_err':50}  # made up for now, should adjust
 extra_args.update({
     "n_adapt": 100, # Number of chunks to allow adaption over
@@ -685,14 +688,6 @@ if opts.internal_use_lnL:
 
 res, var, neff, dict_return = sampler.integrate(fn_passed, *coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True,**extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
-n_ESS = -1
-if True:
-    # Compute n_ESS.  Should be done by integrator!
-    weights_scaled = sampler._rvs["integrand"]*sampler._rvs["joint_prior"]/sampler._rvs["joint_s_prior"]
-    weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
-    n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
-    print(" n_eff n_ESS ", neff, n_ESS)
-
 
 # Save result -- needed for odds ratios, etc.
 np.savetxt("integral_result.dat", [np.log(res)])
@@ -702,14 +697,25 @@ if neff < len(coord_names):
     print(" Not enough independent Monte Carlo points to generate useful contours")
 
 
-
-
 samples = sampler._rvs
 print(samples.keys())
 n_params = len(coord_names)
 dat_mass = np.zeros((len(samples[coord_names[0]]),n_params+3))
-dat_logL = np.log(samples["integrand"])
+if not(opts.internal_use_lnL):
+    dat_logL = np.log(samples["integrand"])
+else:
+    dat_logL = samples["integrand"]
+lnLmax = np.max(dat_logL[np.isfinite(dat_logL)])
 print(" Max lnL ", np.max(dat_logL))
+
+n_ESS = -1
+if True:
+    # Compute n_ESS.  Should be done by integrator!
+    weights_scaled = np.exp(dat_logL - lnLmax)*sampler._rvs["joint_prior"]/sampler._rvs["joint_s_prior"]
+    weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
+    n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
+    print(" n_eff n_ESS ", neff, n_ESS)
+
 
 # Throw away stupid points that don't impact the posterior
 indx_ok = np.logical_and(dat_logL > np.max(dat_logL)-opts.lnL_offset ,samples["joint_s_prior"]>0)
