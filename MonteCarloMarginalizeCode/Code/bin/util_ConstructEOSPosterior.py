@@ -550,7 +550,7 @@ log_likelihood_function = None
 def convert_coords(x):
     return x
 def log_likelihood_function(*args):
-    return my_fit(convert_coords(np.array([*args])))
+    return my_fit(convert_coords(np.array([*args]).T ))
 
 if len(coord_names) ==1:
     def likelihood_function(x):  
@@ -667,7 +667,7 @@ if opts.sampler_method == "GMM":
 #    lnL_offset_saving = opts.lnL_offset
     lnL_offset_saving = -20  # for simplicity, hardcode for now for preserving points
     print("GMM ", gmm_dict)
-    extra_args = {'n_comp':n_comp,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - lnL_offset_saving)),'gmm_dict':gmm_dict,'max_err':50}  # made up for now, should adjust
+    extra_args = {'n_comp':n_comp,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - lnL_offset_saving)),'gmm_dict':gmm_dict,'max_err':50, 'lnw_failure_cut':-np.inf}  # made up for now, should adjust
 extra_args.update({
     "n_adapt": 100, # Number of chunks to allow adaption over
     "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1D histograms with, 
@@ -704,21 +704,33 @@ dat_mass = np.zeros((len(samples[coord_names[0]]),n_params+3))
 if not(opts.internal_use_lnL):
     dat_logL = np.log(samples["integrand"])
 else:
-    dat_logL = samples["integrand"]
+    if 'log_integrand' in samples:
+        dat_logL = samples['log_integrand']
+    else:
+        dat_logL = samples["integrand"]
 lnLmax = np.max(dat_logL[np.isfinite(dat_logL)])
 print(" Max lnL ", np.max(dat_logL))
 
 n_ESS = -1
 if True:
     # Compute n_ESS.  Should be done by integrator!
-    weights_scaled = np.exp(dat_logL - lnLmax)*sampler._rvs["joint_prior"]/sampler._rvs["joint_s_prior"]
+    if 'log_joint_s_prior' in  samples:
+        weights_scaled = np.exp(dat_logL - lnLmax + samples["log_joint_prior"] - samples["log_joint_s_prior"])
+        # dictionary, write this to enable later use of it
+        samples["joint_s_prior"] = np.exp(samples["log_joint_s_prior"])
+        samples["joint_prior"] = np.exp(samples["log_joint_prior"])
+    else:
+        weights_scaled = np.exp(dat_logL - lnLmax)*sampler._rvs["joint_prior"]/sampler._rvs["joint_s_prior"]
     weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
     n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
     print(" n_eff n_ESS ", neff, n_ESS)
 
 
 # Throw away stupid points that don't impact the posterior
-indx_ok = np.logical_and(dat_logL > np.max(dat_logL)-opts.lnL_offset ,samples["joint_s_prior"]>0)
+indx_ok = np.ones(len(dat_logL),dtype=bool)
+if not('log_joint_s_prior' in samples):
+    indx_ok=samples["joint_s_prior"]>0
+indx_ok = np.logical_and(dat_logL > np.max(dat_logL)-opts.lnL_offset ,indx_ok)
 for p in coord_names:
     samples[p] = samples[p][indx_ok]
 dat_logL  = dat_logL[indx_ok]
