@@ -667,7 +667,7 @@ if opts.sampler_method == "GMM":
 #    lnL_offset_saving = opts.lnL_offset
     lnL_offset_saving = -20  # for simplicity, hardcode for now for preserving points
     print("GMM ", gmm_dict)
-    extra_args = {'n_comp':n_comp,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - lnL_offset_saving)),'gmm_dict':gmm_dict,'max_err':50, 'lnw_failure_cut':-np.inf}  # made up for now, should adjust
+    extra_args = {'n_comp':n_comp,'max_iter':n_max_blocks,'L_cutoff': None,'gmm_dict':gmm_dict,'max_err':50, 'lnw_failure_cut':-np.inf}  # made up for now, should adjust
 extra_args.update({
     "n_adapt": 100, # Number of chunks to allow adaption over
     "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1D histograms with, 
