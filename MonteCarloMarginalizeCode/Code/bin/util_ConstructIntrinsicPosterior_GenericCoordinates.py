@@ -2425,14 +2425,6 @@ if opts.internal_temper_log:
 res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 
-n_ESS = -1
-if True:
-    # Compute n_ESS.  Should be done by integrator!
-    weights_scaled = sampler._rvs["integrand"]*sampler._rvs["joint_prior"]/sampler._rvs["joint_s_prior"]
-    weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
-    n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
-    print(" n_eff n_ESS ", neff, n_ESS)
-
 # Test n_eff threshold
 if not (opts.fail_unless_n_eff is None):
     if neff < opts.fail_unless_n_eff   and not(opts.not_worker):     # if we need the output to continue:
@@ -2477,10 +2469,13 @@ if neff < opts.n_eff:
         sys.exit(0)
 
 
-
 # Save result -- needed for odds ratios, etc.
 #   Warning: integral_result.dat uses *original* prior, before any reweighting
 np.savetxt(opts.fname_output_integral+".dat", [np.log(res)+lnL_shift])
+
+
+
+
 eos_extra = []
 annotation_header = "lnL sigmaL neff "
 if opts.using_eos and not(opts.using_eos.startswith('file:')):
@@ -2527,8 +2522,6 @@ if neff < len(low_level_coord_names):
     print(" Not enough independent Monte Carlo points to generate useful contours")
 
 
-
-
 samples = sampler._rvs
 print(samples.keys())
 n_params = len(coord_names)
@@ -2539,8 +2532,21 @@ else:
     dat_logL = samples["integrand"]
 lnLmax = np.max(dat_logL[np.isfinite(dat_logL)])
 print(" Max lnL ", np.max(dat_logL))
-if opts.lnL_protect_overflow:
-    lnL_shift = lnLmax - 100.
+
+n_ESS = -1
+if True:
+    # Compute n_ESS.  Should be done by integrator!
+    if 'log_joint_s_prior' in  samples:
+        weights_scaled = np.exp(dat_logL - lnLmax + samples["log_joint_prior"] - samples["log_joint_s_prior"])
+        # dictionary, write this to enable later use of it
+        samples["joint_s_prior"] = np.exp(samples["log_joint_s_prior"])
+        samples["joint_prior"] = np.exp(samples["log_joint_prior"])
+    else:
+        weights_scaled = np.exp(dat_logL - lnLmax)*sampler._rvs["joint_prior"]/sampler._rvs["joint_s_prior"]
+    weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
+    n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
+    print(" n_eff n_ESS ", neff, n_ESS)
+
 
 # Throw away stupid points that don't impact the posterior
 indx_ok = np.logical_and(dat_logL > lnLmax-opts.lnL_offset ,samples["joint_s_prior"]>0)
