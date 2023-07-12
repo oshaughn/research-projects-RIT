@@ -33,8 +33,6 @@ parser.add_argument("--working-directory",default="./")
 parser.add_argument("--input-grid",default=None,help="EOS parameters ")
 parser.add_argument("--event-file",default=None,action='append',help="Specify the events here.  Will be copied into 'event-X.net' ")
 parser.add_argument("--marg-event-args",default=None,help="filename of args_marg_event.txt file  which holds CIP arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified.   ")
-parser.add_argument("--marg-explode-jobs",default=2,type=int,help="Number of MARG jobs to use in posterior generation.")
-parser.add_argument("--marg-explode-jobs-last",default=2,type=int,help="Number of MARG jobs to use in posterior generation on the final stage (if desired).")
 parser.add_argument("--marg-event-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
 parser.add_argument("--marg-event-exe-list-file",default=None,help="filename of a file containing a LIST of exe ")
 parser.add_argument("--marg-event-args-list-file",default=None,help="filename of a file containin one line of arguments per event.  ")
@@ -45,6 +43,8 @@ parser.add_argument("--puff-max-it",default=np.inf,type=int,help="Maximum iterat
 parser.add_argument("--eos-post-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--eos-post-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--eos-post-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
+parser.add_argument("--eos-post-explode-jobs",default=2,type=int,help="Number of MARG jobs to use in posterior generation.")
+parser.add_argument("--eos-post-explode-jobs-last",default=2,type=int,help="Number of MARG jobs to use in posterior generation on the final stage (if desired).")
 parser.add_argument("--test-args",default=None,help="filename of args_test.txt, which holds test arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments")
 parser.add_argument("--general-retries",default=0,type=int,help="Number of retry attempts for internal jobs (convert, CIP, ...). (These can fail, albeit more rarely, usually due to filesystem problems)")
 parser.add_argument("--general-request-disk",default="10M",type=str,help="Request disk passed to condor. Must be done for all jobs now")
@@ -528,11 +528,11 @@ for it in np.arange(it_start,opts.n_iterations):
     join_node.set_retry(opts.general_retries)
         
         # Create exploded worker job nodes
-    n_explode = opts.marg_explode_jobs
+    n_explode = opts.eos_post_explode_jobs
     # if we are on the last iteration and we want to use more exploded jobs now, explode more jobs
-    if opts.marg_explode_jobs_last and (it == opts.n_iterations-1): # last iteration
-        print("   Last iteration explode size ", opts.marg_explode_jobs_last)
-        n_explode = opts.marg_explode_jobs_last
+    if opts.eos_post_explode_jobs_last and (it == opts.n_iterations-1): # last iteration
+        print("   Last iteration explode size ", opts.eos_post_explode_jobs_last)
+        n_explode = opts.eos_post_explode_jobs_last
     for indx in np.arange(n_explode):
                 worker_node =pipeline.CondorDAGNode(eospost_marg_job)
                 worker_node.add_macro("macroiteration", it)
