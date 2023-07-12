@@ -153,8 +153,8 @@ parser.add_argument("--supplementary-likelihood-factor-function", default=None,t
 parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
 opts=  parser.parse_args()
 
-print(" WARNING: Always use internal_use_lnL for now ")
-opts.internal_use_lnL=True
+#print(" WARNING: Always use internal_use_lnL for now ")
+#opts.internal_use_lnL=True
 
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
@@ -683,7 +683,7 @@ if opts.internal_use_lnL:
 
 
 
-res, var, neff, dict_return = sampler.integrate(likelihood_function, *coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True)  # weight ecponent needs better choice. We are using arbitrary-name functions
+res, var, neff, dict_return = sampler.integrate(likelihood_function, *coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True,**extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 n_ESS = -1
 if True:
