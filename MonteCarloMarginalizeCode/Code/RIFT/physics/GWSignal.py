@@ -132,7 +132,7 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
 #
 # Functions to generate waveforms
 #
-def hoft(P, Fp=None, Fc=None):
+def hoft(P, Fp=None, Fc=None, **kwargs):
     """
     Generate a TD waveform from ChooseWaveformParams P
     Based on https://git.ligo.org/waveforms/reviews/newwfinterface/-/blob/main/example_usage/example_usage_using_gwsignal_in_lalsimulation.ipynb
