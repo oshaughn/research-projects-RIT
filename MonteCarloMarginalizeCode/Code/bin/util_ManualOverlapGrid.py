@@ -879,7 +879,6 @@ elif opts.tabular_eos_file:
        m2=lalsimutils.mass2(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
        if m2/lal.MSUN_SI < m_max_now:
            grid_tmp[i,lam2_indx]=my_eos_sequence.lambda_of_m_indx(m2/lal.MSUN_SI, random_event_indx[i])
-       print( grid_tmp[i], lam1_indx, lam2_indx)
 
    grid = grid_tmp
 
