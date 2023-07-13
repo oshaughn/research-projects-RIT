@@ -519,6 +519,9 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
                ile_job.add_condor_cmd("stream_error",'True')
                ile_job.add_condor_cmd("stream_output",'True')
 
+    if use_osg and ( 'RIFT_BOOLEAN_LIST' in os.environ):
+        extra_requirements = [ "{} =?= TRUE".format(x) for x in os.environ['RIFT_BOOLEAN_LIST'].split()]
+        requirements += extra_requirements
 
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
@@ -849,6 +852,10 @@ echo Starting ...
            if not ('RIFT_NOSTREAM_LOG' in os.environ):
                ile_job.add_condor_cmd("stream_error",'True')
                ile_job.add_condor_cmd("stream_output",'True')
+
+    if use_osg and ( 'RIFT_BOOLEAN_LIST' in os.environ):
+        extra_requirements = [ "{} =?= TRUE".format(x) for x in os.environ['RIFT_BOOLEAN_LIST'].split()]
+        requirements += extra_requirements
 
     # Create prescript command to set up local.cache, only if frames are needed
     # if we have CVMFS frames, we should be copying local.cache over directly, with it already populated !
