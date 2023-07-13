@@ -454,12 +454,12 @@ else:
     P.m2 = opts.mass2 *lal.MSUN_SI
     P.s1z = opts.s1z
     P.dist = 150*1e6*lal.PC_SI
-    if opts.eff_lambda and Psig:
-        lambda1, lambda2 = 0, 0
-        if opts.eff_lambda is not None:
-            lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(m1, m2, opts.eff_lambda, opts.deff_lambda or 0)
-            Psig.lambda1 = lambda1
-            Psig.lambda2 = lambda2
+    # if opts.eff_lambda and Psig:
+    #     lambda1, lambda2 = 0, 0
+    #     if opts.eff_lambda is not None:
+    #         lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(m1, m2, opts.eff_lambda, opts.deff_lambda or 0)
+    #         Psig.lambda1 = lambda1
+    #         Psig.lambda2 = lambda2
 
     P.fmin=opts.fmin   # Just for comparison!  Obviously only good for iLIGO
     P.ampO=opts.amplitude_order  # include 'full physics'
@@ -656,7 +656,7 @@ if not(opts.skip_overlap) and opts.reset_grid_via_match and opts.match_value <1:
             param_min = brentq(ip_here,param_ranges[indx][0],param_peak ,xtol=TOL,maxiter=maxit)
             if param_min > param_peak:
                 print(" Ordering problem, using minimization code as backup ")
-                param_min = brent(ip_here_squared, brack=(param_ranges[indx][0],param_peak, param_ranges[indx][1]), tol=TOL)
+                param_min = brentq(ip_here_squared, brack=(param_ranges[indx][0],param_peak, param_ranges[indx][1]), tol=TOL)
         except:
             print("  Range retuning: minimum for ", param_now)
             param_min = param_ranges[indx][0]
