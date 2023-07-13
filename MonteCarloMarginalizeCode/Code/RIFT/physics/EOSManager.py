@@ -160,6 +160,14 @@ class EOSConcrete:
  #       print logrho_grid,
         return logp_of_logrho(logrho_grid)
 
+    def test_speed_of_sound_causal_builtin(self):
+        h_max = lalsim.SimNeutronStarEOSMaxPseudoEnthalpy(self.eos)
+        h_crit = lalsim.SimNeutronStarEOSMinAcausalPseudoEnthalpy(self.eos)
+        if h_crit < 0.999999*h_max:
+            return False
+        else:
+            return True
+
     def test_speed_of_sound_causal(self, test_only_under_mmax=True,fast_test=True):
         """
         Test if EOS satisfies speed of sound.
@@ -486,7 +494,7 @@ class EOSPiecewisePolytrope(EOSConcrete):
 ######################################################################
 
 class EOSLindblomSpectral(EOSConcrete):
-    def __init__(self,name=None,spec_params=None,verbose=False,use_lal_spec_eos=False):
+    def __init__(self,name=None,spec_params=None,verbose=False,use_lal_spec_eos=False,check_cs=False, check_cs_builtin=True):
         if name is None:
             self.name = 'spectral'
         else:
@@ -508,9 +516,22 @@ class EOSLindblomSpectral(EOSConcrete):
             import os; #print os.listdir('.')
             cwd = os.getcwd()
             self.eos= lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
-        self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
-        mmass = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
-        self.mMaxMsun = mmass
+        if check_cs:
+            if check_cs_builtin:
+                # this
+                valid = self.test_speed_of_sound_causal_builtin()   # call parent class method
+                self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
+                mmass = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
+                self.mMaxMsun = mmass
+            else:
+                # this test requires these quantities to be built *first*
+                self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
+                mmass = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
+                self.mMaxMsun = mmass
+                valid = self.test_speed_of_sound_causal()   # call parent class method
+            if not valid:
+                raise Exception(" EOS : spectral sound speed violates speed of light ")
+
 
         return None
 
