@@ -257,7 +257,7 @@ if opts.tabular_eos_file:
     import RIFT.physics.EOSManager as EOSManager
     # Find reference mass in msun: pick a TYPICAL chirp mass in grid, as all should be close enough for our purposes! 
     # note this is NOT DETERMINISTIC and will depend on our grid input/what survives, but for BNS should be fine
-    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=opts.tabular_eos_file,load_ns=True,oned_order_name='Lambda', oned_order_mass=m_ref)
+    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=opts.tabular_eos_file,load_ns=True)
 
 ###
 ### Handle NR arguments
@@ -864,19 +864,22 @@ elif opts.tabular_eos_file:
    lam1_indx=param_names.index('lambda1')
    lam2_indx=param_names.index('lambda2')
 
-   npts = len(len(grid[:,mc_indx]))
+   npts = len(grid[:,mc_indx])
 
    random_event_indx = np.random.randint(0,high=len(my_eos_sequence.eos_names)-1,size=npts)
-   grid_tmp[:,param_names.index('eos_table_index')]
+   grid_tmp[:,param_names.index('eos_table_index')] = random_event_indx
 
    for i in range(0,npts): # Ridiculously inefficient
+       m_max_now= my_eos_sequence.m_max_of_indx(random_event_indx[i])
        # fail to assign anything if m1 or m2 is out of range
        m1=lalsimutils.mass1(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
-       if m1/lal.MSUN_SI < my_eos_sequence.m_max_of_indx(random_event_indx[i]):
-           grid_tmp[i,lam1_indx]= my_eos_sequence.lambda_of_m_indx.lambda_from_m(m1, random_event_indx[i])  # calc_lambda_from_m(m1,eos_fam)
+       if m1/lal.MSUN_SI < m_max_now:
+           grid_tmp[i,lam1_indx]= my_eos_sequence.lambda_of_m_indx(m1/lal.MSUN_SI, random_event_indx[i])  # calc_lambda_from_m(m1,eos_fam)
+
        m2=lalsimutils.mass2(grid[i,mc_indx],my_transform(grid[i,eta_indx]))
-       if m2/lal.MSUN_SI < my_eos_sequence.m_max_of_indx(random_event_indx[i]):
-           grid_tmp[i,lam2_indx]=my_eos_sequence.lambda_of_m_indx.lambda_from_m(m2, random_event_indx[i])
+       if m2/lal.MSUN_SI < m_max_now:
+           grid_tmp[i,lam2_indx]=my_eos_sequence.lambda_of_m_indx(m2/lal.MSUN_SI, random_event_indx[i])
+       print( grid_tmp[i], lam1_indx, lam2_indx)
 
    grid = grid_tmp
 
