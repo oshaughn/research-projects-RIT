@@ -50,7 +50,7 @@ def eval_eos_list_vs(eos_list, xvar='energy_density', xgrid=None,yvar='pressure'
         raise Exception(" EOSPlotUtilities: none passed for grid")
     n_eos = len(eos_list)
     npts = len(xgrid)
-    print(npts,n_eos)
+#    print(npts,n_eos)
     # LARGE ALLOCATION potentially, so watch out -- usually I just need quantiles
     outvals  = np.zeros( (npts,n_eos))
     # loop and compute -- ideally parallelize! Silly to do serialy
@@ -69,18 +69,18 @@ def eval_eos_list_vs(eos_list, xvar='energy_density', xgrid=None,yvar='pressure'
             intp_func = PchipInterpolator(np.log(xvals),np.log(yvals))
         else:
             intp_func = UnivariateSpline(np.log(xvals),np.log(yvals))
-        ygrid = intp_func(xgrid)
+        ygrid = np.exp(intp_func(np.log(xgrid)))
         outvals[:,indx] = ygrid
 
 
     return outvals
 
 
-def render_eos_list_quantiles_vs(eos_list, quantile_bounds=None, xvar='energy_density', xgrid=None,yvar='pressure', units='cgs',use_monotonic=True,use_log=True,return_outvals=False,input_outvals=None,plot_kwargs={}, fill_kwargs={}):
+def render_eos_list_quantiles_vs(eos_list, quantile_bounds=None, xvar='energy_density', xgrid=None,yvar='pressure', units='cgs',use_monotonic=True,use_log=True,return_outvals=False,input_outvals=None,show_traces=False,plot_kwargs={}, fill_kwargs={}):
     outvals_here=None
     if input_outvals is None:
         outvals_here  = eval_eos_list_vs(eos_list, xvar=xvar , xgrid=xgrid, yvar=yvar, units=units, use_monotonic=use_monotonic)
-        print(outvals_here[:,-1])
+#        print(outvals_here[:,-1])
     else:
         outvals_here = input_outvals
 
@@ -95,10 +95,17 @@ def render_eos_list_quantiles_vs(eos_list, quantile_bounds=None, xvar='energy_de
         upper_vals = np.log10(upper_vals)
         lower_vals = np.log10(lower_vals)
 
+    if show_traces:
+#        print(outvals_here.shape, xgrid_here.shape)
+        for indx in np.arange(len(outvals_here)):
+            if use_log:
+                plt.plot(xgrid_here,np.log10(outvals_here[:,indx]),color='k')
+
+
 
     plt.plot(xgrid_here, upper_vals, **plot_kwargs)
     plt.plot(xgrid_here, lower_vals, **plot_kwargs)
-    plt.fill_between(xgrid, lower_vals,upper_vals,**fill_kwargs)
+    plt.fill_between(xgrid_here, lower_vals,upper_vals,**fill_kwargs)
     if return_outvals:
         return outvals
     return None
