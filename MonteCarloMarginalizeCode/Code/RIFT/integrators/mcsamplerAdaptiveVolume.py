@@ -199,6 +199,8 @@ class MCSampler(object):
         self.nbins = np.ones(ndim)
         self.binunique = np.array([ndim* [0]])
         self.ninbin   = [self.n_chunk]
+        self.my_ranges =  np.array([[self.llim[x],self.rlim[x]] for x in self.params_ordered])
+        self.dx = np.diff(self.my_ranges, axis = 1).flatten()  # weird way to code this
         self.cycle = 1
 
 
@@ -263,10 +265,8 @@ class MCSampler(object):
         return p_out
 
     def draw_simple(self):
-        my_ranges =  np.array([[self.llim[x],self.rlim[x]] for x in self.params_ordered])
-        dx = np.diff(my_ranges, axis = 1).flatten()  # weird way to code this
         # Draws
-        x =  sample_from_bins(my_ranges, dx, self.binunique, self.ninbin)
+        x =  sample_from_bins(self.my_ranges, self.dx, self.binunique, self.ninbin)
         # probabilities at these points.  
         log_p = np.log(self.prior_prod(x))
         # Not including any sampling prior factors, since it is de facto uniform right now (just discarding 'irrelevant' regions)
@@ -304,7 +304,7 @@ class MCSampler(object):
         #
         nmax = kwargs["nmax"] if "nmax" in kwargs else float("inf")
         neff = kwargs["neff"] if "neff" in kwargs else numpy.float128("inf")
-        n = int(kwargs["n"] if "n" in kwargs else min(40000, nmax))
+        n = int(kwargs["n"] if "n" in kwargs else min(100000, nmax))
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
         save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None
 
@@ -350,7 +350,7 @@ class MCSampler(object):
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
 
         self.n_chunk = n
-        self.setup()
+        self.setup()  # sets up self.my_ranges, self.dx initially
 
         cycle =1
 
@@ -362,13 +362,12 @@ class MCSampler(object):
         allx, allloglkl, neffective = np.transpose([[]] * ndim), [], 0
         trunc_p = 1e-10 #How much probability analysis removes with evolution
         nsel = 1000# number of largest log-likelihood samples selected to estimate lkl_thr for the next cycle.
-        my_ranges =  np.array([[self.llim[x],self.rlim[x]] for x in self.params_ordered])
-        dx = np.diff(my_ranges, axis = 1).flatten()  # weird way to code this
 
-        while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
+        ntotal_true = 0
+        while (eff_samp < neff and ntotal_true < nmax and cycle < 5): #  and (not bConvergenceTests):
+            # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
             rv, log_joint_p_prior = self.draw_simple()
-
-            # Handle argument ordering possibly being different
+            ntotal_true += len(rv)
 
             # Evaluate function, protecting argument order
             if 'no_protect_names' in kwargs:
@@ -382,7 +381,9 @@ class MCSampler(object):
               if not(isinstance(lnL,cupy.ndarray)):
                 lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
 
-            log_integrand =lnL + log_joint_p_prior
+
+            # For now: no prior, just duplicate VT algorithm
+            log_integrand =lnL  #+ log_joint_p_prior
 #            log_weights = tempering_exp*lnL + log_joint_p_prior
             if current_log_aggregate is None:
               current_log_aggregate = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
@@ -391,7 +392,7 @@ class MCSampler(object):
             
             loglkl = log_integrand # note we are putting the prior in here
 
-            idxsel = np.where(lnL > loglkl_thr)
+            idxsel = np.where(loglkl > loglkl_thr)
             #only admit samples that lie inside the live volume, i.e. one that cross likelihood threshold
             allx = np.append(allx, rv[idxsel], axis = 0)
             allloglkl = np.append(allloglkl, loglkl[idxsel])
@@ -405,28 +406,32 @@ class MCSampler(object):
                 loglkl_thr, truncp = get_likelihood_threshold(allloglkl, loglkl_thr, nsel, 1 - enc_prob - trunc_p)
                 trunc_p += truncp
     
+            # Select with threshold
             idxsel = np.where(allloglkl > loglkl_thr)
-    
             allloglkl = allloglkl[idxsel]
             allx = allx[idxsel]
+            nrec = len(allloglkl)   # recovered size of active volume at present, after selection
+
+            # Weights
             lw = allloglkl - np.max(allloglkl)
             w = np.exp(lw)
             neff_varaha = np.sum(w) ** 2 / np.sum(w ** 2)
-            nrec = len(allloglkl)
+            eff_samp = np.sum(w)/np.max(w)
  
             #New live volume based on new likelihood threshold
             V *= (nrec / ninj)
             delta_V = V / np.sqrt(nrec) 
  
-            #reconstruct live volume
-            nbins = (1/delta_V) ** (1/ndim)
-            dx = np.diff(my_ranges, axis = 1).flatten() / nbins
-            binidx = ((allx - my_ranges.T[0]) / dx.T).astype(int) #bin indexs of the samples
+            # Redefine bin sizes, reassign points to redefined hypercube set. [Asymptotically this becomes stationary]
+            self.nbins = np.ones(ndim)*(1/delta_V) ** (1/ndim)  # uniform split in each dimension is normal, but we have array - can be irregular
+            self.dx = np.diff(self.my_ranges, axis = 1).flatten() / self.nbins   # update bin widths
+            binidx = ((allx - self.my_ranges.T[0]) / self.dx.T).astype(int) #bin indexs of the samples
 
             self.binunique = np.unique(binidx, axis = 0)
             self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1) * np.ones(self.binunique.shape[0])).astype(int)
+            self.ntotal = current_log_aggregate[0]
 
-            print(cycle,len(allloglkl), np.round(neff_varaha), len(self.binunique), np.round(np.max(allloglkl), 1), np.round(loglkl_thr, 1), trunc_p, V)
+            print(ntotal_true,eff_samp, np.round(neff_varaha), np.round(np.max(allloglkl), 1), len(allloglkl), np.mean(self.nbins), V,  len(self.binunique),  np.round(loglkl_thr, 1), trunc_p)
             cycle += 1
             if cycle > 1000 or neff_varaha > neff:
                 break
@@ -435,16 +440,16 @@ class MCSampler(object):
         # VT approach was to accumulate samples, but then prune them.  So we have all the lnL and x draws
 
         # write in variables requested in the standard format
-        for indx in np.arange(len(self.params_sorted)):
+        for indx in np.arange(len(self.params_ordered)):
             self._rvs[self.params_ordered[indx]] = allx[:,indx]  # pull out variable
 
         # Integral value:
         outvals = finalize_log(current_log_aggregate,xpy=xpy)
-        self.ntotal = current_log_aggregate[0]
         maxval = np.max(allloglkl)  # max of log
         eff_samp = xpy.exp(  outvals[0]+np.log(self.ntotal) - maxval)   # integral value minus floating point, which is maximum
         rel_var = np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 )
 
+        dict_return = {}
 
         if outvals:
           out0 = outvals[0]; out1 = outvals[1]
