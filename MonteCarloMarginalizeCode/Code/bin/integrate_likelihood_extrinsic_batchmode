@@ -63,6 +63,12 @@ try:
 except:
     print( " No mcsamplerGPU ")
     mcsampler_gpu_ok = False
+try:
+    import RIFT.integrators.mcsamplerAdaptiveVolume as mcsamplerAdaptiveVolume
+    mcsampler_AV_ok = True
+except:
+    print(" No mcsamplerAV ")
+    mcsampler_AV_ok = False
 
 import RIFT.likelihood.priors_utils as priors_utils
 import RIFT.misc.xmlutils as xmlutils
@@ -313,7 +319,7 @@ opts, args = optp.parse_args()
 #
 # Failure modes
 #
-ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu']
+ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu','AV']
 if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
   print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)
   sys.exit(99)
@@ -712,6 +718,10 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
 elif opts.sampler_method == "GMM":
     print(" ILE: {}".format(opts.sampler_method))
     sampler = mcsamplerEnsemble.MCSampler()
+elif opts.sampler_method == 'AV':
+    print(" ILE: {}".format(opts.sampler_method))
+    sampler = mcsamplerAdaptiveVolume.MCSampler()
+    opts.internal_use_lnL=True
 else:
     print(" ILE: original sampler")
     print(" ILE: {}".format(opts.sampler_method))
