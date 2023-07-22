@@ -249,9 +249,9 @@ class MCSampler(object):
         self.pdf[params] = pdf
         self.prior_pdf[params] = prior_pdf
 
-        if adaptive_sampling:
-            print("   Adapting ", params)
-            self.adaptive.append(params)
+#        if adaptive_sampling:
+#            print("   Adapting ", params)
+#            self.adaptive.append(params)
 
     def prior_prod(self, x):
         """
@@ -360,21 +360,22 @@ class MCSampler(object):
         V = 1  # nominal scale factor for hypercube volume
         ndim = len(self.params_ordered)
         allx, allloglkl, neffective = np.transpose([[]] * ndim), [], 0
+        allp = []
         trunc_p = 1e-10 #How much probability analysis removes with evolution
         nsel = 1000# number of largest log-likelihood samples selected to estimate lkl_thr for the next cycle.
 
         ntotal_true = 0
         while (eff_samp < neff and ntotal_true < nmax and cycle < 5): #  and (not bConvergenceTests):
             # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
-            rv, log_joint_p_prior = self.draw_simple()
+            rv, log_joint_p_prior = self.draw_simple()  # Beware reversed order of rv
             ntotal_true += len(rv)
 
             # Evaluate function, protecting argument order
             if 'no_protect_names' in kwargs:
-                unpacked0 = rv
+                unpacked0 = rv.T
                 lnL = lnF(*unpacked0)  # do not protect order
             else:
-                unpacked = dict(list(zip(self.params_ordered,rv)))
+                unpacked = dict(list(zip(self.params_ordered,rv.T)))
                 lnL= lnF(**unpacked)  # protect order using dictionary
             # take log if we are NOT using lnL
             if cupy_ok:
@@ -383,7 +384,7 @@ class MCSampler(object):
 
 
             # For now: no prior, just duplicate VT algorithm
-            log_integrand =lnL  #+ log_joint_p_prior
+            log_integrand =lnL  + log_joint_p_prior
 #            log_weights = tempering_exp*lnL + log_joint_p_prior
             if current_log_aggregate is None:
               current_log_aggregate = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
@@ -396,6 +397,7 @@ class MCSampler(object):
             #only admit samples that lie inside the live volume, i.e. one that cross likelihood threshold
             allx = np.append(allx, rv[idxsel], axis = 0)
             allloglkl = np.append(allloglkl, loglkl[idxsel])
+            allp = np.append(allp, log_joint_p_prior[idxsel])
             ninj = len(allloglkl)
 
 
@@ -409,6 +411,7 @@ class MCSampler(object):
             # Select with threshold
             idxsel = np.where(allloglkl > loglkl_thr)
             allloglkl = allloglkl[idxsel]
+            allp = allp[idxsel]
             allx = allx[idxsel]
             nrec = len(allloglkl)   # recovered size of active volume at present, after selection
 
@@ -442,6 +445,10 @@ class MCSampler(object):
         # write in variables requested in the standard format
         for indx in np.arange(len(self.params_ordered)):
             self._rvs[self.params_ordered[indx]] = allx[:,indx]  # pull out variable
+        # write out log integrand
+        self._rvs['log_integrand']  = allloglkl - allp
+        self._rvs['log_joint_prior'] = allp
+        self._rvs['log_joint_s_prior'] = np.ones(len(allloglkl))/V  # effective uniform sampling on this volume
 
         # Integral value:
         outvals = finalize_log(current_log_aggregate,xpy=xpy)
@@ -464,3 +471,28 @@ class MCSampler(object):
           return None, None, None, None
 
 
+    @profile
+    def integrate(self, func, *args, **kwargs):
+        """
+        Integrate func, by using n sample points. Right now, all params defined must be passed to args must be provided, but this will change soon.
+        Does NOT allow for tuples of arguments, an unused feature in mcsampler
+
+        kwargs:
+        nmax -- total allowed number of sample points, will throw a warning if this number is reached before neff.
+        neff -- Effective samples to collect before terminating. If not given, assume infinity
+        n -- Number of samples to integrate in a 'chunk' -- default is 1000
+        save_integrand -- Save the evaluated value of the integrand at the sample points with the sample point
+        history_mult -- Number of chunks (of size n) to use in the adaptive histogramming: only useful if there are parameters with adaptation enabled
+        tempering_exp -- Exponent to raise the weights of the 1-D marginalized histograms for adaptive sampling prior generation, by default it is 0 which will turn off adaptive sampling regardless of other settings
+        temper_log -- Adapt in min(ln L, 10^(-5))^tempering_exp
+        tempering_adapt -- Gradually evolve the tempering_exp based on previous history.
+        floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
+        n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
+        convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
+        Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
+        """
+        def ln_func(*args):
+          return np.log(func(*args))
+
+        log_int_val, log_var, eff_samp, dict_return =  self.integrate_log(func, **kwargs)  # pass it on, easier than mixed coding
+        return None, None, None, None
