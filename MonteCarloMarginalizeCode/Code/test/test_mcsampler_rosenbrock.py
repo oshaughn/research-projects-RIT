@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 from scipy.special import erf
 
-from RIFT.integrators import mcsampler, mcsamplerEnsemble, mcsamplerGPU
+from RIFT.integrators import mcsampler, mcsamplerEnsemble, mcsamplerGPU, mcsamplerAdaptiveVolume
 
 import optparse
 parser = optparse.OptionParser()
@@ -57,6 +57,7 @@ def ln_f(x1, x2):
 sampler = mcsampler.MCSampler()
 samplerEnsemble = mcsamplerEnsemble.MCSampler()
 samplerAC = mcsamplerGPU.MCSampler()
+samplerAV = mcsamplerAdaptiveVolume.MCSampler()
 
 ### add parameters
 llim=-5
@@ -73,6 +74,9 @@ for p in params:
                                   left_limit=llim, right_limit=rlim,adaptive_sampling=True)
     # for AC sampler, make sure pdf and prior pdfs are *normalized* *initially*
     samplerAC.add_parameter(p, pdf=np.vectorize(lambda x:1/(rlim-llim)),
+            prior_pdf=np.vectorize(lambda x:1/(rlim-llim)),
+            left_limit=llim, right_limit=rlim,adaptive_sampling=True)
+    samplerAV.add_parameter(p, pdf=np.vectorize(lambda x:1/(rlim-llim)),
             prior_pdf=np.vectorize(lambda x:1/(rlim-llim)),
             left_limit=llim, right_limit=rlim,adaptive_sampling=True)
 
@@ -104,10 +108,22 @@ if return_lnI and use_lnL:
     integral_2 = np.exp(integral_2)
 print(np.log(integral_2) - lnL_offset, Z_rosenbrock)
 print(" --- finished GMM --")
-print(integral_1/np.exp(lnL_offset),integral_1b/np.exp(lnL_offset),integral_2/np.exp(lnL_offset),np.exp(Z_rosenbrock))
+#def my_infunc(*args):
+#    return ln_f(*np.array([*args]).T)
+samplerAV.setup()
+integral_3, var_3, eff_samp_3, _ = samplerAV.integrate_log(ln_f, *params, no_protect_names=True,
+        nmax=nmax,
+        min_iter=n_iters, max_iter=n_iters, **extra_args)
+integral_3 = np.exp(integral_3)
+var_3 = np.exp(var_3)
+
+
+
+print(integral_1/np.exp(lnL_offset),integral_1b/np.exp(lnL_offset),integral_2/np.exp(lnL_offset),integral_3/np.exp(lnL_offset),np.exp(Z_rosenbrock))
 print(np.array([integral_1,integral_1b,integral_2])/np.exp(Z_rosenbrock))
 print(" AC/default ", integral_1b/integral_1, np.sqrt(var_1)/integral_1)  # off by width**3
 print(" GMM/default ",integral_2/integral_1, np.sqrt(var_1)/integral_1, np.sqrt(var_2)/integral_2)
+print(" AV/default ",integral_3/integral_1, np.sqrt(var_1)/integral_1, np.sqrt(var_3)/integral_3)
 ### CDFs
 
 ### get our posterior samples as a single array
@@ -115,10 +131,12 @@ ndim=2
 arr_1 = np.empty((len(sampler._rvs["x1"]), ndim))
 arr_1b = np.empty((len(samplerAC._rvs["x1"]), ndim))
 arr_2 = np.empty((len(samplerEnsemble._rvs["x1"]), ndim))
+arr_3 = np.empty((len(samplerAV._rvs["x1"]), ndim))
 for i in range(ndim):
     arr_1[:,i] = sampler._rvs["x"+str(i+1)].flatten()
     arr_1b[:,i] = samplerAC._rvs["x"+str(i+1)].flatten()
     arr_2[:,i] = samplerEnsemble._rvs["x"+str(i+1)].flatten()
+    arr_3[:,i] = samplerAV._rvs["x"+str(i+1)].flatten()
 
 colors = ["black", "red", "blue", "green", "orange"]
 
@@ -153,6 +171,15 @@ if True:
     n_ess_1b = np.sum(weights_1b)**2/np.sum(weights_1b**2)
     print("GMM  n_eff, n_ess ", eff_samp_1b,n_ess_1b)
 
+    lnL = samplerAV._rvs["log_integrand"]  
+    lnp = samplerAV._rvs["log_joint_prior"]  
+    lnps = samplerAV._rvs["log_joint_s_prior"]  
+    ### compute weights of samples
+    weights_3 = np.exp(lnL + lnp - lnps )
+    n_ess_3 = np.sum(weights_3)**2/np.sum(weights_3**2)
+    print("AV  n_eff, n_ess ", eff_samp_3,n_ess_3)
+
+
 if save_fairdraws:
     npts_out_1 = int(n_ess_1)
     p = np.array(weights_1/np.sum(weights_1),dtype=np.float64)
@@ -169,6 +196,11 @@ if save_fairdraws:
     indx_save_1b = np.random.choice(np.arange(len(p)), size=npts_out_1b, p=p)
     np.savetxt(save_fairdraw_prefix+"_1b.dat", arr_1b[indx_save_1b],header=" x1 x2")
 
+    npts_out_3 = int(n_ess_3)
+    p = np.array(weights_3/np.sum(weights_3),dtype=np.float64)
+    indx_save_3 = np.random.choice(np.arange(len(p)), size=npts_out_3, p=p)
+    np.savetxt(save_fairdraw_prefix+"_3.dat", arr_1b[indx_save_3],header=" x1 x2")
+
 
 ##
 ## HOW TO MAKE JS TEST
@@ -182,6 +214,7 @@ if save_fairdraws:
 weights_1_orig = np.array(weights_1)
 weights_1b_orig = np.array(weights_1b)
 weights_2_orig = np.array(weights_2)
+weights_3_orig = np.array(weights_3)
 # Note: the fairdraw export is better
 for i in range(ndim):
     ### get sorted samples (for the current dimension)
@@ -197,6 +230,10 @@ for i in range(ndim):
     x_2 = arr_2[:,i][indx_sort]
     weights_2 = weights_2_orig[indx_sort]
 
+    indx_sort = np.argsort(arr_3[:,i])
+    x_3 = arr_3[:,i][indx_sort]
+    weights_3 = weights_3_orig[indx_sort]
+
 
     y_1 = np.cumsum(weights_1)
     y_1 /= y_1[-1] # normalize
@@ -204,12 +241,16 @@ for i in range(ndim):
     y_2 /= y_2[-1] # normalize
     y_1b = np.cumsum(weights_1b)
     y_1b /= y_1b[-1]
+    y_3 = np.cumsum(weights_3)
+    y_3 /= y_3[-1]
     ### plot recovered cdf
     plt.plot(x_1, y_1, "--", label="Recovered CDF, mcsampler", color=colors[i],
             linewidth=2)
     plt.plot(x_2, y_2, ":", label="Recovered CDF, mcsamplerEnsemble",
             color=colors[i], linewidth=2)
     plt.plot(x_1b, y_1b, ".", label="Recovered CDF, mcsamplerAC",
+            color=colors[i], linewidth=1)
+    plt.plot(x_3, y_3, "--", label="Recovered CDF, mcsamplerAV",
             color=colors[i], linewidth=1)
 
 
