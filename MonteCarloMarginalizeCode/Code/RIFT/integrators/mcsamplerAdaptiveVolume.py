@@ -366,7 +366,7 @@ class MCSampler(object):
         nsel = 1000# number of largest log-likelihood samples selected to estimate lkl_thr for the next cycle.
 
         ntotal_true = 0
-        while (eff_samp < neff and ntotal_true < nmax and cycle < 5): #  and (not bConvergenceTests):
+        while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
             # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
             rv, log_joint_p_prior = self.draw_simple()  # Beware reversed order of rv
             ntotal_true += len(rv)
@@ -438,9 +438,8 @@ class MCSampler(object):
 
             print(ntotal_true,eff_samp, np.round(neff_varaha), np.round(np.max(allloglkl), 1), len(allloglkl), np.mean(self.nbins), V,  len(self.binunique),  np.round(loglkl_thr, 1), trunc_p)
             cycle += 1
-            if cycle > 1000 or neff_varaha > neff:
+            if cycle > 1000:
                 break
-
 
         # VT approach was to accumulate samples, but then prune them.  So we have all the lnL and x draws
 
@@ -513,6 +512,6 @@ class MCSampler(object):
             use_lnL=True
         log_int_val, log_var, eff_samp, dict_return =  self.integrate_log(func, **kwargs)  # pass it on, easier than mixed coding
         if use_lnL:
-          sampler['integrand'] = log_int_val
+          self._rvs['integrand'] = self._rvs["log_integrand"]
 
         return log_int_val, log_var, eff_samp, dict_return
