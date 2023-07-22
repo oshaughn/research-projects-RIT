@@ -51,7 +51,7 @@ try:
 #  cupy.ndarray.asnumpy = verbose_cupy_asnumpy
 
 except:
-  print(' no cupy (mcsamplerGPU)')
+  print(' no cupy (mcsamplerAV)')
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   xpy_special_default = special
@@ -201,6 +201,7 @@ class MCSampler(object):
         self.ninbin   = [self.n_chunk]
         self.my_ranges =  np.array([[self.llim[x],self.rlim[x]] for x in self.params_ordered])
         self.dx = np.diff(self.my_ranges, axis = 1).flatten()  # weird way to code this
+        self.dx0  = np.array(self.dx)   # Save initial prior widths (used for initial prior ragne at end/volume)
         self.cycle = 1
 
 
@@ -386,6 +387,7 @@ class MCSampler(object):
             # For now: no prior, just duplicate VT algorithm
             log_integrand =lnL  + log_joint_p_prior
 #            log_weights = tempering_exp*lnL + log_joint_p_prior
+            # log aggregate: NOT USED at present, remember the threshold is floating
             if current_log_aggregate is None:
               current_log_aggregate = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
             else:
@@ -448,27 +450,37 @@ class MCSampler(object):
         # write out log integrand
         self._rvs['log_integrand']  = allloglkl - allp
         self._rvs['log_joint_prior'] = allp
-        self._rvs['log_joint_s_prior'] = np.ones(len(allloglkl))/V  # effective uniform sampling on this volume
+        self._rvs['log_joint_s_prior'] = np.ones(len(allloglkl))*(np.log(1/V) - np.sum(np.log(self.dx0)))  # effective uniform sampling on this volume
 
-        # Integral value:
-        outvals = finalize_log(current_log_aggregate,xpy=xpy)
+        # Manual estimate of integrand, done transparently (no 'log aggregate' or running calculation -- so memory hog
+        log_wt = self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]
+        log_int = xpy_special_default.logsumexp( log_wt) - np.log(len(log_wt))  # mean value
+        rel_var = np.var( np.exp(log_wt - np.max(log_wt)))
+        eff_samp = np.sum(np.exp(log_wt - np.max(log_wt)))
         maxval = np.max(allloglkl)  # max of log
-        eff_samp = xpy.exp(  outvals[0]+np.log(self.ntotal) - maxval)   # integral value minus floating point, which is maximum
-        rel_var = np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 )
+
+        # Integral value: NOT RELIABLE b/c not just using samples in 
+#        outvals = finalize_log(current_log_aggregate,xpy=xpy)
+#        log_wt_tmp = allloglkl[np.isfinite(allloglkl)]  # remove infinite entries
+#        outvals = init_log(log_wt_tmp)
+#        print(outvals, log_int, maxval, current_log_aggregate)
+#        eff_samp = xpy.exp(  outvals[0]+np.log(len(allloglkl)) - maxval)   # integral value minus floating point, which is maximum
+#        rel_var = np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 )
 
         dict_return = {}
+        return log_int, rel_var, eff_samp, dict_return
 
-        if outvals:
-          out0 = outvals[0]; out1 = outvals[1]
-          if not(isinstance(outvals[0], np.float64)):
-            # type convert everything as needed
-            out0 = identity_convert(out0)
-          if not(isinstance(outvals[1], np.float64)):
-            out1 = identity_convert(out1)
-            eff_samp = identity_convert(eff_samp)
-          return out0, out1 - np.log(self.ntotal), eff_samp, dict_return
-        else: # very strange case where we terminate early
-          return None, None, None, None
+        # if outvals:
+        #   out0 = outvals[0]; out1 = outvals[1]
+        #   if not(isinstance(outvals[0], np.float64)):
+        #     # type convert everything as needed
+        #     out0 = identity_convert(out0)
+        #   if not(isinstance(outvals[1], np.float64)):
+        #     out1 = identity_convert(out1)
+        #     eff_samp = identity_convert(eff_samp)
+        #   return out0, out1 - np.log(self.ntotal), eff_samp, dict_return
+        # else: # very strange case where we terminate early
+        #   return None, None, None, None
 
 
     @profile
@@ -493,6 +505,14 @@ class MCSampler(object):
         """
         def ln_func(*args):
           return np.log(func(*args))
-
+        infunc = ln_func
+        use_lnL=False
+        if 'use_lnL' in kwargs:   # should always be positive
+          if kwargs['use_lnL']:
+            infunc = func
+            use_lnL=True
         log_int_val, log_var, eff_samp, dict_return =  self.integrate_log(func, **kwargs)  # pass it on, easier than mixed coding
-        return None, None, None, None
+        if use_lnL:
+          sampler['integrand'] = log_int_val
+
+        return log_int_val, log_var, eff_samp, dict_return
