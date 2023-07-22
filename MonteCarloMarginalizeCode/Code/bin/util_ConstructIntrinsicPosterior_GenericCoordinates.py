@@ -87,6 +87,12 @@ except:
     print( " No mcsamplerGPU ")
     mcsampler_gpu_ok = False
 try:
+    import RIFT.integrators.mcsamplerAdaptiveVolume as mcsamplerAdaptiveVolume
+    mcsampler_AV_ok = True
+except:
+    print(" No mcsamplerAV ")
+    mcsampler_AV_ok = False
+try:
     import RIFT.interpolators.senni as senni
     senni_ok = True
 except:
@@ -357,7 +363,7 @@ if opts.lnL_shift_prevent_overflow:
 if not(opts.force_no_adapt):
     opts.force_no_adapt=False  # force explicit boolean false
 
-ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu']
+ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu', 'AV']
 if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
   print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)
   sys.exit(99)
@@ -2124,6 +2130,10 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
 if opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
 
+if opts.sampler_method == "AV":
+    sampler = mcsamplerAdaptiveVolume.MCSampler()
+    opts.internal_use_lnL= True  # required!
+
 
 ##
 ## Loop over param names
@@ -2505,7 +2515,6 @@ with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
     file_out.write(" {} {} ".format(np.log(res), np.sqrt(var)/res) + ' '.join(map(str,params_here)))
 #np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
 # since not EOS, can just use np.savetxt
-np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[np.log(res), np.sqrt(var)/res, neff, n_ESS]],header=" lnL sigmaL neff n_ESS ")
 # with open(opts.fname_output_integral+"+annotation_ESS.dat", 'w') as file_out:
 #     annotation_header = "lnL sigmaL neff n_ESS "
 #     str_out =list( map(str,[np.log(res), np.sqrt(var)/res, neff, n_ESS]))
@@ -2523,13 +2532,18 @@ if neff < len(low_level_coord_names):
 
 
 samples = sampler._rvs
-print(samples.keys())
+samples_type_names = list(samples.keys())
+print(samples_type_names)
 n_params = len(coord_names)
 dat_mass = np.zeros((len(samples[low_level_coord_names[0]]),n_params+3))
+dat_logL = np.zeros(len(samples[low_level_coord_names[0]]))
 if not(opts.internal_use_lnL):
     dat_logL = np.log(samples["integrand"])
 else:
-    dat_logL = samples["integrand"]
+    if 'log_integrand' in samples_type_names:
+        dat_logL = samples['log_integrand']
+    else:
+        dat_logL = samples["integrand"]
 lnLmax = np.max(dat_logL[np.isfinite(dat_logL)])
 print(" Max lnL ", np.max(dat_logL))
 
@@ -2546,6 +2560,7 @@ if True:
     weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
     n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
     print(" n_eff n_ESS ", neff, n_ESS)
+np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[np.log(res), np.sqrt(var)/res, neff, n_ESS]],header=" lnL sigmaL neff n_ESS ")
 
 
 # Throw away stupid points that don't impact the posterior
