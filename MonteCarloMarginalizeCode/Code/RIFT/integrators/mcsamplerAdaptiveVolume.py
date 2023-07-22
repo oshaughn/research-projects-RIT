@@ -125,11 +125,17 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob):
             
     return lkl_thr, truncp
 
-def sample_from_bins(xrange, dx, bu, ninbin):
+def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
     
         ndim = xrange.shape[0]
         xlo, xhi = xrange.T[0] + dx * bu, xrange.T[0] + dx * (bu+1)
         x = np.vstack([np.random.uniform(xlo[kk], xhi[kk], size = (npb, ndim)) for kk, npb in enumerate(ninbin)])
+        # remove points that are out of range.  Due to rounding issues etc, the sampler above can generate points out of range!
+        # Note this rejection will bias the integral, because volumes are calculated assuming a regular grid. We *should* fix the grid sizes to integers
+        if reject_out_of_range:
+          for indx in np.arange(len(xrange)):
+            indx_ok = np.where(np.logical_and(x[:,indx] >= xrange[indx,0], x[:,indx] <= xrange[indx,1], ))
+            x = x[indx_ok]
         return x
 
 
@@ -183,6 +189,7 @@ class MCSampler(object):
         self.n_chunk = n_chunk
         self.nbins = None
         self.ninbin = None
+        self.adaptive =[]
 
         self.pdf = {} # not used
 
@@ -197,6 +204,8 @@ class MCSampler(object):
     def setup(self):
         ndim = len(self.params)
         self.nbins = np.ones(ndim)
+        self.d_adaptive = len(self.adaptive)
+        self.indx_adaptive = [self.params_ordered.index(name) for name in self.adaptive]
         self.binunique = np.array([ndim* [0]])
         self.ninbin   = [self.n_chunk]
         self.my_ranges =  np.array([[self.llim[x],self.rlim[x]] for x in self.params_ordered])
@@ -250,9 +259,9 @@ class MCSampler(object):
         self.pdf[params] = pdf
         self.prior_pdf[params] = prior_pdf
 
-#        if adaptive_sampling:
-#            print("   Adapting ", params)
-#            self.adaptive.append(params)
+        if adaptive_sampling:
+            print("   Adapting ", params)
+            self.adaptive.append(params)
 
     def prior_prod(self, x):
         """
@@ -428,7 +437,9 @@ class MCSampler(object):
             delta_V = V / np.sqrt(nrec) 
  
             # Redefine bin sizes, reassign points to redefined hypercube set. [Asymptotically this becomes stationary]
-            self.nbins = np.ones(ndim)*(1/delta_V) ** (1/ndim)  # uniform split in each dimension is normal, but we have array - can be irregular
+            self.nbins = np.ones(ndim)*(1/delta_V) ** (1/self.d_adaptive)  # uniform split in each dimension is normal, but we have array - can be irregular
+            self.nbins[self.indx_adaptive] = 1  # reset to 1 bin for non-adaptive dimensions
+
             self.dx = np.diff(self.my_ranges, axis = 1).flatten() / self.nbins   # update bin widths
             binidx = ((allx - self.my_ranges.T[0]) / self.dx.T).astype(int) #bin indexs of the samples
 
