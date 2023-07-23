@@ -505,7 +505,7 @@ if opts.sim_xml:
         m2 =P.m2/lal.MSUN_SI
         lambda1, lambda2 = P.lambda1,P.lambda2
         P.dist = factored_likelihood.distMpcRef * 1.e6 * lal.PC_SI   # use *nonstandard* distance
-        P.phi=0.0
+        P.phiref=0.0
         P.psi=0.0
         P.incl = 0.0       # only works for aligned spins. Be careful.
         P.fref = opts.reference_freq
