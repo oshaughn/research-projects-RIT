@@ -700,7 +700,7 @@ if not(opts.event_time is None) and not(opts.manual_ifo_list is None):
 if opts.ile_distance_prior:
     cmd += " --ile-distance-prior {} ".format(opts.ile_distance_prior)
 if (opts.internal_marginalize_distance): #  and not opts.ile_distance_prior:
-    cmd += " --internal-marginalize-distance "
+    cmd += " --force-xpy --internal-marginalize-distance "  # note distance marginalization only in one code path (otherwise errors)
 if (opts.internal_marginalize_distance_file ):
     cmd += " --internal-marginalize-distance-file {} ".format(opts.internal_marginalize_distance_file)
 if not(opts.internal_distance_max is None):
