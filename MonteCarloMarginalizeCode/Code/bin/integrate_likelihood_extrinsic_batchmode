@@ -1080,6 +1080,10 @@ if opts.sampler_method == "GMM":
       unpinned_params.remove('distance')
       if lookup_table["phase_marginalization"]:
         unpinned_params.remove('phi_orb')
+if opts.sampler_method == "AV":
+  return_lnL=True
+  pinned_params.update( { 'enforce_bounds':True})  # don't go out of range : choose integer bin sizes
+
 
 def resample_samples(my_samples,
                      lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None): # uses LOTS of global variables, don't pass them all
