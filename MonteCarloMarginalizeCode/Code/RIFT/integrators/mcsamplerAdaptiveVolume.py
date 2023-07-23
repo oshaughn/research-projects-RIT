@@ -466,7 +466,7 @@ class MCSampler(object):
             if super_verbose:
               print(ntotal_true,eff_samp, np.round(neff_varaha), np.round(np.max(allloglkl), 1), len(allloglkl), np.mean(self.nbins), V,  len(self.binunique),  np.round(loglkl_thr, 1), trunc_p)
             else:
-              print(ntotal_true,eff_samp, np.sqrt(2*np.max(allloglkl - allp)), '-', np.log(V))
+              print(ntotal_true,eff_samp, np.sqrt(2*np.max(allloglkl - allp)), '-', np.log(V), np.sqrt(np.var(w/np.mean(w))/len(w) ))
 
             cycle += 1
             if cycle > 1000:
@@ -485,7 +485,7 @@ class MCSampler(object):
         # Manual estimate of integrand, done transparently (no 'log aggregate' or running calculation -- so memory hog
         log_wt = self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]
         log_int = xpy_special_default.logsumexp( log_wt) - np.log(len(log_wt))  # mean value
-        rel_var = np.var( np.exp(log_wt - np.max(log_wt)))
+        rel_var = np.var( np.exp(log_wt - log_int))/len(log_wt)   # error in integral, estimated: just taking int = <w> , so error is V(w_k)/N (sample mean/variance)
         eff_samp = np.sum(np.exp(log_wt - np.max(log_wt)))
         maxval = np.max(allloglkl)  # max of log
 
@@ -498,7 +498,7 @@ class MCSampler(object):
 #        rel_var = np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 )
 
         dict_return = {}
-        return log_int, rel_var, eff_samp, dict_return
+        return log_int, np.log(rel_var)  +2*log_int, eff_samp, dict_return
 
         # if outvals:
         #   out0 = outvals[0]; out1 = outvals[1]
