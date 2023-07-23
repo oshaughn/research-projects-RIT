@@ -206,6 +206,7 @@ class MCSampler(object):
         self.nbins = np.ones(ndim)
         self.d_adaptive = len(self.adaptive)
         self.indx_adaptive = [self.params_ordered.index(name) for name in self.adaptive]
+        self.indx_not_adaptive = list(set(list( range(ndim))) -set( self.indx_adaptive))
         self.binunique = np.array([ndim* [0]])
         self.ninbin   = [self.n_chunk]
         self.my_ranges =  np.array([[self.llim[x],self.rlim[x]] for x in self.params_ordered])
@@ -347,6 +348,14 @@ class MCSampler(object):
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else False
         bShowEveryEvaluation = kwargs['extremely_verbose'] if 'extremely_verbose' in kwargs else False
 
+
+        verbose = kwargs["verbose"] if "verbose" in kwargs else False  # default
+        super_verbose = kwargs["super_verbose"] if "super_verbose" in kwargs else False  # default
+        dict_return_q = kwargs["dict_return"] if "dict_return" in kwargs else False  # default.  Method for passing back rich data structures for debugging
+
+        # use integer numbers of bins always
+        enforce_bounds = kwargs["enforce_bounds"] if "enforce_bounds" in kwargs else False
+
         if bShowEvaluationLog:
             print(" .... mcsampler : providing verbose output ..... ")
 
@@ -437,8 +446,15 @@ class MCSampler(object):
             delta_V = V / np.sqrt(nrec) 
  
             # Redefine bin sizes, reassign points to redefined hypercube set. [Asymptotically this becomes stationary]
-            self.nbins = np.ones(ndim)*(1/delta_V) ** (1/self.d_adaptive)  # uniform split in each dimension is normal, but we have array - can be irregular
-            self.nbins[self.indx_adaptive] = 1  # reset to 1 bin for non-adaptive dimensions
+            if self.d_adaptive > 0:
+              self.nbins = np.ones(ndim)*(1/delta_V) ** (1/self.d_adaptive)  # uniform split in each dimension is normal, but we have array - can be irregular
+              self.nbins[self.indx_not_adaptive] = 1  # reset to 1 bin for non-adaptive dimensions
+            else:
+              self.nbins = np.ones(ndim) # why are we even doing this!
+
+            # bin sizes integers?  May slow us down
+            if enforce_bounds:
+              self.nbins = np.floor(self.nbins)
 
             self.dx = np.diff(self.my_ranges, axis = 1).flatten() / self.nbins   # update bin widths
             binidx = ((allx - self.my_ranges.T[0]) / self.dx.T).astype(int) #bin indexs of the samples
@@ -447,7 +463,11 @@ class MCSampler(object):
             self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1) * np.ones(self.binunique.shape[0])).astype(int)
             self.ntotal = current_log_aggregate[0]
 
-            print(ntotal_true,eff_samp, np.round(neff_varaha), np.round(np.max(allloglkl), 1), len(allloglkl), np.mean(self.nbins), V,  len(self.binunique),  np.round(loglkl_thr, 1), trunc_p)
+            if super_verbose:
+              print(ntotal_true,eff_samp, np.round(neff_varaha), np.round(np.max(allloglkl), 1), len(allloglkl), np.mean(self.nbins), V,  len(self.binunique),  np.round(loglkl_thr, 1), trunc_p)
+            else:
+              print(ntotal_true,eff_samp, np.sqrt(2*np.max(allloglkl - allp)), '-', np.log(V))
+
             cycle += 1
             if cycle > 1000:
                 break
