@@ -74,6 +74,7 @@ for fname in opts.fname[0]: #sys.argv[1:]:
 
 for key in data_at_intrinsic:
     lnL, sigmaOverL, ntot,neff =   np.transpose(data_at_intrinsic[key])
+    sigmaOverL = np.maximum(sigmaOverL, 1e-7*np.ones(len(lnL)))   # prevent accidental underflow during debugging/using synthetic data with no error
     lnLmax = np.max(lnL)
     sigma = sigmaOverL*np.exp(lnL-lnLmax)  # remove overall Lmax factor, which factors out from the weights constructed from \sigma
     wts = weight_simulations.AverageSimulationWeights(None, None,sigma)   
