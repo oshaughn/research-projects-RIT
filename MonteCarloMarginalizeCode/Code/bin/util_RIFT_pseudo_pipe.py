@@ -945,7 +945,10 @@ for indx in np.arange(len(instructions_cip)):
             # FIRST attempt to replace with commas, note previous line
             line = line.replace("mc,s1z'", "mc,s1z_bar'")
     elif opts.internal_correlate_default and ('s1z' in line):
-        addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
+        my_sampler_method='GMM'  # Warning can override default sampler setting if not careful!
+        if opts.cip_sampler_method:
+            my_sampler_method = opts.cip_sampler_method
+        addme = " --sampler-method {} --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' ".format(my_sampler_method)
         if 's1z_bar' in line:
             # FIRST attempt to replace with commas, note previous line
             addme = addme.replace('s1z,', 's1z_bar,')
@@ -955,7 +958,7 @@ for indx in np.arange(len(instructions_cip)):
         # For high-q triggers, don't waste time correlating s2z
         if 'm2' in event_dict:
             if event_dict['m2']/event_dict['m1']< 0.4:
-                addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
+                addme = " --sampler-method {} --internal-correlate-parameters 'mc,delta_mc,s1z' ".format(my_sampler_method)
                 if 's1z_bar' in line:
                     addme = addme.replace("mc,s1z'", "mc,s1z_bar'")
             if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
