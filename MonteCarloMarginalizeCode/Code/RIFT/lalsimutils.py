@@ -461,6 +461,7 @@ class ChooseWaveformParams:
             self.phaseO = 3
 
     # From Pankow/master
+    # See also: https://git.ligo.org/lscsoft/bilby_pipe/-/merge_requests/371/diffs
     try:
         _LAL_DICT_PARAMS = {"Lambda1": "lambda1", "Lambda2": "lambda2", "ampO": "ampO", "phaseO": "phaseO"}
         _LAL_DICT_PTYPE = {"Lambda1": lal.DictInsertREAL8Value, "Lambda2": lal.DictInsertREAL8Value, "ampO": lal.DictInsertINT4Value, "phaseO": lal.DictInsertINT4Value}
@@ -474,6 +475,22 @@ class ChooseWaveformParams:
         # Properly add tidal parammeters
         lalsim.SimInspiralWaveformParamsInsertTidalLambda1(extra_params, self.lambda1)
         lalsim.SimInspiralWaveformParamsInsertTidalLambda2(extra_params, self.lambda2)
+        return extra_params
+
+    def to_lal_dict_extended(self,extra_args_dict):
+        """
+        to_lal_dict_extended:
+            Extended implementation, to address massive proliferation of options to control waveform version
+            See  https://git.ligo.org/lscsoft/bilby_pipe/-/merge_requests/371/diffs
+        """
+        extra_params = self.to_lal_dict()
+        extra_keys = list(set(list(extra_args_dict)) - set(ChooseWaveformParams._LAL_DICT_PARAMS))  # list of new keys I need to find in lalsmulation
+        for key in extra_keys:
+            func = getattr(
+                    lalsimulation, "SimInspiralWaveformParamsInsert" + key, 0
+                )
+            if func != 0:
+                func(extra_params, extra_args_dict[key])
         return extra_params
 
     def manual_copy(self):
@@ -2772,7 +2789,7 @@ def singleIFOSNR(data, psd, fNyq, fmin=None, fmax=None):
 #
 # Functions to generate waveforms
 #
-def hoft(P, Fp=None, Fc=None):
+def hoft(P, Fp=None, Fc=None,**kwargs):
     """
     Generate a TD waveform from ChooseWaveformParams P
     You may pass in antenna patterns Fp, Fc. If none are provided, they will
@@ -2785,7 +2802,10 @@ def hoft(P, Fp=None, Fc=None):
     if P.approx == lalsim.EOBNRv2HM and P.m1 == P.m2:
 #        print " Using ridiculous tweak for equal-mass line EOB"
         P.m2 = P.m1*(1-1e-6)
-    extra_params = P.to_lal_dict()
+    extra_waveform_args = {}
+    if 'extra_waveform_args' in kwargs:
+        extra_waveform_args.update(kwargs['extra_waveform_args'])
+    extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
     if P.approx==lalsim.TEOBResumS and has_external_teobresum and info_use_ext:
         Lmax=8
         modes_used = []
@@ -3142,19 +3162,25 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     # Check that masses are not nan!
     assert (not np.isnan(P.m1)) and (not np.isnan(P.m2)), " masses are NaN "
 
+    # includes the 'release' version
+    extra_waveform_args = {}
+    if 'extra_waveform_args' in kwargs:
+        extra_waveform_args.update(kwargs['extra_waveform_args'])
+    extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
+
     sign_factor = 1
     if nr_polarization_convention or (P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         sign_factor = -1
     if (P.approx == lalIMRPhenomHM or P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomXPHM or P.approx == lalSEOBNRv4HM_ROM or check_FD_pending(P.approx)) and is_ChooseFDModes_present:
        if P.fref==0 and (P.approx == lalIMRPhenomXPHM):
           P.fref=P.fmin
-       extra_params = P.to_lal_dict()
+#       extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
        fNyq = 0.5/P.deltaT
        TDlen = int(1./(P.deltaT*P.deltaF))
        fNyq_offset = fNyq - P.deltaF
        # Argh: https://git.ligo.org/waveforms/reviews/imrphenomxhm-amplitude-recalibration/-/wikis/home#review-statement
-       if P.approx == lalIMRPhenomXPHM and 'release' in kwargs:
-           lalsim.SimInspiralWaveformParamsInsertPhenomXHMReleaseVersion(extra_params, kwargs['release'])
+#       if P.approx == lalIMRPhenomXPHM and 'release' in kwargs:
+#           lalsim.SimInspiralWaveformParamsInsertPhenomXHMReleaseVersion(extra_params, kwargs['release'])
        hlms_struct = lalsim.SimInspiralChooseFDModes(P.m1, P.m2, \
                                                      P.s1x, P.s1y, P.s1z, \
                                                      P.s2x, P.s2y, P.s2z, \
@@ -3259,7 +3285,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
     elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM or P.approx == lalNRSur7dq4 or P.approx == lalNRSur7dq2 or P.approx==lalNRHybSur3dq8 or P.approx == lalIMRPhenomTPHM) or (P.approx ==lalsim.TEOBResumS and not(has_external_teobresum) and not(info_use_resum_polarizations)):
         # approximant likst: see https://git.ligo.org/lscsoft/lalsuite/blob/master/lalsimulation/lib/LALSimInspiral.c#2541
-        extra_params = P.to_lal_dict()
+        extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
         # prevent segmentation fault when hitting nyquist frequency violations
         if (P.approx == lalSEOBNRv4PHM or P.approx == lalSEOBNRv4P) and P.approx >0:
             try:
@@ -3453,7 +3479,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
         return hlm
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
-        extra_params = P.to_lal_dict()
+        extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
         # Format about to change: should not have several of these parameters
         hlms = lalsim.SimInspiralTDModesFromPolarizations( \
             P.m1, P.m2, \
@@ -3895,7 +3921,7 @@ def SphHarmFrequencySeries_to_dict(hlms, Lmax):
 
     return hlm_dict
 
-def complex_hoft(P, sgn=-1):
+def complex_hoft(P, sgn=-1,**kwargs):
     """
     Generate a complex TD waveform from ChooseWaveformParams P
     Returns h(t) = h+(t) + 1j sgn hx(t)
@@ -3908,7 +3934,11 @@ def complex_hoft(P, sgn=-1):
     #         P.s1x, P.s1y, P.s1z, P.spin2x, P.spin2y, P.spin2z, P.fmin, P.fref, P.dist, 
     #         P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
     #         P.ampO, P.phaseO, P.approx)
-    extra_params = P.to_lal_dict()
+    extra_waveform_args = {}
+    if 'extra_waveform_args' in kwargs:
+        extra_waveform_args.update(kwargs['extra_waveform_args'])
+    extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
+
     hp, hc = lalsim.SimInspiralChooseTDWaveform( P.m1, P.m2, 
             P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
             P.dist, P.incl, P.phiref,  \
@@ -3957,7 +3987,7 @@ def complex_hoft_IMRPv2(P_copy,sgn=-1):
     return hT
 
 
-def complex_hoff(P, sgn=-1, fwdplan=None):
+def complex_hoff(P, sgn=-1, fwdplan=None,**kwargs):
     """
     CURRENTLY ONLY WORKS WITH TD APPROXIMANTS
 
@@ -3985,7 +4015,10 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
             TDlen = int(1./(P.deltaT*P.deltaF))
         elif TDlen!=0: # Set values of P.deltaF from TDlen, P.deltaT
             P.deltaF = 1./P.deltaT/TDlen
-        extra_params = P.to_lal_dict()
+        extra_waveform_args = {}
+        if 'extra_waveform_args' in kwargs:
+            extra_waveform_args.update(kwargs['extra_waveform_args'])
+        extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
         hptilde, hctilde = lalsim.SimInspiralChooseFDWaveform(#P.phiref, P.deltaF,
             P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
             P.dist, P.incl, P.phiref,  \
@@ -4024,7 +4057,7 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
             hoff.data.data *= np.exp(-2*np.pi*1j*evaluate_fvals(hoff)*dt)
             return hoff
 
-    ht = complex_hoft(P, sgn)
+    ht = complex_hoft(P, sgn,**kwargs)
 
     if P.deltaF == None: # h(t) was not zero-padded, so do it now
         TDlen = nextPow2(ht.data.length)
