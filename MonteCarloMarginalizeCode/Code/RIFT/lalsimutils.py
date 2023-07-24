@@ -477,20 +477,21 @@ class ChooseWaveformParams:
         lalsim.SimInspiralWaveformParamsInsertTidalLambda2(extra_params, self.lambda2)
         return extra_params
 
-    def to_lal_dict_extended(self,extra_args_dict):
+    def to_lal_dict_extended(self,extra_args_dict=None):
         """
         to_lal_dict_extended:
             Extended implementation, to address massive proliferation of options to control waveform version
             See  https://git.ligo.org/lscsoft/bilby_pipe/-/merge_requests/371/diffs
         """
         extra_params = self.to_lal_dict()
-        extra_keys = list(set(list(extra_args_dict)) - set(ChooseWaveformParams._LAL_DICT_PARAMS))  # list of new keys I need to find in lalsmulation
-        for key in extra_keys:
-            func = getattr(
-                    lalsimulation, "SimInspiralWaveformParamsInsert" + key, 0
-                )
-            if func != 0:
-                func(extra_params, extra_args_dict[key])
+        if extra_args_dict:
+            extra_keys = list(set(list(extra_args_dict)) - set(ChooseWaveformParams._LAL_DICT_PARAMS))  # list of new keys I need to find in lalsmulation
+            for key in extra_keys:
+                func = getattr(
+                    lalsim, "SimInspiralWaveformParamsInsert" + key, 0
+                    )
+                if func != 0:
+                    func(extra_params, extra_args_dict[key])
         return extra_params
 
     def manual_copy(self):
@@ -2996,20 +2997,24 @@ def hoff_TD(P, Fp=None, Fc=None, fwdplan=None):
     lal.REAL8TimeFreqFFT(hf, ht, fwdplan)
     return hf
 
-def hoff_FD(P, Fp=None, Fc=None):
+def hoff_FD(P, Fp=None, Fc=None,**kwargs):
     """
     Generate a FD waveform for a FD approximant.
     Note that P.deltaF (which is None by default) must be set
     """
     if P.deltaF is None:
         raise ValueError('None given for freq. bin size P.deltaF')
+    extra_waveform_args = {}
+    if 'extra_waveform_args' in kwargs:
+        extra_waveform_args.update(kwargs['extra_waveform_args'])
+    extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
 
     hptilde, hctilde = lalsim.SimInspiralChooseFDWaveform(P.phiref, P.deltaF,
              P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
              P.dist, P.incl, P.phiref, P.psi,
              P.eccentricity, P.meanPerAno, P.deltaF, 
              P.fmin, P.fmax, P.fref, 
-             P.nonGRparams, P.approx)
+             extra_params, P.approx)
 #            P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin,
 #            P.fmax, P.fref, P.dist, P.incl, P.lambda1, P.lambda2, P.waveFlags,
 #            P.nonGRparams, P.ampO, P.phaseO, P.approx)
@@ -3138,7 +3143,7 @@ def non_herm_hoff(P):
 #argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
 
-def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,**kwargs ):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.5,**kwargs ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -3206,9 +3211,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        for mode in hlmsdict:
           hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
           hlmsT[mode] = DataInverseFourier(hlmsdict[mode])
-          hlmsT[mode].data.data = -1*hlmsT[mode].data.data
-          hlmsT[mode].data.data = np.roll(hlmsT[mode].data.data,-int(hlmsT[mode].data.length/2))
-          hlmsT[mode].epoch = -(hlmsT[mode].data.length*hlmsT[mode].deltaT/2)
+          hlmsT[mode].data.data = -1*hlmsT[mode].data.data   # shifts polarization angle
+          # Assume fourier transform is CENTERED.  This makes sure any ringdown dies out. In practice, too pessimistic .. better to be asymmetric
+          factor_centering = fd_centering_factor
+          hlmsT[mode].data.data = np.roll(hlmsT[mode].data.data,-int(hlmsT[mode].data.length*factor_centering))  
+          hlmsT[mode].epoch = -(hlmsT[mode].data.length*hlmsT[mode].deltaT*factor_centering)
           if not(no_condition):
               # Taper at the start of the segment
               hlmsT[mode].data.data[:ntaper]*=vectaper
