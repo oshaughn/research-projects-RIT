@@ -3204,7 +3204,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        s = lalsim.SimInspiralFinalBlackHoleSpinBound(P.s1z,P.s2z)
        t_merge = lalsim.SimInspiralMergeTimeBound(P.m1,P.m2) + lalsim.SimInspiralRingdownTimeBound(P.m1+P.m2,s)
        t_extra = 3./P.fmin
-       indx_crit = int(TDlen/2) + int((t_merge+t_extra)/P.deltaT)  # t_extra is a lot of time generally if fmin is low
+       indx_crit = int(TDlen*(fd_centering_factor)) + int((t_merge+t_extra)/P.deltaT)  # t_extra is a lot of time generally if fmin is low
        if indx_crit + ntaper > TDlen:
            indx_crit = TDlen - ntaper
 
@@ -3213,9 +3213,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
           hlmsT[mode] = DataInverseFourier(hlmsdict[mode])
           hlmsT[mode].data.data = -1*hlmsT[mode].data.data   # shifts polarization angle
           # Assume fourier transform is CENTERED.  This makes sure any ringdown dies out. In practice, too pessimistic .. better to be asymmetric
-          factor_centering = fd_centering_factor
-          hlmsT[mode].data.data = np.roll(hlmsT[mode].data.data,-int(hlmsT[mode].data.length*factor_centering))  
-          hlmsT[mode].epoch = -(hlmsT[mode].data.length*hlmsT[mode].deltaT*factor_centering)
+          factor_centering = fd_centering_factor   # not clear it works right if we shift it
+          hlmsT[mode].data.data = np.roll(hlmsT[mode].data.data,-int(hlmsT[mode].data.length*(1-factor_centering)))  
+          hlmsT[mode].epoch = -(hlmsT[mode].data.length*hlmsT[mode].deltaT)*(factor_centering)
           if not(no_condition):
               # Taper at the start of the segment
               hlmsT[mode].data.data[:ntaper]*=vectaper
