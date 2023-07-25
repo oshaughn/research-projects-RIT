@@ -96,7 +96,7 @@ class NanOrInf(Exception):
 
 ### V. Tiwari routines
 
-def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob):
+def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_default):
     """
     Find the likelihood threshold that encolses a probability
     lkl  : array of likelihoods (on bins)
@@ -105,23 +105,23 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob):
     discard_prob: threshold on CDF to throw away an entire bin.  Should be very small
     """
     
-    w = xpy_default.exp(lkl - np.max(lkl))
+    w = xpy_here.exp(lkl - np.max(lkl))
     npoints = len(w)
-    sumw = xpy_default.sum(w)
+    sumw = xpy_here.sum(w)
     prob = w/sumw
-    idx = xpy_default.argsort(prob)
-    ecdf = xpy_default.cumsum(prob[idx])
-    F = xpy_default.linspace(np.min(ecdf), 1., npoints)
+    idx = xpy_here.argsort(prob)
+    ecdf = xpy_here.cumsum(prob[idx])
+    F = xpy_here.linspace(np.min(ecdf), 1., npoints)
     prob_stop_thr = lkl[idx][ecdf >= discard_prob][0]
     
-    lkl_stop_thr = xpy_default.flip(np.sort(lkl))
+    lkl_stop_thr = xpy_here.flip(np.sort(lkl))
     if len(lkl_stop_thr)>nsel:
         lkl_stop_thr = lkl_stop_thr[nsel]
     else:
         lkl_stop_thr = lkl_stop_thr[-1]
     lkl_thr = min(lkl_stop_thr, prob_stop_thr)
 
-    truncp = xpy_default.sum(w[lkl < lkl_thr]) / sumw
+    truncp = xpy_here.sum(w[lkl < lkl_thr]) / sumw
             
     return identity_convert(lkl_thr), identity_convert(truncp)  # send both to CPU as needed
 
@@ -431,7 +431,7 @@ class MCSampler(object):
             at_final_threshold = np.round(enc_prob/trunc_p) - np.round(enc_prob/(1 - enc_prob)) == 0
             #Estimate likelihood threshold
             if not(at_final_threshold):
-                loglkl_thr, truncp = get_likelihood_threshold(allloglkl, loglkl_thr, nsel, 1 - enc_prob - trunc_p)
+                loglkl_thr, truncp = get_likelihood_threshold(allloglkl, loglkl_thr, nsel, 1 - enc_prob - trunc_p,xpy=xpy_here)
                 trunc_p += truncp
     
             # Select with threshold
