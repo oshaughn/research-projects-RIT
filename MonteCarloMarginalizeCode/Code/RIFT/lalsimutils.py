@@ -3215,6 +3215,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
           # Assume fourier transform is CENTERED.  This makes sure any ringdown dies out. In practice, too pessimistic .. better to be asymmetric
           factor_centering = fd_centering_factor   # not clear it works right if we shift it
           hlmsT[mode].data.data = np.roll(hlmsT[mode].data.data,-int(hlmsT[mode].data.length*(1-factor_centering)))  
+          # Phase factors: see crazy conventions in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
           hlmsT[mode].epoch = -(hlmsT[mode].data.length*hlmsT[mode].deltaT)*(factor_centering)
           if not(no_condition):
               # Taper at the start of the segment
@@ -3230,10 +3231,15 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                   hlmsT[mode].data.data[indx_crit+ntaper:] = 0
 
        # Rotate if requested, and if P.fref is specified
-       if fd_L_frame and P.fref:
-           alpha,beta,gamma =extract_JL_angles(P)
-           hlmsT_alt = rotate_hlm_static(hlmsT, alpha,beta,gamma)
-           hlmsT = hlmsT_alt
+       # see discussion in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
+       if np.sqrt(P.s1x**2 + P.s1y**2 + P.s2x**2+P.s2y**2)>1e-10:  # only perform if really precessing, otherwise skip. Really only for XP variants
+         if fd_L_frame and P.fref:
+             alpha,beta,gamma =extract_JL_angles(P)
+             # alpha0, beta==theta_JN already identified above. Missing polarization rotation factor as well
+             _, _, _, theta_JN, alpha0, _, zeta_pol = lalsim.SimIMRPhenomXPCalculateModelParametersFromSourceFrame(P.m1,P.m2, P.fref, P.phiref, P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, extra_params)
+             # use alpha0 directly from the dynamics code, NOT via the simplified estimate calculated from our own estimates of J, L, etc
+             hlmsT_alt = rotate_hlm_static(hlmsT, alpha0,beta,gamma,extra_polarization=zeta_pol)
+             hlmsT = hlmsT_alt
 
        if P.deltaF is not None:
           if not silent:
@@ -3843,7 +3849,7 @@ def std_and_conj_hlmoff(P, Lmax=2,**kwargs):
             hlms_conj_F[mode] = DataFourier(hlms[mode])
     return hlmsF, hlms_conj_F
 
-def hoft_from_hlm(hlms,P):
+def hoft_from_hlm(hlms,P, return_complex=False):
     """
     hoft_from_hlm(hlm,P,Lmax):  return hoft like output given hlmoft input.
     Important if hoft is not accessible (e.g., not provided by lalsuite)
@@ -3858,7 +3864,11 @@ def hoft_from_hlm(hlms,P):
     # create for loop over elements of the series to add it
     for mode in hlms:
         hlm = hlms[mode]
-        hT.data.data += hlm.data.data * lal.SpinWeightedSphericalHarmonic(P.incl,P.phiref,-2,mode[0],mode[1])
+        hT.data.data += hlm.data.data * lal.SpinWeightedSphericalHarmonic(P.incl, - P.phiref,-2,mode[0],mode[1])
+
+    if return_complex:
+        hT.data.data *= np.exp(-2*1j*P.psi)
+        return hT
 
     # now create real valued output based on detectors   
     if P.radec==False:
@@ -5505,10 +5515,12 @@ def guess_mc_range_mdc(P,force_mc_range=None):
     return mc_min,mc_max
 
 
-def rotate_hlm_static(hlm,alphaA,betaA,gammaA):
+def rotate_hlm_static(hlm,alphaA,betaA,gammaA,extra_polarization=None):
     """
     Rotate output hlm by these Euler angles
     Note this is a full system rotation, and therefore should be associated with rotation of the physical quantities (e.g., spin vectors, J,L)
+
+    extra_polarization is applied at the end, as a multiplicative factor, if nonzero
     """
     hCatOut = {}
     modes = list(hlm)
@@ -5543,11 +5555,22 @@ def rotate_hlm_static(hlm,alphaA,betaA,gammaA):
                         hCatOut[(L,M)].data.data += lal.WignerDMatrix(L,M,mode[1], alphaA, betaA,gammaA)*hlm[mode].data.data
                     else:
                         hCatOut[(L,M)] += lal.WignerDMatrix(L,M,mode[1], alphaA, betaA,gammaA)*hlm[mode]
+            # multiply by extra polarization, if requexted
+            if extra_polarization:
+                if lal_type:
+                    hCatOut[(L,M)].data.data *= np.exp(-2j*extra_polarization)
+                else:
+                    hCatOut[(L,M)] *= np.exp(-2j*extra_polarization)
 
     return hCatOut
 
 
-def extract_JL_angles(P):
+def extract_JL_angles(P,return_inverse=True):
+    """
+    extract_JL_angles:  finds Euler angles for transformation  see eg C13, C14 in 2004.06503
+          return_inverse     True       J frame -> L frame
+          return_inverse     False       L frame -> J frame
+    """
     Lref = P.OrbitalAngularMomentumAtReferenceOverM2()
     Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
     Jref = P.TotalAngularMomentumAtReferenceOverM2()
@@ -5575,4 +5598,8 @@ def extract_JL_angles(P):
     last_angle = np.angle( nhat_rot[0]+1j*nhat_rot[1])
 
     # Phase conventions as in XPHM paper https://journals.aps.org/prd/abstract/10.1103/PhysRevD.103.104056
-    return np.pi - last_angle, theta_JL, np.pi-phi_JL
+    if return_inverse:
+        # the two np.pi factors end up producing a mode sign  (-1)^m (-1)^m'  to deal with  thetaJL < 0  , so we don't have a negative angle there.
+        return np.pi - last_angle, theta_JL, np.pi-phi_JL
+    else:
+        return phi_JL, theta_JL, last_angle
