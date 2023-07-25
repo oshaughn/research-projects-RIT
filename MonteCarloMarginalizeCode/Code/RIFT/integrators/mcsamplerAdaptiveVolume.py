@@ -392,6 +392,7 @@ class MCSampler(object):
             rv, log_joint_p_prior = self.draw_simple()  # Beware reversed order of rv
             ntotal_true += len(rv)
             if cupy_ok:
+              rv = identity_convert_togpu(rv) # send random numbers to GPU : ugh
               log_joint_p_prior = identity_convert_togpu(log_joint_p_prior)    # send to GPU if required. Don't waste memory reassignment otherwise
 
             # Evaluate function, protecting argument order
@@ -418,11 +419,11 @@ class MCSampler(object):
             
             loglkl = log_integrand # note we are putting the prior in here
 
-            idxsel = xpy_default.where(loglkl > loglkl_thr)
+            idxsel = xpy_here.where(loglkl > loglkl_thr)
             #only admit samples that lie inside the live volume, i.e. one that cross likelihood threshold
-            allx = xpy_default.append(allx, rv[idxsel], axis = 0)
-            allloglkl = xpy_default.append(allloglkl, loglkl[idxsel])
-            allp = xpy_default.append(allp, log_joint_p_prior[idxsel])
+            allx = xpy_here.append(allx, rv[idxsel], axis = 0)
+            allloglkl = xpy_here.append(allloglkl, loglkl[idxsel])
+            allp = xpy_here.append(allp, log_joint_p_prior[idxsel])
             ninj = len(allloglkl)
 
 
@@ -434,17 +435,17 @@ class MCSampler(object):
                 trunc_p += truncp
     
             # Select with threshold
-            idxsel = xpy_default.where(allloglkl > loglkl_thr)
+            idxsel = xpy_here.where(allloglkl > loglkl_thr)
             allloglkl = allloglkl[idxsel]
             allp = allp[idxsel]
             allx = allx[idxsel]
             nrec = len(allloglkl)   # recovered size of active volume at present, after selection
 
             # Weights
-            lw = allloglkl - xpy_default.max(allloglkl)
-            w = xpy_default.exp(lw)
-            neff_varaha = identity_convert(xpy_default.sum(w) ** 2 / xpy_default.sum(w ** 2))
-            eff_samp = identity_convert(xpy_default.sum(w)/xpy_default.max(w))  # to CPU as needed
+            lw = allloglkl - xpy_here.max(allloglkl)
+            w = xpy_here.exp(lw)
+            neff_varaha = identity_convert(xpy_here.sum(w) ** 2 / xpy_here.sum(w ** 2))
+            eff_samp = identity_convert(xpy_here.sum(w)/xpy_here.max(w))  # to CPU as needed
  
             #New live volume based on new likelihood threshold
             V *= (nrec / ninj)
@@ -463,7 +464,7 @@ class MCSampler(object):
               self.nbins = np.floor(self.nbins)
 
             self.dx = np.diff(self.my_ranges, axis = 1).flatten() / self.nbins   # update bin widths
-            binidx = identity_convert( ((allx - self.my_ranges.T[0]) / self.dx.T).astype(int)  ) #bin indexs of the samples ... sent back to CPU as needed
+            binidx = ( (( identity_convert(allx) - self.my_ranges.T[0]) / self.dx.T).astype(int)  ) #bin indexs of the samples ... sent back to CPU as needed
 
             self.binunique = np.unique(binidx, axis = 0)
             self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1) * np.ones(self.binunique.shape[0])).astype(int)
@@ -472,7 +473,7 @@ class MCSampler(object):
             if super_verbose:
               print(ntotal_true,eff_samp, np.round(neff_varaha), np.round(np.max(allloglkl), 1), len(allloglkl), np.mean(self.nbins), V,  len(self.binunique),  np.round(loglkl_thr, 1), trunc_p)
             else:
-              print(ntotal_true,eff_samp, np.sqrt(2*xpy_default.max(allloglkl - allp)), '-', np.log(V), np.sqrt(xpy_default.var(w/xpy_default.mean(w))/len(w) ))
+              print(ntotal_true,eff_samp, np.sqrt(2*xpy_here.max(allloglkl - allp)), '-', np.log(V), np.sqrt(xpy_here.var(w/xpy_here.mean(w))/len(w) ))
 
             cycle += 1
             if cycle > 1000:
@@ -486,11 +487,12 @@ class MCSampler(object):
         # write out log integrand
         self._rvs['log_integrand']  = allloglkl - allp
         self._rvs['log_joint_prior'] = allp
-        self._rvs['log_joint_s_prior'] = np.ones(len(allloglkl))*(np.log(1/V) - np.sum(np.log(self.dx0)))  # effective uniform sampling on this volume
+        self._rvs['log_joint_s_prior'] = xpy_here.ones(len(allloglkl))*(np.log(1/V) - np.sum(np.log(self.dx0)))  # effective uniform sampling on this volume
 
         # Manual estimate of integrand, done transparently (no 'log aggregate' or running calculation -- so memory hog
         log_wt = self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]
-        log_int = xpy_special_default.logsumexp( log_wt) - np.log(len(log_wt))  # mean value
+        log_wt = identity_convert(log_wt)  # convert to CPU
+        log_int = special.logsumexp( log_wt) - np.log(len(log_wt))  # mean value
         rel_var = np.var( np.exp(log_wt - log_int))/len(log_wt)   # error in integral, estimated: just taking int = <w> , so error is V(w_k)/N (sample mean/variance)
         eff_samp = np.sum(np.exp(log_wt - np.max(log_wt)))
         maxval = np.max(allloglkl)  # max of log
@@ -502,6 +504,30 @@ class MCSampler(object):
 #        print(outvals, log_int, maxval, current_log_aggregate)
 #        eff_samp = xpy.exp(  outvals[0]+np.log(len(allloglkl)) - maxval)   # integral value minus floating point, which is maximum
 #        rel_var = np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 )
+
+        # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
+        if bFairdraw and not(n_extr is None):
+           n_extr = int(numpy.min([n_extr,1.5*identity_convert(eff_samp),1.5*neff]))
+           print(" Fairdraw size : ", n_extr)
+           ln_wt = self.xpy.array(self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"] ,dtype=float)
+           ln_wt = identity_convert(ln_wt)  # send to CPU
+           ln_wt += - special.logsumexp(ln_wt)
+           wt = xpy.exp(identity_convert_togpu(ln_wt))
+           if n_extr < len(self._rvs["log_integrand"]):
+               indx_list = self.xpy.random.choice(self.xpy.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
+               # FIXME: See previous FIXME
+               for key in list(self._rvs.keys()):
+                   if isinstance(key, tuple):
+                       self._rvs[key] = identity_convert(self._rvs[key][:,indx_list])
+                   else:
+                       self._rvs[key] = identity_convert(self._rvs[key][indx_list])
+
+
+        # perform type conversion of all stored variables.  VERY LARGE -- should only do this if we need it!
+        if cupy_ok:
+          for name in self._rvs:
+            if isinstance(self._rvs[name],xpy_default.ndarray):
+              self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
 
         dict_return = {}
         return log_int, np.log(rel_var)  +2*log_int, eff_samp, dict_return
