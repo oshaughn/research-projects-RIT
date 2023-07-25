@@ -1850,6 +1850,8 @@ for indx in numpy.arange(len(P_list)):
       # reset the GMM dictionary
       for component in gmm_dict:
           gmm_dict[component] = None
+    elif opts.sampler_method == 'AV':
+      print(" AV always resets every iteration ! ")
     else:
       print(" force-reset-all not defined for this integrator ")
       sys.exit(1)
