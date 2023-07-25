@@ -3177,6 +3177,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     if nr_polarization_convention or (P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         sign_factor = -1
     if (P.approx == lalIMRPhenomHM or P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomXPHM or P.approx == lalSEOBNRv4HM_ROM or check_FD_pending(P.approx)) and is_ChooseFDModes_present:
+       is_precessing=True
+       if np.sqrt(P.s1x**2 + P.s1y**2 + P.s2x**2+P.s2y**2)<1e-10:  # only perform if really precessing, otherwise skip. Really only for XP variants
+           is_precessing=False
        if P.fref==0 and (P.approx == lalIMRPhenomXPHM):
           P.fref=P.fmin
 #       extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
@@ -3211,11 +3214,12 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        for mode in hlmsdict:
           hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
           hlmsT[mode] = DataInverseFourier(hlmsdict[mode])
-          hlmsT[mode].data.data = -1*hlmsT[mode].data.data   # shifts polarization angle
+          # Phase factors: see crazy conventions in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
+          if P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomHM:
+              hlmsT[mode].data.data = -1*hlmsT[mode].data.data   # shifts polarization angle
           # Assume fourier transform is CENTERED.  This makes sure any ringdown dies out. In practice, too pessimistic .. better to be asymmetric
           factor_centering = fd_centering_factor   # not clear it works right if we shift it
           hlmsT[mode].data.data = np.roll(hlmsT[mode].data.data,-int(hlmsT[mode].data.length*(1-factor_centering)))  
-          # Phase factors: see crazy conventions in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
           hlmsT[mode].epoch = -(hlmsT[mode].data.length*hlmsT[mode].deltaT)*(factor_centering)
           if not(no_condition):
               # Taper at the start of the segment
@@ -3232,13 +3236,12 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
        # Rotate if requested, and if P.fref is specified
        # see discussion in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
-       if np.sqrt(P.s1x**2 + P.s1y**2 + P.s2x**2+P.s2y**2)>1e-10:  # only perform if really precessing, otherwise skip. Really only for XP variants
-         if fd_L_frame and P.fref:
+       if is_precessing and fd_L_frame and P.fref:
              alpha,beta,gamma =extract_JL_angles(P)
              # alpha0, beta==theta_JN already identified above. Missing polarization rotation factor as well
              _, _, _, theta_JN, alpha0, _, zeta_pol = lalsim.SimIMRPhenomXPCalculateModelParametersFromSourceFrame(P.m1,P.m2, P.fref, P.phiref, P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, extra_params)
              # use alpha0 directly from the dynamics code, NOT via the simplified estimate calculated from our own estimates of J, L, etc
-             hlmsT_alt = rotate_hlm_static(hlmsT, alpha0,beta,gamma,extra_polarization=zeta_pol)
+             hlmsT_alt = rotate_hlm_static(hlmsT, alpha0,beta,gamma,extra_polarization=zeta_pol )  
              hlmsT = hlmsT_alt
 
        if P.deltaF is not None:
