@@ -845,6 +845,8 @@ elif opts.use_eos!=None:
    grid=grid_tmp[indx_ok]
 
 elif opts.tabular_eos_file:
+   if ('lambda1' in param_names) or ('lambda2' in param_names):
+       raise Exception(" --tabular-eos-file will set tidal parameters, do not pass them as arguments !")
    grid_tmp=np.zeros((len(grid[:,0]), len(grid[0,:])+3))
    for i in range(0,len(grid[0,:])):
        grid_tmp[:,i]=grid[:,i]
