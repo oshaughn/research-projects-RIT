@@ -721,8 +721,20 @@ elif opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
 elif opts.sampler_method == 'AV':
     print(" ILE: {}".format(opts.sampler_method))
-    sampler = mcsamplerAdaptiveVolume.MCSampler()
     opts.internal_use_lnL=True
+
+    sampler = mcsamplerAdaptiveVolume.MCSampler()
+    sampler.xpy = xpy_default
+    sampler.identity_convert=identity_convert
+#    mcsampler  = mcsampler  # force use of routines in that file, for properly configured GPU-accelerated code as needed
+
+    xpy_asarray_already = lambda x: x  # do nothing because we are already on the board for GPU-generated 
+
+    if opts.sampler_xpy == "numpy":
+      mcsampler.set_xpy_to_numpy()
+      sampler.xpy= numpy
+      sampler.identity_convert= lambda x: x
+
 else:
     print(" ILE: original sampler")
     print(" ILE: {}".format(opts.sampler_method))
