@@ -105,25 +105,25 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob):
     discard_prob: threshold on CDF to throw away an entire bin.  Should be very small
     """
     
-    w = np.exp(lkl - np.max(lkl))
+    w = xpy_default.exp(lkl - np.max(lkl))
     npoints = len(w)
-    sumw = np.sum(w)
+    sumw = xpy_default.sum(w)
     prob = w/sumw
-    idx = np.argsort(prob)
-    ecdf = np.cumsum(prob[idx])
-    F = np.linspace(np.min(ecdf), 1., npoints)
+    idx = xpy_default.argsort(prob)
+    ecdf = xpy_default.cumsum(prob[idx])
+    F = xpy_default.linspace(np.min(ecdf), 1., npoints)
     prob_stop_thr = lkl[idx][ecdf >= discard_prob][0]
     
-    lkl_stop_thr = np.flip(np.sort(lkl))
+    lkl_stop_thr = xpy_default.flip(np.sort(lkl))
     if len(lkl_stop_thr)>nsel:
         lkl_stop_thr = lkl_stop_thr[nsel]
     else:
         lkl_stop_thr = lkl_stop_thr[-1]
     lkl_thr = min(lkl_stop_thr, prob_stop_thr)
 
-    truncp = np.sum(w[lkl < lkl_thr]) / sumw
+    truncp = xpy_default.sum(w[lkl < lkl_thr]) / sumw
             
-    return lkl_thr, truncp
+    return identity_convert(lkl_thr), identity_convert(truncp)  # send both to CPU as needed
 
 def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
     
@@ -378,7 +378,7 @@ class MCSampler(object):
         enc_prob = 0.999 #The approximate upper limit on the final probability enclosed by histograms.
         V = 1  # nominal scale factor for hypercube volume
         ndim = len(self.params_ordered)
-        allx, allloglkl, neffective = np.transpose([[]] * ndim), [], 0
+        allx, allloglkl, neffective = xpy_default.transpose([[]] * ndim), [], 0
         allp = []
         trunc_p = 1e-10 #How much probability analysis removes with evolution
         nsel = 1000# number of largest log-likelihood samples selected to estimate lkl_thr for the next cycle.
@@ -388,6 +388,8 @@ class MCSampler(object):
             # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
             rv, log_joint_p_prior = self.draw_simple()  # Beware reversed order of rv
             ntotal_true += len(rv)
+            if cupy_ok:
+              log_joint_p_prior = identity_convert_togpu(log_joint_p_prior)    # send to GPU if required. Don't waste memory reassignment otherwise
 
             # Evaluate function, protecting argument order
             if 'no_protect_names' in kwargs:
@@ -413,11 +415,11 @@ class MCSampler(object):
             
             loglkl = log_integrand # note we are putting the prior in here
 
-            idxsel = np.where(loglkl > loglkl_thr)
+            idxsel = xpy_default.where(loglkl > loglkl_thr)
             #only admit samples that lie inside the live volume, i.e. one that cross likelihood threshold
-            allx = np.append(allx, rv[idxsel], axis = 0)
-            allloglkl = np.append(allloglkl, loglkl[idxsel])
-            allp = np.append(allp, log_joint_p_prior[idxsel])
+            allx = xpy_default.append(allx, rv[idxsel], axis = 0)
+            allloglkl = xpy_default.append(allloglkl, loglkl[idxsel])
+            allp = xpy_default.append(allp, log_joint_p_prior[idxsel])
             ninj = len(allloglkl)
 
 
@@ -429,23 +431,24 @@ class MCSampler(object):
                 trunc_p += truncp
     
             # Select with threshold
-            idxsel = np.where(allloglkl > loglkl_thr)
+            idxsel = xpy_default.where(allloglkl > loglkl_thr)
             allloglkl = allloglkl[idxsel]
             allp = allp[idxsel]
             allx = allx[idxsel]
             nrec = len(allloglkl)   # recovered size of active volume at present, after selection
 
             # Weights
-            lw = allloglkl - np.max(allloglkl)
-            w = np.exp(lw)
-            neff_varaha = np.sum(w) ** 2 / np.sum(w ** 2)
-            eff_samp = np.sum(w)/np.max(w)
+            lw = allloglkl - xpy_default.max(allloglkl)
+            w = xpy_default.exp(lw)
+            neff_varaha = identity_convert(xpy_default.sum(w) ** 2 / xpy_default.sum(w ** 2))
+            eff_samp = identity_convert(xpy_default.sum(w)/xpy_default.max(w))  # to CPU as needed
  
             #New live volume based on new likelihood threshold
             V *= (nrec / ninj)
             delta_V = V / np.sqrt(nrec) 
  
             # Redefine bin sizes, reassign points to redefined hypercube set. [Asymptotically this becomes stationary]
+            # Note hypercube calculation is on CPU at present, always
             if self.d_adaptive > 0:
               self.nbins = np.ones(ndim)*(1/delta_V) ** (1/self.d_adaptive)  # uniform split in each dimension is normal, but we have array - can be irregular
               self.nbins[self.indx_not_adaptive] = 1  # reset to 1 bin for non-adaptive dimensions
@@ -457,7 +460,7 @@ class MCSampler(object):
               self.nbins = np.floor(self.nbins)
 
             self.dx = np.diff(self.my_ranges, axis = 1).flatten() / self.nbins   # update bin widths
-            binidx = ((allx - self.my_ranges.T[0]) / self.dx.T).astype(int) #bin indexs of the samples
+            binidx = identity_convert( ((allx - self.my_ranges.T[0]) / self.dx.T).astype(int)  ) #bin indexs of the samples ... sent back to CPU as needed
 
             self.binunique = np.unique(binidx, axis = 0)
             self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1) * np.ones(self.binunique.shape[0])).astype(int)
@@ -466,7 +469,7 @@ class MCSampler(object):
             if super_verbose:
               print(ntotal_true,eff_samp, np.round(neff_varaha), np.round(np.max(allloglkl), 1), len(allloglkl), np.mean(self.nbins), V,  len(self.binunique),  np.round(loglkl_thr, 1), trunc_p)
             else:
-              print(ntotal_true,eff_samp, np.sqrt(2*np.max(allloglkl - allp)), '-', np.log(V), np.sqrt(np.var(w/np.mean(w))/len(w) ))
+              print(ntotal_true,eff_samp, np.sqrt(2*xpy_default.max(allloglkl - allp)), '-', np.log(V), np.sqrt(xpy_default.var(w/xpy_default.mean(w))/len(w) ))
 
             cycle += 1
             if cycle > 1000:
