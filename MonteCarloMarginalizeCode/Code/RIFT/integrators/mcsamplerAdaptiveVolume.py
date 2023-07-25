@@ -378,10 +378,13 @@ class MCSampler(object):
         enc_prob = 0.999 #The approximate upper limit on the final probability enclosed by histograms.
         V = 1  # nominal scale factor for hypercube volume
         ndim = len(self.params_ordered)
-        allx, allloglkl, neffective = xpy_default.transpose([[]] * ndim), [], 0
+        allx, allloglkl = np.transpose([[]] * ndim), []
         allp = []
         trunc_p = 1e-10 #How much probability analysis removes with evolution
         nsel = 1000# number of largest log-likelihood samples selected to estimate lkl_thr for the next cycle.
+        if cupy_ok:
+          alldx = identity_convert_togpu(allx)
+          allloglkl = identity_convert_togpu(allloglkl)
 
         ntotal_true = 0
         while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
