@@ -767,7 +767,7 @@ if not (opts.distance_marginalization and lookup_table["phase_marginalization"])
 #
 
 adapt_extra_extrinsic=False
-if opts.sampler_method == "adaptive_cartesian_gpu" or opts.force_adapt_all:  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
+if (opts.sampler_method == "adaptive_cartesian_gpu"  or opts.sampler_method == 'AV') or opts.force_adapt_all:  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
   adapt_extra_extrinsic=True
 
 if not opts.inclination_cosine_sampler:
