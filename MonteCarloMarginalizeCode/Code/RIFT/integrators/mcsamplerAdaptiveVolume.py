@@ -431,7 +431,7 @@ class MCSampler(object):
             at_final_threshold = np.round(enc_prob/trunc_p) - np.round(enc_prob/(1 - enc_prob)) == 0
             #Estimate likelihood threshold
             if not(at_final_threshold):
-                loglkl_thr, truncp = get_likelihood_threshold(allloglkl, loglkl_thr, nsel, 1 - enc_prob - trunc_p,xpy=xpy_here)
+                loglkl_thr, truncp = get_likelihood_threshold(allloglkl, loglkl_thr, nsel, 1 - enc_prob - trunc_p,xpy_here=xpy_here)
                 trunc_p += truncp
     
             # Select with threshold
