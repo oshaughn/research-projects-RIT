@@ -700,7 +700,7 @@ if not(opts.event_time is None) and not(opts.manual_ifo_list is None):
 if opts.ile_distance_prior:
     cmd += " --ile-distance-prior {} ".format(opts.ile_distance_prior)
 if (opts.internal_marginalize_distance): #  and not opts.ile_distance_prior:
-    cmd += " --force-xpy --internal-marginalize-distance "  # note distance marginalization only in one code path (otherwise errors)
+    cmd += "  --internal-marginalize-distance "  # note distance marginalization only in one code path (otherwise errors)
 if (opts.internal_marginalize_distance_file ):
     cmd += " --internal-marginalize-distance-file {} ".format(opts.internal_marginalize_distance_file)
 if not(opts.internal_distance_max is None):
@@ -830,7 +830,7 @@ if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 if opts.internal_ile_sky_network_coordinates:
     line += " --internal-sky-network-coordinates "
-if opts.ile_no_gpu:  # make sure we are using the standard code path if not using GPUs
+if opts.ile_no_gpu or opts.ile_sampler_method ==  "AV":  # make sure we are using the standard code path if not using GPUs
     line += " --force-xpy " 
 if opts.internal_ile_force_noreset_adapt:
     line = line.replace(' --force-reset-all ', ' ')
