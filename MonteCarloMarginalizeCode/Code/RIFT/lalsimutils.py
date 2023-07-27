@@ -1604,7 +1604,22 @@ class ChooseWaveformParams:
             Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!
         M = (self.m1+self.m2)
         eta = symRatio(self.m1,self.m2)   # dimensionless
-        return Lhat*M*M*eta/v * ( 1+ (1.5 + eta/6)*v*v +  (27./8 - 19*eta/8 +eta*eta/24.)*(v**4) )   # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or 2PN from Blanchet 1310.1528 Eq. 234 (zero spin)
+        eta2 = eta*eta
+        eta3= eta2*eta
+        eta4=eta3*eta
+        delta = np.sqrt(1 - 4 * eta)
+        m1_prime = (1 + delta) / 2
+        m2_prime = (1 - delta) / 2
+        Sl = m1_prime ** 2 * self.s1z + m2_prime ** 2 * self.s2z
+        Sigmal = self.s2z * m2_prime - self.s1z * m1_prime
+        # Appendix G.2 of PRD 103, 104056 (2021).
+        # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or 2PN from Blanchet 1310.1528 Eq. 234 (zero spin)
+        # code for spin-dependent corrections: checked against/from https://github.com/dingo-gw/dingo/blob/main/dingo/gw/waveform_generator/frame_utils.py
+        return Lhat*M*M*eta/v * ( 1+ (1.5 + eta/6)*v*v +  (27./8 - 19*eta/8 +eta2/24.)*(v**4)  + (7*eta3/1296 + 31*eta2/24 + (41*np.pi**2/24 - 6889/144)*eta + 135/16)*v**6 
+                                  + (-55*eta4/31104 -215*eta3/1728 + (356035 / 3456 - 2255 * np.pi ** 2 / 576)*eta2 + eta*(-64*np.log(16*v**2)/3 -16455*np.pi**2/1536 - 128*lal.GAMMA/3 + 98869 / 5760) + 2835/128)*v**8
+                                  + (-35 * Sl / 6 - 5 * delta * Sigmal / 2) * v ** 3
+                                  + ((-77 / 8 + 427 * eta / 72) * Sl + delta * (-21 / 8 + 35 * eta / 12) * Sigmal)* v ** 5
+                                  )
     def OrbitalAngularMomentumAtReferenceOverM2(self):
         L = self.OrbitalAngularMomentumAtReference()
         return L/(self.m1+self.m2)/(self.m1+self.m2)
@@ -3215,7 +3230,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
           hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
           hlmsT[mode] = DataInverseFourier(hlmsdict[mode])
           # Phase factors: see crazy conventions in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
-          if P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomHM:
+          if True: #P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomHM:
               hlmsT[mode].data.data = -1*hlmsT[mode].data.data   # shifts polarization angle
           # Assume fourier transform is CENTERED.  This makes sure any ringdown dies out. In practice, too pessimistic .. better to be asymmetric
           factor_centering = fd_centering_factor   # not clear it works right if we shift it
@@ -3237,11 +3252,17 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        # Rotate if requested, and if P.fref is specified
        # see discussion in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
        if is_precessing and fd_L_frame and P.fref:
-             alpha,beta,gamma =extract_JL_angles(P)
+             alpha,beta,gamma =extract_JL_angles(P,return_inverse=True)
              # alpha0, beta==theta_JN already identified above. Missing polarization rotation factor as well
-             _, _, _, theta_JN, alpha0, _, zeta_pol = lalsim.SimIMRPhenomXPCalculateModelParametersFromSourceFrame(P.m1,P.m2, P.fref, P.phiref, P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, extra_params)
-             # use alpha0 directly from the dynamics code, NOT via the simplified estimate calculated from our own estimates of J, L, etc
-             hlmsT_alt = rotate_hlm_static(hlmsT, alpha0,beta,gamma,extra_polarization=zeta_pol )  
+             # zeta_pol will not be used since it is inclination-dependent and therefore depends on extrinsic choices! Also normally calling with P.incl ==0
+             _, _, _, theta_JN, alpha0, misc_phi, zeta_pol = lalsim.SimIMRPhenomXPCalculateModelParametersFromSourceFrame(P.m1,P.m2, P.fref, P.phiref, P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, extra_params)
+             # Get remaining psiJ quantity (should add to extract_JL_angles)
+             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ  = P.extract_system_frame()
+             # theta_JN is not useful, for rotations will be close to P.incl in most cases
+             alpha+= np.pi # empirically validated sign for XPHM, comparing precessing radiation to SEOBv4PHM
+#             print(alpha, beta, gamma, zeta_pol)
+#             print(alpha0, thetaJN, np.pi - phiJL,psiJ)
+             hlmsT_alt = rotate_hlm_static(hlmsT, -gamma, -beta,-alpha ,extra_polarization=psiJ)  
              hlmsT = hlmsT_alt
 
        if P.deltaF is not None:
@@ -5557,30 +5578,34 @@ def rotate_hlm_static(hlm,alphaA,betaA,gammaA,extra_polarization=None):
     return hCatOut
 
 
-def extract_JL_angles(P,return_inverse=True):
+def extract_JL_angles(P,return_inverse=True,phase_factor=1):
     """
     extract_JL_angles:  finds Euler angles for transformation  see eg C13, C14 in 2004.06503
-          return_inverse     True       J frame -> L frame
-          return_inverse     False       L frame -> J frame
+
+    Using directly-coded J,L expressions rather than calling the lalsuite routine, to make sure phases agree with what I intend.
     """
+    # Directly provide code needed to pull out theta_JL, phi_JL : don't use P.extract_param() for clarity
     Lref = P.OrbitalAngularMomentumAtReferenceOverM2()
     Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
     Jref = P.TotalAngularMomentumAtReferenceOverM2()
     Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
 
-    nhat_obs = np.array([ np.sin(P.incl)*np.cos(np.pi/2-P.phiref), np.sin(P.incl)*np.sin(np.pi/2-P.phiref), np.cos(P.incl)])  # base vector
-    vecZ = np.array([0,0,1])
-    vecY = np.array([0,1,0])
-
-    # thetaJL == beta
+    # polar angles of J (as constructed in L frame) relative to  L frame
+    theta_JL, phi_JL = polar_angles_in_frame(VectorToFrame(Lhat), Jhat)
     # To make review-stable, be VERY explicit : try to use lalsuite function calls, not above
     my_cos = np.dot(Lhat, Jhat)
     theta_JL = P.incl   # this is pretty close. Good enough if we are nearly aligned
     if my_cos < 1-1e-5:  # but if we are even slightly misaligned, use the acos of above
         theta_JL = np.arccos( my_cos ) #P.extract_param('beta')  # this is just Jhat.Jhat
-    theta_jn, phi_JL, theta_1, theta_2, phi_12, a_1, a_2 =lalsim.SimInspiralTransformPrecessingWvf2PE(
-            P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.m1, P.m2, P.fref, P.phiref)
-#    phi_JL = P.extract_param('phiJL')   # note should be related to euler angles of 
+
+    # Remaining angle:
+    nhat_obs = np.array([ np.sin(P.incl)*np.cos(np.pi/2*phase_factor-P.phiref), np.sin(P.incl)*np.sin(np.pi/2*phase_factor-P.phiref), np.cos(P.incl)])  # base vector
+    vecZ = np.array([0,0,1])
+    vecY = np.array([0,1,0])
+
+    # thetaJL == beta.  However, we're noit going to use this
+#    theta_jn, _, theta_1, theta_2, phi_12, a_1, a_2 =lalsim.SimInspiralTransformPrecessingWvf2PE(
+#            P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.m1, P.m2, P.fref, P.phiref)
 
     # rotation from J to point along L for example
     rot = np.matmul(rotation_matrix( vecY, -theta_JL), rotation_matrix( vecZ, -phi_JL))
@@ -5594,4 +5619,5 @@ def extract_JL_angles(P,return_inverse=True):
         # the two np.pi factors end up producing a mode sign  (-1)^m (-1)^m'  to deal with  thetaJL < 0  , so we don't have a negative angle there.
         return np.pi - last_angle, theta_JL, np.pi-phi_JL
     else:
+        # 
         return phi_JL, theta_JL, last_angle
