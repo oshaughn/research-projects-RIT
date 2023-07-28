@@ -3158,7 +3158,7 @@ def non_herm_hoff(P):
 #argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
 
-def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.5,**kwargs ):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.5,fd_alignment_postevent_time=None,**kwargs ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -3200,6 +3200,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 #       extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
        fNyq = 0.5/P.deltaT
        TDlen = int(1./(P.deltaT*P.deltaF))
+       if fd_alignment_postevent_time:
+           if fd_alignment_postevent_time < TDlen*P.deltaT/2:
+               fd_centering_factor = 1-fd_alignment_postevent_time/(TDlen*P.deltaT)  # align so there is a time fd_alignment_time_postevent
+           else:
+               print(" Warning: fd alignment postevent time requested incompatible with short duration ",file=sys.stderr)
        fNyq_offset = fNyq - P.deltaF
        # Argh: https://git.ligo.org/waveforms/reviews/imrphenomxhm-amplitude-recalibration/-/wikis/home#review-statement
 #       if P.approx == lalIMRPhenomXPHM and 'release' in kwargs:
