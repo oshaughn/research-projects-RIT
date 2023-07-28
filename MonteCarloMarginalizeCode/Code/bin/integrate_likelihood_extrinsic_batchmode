@@ -1136,6 +1136,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       supplemental_ln_likelhood_prep(P=P,config=supplemental_ln_likelhood_parsed_ini)
 
     extra_waveform_kwargs = {}
+    extra_waveform_kwargs['fd_alignment_postevent_time'] = 2 # 2 seconds after merger for ChooseFDModes
     if opts.internal_waveform_fd_L_frame:
       extra_waveform_kwargs = {'fd_L_frame':True}
     if opts.internal_waveform_fd_no_condition:
