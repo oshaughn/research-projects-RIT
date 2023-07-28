@@ -29,6 +29,8 @@ import argparse
 parser = argparse.ArgumentParser(usage="util_CleanILE.py fname1.dat fname2.dat ... ")
 parser.add_argument("fname",action='append',nargs='+')
 parser.add_argument("--eccentricity", action="store_true")
+#Askold: adding specification for tabular eos file
+parser.add_argument("--tabular-eos-file", action="store_true") 
 opts = parser.parse_args()
 
 #print opts.fname
@@ -48,6 +50,7 @@ for fname in opts.fname[0]: #sys.argv[1:]:
       try:
         line = np.around(line, decimals=my_digits)
         lambda1=lambda2=0
+        eos_index = 0
         if opts.eccentricity:
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,ecc, lnL, sigmaOverL, ntot, neff = line
             col_intrinsic = 10
@@ -61,6 +64,13 @@ for fname in opts.fname[0]: #sys.argv[1:]:
             tides_on  = True
             col_intrinsic =11
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z, lambda1,lambda2,lnL, sigmaOverL, ntot, neff = line
+
+        #Askold: adding the option for tabular eos file
+        elif opts.tabular_eos_file and len(line) == 16: #checking if the tabular eos file is defined in the parser and if the line actually has all the columns
+            #no eccentricity assumed here, since export_eos_index option doesn't output eccentricity, also it doesn't apply to neutron stars
+            col_intrinsic = 12 #I assume eos_index to be intrinsic parameter
+            indx, m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, lambda1, lambda2, eos_index, lnL, sigmaOverL, ntot, neff = line 
+
         if sigmaOverL>0.9:
             continue    # do not allow poorly-resolved cases (e.g., dominated by one point). These are often useless
         if tuple(line[1:col_intrinsic]) in data_at_intrinsic:
@@ -88,5 +98,10 @@ for key in data_at_intrinsic:
         print(-1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8],key[9], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
     elif distance_on:
         print(-1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
+    
+    #Askold: new option for tabular eos file
+    elif opts.tabular_eos_file: #written similarly to the previous ones
+        print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8],key[9], key[10],  lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
+    
     else:
         print(-1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
