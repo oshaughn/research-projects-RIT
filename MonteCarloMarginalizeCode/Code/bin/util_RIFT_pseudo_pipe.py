@@ -1179,7 +1179,8 @@ elif opts.calibration_reweighting and opts.bilby_pickle_file:
         cmd+= " --calibration-reweighting-count {} ".format(opts.calibration_reweighting_count)
     if opts.calibration_reweighting_extra_args:
         cmd += " --calibration-reweighting-extra-args '{}' ".format(opts.calibration_reweighting_extra_args)
-
+if opts.internal_tabular_eos_file:
+    cmd += " --use-tabular-eos-file "
 if opts.distance_reweighting:
     cmd += " --comov-distance-reweighting --comov-distance-reweighting-exe `which make_uni_comov_skymap.py` --convert-ascii2h5-exe `which convert_output_format_ascii2h5.py` "
 if opts.use_gauss_early:
