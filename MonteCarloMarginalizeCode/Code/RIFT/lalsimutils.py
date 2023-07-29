@@ -3878,7 +3878,7 @@ def std_and_conj_hlmoff(P, Lmax=2,**kwargs):
             hlms_conj_F[mode] = DataFourier(hlms[mode])
     return hlmsF, hlms_conj_F
 
-def hoft_from_hlm(hlms,P, return_complex=False):
+def hoft_from_hlm(hlms,P, return_complex=False, extra_phase_shift=0):
     """
     hoft_from_hlm(hlm,P,Lmax):  return hoft like output given hlmoft input.
     Important if hoft is not accessible (e.g., not provided by lalsuite)
@@ -3893,7 +3893,7 @@ def hoft_from_hlm(hlms,P, return_complex=False):
     # create for loop over elements of the series to add it
     for mode in hlms:
         hlm = hlms[mode]
-        hT.data.data += hlm.data.data * lal.SpinWeightedSphericalHarmonic(P.incl, - P.phiref,-2,mode[0],mode[1])
+        hT.data.data += hlm.data.data * lal.SpinWeightedSphericalHarmonic(P.incl, extra_phase_shift- P.phiref,-2,mode[0],mode[1])
 
     if return_complex:
         hT.data.data *= np.exp(-2*1j*P.psi)
