@@ -230,6 +230,7 @@ optp.add_option("--internal-soft-fail-on-cuda-error",action='store_true',help='I
 optp.add_option("--internal-make-empty-file-on-error",action='store_true',help='If true, failed points generate empty output file. Protects against OSG workflow problems')
 optp.add_option("--internal-waveform-fd-L-frame",action='store_true',help='If true, passes extra_waveform_kwargs = {fd_L_frame=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only.')
 optp.add_option("--internal-waveform-fd-no-condition",action='store_true',help='If true, adds extra_waveform_kwargs = {no_condition=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only. Provided to enable controlled tests of conditioning impact on PE')
+optp.add_option("--internal-waveform-extra-lalsuite-args",type=str,default=None)
 optp.add_option("--verbose",action='store_true')
 optp.add_option("--save-eccentricity", action="store_true")
 #
@@ -1135,14 +1136,19 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       supplemental_ln_likelhood_prep(P=P,config=supplemental_ln_likelhood_parsed_ini)
 
     extra_waveform_kwargs = {}
+    extra_waveform_kwargs['fd_alignment_postevent_time'] = 2 # 2 seconds after merger for ChooseFDModes
     if opts.internal_waveform_fd_L_frame:
-      extra_waveform_kwargs = {'fd_L_frame':True}
+      extra_waveform_kwargs['fd_L_frame'] = True
     if opts.internal_waveform_fd_no_condition:
       extra_waveform_kwargs['no_condition'] = True
     if opts.rom_group:
       extra_waveform_kwargs['rom_taper_start'] = True  # really for NRHyb3dq8 given discussion with Aasim for high-SNR sources, but valuable generally
     if opts.use_gwsignal_lmax_nyquist:
       extra_waveform_kwargs['lmax_nyquist'] = int(opts.use_gwsignal_lmax_nyquist)
+    if opts.internal_waveform_extra_lalsuite_args:
+      extra_args_dict = eval(opts.internal_waveform_extra_lalsuite_args)  # should only do this once and for all, not in loop!
+      print(" Waveform interface: extra args passed ", extra_args_dict)
+      extra_waveform_kwargs['extra_waveform_args'] = extra_args_dict
     # Precompute
     t_window = 0.15
     rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest=factored_likelihood.PrecomputeLikelihoodTerms(

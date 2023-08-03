@@ -461,6 +461,7 @@ class ChooseWaveformParams:
             self.phaseO = 3
 
     # From Pankow/master
+    # See also: https://git.ligo.org/lscsoft/bilby_pipe/-/merge_requests/371/diffs
     try:
         _LAL_DICT_PARAMS = {"Lambda1": "lambda1", "Lambda2": "lambda2", "ampO": "ampO", "phaseO": "phaseO"}
         _LAL_DICT_PTYPE = {"Lambda1": lal.DictInsertREAL8Value, "Lambda2": lal.DictInsertREAL8Value, "ampO": lal.DictInsertINT4Value, "phaseO": lal.DictInsertINT4Value}
@@ -474,6 +475,23 @@ class ChooseWaveformParams:
         # Properly add tidal parammeters
         lalsim.SimInspiralWaveformParamsInsertTidalLambda1(extra_params, self.lambda1)
         lalsim.SimInspiralWaveformParamsInsertTidalLambda2(extra_params, self.lambda2)
+        return extra_params
+
+    def to_lal_dict_extended(self,extra_args_dict=None):
+        """
+        to_lal_dict_extended:
+            Extended implementation, to address massive proliferation of options to control waveform version
+            See  https://git.ligo.org/lscsoft/bilby_pipe/-/merge_requests/371/diffs
+        """
+        extra_params = self.to_lal_dict()
+        if extra_args_dict:
+            extra_keys = list(set(list(extra_args_dict)) - set(ChooseWaveformParams._LAL_DICT_PARAMS))  # list of new keys I need to find in lalsmulation
+            for key in extra_keys:
+                func = getattr(
+                    lalsim, "SimInspiralWaveformParamsInsert" + key, 0
+                    )
+                if func != 0:
+                    func(extra_params, extra_args_dict[key])
         return extra_params
 
     def manual_copy(self):
@@ -1586,7 +1604,22 @@ class ChooseWaveformParams:
             Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar angle!
         M = (self.m1+self.m2)
         eta = symRatio(self.m1,self.m2)   # dimensionless
-        return Lhat*M*M*eta/v * ( 1+ (1.5 + eta/6)*v*v +  (27./8 - 19*eta/8 +eta*eta/24.)*(v**4) )   # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or 2PN from Blanchet 1310.1528 Eq. 234 (zero spin)
+        eta2 = eta*eta
+        eta3= eta2*eta
+        eta4=eta3*eta
+        delta = np.sqrt(1 - 4 * eta)
+        m1_prime = (1 + delta) / 2
+        m2_prime = (1 - delta) / 2
+        Sl = m1_prime ** 2 * self.s1z + m2_prime ** 2 * self.s2z
+        Sigmal = self.s2z * m2_prime - self.s1z * m1_prime
+        # Appendix G.2 of PRD 103, 104056 (2021).
+        # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or 2PN from Blanchet 1310.1528 Eq. 234 (zero spin)
+        # code for spin-dependent corrections: checked against/from https://github.com/dingo-gw/dingo/blob/main/dingo/gw/waveform_generator/frame_utils.py
+        return Lhat*M*M*eta/v * ( 1+ (1.5 + eta/6)*v*v +  (27./8 - 19*eta/8 +eta2/24.)*(v**4)  + (7*eta3/1296 + 31*eta2/24 + (41*np.pi**2/24 - 6889/144)*eta + 135/16)*v**6 
+                                  + (-55*eta4/31104 -215*eta3/1728 + (356035 / 3456 - 2255 * np.pi ** 2 / 576)*eta2 + eta*(-64*np.log(16*v**2)/3 -16455*np.pi**2/1536 - 128*lal.GAMMA/3 + 98869 / 5760) + 2835/128)*v**8
+                                  + (-35 * Sl / 6 - 5 * delta * Sigmal / 2) * v ** 3
+                                  + ((-77 / 8 + 427 * eta / 72) * Sl + delta * (-21 / 8 + 35 * eta / 12) * Sigmal)* v ** 5
+                                  )
     def OrbitalAngularMomentumAtReferenceOverM2(self):
         L = self.OrbitalAngularMomentumAtReference()
         return L/(self.m1+self.m2)/(self.m1+self.m2)
@@ -2772,7 +2805,7 @@ def singleIFOSNR(data, psd, fNyq, fmin=None, fmax=None):
 #
 # Functions to generate waveforms
 #
-def hoft(P, Fp=None, Fc=None):
+def hoft(P, Fp=None, Fc=None,**kwargs):
     """
     Generate a TD waveform from ChooseWaveformParams P
     You may pass in antenna patterns Fp, Fc. If none are provided, they will
@@ -2785,7 +2818,10 @@ def hoft(P, Fp=None, Fc=None):
     if P.approx == lalsim.EOBNRv2HM and P.m1 == P.m2:
 #        print " Using ridiculous tweak for equal-mass line EOB"
         P.m2 = P.m1*(1-1e-6)
-    extra_params = P.to_lal_dict()
+    extra_waveform_args = {}
+    if 'extra_waveform_args' in kwargs:
+        extra_waveform_args.update(kwargs['extra_waveform_args'])
+    extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
     if P.approx==lalsim.TEOBResumS and has_external_teobresum and info_use_ext:
         Lmax=8
         modes_used = []
@@ -2976,20 +3012,24 @@ def hoff_TD(P, Fp=None, Fc=None, fwdplan=None):
     lal.REAL8TimeFreqFFT(hf, ht, fwdplan)
     return hf
 
-def hoff_FD(P, Fp=None, Fc=None):
+def hoff_FD(P, Fp=None, Fc=None,**kwargs):
     """
     Generate a FD waveform for a FD approximant.
     Note that P.deltaF (which is None by default) must be set
     """
     if P.deltaF is None:
         raise ValueError('None given for freq. bin size P.deltaF')
+    extra_waveform_args = {}
+    if 'extra_waveform_args' in kwargs:
+        extra_waveform_args.update(kwargs['extra_waveform_args'])
+    extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
 
     hptilde, hctilde = lalsim.SimInspiralChooseFDWaveform(P.phiref, P.deltaF,
              P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
              P.dist, P.incl, P.phiref, P.psi,
              P.eccentricity, P.meanPerAno, P.deltaF, 
              P.fmin, P.fmax, P.fref, 
-             P.nonGRparams, P.approx)
+             extra_params, P.approx)
 #            P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.fmin,
 #            P.fmax, P.fref, P.dist, P.incl, P.lambda1, P.lambda2, P.waveFlags,
 #            P.nonGRparams, P.ampO, P.phaseO, P.approx)
@@ -3118,7 +3158,7 @@ def non_herm_hoff(P):
 #argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
 
-def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,**kwargs ):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.5,fd_alignment_postevent_time=None,**kwargs ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -3142,19 +3182,33 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     # Check that masses are not nan!
     assert (not np.isnan(P.m1)) and (not np.isnan(P.m2)), " masses are NaN "
 
+    # includes the 'release' version
+    extra_waveform_args = {}
+    if 'extra_waveform_args' in kwargs:
+        extra_waveform_args.update(kwargs['extra_waveform_args'])
+    extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
+
     sign_factor = 1
     if nr_polarization_convention or (P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         sign_factor = -1
     if (P.approx == lalIMRPhenomHM or P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomXPHM or P.approx == lalSEOBNRv4HM_ROM or check_FD_pending(P.approx)) and is_ChooseFDModes_present:
+       is_precessing=True
+       if np.sqrt(P.s1x**2 + P.s1y**2 + P.s2x**2+P.s2y**2)<1e-10:  # only perform if really precessing, otherwise skip. Really only for XP variants
+           is_precessing=False
        if P.fref==0 and (P.approx == lalIMRPhenomXPHM):
           P.fref=P.fmin
-       extra_params = P.to_lal_dict()
+#       extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
        fNyq = 0.5/P.deltaT
        TDlen = int(1./(P.deltaT*P.deltaF))
+       if fd_alignment_postevent_time:
+           if fd_alignment_postevent_time < TDlen*P.deltaT/2:
+               fd_centering_factor = 1-fd_alignment_postevent_time/(TDlen*P.deltaT)  # align so there is a time fd_alignment_time_postevent
+           else:
+               print(" Warning: fd alignment postevent time requested incompatible with short duration ",file=sys.stderr)
        fNyq_offset = fNyq - P.deltaF
        # Argh: https://git.ligo.org/waveforms/reviews/imrphenomxhm-amplitude-recalibration/-/wikis/home#review-statement
-       if P.approx == lalIMRPhenomXPHM and 'release' in kwargs:
-           lalsim.SimInspiralWaveformParamsInsertPhenomXHMReleaseVersion(extra_params, kwargs['release'])
+#       if P.approx == lalIMRPhenomXPHM and 'release' in kwargs:
+#           lalsim.SimInspiralWaveformParamsInsertPhenomXHMReleaseVersion(extra_params, kwargs['release'])
        hlms_struct = lalsim.SimInspiralChooseFDModes(P.m1, P.m2, \
                                                      P.s1x, P.s1y, P.s1z, \
                                                      P.s2x, P.s2y, P.s2z, \
@@ -3173,16 +3227,20 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        s = lalsim.SimInspiralFinalBlackHoleSpinBound(P.s1z,P.s2z)
        t_merge = lalsim.SimInspiralMergeTimeBound(P.m1,P.m2) + lalsim.SimInspiralRingdownTimeBound(P.m1+P.m2,s)
        t_extra = 3./P.fmin
-       indx_crit = int(TDlen/2) + int((t_merge+t_extra)/P.deltaT)  # t_extra is a lot of time generally if fmin is low
+       indx_crit = int(TDlen*(fd_centering_factor)) + int((t_merge+t_extra)/P.deltaT)  # t_extra is a lot of time generally if fmin is low
        if indx_crit + ntaper > TDlen:
            indx_crit = TDlen - ntaper
 
        for mode in hlmsdict:
           hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
           hlmsT[mode] = DataInverseFourier(hlmsdict[mode])
-          hlmsT[mode].data.data = -1*hlmsT[mode].data.data
-          hlmsT[mode].data.data = np.roll(hlmsT[mode].data.data,-int(hlmsT[mode].data.length/2))
-          hlmsT[mode].epoch = -(hlmsT[mode].data.length*hlmsT[mode].deltaT/2)
+          # Phase factors: see crazy conventions in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
+          if True: #P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomHM:
+              hlmsT[mode].data.data = -1*hlmsT[mode].data.data   # shifts polarization angle
+          # Assume fourier transform is CENTERED.  This makes sure any ringdown dies out. In practice, too pessimistic .. better to be asymmetric
+          factor_centering = fd_centering_factor   # not clear it works right if we shift it
+          hlmsT[mode].data.data = np.roll(hlmsT[mode].data.data,-int(hlmsT[mode].data.length*(1-factor_centering)))  
+          hlmsT[mode].epoch = -(hlmsT[mode].data.length*hlmsT[mode].deltaT)*(factor_centering)
           if not(no_condition):
               # Taper at the start of the segment
               hlmsT[mode].data.data[:ntaper]*=vectaper
@@ -3197,10 +3255,20 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                   hlmsT[mode].data.data[indx_crit+ntaper:] = 0
 
        # Rotate if requested, and if P.fref is specified
-       if fd_L_frame and P.fref:
-           alpha,beta,gamma =extract_JL_angles(P)
-           hlmsT_alt = rotate_hlm_static(hlmsT, alpha,beta,gamma)
-           hlmsT = hlmsT_alt
+       # see discussion in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
+       if is_precessing and fd_L_frame and P.fref:
+             alpha,beta,gamma =extract_JL_angles(P,return_inverse=True)
+             # alpha0, beta==theta_JN already identified above. Missing polarization rotation factor as well
+             # zeta_pol will not be used since it is inclination-dependent and therefore depends on extrinsic choices! Also normally calling with P.incl ==0
+             _, _, _, theta_JN, alpha0, misc_phi, zeta_pol = lalsim.SimIMRPhenomXPCalculateModelParametersFromSourceFrame(P.m1,P.m2, P.fref, P.phiref, P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, extra_params)
+             # Get remaining psiJ quantity (should add to extract_JL_angles)
+             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ  = P.extract_system_frame()
+             # theta_JN is not useful, for rotations will be close to P.incl in most cases
+             alpha+= np.pi # empirically validated sign for XPHM, comparing precessing radiation to SEOBv4PHM
+#             print(alpha, beta, gamma, zeta_pol)
+#             print(alpha0, thetaJN, np.pi - phiJL,psiJ)
+             hlmsT_alt = rotate_hlm_static(hlmsT, -gamma, -beta,-alpha ,extra_polarization=psiJ)  
+             hlmsT = hlmsT_alt
 
        if P.deltaF is not None:
           if not silent:
@@ -3259,7 +3327,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
     elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM or P.approx == lalNRSur7dq4 or P.approx == lalNRSur7dq2 or P.approx==lalNRHybSur3dq8 or P.approx == lalIMRPhenomTPHM) or (P.approx ==lalsim.TEOBResumS and not(has_external_teobresum) and not(info_use_resum_polarizations)):
         # approximant likst: see https://git.ligo.org/lscsoft/lalsuite/blob/master/lalsimulation/lib/LALSimInspiral.c#2541
-        extra_params = P.to_lal_dict()
+        extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
         # prevent segmentation fault when hitting nyquist frequency violations
         if (P.approx == lalSEOBNRv4PHM or P.approx == lalSEOBNRv4P) and P.approx >0:
             try:
@@ -3442,7 +3510,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                     hlm[mode_conj] = hC2
         return hlm
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
-        extra_params = P.to_lal_dict()
+        extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
         # Format about to change: should not have several of these parameters
         hlms = lalsim.SimInspiralTDModesFromPolarizations( \
             P.m1, P.m2, \
@@ -3799,7 +3867,7 @@ def std_and_conj_hlmoff(P, Lmax=2,**kwargs):
             hlms_conj_F[mode] = DataFourier(hlms[mode])
     return hlmsF, hlms_conj_F
 
-def hoft_from_hlm(hlms,P):
+def hoft_from_hlm(hlms,P, return_complex=False, extra_phase_shift=0):
     """
     hoft_from_hlm(hlm,P,Lmax):  return hoft like output given hlmoft input.
     Important if hoft is not accessible (e.g., not provided by lalsuite)
@@ -3814,7 +3882,11 @@ def hoft_from_hlm(hlms,P):
     # create for loop over elements of the series to add it
     for mode in hlms:
         hlm = hlms[mode]
-        hT.data.data += hlm.data.data * lal.SpinWeightedSphericalHarmonic(P.incl,P.phiref,-2,mode[0],mode[1])
+        hT.data.data += hlm.data.data * lal.SpinWeightedSphericalHarmonic(P.incl, extra_phase_shift- P.phiref,-2,mode[0],mode[1])
+
+    if return_complex:
+        hT.data.data *= np.exp(-2*1j*P.psi)
+        return hT
 
     # now create real valued output based on detectors   
     if P.radec==False:
@@ -3884,7 +3956,7 @@ def SphHarmFrequencySeries_to_dict(hlms, Lmax):
 
     return hlm_dict
 
-def complex_hoft(P, sgn=-1):
+def complex_hoft(P, sgn=-1,**kwargs):
     """
     Generate a complex TD waveform from ChooseWaveformParams P
     Returns h(t) = h+(t) + 1j sgn hx(t)
@@ -3897,7 +3969,11 @@ def complex_hoft(P, sgn=-1):
     #         P.s1x, P.s1y, P.s1z, P.spin2x, P.spin2y, P.spin2z, P.fmin, P.fref, P.dist, 
     #         P.incl, P.lambda1, P.lambda2, P.waveFlags, P.nonGRparams,
     #         P.ampO, P.phaseO, P.approx)
-    extra_params = P.to_lal_dict()
+    extra_waveform_args = {}
+    if 'extra_waveform_args' in kwargs:
+        extra_waveform_args.update(kwargs['extra_waveform_args'])
+    extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
+
     hp, hc = lalsim.SimInspiralChooseTDWaveform( P.m1, P.m2, 
             P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
             P.dist, P.incl, P.phiref,  \
@@ -3946,7 +4022,7 @@ def complex_hoft_IMRPv2(P_copy,sgn=-1):
     return hT
 
 
-def complex_hoff(P, sgn=-1, fwdplan=None):
+def complex_hoff(P, sgn=-1, fwdplan=None,**kwargs):
     """
     CURRENTLY ONLY WORKS WITH TD APPROXIMANTS
 
@@ -3974,7 +4050,10 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
             TDlen = int(1./(P.deltaT*P.deltaF))
         elif TDlen!=0: # Set values of P.deltaF from TDlen, P.deltaT
             P.deltaF = 1./P.deltaT/TDlen
-        extra_params = P.to_lal_dict()
+        extra_waveform_args = {}
+        if 'extra_waveform_args' in kwargs:
+            extra_waveform_args.update(kwargs['extra_waveform_args'])
+        extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
         hptilde, hctilde = lalsim.SimInspiralChooseFDWaveform(#P.phiref, P.deltaF,
             P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
             P.dist, P.incl, P.phiref,  \
@@ -4013,7 +4092,7 @@ def complex_hoff(P, sgn=-1, fwdplan=None):
             hoff.data.data *= np.exp(-2*np.pi*1j*evaluate_fvals(hoff)*dt)
             return hoff
 
-    ht = complex_hoft(P, sgn)
+    ht = complex_hoft(P, sgn,**kwargs)
 
     if P.deltaF == None: # h(t) was not zero-padded, so do it now
         TDlen = nextPow2(ht.data.length)
@@ -5454,10 +5533,12 @@ def guess_mc_range_mdc(P,force_mc_range=None):
     return mc_min,mc_max
 
 
-def rotate_hlm_static(hlm,alphaA,betaA,gammaA):
+def rotate_hlm_static(hlm,alphaA,betaA,gammaA,extra_polarization=None):
     """
     Rotate output hlm by these Euler angles
     Note this is a full system rotation, and therefore should be associated with rotation of the physical quantities (e.g., spin vectors, J,L)
+
+    extra_polarization is applied at the end, as a multiplicative factor, if nonzero
     """
     hCatOut = {}
     modes = list(hlm)
@@ -5492,29 +5573,44 @@ def rotate_hlm_static(hlm,alphaA,betaA,gammaA):
                         hCatOut[(L,M)].data.data += lal.WignerDMatrix(L,M,mode[1], alphaA, betaA,gammaA)*hlm[mode].data.data
                     else:
                         hCatOut[(L,M)] += lal.WignerDMatrix(L,M,mode[1], alphaA, betaA,gammaA)*hlm[mode]
+            # multiply by extra polarization, if requexted
+            if extra_polarization:
+                if lal_type:
+                    hCatOut[(L,M)].data.data *= np.exp(-2j*extra_polarization)
+                else:
+                    hCatOut[(L,M)] *= np.exp(-2j*extra_polarization)
 
     return hCatOut
 
 
-def extract_JL_angles(P):
+def extract_JL_angles(P,return_inverse=True,phase_factor=1):
+    """
+    extract_JL_angles:  finds Euler angles for transformation  see eg C13, C14 in 2004.06503
+
+    Using directly-coded J,L expressions rather than calling the lalsuite routine, to make sure phases agree with what I intend.
+    """
+    # Directly provide code needed to pull out theta_JL, phi_JL : don't use P.extract_param() for clarity
     Lref = P.OrbitalAngularMomentumAtReferenceOverM2()
     Lhat = Lref/np.sqrt(np.dot(Lref,Lref))
     Jref = P.TotalAngularMomentumAtReferenceOverM2()
     Jhat = Jref/np.sqrt(np.dot(Jref, Jref))
 
-    nhat_obs = np.array([ np.sin(P.incl)*np.cos(np.pi/2-P.phiref), np.sin(P.incl)*np.sin(np.pi/2-P.phiref), np.cos(P.incl)])  # base vector
-    vecZ = np.array([0,0,1])
-    vecY = np.array([0,1,0])
-
-    # thetaJL == beta
+    # polar angles of J (as constructed in L frame) relative to  L frame
+    theta_JL, phi_JL = polar_angles_in_frame(VectorToFrame(Lhat), Jhat)
     # To make review-stable, be VERY explicit : try to use lalsuite function calls, not above
     my_cos = np.dot(Lhat, Jhat)
     theta_JL = P.incl   # this is pretty close. Good enough if we are nearly aligned
     if my_cos < 1-1e-5:  # but if we are even slightly misaligned, use the acos of above
         theta_JL = np.arccos( my_cos ) #P.extract_param('beta')  # this is just Jhat.Jhat
-    theta_jn, phi_JL, theta_1, theta_2, phi_12, a_1, a_2 =lalsim.SimInspiralTransformPrecessingWvf2PE(
-            P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.m1, P.m2, P.fref, P.phiref)
-#    phi_JL = P.extract_param('phiJL')   # note should be related to euler angles of 
+
+    # Remaining angle:
+    nhat_obs = np.array([ np.sin(P.incl)*np.cos(np.pi/2*phase_factor-P.phiref), np.sin(P.incl)*np.sin(np.pi/2*phase_factor-P.phiref), np.cos(P.incl)])  # base vector
+    vecZ = np.array([0,0,1])
+    vecY = np.array([0,1,0])
+
+    # thetaJL == beta.  However, we're noit going to use this
+#    theta_jn, _, theta_1, theta_2, phi_12, a_1, a_2 =lalsim.SimInspiralTransformPrecessingWvf2PE(
+#            P.incl, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.m1, P.m2, P.fref, P.phiref)
 
     # rotation from J to point along L for example
     rot = np.matmul(rotation_matrix( vecY, -theta_JL), rotation_matrix( vecZ, -phi_JL))
@@ -5524,4 +5620,9 @@ def extract_JL_angles(P):
     last_angle = np.angle( nhat_rot[0]+1j*nhat_rot[1])
 
     # Phase conventions as in XPHM paper https://journals.aps.org/prd/abstract/10.1103/PhysRevD.103.104056
-    return np.pi - last_angle, theta_JL, np.pi-phi_JL
+    if return_inverse:
+        # the two np.pi factors end up producing a mode sign  (-1)^m (-1)^m'  to deal with  thetaJL < 0  , so we don't have a negative angle there.
+        return np.pi - last_angle, theta_JL, np.pi-phi_JL
+    else:
+        # 
+        return phi_JL, theta_JL, last_angle
