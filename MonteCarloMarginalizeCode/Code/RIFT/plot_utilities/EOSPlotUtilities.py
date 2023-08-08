@@ -109,3 +109,26 @@ def render_eos_list_quantiles_vs(eos_list, quantile_bounds=None, xvar='energy_de
     if return_outvals:
         return outvals
     return None
+
+
+def render_reprimand_tovsequence_list_quantiles_vs(sequence_list, quantile_bounds=None, xvar='radius', ygrid=None,yvar='mass', range_mass = '[1.0,2.1]', step_size = 200, return_outvals=False,input_outvals=None,show_traces=False,plot_kwargs={}, fill_kwargs={}):
+    import pyreprimand as pyr
+    
+    range_mass = eval(range_mass)
+    mg = np.linspace(range_mass[0], range_mass[1], step_size)
+    rc = np.zeros( (len(mg),len(sequence_list)))
+    
+    for i in range(len(sequence_list)): rc[:,i] = sequence_list[i].circ_radius_from_grav_mass(mg) * sequence_list[i].units_to_SI.length/1e3
+    
+    ygrid_here = np.array(mg)
+    lower_vals = np.percentile(rc,quantile_bounds[0]*100,1)
+    upper_vals = np.percentile(rc,quantile_bounds[1]*100,1)
+    
+    plt.plot(lower_vals, ygrid_here, **plot_kwargs)
+    plt.plot(upper_vals, ygrid_here, **plot_kwargs)
+    plt.fill_betweenx(ygrid_here, lower_vals,upper_vals,**fill_kwargs)
+    if return_outvals:
+        return mg, rc
+    return None
+
+
