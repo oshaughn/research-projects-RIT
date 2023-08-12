@@ -1566,7 +1566,10 @@ class ChooseWaveformParams:
         print( "time step =", self.deltaT, "(s) <==>", 1./self.deltaT,\
                 "(Hz) sample rate")
         print( "freq. bin size is =", self.deltaF, "(Hz)")
-        print( "approximant is =", lalsim.GetStringFromApproximant(self.approx))
+        if isinstance(self.approx,str):
+           print( "approximant is =", self.approx)
+        else:
+           print( "approximant is =", lalsim.GetStringFromApproximant(self.approx))
         print( "phase order =", self.phaseO)
         print( "amplitude order =", self.ampO)
         if self.waveFlags:
