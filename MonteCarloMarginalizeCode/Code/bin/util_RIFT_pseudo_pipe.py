@@ -205,6 +205,8 @@ parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Pro
 parser.add_argument("--force-lambda-no-linear-init",action='store_true',help="Disables use of priors focused towards small lambda for initial iterations. Designed for PP plot tests with wide/uniform priors.")
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
+parser.add_argument("--force-comp-max",default=1000,type=float,help="Provde this value to override the value of component mass in CIP provided")
+parser.add_argument("--force-comp-min",default=1,type=float,help="Provde this value to override the value of compnent mass in CIP provided")
 parser.add_argument("--force-ecc-max",default=None,type=float,help="Provde this value to override the value of ecc-max provided")
 parser.add_argument("--force-ecc-min",default=None,type=float,help="Provde this value to override the value of ecc-min provided")
 parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
@@ -926,7 +928,7 @@ for indx in np.arange(len(instructions_cip)):
     n_eff_expected_max_hard = 1e-7 * n_max_cip
     print( " cip iteration group {} : n_eff likely will be between {} and {}, you are asking for at least {} and targeting {}".format(indx,n_eff_expected_max_easy, n_eff_expected_max_hard, n_sample_min_per_worker,n_eff_cip_here))
 
-    line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  --downselect-parameter m2 --downselect-parameter-range [1,1000] ".format(int(n_sample_target/n_workers), n_eff_cip_here, n_max_cip,n_sample_min_per_worker)
+    line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  --downselect-parameter m2 --downselect-parameter-range [{},{}] ".format(int(n_sample_target/n_workers), n_eff_cip_here, n_max_cip,n_sample_min_per_worker, opts.force_comp_min,opts.force_comp_max)
     if not(opts.cip_fit_method is None):
         line = line.replace('--fit-method gp ', '--fit-method ' + opts.cip_fit_method)  # should not be called, see --force-fit-method argument to helper
     if not (opts.cip_sampler_method is None):
