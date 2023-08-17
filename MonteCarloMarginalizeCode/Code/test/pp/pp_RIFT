@@ -74,7 +74,7 @@ def add_frames(channel,input_frame, noise_frame,combined_frame):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
-parser.add_argument("--use-gwsigal",action='store_true')
+parser.add_argument("--use-gwsignal",action='store_true')
 #parser.add_argument("--internal-distance-ladder",action='store_true',help="Modify injection distance ladder as in G2201558 ")
 parser.add_argument("--use-osg",action='store_true',help="Attempt OSG operation. Command-line level option, not at ini level to make portable results")
 parser.add_argument("--add-extrinsic",action='store_true',help="Add extrinsic posterior.  Corresponds to --add-extrinsic --add-extrinsic-time-resampling --batch-extrinsic for pipeline")
