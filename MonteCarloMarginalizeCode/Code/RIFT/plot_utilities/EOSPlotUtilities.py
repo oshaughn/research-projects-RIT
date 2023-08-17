@@ -109,3 +109,44 @@ def render_eos_list_quantiles_vs(eos_list, quantile_bounds=None, xvar='energy_de
     if return_outvals:
         return outvals
     return None
+
+
+def render_reprimand_tovsequence_list_quantiles_vs(sequence_list, quantile_bounds=None, xvar='radius', ygrid=None,yvar='mass', range_mass = '[0.5,2.0]', steps = 1000, return_outvals=False,input_outvals=None, percentile_method = 'use nan percentile', plot_kwargs={}, fill_kwargs={}):
+    import pyreprimand as pyr
+    range_mass = eval(range_mass)
+    mg = np.linspace(range_mass[0], range_mass[1], steps)
+    rc = np.zeros( (len(mg),len(sequence_list)))
+    
+    for i in range(len(sequence_list)): rc[:,i] = sequence_list[i].circ_radius_from_grav_mass(mg) * sequence_list[i].units_to_SI.length/1e3
+    
+    # Remove EoSs which have unreasonably large radii from this analysis
+    sequence_list = np.delete(sequence_list, np.where(rc> 50)[1])
+    rc = np.delete(rc, np.where(rc > 50)[1], 1)
+    
+    if percentile_method == 'use nan percentile':
+        ygrid_here = np.array(mg)
+        lower_vals = np.nanpercentile(rc,quantile_bounds[0]*100,1)
+        upper_vals = np.nanpercentile(rc,quantile_bounds[1]*100,1)
+    elif percentile_method == 'regular percentile':
+        '''Assumes NAN ==an infinitely large number. So all radius percentiles are NAN if even one Radius value at that Mass is a NAN. nanpercentile is better. https://www.geeksforgeeks.org/numpy-nanpercentile-in-python/#
+        '''
+        ygrid_here = np.array(mg)
+        lower_vals = np.percentile(rc,quantile_bounds[0]*100,1)
+        upper_vals = np.percentile(rc,quantile_bounds[1]*100,1)
+    elif percentile_method == 'truncate curves':
+        raise Exception("Not implemented yet.")
+        for i in reversed(range(len(sequence_list))):
+            if np.isnan(rc[-1,i]) :
+                rc = np.delete(rc, i, 1)
+        lower_vals = np.percentile(rc,quantile_bounds[0]*100,1)
+        upper_vals = np.percentile(rc,quantile_bounds[1]*100,1)
+        ygrid_here = np.array(mg)
+    
+    plt.plot(lower_vals, ygrid_here, **plot_kwargs)
+    plt.plot(upper_vals, ygrid_here, **plot_kwargs)
+    plt.fill_betweenx(ygrid_here, lower_vals,upper_vals,**fill_kwargs)
+    if return_outvals:
+        return mg, rc
+    return None
+
+
