@@ -1,0 +1,289 @@
+#! /usr/bin/env python
+#
+# GOAL
+#
+#
+# EXAMPLES
+#    python pp_RIFT --use-ini sample_pp_config.ini --use-pipe-ini proto.ini
+#
+# REFERENCES
+#   util_RIFT_pseudo_pipe  (for parsing/restructuring arguments)
+
+import numpy as np
+import argparse
+import os
+import sys
+import shutil
+
+import configparser
+
+from RIFT.misc.dag_utils import mkdir
+import RIFT.lalsimutils as lalsimutils
+import lal
+import lalsimulation as lalsim
+
+# Backward compatibility
+from RIFT.misc.dag_utils import which
+lalapps_path2cache = which('lal_path2cache')
+if lalapps_path2cache == None:
+    lalapps_path2cache =  which('lalapps_path2cache')
+
+
+def unsafe_config_get(config,args,verbose=False):
+    """
+    unsafe_config_get(config, args):
+    """
+    if verbose:
+        print(" Retrieving ", args, end=' ') 
+        print(" Found ",eval(config.get(*args)))
+    return eval( config.get(*args))
+
+
+#activate_env ="source /cvmfs/oasis.opensciencegrid.org/ligo/sw/pycbc/x86_64_rhel_7/virtualenv/pycbc-v1.16.13/bin/activate" # else NRSur frames were not loading
+def add_frames(channel,input_frame, noise_frame,combined_frame):
+    cmd = " add_frames.py " + channel + " " + input_frame + " " + noise_frame + " " + combined_frame #{} {} {} {} ".format(channel,input_frame,noise_frame,combined_frame)
+    print(cmd)
+    if not opts.test:
+        os.system(cmd)
+
+
+# def dmax_seglen_ladder(mc):
+#     """
+#     dmax, seglen ladder motivated by G2201558 but with nonoverlapping mass bins.  Not sure how we are suppose do seglen < 4, so I am making that the shortest length
+#     De facto enables a conditional distance prior, based on the chirp mass.
+#     Not clear that a single PP run with this weird conditional distance prior is what is intended.
+#     """
+#     if mc>50 and mc<100:
+#         return [3500,4]
+#     elif mc>20 and mc<=50:
+#         return [2500,4]
+#     elif mc>12.3 and mc<=20:
+#         return [1500,4]
+#     elif mc>7.9 and mc <=12.3:
+#         return [1000,8]
+#     elif mc > 5.2 and mc<=7.9:
+#         return [800,16]
+#     elif mc > 3.4 and mc<=5.2:
+#         return [400,32]
+#     elif mc > 2.2 and mc<=3.4:
+#         return [400,64]
+#     elif mc>1.4 and mc<=2.2:
+#         return [300,128]
+#     elif mc < 1.4:
+#         return [150,256]
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
+parser.add_argument("--use-gwsigal",action='store_true')
+#parser.add_argument("--internal-distance-ladder",action='store_true',help="Modify injection distance ladder as in G2201558 ")
+parser.add_argument("--use-osg",action='store_true',help="Attempt OSG operation. Command-line level option, not at ini level to make portable results")
+parser.add_argument("--add-extrinsic",action='store_true',help="Add extrinsic posterior.  Corresponds to --add-extrinsic --add-extrinsic-time-resampling --batch-extrinsic for pipeline")
+parser.add_argument("--test",default=False,action='store_true',help="Used to test the pipeline : prints out commands, generates workflows as much as possible without high-cost steps")
+opts =  parser.parse_args()
+
+
+config = configparser.ConfigParser(allow_no_value=True) #SafeConfigParser deprecated from py3.2
+config.read(opts.use_ini)
+
+base_dir = os.getcwd() # relative directory, for use if absolute paths not provided
+
+test_convergence=False
+if config.has_option('pp','test_convergence'):
+    test_convergence =unsafe_config_get(config,['pp','test_convergence'])
+
+# Create, go to working directory
+working_dir = config.get('pp','working_directory')
+print(" Working dir ", working_dir)
+mkdir(working_dir)
+os.chdir(working_dir)
+working_dir_full = os.getcwd()
+
+# Define how many events are needed
+n_events = unsafe_config_get(config,['pp','n_events'])
+
+
+# Create injection set
+
+mc_min = float(config.get('priors','mc_min'))
+mc_max = float(config.get('priors','mc_max'))
+m_min=float(config.get('priors','m_min'))
+mc_range = [mc_min,mc_max]
+eta_min = float(config.get('priors','eta_min'))
+eta_max = float(config.get('priors','eta_max'))
+eta_range = [eta_min,eta_max]
+d_min = float(config.get('priors','d_min'))
+d_max = float(config.get('priors','d_max'))
+chi_max = float(config.get('priors','chi_max'))
+
+
+# use matter?
+lambda_max=0
+use_matter=False
+if config.has_option('priors','use_matter'):
+    use_matter=True
+    lambda_max = float(config.get('priors','lambda_max'))
+
+approx_str = config.get('waveform','approx')
+approx_recover_str = approx_str
+if config.has_option('waveform','approx_template'):
+    approx_recover_str = config.get('waveform','approx_template')
+# danger: lmax only used in analysis, not in generation usually
+l_max = int(config.get('waveform','lmax')  )
+fmin_template = float(config.get('waveform','fmin_template'))
+fmax = float(config.get('data','fmax'))
+flow_dict = unsafe_config_get(config,['data','flow'])
+srate_data = float(config.get('data', 'srate_data'))
+seglen_data = float(config.get('data','seglen_data'))
+seglen_analysis = float(config.get('data','seglen_analysis'))
+
+if 'NRHybSur' in approx_str:       #for NRSur models
+	group_str = config.get('waveform','group')
+	param_str = config.get('waveform','param')
+
+no_spin =unsafe_config_get(config,['priors','no_spin'])
+aligned_spin =unsafe_config_get(config,['priors','aligned_spin'])
+if aligned_spin:
+    print(" === aligned-spin PP ==== ")
+elif no_spin:
+    print(" === zero-spin PP ==== ")
+else:
+    print(" === precessing PP ==== ")
+
+volumetric_spin =unsafe_config_get(config,['priors','volumetric_spin'])
+if volumetric_spin:
+    print("  (volumetric spin prior)  ")
+
+fix_sky_location=unsafe_config_get(config,['priors','fix_sky_location'])
+fiducial_ra=float(config.get('priors','fiducial_ra'))
+fiducial_dec=float(config.get('priors','fiducial_dec'))
+fiducial_event_time=float(config.get('priors','fiducial_event_time'))
+
+
+ifos = unsafe_config_get(config,['data','ifos'])
+
+if os.path.exists(working_dir_full+"/mdc.xml.gz"):
+    P_list = lalsimutils.xml_to_ChooseWaveformParams_array(working_dir_full+"/mdc.xml.gz")
+
+else:
+  P_list =[]; indx=0
+  while len(P_list) < n_events:
+    P = lalsimutils.ChooseWaveformParams()
+    # Randomize (sky location, etc)
+    P.randomize(dMax=d_max,dMin=d_min,aligned_spin_Q=aligned_spin,volumetric_spin_prior_Q=volumetric_spin,sMax=chi_max)
+    P.tref = fiducial_event_time
+    P.fmin=fmin_template
+    P.deltaF = 1./seglen_data
+    P.deltaT = 1./srate_data
+    # sky location
+    if fix_sky_location:
+        P.theta = fiducial_dec
+        P.phi = fiducial_ra
+    # some redundancy
+    if no_spin:
+        P.s1x=P.s1y=P.s1z=0
+        P.s2x=P.s2y=P.s2z=0
+    elif aligned_spin:
+        P.s1x = P.s1y=0
+        P.s2x = P.s2y=0
+    if use_matter:
+        P.lambda1 = np.random.uniform(0,lambda_max)
+        P.lambda2 = np.random.uniform(0,lambda_max)
+    if not(opts.use_gwsignal):  # with gwsignal, we just pass the approximant on the command line, and must track it differently : XML files have no string approx fields.
+        P.approx=lalsim.GetApproximantFromString(approx_str)
+
+    # Uniform in m1 and m2: 
+    m1 = np.random.uniform(mc_range[0],mc_range[1]*2)
+    m2 = np.random.uniform(m_min,mc_range[1]*1.5)
+    m1,m2 = [np.maximum(m1,m2), np.minimum(m1,m2)]
+    P.m1 = m1*lal.MSUN_SI
+    P.m2 = m2*lal.MSUN_SI
+    # ...but downselect in mchirp, eta
+    mc_val = P.extract_param('mc')/lal.MSUN_SI
+    eta_val = P.extract_param('eta')
+    if mc_val < mc_range[0] or mc_val > mc_range[1]:
+        continue
+    if eta_val < eta_range[0] or eta_val > eta_range[1]:
+        continue
+
+    # rescale distance of injection based on mc
+    # if opts.internal_distance_ladder:
+    #     dmax_scale, seglen_scale = dmax_seglen_ladder(mc_val)
+    #     P.dist *=  dmax_scale/d_max   # direct scale
+    #     P.deltaF = 1./seglen_scale  
+
+
+    P_list.append(P)
+    indx+=1
+
+  lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"mdc")
+
+
+# Create data files and cache file
+#   - probably want to create workflow to build these, rather than do it all in one go... very slow!
+
+print(" === Writing signal files === ")
+
+# made up durations for now
+# must be compatible with duration of the noise frames
+t_start = int(fiducial_event_time)-150
+t_stop = int(fiducial_event_time)+150
+
+mkdir('signal_frames')
+for indx in np.arange(n_events):
+    os.chdir(working_dir_full)
+    target_subdir = 'signal_frames/event_{}'.format(indx)
+    # Test if directory already exists
+    if os.path.exists(target_subdir):
+        print(" Signal frames exist for event {}, skipping ".format(indx))
+        continue
+    print(" Writing ", indx)
+    mkdir(target_subdir)
+    os.chdir(working_dir_full+"/"+target_subdir)
+    # Loop over instruments, write files
+    for ifo in ifos:
+        if opts.use_gwsignal:
+            cmd = "util_GWSignalWriteFrame.py --approx {} --inj ".format(approx_str) + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {} --lmax {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str, l_max)
+        elif 'NRHybSur' in approx_str:
+            cmd = "util_ROMWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {} --lmax {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str, l_max)
+        else:
+            cmd = "util_LALWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {}  --stop {}  --instrument {} --seglen {} --approx {}".format(indx, t_start,t_stop,ifo, seglen_analysis, approx_str)
+        print(cmd)
+        if not opts.test:
+            os.system(cmd)
+
+    if not opts.test:
+        cmd = "/bin/find .  -name '*.gwf' | {} > signals.cache".format(lalapps_path2cache)
+        os.system(cmd)
+
+    # Evaluate zero-noise SNR
+    print(" --> FIXME: evaluate zero-noise SNR, to use as hint in place of search <-- ")
+
+print(" === Using fiducial noise frames === ")
+
+noise_frame_dir = config.get("make_data","fiducial_noise_frames")
+
+print(" === Joining synthetic signals to reference noise === ")
+
+
+seglen_actual = t_stop - t_start
+os.chdir(working_dir_full)
+mkdir('combined_frames')
+for indx in np.arange(n_events):
+    os.chdir(working_dir_full)
+#    mkdir('analysis_event_{}'.format(indx))
+    target_subdir='combined_frames/event_{}'.format(indx)
+    if os.path.exists(target_subdir):
+        print(" Combined frames exist for event {}, skipping ".format(indx))
+        continue
+    print(" Writing ", indx)
+    mkdir(target_subdir)
+    os.chdir(working_dir_full+"/"+target_subdir)
+    for ifo in ifos:
+        fname_input = working_dir_full+"/signal_frames/event_{}/{}-fake_strain-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_actual)
+        fname_noise= noise_frame_dir + "/" + ifo + ("/%08d.gwf" % indx)
+#        fname_output = working_dir_full+"/analysis_event_{}/{}-combined-{}-{}.gwf".format(indx,ifo[0],int(t_start),seglen_actual)
+        fname_output = working_dir_full+"/{}/{}-combined-{}-{}.gwf".format(target_subdir,ifo[0],int(t_start),seglen_actual)
+        add_frames(ifo+":FAKE-STRAIN",fname_input, fname_noise,fname_output)
+
+
+print(" === WRITING INI FILES === ")
