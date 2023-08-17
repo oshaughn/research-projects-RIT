@@ -242,7 +242,7 @@ for indx in np.arange(n_events):
     # Loop over instruments, write files
     for ifo in ifos:
         if opts.use_gwsignal:
-            cmd = "util_GWSignalWriteFrame.py --approx {} --inj ".format(approx_str) + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {} --lmax {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str, l_max)
+            cmd = "util_GWSignalWriteFrame.py  --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --approx {}".format(indx, t_start, t_stop, ifo, seglen_analysis, approx_str)
         elif 'NRHybSur' in approx_str:
             cmd = "util_ROMWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {} --lmax {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str, l_max)
         else:
