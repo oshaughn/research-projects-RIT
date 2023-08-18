@@ -14,6 +14,8 @@ import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
 import numpy as np
 import astropy.units as u
+from astropy.time import Time
+from gwpy.timeseries import TimeSeries
 
 has_gws= False
 try:
@@ -184,7 +186,26 @@ def hoft(P, Fp=None, Fc=None,approx_string=None, **kwargs):
     # Fork on calling different generators
     gen = gws.models.gwsignal_get_waveform_generator(approx_string_here)
 
-    hp, hc = gwsignal.core.waveform.GenerateTDWaveform(python_dict, gen)
+    # gwsignal return values are sometimes gwsignal objects
+    hp, hc = gws.core.waveform.GenerateTDWaveform(python_dict, gen)
+    if not isinstance(hp, lal.REAL8TimeSeries):
+        # gwpy.timeseries.timeseries.TimeSeries object
+        hp_lal = lal.CreateREAL8TimeSeries("hp",
+                lal.LIGOTimeGPS(0.), 0., P.deltaT, lal.DimensionlessUnit,
+                len(hp.times))
+        hc_lal = lal.CreateREAL8TimeSeries("hp",
+                lal.LIGOTimeGPS(0.), 0., P.deltaT, lal.DimensionlessUnit,
+                len(hc.times))
+        hp_lal.data.data =hp.value
+        hc_lal.data.data = hc.value
+        if isinstance(hp.epoch, Time):
+            dT = hp.epoch.to_value('gps','long')  # pull out the time
+        else:
+            dT = float(hp.epoch) # old-style
+        hp_lal.epoch = dT
+        hc_lal.epoch = dT
+        hp = hp_lal
+        hc = hc_lal
 
     if Fp!=None and Fc!=None:
         hp.data.data *= Fp
@@ -199,12 +220,18 @@ def hoft(P, Fp=None, Fc=None,approx_string=None, **kwargs):
         hp = lal.AddREAL8TimeSeries(hp, hc)
         ht = hp
     else:
-        hp.epoch = hp.epoch + P.tref
-        hc.epoch = hc.epoch + P.tref
+        # If astropy Time function, overwrite with GPS time, otherwise use normal addition
+        if isinstance(hp.epoch, Time):
+            dT = hp.epoch.to_value('gps','long')  # pull out the time
+            hp.epoch = P.tref + dT
+            hc.epoch = P.tref +dT
+        else:
+            hp.epoch = hp.epoch + P.tref
+            hc.epoch = hc.epoch + P.tref
         ht = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc, 
                 P.phi, P.theta, P.psi, 
                 lalsim.DetectorPrefixToLALDetector(str(P.detector)))
-    if P.taper != lsu_TAPER_NONE: # Taper if requested
+    if P.taper != lalsimutils.lsu_TAPER_NONE: # Taper if requested
         lalsim.SimInspiralREAL8WaveTaper(ht.data, P.taper)
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
