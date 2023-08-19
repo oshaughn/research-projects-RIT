@@ -111,6 +111,8 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
     for mode in hlm:
         if isinstance(mode, str):  # skip 'time_array'
             continue
+        if mode[0] > Lmax:  # skip modes with L > Lmax
+            continue
         # 
         h = lal.CreateCOMPLEX16TimeSeries("hlm",
                 lal.LIGOTimeGPS(0.), 0., P.deltaT, lal.DimensionlessUnit,
