@@ -61,6 +61,13 @@ if 'PROFILE' not in os.environ:
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
+
+try:
+        import RIFT.physics.GWSignal as rgws
+        has_GWS=True
+except:
+        has_GWS=False
+
 if not( 'RIFT_LOWLATENCY'  in os.environ):
   # Dont support external packages in low latency
  try:
@@ -70,11 +77,6 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  except ImportError:
         useNR=False
 
- try:
-        import RIFT.physics.GWSignal as rgws
-        has_GWS=True
- except:
-        has_GWS=False
 
  try:
         import RIFT.physics.ROMWaveformManager as romwf
