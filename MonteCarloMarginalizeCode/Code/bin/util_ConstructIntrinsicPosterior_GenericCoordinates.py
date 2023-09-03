@@ -726,6 +726,8 @@ def xi_uniform_prior(x):
     return np.ones(x.shape)
 def s_component_uniform_prior(x,R=chi_max):  # If all three are used, a volumetric prior
     return np.ones(x.shape)/(2.*R)
+def s_magnitude_uniform_prior(x,R=chi_max):
+    return np.ones(x.shape)/R
 def s_component_sqrt_prior(x,R=chi_max):  # If all three are used, a volumetric prior
     return 1./(4.*R*np.sqrt(np.abs(x)/R))  # -R,R range
 def s_component_gaussian_prior(x,R=chi_max/3.):
@@ -813,7 +815,7 @@ p_Rbar = lalsimutils.p_R
 def normalized_Rbar_singular_prior(x):
     return np.power(x, p_Rbar-1.)*p_Rbar
 def normalized_zbar_prior(z):
-    return 4.*(1.-z**2)/3.
+    return 3.*(1.-z**2)/4.
 
 prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s2z":functools.partial(s_component_uniform_prior, R=chi_small_max), "mc":mc_prior, "eta":eta_prior, 'delta_mc':delta_mc_prior, 'xi':xi_uniform_prior,'chi_eff':xi_uniform_prior,'delta': (lambda x: 1./2),
     's1x':s_component_uniform_prior,
@@ -831,8 +833,8 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'LambdaTilde':lambda_tilde_prior,
     'DeltaLambdaTilde':delta_lambda_tilde_prior,
     # Polar spin components (uniform magnitude by default)
-    'chi1':s_component_uniform_prior,  
-    'chi2':functools.partial(s_component_uniform_prior, R=chi_small_max),
+    'chi1':s_magnitude_uniform_prior,  
+    'chi2':functools.partial(s_magnitude_uniform_prior, R=chi_small_max),
     'theta1': mcsampler.uniform_samp_theta,
     'theta2': mcsampler.uniform_samp_theta,
     'cos_theta1': mcsampler.uniform_samp_cos_theta,
@@ -2155,7 +2157,9 @@ for p in low_level_coord_names:
     adapt_me = True
     if p in opts.no_adapt_parameter:
         adapt_me=False
-    sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=adapt_me)
+    # sampling prior initial normalization: normally not used, provided for sanity's sake just in case it is
+    fac = (range_here[1] - range_here[0])
+    sampler.add_parameter(p, pdf=np.vectorize(lambda x,z=fac:1./z), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=adapt_me)
 
 
 # Import prior
@@ -2321,12 +2325,17 @@ if opts.prior_in_integrand_correction == 'uniform_over_rbar_singular': # and opt
         coord_names_needed = ['chi1','chi2','chi1_perp_bar', 'chi2_perp_bar']
         def prior_fac(X):
             vec = lalsimutils.convert_waveform_coordinates(X,coord_names=coord_names_needed,low_level_coord_names=low_level_coord_names)
-            return (np.power(vec[:,2]*vec[:,3],1+(1-p_Rbar)))/(3*vec[:,0]**2 *3* vec[:,1]**2)  / p_Rbar**2
+            return 4*(np.power(vec[:,2]*vec[:,3],1+(1-p_Rbar)))/(3*vec[:,0]**2 *3* vec[:,1]**2)  / p_Rbar**2
     elif 'chi2_perp_u' in low_level_coord_names:
         coord_names_needed = ['chi1','chi2','chi1_perp_u', 'chi2_perp_u']
         def prior_fac(X):
             vec = lalsimutils.convert_waveform_coordinates(X,coord_names=coord_names_needed,low_level_coord_names=low_level_coord_names)
-            return np.power(vec[:,2]*vec[:,3],2/p_Rbar -1)/(3*vec[:,0]**2 *3* vec[:,1]**2)  / p_Rbar**2
+            return 4*np.power(vec[:,2]*vec[:,3],2/p_Rbar -1)/(3*vec[:,0]**2 *3* vec[:,1]**2)  / p_Rbar**2
+    elif 'chi1_perp_u' in low_level_coord_names:  # just one of them, for testing
+        coord_names_needed = ['chi1','chi1_perp_u']
+        def prior_fac(X):
+            vec = lalsimutils.convert_waveform_coordinates(X,coord_names=coord_names_needed,low_level_coord_names=low_level_coord_names)
+            return 2*np.power(vec[:,1],2/p_Rbar -1)/(3*vec[:,0]**2)  / p_Rbar
     my_prior_scale = prior_fac
     my_log_prior_scale = lambda x, f=prior_fac: np.log(f(x))
     
