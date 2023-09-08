@@ -4,6 +4,8 @@
 Since last release
    - ChooseFDWaveform J frame and fourier-transform-conditioning fixes as described in T2300304; add RIFT_BOOLEAN_LIST
      environment variable (rc1)
+   - getenv=True workaround; CIP spin prior normalization fixes (just needed for evidence); gwsignal implement Lmax in
+     hlmoft (rc2)
 
 0.0.15.9
 -----------
