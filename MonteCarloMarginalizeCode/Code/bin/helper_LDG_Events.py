@@ -1510,7 +1510,8 @@ if opts.propose_fit_strategy:
         n_its = map(lambda x: float(x.split()[0]), helper_cip_arg_list)
         puff_max_it= np.sum(n_its) # puff all the way to the end
     elif opts.internal_tabular_eos_file:
-        helper_cip_args = " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
+        helper_cip_args += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
+        helper_ile_args +=  " --export-eos-index "
         helper_cip_args+= " --parameter-implied LambdaTilde "
         for indx in np.arange(len(helper_cip_arg_list)):
             helper_cip_arg_list[indx] += " --parameter-implied LambdaTilde --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
