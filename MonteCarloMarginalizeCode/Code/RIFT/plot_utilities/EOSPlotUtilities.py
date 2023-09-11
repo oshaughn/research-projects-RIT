@@ -143,6 +143,7 @@ def render_reprimand_tovsequence_list_quantiles_vs(sequence_list, quantile_bound
         ygrid_here = np.array(mg)
     
     plt.plot(lower_vals, ygrid_here, **plot_kwargs)
+    plot_kwargs['label'] = ''
     plt.plot(upper_vals, ygrid_here, **plot_kwargs)
     plt.fill_betweenx(ygrid_here, lower_vals,upper_vals,**fill_kwargs)
     if return_outvals:
