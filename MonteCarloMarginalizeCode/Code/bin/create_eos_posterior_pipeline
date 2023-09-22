@@ -310,7 +310,7 @@ with open("con_marg.sh",'w') as f:
 """.format(dag_utils.which('util_HyperCombine.py'),opts.working_directory,opts.working_directory) )
     os.system("chmod a+x con_marg.sh")
 
-con_marg_job, con_marg_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/con_marg.sh",tag='CON',log_dir=None,arg_str='',file_input="$(macroiteration)  $(macroevent) ",'', out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
+con_marg_job, con_marg_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/con_marg.sh",tag='CON',log_dir=None,arg_str='',file_input="$(macroiteration)  $(macroevent) ", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
 con_marg_job.add_condor_cmd("initialdir",opts.working_directory)
 con_marg_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).log")
 con_marg_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).out")
@@ -336,7 +336,7 @@ with open("con_prod.sh",'w') as f:
 """.format(dag_utils.which('util_HyperCombine.py'),opts.working_directory,opts.working_directory) )
     os.system("chmod a+x con_prod.sh")
 
-con_prod_job, con_prod_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/con_prod.sh",tag='CON_PROD',log_dir=None,arg_str='',file_input="$(macroiteration)  ",'', out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
+con_prod_job, con_prod_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/con_prod.sh",tag='CON_PROD',log_dir=None,arg_str='',file_input="$(macroiteration)  ", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
 con_prod_job.add_condor_cmd("initialdir",opts.working_directory)
 con_prod_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).log")
 con_prod_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).out")
@@ -358,7 +358,7 @@ with open("unify.sh",'w') as f:
 cat *.net_marg | sort -r  > all.marg_net
 """)
     os.system("chmod a+x unify.sh")
-unify_marg_job, unify_marg_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/unify.sh",tag='UNIFY',log_dir=None,arg_str='',file_input='','', out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
+unify_marg_job, unify_marg_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/unify.sh",tag='UNIFY',log_dir=None,arg_str='',file_input='',out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
 unify_marg_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_marg_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).log")
 unify_marg_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).out")
@@ -394,7 +394,7 @@ head -n 1 grid-0.dat > $2
 cat $1/output*.dat  | sort -r | uniq >> $2
 """)
     os.system("chmod a+x join_post.sh")
-join_post_job, join_post_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/join_post.sh",tag='JOIN_POST',log_dir=None,arg_str='',file_input=opts.working_directory+"/iteration_$(macroiteration)_post/    "+opts.working_directory+"/grid-$(macroiterationnext).dat",'', out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
+join_post_job, join_post_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/join_post.sh",tag='JOIN_POST',log_dir=None,arg_str='',file_input=opts.working_directory+"/iteration_$(macroiteration)_post/    "+opts.working_directory+"/grid-$(macroiterationnext).dat", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
 join_post_job.add_condor_cmd("initialdir",opts.working_directory)
 join_post_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(macroevent).log")
 join_post_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(macroevent).out")
