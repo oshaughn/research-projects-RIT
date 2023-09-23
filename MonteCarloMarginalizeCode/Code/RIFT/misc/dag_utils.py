@@ -30,8 +30,12 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gr
 
 # getenv=True deprecated, will need workaround to explicitly pull extra environment variables
 default_getenv_value='True'
+default_getenv_osg_value='True'
 if 'RIFT_GETENV' in os.environ:
     default_getenv_value = os.environ['RIFT_GETENV']
+if 'RIFT_GETENV_OSG' in os.environ:
+    default_getenv_osg_value = os.environ['RIFT_GETENV_OSG']
+
 
 # Taken from
 # http://pythonadventures.wordpress.com/2011/03/13/equivalent-of-the-which-command-in-python/
@@ -792,6 +796,8 @@ echo Starting ...
         ile_job.add_condor_cmd('getenv', default_getenv_value)
     else:
         env_statement="*RIFT*"
+        if 'RIFT_GETENV_OSG' in os.environ:
+            env_statement = os.environ['RIFT_GETENV_OSG']  # for example use NUMBA_CACHE_DIR=/tmp; see https://git.ligo.org/computing/helpdesk/-/issues/4616
         # special-purpose  environment variable to help tweak remote execution/driver issues
         if 'CUDA_LAUNCH_BLOCKING' in os.environ:
             env_statement+= ",CUDA_LAUNCH_BLOCKING"
