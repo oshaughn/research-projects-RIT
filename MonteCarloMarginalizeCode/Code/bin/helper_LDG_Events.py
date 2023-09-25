@@ -1279,10 +1279,6 @@ if opts.internal_use_gracedb_bayestar:
 if opts.internal_ile_rotate_phase:
     helper_ile_args += " --internal-rotate-phase "
 
-with open("helper_ile_args.txt",'w') as f:
-    f.write(helper_ile_args)
-if not opts.lowlatency_propose_approximant:
-    print(" helper_ile_args.txt  does *not* include --d-max, --approximant, --l-max ")
 
 puff_max_it=0
 helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
@@ -1531,6 +1527,12 @@ if opts.propose_fit_strategy:
 #        for indx in np.arange(len(helper_cip_arg_list))[1:]:
 #            helper_cip_arg_list[indx] += " --lnL-offset 20 "  # enforce lnL cutoff past the first iteration. Focuses fit on high-likelihood points as in O1/O2
 
+
+# editing ILE args based on strategy above, so only writing now
+with open("helper_ile_args.txt",'w') as f:
+    f.write(helper_ile_args)
+if not opts.lowlatency_propose_approximant:
+    print(" helper_ile_args.txt  does *not* include --d-max, --approximant, --l-max ")
 
 with open("helper_cip_args.txt",'w') as f:
     f.write(helper_cip_args)
