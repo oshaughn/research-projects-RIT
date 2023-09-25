@@ -1081,7 +1081,11 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
     with open(cmdname,'w') as f:        
         f.write("#! /usr/bin/env bash\n")
         f.write( "ls " + base_str+"*.composite  1>&2 \n")  # write filenames being concatenated to stderr
-        f.write( exe +  base_str+ "*.composite \n")
+        # Sometimes we need to pass --eccentricity or --tabular-eos-file etc to util_CleanILE.py
+        extra_args = ''
+        if arg_str:
+            extra_args = arg_str
+        f.write( exe + +extra_args+ base_str "*.composite \n")
     st = os.stat(cmdname)
     import stat
     os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
