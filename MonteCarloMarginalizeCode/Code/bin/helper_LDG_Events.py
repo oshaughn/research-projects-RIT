@@ -1508,7 +1508,7 @@ if opts.propose_fit_strategy:
     elif opts.internal_tabular_eos_file:
         helper_cip_args += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
         helper_ile_args +=  " --export-eos-index "
-        helper_cip_args+= " --parameter-implied LambdaTilde "
+        helper_cip_args+= " --parameter-implied LambdaTilde --input-eos-index "  
         for indx in np.arange(len(helper_cip_arg_list)):
             helper_cip_arg_list[indx] += " --parameter-implied LambdaTilde --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
         helper_cip_arg_list[-1] += "  --parameter-implied DeltaLambdaTilde "
