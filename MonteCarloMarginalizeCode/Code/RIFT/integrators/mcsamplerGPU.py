@@ -509,6 +509,36 @@ class MCSampler(object):
             return dict(list(zip(args, res)))
         return list(zip(*res))
 
+    def update_sampling_prior(self,ln_weights, n_history,tempering_exp=1,log_scale_weights=True,**kwargs):
+      """
+      update_sampling_prior
+
+      Default setting is for lnL. The choices adopted are fairly arbitrary. For simplicity, we are using 'log scale weights' (derived from lnL, not L)
+      which lets us sample well away from the posterior at the expense of not being as strongly sampling near the peak.
+
+      NOTE: Currently deployed for mcsamplerPortfolio, NOT yet part of core code here
+      """
+      # default is to use logarithmic (!) weights, relying on them being positive.
+      weights_alt = ln_weights[:n_history]  - self.xpy.maximum(ln_weights) + 100  
+      weights_alt = self.xpy.maximum(weights_alt, 1e-5)    # prevent negative weights, in case integrating function with lnL < 0
+      # now treat as sum
+      weights_alt = weights_alt/(weights_alt.sum())
+      if weights_alt.dtype == numpy.float128:
+        weights_alt = weights_alt.astype(numpy.float64,copy=False)
+
+      for itr, p in enumerate(self.params_ordered):
+                # # FIXME: The second part of this condition should be made more
+                # # specific to pinned parameters
+                if p not in self.adaptive or p in list(kwargs.keys()):
+                    continue
+
+                points = self._rvs[p][-n_history:]
+                self.compute_hist(points, p,weights=weights_alt,floor_level=floor_integrated_probability)
+                self.pdf[p] = function_wrapper(self.pdf_from_hist, p)
+                self.cdf_inv[p] = function_wrapper(self.cdf_inverse_from_hist, p)
+
+
+
     @profile
     def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
         """
