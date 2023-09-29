@@ -734,7 +734,7 @@ class MCSampler(object):
             #
             # FIXME: We need a better stopping condition here
             if self.ntotal > n_adapt*n:
-                print(n_adapt,self.n_total)
+                print(n_adapt,self.ntotal)
                 continue
 
             #
