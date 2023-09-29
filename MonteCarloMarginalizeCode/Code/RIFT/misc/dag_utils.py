@@ -1085,7 +1085,7 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
         extra_args = ''
         if arg_str:
             extra_args = arg_str
-        f.write( exe + +extra_args+ base_str "*.composite \n")
+        f.write( exe + extra_args+ base_str+ "*.composite \n")
     st = os.stat(cmdname)
     import stat
     os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
