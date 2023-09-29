@@ -6,6 +6,8 @@ Since last release
      environment variable (rc1)
    - getenv=True workaround; CIP spin prior normalization fixes (just needed for evidence); gwsignal implement Lmax in
      hlmoft (rc2)
+   - RIFT_GETENV_OSG; enable gwsignal aways even if RIFT_LOWLATENCY active; mcsamplerGPU typo fix (self.n_total) for
+     corner use case (rc3)
 
 0.0.15.9
 -----------
