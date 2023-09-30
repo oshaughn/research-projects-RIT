@@ -30,21 +30,25 @@ RUN dnf install --nodocs -y dnf-plugins-core && \
       rm -rf /var/cache/dnf
 
 # Pip dependencies
+# locking pypandoc so gwsurrogate will build, since it uses ancient version: see https://github.com/man-group/pytest-plugins/issues/87
 RUN python3.9 -m pip --no-cache-dir install -U pip==23.0.1 setuptools  && \
-      CFLAGS='-std=c99' python3.9 -m pip --no-cache-dir install -U gwsurrogate && \
       python3.9 -m pip --no-cache-dir install pygsl_lite==0.1.2 && \ 
       python3.9 -m pip --no-cache-dir install -U \
       cupy-cuda11x==11.2.0 \
       vegas \
       healpy \
       cython \
-      pypandoc \
-      NRSur7dq2 \
-      pyseobnr && \
-      python3.9 -c "import gwsurrogate; gwsurrogate.catalog.pull('NRHybSur3dq8'); gwsurrogate.catalog.pull('NRSur7dq4')"
+      pypandoc==1.7.5 \
+      pyseobnr
+
+RUN  CFLAGS='-std=c99' python3.9 -m pip --no-cache-dir install -U gwsurrogate 
+RUN python3.9 -c "import gwsurrogate; gwsurrogate.catalog.pull('NRHybSur3dq8')"
+RUN python3.9 -c "import gwsurrogate; gwsurrogate.catalog.pull('NRSur7dq4')"
+RUN python3.9 -m pip install -U NRSur7dq2 
 
 # install current master, to test current build
-RUN python3.9 -m pip install -U git+https://git.ligo.org/rapidpe-rift/rift
+# https://stackoverflow.com/questions/20101834/pip-install-from-git-repo-branch
+RUN python3.9 -m pip install -U git+https://git.ligo.org/rapidpe-rift/rift.git@master
 
 # Pin lalsuite to latest SCCB release, currently 7.15
 #RUN python3.9 -m pip install lalsuite==7.15
