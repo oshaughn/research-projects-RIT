@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.7.0-runtime-rockylinux8
+FROM nvidia/cuda:11.7.1-runtime-rockylinux8
 
 LABEL name="RIFT (CentOs) - benchmarking utility" \
   maintainer="James Alexander Clark <james.clark@ligo.org>" \
