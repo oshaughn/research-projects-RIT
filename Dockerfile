@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.7.1-runtime-rockylinux8
+FROM nvidia/cuda:11.2.2-runtime-rockylinux8
 
 LABEL name="RIFT (CentOs) - benchmarking utility" \
   maintainer="James Alexander Clark <james.clark@ligo.org>" \
@@ -40,9 +40,11 @@ RUN python3.9 -m pip --no-cache-dir install -U pip==23.0.1 setuptools  && \
       cython \
       pypandoc \
       NRSur7dq2 \
-      RIFT==0.0.15.9 && \
       pyseobnr && \
       python3.9 -c "import gwsurrogate; gwsurrogate.catalog.pull('NRHybSur3dq8'); gwsurrogate.catalog.pull('NRSur7dq4')"
+
+# install current master, to test current build
+RUN python3.9 -m pip install -U git+https://git.ligo.org/rapidpe-rift/rift
 
 # Pin lalsuite to latest SCCB release, currently 7.15
 #RUN python3.9 -m pip install lalsuite==7.15
