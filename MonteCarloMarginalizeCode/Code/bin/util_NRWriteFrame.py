@@ -193,7 +193,7 @@ if opts.verbose and not bNoPlots:
     import os
 #    from matplotlib import pyplot as plt
     # First must create corresponding cache file
-    os.system("echo "+ fname+ " | lalapps_path2cache   > test.cache")
+    os.system("echo "+ fname+ " | lal_path2cache   > test.cache")
     # Now I can read it
     # Beware that the results are OFFSET FROM ONE ANOTHER due to PADDING,
     #    but that the time associations are correct

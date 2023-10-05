@@ -39,6 +39,7 @@ parser.add_argument("--incl",default=None,help="Set the inclination of L (at fre
 parser.add_argument("--mass1",default=10,type=float,help='Mass 1 (solar masses)')
 parser.add_argument("--mass2",default=1.4,type=float,help='Mass 2 (solar masses)')
 parser.add_argument("--verbose", action="store_true",default=False)
+parser.add_argument("--l-max",default=4,type=float,help='Lmax number of modes')
 opts=  parser.parse_args()
 
 
@@ -85,7 +86,7 @@ if T_est < opts.seglen:
 
 
 # Generate signal
-hoft = lalsimutils.hoft(P)   # include translation of source, but NOT interpolation onto regular time grid
+hoft = lalsimutils.hoft(PLmax=opts.l_max)   # include translation of source, but NOT interpolation onto regular time grid
 # zero pad to be opts.seglen long, if necessary
 if opts.seglen/hoft.deltaT > hoft.data.length:
     TDlenGoal = int(opts.seglen/hoft.deltaT)

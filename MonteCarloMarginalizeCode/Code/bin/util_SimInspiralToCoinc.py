@@ -19,6 +19,7 @@ parser.add_argument("--sim-xml",help="input file")
 parser.add_argument("--event",type=int,default=0,help="input file")
 parser.add_argument("--ifo", action='append',help="input file")
 parser.add_argument("--output",default=None,type=str)
+parser.add_argument("--injected-snr",type=float,default=20,help="If snr is known (i.e. fake injection, passes it to coinc file")
 opts= parser.parse_args()
 
 
@@ -81,9 +82,9 @@ outdoc.appendChild(ligolw.LIGO_LW())
 outdoc.childNodes[0].appendChild(sngl_table)
 
 if not(opts.ifo):
-    opts.ifo = ["H1","L1"]  # default
+    opts.ifo = ["H1","L1","V1"]  # default
 
-# Create one row
+    # Create one row
 for indx in range(len(opts.ifo)):
     sngl = _empty_row(lsctables.SnglInspiral)
     # add column values
@@ -100,10 +101,17 @@ for indx in range(len(opts.ifo)):
     sngl.mchirp = lalsimutils.mchirp(sngl.mass1,sngl.mass2)
     sngl.eta = lalsimutils.symRatio(sngl.mass1,sngl.mass2)
     sngl.coa_phase = 0.
+    sngl.spin1x = P.s1x
+    sngl.spin1y = P.s1y
     sngl.spin1z = P.s1z
+    sngl.spin2x = P.s2x
+    sngl.spin2y = P.s2y
     sngl.spin2z = P.s2z
     sngl.eff_distance = P.dist/(1e6*lal.PC_SI)
-    sngl.snr = 20.  # made up, needed for some algorithms to work
+    if opts.injected_snr:
+        sngl.snr = opts.injected_snr  # made up, needed for some algorithms to work
+    else:
+        sngl.snr = 20.  # made up, needed for some algorithms to work
 
     # add to table
     sngl_table.append(sngl)
