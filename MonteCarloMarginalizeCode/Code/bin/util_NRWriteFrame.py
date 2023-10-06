@@ -31,7 +31,9 @@ parser.add_argument("--rextr", default=None,type=int)
 parser.add_argument("--fname", default=None, help = "Base name for output frame file. Otherwise auto-generated ")
 parser.add_argument("--instrument", default="H1",help="Use H1, L1,V1")
 parser.add_argument("--inj", dest='inj', default=None,help="inspiral XML file containing injection information. Used for extrinsic information only")
+parser.add_argument("--nr-use-provided-strain",default=False,action='store_true')
 parser.add_argument("--nr-perturbative-extraction",default=False,action='store_true')
+parser.add_argument("--nr-perturbative-extraction-full",default=False,action='store_true')
 parser.add_argument("--nr-use-hybrid",action='store_true')
 parser.add_argument("--mass", default=150.0,type=float,help="Total mass in solar masses")  # 150 turns out to be ok for Healy et al sims
 parser.add_argument("--lmax", default=2, type=int)
@@ -73,7 +75,7 @@ if opts.print_param_list:
 T_window = 16. # default 
 
 # Load catalog
-wfP = nrwf.WaveformModeCatalog(opts.group, param, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, extraction_radius=opts.rextr,lmax=opts.lmax,align_at_peak_l2_m2_emission=True,build_strain_and_conserve_memory=True,perturbative_extraction=opts.nr_perturbative_extraction)
+wfP = nrwf.WaveformModeCatalog(opts.group, param, clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, extraction_radius=opts.rextr,lmax=opts.lmax,align_at_peak_l2_m2_emission=True,build_strain_and_conserve_memory=True,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain)
 
 
 # Generate signal
