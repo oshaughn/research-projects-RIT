@@ -253,7 +253,6 @@ parser.add_argument("--manual-extra-puff-args",default=None,type=str,help="Avenu
 parser.add_argument("--manual-extra-test-args",default=None,type=str,help="Avenue to adjoin extra TEST arguments.  ")
 parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--use-downscale-early",action='store_true', help="If provided, the first block of iterations are performed with lnL-downscale-factor passed to CIP, such that rho*2/2 * lnL-downscale-factor ~ (15)**2/2, if rho_hint > 15 ")
-parser.add_argument("--ile-n-max",type=int,default=None,help="ILE n_max passed to helper/downstream. Default internally is 3e8; high enough so n-eff can converge ")
 parser.add_argument("--use-gauss-early",action='store_true',help="If provided, use gaussian resampling in early iterations ('G'). Note this is a different CIP instance than using a quadratic likelihood!")
 parser.add_argument("--use-quadratic-early",action='store_true',help="If provided, use a quadratic fit in the early iterations'")
 parser.add_argument("--use-gp-early",action='store_true',help="If provided, use a gp fit in the early iterations'")
@@ -706,10 +705,6 @@ if not(opts.event_time is None) and not(opts.manual_ifo_list is None):
     cmd += " --manual-ifo-list {} ".format(opts.manual_ifo_list)
 if opts.ile_distance_prior:
     cmd += " --ile-distance-prior {} ".format(opts.ile_distance_prior)
-if opts.fix_bns_sky:
-    line +=" --declination " + str(opts.declination) + " --right-ascension " + str(opts.right_ascension)
-if opts.ile_n_max:
-    line +=" --n-max " + str(opts.ile_n_max)
 if (opts.internal_marginalize_distance): #  and not opts.ile_distance_prior:
     cmd += "  --internal-marginalize-distance "  # note distance marginalization only in one code path (otherwise errors)
 if (opts.internal_marginalize_distance_file ):
@@ -806,6 +801,8 @@ if (opts.use_ini is None) and not('--d-max' in line):
     line += " --d-max " + str(dmax_guess)
 if opts.ile_distance_prior:
     line += " --d-prior {} ".format(opts.ile_distance_prior)
+if opts.fix_bns_sky:
+    line +=" --declination " + str(opts.declination) + " --right-ascension " + str(opts.right_ascension)
 if opts.ile_force_gpu:
     line +=" --force-gpu-only "
 sur_location_prefix = "my_surrogates/nr_surrogates/"
