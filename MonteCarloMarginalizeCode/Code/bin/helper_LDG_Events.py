@@ -155,6 +155,7 @@ parser.add_argument("--force-mc-range",default=None,type=str,help="For PP plots,
 parser.add_argument("--limit-mc-range",default=None,type=str,help="For PP plots, or other analyses requiring a specific mc range (eg ini file), bounding the limit *above*.  Allows the code to auto-select its mc range as usual, then takes the intersection with this limit")
 parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
 parser.add_argument("--force-eta-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region")
+parser.add_argument("--allow-subsolar", action='store_true', help="Override limits which otherwise prevent subsolar mass PE")
 parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",type=float,default=None)
 parser.add_argument("--sim-xml",default=None)
@@ -829,7 +830,9 @@ if not(opts.force_eta_range is None):
     eta_range_parsed = list(map(float,tmp.replace('[','').replace(']','').split(',')))
     delta_min_tight = np.sqrt(1 - 4*eta_range_parsed[1]) + 1e-4
     delta_max_tight = np.sqrt(1 - 4*eta_range_parsed[0])
-if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
+if mc_center < 2.6 and opts.propose_initial_grid and not(opts.allow_subsolar):  
+    # BNS scale, need to constraint eta to satisfy mc > 1
+    # do NOT always want to do this ... override if we are using force-eta-range
     import scipy.optimize
     # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
     def crit_m2(delta):
@@ -1075,7 +1078,8 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
     cmd += " --fmin " + str(opts.fmin_template)
     if opts.data_LI_seglen and not (opts.no_enforce_duration_bound):  
         cmd += " --enforce-duration-bound " + str(opts.data_LI_seglen)
-    cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
+    if not(opts.allow_subsolar):
+        cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
     if opts.assume_nospin:
         grid_size = 1000   # 500 was too small with noise
     else:
@@ -1116,7 +1120,8 @@ elif opts.propose_initial_grid:
     cmd += " --fmin " + str(opts.fmin_template)
     if opts.data_LI_seglen and not (opts.no_enforce_duration_bound):  
         cmd += " --enforce-duration-bound " + str(opts.data_LI_seglen)
-    cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
+    if not(opts.allow_subsolar):
+        cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
     if tune_grid:
         cmd += " --reset-grid-via-match --match-value 0.85 --use-fisher  --use-fisher-resampling --approx  " + approx_str # ow, but useful
     if opts.assume_nospin:
