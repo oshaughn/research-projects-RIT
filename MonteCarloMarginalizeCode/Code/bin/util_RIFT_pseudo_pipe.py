@@ -208,6 +208,7 @@ parser.add_argument("--scale-mc-range",type=float,default=None,help="If using th
 parser.add_argument("--limit-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-eta-range",default=None,type=str,help="Pass this argumen through to the helper to set the eta range")
+parser.add_argument("--allow-subsolar", action='store_true', help="Override limits which otherwise prevent subsolar mass PE")
 parser.add_argument("--force-hint-snr",default=None,type=str,help="Pass this argumen through to the helper to control source amplitude effects")
 parser.add_argument("--force-initial-grid-size",default=None,type=float,help="Only used for automated grids.  Passes --force-initial-grid-size down to helper")
 parser.add_argument("--hierarchical-merger-prior-1g",action='store_true',help="As in 1903.06742")
@@ -631,6 +632,8 @@ elif opts.scale_mc_range:
     cmd += " --scale-mc-range  " + str(opts.scale_mc_range).replace(' ','')
 if not(opts.force_eta_range is None):
     cmd+= " --force-eta-range  " + str(opts.force_eta_range).replace(' ','')
+if opts.allow_subsolar:
+    cmd += " --allow-subsolar "
 if opts.force_chi_max:
     cmd+= " --force-chi-max {} ".format(opts.force_chi_max)
 if opts.force_chi_small_max:
