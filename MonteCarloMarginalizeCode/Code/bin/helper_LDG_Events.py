@@ -138,7 +138,8 @@ def ldg_make_psd(ifo, channel_name,psd_start_time,psd_end_time,srate=4096,use_gw
 observing_run_time ={}
 observing_run_time["O1"] = [1126051217,1137254417] # https://www.gw-openscience.org/O1/
 observing_run_time["O2"] = [1164556817,1187733618] # https://www.gw-openscience.org/O2/
-observing_run_time["O3"] = [1230000000,1430000000] # Completely made up boundaries, for now
+observing_run_time["O3"] = [1230000000,1282953618] # end O3
+observing_run_time["O4"] = [1282953618,1430000000] # Completely made up boundaries, for now
 def get_observing_run(t):
     for run in observing_run_time:
         if  t > observing_run_time[run][0] and t < observing_run_time[run][1]:
@@ -287,12 +288,16 @@ standard_channel_names["O2"] = {}
 # Initialize O3
 data_types["O3"] = {}
 standard_channel_names["O3"] = {}
+# Initialize O4
+data_types["O4"] = {}
+standard_channel_names["O4"] = {}
 
 
 typical_bns_range_Mpc = {}
 typical_bns_range_Mpc["O1"] = 100 
 typical_bns_range_Mpc["O2"] = 100 
 typical_bns_range_Mpc["O3"] = 130
+typical_bns_range_Mpc["O4"] = 130
 
 ## O1 definitions
 cal_versions = {"C00", "C01", "C02"}
@@ -378,6 +383,34 @@ if opts.online:
 
 if opts.verbose:
     print(standard_channel_names["O3"])
+
+
+# O4, analysis-ready frames: 
+#  https://dcc.ligo.org/DocDB/0186/T2300083/007/O4-Analysis-Ready-Frames-v7.pdf
+cal_versions = {"C00","online"}
+for cal in cal_versions:
+    for ifo in "H1", "L1":
+        data_types["O4"][(cal,ifo)] = ifo+"_HOFT_" + cal+"_AR"
+        if opts.online:
+            data_types["O4"][(cal,ifo)] = ifo+"_llhoft"
+        if cal == "C00":
+            standard_channel_names["O4"][(cal,ifo)] = "GDS-CALIB_STRAIN_CLEAN_AR" 
+            # Correct channel name is for May 1 onward : need to use *non-clean* before May 1; see Alan W email and https://wiki.ligo.org/Calibration/CalReview_20190502
+            if opts.online:
+                data_types["O4"][(cal,ifo)] = ifo+"_HOFT_" + cal
+                # Unlike O3, cleaning *is* available in low latency
+                standard_channel_names["O4"][(cal,ifo)] = "GDS-CALIB_STRAIN_CLEAN" 
+data_types["O4"][("C00", "V1")] = "HoftOnline"
+# https://wiki.ligo.org/LSC/JRPComm/ObsRun3#Virgo_AN1
+standard_channel_names["O4"][("C00", "V1")] = "Hrec_hoft_16384Hz"
+if opts.online:
+    data_types["O4"][("C00", "V1")] = "V1_llhoft"
+    standard_channel_names["O4"][("C00", "V1")] = "Hrec_hoft_16384Hz"
+
+if opts.verbose:
+    print(standard_channel_names["O4"])
+
+
 
 
 
