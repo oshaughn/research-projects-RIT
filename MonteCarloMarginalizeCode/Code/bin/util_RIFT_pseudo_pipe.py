@@ -458,7 +458,7 @@ if opts.choose_data_LI_seglen:
 
 is_analysis_precessing =False
 is_analysis_eccentric =False
-if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or ('SpinTaylor' in opts.approx) or ('IMRPhenomTP' in opts.approx or ('IMRPhenomXP' in opts.approx)):
+if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or (opts.approx == "SEOBNRv5PHM") or ('SpinTaylor' in opts.approx) or ('IMRPhenomTP' in opts.approx or ('IMRPhenomXP' in opts.approx)):
         is_analysis_precessing=True
 if opts.assume_precessing:
         is_analysis_precessing = True
@@ -644,7 +644,7 @@ if opts.force_lambda_small_max:
     cmd+= " --force-lambda-small-max {} ".format(opts.force_lambda_small_max)    
 if not(opts.gracedb_id is None): #  and (opts.use_ini is None):
     # --gracedb-id downloads coinc.xml, and allows use of PSD files in coinc.xml
-    # Note providing coinc.xml will prevent attempting to download from gracedb, but it is STILL needed to retrieve PSDs from it
+    # Note providing coinc.xml will prevent attempting to download coinc from gracedb, but it is STILL needed to retrieve PSDs from it
     cmd +="  --gracedb-id " + gwid 
     if  opts.use_legacy_gracedb:
         cmd+= " --use-legacy-gracedb "
