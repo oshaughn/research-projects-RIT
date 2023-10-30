@@ -642,7 +642,9 @@ if opts.force_lambda_max:
     cmd+= " --force-lambda-max {} ".format(opts.force_lambda_max)
 if opts.force_lambda_small_max:
     cmd+= " --force-lambda-small-max {} ".format(opts.force_lambda_small_max)    
-if not(opts.gracedb_id is None) and (opts.use_ini is None):
+if not(opts.gracedb_id is None): #  and (opts.use_ini is None):
+    # --gracedb-id downloads coinc.xml, and allows use of PSD files in coinc.xml
+    # Note providing coinc.xml will prevent attempting to download from gracedb, but it is STILL needed to retrieve PSDs from it
     cmd +="  --gracedb-id " + gwid 
     if  opts.use_legacy_gracedb:
         cmd+= " --use-legacy-gracedb "

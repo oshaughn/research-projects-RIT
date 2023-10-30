@@ -495,12 +495,16 @@ if use_gracedb_event:
                 event_dict["IFOs"] = list(set(event_dict["IFOs"]  +ifo_list))
   try:
     # Read in event parameters. Use masses as quick estimate
-    cmd_event = gracedb_exe + download_request + opts.gracedb_id + " coinc.xml"
-    if not(opts.use_legacy_gracedb):
-        cmd_event += " > coinc.xml "
-    os.system(cmd_event)
-    cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
-    samples = lsctables.SnglInspiralTable.get_table(utils.load_filename("coinc.xml",contenthandler=lalsimutils.cthdler))
+    coinc_name = 'coinc.xml'
+    if not(opts.use_coinc):
+        cmd_event = gracedb_exe + download_request + opts.gracedb_id + " coinc.xml"
+        if not(opts.use_legacy_gracedb):
+            cmd_event += " > coinc.xml "
+        os.system(cmd_event)
+        cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
+    else:
+        coinc_name = opts.use_coinc
+    samples = lsctables.SnglInspiralTable.get_table(utils.load_filename(coinc_name,contenthandler=lalsimutils.cthdler))
     event_duration=4  # default
     for row in samples:
         m1 = row.mass1
