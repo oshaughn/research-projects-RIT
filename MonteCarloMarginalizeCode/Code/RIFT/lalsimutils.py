@@ -3241,7 +3241,7 @@ def non_herm_hoff(P):
 #argist_FromPolarizations=lalsim.SimInspiralTDModesFromPolarizations.__doc__.split('->')[0].replace('SimInspiralTDModesFromPolarizations','').replace('REAL8','').replace('Dict','').replace('Approximant','').replace('(','').replace(')','').split(',')
 
 
-def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.5,fd_alignment_postevent_time=None,**kwargs ):
+def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.5,fd_alignment_postevent_time=None, e_freq=1,**kwargs ):
     """
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
@@ -3497,28 +3497,31 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
         else:
             print("Using eccentric call")
-            pars = {
-                'M'                  : M1+M2,
-                'q'                  : M1/M2,
-                'LambdaAl2'            : P.lambda1,
-                'LambdaBl2'            : P.lambda2,
-                'chi1'               : P.s1z,
-                'chi2'               : P.s2z,
-                'domain'             : 0,
-                'arg_out'            : 1,
-                'use_mode_lm'        : k,
-                'output_lm'          : k,
-                'srate_interp'       : 1./P.deltaT,
-                'use_geometric_units': 0,
-                'initial_frequency'  : P.fmin,
-                'df'                 : P.deltaF,
-                'interp_uniform_grid': 1,
-                'distance'           : P.dist/(lal.PC_SI*1e6),
-                'inclination'        : P.incl,
-                'output_hpc'         : 0,
-                'ecc'                : P.eccentricity,
-                'ecc_freq'           : 1 #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
-            }
+            if e_freq:
+                print("e_freq: ", e_freq)
+                pars = {
+                    'M'                  : M1+M2,
+                    'q'                  : M1/M2,
+                    'LambdaAl2'            : P.lambda1,
+                    'LambdaBl2'            : P.lambda2,
+                    'chi1'               : P.s1z,
+                    'chi2'               : P.s2z,
+                    'domain'             : 0,
+                    'arg_out'            : 1,
+                    'use_mode_lm'        : k,
+                    'output_lm'          : k,
+                    'srate_interp'       : 1./P.deltaT,
+                    'use_geometric_units': 0,
+                    'initial_frequency'  : P.fmin,
+                    'df'                 : P.deltaF,
+                    'interp_uniform_grid': 1,
+                    'distance'           : P.dist/(lal.PC_SI*1e6),
+                    'inclination'        : P.incl,
+                    'output_hpc'         : 0,
+                    'ecc'                : P.eccentricity,
+                    'ecc_freq'           : e_freq #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
+                }
+
         # Run the WF generator
         print("Starting EOBRun_module")
         print(pars)
