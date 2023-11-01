@@ -152,11 +152,7 @@ def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log
     ile_job.add_var_opt("event")
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
-<<<<<<< HEAD
-    ile_job.add_condor_cmd('request_memory', '2048')
-=======
     ile_job.add_condor_cmd('request_memory', '2048M')
->>>>>>> upstream/rift_O4b
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -255,11 +251,7 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
     ile_job.add_var_opt("mass2")
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
-<<<<<<< HEAD
-    ile_job.add_condor_cmd('request_memory', '2048')
-=======
     ile_job.add_condor_cmd('request_memory', '2048M')
->>>>>>> upstream/rift_O4b
     
     return ile_job, ile_sub_name
 
@@ -357,11 +349,7 @@ def write_tri_plot_sub(tag='plot_tri', injection_file=None, exe=None, log_dir=No
     plot_job.add_arg("ILE_$(macromassid).sqlite")
 
     plot_job.add_condor_cmd('getenv', default_getenv_value)
-<<<<<<< HEAD
-    #plot_job.add_condor_cmd('request_memory', '2048')
-=======
     #plot_job.add_condor_cmd('request_memory', '2048M')
->>>>>>> upstream/rift_O4b
     
     return plot_job, plot_sub_name
 
@@ -389,11 +377,7 @@ def write_1dpos_plot_sub(tag='1d_post_plot', exe=None, log_dir=None, output_dir=
     plot_job.add_opt("disable-1d-density", None)
 
     plot_job.add_condor_cmd('getenv', default_getenv_value)
-<<<<<<< HEAD
-    plot_job.add_condor_cmd('request_memory', '2048')
-=======
     plot_job.add_condor_cmd('request_memory', '2048M')
->>>>>>> upstream/rift_O4b
     
     return plot_job, plot_sub_name
 
@@ -506,11 +490,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     if not use_osg:
         ile_job.add_condor_cmd('getenv', default_getenv_value)
-<<<<<<< HEAD
-    ile_job.add_condor_cmd('request_memory', str(request_memory)) 
-=======
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M") 
->>>>>>> upstream/rift_O4b
     if not(request_disk is False):
         ile_job.add_condor_cmd('request_disk', str(request_disk)) 
     # To change interactively:
@@ -655,11 +635,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
-<<<<<<< HEAD
-    ile_job.add_condor_cmd('request_memory', str(request_memory)) 
-=======
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M") 
->>>>>>> upstream/rift_O4b
     # To change interactively:
     #   condor_qedit
     # for example: 
@@ -1476,11 +1452,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
-<<<<<<< HEAD
-    ile_job.add_condor_cmd('request_memory', str(request_memory)) 
-=======
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M") 
->>>>>>> upstream/rift_O4b
 
     # Write requirements
     # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
@@ -1591,11 +1563,7 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
-<<<<<<< HEAD
-    ile_job.add_condor_cmd('request_memory', str(request_memory)) 
-=======
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M") 
->>>>>>> upstream/rift_O4b
 
     # Write requirements
     # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
@@ -1704,11 +1672,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
-<<<<<<< HEAD
-    ile_job.add_condor_cmd('request_memory', str(request_memory)) 
-=======
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M") 
->>>>>>> upstream/rift_O4b
 
     # Write requirements
     # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
@@ -2086,11 +2050,7 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
-<<<<<<< HEAD
-    ile_job.add_condor_cmd('request_memory', str(request_memory))
-=======
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M")
->>>>>>> upstream/rift_O4b
 
     # no grid
     if no_grid:
@@ -2296,11 +2256,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
 
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
-<<<<<<< HEAD
-    ile_job.add_condor_cmd('request_memory', str(request_memory))
-=======
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M")
->>>>>>> upstream/rift_O4b
 
     # no grid
     if no_grid:
@@ -2373,11 +2329,7 @@ def write_comov_distance_reweighting_sub(tag='Comov_dist', comov_distance_reweig
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
-<<<<<<< HEAD
-    ile_job.add_condor_cmd('request_memory', str(request_memory))
-=======
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M")
->>>>>>> upstream/rift_O4b
 
     # no grid
     if no_grid:
@@ -2452,11 +2404,7 @@ def write_convert_ascii_to_h5_sub(tag='Convert_ascii2h5', convert_ascii_to_h5_ex
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
-<<<<<<< HEAD
-    ile_job.add_condor_cmd('request_memory', str(request_memory))
-=======
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M")
->>>>>>> upstream/rift_O4b
 
     # no grid
     if no_grid:
@@ -2572,11 +2520,7 @@ def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='
 
     if not use_osg:
         ile_job.add_condor_cmd('getenv', default_getenv_value)
-<<<<<<< HEAD
-    ile_job.add_condor_cmd('request_memory', str(request_memory)) 
-=======
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M") 
->>>>>>> upstream/rift_O4b
     if not(request_disk is False):
         ile_job.add_condor_cmd('request_disk', str(request_disk)) 
     # To change interactively:
