@@ -1566,7 +1566,10 @@ class ChooseWaveformParams:
         print( "time step =", self.deltaT, "(s) <==>", 1./self.deltaT,\
                 "(Hz) sample rate")
         print( "freq. bin size is =", self.deltaF, "(Hz)")
-        print( "approximant is =", lalsim.GetStringFromApproximant(self.approx))
+        if isinstance(self.approx,str):
+           print( "approximant is =", self.approx)
+        else:
+           print( "approximant is =", lalsim.GetStringFromApproximant(self.approx))
         print( "phase order =", self.phaseO)
         print( "amplitude order =", self.ampO)
         if self.waveFlags:
@@ -3508,6 +3511,17 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                                                         hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
                     hC2.data.data = (-1.)**mode[1] * np.conj(hC.data.data) # h(l,-m) = (-1)^m hlm^* for reflection symmetry
                     hlm[mode_conj] = hC2
+
+        # Create a taper, matching exactly what is used in hoft
+        hp = lal.CreateREAL8TimeSeries('junk',
+                    lal.LIGOTimeGPS(0.), 1., P.deltaT,
+                    lsu_DimensionlessUnit, len(hlm[(2,2)]) )
+        hp.data.data = np.ones(len(hp.data.data))
+        lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
+        # apply taper to all modes
+        for mode in hlm:
+            hlm[mode].data.data*= hp.data.data
+
         return hlm
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
         extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)

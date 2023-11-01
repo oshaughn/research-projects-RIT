@@ -20,7 +20,14 @@ You can install RIFT via pip (and conda).  If you are a developer you will need 
 ```
   pip install  --user  RIFT
 ```
- * **source install with setup.py**: If you retrieve the source code, you can run the setup script directly.  That's very helpful if you need to edit the source
+* **source install with pip + setup.py**: If you retrieve the source code, you can install the latest source (including any edits you make youself).  We recommend you also install this with pip, to manage the first line in the script (i.e., the ``#!``)
+```
+git clone https://git.ligo.org/rapidpe-rift/rift.git
+cd rift
+pip install -e .
+export GW_SURROGATE=''
+```
+ * **source install with setup.py**: If you retrieve the source code, you can alternatively run the ``setup.py`` script directly  That's very helpful if you need to edit the source
 ```
 git clone https://github.com/oshaughn/research-projects-RIT.git # use for HTTPS
 cd research-projects-RIT

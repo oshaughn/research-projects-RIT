@@ -21,6 +21,11 @@ import itertools
 
 import joblib  # http://scikit-learn.org/stable/modules/model_persistence.html
 
+# GPU acceleration: NOT YET, just do usual
+xpy_default=numpy  # just in case, to make replacement clear and to enable override
+identity_convert = lambda x: x  # trivial return itself
+cupy_success=False
+
 no_plots = True
 internal_dtype = np.float32  # only use 32 bit storage! Factor of 2 memory savings for GP code in high dimensions
 
@@ -49,6 +54,20 @@ from ligo.lw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 import RIFT.integrators.mcsampler as mcsampler
+try:
+    import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
+    mcsampler_gmm_ok = True
+except:
+    print(" No mcsamplerEnsemble ")
+    mcsampler_gmm_ok = False
+try:
+    import RIFT.integrators.mcsamplerGPU as mcsamplerGPU
+    mcsampler_gpu_ok = True
+    mcsamplerGPU.xpy_default =xpy_default  # force consistent, in case GPU present
+    mcsamplerGPU.identity_convert = identity_convert
+except:
+    print( " No mcsamplerGPU ")
+    mcsampler_gpu_ok = False
 
 
 
@@ -112,6 +131,7 @@ parser.add_argument("--lnL-peak-insane-cut",type=float,default=np.inf,help="Thro
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
 parser.add_argument("--n-max",default=3e5,type=float)
+parser.add_argument("--n-step",default=1e5,type=int)
 parser.add_argument("--n-eff",default=3e3,type=int)
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
 parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde.  Note 'polynomial' with --fit-order 0  will fit a constant")
@@ -121,7 +141,7 @@ parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial
 parser.add_argument("--no-plots",action='store_true')
 parser.add_argument("--using-eos-type", type=str, default=None, help="Name of EOS parameterization (must match what is used for inputs). Will use EOS parameterization to identify appropriate field headers")
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
-parser.add_argument("--internal-use-lnL",action='store_true',help="integrator internally manipulates lnL. ")
+parser.add_argument("--internal-use-lnL",action='store_true',help="integrator internally manipulates lnL..   ")
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
 parser.add_argument("--internal-n-comp",default=1,type=int,help="number of components to use for GMM sampling. Default is 1, because we expect a unimodal posterior in well-adapted coordinates.  If you have crappy coordinates, use more")
 parser.add_argument("--force-no-adapt",action='store_true',help="Disable adaptation, both of the tempering exponent *and* the individual sampling prior(s)")
@@ -133,6 +153,10 @@ parser.add_argument("--supplementary-likelihood-factor-code", default=None,type=
 parser.add_argument("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external likelihood. EXPERTS ONLY")
 parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
 opts=  parser.parse_args()
+
+#print(" WARNING: Always use internal_use_lnL for now ")
+#opts.internal_use_lnL=True
+
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
@@ -213,7 +237,7 @@ param_ranges = {}
 for range_code  in opts.integration_parameter_range:
     name, range_str  = range_code.split(':')
     range_expr =     eval(range_str)  # define. Better to split on , for example
-    param_ranges[name]  = range_expr
+    param_ranges[name]  = np.array(range_expr)
 
 # Add in integration range for everything else, if nothing specified
 for name in dat_orig_names:
@@ -421,6 +445,8 @@ dat_out= np.array(dat_out)
 # Repack data
 X =dat_out[:,0:len(coord_names)]
 Y = dat_out[:,-2]
+if np.max(Y)<0 and lnL_shift ==0: 
+    lnL_shift  = -100 - np.max(Y)   # force it to be offset/positive -- may help some configurations. Remember our adaptivity is silly.
 Y_err = dat_out[:,-1]
 # Save copies for later (plots)
 X_orig = X.copy()
@@ -496,6 +522,18 @@ Y=Y[indx]
 
 
 sampler = mcsampler.MCSampler()
+if opts.sampler_method == "adaptive_cartesian_gpu":
+    sampler = mcsamplerGPU.MCSampler()
+    sampler.xpy = xpy_default
+    sampler.identity_convert=identity_convert
+    mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
+
+    # if opts.sampler_xpy == "numpy":
+    #   mcsampler.set_xpy_to_numpy()
+    #   sampler.xpy= numpy
+    #   sampler.identity_convert= lambda x: x
+if opts.sampler_method == "GMM":
+    sampler = mcsamplerEnsemble.MCSampler()
 
 
 ##
@@ -508,14 +546,17 @@ for p in coord_names:
     sampler.add_parameter(p, pdf=np.vectorize(lambda x:1), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=True)
 
 likelihood_function = None
+log_likelihood_function = None
 def convert_coords(x):
     return x
+def log_likelihood_function(*args):
+    return my_fit(convert_coords(np.array([*args]).T ))
+
 if len(coord_names) ==1:
     def likelihood_function(x):  
         if isinstance(x,float):
             return np.exp(my_fit([x]))
         else:
-#            return np.exp(my_fit(convert_coords(np.array([x],dtype=internal_dtype).T) ))
             return np.exp(my_fit(convert_coords(np.c_[x])))
 if len(coord_names) ==2:
     def likelihood_function(x,y):  
@@ -580,8 +621,10 @@ if len(coord_names) ==10:
 
 
 
-n_step = 1e5
+n_step = opts.n_step
 my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
+if np.max(Y_orig) < 0:   # for now, don't use a weight exponent if we are negative: can't use guess based from GW experience
+    my_exp = 1
 #my_exp = np.max([my_exp,  1/np.log(n_step)]) # do not allow extreme contrast in adaptivity, to the point that one iteration will dominate
 print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto")
 
@@ -610,8 +653,9 @@ if opts.sampler_method == "GMM":
         my_blocks = opts.internal_correlate_parameters.split()
         my_tuples = list(map( parse_corr_params, my_blocks))
         gmm_dict = {x:None for x in my_tuples}
+        print(" GMM: Proposed correlated ", gmm_dict)
         # What about un-labelled parameters? Make a null tuple for them as well
-        correlated_params = set(()); correlated_params = correlated_params.union( *list(map(set,my_tuples)))
+        correlated_params = set(); correlated_params = correlated_params.union( *list(map(set,my_tuples)))
         uncorrelated_params = set(np.arange(len(low_level_coord_names))); 
         uncorrelated_params = uncorrelated_params.difference(correlated_params)
         for x in uncorrelated_params:
@@ -620,11 +664,10 @@ if opts.sampler_method == "GMM":
     else:
         param_indexes = range(len(low_level_coord_names))
         gmm_dict  = {(k,):None for k in param_indexes} # no correlations
-    if opts.internal_gmm_memory_chisquared_factor:
-        lnL_offset_saving = len(low_level_coord_names)*opts.internal_gmm_memory_chisquared_factor  # based on chisquared distribution, we should not be keeping more than this for output.  This is PURELY FOR MEMORY MANAGEMENT
-    else:
-        lnL_offset_saving = opts.lnL_offset
-    extra_args = {'n_comp':n_comp,'max_iter':n_max_blocks,'L_cutoff': (np.exp(max_lnL-lnL_shift - lnL_offset_saving)),'gmm_dict':gmm_dict,'max_err':50}  # made up for now, should adjust
+#    lnL_offset_saving = opts.lnL_offset
+    lnL_offset_saving = -20  # for simplicity, hardcode for now for preserving points
+    print("GMM ", gmm_dict)
+    extra_args = {'n_comp':n_comp,'max_iter':n_max_blocks,'L_cutoff': None,'gmm_dict':gmm_dict,'max_err':50, 'lnw_failure_cut':-np.inf}  # made up for now, should adjust
 extra_args.update({
     "n_adapt": 100, # Number of chunks to allow adaption over
     "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1D histograms with, 
@@ -643,15 +686,7 @@ if opts.internal_use_lnL:
 
 
 
-res, var, neff, dict_return = sampler.integrate(likelihood_function, *coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True)  # weight ecponent needs better choice. We are using arbitrary-name functions
-
-n_ESS = -1
-if True:
-    # Compute n_ESS.  Should be done by integrator!
-    weights_scaled = sampler._rvs["integrand"]*sampler._rvs["joint_prior"]/sampler._rvs["joint_s_prior"]
-    weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
-    n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
-    print(" n_eff n_ESS ", neff, n_ESS)
+res, var, neff, dict_return = sampler.integrate(fn_passed, *coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=True, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,adapt_weight_exponent=my_exp,no_protect_names=True,**extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 
 # Save result -- needed for odds ratios, etc.
@@ -662,17 +697,40 @@ if neff < len(coord_names):
     print(" Not enough independent Monte Carlo points to generate useful contours")
 
 
-
-
 samples = sampler._rvs
 print(samples.keys())
 n_params = len(coord_names)
 dat_mass = np.zeros((len(samples[coord_names[0]]),n_params+3))
-dat_logL = np.log(samples["integrand"])
+if not(opts.internal_use_lnL):
+    dat_logL = np.log(samples["integrand"])
+else:
+    if 'log_integrand' in samples:
+        dat_logL = samples['log_integrand']
+    else:
+        dat_logL = samples["integrand"]
+lnLmax = np.max(dat_logL[np.isfinite(dat_logL)])
 print(" Max lnL ", np.max(dat_logL))
 
+n_ESS = -1
+if True:
+    # Compute n_ESS.  Should be done by integrator!
+    if 'log_joint_s_prior' in  samples:
+        weights_scaled = np.exp(dat_logL - lnLmax + samples["log_joint_prior"] - samples["log_joint_s_prior"])
+        # dictionary, write this to enable later use of it
+        samples["joint_s_prior"] = np.exp(samples["log_joint_s_prior"])
+        samples["joint_prior"] = np.exp(samples["log_joint_prior"])
+    else:
+        weights_scaled = np.exp(dat_logL - lnLmax)*sampler._rvs["joint_prior"]/sampler._rvs["joint_s_prior"]
+    weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
+    n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
+    print(" n_eff n_ESS ", neff, n_ESS)
+
+
 # Throw away stupid points that don't impact the posterior
-indx_ok = np.logical_and(dat_logL > np.max(dat_logL)-opts.lnL_offset ,samples["joint_s_prior"]>0)
+indx_ok = np.ones(len(dat_logL),dtype=bool)
+if not('log_joint_s_prior' in samples):
+    indx_ok=samples["joint_s_prior"]>0
+indx_ok = np.logical_and(dat_logL > np.max(dat_logL)-opts.lnL_offset ,indx_ok)
 for p in coord_names:
     samples[p] = samples[p][indx_ok]
 dat_logL  = dat_logL[indx_ok]

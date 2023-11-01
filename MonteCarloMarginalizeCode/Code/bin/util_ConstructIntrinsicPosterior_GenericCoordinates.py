@@ -87,6 +87,12 @@ except:
     print( " No mcsamplerGPU ")
     mcsampler_gpu_ok = False
 try:
+    import RIFT.integrators.mcsamplerAdaptiveVolume as mcsamplerAdaptiveVolume
+    mcsampler_AV_ok = True
+except:
+    print(" No mcsamplerAV ")
+    mcsampler_AV_ok = False
+try:
     import RIFT.interpolators.senni as senni
     senni_ok = True
 except:
@@ -357,7 +363,7 @@ if opts.lnL_shift_prevent_overflow:
 if not(opts.force_no_adapt):
     opts.force_no_adapt=False  # force explicit boolean false
 
-ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu']
+ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu', 'AV']
 if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
   print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)
   sys.exit(99)
@@ -1768,7 +1774,7 @@ if opts.tabular_eos_file:
     #  - note the saved values use the FIDUCIAL ORDERING, so must be used with GREAT CARE to preserve order!
     order_vals = np.zeros(len(dat_out))
     for indx in np.arange(len(order_vals)):
-        order_vals = my_eos_sequence.lambda_of_m_indx(m_ref, int(dat_out[indx,-1]))  # last field is index value
+        order_vals[indx] = my_eos_sequence.lambda_of_m_indx(m_ref, int(dat_out[indx,-1]))  # last field is index value
     # overwrite into the ordering statistic field
     dat_out[:,-1] = order_vals
     # overwrite the coordinate name for the last field, so conversion is trivial/identity
@@ -2126,6 +2132,10 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
 if opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
 
+if opts.sampler_method == "AV":
+    sampler = mcsamplerAdaptiveVolume.MCSampler()
+    opts.internal_use_lnL= True  # required!
+
 
 ##
 ## Loop over param names
@@ -2434,14 +2444,6 @@ if opts.internal_temper_log:
 res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 
-n_ESS = -1
-if True:
-    # Compute n_ESS.  Should be done by integrator!
-    weights_scaled = sampler._rvs["integrand"]*sampler._rvs["joint_prior"]/sampler._rvs["joint_s_prior"]
-    weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
-    n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
-    print(" n_eff n_ESS ", neff, n_ESS)
-
 # Test n_eff threshold
 if not (opts.fail_unless_n_eff is None):
     if neff < opts.fail_unless_n_eff   and not(opts.not_worker):     # if we need the output to continue:
@@ -2486,10 +2488,13 @@ if neff < opts.n_eff:
         sys.exit(0)
 
 
-
 # Save result -- needed for odds ratios, etc.
 #   Warning: integral_result.dat uses *original* prior, before any reweighting
 np.savetxt(opts.fname_output_integral+".dat", [np.log(res)+lnL_shift])
+
+
+
+
 eos_extra = []
 annotation_header = "lnL sigmaL neff "
 if opts.using_eos and not(opts.using_eos.startswith('file:')):
@@ -2519,7 +2524,6 @@ with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
     file_out.write(" {} {} ".format(np.log(res), np.sqrt(var)/res) + ' '.join(map(str,params_here)))
 #np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
 # since not EOS, can just use np.savetxt
-np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[np.log(res), np.sqrt(var)/res, neff, n_ESS]],header=" lnL sigmaL neff n_ESS ")
 # with open(opts.fname_output_integral+"+annotation_ESS.dat", 'w') as file_out:
 #     annotation_header = "lnL sigmaL neff n_ESS "
 #     str_out =list( map(str,[np.log(res), np.sqrt(var)/res, neff, n_ESS]))
@@ -2536,20 +2540,37 @@ if neff < len(low_level_coord_names):
     print(" Not enough independent Monte Carlo points to generate useful contours")
 
 
-
-
 samples = sampler._rvs
-print(samples.keys())
+samples_type_names = list(samples.keys())
+print(samples_type_names)
 n_params = len(coord_names)
 dat_mass = np.zeros((len(samples[low_level_coord_names[0]]),n_params+3))
+dat_logL = np.zeros(len(samples[low_level_coord_names[0]]))
 if not(opts.internal_use_lnL):
     dat_logL = np.log(samples["integrand"])
 else:
-    dat_logL = samples["integrand"]
+    if 'log_integrand' in samples_type_names:
+        dat_logL = samples['log_integrand']
+    else:
+        dat_logL = samples["integrand"]
 lnLmax = np.max(dat_logL[np.isfinite(dat_logL)])
 print(" Max lnL ", np.max(dat_logL))
-if opts.lnL_protect_overflow:
-    lnL_shift = lnLmax - 100.
+
+n_ESS = -1
+if True:
+    # Compute n_ESS.  Should be done by integrator!
+    if 'log_joint_s_prior' in  samples:
+        weights_scaled = np.exp(dat_logL - lnLmax + samples["log_joint_prior"] - samples["log_joint_s_prior"])
+        # dictionary, write this to enable later use of it
+        samples["joint_s_prior"] = np.exp(samples["log_joint_s_prior"])
+        samples["joint_prior"] = np.exp(samples["log_joint_prior"])
+    else:
+        weights_scaled = np.exp(dat_logL - lnLmax)*sampler._rvs["joint_prior"]/sampler._rvs["joint_s_prior"]
+    weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
+    n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
+    print(" n_eff n_ESS ", neff, n_ESS)
+np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[np.log(res), np.sqrt(var)/res, neff, n_ESS]],header=" lnL sigmaL neff n_ESS ")
+
 
 # Throw away stupid points that don't impact the posterior
 indx_ok = np.logical_and(dat_logL > lnLmax-opts.lnL_offset ,samples["joint_s_prior"]>0)

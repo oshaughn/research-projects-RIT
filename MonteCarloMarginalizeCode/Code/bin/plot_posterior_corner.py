@@ -479,10 +479,11 @@ if opts.composite_file:
     else:
         samples = np.genfromtxt(fname,names=True)
         samples = rfn.rename_fields(samples, {'sigmalnL': 'sigmaOverL', 'sigma_lnL': 'sigmaOverL'})   # standardize names, some drift in labels
-    samples = samples[ ~np.isnan(samples["lnL"])] # remove nan likelihoods -- they can creep in with poor settings/overflows
+    if 'lnL' in samples.dtype.names:
+        samples = samples[ ~np.isnan(samples["lnL"])] # remove nan likelihoods -- they can creep in with poor settings/overflows
     name_ref = samples.dtype.names[0]
     if opts.sigma_cut >0:
-        npts = len(samples[name_ref])
+        npts = len(np.atleast_1d(samples[name_ref]))
         # strip NAN
         sigma_vals = samples["sigmaOverL"]
         good_sigma = sigma_vals < opts.sigma_cut
@@ -514,8 +515,8 @@ if opts.composite_file:
             samples['DeltaLambdaTilde'] = samples['dlambdat']= dLt
 
     samples_orig = samples
-    if opts.lnL_cut:
-        npts = len(samples[name_ref])
+    if opts.lnL_cut and 'lnL' in samples.dtype.names:
+        npts = len(np.atleast_1d(samples[name_ref]))
         # strip NAN
         lnL_vals = samples["lnL"]
         not_nan = np.logical_not(np.isnan(lnL_vals))
@@ -538,10 +539,10 @@ if opts.composite_file:
         samples = new_samples
 
 
-    print(" Loaded samples from ", fname , len(samples[name_ref]))
+    print(" Loaded samples from ", fname , len(np.atleast_1d(samples[name_ref])))
     if 'm1' in samples.dtype.names:
         # impose Kerr limit
-        npts = len(samples["m1"])
+        npts = len(np.atleast_1d(samples["m1"]))
         indx_ok =np.arange(npts)
         chi1_squared = samples["chi1_perp"]**2 + samples["a1z"]**2
         chi2_squared = samples["chi2_perp"]**2 + samples["a2z"]**2
@@ -553,7 +554,7 @@ if opts.composite_file:
             for name in samples.dtype.names:
                 new_samples[name] = samples[name][indx_ok]
             samples = new_samples
-            print(" Stripped samples  from ", fname , len(samples["m1"]))
+            print(" Stripped samples  from ", fname , len(np.atleast_1d(samples["m1"])))
 
 
     composite_list.append(samples)
@@ -760,21 +761,23 @@ if composite_list:
     samples_ref_name = samples.dtype.names[0]
     samples_orig_ref_name = samples_orig.dtype.names[0]
     # Create data for corner plot
-    dat_mass = np.zeros( (len(samples[samples_ref_name]), len(labels_tex)) )
-    dat_mass_orig = np.zeros( (len(samples_orig[samples_orig_ref_name]), len(labels_tex)) )
-    lnL = samples["lnL"]
-    indx_sorted = lnL.argsort()
-    if len(lnL)<1:
-        print(" Failed to retrieve lnL for composite file ", composite_list[0])
-
+    dat_mass = np.zeros( (len(np.atleast_1d(samples[samples_ref_name])), len(labels_tex)) )
+    dat_mass_orig = np.zeros( (len(np.atleast_1d(samples_orig[samples_orig_ref_name])), len(labels_tex)) )
     cm = plt.cm.get_cmap('rainbow') #'RdYlBu_r')
-    y_span = lnL.max() - lnL.min()
-    print(" Composite file : lnL span ", y_span)
-    y_min = lnL.min()
-    cm2 = lambda x: cm(  (x - y_min)/y_span)
-    my_cmap_values = cm(    (lnL-y_min)/y_span) 
-#    print my_cmap_values[:10]
+    if "lnL" in samples.dtype.names:
+        lnL = samples["lnL"]
+        indx_sorted = lnL.argsort()
+        if len(lnL)<1:
+            print(" Failed to retrieve lnL for composite file ", composite_list[0])
 
+        y_span = lnL.max() - lnL.min()
+        print(" Composite file : lnL span ", y_span)
+        y_min = lnL.min()
+        cm2 = lambda x: cm(  (x - y_min)/y_span)
+        my_cmap_values = cm(    (lnL-y_min)/y_span) 
+    else:
+        my_cmap_values = cm(np.ones(len(np.atleast_1d(samples[name_ref]))) )
+        indx_sorted = np.arange(len(np.atleast_1d(samples[name_ref])))
 
     truths_here=None
     if opts.truth_file:

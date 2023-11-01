@@ -183,7 +183,7 @@ def standard_expand_samples(samples):
         samples = add_field(samples, [('m1', float)]); samples['m1'] = m1_here
         samples = add_field(samples, [('m2', float)]); samples['m2'] = mtot_here * q_here/(1+q_here)
         
-    if "theta1" in samples.dtype.names:
+    if "theta1" in samples.dtype.names and not('chi1_perp' in samples.dtype.names):
         a1x_dat = samples["a1"]*np.sin(samples["theta1"])*np.cos(samples["phi1"])
         a1y_dat = samples["a1"]*np.sin(samples["theta1"])*np.sin(samples["phi1"])
         chi1_perp = samples["a1"]*np.sin(samples["theta1"])
@@ -202,7 +202,7 @@ def standard_expand_samples(samples):
         if not 'chi_eff' in samples.dtype.names:
             samples = add_field(samples, [('chi_eff',float)]); samples['chi_eff'] = (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["m1"]+samples["m2"])
  
-    elif 'a1x' in samples.dtype.names:
+    elif 'a1x' in samples.dtype.names and not 'chi1_perp' in samples.dtype.names:
         chi1_perp = np.sqrt(samples['a1x']**2 + samples['a1y']**2)
         chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
         samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp

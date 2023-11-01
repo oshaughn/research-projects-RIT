@@ -63,6 +63,12 @@ try:
 except:
     print( " No mcsamplerGPU ")
     mcsampler_gpu_ok = False
+try:
+    import RIFT.integrators.mcsamplerAdaptiveVolume as mcsamplerAdaptiveVolume
+    mcsampler_AV_ok = True
+except:
+    print(" No mcsamplerAV ")
+    mcsampler_AV_ok = False
 
 import RIFT.likelihood.priors_utils as priors_utils
 import RIFT.misc.xmlutils as xmlutils
@@ -283,6 +289,7 @@ intrinsic_params.add_option("--spin1z", type=float, help="Value of first compone
 intrinsic_params.add_option("--spin2z", type=float, help="Value of second  component spin (aligned with angular momentum), dimensionless.")
 intrinsic_params.add_option("--eff-lambda", type=float, help="Value of effective tidal parameter. Optional, ignored if not given.")
 intrinsic_params.add_option("--deff-lambda", type=float, help="Value of second effective tidal parameter. Optional, ignored if not given")
+intrinsic_params.add_option("--export-eos-index",action='store_true')
 optp.add_option_group(intrinsic_params)
 
 
@@ -313,7 +320,7 @@ opts, args = optp.parse_args()
 #
 # Failure modes
 #
-ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu']
+ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu','AV']
 if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
   print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)
   sys.exit(99)
@@ -499,7 +506,7 @@ if opts.sim_xml:
         m2 =P.m2/lal.MSUN_SI
         lambda1, lambda2 = P.lambda1,P.lambda2
         P.dist = factored_likelihood.distMpcRef * 1.e6 * lal.PC_SI   # use *nonstandard* distance
-        P.phi=0.0
+        P.phiref=0.0
         P.psi=0.0
         P.incl = 0.0       # only works for aligned spins. Be careful.
         P.fref = opts.reference_freq
@@ -712,6 +719,22 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
 elif opts.sampler_method == "GMM":
     print(" ILE: {}".format(opts.sampler_method))
     sampler = mcsamplerEnsemble.MCSampler()
+elif opts.sampler_method == 'AV':
+    print(" ILE: {}".format(opts.sampler_method))
+    opts.internal_use_lnL=True
+
+    sampler = mcsamplerAdaptiveVolume.MCSampler()
+    sampler.xpy = xpy_default
+    sampler.identity_convert=identity_convert
+#    mcsampler  = mcsampler  # force use of routines in that file, for properly configured GPU-accelerated code as needed
+
+    xpy_asarray_already = lambda x: x  # do nothing because we are already on the board for GPU-generated 
+
+    if opts.sampler_xpy == "numpy":
+      mcsampler.set_xpy_to_numpy()
+      sampler.xpy= numpy
+      sampler.identity_convert= lambda x: x
+
 else:
     print(" ILE: original sampler")
     print(" ILE: {}".format(opts.sampler_method))
@@ -756,7 +779,7 @@ if not (opts.distance_marginalization and lookup_table["phase_marginalization"])
 #
 
 adapt_extra_extrinsic=False
-if opts.sampler_method == "adaptive_cartesian_gpu" or opts.force_adapt_all:  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
+if (opts.sampler_method == "adaptive_cartesian_gpu"  or opts.sampler_method == 'AV') or opts.force_adapt_all:  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
   adapt_extra_extrinsic=True
 
 if not opts.inclination_cosine_sampler:
@@ -1070,6 +1093,10 @@ if opts.sampler_method == "GMM":
       unpinned_params.remove('distance')
       if lookup_table["phase_marginalization"]:
         unpinned_params.remove('phi_orb')
+if opts.sampler_method == "AV":
+  return_lnL=True
+  pinned_params.update( { 'enforce_bounds':True})  # don't go out of range : choose integer bin sizes
+
 
 def resample_samples(my_samples,
                      lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None): # uses LOTS of global variables, don't pass them all
@@ -1611,8 +1638,12 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           else:
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, pinned_params["distance"], log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
         else:
+          if not(opts.export_eos_index):
             # Alternative output format if lambda is active
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+          else:
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, P.eos_table_index, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+
 
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
@@ -1820,6 +1851,8 @@ for indx in numpy.arange(len(P_list)):
       # reset the GMM dictionary
       for component in gmm_dict:
           gmm_dict[component] = None
+    elif opts.sampler_method == 'AV':
+      print(" AV always resets every iteration ! ")
     else:
       print(" force-reset-all not defined for this integrator ")
       sys.exit(1)

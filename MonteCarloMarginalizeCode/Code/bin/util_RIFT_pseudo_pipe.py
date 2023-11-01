@@ -458,7 +458,7 @@ if opts.choose_data_LI_seglen:
 
 is_analysis_precessing =False
 is_analysis_eccentric =False
-if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or ('SpinTaylor' in opts.approx) or ('IMRPhenomTP' in opts.approx or ('IMRPhenomXP' in opts.approx)):
+if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or (opts.approx == "SEOBNRv5PHM") or ('SpinTaylor' in opts.approx) or ('IMRPhenomTP' in opts.approx or ('IMRPhenomXP' in opts.approx)):
         is_analysis_precessing=True
 if opts.assume_precessing:
         is_analysis_precessing = True
@@ -642,7 +642,9 @@ if opts.force_lambda_max:
     cmd+= " --force-lambda-max {} ".format(opts.force_lambda_max)
 if opts.force_lambda_small_max:
     cmd+= " --force-lambda-small-max {} ".format(opts.force_lambda_small_max)    
-if not(opts.gracedb_id is None) and (opts.use_ini is None):
+if not(opts.gracedb_id is None): #  and (opts.use_ini is None):
+    # --gracedb-id downloads coinc.xml, and allows use of PSD files in coinc.xml
+    # Note providing coinc.xml will prevent attempting to download coinc from gracedb, but it is STILL needed to retrieve PSDs from it
     cmd +="  --gracedb-id " + gwid 
     if  opts.use_legacy_gracedb:
         cmd+= " --use-legacy-gracedb "
@@ -703,7 +705,7 @@ if not(opts.event_time is None) and not(opts.manual_ifo_list is None):
 if opts.ile_distance_prior:
     cmd += " --ile-distance-prior {} ".format(opts.ile_distance_prior)
 if (opts.internal_marginalize_distance): #  and not opts.ile_distance_prior:
-    cmd += " --internal-marginalize-distance "
+    cmd += "  --internal-marginalize-distance "  # note distance marginalization only in one code path (otherwise errors)
 if (opts.internal_marginalize_distance_file ):
     cmd += " --internal-marginalize-distance-file {} ".format(opts.internal_marginalize_distance_file)
 if not(opts.internal_distance_max is None):
@@ -833,7 +835,7 @@ if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 if opts.internal_ile_sky_network_coordinates:
     line += " --internal-sky-network-coordinates "
-if opts.ile_no_gpu:  # make sure we are using the standard code path if not using GPUs
+if opts.ile_no_gpu or opts.ile_sampler_method ==  "AV":  # make sure we are using the standard code path if not using GPUs
     line += " --force-xpy " 
 if opts.internal_ile_force_noreset_adapt:
     line = line.replace(' --force-reset-all ', ' ')
@@ -950,7 +952,10 @@ for indx in np.arange(len(instructions_cip)):
             # FIRST attempt to replace with commas, note previous line
             line = line.replace("mc,s1z'", "mc,s1z_bar'")
     elif opts.internal_correlate_default and ('s1z' in line):
-        addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
+        my_sampler_method='GMM'  # Warning can override default sampler setting if not careful!
+        if opts.cip_sampler_method:
+            my_sampler_method = opts.cip_sampler_method
+        addme = " --sampler-method {} --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' ".format(my_sampler_method)
         if 's1z_bar' in line:
             # FIRST attempt to replace with commas, note previous line
             addme = addme.replace('s1z,', 's1z_bar,')
@@ -960,7 +965,7 @@ for indx in np.arange(len(instructions_cip)):
         # For high-q triggers, don't waste time correlating s2z
         if 'm2' in event_dict:
             if event_dict['m2']/event_dict['m1']< 0.4:
-                addme = " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
+                addme = " --sampler-method {} --internal-correlate-parameters 'mc,delta_mc,s1z' ".format(my_sampler_method)
                 if 's1z_bar' in line:
                     addme = addme.replace("mc,s1z'", "mc,s1z_bar'")
             if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
@@ -1181,7 +1186,8 @@ elif opts.calibration_reweighting and opts.bilby_pickle_file:
         cmd+= " --calibration-reweighting-count {} ".format(opts.calibration_reweighting_count)
     if opts.calibration_reweighting_extra_args:
         cmd += " --calibration-reweighting-extra-args '{}' ".format(opts.calibration_reweighting_extra_args)
-
+if opts.internal_tabular_eos_file:
+    cmd += " --use-tabular-eos-file "
 if opts.distance_reweighting:
     cmd += " --comov-distance-reweighting --comov-distance-reweighting-exe `which make_uni_comov_skymap.py` --convert-ascii2h5-exe `which convert_output_format_ascii2h5.py` "
 if opts.use_gauss_early:
