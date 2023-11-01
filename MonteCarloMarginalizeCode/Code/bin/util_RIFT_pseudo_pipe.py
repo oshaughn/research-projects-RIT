@@ -264,7 +264,11 @@ parser.add_argument("--archive-pesummary-event-label",default="this_event",help=
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
 
 #LISA
-#parser.add_argument("--h5-frame", default=None, action="store_true", help="Let the code know that the frames are in h5 format and not in gwf, the information is passed down to ILE scripts")
+parser.add_argument("--h5-frame", default=None, action="store_true", help="Let the code know that the frames are in h5 format and not in gwf, the information is passed down to ILE scripts")
+parser.add_argument("--data-integration-window-half", default=None, help="For longer signal srate might be such the integration range is smaller than deltaT, so need to redefine it. By default it takes a value of 300 ms")
+parser.add_argument("--downselect-parameter-range", default="[1,1000]", help="m2 downselect parameter range, default being [1,1000].") 
+parser.add_argument("--M-max-cut", default=None, help="Mtotal max cut for CIP, by default CIP takes a value of 1e5")
+
 opts=  parser.parse_args()
 
 
@@ -575,8 +579,10 @@ if not(opts.skip_reproducibility): # not(assume_lowlatency):
 # Run helper command
 npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options  --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
-#if not(opts.h5_frame is None) or "h5-frame" in config_dict:
-#    cmd += " --h5-frame "
+if not(opts.h5_frame is None):# or "h5-frame" in config_dict:
+    cmd += " --h5-frame "
+if not(opts.data_integration_window_half is None): 
+    cmd += " --data-integration-window-half {}".format(opts.data_integration_window_half)
 if opts.internal_use_gracedb_bayestar:
     cmd += " --internal-use-gracedb-bayestar "
 if opts.internal_use_amr:
@@ -700,7 +706,18 @@ if opts.use_online_psd_file:
     ifo_list = eval(config.get('analysis','ifos'))
     # Create command line arguments for those IFOs, so helper can correctly pass then downward
     for ifo in ifo_list:
-        cmd+= " --psd-file {}={}".format(ifo,opts.use_online_psd_file)
+        psd_dir=os.getcwd()
+        cmd+= " --psd-file {}=".format(ifo) + psd_dir + "/../{}-{}".format(ifo,opts.use_online_psd_file)
+
+#if opts.use_online_psd_file:
+    # Get IFO list from ini file
+##    import ConfigParser
+#    config = ConfigParser.ConfigParser()
+#    config.read(opts.use_ini)
+#    ifo_list = eval(config.get('analysis','ifos'))
+    # Create command line arguments for those IFOs, so helper can correctly pass then downward
+#    for ifo in ifo_list:
+#        cmd+= " --psd-file {}={}".format(ifo,opts.use_online_psd_file)
 if "SNR" in event_dict:
     cmd += " --hint-snr {} ".format(event_dict["SNR"])
 if not(opts.force_hint_snr is None):
@@ -922,8 +939,14 @@ for indx in np.arange(len(instructions_cip)):
     print( " cip iteration group {} : n_eff likely will be between {} and {}, you are asking for at least {} and targeting {}".format(indx,n_eff_expected_max_easy, n_eff_expected_max_hard, n_sample_min_per_worker,n_eff_cip_here))
 
     line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  ".format(int(n_sample_target/n_workers), n_eff_cip_here, n_max_cip,n_sample_min_per_worker)
+    if 'downselect-parameter-range' in config['engine']:
+        opts.downselect_parameter_range = str(config['engine']['downselect-parameter-range']).replace('"','')
+    if 'M-max-cut' in config['engine']:
+        opts.M_max_cut = float(config['engine']['M-max-cut'])
+    if not(opts.M_max_cut is None):
+        line += " --M-max-cut {}".format(opts.M_max_cut) 
     if not(opts.allow_subsolar):
-        line += "  --downselect-parameter m2 --downselect-parameter-range [1,1000] "
+        line += " --downselect-parameter m2 --downselect-parameter-range "  + str(opts.downselect_parameter_range).replace(' ','') 
     if not(opts.cip_fit_method is None):
         line = line.replace('--fit-method gp ', '--fit-method ' + opts.cip_fit_method)  # should not be called, see --force-fit-method argument to helper
     if not (opts.cip_sampler_method is None):

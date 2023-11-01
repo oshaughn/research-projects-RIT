@@ -244,6 +244,9 @@ parser.add_argument("--use-osg",action='store_true',help="If true, use pathnames
 parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, require LIGO frames are present (usually via CVMFS). User is responsible for generating cache file compatible with it.  This option insures that the cache file is properly transferred (because you have generated it)")
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
 parser.add_argument("--verbose",action='store_true')
+parser.add_argument("--h5-frame", default=None, action="store_true", help="Let the code know that the frames are in h5 format and not in gwf, the information is passed down to ILE scripts")
+parser.add_argument("--data-integration-window-half", default=None, help="For longer signal srate might be such the integration range is smaller than deltaT, so need to redefine it. By default it takes a value of 300 ms")
+
 opts=  parser.parse_args()
 
 if opts.assume_matter_but_primary_bh:
@@ -755,7 +758,10 @@ if not(opts.use_ini is None):
     if 'seglen' in dict(config['engine']):
         opts.choose_LI_data_seglen=False
         opts.data_LI_seglen = unsafe_config_get(config,['engine','seglen'])
-
+    if 'h5-frame' in dict(config['engine']):
+        opts.h5_frame = bool(unsafe_config_get(config,['engine','h5-frame']))
+    if 'data-integration-window-half' in dict(config['engine']):
+        opts.data_integration_window_half = float(unsafe_config_get(config,['engine','data-integration-window-half']))
     # overwrite arguments used with srate/2, OR fmax if provided
     opts.fmax = unsafe_config_get(config,['engine','srate'])/2 -1  # LI default is not to set srate as an independent variable. Occasional danger with maximum frequency limit in PSD
     # overwrite arguments used with fmax, if provided. ASSUME same for all!
@@ -966,6 +972,10 @@ if not (opts.fmax is None):
     helper_ile_args += " --fmax " + str(opts.fmax)  # pass actual fmax
 else:
     helper_ile_args += " --fmax " + str(fmax)
+if not (opts.h5_frame is None):
+    helper_ile_args += " --h5-frame "
+if not (opts.data_integration_window_half is None):
+    helper_ile_args += " --data-integration-window-half {}".format(opts.data_integration_window_half)
 rescaled_base_ile = False
 helper_cip_args_extra=''
 if "SNR" in event_dict.keys():

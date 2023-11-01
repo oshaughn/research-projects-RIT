@@ -4469,7 +4469,7 @@ def frame_h5_to_hoft(fname,channel, start=None, stop = None, verbose=True):
 
     #Find out exactly where the path is
     for i in np.arange(len(cache_data)):
-        if cache_data[i][0] == channel:
+        if cache_data[i][0] == channel[0]:
             index =  cache_data[i,-1].find("localhost") #THIS can be problematic, it is assumed that the path is after localhost. If errors arise, this is where you should check
             path_to_h5 = cache_data[i,-1][index+len("localhost"):]
     print(f"Reading h5 file {path_to_h5}")
@@ -4587,7 +4587,7 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
     If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
-    if hp_frame == True:
+    if h5_frame == True:
         ht = frame_h5_to_hoft(fname, channel, start, stop, verbose)
     else:
         ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose,deltaT=deltaT)

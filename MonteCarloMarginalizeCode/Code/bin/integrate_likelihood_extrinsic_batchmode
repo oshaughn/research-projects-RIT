@@ -212,7 +212,7 @@ optp.add_option("-s", "--data-start-time", type=float, default=None, help="GPS s
 optp.add_option("-e", "--data-end-time", type=float, default=None, help="GPS end time of data segment. If given, must also give --data-start-time. If not given, sane start and end time will automatically be chosen.")
 optp.add_option("--data-integration-window-half",default=75*1e-3,type=float,help="Only change this window size if you are an expert. The window for time integration is -/+ this quantity around the event time")
 optp.add_option("-F", "--fmax", type=float, help="Upper frequency of signal integration. Default is use PSD's maximum frequency.")
-optp.add_option("--srate",default=16384,type=int,help="Sampling rate. Change ONLY IF YOU ARE ABSOLUTELY SURE YOU KNOW WHAT YOU ARE DOING.")
+optp.add_option("--srate",default=16384,type=float,help="Sampling rate. Change ONLY IF YOU ARE ABSOLUTELY SURE YOU KNOW WHAT YOU ARE DOING.")
 optp.add_option("-t", "--event-time", type=float, help="GPS time of the event --- probably the end time. Required if --coinc-xml not given.")
 optp.add_option("-i", "--inv-spec-trunc-time", type=float, default=8., help="Timescale of inverse spectrum truncation in seconds (Default is 8 - give 0 for no truncation)")
 optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tukey window to apply to data (default is no windowing)")
@@ -240,7 +240,7 @@ optp.add_option("--internal-waveform-extra-lalsuite-args",type=str,default=None)
 optp.add_option("--verbose",action='store_true')
 optp.add_option("--save-eccentricity", action="store_true")
 ##LISA
-optp.add_option("--h5-frame", actio="store_true")
+optp.add_option("--h5-frame", action="store_true")
 
 #
 # Add the integration options
