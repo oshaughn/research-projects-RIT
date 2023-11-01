@@ -86,7 +86,7 @@ if T_est < opts.seglen:
 
 
 # Generate signal
-hoft = lalsimutils.hoft(PLmax=opts.l_max)   # include translation of source, but NOT interpolation onto regular time grid
+hoft = lalsimutils.hoft(P,Lmax=opts.l_max)   # include translation of source, but NOT interpolation onto regular time grid
 # zero pad to be opts.seglen long, if necessary
 if opts.seglen/hoft.deltaT > hoft.data.length:
     TDlenGoal = int(opts.seglen/hoft.deltaT)
