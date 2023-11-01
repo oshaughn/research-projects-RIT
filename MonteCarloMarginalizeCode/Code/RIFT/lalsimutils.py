@@ -18,6 +18,9 @@
 A collection of useful data analysis routines
 built from the SWIG wrappings of LAL and LALSimulation.
 """
+#LISA
+import h5py
+#
 import sys
 import copy
 import types
@@ -1945,7 +1948,6 @@ hdf_params = ['m1', 'm2', \
     'dist', 'incl', 'phiref', 'theta', 'phi', 'tref', 'psi', \
     'lambda1', 'lambda2', 'fref', 'fmin', \
     'lnL', 'p', 'ps']
-import h5py
 def ChooseWaveformParams_array_to_hdf5(P_list, fname="injections", 
         deltaT=1./4096., fref=0., waveFlags=None,
         nonGRparams=None, detector="H1", deltaF=None, fMax=0.):
@@ -4452,6 +4454,33 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
 
     return tmp
 
+
+
+#LISA change
+def frame_h5_to_hoft(fname,channel, start=None, stop = None, verbose=True):
+    """
+    Function to read in data from a h5 file, the h5 file should contain all the information
+    needed to create a REAL8TimeSeries. SMBH waveforms seem to be having issues with lal frame readers."""
+    if verbose:
+        print( " ++ Loading from cache ", fname, channel)
+    cache_data = np.loadtxt(fname, dtype = str)
+    if not(isinstance(cache_data[0], (list, np.ndarray))):  # for a single detector case, the data from cache file gets treated like a 1d array, hence need to reshape it.
+        cache_data = cache_data.reshape(1,len(cache_data))
+
+    #Find out exactly where the path is
+    for i in np.arange(len(cache_data)):
+        if cache_data[i][0] == channel:
+            index =  cache_data[i,-1].find("localhost") #THIS can be problematic, it is assumed that the path is after localhost. If errors arise, this is where you should check
+            path_to_h5 = cache_data[i,-1][index+len("localhost"):]
+    print(f"Reading h5 file {path_to_h5}")
+    #read the h5 file
+    data = h5py.File(path_to_h5, "r")
+    #create a new lal REAL8 Time series, and populate its attributes
+    hoft = lal.CreateREAL8TimeSeries("hoft", data.attrs["epoch"], data.attrs["f0"], data.attrs["deltaT"], lal.DimensionlessUnit, int(data.attrs["length"]))
+    hoft.data.data = data["data"]
+    data.close()
+    return hoft
+
 def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
         verbose=True,deltaT=None):
     """
@@ -4538,9 +4567,9 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0,
     lal.REAL8TimeFreqFFT(hf, ht, fwdplan)
     return hf
 
-
+#LISA
 def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
-        window_shape=0., verbose=True,deltaT=None):
+        window_shape=0., verbose=True,deltaT=None, h5_frame = False):
     """
     Function to read in data in the frame format
     and convert it to a COMPLEX16FrequencySeries 
@@ -4558,7 +4587,10 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
     If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
-    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose,deltaT=deltaT)
+    if hp_frame == True:
+        ht = frame_h5_to_hoft(fname, channel, start, stop, verbose)
+    else:
+        ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose,deltaT=deltaT)
 
     tmplen = ht.data.length
     if TDlen == -1:

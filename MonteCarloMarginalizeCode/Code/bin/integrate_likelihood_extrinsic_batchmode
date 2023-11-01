@@ -239,6 +239,9 @@ optp.add_option("--internal-waveform-fd-no-condition",action='store_true',help='
 optp.add_option("--internal-waveform-extra-lalsuite-args",type=str,default=None)
 optp.add_option("--verbose",action='store_true')
 optp.add_option("--save-eccentricity", action="store_true")
+##LISA
+optp.add_option("--h5-frame", actio="store_true")
+
 #
 # Add the integration options
 #
@@ -592,11 +595,13 @@ else:
 #
 data_dict, psd_dict = {}, {}
 
+if opts.h5_frame:
+    h5_frame = True
 for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print( "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
     data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
             inst+":"+chan, start=start_time, stop=end_time,
-            window_shape=opts.window_shape,deltaT=deltaT)
+            window_shape=opts.window_shape,deltaT=deltaT, h5_frame=h5_frame)
     print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
             data_dict[inst].data.length) )
 

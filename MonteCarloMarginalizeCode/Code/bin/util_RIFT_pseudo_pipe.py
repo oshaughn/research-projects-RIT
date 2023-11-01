@@ -262,6 +262,9 @@ parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Pr
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
+
+#LISA
+#parser.add_argument("--h5-frame", default=None, action="store_true", help="Let the code know that the frames are in h5 format and not in gwf, the information is passed down to ILE scripts")
 opts=  parser.parse_args()
 
 
@@ -572,6 +575,8 @@ if not(opts.skip_reproducibility): # not(assume_lowlatency):
 # Run helper command
 npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options  --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
+#if not(opts.h5_frame is None) or "h5-frame" in config_dict:
+#    cmd += " --h5-frame "
 if opts.internal_use_gracedb_bayestar:
     cmd += " --internal-use-gracedb-bayestar "
 if opts.internal_use_amr:
