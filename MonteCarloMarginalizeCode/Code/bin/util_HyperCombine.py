@@ -53,7 +53,7 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         else:
 #            print " new key ", line[1:9]
             data_at_intrinsic[tuple(line[2:])] = [line[:2]]
-        n_terms = np.max([n_terms, data_at_intrinsic[tuple(line[2:])] ])
+        n_terms = np.max([n_terms, len(data_at_intrinsic[tuple(line[2:])]) ])
       except:
           continue
 
