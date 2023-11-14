@@ -843,7 +843,7 @@ if mc_center < 2.6 and opts.propose_initial_grid and not(opts.allow_subsolar):
     eta_min = 0.25*(1-delta_max*delta_max)
 # Need logic for BH-NS scale objects to be reasonable
 #   Typical problem for following up these triggers: segment length grows unreasonably long
-elif  mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid:  # BH-NS scale, want to make sure we do a decent job at covering high-mass-ratio end
+elif  mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid and not(opts.allow_subsolar):  # BH-NS scale, want to make sure we do a decent job at covering high-mass-ratio end
    import scipy.optimize
    # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
    def crit_m2(delta):
