@@ -512,8 +512,8 @@ for it in np.arange(it_start,opts.n_iterations):
                         
             # Add node to combine event into consolidated_*_*.net_marg in subdirectory, at end of for loop
             dag.add_node(con_node)
-    # Add node to combine all events. Note indent relative to line before !
-    con_prod_node.add_parent(con_node)
+            # Add node to combine all events.   con_prod requires all con nodes done
+            con_prod_node.add_parent(con_node)
     unify_node.add_parent(con_prod_node)
 
     # add con job, then unify
