@@ -565,8 +565,8 @@ if opts.use_bw_psd:
     convert_psd_job.add_condor_cmd('initialdir',working_dir_inside)
     convert_psd_job.add_condor_cmd('request_disk',opts.general_request_disk)
     if opts.use_full_submit_paths:
-        fname = opts.working_directory+"/"+convert_job.get_sub_file()
-        convert_job.set_sub_file(fname)
+        fname = opts.working_directory+"/"+convert_psd_job.get_sub_file()
+        convert_psd_job.set_sub_file(fname)
     convert_psd_job.write_sub_file()
 
 
