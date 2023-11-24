@@ -785,7 +785,12 @@ con_job.write_sub_file()
 
 ##   Unify job
 #   - update 'all.net' to include all previous events
-unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str='', base=opts.working_directory, target=opts.working_directory+'/all.net',universe=local_worker_universe,no_grid=no_worker_grid)
+unify_arg_str = ''
+if opts.use_eccentricity:
+    unify_arg_str += " --eccentricity "
+if opts.use_tabular_eos_file:
+    unify_arg_str += " --tabular-eos-file "
+unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str=unify_arg_str, base=opts.working_directory, target=opts.working_directory+'/all.net',universe=local_worker_universe,no_grid=no_worker_grid)
 unify_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).log")
 unify_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).err")
@@ -1370,6 +1375,8 @@ for it in np.arange(it_start,opts.n_iterations):
             cmd += " --cip-explode-jobs-dag "  
         if opts.request_gpu_ILE:
             cmd += " --request-gpu-ILE "  # DAG writer needs to make appropririate requests
+        if opts.use_tabular_eos_file:
+            cmd += " --use-tabular-eos-file {} ".format(opts.use_tabular_eos_file)
         if opts.ile_retries:
             cmd += " --ile-retries {} ".format(opts.ile_retries)
         if opts.general_retries:

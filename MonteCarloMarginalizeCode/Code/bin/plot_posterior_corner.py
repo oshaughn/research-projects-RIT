@@ -508,6 +508,13 @@ if opts.composite_file:
         samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
         samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
 
+        phi1 = np.arctan2(samples['a1x'], samples['a1y']);
+        phi2 = np.arctan2(samples['a2x'], samples['a2y']);
+        samples = add_field(samples, [('phi1',float), ('phi2',float), ('phi12',float)])
+        samples['phi1'] = phi1
+        samples['phi2'] = phi2
+        samples['phi12'] = phi2 - phi1
+
         if ('lambda1' in samples.dtype.names):
             Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
             samples= add_field(samples, [('LambdaTilde',float), ('DeltaLambdaTilde',float),('lambdat',float),('dlambdat',float)])

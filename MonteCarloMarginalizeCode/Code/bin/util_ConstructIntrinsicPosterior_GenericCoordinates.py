@@ -1774,7 +1774,7 @@ if opts.tabular_eos_file:
     #  - note the saved values use the FIDUCIAL ORDERING, so must be used with GREAT CARE to preserve order!
     order_vals = np.zeros(len(dat_out))
     for indx in np.arange(len(order_vals)):
-        order_vals = my_eos_sequence.lambda_of_m_indx(m_ref, int(dat_out[indx,-1]))  # last field is index value
+        order_vals[indx] = my_eos_sequence.lambda_of_m_indx(m_ref, int(dat_out[indx,-1]))  # last field is index value
     # overwrite into the ordering statistic field
     dat_out[:,-1] = order_vals
     # overwrite the coordinate name for the last field, so conversion is trivial/identity

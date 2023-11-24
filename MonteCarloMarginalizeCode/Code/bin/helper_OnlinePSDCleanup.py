@@ -58,4 +58,4 @@ for ifo in ifos:
     psddict[ifo] = psd_s
 
     xmldoc = make_psd_xmldoc(psddict)
-    utils.write_filename(xmldoc, ifo+"-psd.xml.gz", gz=True)
+    utils.write_filename(xmldoc, ifo+"-psd.xml.gz", compress='gz')
