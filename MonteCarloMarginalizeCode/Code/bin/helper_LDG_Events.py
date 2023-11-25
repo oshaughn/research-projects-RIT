@@ -12,7 +12,7 @@
 # EXAMPLES
 #   python helper_LDG_Events.py --gracedb-id G299775 --use-online-psd
 
-import os, sys
+import os, sys, shutil
 import numpy as np
 import argparse
 
@@ -526,8 +526,9 @@ if use_gracedb_event:
                 line[1] = line[1].replace(' ','').rstrip()
                 ifo_list = line[1].split(",")
                 event_dict["IFOs"] = list(set(event_dict["IFOs"]  +ifo_list))
-            elif param == "Pipeline:":
-                event_dict["search_pipeline"] = param
+            elif param == "Pipeline":
+                event_dict["search_pipeline"] = line[1].lstrip().rstrip()
+                print(" event.log: PIPELINE -{}-".format( event_dict['search_pipeline']))
   try:
     # Read in event parameters. Use masses as quick estimate
     coinc_name = 'coinc.xml'
@@ -566,25 +567,28 @@ if use_gracedb_event:
         fmax = 1000.
         # After O3, switch to using psd embedded in coinc file!
         if P.tref > 1369054567 - 24*60*60*365: # guesstimate of changeover in gracedb
-            # gstlal-style coinc: psd embedded in a way we can retrieve with this command
+            do_fallback=True
             if 'search_pipeline' in event_dict:
+                # pycbc-specific logic
                 if event_dict['search_pipeline'] == 'pycbc':
-                    shutil.copyfile(coinc_name,'psd.xml.gz')
-                    for ifo in event_dict["IFOs"]:
-                        fname_psd_now = "{}-psd.xml".format(ifo)
-                        shutil.copyfile(coinc_name, fname_psd_now)
-                        os.system('gzip {}.gz'.format(fname_psd_now))
+                    do_fallback=False
+                    shutil.copyfile(coinc_name,opts.working_directory+'/psd.xml.gz')
+#                    for ifo in event_dict["IFOs"]:
+#                        fname_psd_now = "{}-psd.xml".format(ifo)
+#                        shutil.copyfile(coinc_name, fname_psd_now)
+#                        os.system('gzip {}.gz'.format(fname_psd_now))
                         # Same code as below
-                        cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
+                    cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
                         # Label PSD file names in argument strings
-                        for ifo in event_dict["IFOs"]:
+                    for ifo in event_dict["IFOs"]:
                             if not opts.use_osg:
                                 psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
                             else:
                                 psd_names[ifo] =  ifo + "-psd.xml.gz"
                             cmd += " --ifo " + ifo
-                        os.system(cmd)
-            else:
+                    os.system(cmd)
+            # gstlal-style coinc: psd embedded in a way we can retrieve with this command
+            if do_fallback:
               for ifo  in event_dict["IFOs"]:
                 cmd_event = "ligolw_print -t {}:array -d ' '  {}  > {}_psd_ascii.dat".format(ifo,coinc_name,ifo)
                 os.system(cmd_event)
