@@ -24,6 +24,7 @@ from ligo.lw import lsctables, table, utils
 from glue.lal import CacheEntry
 
 import configparser as ConfigParser
+import gzip
 
 # Backward compatibility
 from RIFT.misc.dag_utils import which
@@ -590,10 +591,13 @@ if use_gracedb_event:
             # gstlal-style coinc: psd embedded in a way we can retrieve with this command
             if do_fallback:
               for ifo  in event_dict["IFOs"]:
-                cmd_event = "ligolw_print -t {}:array -d ' '  {}  > {}_psd_ascii.dat".format(ifo,coinc_name,ifo)
-                os.system(cmd_event)
-                cmd_event = "convert_psd_ascii2xml  --fname-psd-ascii {}_psd_ascii.dat --conventional-postfix --ifo {}  ".format(ifo,ifo)
-                os.system(cmd_event)
+                fname_psd_now = "{}-psd.xml".format(ifo)
+                shutil.copyfile(coinc_name, fname_psd_now)
+                os.system('gzip {}'.format(fname_psd_now))
+#                cmd_event = "ligolw_print -t {}:array -d ' '  {}  > {}_psd_ascii.dat".format(ifo,coinc_name,ifo)
+#                os.system(cmd_event)
+#                cmd_event = "convert_psd_ascii2xml  --fname-psd-ascii {}_psd_ascii.dat --conventional-postfix --ifo {}  ".format(ifo,ifo)
+#                os.system(cmd_event)
                 if not opts.use_osg:
                     psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
                 else:
