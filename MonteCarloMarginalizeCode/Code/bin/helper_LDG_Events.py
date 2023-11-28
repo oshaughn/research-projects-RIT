@@ -1550,10 +1550,13 @@ if opts.propose_fit_strategy:
     elif opts.internal_tabular_eos_file:
         helper_cip_args += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
         helper_ile_args +=  " --export-eos-index "
-        helper_cip_args+= " --parameter-implied LambdaTilde --input-eos-index "  
+
+        # Askold: remove --parameter-implied LambdaTilde and DeltaLambdaTilde for tabular EOS, add --input-tides and --input-eos-index
+        helper_cip_args += " --input-tides --input-eos-index"  
         for indx in np.arange(len(helper_cip_arg_list)):
-            helper_cip_arg_list[indx] += " --parameter-implied LambdaTilde --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
-        helper_cip_arg_list[-1] += "  --parameter-implied DeltaLambdaTilde "
+            helper_cip_arg_list[indx] += " --input-tides --input-eos-index --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
+        # helper_cip_arg_list[-1] += "  --parameter-implied DeltaLambdaTilde "
+
     elif opts.assume_matter_eos:
         helper_cip_args += "  --input-tides --using-eos {} ".format(opts.assume_matter_eos)
         helper_cip_args+= " --parameter-implied LambdaTilde "
@@ -1635,6 +1638,11 @@ if opts.assume_matter:
 else:
     with open("helper_convert_args.txt",'w+') as f:
         f.write(" --fref {} ".format(opts.fmin_template))   # needed to insure correct precession angles derived from internal conversion
+# Askold: add --export-eos for tabular EOS file
+if opts.assume_matter and opts.internal_tabular_eos_file:
+    with open("helper_convert_args.txt", 'a') as f:
+        f.write(" --export-eos ")
+        
 if opts.assume_eccentric:
     with open("helper_convert_args.txt",'w+') as f:
         f.write(" --export-eccentricity ")
