@@ -780,7 +780,7 @@ class ChooseWaveformParams:
             #     return (1+ x *SoverL)/np.sqrt(1+2*x*SoverL+SoverL**2) -val # using a root find instead of algebraic for readability
             # kappa = optimize.newton(solveme,0.01)
             # PROBLEM: Only implemented for radiation gauge, disable if in non-radiation gauge
-            if spin_convenion == "radiation":
+            if spin_convention == "radiation":
                 theta1 = np.arccos(kappa)
                 self.init_via_system_frame(thetaJN=val,phiJL=phiJL,theta1=theta1,theta2=theta2,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             else:
