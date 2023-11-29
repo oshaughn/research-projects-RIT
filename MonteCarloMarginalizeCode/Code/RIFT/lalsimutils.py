@@ -3497,30 +3497,29 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
         else:
             print("Using eccentric call")
-            if e_freq:
-                print("e_freq: ", e_freq)
-                pars = {
-                    'M'                  : M1+M2,
-                    'q'                  : M1/M2,
-                    'LambdaAl2'            : P.lambda1,
-                    'LambdaBl2'            : P.lambda2,
-                    'chi1'               : P.s1z,
-                    'chi2'               : P.s2z,
-                    'domain'             : 0,
-                    'arg_out'            : 1,
-                    'use_mode_lm'        : k,
-                    'output_lm'          : k,
-                    'srate_interp'       : 1./P.deltaT,
-                    'use_geometric_units': 0,
-                    'initial_frequency'  : P.fmin,
-                    'df'                 : P.deltaF,
-                    'interp_uniform_grid': 1,
-                    'distance'           : P.dist/(lal.PC_SI*1e6),
-                    'inclination'        : P.incl,
-                    'output_hpc'         : 0,
-                    'ecc'                : P.eccentricity,
-                    'ecc_freq'           : e_freq #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
-                }
+            print("e_freq: ", e_freq)
+            pars = {
+                'M'                  : M1+M2,
+                'q'                  : M1/M2,
+                'LambdaAl2'            : P.lambda1,
+                'LambdaBl2'            : P.lambda2,
+                'chi1'               : P.s1z,
+                'chi2'               : P.s2z,
+                'domain'             : 0,
+                'arg_out'            : 1,
+                'use_mode_lm'        : k,
+                'output_lm'          : k,
+                'srate_interp'       : 1./P.deltaT,
+                'use_geometric_units': 0,
+                'initial_frequency'  : P.fmin,
+                'df'                 : P.deltaF,
+                'interp_uniform_grid': 1,
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'inclination'        : P.incl,
+                'output_hpc'         : 0,
+                'ecc'                : P.eccentricity,
+                'ecc_freq'           : e_freq #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
+            }
 
         # Run the WF generator
         print("Starting EOBRun_module")
