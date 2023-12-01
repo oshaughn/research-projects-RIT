@@ -375,8 +375,9 @@ elif opts.approx is None:
     print( " Approximant required! ")
     sys.exit(1)
 
-if opts.use_osg:
-    os.environ["LIGO_DATAFIND_SERVER"]="datafind.ligo.org:443"   #  enable lookup of data
+if opts.use_osg and not(opts.use_osg_file_transfer): 
+    print(" datafind: changing LIGO_DATAFIND_SERVER internally to find CVMFS-disseminated data")
+    os.environ["LIGO_DATAFIND_SERVER"]="datafind.ligo.org:443"   #  enable lookup of data for public cvmfs
 
 if opts.make_bw_psds:
     if not(opts.choose_data_LI_seglen) and (opts.data_LI_seglen is None):
