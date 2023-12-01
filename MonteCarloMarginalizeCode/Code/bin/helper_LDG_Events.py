@@ -118,10 +118,6 @@ def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_d
                 os.system(cmd)
     return True
 
-#def get_gwpy_data(channel, data_type, start_time, end_time):
-#    import gwpy.timeseries
-#    data = gwpy.timeseries.TimeSeries.get(channel=o
-
 def ldg_make_cache(retrieve=False):
     if not retrieve:
         os.system("find frames -name '*.gwf' | {} > local.cache".format(lalapps_path2cache))
@@ -423,8 +419,11 @@ if opts.verbose:
 
 datafind_server = None
 try:
-   datafind_server = os.environ['LIGO_DATAFIND_SERVER']
-   print(" LIGO_DATAFIND_SERVER ", datafind_server)
+    if opts.online:
+        datafind_server = "datafind.ligo.org"
+    else:
+        datafind_server = os.environ['LIGO_DATAFIND_SERVER']
+    print(" LIGO_DATAFIND_SERVER ", datafind_server)
 except:
   print(" No LIGO_DATAFIND_SERVER ")
   datafind_server = "datafind.ligo.org:443"
@@ -832,20 +831,16 @@ if not (opts.fake_data):
             if opts.observing_run == "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
                 data_type_here=data_types["O3"][(opts.calibration_version, ifo,"September")]        
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
-        import gwpy.timeseries
-        print(np.floor(event_dict["tref"]))
-        start_time= np.floor(event_dict["tref"]) - opts.data_LI_seglen - 4   #8s before analysis-start (4s prev) 
-        end_time= np.floor(event_dict["tref"]) + 6              #4s after analysis-end (2s prev) 
-        duration=round(end_time-start_time)
-        #print(channel_name_here)
-        #print(standard_channel_names[opts.observing_run][(opts.calibration_version,"L1")])
-        #print(data_type_here)
-        data = gwpy.timeseries.TimeSeries.get(channel=channel_name_here,frametype=data_type_here,start=start_time,end=end_time,verbose=True)
-        datapath = os.path.join(opts.working_directory,f"{ifo}-{data_type_here}-{start_time}-{duration}.gwf")
-        data.write(datapath)
+        if opts.online:
+            import gwpy.timeseries
+            print(np.floor(event_dict["tref"]))
+            start_time= np.floor(event_dict["tref"]) - opts.data_LI_seglen - 4   #8s before analysis-start (4s prev) 
+            end_time= np.floor(event_dict["tref"]) + 6              #4s after analysis-end (2s prev) 
+            duration=round(end_time-start_time)
+            data = gwpy.timeseries.TimeSeries.get(channel=channel_name_here,frametype=data_type_here,start=start_time,end=end_time,verbose=True)
+            datapath = os.path.join(opts.working_directory,f"{ifo}-{data_type_here}-{start_time}-{duration}.gwf")
+            data.write(datapath)
 
-#    cmd = "/bin/find .  -name '*.gwf' | {} > local.cache".format(lalapps_path2cache)
-#    os.system(cmd)
 if not opts.cache:  # don't make a cache file if we have one!
     real_data = not(opts.gracedb_id is None)
     real_data = real_data or  opts.check_ifo_availability
@@ -853,8 +848,9 @@ if not opts.cache:  # don't make a cache file if we have one!
     real_data = real_data or made_ifo_cache_files
     ldg_make_cache(retrieve=real_data) # we are using the ifo_local.cache files, generated in the previous step, almost without fail.
     opts.cache = "local.cache" # standard filename populated
-    cmd = "/bin/find .  -name '*.gwf' | {} > local.cache".format(lalapps_path2cache)
-    os.system(cmd)
+    if opts.online:
+        cmd = "/bin/find .  -name '*.gwf' | {} > local.cache".format(lalapps_path2cache)
+        os.system(cmd)
 
 # If needed, build PSDs
 transfer_files=[]
