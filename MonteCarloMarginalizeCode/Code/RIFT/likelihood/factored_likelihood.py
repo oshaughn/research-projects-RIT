@@ -62,6 +62,7 @@ if 'PROFILE' not in os.environ:
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 
+has_GWS=False  # make sure defined in top-level scope
 try:
         import RIFT.physics.GWSignal as rgws
         has_GWS=True
