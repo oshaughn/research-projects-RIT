@@ -419,10 +419,7 @@ if opts.verbose:
 
 datafind_server = None
 try:
-    if opts.online:
-        datafind_server = "datafind.ligo.org"
-    else:
-        datafind_server = os.environ['LIGO_DATAFIND_SERVER']
+    datafind_server = os.environ['LIGO_DATAFIND_SERVER']
     print(" LIGO_DATAFIND_SERVER ", datafind_server)
 except:
   print(" No LIGO_DATAFIND_SERVER ")
