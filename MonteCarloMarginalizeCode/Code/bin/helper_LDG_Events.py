@@ -419,8 +419,8 @@ if opts.verbose:
 
 datafind_server = None
 try:
-    datafind_server = os.environ['LIGO_DATAFIND_SERVER']
-    print(" LIGO_DATAFIND_SERVER ", datafind_server)
+   datafind_server = os.environ['LIGO_DATAFIND_SERVER']
+   print(" LIGO_DATAFIND_SERVER ", datafind_server)
 except:
   print(" No LIGO_DATAFIND_SERVER ")
   datafind_server = "datafind.ligo.org:443"
