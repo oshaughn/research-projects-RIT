@@ -1376,7 +1376,7 @@ for it in np.arange(it_start,opts.n_iterations):
         if opts.request_gpu_ILE:
             cmd += " --request-gpu-ILE "  # DAG writer needs to make appropririate requests
         if opts.use_tabular_eos_file:
-            cmd += " --use-tabular-eos-file {} ".format(opts.use_tabular_eos_file)
+            cmd += " --use-tabular-eos-file "
         if opts.ile_retries:
             cmd += " --ile-retries {} ".format(opts.ile_retries)
         if opts.general_retries:
