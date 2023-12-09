@@ -15,7 +15,8 @@ Also, make sure you cite the relevant rapid_pe/RIFT papers
  1.  Pankow et al 2015
  2.  Lange et al 2018 (RIFT)
  3.  Wysocki et al 2019 (RIFT-GPU)
- 4.  Wofforde et al 2022 (RIFT-Update)
+ 4.  Wofford et al 2022 (RIFT-Update)
+ 5.  O'Shaughnessy et al in prep (RIFT-FinerNet)
 
 When preparing your work, please cite 
 
@@ -34,10 +35,14 @@ When preparing your work, please cite
      2.  TEOBResumS interface (original):  Lange et al 2018 RIFT paper
      3.  NR interface (parts inside ILE): Lange et al 2017 PRD 96, 404 [NR comparison methods paper](http://adsabs.harvard.edu/abs/2017PhRvD..96j4041L)
      4.  NRSur7dq2 interface: Lange et al 2018 (RIFT) [paper](https://arxiv.org/abs/1805.10457), and ...
+     5.  gwsignal interface: O'Shaughnessy et al in prep ('finer net')
+     6.  TEOBResumS eccentric interface: Iglesias et al
+     7.  TEOBResumS hyperbolic interface: Henshaw, Lange et al 
 
   5. If you are using an updated Monte Carlo integration package, please acknowledge the authors; papers will be prepared soon
      1.  GMM integrator: Elizabeth Champion; see [original repo](https://git.ligo.org/benjamin.champion/Monte-Carlo-Integrator), implemented via MonteCarloEnsemble and mcsamplerEnsemble; please cite Ristic et al https://arxiv.org/abs/2105.07013
      2.  GPU MC integrator:  Wysocki, O'Shaughnessy; cite Wofford et al https://dcc.ligo.org/P2200059
+     3.  AV integrator: O'Shaughnessy et al  in prep ('finer net'), based on Tiwari et al VARAHA
 
   6. If you are using a distance-marginalized likeliihood, please acknowledge 
      1. Distance marginalization : Soichiro Morisaki, Dan Wysocki, see  Wofford et al https://dcc.ligo.org/P2200059
