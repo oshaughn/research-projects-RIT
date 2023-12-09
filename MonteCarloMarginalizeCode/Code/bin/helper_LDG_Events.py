@@ -24,6 +24,7 @@ from ligo.lw import lsctables, table, utils
 from glue.lal import CacheEntry
 
 import configparser as ConfigParser
+import gzip
 
 # Backward compatibility
 from RIFT.misc.dag_utils import which
@@ -85,7 +86,7 @@ def query_available_ifos_viadq(ifos_all,data_start,data_end):
             True
     return ifos_out
 
-def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_data_find', retrieve=False,machine_with_files="ldas-pcdev1.ligo.caltech.edu"):
+def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_data_find', retrieve=False,machine_with_files="ldas-pcdev2.ligo.caltech.edu"):
     fname_out_raw = ifo_base[0]+"_raw.cache"
     fname_out = ifo_base[0]+"_local.cache"
     print([ifo_base, types, server, data_start, data_end])
@@ -393,6 +394,7 @@ for cal in cal_versions:
         data_types["O4"][(cal,ifo)] = ifo+"_HOFT_" + cal+"_AR"
         if opts.online:
             data_types["O4"][(cal,ifo)] = ifo+"_llhoft"
+            standard_channel_names["O4"][(cal,ifo)] = "GDS-CALIB_STRAIN_CLEAN"
         if cal == "C00":
             standard_channel_names["O4"][(cal,ifo)] = "GDS-CALIB_STRAIN_CLEAN_AR" 
             # Correct channel name is for May 1 onward : need to use *non-clean* before May 1; see Alan W email and https://wiki.ligo.org/Calibration/CalReview_20190502
@@ -590,10 +592,15 @@ if use_gracedb_event:
             # gstlal-style coinc: psd embedded in a way we can retrieve with this command
             if do_fallback:
               for ifo  in event_dict["IFOs"]:
-                cmd_event = "ligolw_print -t {}:array -d ' '  {}  > {}_psd_ascii.dat".format(ifo,coinc_name,ifo)
-                os.system(cmd_event)
-                cmd_event = "convert_psd_ascii2xml  --fname-psd-ascii {}_psd_ascii.dat --conventional-postfix --ifo {}  ".format(ifo,ifo)
-                os.system(cmd_event)
+                if event_dict['search_pipeline'] == 'gstlal':
+                  cmd_event = "ligolw_print -t {}:array -d ' '  {}  > {}_psd_ascii.dat".format(ifo,coinc_name,ifo)
+                  os.system(cmd_event)
+                  cmd_event = "convert_psd_ascii2xml  --fname-psd-ascii {}_psd_ascii.dat --conventional-postfix --ifo {}  ".format(ifo,ifo)
+                  os.system(cmd_event)
+                else: # for spiir,mbta just copy over coinc.xml as PSD
+                  fname_psd_now = "{}-psd.xml".format(ifo)
+                  shutil.copyfile(coinc_name, fname_psd_now)
+                  os.system('gzip {}'.format(fname_psd_now))
                 if not opts.use_osg:
                     psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
                 else:
@@ -815,6 +822,7 @@ if not (opts.fake_data):
         # LI-style parsing
         if use_ini:
             data_type_here = unsafe_config_get(config,['datafind','types'])[ifo]
+            channel_name_here = unsafe_config_get(config,['data','channels'])[ifo]
         else:
             data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
             # Special lookup for later in O3
@@ -822,6 +830,16 @@ if not (opts.fake_data):
             if opts.observing_run == "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
                 data_type_here=data_types["O3"][(opts.calibration_version, ifo,"September")]        
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
+        if opts.online:
+            import gwpy.timeseries
+            print(np.floor(event_dict["tref"]))
+            start_time= np.floor(event_dict["tref"]) - opts.data_LI_seglen - 4   #8s before analysis-start (4s prev) 
+            end_time= np.floor(event_dict["tref"]) + 6              #4s after analysis-end (2s prev) 
+            duration=round(end_time-start_time)
+            data = gwpy.timeseries.TimeSeries.get(channel=channel_name_here,frametype=data_type_here,start=start_time,end=end_time,verbose=True)
+            datapath = os.path.join(opts.working_directory,f"{ifo}-{data_type_here}-{start_time}-{duration}.gwf")
+            data.write(datapath)
+
 if not opts.cache:  # don't make a cache file if we have one!
     real_data = not(opts.gracedb_id is None)
     real_data = real_data or  opts.check_ifo_availability
@@ -829,6 +847,9 @@ if not opts.cache:  # don't make a cache file if we have one!
     real_data = real_data or made_ifo_cache_files
     ldg_make_cache(retrieve=real_data) # we are using the ifo_local.cache files, generated in the previous step, almost without fail.
     opts.cache = "local.cache" # standard filename populated
+    if opts.online:
+        cmd = "/bin/find .  -name '*.gwf' | {} > local.cache".format(lalapps_path2cache)
+        os.system(cmd)
 
 # If needed, build PSDs
 transfer_files=[]
