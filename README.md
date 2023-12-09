@@ -63,8 +63,9 @@ The following authors should be contacted
   * Wysocki, O'Shaughnessy,  Fong, Lange: GPU optimizations
   * ...
 
-## Relationship to version of rapid_pe in lalsuite
-Chris Pankow has also been maintaining a [port of the original rapid_pe as part of lalsuite](https://github.com/lscsoft/lalsuite/tree/master/lalinference/python/lalinference/rapid_pe). While this code is unreviewed and has many API and workflow differences, the underlying likelihood evaluation procedure has been the same (until the recent GPU rewrite).  We hope to eventually merge the codebases, likely by modernizing the version in lalsuite and/or by ports of rapid_pe techniques to next-generation PE codes.
+## Relationship to rapid_pe
+RIFT and rapid_pe are two forks of the original implementation presented in Pankow  et al. 2015.
+RIFT and rapid_pe are now disseminated in a common git repository https://git.ligo.org/rapidpe-rift/, and share common code (i.e, the ``integrate_likelihood_extrinsic_batchmode`` executable).
 
 
 ## Version numbers
