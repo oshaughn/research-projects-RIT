@@ -836,9 +836,12 @@ if not (opts.fake_data):
             start_time= np.floor(event_dict["tref"]) - opts.data_LI_seglen - 4   #8s before analysis-start (4s prev) 
             end_time= np.floor(event_dict["tref"]) + 6              #4s after analysis-end (2s prev) 
             duration=round(end_time-start_time)
-            data = gwpy.timeseries.TimeSeries.get(channel=channel_name_here,frametype=data_type_here,start=start_time,end=end_time,verbose=True)
-            datapath = os.path.join(opts.working_directory,f"{ifo}-{data_type_here}-{start_time}-{duration}.gwf")
-            data.write(datapath)
+            try:
+                data = gwpy.timeseries.TimeSeries.get(channel=channel_name_here,frametype=data_type_here,start=start_time,end=end_time,verbose=True)
+                datapath = os.path.join(opts.working_directory,f"{ifo}-{data_type_here}-{start_time}-{duration}.gwf")
+                data.write(datapath)
+            except:
+                print(" ===> FAILED gwpy.timeseries via NDS:  User must supply own frames! <=== ")
 
 if not opts.cache:  # don't make a cache file if we have one!
     real_data = not(opts.gracedb_id is None)
