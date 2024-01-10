@@ -194,6 +194,7 @@ parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--cip-internal-use-eta-in-sampler",action='store_true', help="Use 'eta' as a sampling parameter. Designed to make GMM sampling behave particularly nicely for objects which could be equal mass")
 parser.add_argument("--ile-jobs-per-worker",type=int,default=None,help="Default will be 20 per worker usually for moderate-speed approximants, and more for very fast configurations")
 parser.add_argument("--ile-no-gpu",action='store_true')
+parser.add_argument("--ile-xpu",action='store_true',help='Request ILE run on both GPU and CPU. Disables ile_force_gpu, if provided!')
 parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--fake-data-cache",type=str)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [uniform mag for precessing, zprior for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
@@ -319,7 +320,8 @@ if opts.assume_nonprecessing or opts.approx == "IMRPhenomD":
 if opts.use_osg:
     opts.condor_nogrid_nonworker = True  # note we ALSO have to check this if we set use_osg in the ini file! Moved statement so flagged
 
-
+if opts.ile_xpu:
+    opts.ile_force_gpu = False
 
 if not(opts.ile_jobs_per_worker):
     opts.ile_jobs_per_worker=20
@@ -1259,6 +1261,8 @@ if opts.external_fetch_native_from:
     cmd += " --fetch-ext-grid-exe `which util_FetchExternalGrid.py`  --fetch-ext-grid-args `pwd`/fetch_args.txt "
 if not(opts.ile_no_gpu):
     cmd +=" --request-gpu-ILE "
+if opts.ile_xpu:
+    cmd += " --request-xpu-ILE "
 if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples)
     if opts.add_extrinsic_time_resampling:
