@@ -1737,3 +1737,6 @@ with open(dag_name+".dag",'a') as f:
     for name in my_names_unify:
         f.write("SCRIPT POST "+ name + " {}/confirm_exist.sh {}/consolidated_{}.composite \n".format(opts.working_directory,opts.working_directory,indx))
         indx+=1
+    # add dot file, for dag visualization
+    f.write('DOT my_dag_vis.dot')
+
