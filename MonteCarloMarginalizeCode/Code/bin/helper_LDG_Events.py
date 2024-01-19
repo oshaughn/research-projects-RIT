@@ -1235,7 +1235,10 @@ elif opts.propose_initial_grid:
             # Handle problems with SEOBNRv3 failing for aligned binaries -- add small amount of misalignment in the initial grid
             cmd += " --parameter s1x --parameter-range [0.00001,0.00003] "
 
-    if opts.assume_matter and not opts.assume_matter_eos:
+    if opts.internal_tabular_eos_file:
+        cmd += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
+        grid_size *=2  # larger grids needed for discrete realization scenarios
+    elif opts.assume_matter and not opts.assume_matter_eos:
         # Do the initial grid assuming matter, with tidal parameters set by the AP4 EOS provided by lalsuite
         # We will leverage working off this to find the lambdaTilde dependence
 #        cmd += " --use-eos AP4 "  
