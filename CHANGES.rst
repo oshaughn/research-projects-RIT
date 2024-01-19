@@ -8,6 +8,8 @@ Since last release
      hlmoft (rc2)
    - RIFT_GETENV_OSG; enable gwsignal aways even if RIFT_LOWLATENCY active; mcsamplerGPU typo fix (self.n_total) for
      corner use case (rc3)
+   - add --allow-subsolar to prevent hardcoding 1Msun limit; dockerfile cleanup; has_GWS scoping fix to avoid crash in
+     factored_likelihood; remove glue.ligo_lw reference in util_SimInspiralToCoinc (rc4)
 
 0.0.15.9
 -----------
