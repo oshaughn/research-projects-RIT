@@ -586,7 +586,7 @@ if opts.internal_use_rescaled_transverse_spin_coordinates:
 if not(opts.internal_use_amr) and not(opts.manual_initial_grid):
     cmd+= " --propose-initial-grid "
 if opts.force_initial_grid_size:
-    cmd += " --force-initial-grid-size {} ".format(opts.force_initial_grid_size)
+    cmd += " --force-initial-grid-size {} ".format(int(opts.force_initial_grid_size))
 if opts.assume_matter:
         cmd += " --assume-matter "
         npts_it = 1000
