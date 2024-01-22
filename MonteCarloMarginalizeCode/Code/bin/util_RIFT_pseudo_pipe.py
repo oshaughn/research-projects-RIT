@@ -741,6 +741,10 @@ if opts.fake_data_cache:
         cmd += " --manual-ifo-list {} ".format(short_list.replace(' ',''))
 print( cmd)
 os.system(cmd)
+# we MUST make helper_ile_args.txt
+if not(os.file.exists('helper_ile_args.txt')):
+    print(" FAILURE: helper call failed to generate required file helper_ile_args.txt")
+    sys.exit(1)
 #sys.exit(0)
 
 # Create distance maximum (since that is NOT always chosen by the helper, and makes BNS runs needlessly much more painful!)
