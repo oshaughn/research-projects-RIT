@@ -830,8 +830,8 @@ echo Starting ...
     if use_cvmfs_frames:
         requirements.append("HAS_LIGO_FRAMES=?=TRUE")
         if 'LIGO_OATH_SCOPE' in os.environ:
-            ile_job.add_condor_cmd('use_oauth_services','ligo')
-            ile_job.add_condor_cmd('ligo_oauth_permissions',os.environ['LIGO_OATH_SCOPE'])
+            ile_job.add_condor_cmd('use_oauth_services','igwn')
+            ile_job.add_condor_cmd('igwn_oauth_permissions',os.environ['LIGO_OATH_SCOPE'])
         else:
             ile_job.add_condor_cmd('use_x509userproxy','True')
             if 'X509_USER_PROXY' in list(os.environ.keys()):
