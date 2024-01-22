@@ -742,7 +742,7 @@ if opts.fake_data_cache:
 print( cmd)
 os.system(cmd)
 # we MUST make helper_ile_args.txt
-if not(os.file.exists('helper_ile_args.txt')):
+if not(os.path.exists('helper_ile_args.txt')):
     print(" FAILURE: helper call failed to generate required file helper_ile_args.txt")
     sys.exit(1)
 #sys.exit(0)
