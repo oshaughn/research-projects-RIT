@@ -657,7 +657,7 @@ class WaveformModeCatalog:
         return coefs
 
     # See NR code 
-    def hlmoft(self,  P, force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf,hybrid_time=None,hybrid_use=False,hybrid_method='taper_add',hybrid_frequency=None,verbose=False,rom_taper_start=False,rom_taper_end=True,use_reference_spins=True):
+    def hlmoft(self,  P, force_T=False, deltaT=1./16384, time_over_M_zero=0.,use_basis=False,Lmax=np.inf,hybrid_time=None,hybrid_use=False,hybrid_method='taper_add',hybrid_frequency=None,verbose=False,rom_taper_start=False,rom_taper_end=True,use_reference_spins=True,**kwargs):
         """
         hlmoft uses the dimensionless ROM basis functions to extract hlm(t) in physical units, in a LAL array.
         The argument 'P' is a ChooseWaveformParaams object
