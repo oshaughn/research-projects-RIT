@@ -338,7 +338,7 @@ for indx in np.arange(n_events):
     os.chdir(dir_target)
     os.system("ln -sf ../combined_frames/event_{} .".format(indx))
     if not opts.test:
-        cmd = "/bin/find -L . -name '*.gwf' | lalapps_path2cache > local.cache"
+        cmd = "/bin/find -L . -name '*.gwf' | {} > local.cache".format(lalapps_path2cache)
         print(cmd)
         os.system(cmd)
     here = os.getcwd()

@@ -22,6 +22,8 @@ import RIFT.lalsimutils as lalsimutils
 import lal
 import lalsimulation as lalsim
 
+from ligo.lw import lsctables, table, utils
+
 # Backward compatibility
 from RIFT.misc.dag_utils import which
 lalapps_path2cache = which('lal_path2cache')
@@ -72,9 +74,14 @@ def add_frames(channel,input_frame, noise_frame,combined_frame):
 #     elif mc < 1.4:
 #         return [150,256]
 
+#################
+## Parse command line options for pp_RIFT_with_ini
+## user specified
+#################
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
-parser.add_argument("--use-gwsigal",action='store_true')
+parser.add_argument("--use-gwsignal",action='store_true')
 #parser.add_argument("--internal-distance-ladder",action='store_true',help="Modify injection distance ladder as in G2201558 ")
 parser.add_argument("--use-osg",action='store_true',help="Attempt OSG operation. Command-line level option, not at ini level to make portable results")
 parser.add_argument("--add-extrinsic",action='store_true',help="Add extrinsic posterior.  Corresponds to --add-extrinsic --add-extrinsic-time-resampling --batch-extrinsic for pipeline")
@@ -91,7 +98,11 @@ test_convergence=False
 if config.has_option('pp','test_convergence'):
     test_convergence =unsafe_config_get(config,['pp','test_convergence'])
 
-# Create, go to working directory
+#############
+## Create, go to working directory
+## with_ini will ideally copy original pp_RIFT dir structure
+#############
+
 working_dir = config.get('pp','working_directory')
 print(" Working dir ", working_dir)
 mkdir(working_dir)
@@ -101,9 +112,9 @@ working_dir_full = os.getcwd()
 # Define how many events are needed
 n_events = unsafe_config_get(config,['pp','n_events'])
 
-
 # Create injection set
-
+## random parameters based on prior ranges and n_events
+## written out to mass mdc file to store all inj
 mc_min = float(config.get('priors','mc_min'))
 mc_max = float(config.get('priors','mc_max'))
 m_min=float(config.get('priors','m_min'))
@@ -114,7 +125,6 @@ eta_range = [eta_min,eta_max]
 d_min = float(config.get('priors','d_min'))
 d_max = float(config.get('priors','d_max'))
 chi_max = float(config.get('priors','chi_max'))
-
 
 # use matter?
 lambda_max=0
@@ -135,13 +145,20 @@ flow_dict = unsafe_config_get(config,['data','flow'])
 srate_data = float(config.get('data', 'srate_data'))
 seglen_data = float(config.get('data','seglen_data'))
 seglen_analysis = float(config.get('data','seglen_analysis'))
+## add option to change analysis waveform IF frames are pregenerated
+change_approx =unsafe_config_get(config,['waveform','change_approx'])
 
 if 'NRHybSur' in approx_str:       #for NRSur models
 	group_str = config.get('waveform','group')
 	param_str = config.get('waveform','param')
 
+if 'TaylorF2Ecc' in approx_str:
+	fecc = config.get('waveform','f_ecc')
+	amporder = int(config.get('waveform','amporder'))
+
 no_spin =unsafe_config_get(config,['priors','no_spin'])
 aligned_spin =unsafe_config_get(config,['priors','aligned_spin'])
+precessing_spin=unsafe_config_get(config,['priors','precessing_spin'])
 if aligned_spin:
     print(" === aligned-spin PP ==== ")
 elif no_spin:
@@ -158,12 +175,41 @@ fiducial_ra=float(config.get('priors','fiducial_ra'))
 fiducial_dec=float(config.get('priors','fiducial_dec'))
 fiducial_event_time=float(config.get('priors','fiducial_event_time'))
 
+use_eccentric = unsafe_config_get(config,['priors','use_eccentric'])
+if use_eccentric:
+    print(" === eccentric PP ==== ")
+    ecc_min = float(config.get('priors','ecc_min'))
+    ecc_max = float(config.get('priors','ecc_max'))
+
 
 ifos = unsafe_config_get(config,['data','ifos'])
+username = config.get('make_workflow','username')
+group = config.get('make_workflow','accounting_group')
+# Based on priors and options, create set of signals with specified parameters
+## If mdc already present, do not duplicate
+## If changing inj approx for direct comparison, ensure tfe has necessary options
+## change_approx needs to change call to util_ManualOverlapGrid as well - just change mdc file?
 
 if os.path.exists(working_dir_full+"/mdc.xml.gz"):
-    P_list = lalsimutils.xml_to_ChooseWaveformParams_array(working_dir_full+"/mdc.xml.gz")
-
+    if change_approx:
+        ## make sure fecc is set in mdc
+        filename = working_dir_full+"/mdc.xml.gz"
+        P_list = []; indx=0
+        while len(P_list) < n_events:
+            P = lalsimutils.ChooseWaveformParams()
+            xmldoc = utils.load_filename(filename, verbose = True, contenthandler =lalsimutils.cthdler)
+            sim_inspiral_table = lsctables.SimInspiralTable.get_table(xmldoc)
+            P.copy_sim_inspiral(sim_inspiral_table[indx])
+            P.approx = lalsim.GetApproximantFromString(approx_str)
+            if 'TaylorF2Ecc' in approx_str:
+                P.ampO = amporder
+                P.fecc = fecc
+            P_list.append(P)
+            indx+=1
+        lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"mdc")
+    else:
+        P_list = lalsimutils.xml_to_ChooseWaveformParams_array(working_dir_full+"/mdc.xml.gz")
+# create new injection set
 else:
   P_list =[]; indx=0
   while len(P_list) < n_events:
@@ -188,6 +234,11 @@ else:
     if use_matter:
         P.lambda1 = np.random.uniform(0,lambda_max)
         P.lambda2 = np.random.uniform(0,lambda_max)
+    if use_eccentric:
+        P.eccentricity = np.random.uniform(ecc_min, ecc_max)
+    if 'TaylorF2Ecc' in approx_str:
+        P.ampO = amporder
+        
     if not(opts.use_gwsignal):  # with gwsignal, we just pass the approximant on the command line, and must track it differently : XML files have no string approx fields.
         P.approx=lalsim.GetApproximantFromString(approx_str)
 
@@ -235,6 +286,12 @@ for indx in np.arange(n_events):
     # Test if directory already exists
     if os.path.exists(target_subdir):
         print(" Signal frames exist for event {}, skipping ".format(indx))
+        os.chdir(target_subdir)
+        get_snr = "util_FrameZeroNoiseSNR.py --cache signals.cache --psd-file H1=../../../H1-psd.xml.gz --psd-file L1=../../../L1-psd.xml.gz --psd-file V1=../../../V1-psd.xml.gz"
+        os.system(get_snr)
+        from ast import literal_eval
+        with open('snr-report.txt', 'r') as f:
+            snr_dict = literal_eval(f.readlines()[-1])
         continue
     print(" Writing ", indx)
     mkdir(target_subdir)
@@ -256,7 +313,13 @@ for indx in np.arange(n_events):
         os.system(cmd)
 
     # Evaluate zero-noise SNR
-    print(" --> FIXME: evaluate zero-noise SNR, to use as hint in place of search <-- ")
+    #print(" --> FIXME: evaluate zero-noise SNR, to use as hint in place of search <-- ")
+    get_snr = "util_FrameZeroNoiseSNR.py --cache signals.cache --psd-file H1=../../../H1-psd.xml.gz --psd-file L1=../../../L1-psd.xml.gz --psd-file V1=../../../V1-psd.xml.gz"
+    os.system(get_snr)
+    from ast import literal_eval
+    with open('snr-report.txt', 'r') as f:
+        snr_dict = literal_eval(f.readlines()[-1])
+#    print(snr_dict['Network'])
 
 print(" === Using fiducial noise frames === ")
 
@@ -287,3 +350,176 @@ for indx in np.arange(n_events):
 
 
 print(" === WRITING INI FILES === ")
+os.chdir(working_dir_full)
+config=configparser.ConfigParser()
+config.read('pseudo_ini.ini')
+
+## ANALYSIS
+if 'analysis' not in config.sections():
+    config.add_section('analysis')
+config['analysis']['ifos'] = "['H1','L1','V1']"
+# find out appropriate osg options
+config['analysis']['singularity'] = 'False'
+config['analysis']['osg'] = 'False'
+
+## DATA
+if 'data' not in config.sections():
+    config.add_section('data')
+config['data']['channels'] = "{'H1': 'FAKE-STRAIN', 'L1':'FAKE-STRAIN','V1':'FAKE-STRAIN'}"
+
+## CONDOR
+if 'condor' not in config.sections():
+    config.add_section('condor')
+config['condor']['accounting_group'] = group
+config['condor']['accounting_group_user'] = username
+
+## LALINFERENCE
+if 'lalinference' not in config.sections():
+    config.add_section('lalinference')
+config['lalinference']['flow'] = "{'H1': 20, 'L1': 20, 'V1': 20}"
+config['lalinference']['fhigh'] = "{ 'H1': 896, 'L1': 896, 'V1': 896}"
+
+## ENGINE
+if 'engine' not in config.sections():
+    config.add_section('engine')
+config['engine']['fref'] = str(fmin_template) ## check this!!!!
+config['engine']['approx'] = approx_str
+if 'TaylorF2Ecc' in approx_str:
+    config['engine']['amporder'] = str(amporder)
+else:
+    config['engine']['amporder'] = '0'
+config['engine']['seglen'] = '16' # get this from user ini
+config['engine']['srate'] = '4096' # get this from user ini
+config['engine']['distance-max'] = '10000'
+
+## RIFT-PSEUDO-PIPE
+if 'rift-pseudo-pipe' not in config.sections():
+    config.add_section('rift-pseudo-pipe')
+
+# waveform/grid stuff
+config['rift-pseudo-pipe']['approx'] = '"{}"'.format(approx_str)
+config['rift-pseudo-pipe']['fmin-template'] = str(fmin_template)
+
+# ILE stuff
+config['rift-pseudo-pipe']['ile-n-eff'] = '10'
+config['rift-pseudo-pipe']['ile-sampler-method'] = '"adaptive_cartesian_gpu"'
+config['rift-pseudo-pipe']['internal-ile-freezeadapt'] = 'True'
+config['rift-pseudo-pipe']['ile-runtime-max-minutes'] = '700'
+config['rift-pseudo-pipe']['ile-jobs-per-worker'] = '20'
+config['rift-pseudo-pipe']['internal-ile-auto-logarithm-offset'] = 'True'
+
+# CIP stuff
+#  * Fit method can be 'rf', 'gp'
+config['rift-pseudo-pipe']['cip-fit-method'] = '"rf"'
+#  * sampler method can be 'default', 'GMM', 'adaptive_cartesian_gpu'
+config['rift-pseudo-pipe']['cip-sampler-method'] = '"GMM"'
+print("Using {} for fitting and {} for sampling".format(config['rift-pseudo-pipe']['cip-fit-method'],config['rift-pseudo-pipe']['cip-sampler-method']))
+# run CIP workers simultaneously - larger = faster
+config['rift-pseudo-pipe']['cip-explode-jobs'] = '20'
+config['rift-pseudo-pipe']['internal-propose-converge-last-stage'] = 'True'
+
+# spin settings
+config['rift-pseudo-pipe']['l-max'] = '4'
+if no_spin:
+    config['rift-pseudo-pipe']['assume-nonprecessing'] = 'True'
+    config['rift-pseudo-pipe']['assume-precessing'] = 'False'
+# aligned spin options
+if aligned_spin:
+    config['engine']['aligned-spin'] = ''
+    config['engine']['alignedspin-zprior'] = ''
+    config['rift-pseudo-pipe']['assume-nonprecessing'] = 'True'
+    config['rift-pseudo-pipe']['assume-precessing'] = 'False'
+    config['rift-pseudo-pipe']['internal-use-aligned-phase-coordinates'] = 'True'
+    config['rift-pseudo-pipe']['internal-correlate-default'] = 'True'
+# spin precession ** ask about other necessary options
+if precessing_spin:
+    config['rift-pseudo-pipe']['assume-nonprecessing'] = 'False'
+    config['rift-pseudo-pipe']['assume-precessing'] = 'True'
+    config['rift-pseudo-pipe']['internal-use-aligned-phase-coordinates'] = 'True'
+    config['rift-pseudo-pipe']['internal-correlate-default'] = 'True'
+# something about volmetric prior?
+else:
+    config['rift-pseudo-pipe']['assume-precessing'] = 'False'
+    config['rift-pseudo-pipe']['assume-precessing'] = 'False'
+
+# eccentricity
+if use_eccentric:
+    config['engine']['ecc_min'] = str(ecc_min)
+    config['engine']['ecc_max'] = str(ecc_max)
+    config['rift-pseudo-pipe']['assume-eccentric'] = 'True'
+    config['rift-pseudo-pipe']['force-ecc-max'] = str(ecc_max)
+else:
+    config['rift-pseudo-pipe']['assume-eccentric'] = 'False'
+
+# osg
+if opts.use_osg:
+    config['rift-pseudo-pipe']['use_osg'] = 'True'
+    config['rift-pseudo-pipe']['use_osg_file_transfer'] = 'True'
+    config['rift-pseudo-pipe']['use_osg_cip'] = 'True'
+else:
+    config['rift-pseudo-pipe']['use_osg'] = 'False'
+    config['rift-pseudo-pipe']['use_osg_file_transfer'] = 'False'
+    config['rift-pseudo-pipe']['use_osg_cip'] =	'False'
+
+# extrinsic - add eventually
+#config['rift-pseudo-pipe']['add-extrinsic'] = 'True'
+#config['rift-pseudo-pipe']['batch-extrinsic'] = 'True'
+#config['rift-pseudo-pipe']['add-extrinsic-time-resampling'] = 'True'
+
+# parameter ranges - may be modified by localize_ini.py
+# for grid making but be limiting/redundant?
+#config['rift-pseudo-pipe']['force-mc-range'] = '[{},{}]'.format(mc_min,mc_max)
+#config['rift-pseudo-pipe']['force-eta-range'] = '"[0.0453514739,0.24999999999]"'
+#config['rift-pseudo-pipe']['force-hint-snr'] = snr_dict['Network']
+
+## Write pseudo-pipe ini file with standard defaults
+with open("pseudo_ini.ini",'w') as f:
+    config.write(f)
+
+##########
+## Create event directory structure
+##########
+
+P = [P_list[i] for i in range(len(P_list))]
+for indx in np.arange(n_events):
+    print(" ::: Event {} ::: ".format(indx))
+    # Create dir for each event
+    dir_target= working_dir_full+'/analysis_event_{}'.format(indx)
+    mkdir(dir_target)
+    os.chdir(dir_target)
+    os.system("ln -sf ../combined_frames/event_{} .".format(indx))
+    cmd = "/bin/find -L . -name '*.gwf' | {} > local.cache".format(lalapps_path2cache)
+    os.system(cmd)
+    here = os.getcwd()
+    ## create a coinc with inidividual event from P
+    ### does not look like this can handle eccentricity? CHECK
+    cmd = "util_SimInspiralToCoinc.py --sim-xml ../mdc.xml.gz --event {}".format(indx)
+    for ifo in ifos:
+        cmd += "  --ifo {} ".format(ifo)
+    os.system(cmd)
+    # Copy main pseudo_ini here and run pp_localize_ini.py to see if defaults should change
+    os.system('cp ../pseudo_ini.ini pseudo_ini.ini')
+    localize = 'python ../../pp_localize_ini.py --event {} --ini pseudo_ini.ini --sim-xml ../mdc.xml.gz --guess-snr {}  --mc-range "[{}, {}]"'.format(indx, snr_dict['Network'], mc_min, mc_max)
+    os.system(localize)
+    ## Make call to pseudo_pipe - should create rundir within event_dir
+    cmd = 'util_RIFT_pseudo_pipe.py --use-coinc `pwd`/coinc.xml --use-ini `pwd`/pseudo_ini.ini --use-rundir `pwd`/rundir --fake-data-cache `pwd`/local.cache --ile-no-gpu'
+    cmd += " --manual-extra-ile-args '--d-min {} --d-max {} '".format(d_min, d_max)
+    if fix_sky_location:
+        cmd += "' --declination {} --right-ascension {} '".format(fiducial_dec, fiducial_ra)
+    print(cmd)
+    os.system(cmd)
+    os.chdir("rundir")
+    os.system("ln -sf {}/*.xml.gz .".format(base_dir))
+
+
+##########
+## Consolidate DAGs
+##########
+
+os.chdir(working_dir_full)
+cmd = 'util_ConsolidateDAGsUnderMaster.sh analysis_event*/rundir'
+print(cmd)
+if not opts.test:
+    os.system(cmd)
+    mod = 'grep -v cip master.dag > master_clean.dag'
+    os.system(mod)

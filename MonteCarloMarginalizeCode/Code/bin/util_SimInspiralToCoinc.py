@@ -116,7 +116,7 @@ for indx in range(len(opts.ifo)):
     sngl.spin2z = P.s2z
     sngl.eff_distance = P.dist/(1e6*lal.PC_SI)
     sngl.snr = 20.  # made up, needed for some algorithms to work
-
+    sngl.alpha4 = P.eccentricity
     # add to table
     sngl_table.append(sngl)
 
