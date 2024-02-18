@@ -687,9 +687,9 @@ if  (opts.last_iteration_extrinsic):
         # batched convert shell script
         with open("allinone_convert.sh",'w') as f:
             f.write("""#! /bin/bash
-{} {}/iteration_$1_ile/EXTR_out-*.xml_*_.xml.gz --output {}/tmp_converted.xml.gz
+{} {}/iteration_$1_ile/'EXTR_out-*.xml_*_.xml.gz' --output {}/tmp_converted.xml.gz
 {} {} {}/tmp_converted.xml.gz > {}/extrinsic_posterior_samples.dat
-""".format(dag_utils.which('ligolw_add'),opts.working_directory,opts.working_directory,dag_utils.which('convert_output_format_ile2inference'),convert_args_extr,opts.working_directory,opts.working_directory))
+""".format(dag_utils.which('util_JoinExtrXML.py'),opts.working_directory,opts.working_directory,dag_utils.which('convert_output_format_ile2inference'),convert_args_extr,opts.working_directory,opts.working_directory))
         os.system("chmod a+x allinone_convert.sh")
         # Create job submit file
         batchConvertExtr_job, batchConvertExtr_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/allinone_convert.sh",tag='convert_extr',log_dir=None,arg_str='',file_input="$(macroiteration) ",file_output="/dev/null", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
