@@ -13,6 +13,8 @@ Since last release
   - bugfixes calmarg, mainly for use-gwsignal which wasn't implemented (rc5)
   - minor fix to extrinsic export scripts to enable arbitrary output sample size (rc6)
 
+Release is rc6
+
 0.0.15.9
 -----------
 Since last release
