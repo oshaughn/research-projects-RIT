@@ -11,6 +11,7 @@ Since last release
    - add --allow-subsolar to prevent hardcoding 1Msun limit; dockerfile cleanup; has_GWS scoping fix to avoid crash in
      factored_likelihood; remove glue.ligo_lw reference in util_SimInspiralToCoinc (rc4)
   - bugfixes calmarg, mainly for use-gwsignal which wasn't implemented (rc5)
+  - minor fix to extrinsic export scripts to enable arbitrary output sample size (rc6)
 
 0.0.15.9
 -----------
