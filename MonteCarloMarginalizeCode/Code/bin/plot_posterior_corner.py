@@ -460,7 +460,7 @@ field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lnL",
 if opts.flag_tides_in_composite:
     if opts.flag_eos_index_in_composite:
         print(" Reading composite file, assumingtide/eos-index-based format ")
-        field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "eos_table_index","lnL", "sigmaOverL", "ntot", "neff")
+        field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "eos_indx","lnL", "sigmaOverL", "ntot", "neff")
     else:
         print(" Reading composite file, assuming tide-based format ")
         field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "lnL", "sigmaOverL", "ntot", "neff")
