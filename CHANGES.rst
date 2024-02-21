@@ -4,6 +4,16 @@
 Since last release
    - ChooseFDWaveform J frame and fourier-transform-conditioning fixes as described in T2300304; add RIFT_BOOLEAN_LIST
      environment variable (rc1)
+   - getenv=True workaround; CIP spin prior normalization fixes (just needed for evidence); gwsignal implement Lmax in
+     hlmoft (rc2)
+   - RIFT_GETENV_OSG; enable gwsignal aways even if RIFT_LOWLATENCY active; mcsamplerGPU typo fix (self.n_total) for
+     corner use case (rc3)
+   - add --allow-subsolar to prevent hardcoding 1Msun limit; dockerfile cleanup; has_GWS scoping fix to avoid crash in
+     factored_likelihood; remove glue.ligo_lw reference in util_SimInspiralToCoinc (rc4)
+  - bugfixes calmarg, mainly for use-gwsignal which wasn't implemented (rc5)
+  - minor fix to extrinsic export scripts to enable arbitrary output sample size (rc6)
+
+Release is rc6
 
 0.0.15.9
 -----------
