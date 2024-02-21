@@ -1,4 +1,12 @@
 
+0.0.16.0
+-----------
+Since lat release
+    - Start roughly 0.0.15.9 in rift_O4b, merge with 0.0.15.10 into it.  ROMWaveformManager hlmoft backwards compatbile snarf extra options; pp_RIFT_with_ini
+      prototype; pp_RIFT minor fixes (lalapps_path2cache); AV eos-tabular-infereence updates; hyperpipe; scitokens;
+      fix online PE use case for O4 (PSD; gracedb-id logic if ini provided); request_memory units; EOSPlotUtilities;
+      mcsamplerAdaptiveVolume (rc1)
+
 0.0.15.10
 -----------
 Since last release
