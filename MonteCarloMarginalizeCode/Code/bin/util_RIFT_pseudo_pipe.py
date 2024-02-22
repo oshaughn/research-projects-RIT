@@ -248,6 +248,7 @@ parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--manual-extra-puff-args",default=None,type=str,help="Avenue to adjoin extra PUFF arguments.  ")
 parser.add_argument("--manual-extra-test-args",default=None,type=str,help="Avenue to adjoin extra TEST arguments.  ")
+parser.add_argument("--manual-extra-cip-args",default=None,type=str,help="Avenue to adjoin extra CIP arguments.  Needed for external priors or likelihoods in CIP stage")
 parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--use-downscale-early",action='store_true', help="If provided, the first block of iterations are performed with lnL-downscale-factor passed to CIP, such that rho*2/2 * lnL-downscale-factor ~ (15)**2/2, if rho_hint > 15 ")
 parser.add_argument("--use-gauss-early",action='store_true',help="If provided, use gaussian resampling in early iterations ('G'). Note this is a different CIP instance than using a quadratic likelihood!")
@@ -1025,6 +1026,8 @@ for indx in np.arange(len(instructions_cip)):
         if not(opts.force_ecc_min is None):
             ecc_min = opts.force_ecc_min
             line += " --ecc-min {}  ".format(ecc_min)
+    if not(opts.manual_extra_cip_args is None):
+        line += " {} ".format(opts.manual_extra_cip_args)  # embed with space on each side, avoid collisions
     line += "\n"
     lines.append(line)
 
@@ -1311,8 +1314,12 @@ if opts.archive_pesummary_label:
 # Horribly annoying XPHM/XO4a fix because ChooseFDWaveform called.  Seems to be UNIVERSAL for the approximant name, but only if precessing
 if opts.internal_mitigate_fd_J_frame == 'rotate' and (opts.approx == 'IMRPhenomXPHM' or 'XO4a' in opts.approx) and opts.assume_precessing:
     cmd += " --frame-rotation "
-if opts.internal_mitigate_fd_J_frame =="L_frame":
+if opts.internal_mitigate_fd_J_frame =="L_frame" and not(opts.manual_extra_ile_args) and not(opts.use_gwsignal):
     cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame' "
+if opts.internal_mitigate_fd_J_frame =="L_frame" and opts.use_gwsignal and opts.manual_extra_ile_args:
+    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal {}' ".format(opts.manual_extra_ile_args)
+if opts.internal_mitigate_fd_J_frame =="L_frame" and opts.use_gwsignal and not(opts.manual_extra_ile_args):
+    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
 print(cmd)
 os.system(cmd)
 

@@ -92,6 +92,8 @@ parser.add(
     help="For RIFT, uses two different options for h(t) reconstruction ")
 parser.add("--internal-waveform-fd-L-frame",action='store_true',help='If true, passes extra_waveform_kwargs = {fd_L_frame=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only.')
 parser.add("--internal-waveform-fd-no-condition",action='store_true',help='If true, adds extra_waveform_kwargs = {no_condition=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only. Provided to enable controlled tests of conditioning impact on PE')
+parser.add("--use-gwsignal",default=False,action='store_true',help='Use gwsignal. In this case the approx name is passed as a string to the lalsimulation.gwsignal interface')
+parser.add("--use-gwsignal-lmax-nyquist",default=None,type=int,help='Passes lmax_nyquist integer to the gwsignal waveform interface')
 parser.add("--fmin", default=None, type=float)
 parser.add("--l-max", default=4, type=int)
 parser.add("--start_index", default=None, type=int)
@@ -162,6 +164,8 @@ if args.time_marginalization:
 if args.phase_marginalization:
     if not args.use_rift_samples:
         result.posterior['phase'] = np.zeros(len(result.posterior))
+if args.use_gwsignal:
+    args.h_method = 'gws_hlmoft' 
 
 # Setting up the waveform generator using the data dump features
 waveform_arguments = dict(
@@ -176,6 +180,8 @@ if args.internal_waveform_fd_L_frame:
     extra_waveform_kwargs = {'fd_L_frame':True}
 if args.internal_waveform_fd_no_condition:
     extra_waveform_kwargs['no_condition'] = True
+if args.use_gwsignal_lmax_nyquist:
+    extra_waveform_kwargs['lmax_nyquist'] = int(args.use_gwsignal_lmax_nyquist)
 waveform_arguments['extra_waveform_kwargs'] = extra_waveform_kwargs
 if args.waveform_approximant:
     waveform_arguments['waveform_approximant'] = args.waveform_approximant
