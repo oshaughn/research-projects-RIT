@@ -939,7 +939,10 @@ elif  opts.aligned_prior == 'alignedspin-zprior-positive':
     prior_map["s2z"] = functools.partial(s_component_zprior_positive,R=chi_small_max)
     prior_map["s1z_bar"] = s_component_zprior_positive
     prior_map["s2z_bar"] = functools.partial(s_component_zprior_positive,R=chi_small_max)
-
+    prior_range_map['s1z'] = [0,chi_max]
+    prior_range_map['s2z'] = [0,chi_small_max]
+    prior_range_map['s1z_bar'] = [0,chi_max]
+    prior_range_map['s2z_bar'] = [0,chi_small_max]
 
 if opts.transverse_prior == 'uniform':
     # Don't do anything: let the default uniform priros for s1x, s1y ... OR chi1_perp-bar, etc used be used
