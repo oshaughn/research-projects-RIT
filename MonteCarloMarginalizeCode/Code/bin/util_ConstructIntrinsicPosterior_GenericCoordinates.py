@@ -349,6 +349,7 @@ parser.add_argument("--fixed-parameter-value", action="append")
 parser.add_argument("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., external astro priors). EXPERTS-ONLY")
 parser.add_argument("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external likelihood. EXPERTS ONLY")
 parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
+parser.add_argument("--supplementary-prior-code",default=None,type=str,help="Import external priors, assumed in scope as extra_prior.prior_dict_pdf, extra_prior.prior_range.  Currentlyonly supports seperable external priors")
 
 opts=  parser.parse_args()
 if not(opts.no_adapt_parameter):
@@ -2187,7 +2188,21 @@ for p in low_level_coord_names:
     sampler.add_parameter(p, pdf=np.vectorize(lambda x,z=fac:1./z), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=adapt_me)
 
 
-# Import prior
+###
+### Supplemental priors: load module
+###
+
+if opts.supplementary_prior_code:
+  print(" EXTERNAL PRIOR IMPORT : {} ".format(opts.supplementary_prior_code))
+  __import__(opts.supplementary_prior_code)
+  external_prior_module = sys.modules[opts.supplementary_prior_code]
+  if hasattr(external_prior_module,'prior_pdf') and hasattr(external_prior_module,'param_ranges'):
+      if type(external_prior_module.prior_pdf) == dict:
+          for name in externa_prior_module.prior_pdf:
+              sampler.prior_pdf[name] = external_prior_module[name]
+              sampler.llim[name],sampler.rlim
+
+# Import prior (does not work as implemented! Need to edit)
 if not(opts.import_prior_dictionary_file is None):
     dat  =     joblib.load(opts.import_prior_dictionary_file)
 #    print dat
