@@ -933,6 +933,13 @@ if opts.aligned_prior == 'alignedspin-zprior':
         else:
             prior_map['chiz_plus'] = s_component_gaussian_prior
             prior_map['chiz_minus'] = s_component_gaussian_prior
+elif  opts.aligned_prior == 'alignedspin-zprior-positive':
+    # prior on s1z constructed to produce the standard distribution
+    prior_map["s1z"] = s_component_zprior_positive
+    prior_map["s2z"] = functools.partial(s_component_zprior_positive,R=chi_small_max)
+    prior_map["s1z_bar"] = s_component_zprior_positive
+    prior_map["s2z_bar"] = functools.partial(s_component_zprior_positive,R=chi_small_max)
+
 
 if opts.transverse_prior == 'uniform':
     # Don't do anything: let the default uniform priros for s1x, s1y ... OR chi1_perp-bar, etc used be used
