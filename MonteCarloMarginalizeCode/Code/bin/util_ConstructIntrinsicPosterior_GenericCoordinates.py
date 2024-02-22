@@ -751,6 +751,11 @@ def s_component_zprior(x,R=chi_max):
     # Integrate[-1/2 Log[Abs[x]], {x, -1, 1}] == 1
     val = -1./(2*R) * np.log( (np.abs(x)/R+1e-7).astype(float))
     return val
+def s_component_zprior_positive(x,R=chi_max):
+    # assume maximum spin =1. Should get from appropriate prior range
+    # Integrate[-1/2 Log[Abs[x]], {x, -1, 1}] == 1
+    val = -1./(2*R) * np.log( (np.abs(x)/R+1e-7).astype(float))
+    return val*2
 
 
 def s_component_volumetricprior(x,R=1.):
