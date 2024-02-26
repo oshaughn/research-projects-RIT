@@ -1224,7 +1224,7 @@ class EOSSequenceLandry:
                 if oned_order_name == 'R' or oned_order_name=='r':
                     create_order=True
                     self.oned_order_name='R'  # key value in fields
-                if oned_order_name == 'Lambda' or oned_order_name=='lambdda':
+                if oned_order_name == 'Lambda' or oned_order_name== 'lambda':
                     create_order=True
                     self.oned_order_name='Lambda'  # key value in fields
                 if not(self.oned_order_mass):
@@ -1253,12 +1253,24 @@ class EOSSequenceLandry:
                         self.oned_order_indx_original =  self.oned_order_indx_original[indx_sorted]
 
             if load_eos:
-                self.eos_tables = f['eos']
+                self.eos_tables = {}
+                # Askold: generally we assume keys for the 'eos' and 'ns' are the same, but if they are not, we raise the error
+                try:
+                    if verbose:
+                        print(" EOSSequenceLandry: Loading EOS results for {}".format(fname))
+                    for name in names:
+                        self.eos_tables[name] = np.array(f['eos'][name])
+                except KeyError:
+                    raise KeyError("EOSSequenceLandry: Warning: 'eos' and 'ns' keys are not the same")
+                if verbose:
+                    print(" EOSSequenceLandry: Completed EOS i/o {}".format(fname))
+
         return None
 
-    def m_max_of_indx(self,indx):
-        name = self.eos_names[indx]
-        return np.max(self.eos_ns_tov[name]['M'])
+#    Askold: this seems to be duplicated with the other m_max_of_indx function 
+#    def mmax_of_indx(self,indx):
+#        name = self.eos_names[indx]
+#        return np.max(self.eos_ns_tov[name]['M'])
 
     def lambda_of_m_indx(self,m_Msun,indx):
         """
@@ -1300,7 +1312,7 @@ class EOSSequenceLandry:
         valM = dat["M"][indx_sort]
         return np.exp(np.interp(m_Msun, valM, valR))
 
-    def mmax_of_indx(self,indx):
+    def m_max_of_indx(self,indx):
         if self.eos_ns_tov is None:
             raise Exception(" Did not load TOV results ")
         name = self.eos_names[indx]
@@ -1320,6 +1332,80 @@ class EOSSequenceLandry:
             raise Exception(" Did not generate ordering statistic ")
         
         return np.argmin( np.abs(order_val - self.oned_order_values))
+
+    def interpolate_eos_tables(self, interp_base: str, n_points: int = 1000, verbose: bool = None):
+        """
+        Interpolates all EOS tables to the same grid. User can choose the base for interpolation, and the number of points on the output grid. 
+        User must load the EOS tables when initializing `EOSSequenceLandry` class. (`EOSSequenceLandry(load_eos=True)`)
+
+        Parameters
+        ----------
+        interp_base : str
+            The column name to be used as a base for interpolation. Should be one of 'pressurec2', 'energy_densityc2', 'baryon_density'!
+        n_points : int
+            The number of points on the output grid. Default is 1000.
+        verbose : bool
+            If True, prints the progress of the interpolation. Default is self.verbose. (verbose from the class initialization)
+        
+        Returns
+        -------
+        eos_tables_interp : dict
+            A dictionary with the same keys as self.eos_tables, but with the values being the interpolated tables.
+        
+        Raises
+        ------
+        ValueError
+            If the EOS tables are not loaded.
+        KeyError
+            If the interp_base is not one of the allowed column names.
+        
+        Developer Notes
+        ---------------
+        * This is a simple interpolation, and can be extended to thermodynamical interpolation in the future.
+        * The interpolation is done in log-space, so the output grid is logarithmically spaced.
+        * The interpolation base is returned as the uniformly spaced grid in log-scale. Can be extended to interpolate the base grid as well in the future.
+        * The interpolated columns remain in their original limits. Might need to add extrapolation in the future.
+        * Visualization of the progress using tqdm can be added in the future.
+        """
+
+        if self.eos_tables is None:
+            raise ValueError("No EOS tables loaded. Please load the EOS tables first.")
+
+        # allowed column names for interpolation
+        allowed_interp_base = ['pressurec2', 'energy_densityc2', 'baryon_density']
+        if interp_base not in allowed_interp_base:
+            raise KeyError(f"Invalid interp_base: {interp_base}. Allowed values are: {allowed_interp_base}")
+
+        # we should have the same grid for all EOS tables thus have the same min and max values
+        eos_interp_range = {key: [1e30, 1e-30] for key in allowed_interp_base}
+        for name in self.eos_names:
+            for key in eos_interp_range:
+                eos_interp_range[key][0] = min(eos_interp_range[key][0], np.min(self.eos_tables[name][key]))
+                eos_interp_range[key][1] = max(eos_interp_range[key][1], np.max(self.eos_tables[name][key]))
+
+        # generate the interpolation base grid (in log-space)
+        eos_tables_interp = {}
+        interp_base_ref = np.linspace(np.log10(eos_interp_range[interp_base][0]), np.log10(eos_interp_range[interp_base][1]), n_points)
+
+        if verbose is None:
+            verbose = self.verbose
+        if verbose:
+            print(f"Interpolating EOS tables to {n_points} points using {interp_base} as the base for interpolation.")
+
+        # interpolate all EOS tables to the same grid
+        # simple interpolation, we can add thermodynamical interpolation later if needed
+        for name in self.eos_names:
+            eos_tables_interp[name] = {}
+            for key in allowed_interp_base:
+                # we interpolate in log-space, and then convert back to linear space
+                interp_value_log = np.interp(interp_base_ref, np.log10(self.eos_tables[name][interp_base]), np.log10(self.eos_tables[name][key]))
+                eos_tables_interp[name][key] = np.power(10, interp_value_log)
+            eos_tables_interp[name][interp_base] = np.power(10, interp_base_ref)
+
+        if verbose:
+            print("Completed EOS interpolation.")
+
+        return eos_tables_interp
 
 
 ####
