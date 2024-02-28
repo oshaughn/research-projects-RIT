@@ -1294,12 +1294,19 @@ if opts.archive_pesummary_label:
 # Horribly annoying XPHM/XO4a fix because ChooseFDWaveform called.  Seems to be UNIVERSAL for the approximant name, but only if precessing
 if opts.internal_mitigate_fd_J_frame == 'rotate' and (opts.approx == 'IMRPhenomXPHM' or 'XO4a' in opts.approx) and opts.assume_precessing:
     cmd += " --frame-rotation "
-if opts.internal_mitigate_fd_J_frame =="L_frame" and not(opts.manual_extra_ile_args) and not(opts.use_gwsignal):
-    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame' "
-if opts.internal_mitigate_fd_J_frame =="L_frame" and opts.use_gwsignal and opts.manual_extra_ile_args:
-    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal {}' ".format(opts.manual_extra_ile_args)
-if opts.internal_mitigate_fd_J_frame =="L_frame" and opts.use_gwsignal and not(opts.manual_extra_ile_args):
-    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
+#if opts.internal_mitigate_fd_J_frame =="L_frame" and not(opts.manual_extra_ile_args) and not(opts.use_gwsignal):
+#    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame' "
+if opts.calibration_reweighting:
+    my_extra_string = ''
+    if opts.use_gwsignal:
+        my_extra_string = ' --use-gwsignal '
+     if opts.manual_extra_ile_args:
+         my_extra_string += ' ' + opts.manual_extra_ile_args + ' '
+    if (opts.internal_mitigate_fd_J_frame =="L_frame"):
+        my_extra_string = ' --internal-waveform-fd-L-frame '
+    cmd +=" --calibration-reweighting-initial-extra-args='  {}' ".format(my_extra_string)
+#if opts.internal_mitigate_fd_J_frame =="L_frame" and opts.use_gwsignal and not(opts.manual_extra_ile_args):
+#    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
 print(cmd)
 os.system(cmd)
 
