@@ -86,7 +86,7 @@ def RIFT_lal_binary_black_hole(
         # gwsignal specific
         P.phiref = 0
         P.incl = 0  # L direction frame
-        hlmT = rgws.hlmoft(P,Lmax,approx_string=waveform_approximant,**extra_waveform_kwargs)
+        hlmT = rgws.hlmoft(P,Lmax=Lmax,approx_string=waveform_approximant,**extra_waveform_kwargs)
         P.phiref = phase
         P.incl =  iota # restore
         h22T = hlmT[(2,2)]
