@@ -48,7 +48,7 @@ while P_list:
       P_list = []
 
 P_list_list=[' ' for i in range(len(batches))]
-for j in np.arange(0,len(batches)-1):
+for j in np.arange(0,len(batches)):
     for i in batches[j]:
         P_list_list[j] += ' '+ i
 print("List of strings created")
