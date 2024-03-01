@@ -1613,10 +1613,10 @@ class ChooseWaveformParams:
         Sl = m1_prime ** 2 * self.s1z + m2_prime ** 2 * self.s2z
         Sigmal = self.s2z * m2_prime - self.s1z * m1_prime
         # Appendix G.2 of PRD 103, 104056 (2021).
-        # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or 2PN from Blanchet 1310.1528 Eq. 234 (zero spin)
+        # in units of kg in SI. L at 1PN from Kidder 1995 Eq 2.9 or 2PN from Blanchet 1310.1528 Eq. 375 (zero spin)
         # code for spin-dependent corrections: checked against/from https://github.com/dingo-gw/dingo/blob/main/dingo/gw/waveform_generator/frame_utils.py
         return Lhat*M*M*eta/v * ( 1+ (1.5 + eta/6)*v*v +  (27./8 - 19*eta/8 +eta2/24.)*(v**4)  + (7*eta3/1296 + 31*eta2/24 + (41*np.pi**2/24 - 6889/144)*eta + 135/16)*v**6 
-                                  + (-55*eta4/31104 -215*eta3/1728 + (356035 / 3456 - 2255 * np.pi ** 2 / 576)*eta2 + eta*(-64*np.log(16*v**2)/3 -16455*np.pi**2/1536 - 128*lal.GAMMA/3 + 98869 / 5760) + 2835/128)*v**8
+                                  + (-55*eta4/31104 -215*eta3/1728 + (356035 / 3456 - 2255 * np.pi ** 2 / 576)*eta2 + eta*(-64*np.log(16*v**2)/3 -6455*np.pi**2/1536 - 128*lal.GAMMA/3 + 98869 / 5760) + 2835/128)*v**8
                                   + (-35 * Sl / 6 - 5 * delta * Sigmal / 2) * v ** 3
                                   + ((-77 / 8 + 427 * eta / 72) * Sl + delta * (-21 / 8 + 35 * eta / 12) * Sigmal)* v ** 5
                                   )
