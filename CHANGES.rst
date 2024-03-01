@@ -1,4 +1,10 @@
 
+0.0.15.11
+-----------
+Since last release
+   - bugfix util_JoinExtrXML to catch last batch; bugfix --calibration-reweighting-initial-extra-args argument passing
+
+
 0.0.15.10
 -----------
 Since last release
