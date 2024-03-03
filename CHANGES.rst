@@ -2,7 +2,8 @@
 0.0.15.11
 -----------
 Since last release
-   - bugfix util_JoinExtrXML to catch last batch; bugfix --calibration-reweighting-initial-extra-args argument passing
+   - bugfix util_JoinExtrXML to catch last batch; bugfix --calibration-reweighting-initial-extra-args argument passing  (rc1)
+   - bugfix Lmag high-order PN coefficient; ourparams glue.ligolw -> ligo.lw (rc2)
 
 
 0.0.15.10
