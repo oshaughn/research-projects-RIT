@@ -125,10 +125,10 @@ print("mu",mu)
 
 sigma_fail =4
 if opts.as_test:
-    if np.log(np.abs(integral_1b/integral_1)) > 4*np.sqrt(var_1)/integral_1:
+    if np.log(np.abs(integral_1b/integral_1)) > sigma_fail*np.sqrt(var_1)/integral_1:
         print(" FAIL ")
         exit(1)
-    if np.log(np.abs(integral_2/integral_1)) > 4*np.sqrt(var_1)/integral_1:
+    if np.log(np.abs(integral_2/integral_1)) > 0.5*sigma_fail*np.sqrt(var_1**2+var_2**2)/integral_1:
         print(" FAIL ")
         exit(1)
         
