@@ -1192,13 +1192,14 @@ class EOSSequenceLandry:
        - mMax access
     """
 
-    def __init__(self,name=None,fname=None,load_eos=False,load_ns=False,oned_order_name=None,oned_order_mass=None,no_sort=True,verbose=False):
+    def __init__(self,name=None,fname=None,load_eos=False,load_ns=False,oned_order_name=None,oned_order_mass=None,no_sort=True,verbose=False,eos_tables_units=None):
         import h5py
         self.name=name
         self.fname=fname
         self.eos_ids = None
         self.eos_names = None   # note this array can be SORTED, use the oned_order_indx_original for original order
         self.eos_tables = None
+        self.eos_tables_units = None
         self.eos_ns_tov = None
         self.oned_order_name = None
         self.oned_order_mass=oned_order_mass
@@ -1256,10 +1257,48 @@ class EOSSequenceLandry:
                 self.eos_tables = {}
                 # Askold: generally we assume keys for the 'eos' and 'ns' are the same, but if they are not, we raise the error
                 try:
+                    if eos_tables_units in ['cgs', 'si', 'CGS', 'SI'] or eos_tables_units is None:
+                        self.eos_tables_units = eos_tables_units
+                    else:
+                        raise ValueError("Invalid units for EOS tables. Please use 'cgs' or 'si'.")
+
+                    # change the units for the EOS tables to the ones specified by the user. 
+                    # NOTE! Assumes input units of the EOS tables in format: pressure/c^2 (g/cm^3), energy density/c^2 (g/cm^3) and baryon density (g/cm^3)
+                    if self.eos_tables_units == 'si' or self.eos_tables_units == 'SI':
+                        # constants
+                        c_si = 2.99792458e8
+                        eos_convert_dict = {'pressurec2': 1e3 *  c_si**2, 'energy_densityc2': 1e3 * c_si**2, 'baryon_density': 1e3, 
+                        'output_units': 'pressure - N/m^2, energy density - J/m^3, baryon density - kg/m^3'}
+                        eos_units_verbose = ' EOSSequenceLandry: EOS tables are converted to SI units'
+                        eos_dtype_names = ('pressure', 'energy_density', 'baryon_density')
+                    elif self.eos_tables_units == 'cgs' or self.eos_tables_units == 'CGS':
+                        # constants
+                        c_cgs = 2.99792458e10
+                        eos_convert_dict = {'pressurec2': c_cgs**2, 'energy_densityc2': c_cgs**2, 'baryon_density': 1, 
+                        'output_units': 'pressure - dyn/cm^2, energy density - erg/cm^3, baryon density - g/cm^3'}
+                        eos_units_verbose = ' EOSSequenceLandry: EOS tables are converted to CGS units'
+                        eos_dtype_names = ('pressure', 'energy_density', 'baryon_density')
+                    else:
+                        eos_convert_dict = {'pressurec2': 1, 'energy_densityc2': 1, 'baryon_density': 1, 
+                        'output_units': 'pressure/c^2 - g/cm^3, energy density/c^2 - g/cm^3, baryon density - g/cm^3'}
+                        eos_units_verbose = ' EOSSequenceLandry: EOS tables are not converted to any units'
+                        eos_dtype_names = ('pressurec2', 'energy_densityc2', 'baryon_density')
+
                     if verbose:
                         print(" EOSSequenceLandry: Loading EOS results for {}".format(fname))
                     for name in names:
-                        self.eos_tables[name] = np.array(f['eos'][name])
+                        eos_table_orig_units = np.array(f['eos'][name])
+                        # convert the units for pressure, energy density and baryon density
+                        eos_table_conv_units = np.zeros(eos_table_orig_units.shape, dtype = eos_table_orig_units.dtype)
+                        for key in eos_table_orig_units.dtype.names:
+                            eos_table_conv_units[key] = eos_table_orig_units[key] * eos_convert_dict[key]
+                        eos_table_conv_units.dtype.names = eos_dtype_names
+                        self.eos_tables[name] = eos_table_conv_units
+                    if verbose:
+                        print(eos_units_verbose)
+                        print(" Units for the EOS tables: {}".format(eos_convert_dict['output_units']))
+                        print(" EOSSequenceLandry: Completed EOS i/o {}".format(fname))
+        
                 except KeyError:
                     raise KeyError("EOSSequenceLandry: Warning: 'eos' and 'ns' keys are not the same")
                 if verbose:
@@ -1341,7 +1380,9 @@ class EOSSequenceLandry:
         Parameters
         ----------
         interp_base : str
-            The column name to be used as a base for interpolation. Should be one of 'pressurec2', 'energy_densityc2', 'baryon_density'!
+            The column name to be used as a base for interpolation. 
+            Should be one of 'pressure', 'energy_density, 'baryon_density', if units are GGS or SI!
+            If no unit conversion applied (`EOSSequenceLandry(eos_tables_units=None)`), should be one of 'pressurec2', 'energy_densityc2', 'baryon_density'.
         n_points : int
             The number of points on the output grid. Default is 1000.
         verbose : bool
@@ -1371,13 +1412,13 @@ class EOSSequenceLandry:
         if self.eos_tables is None:
             raise ValueError("No EOS tables loaded. Please load the EOS tables first.")
 
-        # allowed column names for interpolation
-        allowed_interp_base = ['pressurec2', 'energy_densityc2', 'baryon_density']
+        # allowed column names for interpolation are loaded from the EOS tables columns
+        allowed_interp_base = self.eos_tables[self.eos_names[0]].dtype.names
         if interp_base not in allowed_interp_base:
             raise KeyError(f"Invalid interp_base: {interp_base}. Allowed values are: {allowed_interp_base}")
 
         # we should have the same grid for all EOS tables thus have the same min and max values
-        eos_interp_range = {key: [1e30, 1e-30] for key in allowed_interp_base}
+        eos_interp_range = {key: [np.inf, -np.inf] for key in allowed_interp_base}
         for name in self.eos_names:
             for key in eos_interp_range:
                 eos_interp_range[key][0] = min(eos_interp_range[key][0], np.min(self.eos_tables[name][key]))
