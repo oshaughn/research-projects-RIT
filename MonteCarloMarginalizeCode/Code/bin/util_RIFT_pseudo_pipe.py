@@ -533,7 +533,9 @@ if not(opts.use_ini is None):
     print( "IFO list from ini ", ifo_list)
     P.fmin = fmin_fiducial
     P.fref = unsafe_config_get(config,['engine','fref'])
-    P.eccentricity = event_dict["eccentricity"]
+    # default value for eccentricity is 0 for 'P'!  Only change this value from default if eccentricity is present, do NOT want to fill it with None in particular
+    if not(event_dict['eccentricity'] is None):   
+        P.eccentricity = event_dict["eccentricity"]
     # Write 'target_params.xml.gz' file
     lalsimutils.ChooseWaveformParams_array_to_xml([P], "target_params")
 
