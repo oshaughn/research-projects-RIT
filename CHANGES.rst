@@ -4,7 +4,9 @@
 Since last release
    - bugfix util_JoinExtrXML to catch last batch; bugfix --calibration-reweighting-initial-extra-args argument passing  (rc1)
    - bugfix Lmag high-order PN coefficient; ourparams glue.ligolw -> ligo.lw (rc2)
+   - CI fix so integration test sane (rc3)
 
+Release is rc3
 
 0.0.15.10
 -----------
