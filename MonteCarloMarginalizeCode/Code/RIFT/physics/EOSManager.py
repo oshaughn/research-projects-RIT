@@ -655,7 +655,7 @@ class EOSLindblomSpectralSoundSpeedVersusPressure(EOSConcrete):
     Uses function call to lalsuite to implement low-level interface
     
     """
-    def __init__(self,name=None,spec_params=None,verbose=False,use_lal_spec_eos=True):
+    def __init__(self,name=None,spec_params=None,verbose=False,use_lal_spec_eos=True,no_eos_fam=False):
         if name is None:
             self.name = 'cs_spectral'
         else:
@@ -678,9 +678,13 @@ class EOSLindblomSpectralSoundSpeedVersusPressure(EOSConcrete):
             import os; #print os.listdir('.')
             cwd = os.getcwd()
             self.eos=lalsim.SimNeutronStarEOSFromFile(cwd+"/"+name+"_geom.dat")
-        self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
-        self.mMaxMsun = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
-        
+        if not(no_eos_fam):
+            self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
+            self.mMaxMsun = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
+        else:
+            self.eos_fam=None
+            self.mMaxMsun = None
+             
         return None
     
     def make_spec_param_eos(self, xvar='energy_density', yvar='pressure',npts=500, plot=False, verbose=False, save_dat=False,ligo_units=False,interpolate=False,eosname_lalsuite="SLY4"):
