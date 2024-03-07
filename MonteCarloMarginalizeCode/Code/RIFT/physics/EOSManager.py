@@ -494,7 +494,7 @@ class EOSPiecewisePolytrope(EOSConcrete):
 ######################################################################
 
 class EOSLindblomSpectral(EOSConcrete):
-    def __init__(self,name=None,spec_params=None,verbose=False,use_lal_spec_eos=False,check_cs=False, check_cs_builtin=True):
+    def __init__(self,name=None,spec_params=None,verbose=False,use_lal_spec_eos=False,check_cs=False, check_cs_builtin=True,no_eos_fam=False):
         if name is None:
             self.name = 'spectral'
         else:
@@ -531,11 +531,14 @@ class EOSLindblomSpectral(EOSConcrete):
                 valid = self.test_speed_of_sound_causal()   # call parent class method
             if not valid:
                 raise Exception(" EOS : spectral sound speed violates speed of light ")
-        else:
+        elif not(no_eos_fam):
             # must create these if not performing the test
             self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
             mmass = lalsim.SimNeutronStarMaximumMass(self.eos_fam) / lal.MSUN_SI
             self.mMaxMsun = mmass
+        else:
+            self.eos_fam=None
+            self.mMaxMsun = None
 
         return None
 
