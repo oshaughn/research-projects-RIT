@@ -537,6 +537,8 @@ if use_gracedb_event:
         else:
             fmax = 1000.
             cmd_event = gracedb_exe + download_request + opts.gracedb_id + " psd.xml.gz"
+            if not(opts.use_legacy_gracedb):
+                cmd_event += " ./psd.xml.gz " # output file must be specified for new framework
             os.system(cmd_event)
             cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
             # Convert PSD to a useful format
