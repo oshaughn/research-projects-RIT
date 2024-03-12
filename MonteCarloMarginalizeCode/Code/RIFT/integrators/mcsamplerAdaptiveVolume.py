@@ -84,7 +84,7 @@ from RIFT.integrators.statutils import  update,finalize, init_log,update_log,fin
 
 from RIFT.likelihood import vectorized_general_tools
 
-__author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>, Dan Wysocki, R. O'Shaughnessy"
+__author__ = "R. O'Shaughnessy, V. Tiwari"
 
 rosDebugMessages = True
 
