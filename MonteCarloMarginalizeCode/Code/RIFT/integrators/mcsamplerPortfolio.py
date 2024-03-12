@@ -2,6 +2,7 @@ import sys
 import math
 #import bisect
 from collections import defaultdict
+from types import ModuleType
 
 import numpy
 np=numpy #import numpy as np
@@ -87,12 +88,17 @@ class MCSampler(object):
         self.portfolio=portfolio
         self.portfolio_realizations = []
         for member in self.portfolio:
-            sampler = member.MCSampler()
-            self.portfolio_realizations.append(sampler)
+            if isinstance(member, ModuleType):
+              # can pass it a top-level routine, OR
+              sampler = member.MCSampler()
+              self.portfolio_realizations.append(sampler)
+            else:
+              # can pass low-level sampler object itself
+              self.portfolio_realizations.append(member)
 
         self.portfolio_weights =portfolio_weights
         if not(self.portfolio_weights ):
-            self.portfolio_weights = np.ones(len(self.portfolio))./len(self.portfolio)
+            self.portfolio_weights = np.ones(len(self.portfolio))/(1.0*len(self.portfolio))
 
         # Total number of samples drawn
         self.ntotal = 0
@@ -125,10 +131,16 @@ class MCSampler(object):
         for member in self.portfolio_realizations:
             member.add_parameter(params, pdf, **kwargs)
 
-    def draw(self,n_samples, *args, *kwargs):
+    def setup(self,  **kwargs):
+        for member in self.portfolio_realizations:
+            if hasattr(member, 'setup'):
+              member.setup(**kwargs)
+
+    def draw(self,n_samples, *args, **kwargs):
         if len(args) == 0:
             args = self.params
         n_params = len(args)
+        n_samples = int(n_samples)
 
 
         # Allocate memory.
@@ -140,21 +152,34 @@ class MCSampler(object):
         # Identify number of samples per member of the portfolio. Can be zero.
         n_samples_per_member = ((self.portfolio_weights)*n_samples).astype(int)
         n_samples_per_member[-1] = n_samples - np.sum(n_samples_per_member[0:-1])
-        n_index_start_per_member = np.zeros(len(self.portfolio_realizations))
+        n_index_start_per_member = np.zeros(len(self.portfolio_realizations),dtype=int)
         n_index_start_per_member[1:] = np.cumsum(n_samples_per_member)[:-1]
 
 
         # Draw in blocks, and copy in place
         indx_member = 0
         for member in self.portfolio_realizations:
-            joint_p_s_here, joint_p_prior_here, rv_here = self.draw_simplified(
-                n, *self.params_ordered
+            joint_p_s_here, joint_p_prior_here, rv_here = member.draw_simplified(
+                n_samples_per_member[indx_member], *self.params_ordered
             )
-            indx_start = n_index_start_per_member[indx_member]
-            indx_end = indx_start + n_samples_per_member[indx_member]
+            indx_start = int(n_index_start_per_member[indx_member])
+            indx_end = indx_start + int(n_samples_per_member[indx_member])
             joint_p_s[indx_start:indx_end] = joint_p_s_here
             joint_p_prior[indx_start:indx_end] = joint_p_prior_here
-            rv[indx_start:indx_end] = rv_here
+            rv[:,indx_start:indx_end] = rv_here
+
+        #
+        # Cache the samples we chose.  REQUIRED
+        #
+        if True:
+         if len(self._rvs) == 0:
+            self._rvs = dict(list(zip(args, rv)))
+         else:
+            rvs_tmp = dict(list(zip(args, rv)))
+            #for p, ar in self._rvs.items():
+            for p in self.params_ordered:
+                self._rvs[p] = numpy.hstack( (self._rvs[p], rvs_tmp[p]) )
+
 
         return joint_p_s, joint_p_prior, rv
 
@@ -324,13 +349,12 @@ class MCSampler(object):
             ### WEIGHT UPDATE BLOCK (improve by adding all portfolio options - default vanilla independent updates now)
             ###
             for member in self.portfolio_realizations:
-                member.update_sampling_prior(ln_weights, n_history,tempering_exp=tempering_exp,log_scale_weights=True)
+                member.update_sampling_prior(log_weights, n_history,tempering_exp=tempering_exp,external_rvs=self._rvs,log_scale_weights=True)
 
         # If we were pinning any values, undo the changes we did before
-        self.cdf_inv.update(tempcdfdict)
-        self.pdf.update(temppdfdict)
-        self._pdf_norm.update(temppdfnormdict)
-        self.prior_pdf.update(temppriordict)
+        # self.pdf.update(temppdfdict)
+        # self._pdf_norm.update(temppdfnormdict)
+        # self.prior_pdf.update(temppriordict)
 
         # Clean out the _rvs arrays for 'irrelevant' points
         #   - find and remove samples with  lnL less than maxlnL - deltalnL (latter user-specified)
