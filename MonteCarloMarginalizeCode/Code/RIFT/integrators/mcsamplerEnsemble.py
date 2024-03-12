@@ -105,6 +105,9 @@ class MCSampler(object):
         self.sample_format = None
         self.curr_args = None
 
+        self.gmm_dict ={} # state variable
+        self.integrator = None # state variable
+
 
     def clear(self):
         """
@@ -121,6 +124,7 @@ class MCSampler(object):
         self.llim = {}
         self.rlim = {}
         self.adaptive = []
+        self.integrator=None
 
     def add_parameter(self, params, pdf=None,  cdf_inv=None, left_limit=None, right_limit=None, 
                         prior_pdf=None, adaptive_sampling=False):
@@ -193,6 +197,136 @@ class MCSampler(object):
                 temp_ret *= np.rot90([pdf_func(temp_samples)], -1)
         return temp_ret
 
+    def setup(self,n_comp=None,**kwargs):
+      """
+      setup
+
+      Call after add_parameter
+      """
+      integrator_func  = kwargs['integrator_func'] if "integrator_func" in kwargs  else None
+      mcsamp_func  = kwargs['mcsamp_func'] if "mcsamp_func" in kwargs  else None
+      proc_count = kwargs['proc_count'] if "proc_count" in kwargs else None
+      direct_eval = kwargs['direct_eval'] if "direct_eval" in kwargs else False
+      min_iter = kwargs['min_iter'] if "min_iter" in kwargs else 10
+      max_iter = kwargs['max_iter'] if "max_iter" in kwargs else 20
+      var_thresh = kwargs['var_thres'] if "var_thresh" in kwargs else 0.05
+      write_to_file = kwargs['write_to_file'] if "write_to_file" in kwargs else False
+      correlate_all_dims = kwargs['correlate_all_dims'] if  "correlate_all_dims" in kwargs else False
+      gmm_adapt = kwargs['gmm_adapt'] if "gmm_adapt" in kwargs else None
+      gmm_epsilon = kwargs['gmm_epsilon'] if "gmm_epsilon" in kwargs else None
+      L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
+      tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 1.0
+      lnw_failure_cut = kwargs["lnw_failure_cut"] if "lnw_failure_cut" in kwargs else None
+
+
+      if 'gmm_dict' in list(kwargs.keys()):
+          gmm_dict = kwargs['gmm_dict']  # required
+      else:
+          gmm_dict = None
+      dim = len(self.params_ordered)
+      bounds=[]
+      for param in args:
+            bounds.append([self.llim[param], self.rlim[param]])
+      raw_bounds = np.array(bounds)
+          
+      if gmm_dict is None:
+            bounds = {}
+            for indx in np.arange(len(raw_bounds)):
+                bounds[(indx,)] = raw_bounds[indx]
+            bounds=raw_bounds
+            if correlate_all_dims:
+                gmm_dict = {tuple(range(dim)):None}
+                bounds = {tuple(np.arange(len(bounds))): raw_bounds}
+            else:
+                gmm_dict = {}
+                for i in range(dim):
+                    gmm_dict[(i,)] = None
+          
+      # instantiate an integrator object, as that is front end to all the things we need.
+      # we will need some dummy things 
+      self.integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp, n=self.n, prior=self.calc_pdf,
+                         user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_adapt=gmm_adapt,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp) # reflect=reflect,
+
+    def update_sampling_prior(self,ln_weights, n_history,tempering_exp=1,log_scale_weights=True,floor_integrated_probability=0,external_rvs=None,**kwargs):
+      """
+      update_sampling_prior
+
+      Attempt to duplicate code inside 'integrate' to update sampling prior based on information potentially including externally-obtained samples
+      """
+      rvs_here = self._rvs
+      if external_rvs:
+        rvs_here = external_rvs
+
+      gmm_dict = self.integrator.gmm_dict  # direct acess
+
+      n_history_to_use = n_history
+      # Create appropriate history array
+      sample_array = np.empty( (len(self.params_ordered), n_history_to_use))
+      for indx, p in enumerate(self.params_ordered):
+          sample_array[indx] = rvs_here[p][-n_history_to_use:]
+
+
+      for dim_group in gmm_dict: # iterate over grouped dimensions
+            if self.integrator.gmm_adapt:
+                if (dim_group in self.integrator.gmm_adapt):
+                    if not(self.integrator.gmm_adapt[dim_group]):   # disabling adaptation requires user *specifically request* not to use that dimension set; all other choices lead to adaptation
+                        continue
+            # create a matrix of the left and right limits for this set of dimensions
+            new_bounds = np.empty((len(dim_group), 2))
+            new_bounds = self.integrator.bounds[dim_group]
+            model = self.integrator.gmm_dict[dim_group] # get model for this set of dimensions
+            temp_samples = np.empty((n_history_to_use, len(dim_group)))
+            index = 0
+            for dim in dim_group:
+                # get samples corresponding to the current model
+                temp_samples[:,index] = sample_array[:,dim]
+                index += 1
+            if model is None:
+                # model doesn't exist yet
+                if isinstance(self.integrator.n_comp, int) and self.integrator.n_comp != 0:
+                    model = GMM.gmm(self.integrator.n_comp, new_bounds,epsilon=self.gmm_epsilon)
+                    model.fit(temp_samples, log_sample_weights=log_weights)
+                elif isinstance(self.integrator.n_comp, dict) and self.integrator.n_comp[dim_group] != 0:
+                    model = GMM.gmm(self.integrator.n_comp[dim_group], new_bounds,epsilon=self.integrator.gmm_epsilon)
+                    model.fit(temp_samples, log_sample_weights=log_weights)
+            else:
+                model.update(temp_samples, log_sample_weights=log_weights)
+            self.integrator.gmm_dict[dim_group] = model
+
+
+    def draw_simplified(self,rvs,*args,**kwargs):
+        """
+        Draw a set of random variates for parameter(s) args. Left and right limits are handed to the function. If args is None, then draw *all* parameters. 'rdict' parameter is a boolean. If true, returns a dict matched to param name rather than list. rvs must be either a list of uniform random variates to transform for sampling, or an integer number of samples to draw.
+        """
+        if len(args) == 0:
+            args = self.params
+
+        save_no_samples= False
+        if 'save_no_samples' in list(kwargs.keys()):
+            save_no_samples = kwargs['save_no_samples']
+
+        # Allocate memory.
+        rv = self.xpy.empty((n_params, n_samples), dtype=numpy.float64)
+        joint_p_s = self.xpy.ones(n_samples, dtype=numpy.float64)
+        joint_p_prior = self.xpy.ones(n_samples, dtype=numpy.float64)
+
+        return 
+
+
+    def integrate_log(self, func, *args,**kwargs):
+        '''
+        Integrate the specified function over the specified parameters.
+
+        func: function to integrate
+
+        Simple wrapper to standardize interface
+
+        '''
+        args_passed = {}
+        args_passed.update(kwargs)
+        args_passed['use_lnL']=True
+        args_passed['return_lnI']=True
+        return integrate(func, *args, args_passed)
 
     def integrate(self, func, *args,**kwargs):
         '''
