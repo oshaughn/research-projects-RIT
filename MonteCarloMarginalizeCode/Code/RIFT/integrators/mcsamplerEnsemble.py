@@ -217,7 +217,12 @@ class MCSampler(object):
       L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
       tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 1.0
       lnw_failure_cut = kwargs["lnw_failure_cut"] if "lnw_failure_cut" in kwargs else None
+      nmax = kwargs["nmax"] if "nmax" in kwargs else 1e6
+      neff = kwargs["neff"] if "neff" in kwargs else 1000
+      n = kwargs["n"] if "n" in kwargs else min(1000, nmax)  # chunk size
 
+      self.n = n  # this needs to be set
+      self.curr_args = self.params_ordered # assume we integrate over all. State variable used in a few places
 
       if 'gmm_dict' in list(kwargs.keys()):
           gmm_dict = kwargs['gmm_dict']  # required
@@ -225,7 +230,7 @@ class MCSampler(object):
           gmm_dict = None
       dim = len(self.params_ordered)
       bounds=[]
-      for param in args:
+      for param in self.params_ordered:
             bounds.append([self.llim[param], self.rlim[param]])
       raw_bounds = np.array(bounds)
           
@@ -259,11 +264,13 @@ class MCSampler(object):
 
       gmm_dict = self.integrator.gmm_dict  # direct acess
 
-      n_history_to_use = n_history
+      n_history_to_use = np.min([n_history, len(ln_weights), len(rvs_here[self.params_ordered[0]])] )
+
       # Create appropriate history array
       sample_array = np.empty( (len(self.params_ordered), n_history_to_use))
       for indx, p in enumerate(self.params_ordered):
           sample_array[indx] = rvs_here[p][-n_history_to_use:]
+      sample_array = sample_array.T
 
 
       for dim_group in gmm_dict: # iterate over grouped dimensions
@@ -294,23 +301,34 @@ class MCSampler(object):
             self.integrator.gmm_dict[dim_group] = model
 
 
-    def draw_simplified(self,rvs,*args,**kwargs):
+    def draw_simplified(self,n,*args,**kwargs):
         """
         Draw a set of random variates for parameter(s) args. Left and right limits are handed to the function. If args is None, then draw *all* parameters. 'rdict' parameter is a boolean. If true, returns a dict matched to param name rather than list. rvs must be either a list of uniform random variates to transform for sampling, or an integer number of samples to draw.
         """
+        n_samples = n
+        self.integrator.n = n # need to override this, so we sample with correct size
+
         if len(args) == 0:
             args = self.params
+        n_params = len(args)
 
         save_no_samples= False
         if 'save_no_samples' in list(kwargs.keys()):
             save_no_samples = kwargs['save_no_samples']
 
-        # Allocate memory.
-        rv = self.xpy.empty((n_params, n_samples), dtype=numpy.float64)
-        joint_p_s = self.xpy.ones(n_samples, dtype=numpy.float64)
-        joint_p_prior = self.xpy.ones(n_samples, dtype=numpy.float64)
 
-        return 
+        # Allocate memory.
+        rv = np.empty((n_params, n_samples), dtype=np.float64)
+        joint_p_s = np.ones(n_samples, dtype=np.float64)
+        joint_p_prior = np.ones(n_samples, dtype=np.float64)
+
+        self.integrator._sample()
+        for indx, p in enumerate(self.params_ordered):
+            rv[indx,:]  = self.integrator.sample_array[:,indx]
+        joint_p_s = self.integrator.sampling_prior_array
+        joint_p_prior = self.calc_pdf(rv.T).flatten()
+
+        return joint_p_s, joint_p_prior, rv
 
 
     def integrate_log(self, func, *args,**kwargs):
