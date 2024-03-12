@@ -344,11 +344,40 @@ class MCSampler(object):
                 print(n_adapt,self.n_total)
                 continue
 
+            ###
+            ### PORTFOLIO REPORT BLOCK (and reweighting of member priority)
+            ###
+            #  n_ess for each portfolio member
+            #  Use this to reassess which portfolio members are being refined.
+            n_samples = len(log_weights)
+            n_samples_per_member = ((self.portfolio_weights)*len(log_weights)).astype(int)
+            n_samples_per_member[-1] = n_samples - np.sum(n_samples_per_member[0:-1])
+            n_index_start_per_member = np.zeros(len(self.portfolio_realizations),dtype=int)
+            n_index_start_per_member[1:] = np.cumsum(n_samples_per_member)[:-1]
+
+            portfolio_report = {}
+            for indx_member, member in enumerate(self.portfolio):
+              indx_start = int(n_index_start_per_member[indx_member])
+              indx_end = indx_start + int(n_samples_per_member[indx_member])    
+              ln_wt_here =  log_weights[indx_start:indx_end]
+              ln_wt_here += - np.max(ln_wt_here)
+              # evaluate  n_ess, n_eff for this set of samples in batch specifically,
+              portfolio_report[indx_member] = [ self.portfolio_weights[indx_member], np.sum(np.exp(ln_wt_here))**2/np.sum(np.exp(ln_wt_here*2)), np.sum(np.exp(ln_wt_here))]
+#            print("\t",portfolio_report)
+            # Weight based on n_ESS from batch.  remember these are >=1, so no negatives or 0 will happen
+            dat =np.array([ portfolio_report[k][1] for k in range(len(self.portfolio))])
+            rewt = 0.01 + np.sqrt(dat-1)   # prototype.
+            self.portfolio_weights = 0.5*(rewt/np.sum(rewt) + self.portfolio_weights) # introduce inertia
+
+              
+
+
 
             ###
             ### WEIGHT UPDATE BLOCK (improve by adding all portfolio options - default vanilla independent updates now)
             ###
             for member in self.portfolio_realizations:
+                # update sampling prior, using ALL past data
                 member.update_sampling_prior(log_weights, n_history,tempering_exp=tempering_exp,external_rvs=self._rvs,log_scale_weights=True)
 
         # If we were pinning any values, undo the changes we did before
