@@ -19,10 +19,10 @@ try:
   try:
     xpy_special_default = cupyx.scipy.special
     if not(hasattr(xpy_special_default,'logsumexp')):
-          print(" mcsamplerAV: no cupyx.scipy.special.logsumexp, fallback mode ...")
+          print(" mcsamplerPortfolio no cupyx.scipy.special.logsumexp, fallback mode ...")
           xpy_special_default= special
   except:
-    print(" mcsamplerAV: no cupyx.scipy.special, fallback mode ...")
+    print(" mcsamplerPortfolio no cupyx.scipy.special, fallback mode ...")
     xpy_special_default= special
   identity_convert = cupy.asnumpy
   identity_convert_togpu = cupy.asarray
