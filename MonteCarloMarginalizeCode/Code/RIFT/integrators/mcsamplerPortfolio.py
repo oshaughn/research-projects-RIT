@@ -74,6 +74,12 @@ from RIFT.integrators.statutils import  update,finalize, init_log,update_log,fin
 from RIFT.likelihood import vectorized_general_tools
 
 
+class NanOrInf(Exception):
+    def __init__(self, value):
+        self.value = value
+    def __str__(self):
+        return repr(self.value)
+
 
 class MCSampler(object):
     """
