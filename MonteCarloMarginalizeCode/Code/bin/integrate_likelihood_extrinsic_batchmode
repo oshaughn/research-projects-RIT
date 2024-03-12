@@ -985,7 +985,6 @@ if opts.sampler_method == 'portfolio' and hasattr(sampler, 'setup'):
 #
 # Determine pinned and non-pinned parameters
 #
-print(sampler.llim, sampler.rlim)
 pinned_params = get_pinned_params(opts)
 unpinned_params = get_unpinned_params(opts, sampler.params)
 print( "{0:<25s} {1:>5s} {2:>5s} {3:>20s} {4:<10s}".format("parameter", "lower limit", "upper limit", "pinned?", "pin value"))
