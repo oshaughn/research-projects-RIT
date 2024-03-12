@@ -92,6 +92,12 @@ try:
 except:
     print(" No mcsamplerAV ")
     mcsampler_AV_ok = False
+mcsampler_Portfolio_ok=False
+try:
+    import RIFT.integrators.mcsamplerPortfolio as mcsamplerPortfolio
+    mcsampler_Portfolio_ok = True
+except:
+    print(" No mcsamplerPortolfio ")
 try:
     import RIFT.interpolators.senni as senni
     senni_ok = True
@@ -329,7 +335,8 @@ parser.add_argument("--protect-coordinate-conversions", action='store_true', hel
 parser.add_argument("--source-redshift",default=0,type=float,help="Source redshift (used to convert from source-frame mass [integration limits] to arguments of fitting function.  Note that if nonzero, integration done in SOURCE FRAME MASSES, but the fit is calculated using DETECTOR FRAME")
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state")
 parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
-parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
+parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu|portfolio")
+parser.add_argument("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
 parser.add_argument("--internal-use-lnL",action='store_true',help="integrator internally manipulates lnL. ONLY VIABLE FOR GMM AT PRESENT")
 parser.add_argument("--internal-temper-log",action='store_true',help="integrator internally uses lnL as sampling weights (only).  Designed to reduce insane contrast and overfitting for high-amplitude cases")
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
@@ -364,7 +371,7 @@ if opts.lnL_shift_prevent_overflow:
 if not(opts.force_no_adapt):
     opts.force_no_adapt=False  # force explicit boolean false
 
-ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu', 'AV']
+ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu', 'AV', 'portfolio']
 if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
   print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)
   sys.exit(99)
@@ -2150,6 +2157,22 @@ if opts.sampler_method == "GMM":
 
 if opts.sampler_method == "AV":
     sampler = mcsamplerAdaptiveVolume.MCSampler()
+    opts.internal_use_lnL= True  # required!
+if opts.sampler_method == "portfolio":
+    sampler_list = []
+    sampler_types = opts.sampler_portfolio.split(',')
+    for name in sampler_types:
+        if name =='AV':
+            sampler = mcsamplerAdaptiveVolume.MCSampler()
+        if name =='GMM':
+            sampler = mcsamplerEnsemble.MCSampler()
+            opts.sampler_method = 'GMM'  # this will force the creation/parsing of GMM-specific arguments below, so they are properly passed
+        if name == "adaptive_cartesian_gpu":
+            sampler = mcsamplerGPU.MCSampler()
+            sampler.xpy = xpy_default
+            sampler.identity_convert=identity_convert
+        sampler_list.append(sampler)
+    sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
     opts.internal_use_lnL= True  # required!
 
 
