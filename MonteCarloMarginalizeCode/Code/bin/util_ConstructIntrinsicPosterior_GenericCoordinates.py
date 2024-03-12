@@ -2154,13 +2154,12 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
     #   sampler.identity_convert= lambda x: x
 if opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
-
-if opts.sampler_method == "AV":
+elif opts.sampler_method == "AV":
     sampler = mcsamplerAdaptiveVolume.MCSampler()
     opts.internal_use_lnL= True  # required!
-if opts.sampler_method == "portfolio":
+elif opts.sampler_method == "portfolio":
     sampler_list = []
-    sampler_types = opts.sampler_portfolio.split(',')
+    sampler_types = opts.sampler_portfolio
     for name in sampler_types:
         if name =='AV':
             sampler = mcsamplerAdaptiveVolume.MCSampler()
@@ -2171,9 +2170,9 @@ if opts.sampler_method == "portfolio":
             sampler = mcsamplerGPU.MCSampler()
             sampler.xpy = xpy_default
             sampler.identity_convert=identity_convert
+        print('PORTFOLIO: adding {} '.format(name))
         sampler_list.append(sampler)
     sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
-    opts.internal_use_lnL= True  # required!
 
 
 ##
@@ -2494,6 +2493,8 @@ if opts.internal_use_lnL:
     extra_args.update({"use_lnL":True,"return_lnI":True})
 if opts.internal_temper_log:
     extra_args.update({'temper_log':True})
+if hasattr(sampler, 'setup'):
+    sampler.setup()
 res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 
