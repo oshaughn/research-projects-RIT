@@ -130,6 +130,9 @@ class MCSampler(object):
         self.params_ordered.append(params)
         for member in self.portfolio_realizations:
             member.add_parameter(params, pdf, **kwargs)
+        self.llim = member.llim
+        self.rlim = member.rlim
+
 
     def setup(self,  **kwargs):
         for member in self.portfolio_realizations:
@@ -183,6 +186,12 @@ class MCSampler(object):
 
         return joint_p_s, joint_p_prior, rv
 
+
+    def integrate(self, lnF, *args, xpy=xpy_default,**kwargs):
+        use_lnL = kwargs['use_lnL'] if 'use_lnL' in kwargs else False
+        if not(use_lnL):
+          raise Exception("mcsamplerPortfolio: must integrate lnL")
+        return self.integrate_log(lnF, *args, xpy=xpy, **kwargs)
         
 
     def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
@@ -440,7 +449,7 @@ class MCSampler(object):
         # Create extra dictionary to return things
         dict_return ={}
         if convergence_tests is not None:
-            dict_return["convergence_test_results"] = last_convergence_test
+            dict_return["convergence_test_results"] = None # last_convergence_test
 
         # perform type conversion of all stored variables
         if cupy_ok:
