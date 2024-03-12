@@ -131,6 +131,8 @@ class integrator:
             # create a matrix of the left and right limits for this set of dimensions
             new_bounds = np.empty((len(dim_group), 2))
             new_bounds = self.bounds[dim_group]
+            if len(new_bounds.shape) < 2:
+                new_bounds = np.array([new_bounds])
             # index = 0
             # for dim in dim_group:
             #     new_bounds[index] = self.bounds[dim]
