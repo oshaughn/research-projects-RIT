@@ -509,7 +509,12 @@ class MCSampler(object):
             return dict(list(zip(args, res)))
         return list(zip(*res))
 
-    def update_sampling_prior(self,ln_weights, n_history,tempering_exp=1,log_scale_weights=True,**kwargs):
+    def setup(self,n_bins=100):
+        # Setup histogram data.  Used in portfolio
+        for p in self.params_ordered:
+            self.setup_hist_single_param(self.llim[p], self.rlim[p], n_bins, p)
+
+    def update_sampling_prior(self,ln_weights, n_history,tempering_exp=1,log_scale_weights=True,floor_integrated_probability=0,external_rvs=None,**kwargs):
       """
       update_sampling_prior
 
@@ -518,13 +523,26 @@ class MCSampler(object):
 
       NOTE: Currently deployed for mcsamplerPortfolio, NOT yet part of core code here
       """
+      # Allow updates provided from outside sources,
+      rvs_here = self._rvs
+      if external_rvs:
+        rvs_here = external_rvs
+
+      n_history_to_use = np.min([n_history, len(ln_weights), len(rvs_here[self.params_ordered[0]])] )
+
       # default is to use logarithmic (!) weights, relying on them being positive.
-      weights_alt = ln_weights[:n_history]  - self.xpy.maximum(ln_weights) + 100  
+      weights_alt = ln_weights[-n_history_to_use:]  - self.xpy.max(ln_weights) + 100  
       weights_alt = self.xpy.maximum(weights_alt, 1e-5)    # prevent negative weights, in case integrating function with lnL < 0
       # now treat as sum
       weights_alt = weights_alt/(weights_alt.sum())
       if weights_alt.dtype == numpy.float128:
         weights_alt = weights_alt.astype(numpy.float64,copy=False)
+
+      def function_wrapper(f, p):
+          def inner(arg):
+            return f(arg, p)
+          return inner
+
 
       for itr, p in enumerate(self.params_ordered):
                 # # FIXME: The second part of this condition should be made more
@@ -532,7 +550,7 @@ class MCSampler(object):
                 if p not in self.adaptive or p in list(kwargs.keys()):
                     continue
 
-                points = self._rvs[p][-n_history:]
+                points = rvs_here[p][-n_history_to_use:]
                 self.compute_hist(points, p,weights=weights_alt,floor_level=floor_integrated_probability)
                 self.pdf[p] = function_wrapper(self.pdf_from_hist, p)
                 self.cdf_inv[p] = function_wrapper(self.cdf_inverse_from_hist, p)
