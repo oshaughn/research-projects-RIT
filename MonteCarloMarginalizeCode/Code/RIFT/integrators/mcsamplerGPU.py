@@ -509,7 +509,7 @@ class MCSampler(object):
             return dict(list(zip(args, res)))
         return list(zip(*res))
 
-    def setup(self,n_bins=100):
+    def setup(self,n_bins=100,**kwargs):
         # Setup histogram data.  Used in portfolio
         for p in self.params_ordered:
             self.setup_hist_single_param(self.llim[p], self.rlim[p], n_bins, p)
