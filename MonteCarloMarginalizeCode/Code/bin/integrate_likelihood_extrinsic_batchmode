@@ -69,6 +69,12 @@ try:
 except:
     print(" No mcsamplerAV ")
     mcsampler_AV_ok = False
+mcsampler_Portfolio_ok=False
+try:
+    import RIFT.integrators.mcsamplerPortfolio as mcsamplerPortfolio
+    mcsampler_Portfolio_ok = True
+except:
+    print(" No mcsamplerPortolfio ")
 
 import RIFT.likelihood.priors_utils as priors_utils
 import RIFT.misc.xmlutils as xmlutils
@@ -272,6 +278,7 @@ integration_params.add_option("--manual-logarithm-offset",type=float,default=0,h
 integration_params.add_option("--auto-logarithm-offset",action='store_true',help="Use the 'guess_snr' field returned in the precompute stage to change --manual-logarithm-offset for each event.")
 integration_params.add_option("--internal-use-lnL",action='store_true',help="likelihood returns lnL, and integrator integrates lnL")
 integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
+integration_params.add_option("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
 integration_params.add_option("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., EM observations). EXPERTS-ONLY")
 integration_params.add_option("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external prior. EXPERTS ONLY")
@@ -320,7 +327,7 @@ opts, args = optp.parse_args()
 #
 # Failure modes
 #
-ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu','AV']
+ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu','AV','portfolio']
 if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
   print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)
   sys.exit(99)
@@ -734,6 +741,24 @@ elif opts.sampler_method == 'AV':
       mcsampler.set_xpy_to_numpy()
       sampler.xpy= numpy
       sampler.identity_convert= lambda x: x
+elif opts.sampler_method == "portfolio":
+    opts.internal_use_lnL=True  # required, we only implement those scenarios right now
+    sampler_list = []
+    sampler_types = opts.sampler_portfolio
+    print(" PORTFOLIO ", opts.sampler_portfolio)
+    for name in sampler_types:
+        if name =='AV':
+            sampler = mcsamplerAdaptiveVolume.MCSampler()
+        if name =='GMM':
+            sampler = mcsamplerEnsemble.MCSampler()
+            opts.sampler_method = 'GMM'  # this will force the creation/parsing of GMM-specific arguments below, so they are properly passed
+        if name == "adaptive_cartesian_gpu":
+            sampler = mcsamplerGPU.MCSampler()
+            sampler.xpy = xpy_default
+            sampler.identity_convert=identity_convert
+        print('PORTFOLIO: adding {} '.format(name))
+        sampler_list.append(sampler)
+    sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
 
 else:
     print(" ILE: original sampler")
@@ -953,11 +978,14 @@ if not opts.time_marginalization:
                           right_limit = param_limits["t_ref"][1],
                           prior_pdf = functools.partial(mcsampler.uniform_samp_vector, param_limits["t_ref"][0], param_limits["t_ref"][1]))
 
+# set up sampler, as needed.  Mainly for portfolio integrator
+if opts.sampler_method == 'portfolio' and hasattr(sampler, 'setup'):
+      sampler.setup()
 
 #
 # Determine pinned and non-pinned parameters
 #
-
+print(sampler.llim, sampler.rlim)
 pinned_params = get_pinned_params(opts)
 unpinned_params = get_unpinned_params(opts, sampler.params)
 print( "{0:<25s} {1:>5s} {2:>5s} {3:>20s} {4:<10s}".format("parameter", "lower limit", "upper limit", "pinned?", "pin value"))
@@ -1021,10 +1049,13 @@ pinned_params.update({
 if opts.sampler_method == "adaptive_cartesian_gpu":
   pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!  
 return_lnL=False
-if opts.sampler_method=="GMM" and opts.internal_use_lnL:
+if opts.sampler_method=="GMM"  and opts.internal_use_lnL:
   return_lnL=True
   pinned_params.update({"use_lnL":True,"return_lnI":True})
 if opts.sampler_method =="adaptive_cartesian_gpu" and opts.internal_use_lnL:
+  return_lnL=True
+  pinned_params.update({"use_lnL":True})
+if opts.sampler_method =="portfolio":
   return_lnL=True
   pinned_params.update({"use_lnL":True})
 if opts.sampler_method == "GMM":
@@ -1839,8 +1870,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
 lnL_sofar = -np.inf
 no_adapt_sky = False
+
 for indx in numpy.arange(len(P_list)):
- try:
+ if True: #try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.force_reset_all:  # depends on integrator!  May not always be availble
@@ -1865,7 +1897,7 @@ for indx in numpy.arange(len(P_list)):
       # Disable saving of the integrand -- saves on memory and will reduce speed. 
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
- except Exception as exception_failure:
+ else: #except Exception as exception_failure:
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
   if opts.internal_make_empty_file_on_error:
