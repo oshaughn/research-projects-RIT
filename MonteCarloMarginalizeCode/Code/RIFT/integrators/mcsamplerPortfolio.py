@@ -175,10 +175,10 @@ class MCSampler(object):
 
 
         # Allocate memory.
+        #    - initialize with zeros so we will hard fail /nan if error
         rv = self.xpy.empty((n_params, n_samples), dtype=numpy.float64)
-        joint_p_s = self.xpy.ones(n_samples, dtype=numpy.float64)
-        joint_p_prior = self.xpy.ones(n_samples, dtype=numpy.float64)
-
+        joint_p_s = self.xpy.zeros(n_samples, dtype=numpy.float64)
+        joint_p_prior = self.xpy.zeros(n_samples, dtype=numpy.float64)
 
         # Identify number of samples per member of the portfolio. Can be zero.
         n_samples_per_member = ((self.portfolio_weights)*n_samples).astype(int)
@@ -186,10 +186,8 @@ class MCSampler(object):
         n_index_start_per_member = np.zeros(len(self.portfolio_realizations),dtype=int)
         n_index_start_per_member[1:] = np.cumsum(n_samples_per_member)[:-1]
 
-
         # Draw in blocks, and copy in place
-        indx_member = 0
-        for member in self.portfolio_realizations:
+        for indx_member, member in enumerate(self.portfolio_realizations):
             joint_p_s_here, joint_p_prior_here, rv_here = member.draw_simplified(
                 n_samples_per_member[indx_member], *self.params_ordered
             )
@@ -198,7 +196,7 @@ class MCSampler(object):
             joint_p_s[indx_start:indx_end] = joint_p_s_here
             joint_p_prior[indx_start:indx_end] = joint_p_prior_here
             rv[:,indx_start:indx_end] = rv_here
-
+            
         #
         # Cache the samples we chose.  REQUIRED
         #
