@@ -81,6 +81,22 @@ class NanOrInf(Exception):
         return repr(self.value)
 
 
+###
+### scheduling functions : return probability array, given 
+###
+
+def portfolio_default_weights(n_ess_list, wt_previous, portfolio_probability_floor=0.01, history_factor=0.5, **kwargs):
+  vals = np.array(n_ess_list)
+  rewt = vals - 1   # will be non-negative
+  rewt = np.ones(len(vals))*portfolio_probability_floor + rewt/np.sum(rewt) * (1-portfolio_probability_floor)
+  return (rewt * history_factor + wt_previous*(1-history_factor))
+
+
+###
+### PORTFOLIO CLASS
+###
+
+
 class MCSampler(object):
     """
     Class to define a set of parameter names, limits, and probability densities.
@@ -88,7 +104,7 @@ class MCSampler(object):
 
 
 
-    def __init__(self,portfolio=None,portfolio_weights=None,n_chunk=400000):
+    def __init__(self,portfolio=None,portfolio_weights=None,n_chunk=400000, portfolio_freeze_wt=-1,**kwargs):
         if portfolio is None:
             raise Exception("mcsamplerPortfolio: must provide portfolio on init")
         self.portfolio=portfolio
@@ -105,6 +121,9 @@ class MCSampler(object):
         self.portfolio_weights =portfolio_weights
         if not(self.portfolio_weights ):
             self.portfolio_weights = np.ones(len(self.portfolio))/(1.0*len(self.portfolio))
+
+        self.portfolio_adapt = np.ones(len(self.portfolio),dtype=bool) # default : everything adapts.  
+        self.portfolio_freeze_wt =portfolio_freeze_wt  # if weight is below this number, the portfolio member's distribution will NOT update. SCALAR
 
         # Total number of samples drawn
         self.ntotal = 0
@@ -136,8 +155,11 @@ class MCSampler(object):
         self.params_ordered.append(params)
         for member in self.portfolio_realizations:
             member.add_parameter(params, pdf, **kwargs)
-        self.llim = member.llim
-        self.rlim = member.rlim
+        # update dictionary limits
+        self.llim.update( member.llim)
+        self.rlim.update(member.rlim)
+        # set master list of adaptive parameters 
+        self.adaptive.append(member.adaptive)  # top level list of adaptive coordinates
 
 
     def setup(self,  **kwargs):
@@ -211,7 +233,7 @@ class MCSampler(object):
         n = int(kwargs["n"] if "n" in kwargs else min(100000, nmax))
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
         save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None
-
+        portfolio_wt_func = kwargs['portfolio_schedule'] if 'portfolio_schedule' in kwargs else portfolio_default_weights
 
         #
         # Adaptive sampling parameters
@@ -378,11 +400,10 @@ class MCSampler(object):
               ln_wt_here += - np.max(ln_wt_here)
               # evaluate  n_ess, n_eff for this set of samples in batch specifically,
               portfolio_report[indx_member] = [ self.portfolio_weights[indx_member], np.sum(np.exp(ln_wt_here))**2/np.sum(np.exp(ln_wt_here*2)), np.sum(np.exp(ln_wt_here))]
-#            print("\t",portfolio_report)
+            print("\t",portfolio_report)
             # Weight based on n_ESS from batch.  remember these are >=1, so no negatives or 0 will happen
             dat =np.array([ portfolio_report[k][1] for k in range(len(self.portfolio))])
-            rewt = 0.01 + np.sqrt(dat-1)   # prototype.
-            self.portfolio_weights = 0.5*(rewt/np.sum(rewt) + self.portfolio_weights) # introduce inertia
+            self.portfolio_weights = portfolio_wt_func(dat, self.portfolio_weights) # call weighting function
 
               
 
@@ -391,9 +412,12 @@ class MCSampler(object):
             ###
             ### WEIGHT UPDATE BLOCK (improve by adding all portfolio options - default vanilla independent updates now)
             ###
-            for member in self.portfolio_realizations:
+            for indx, member in enumerate(self.portfolio_realizations):
                 # update sampling prior, using ALL past data
-                member.update_sampling_prior(log_weights, n_history,tempering_exp=tempering_exp,external_rvs=self._rvs,log_scale_weights=True)
+                if self.portfolio_weights[indx] > self.portfolio_freeze_wt:
+                  member.update_sampling_prior(log_weights, n_history,tempering_exp=tempering_exp,external_rvs=self._rvs,log_scale_weights=True)
+                else:
+                  print("   - frozen sampling for member {} {}".format(indx, self.portfolio_weights[indx]))
 
         # If we were pinning any values, undo the changes we did before
         # self.pdf.update(temppdfdict)
