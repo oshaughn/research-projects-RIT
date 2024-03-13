@@ -327,7 +327,8 @@ class MCSampler(object):
                 lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
 
             log_integrand =lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
-            log_weights = tempering_exp*lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
+            # tempering_exp done inside the update proposal, NOT here
+            log_weights = lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
 
             if save_intg:
                 # FIXME: See warning at beginning of function. The prior values
@@ -385,6 +386,7 @@ class MCSampler(object):
             ### PORTFOLIO REPORT BLOCK (and reweighting of member priority)
             ###
             #  n_ess for each portfolio member
+            #  computed with TRUE weights, not 
             #  Use this to reassess which portfolio members are being refined.
             n_samples = len(log_weights)
             n_samples_per_member = ((self.portfolio_weights)*len(log_weights)).astype(int)
