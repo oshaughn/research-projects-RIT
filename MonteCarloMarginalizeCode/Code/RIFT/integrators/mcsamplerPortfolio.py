@@ -163,8 +163,9 @@ class MCSampler(object):
 
 
     def setup(self,  **kwargs):
-        for member in self.portfolio_realizations:
+        for member in self.portfolio:
             if hasattr(member, 'setup'):
+              print(" PORTFOLIO setup ", member)
               member.setup(**kwargs)
 
     def draw(self,n_samples, *args, **kwargs):
