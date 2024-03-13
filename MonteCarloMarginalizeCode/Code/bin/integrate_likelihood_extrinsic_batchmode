@@ -707,6 +707,7 @@ if opts.internal_rotate_phase:
 #
 # Parameter integral sampling strategy
 #
+use_portfolio=False
 params = {}
 sampler = mcsampler.MCSampler()
 xpy_asarray_already = functools.partial(xpy_default.asarray,dtype=np.float64)
@@ -742,6 +743,7 @@ elif opts.sampler_method == 'AV':
       sampler.xpy= numpy
       sampler.identity_convert= lambda x: x
 elif opts.sampler_method == "portfolio":
+    use_portfolio=True
     opts.internal_use_lnL=True  # required, we only implement those scenarios right now
     sampler_list = []
     sampler_types = opts.sampler_portfolio
@@ -751,6 +753,7 @@ elif opts.sampler_method == "portfolio":
             sampler = mcsamplerAdaptiveVolume.MCSampler()
         if name =='GMM':
             sampler = mcsamplerEnsemble.MCSampler()
+            # following override means sampler_method is CHANGED, so THIS MUST BE LAST, and can't condition on portfolio
             opts.sampler_method = 'GMM'  # this will force the creation/parsing of GMM-specific arguments below, so they are properly passed
         if name == "adaptive_cartesian_gpu":
             sampler = mcsamplerGPU.MCSampler()
@@ -979,7 +982,8 @@ if not opts.time_marginalization:
                           prior_pdf = functools.partial(mcsampler.uniform_samp_vector, param_limits["t_ref"][0], param_limits["t_ref"][1]))
 
 # set up sampler, as needed.  Mainly for portfolio integrator
-if opts.sampler_method == 'portfolio' and hasattr(sampler, 'setup'):
+if use_portfolio:
+      print(" PORTFOLIO : setup")
       sampler.setup()
 
 #
