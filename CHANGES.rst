@@ -1,4 +1,10 @@
 
+0.0.15.12
+-------------
+Since last release
+   - gracedb get file psd.xml.gz fix for online; ILE hard fail if CUDA/JIT compilation error
+
+
 0.0.15.11
 -----------
 Since last release
