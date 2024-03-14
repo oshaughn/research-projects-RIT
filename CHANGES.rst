@@ -8,13 +8,18 @@ Since last release
       mcsamplerAdaptiveVolume (rc1)
 
 
+0.0.15.12
+-------------
+Since last release
+   - gracedb get file psd.xml.gz fix for online; ILE hard fail if CUDA/JIT compilation error
+
+
 0.0.15.11
 -----------
 Since last release
    - bugfix util_JoinExtrXML to catch last batch; bugfix --calibration-reweighting-initial-extra-args argument passing  (rc1)
    - bugfix Lmag high-order PN coefficient; ourparams glue.ligolw -> ligo.lw (rc2)
    - CI fix so integration test sane (rc3)
-   - gracedb get file psd.xml.gz fix for online; ILE hard fail if CUDA/JIT compilation error
 
 Release is rc3
 
