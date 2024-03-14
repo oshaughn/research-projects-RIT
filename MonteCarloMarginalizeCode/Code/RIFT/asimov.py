@@ -12,9 +12,7 @@ from asimov import config, logger
 from asimov.utils import set_directory
 
 from asimov.pipeline import Pipeline, PipelineException, PipelineLogger
-from asimov.pipeline import PESummaryPipeline
-
-
+from asimov.pipelines.pesummary import PESummary
 class Rift(Pipeline):
     """
     The RIFT Pipeline.
@@ -339,7 +337,24 @@ class Rift(Pipeline):
                             return PipelineLogger(
                                 message=out, production=self.production.name
                             )
-
+    def _build_bootstrap_grid(self):
+        """
+        Construct the bootstrapping grid from a posterior distribution
+        provided by an upstream pipeline.
+        
+        """
+        for previous_job in self.production.dependencies:
+            try:
+                # Check if the job provides PSDs as an asset and were produced
+                # with compatible settings
+                assets = productions[previous_job].pipeline.collect_assets()
+                if "posterior" in assets:
+                    posterior = assets['posterior']
+                    break # there are probably better ways to do this.
+            except Exception:
+                posterior = None
+        # TODO Add the code here to actually generate the grid from the posterior.
+                        
     def submit_dag(self, dryrun=False):
         """
         Submit a DAG file to the condor cluster (using the RIFT dag name).
