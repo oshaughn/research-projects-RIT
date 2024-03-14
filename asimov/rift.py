@@ -28,14 +28,14 @@ class Rift(Pipeline):
         Defaults to "C01_offline".
     """
 
-    name = "RIFT"
+    name = "RIFT_direct"
     STATUS = {"wait", "stuck", "stopped", "running", "finished"}
 
     def __init__(self, production, category=None):
         super(Rift, self).__init__(production, category)
         self.logger = logger
         self.logger.info("Using the RIFT pipeline")
-        if not production.pipeline.lower() == "rift":
+        if not production.pipeline.lower() == "rift_direct":
             raise PipelineException
 
         if "bootstrap" in self.production.meta:
