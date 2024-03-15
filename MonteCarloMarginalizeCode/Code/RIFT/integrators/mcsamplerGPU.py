@@ -528,6 +528,10 @@ class MCSampler(object):
       if external_rvs:
         rvs_here = external_rvs
 
+      # apply tempering exponent (structurally slightly different than in low-level code - not just to likelihood)
+      ln_weights  = np.array(ln_weights) # force copy
+      ln_weights *= tempering_exp
+
       n_history_to_use = np.min([n_history, len(ln_weights), len(rvs_here[self.params_ordered[0]])] )
 
       # default is to use logarithmic (!) weights, relying on them being positive.
