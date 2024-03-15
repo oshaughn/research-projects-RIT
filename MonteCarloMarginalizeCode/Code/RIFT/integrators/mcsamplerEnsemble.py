@@ -199,7 +199,7 @@ class MCSampler(object):
                 pdf_func = self.prior_pdf[self.curr_args[index]]
                 temp_samples = samples[:,index]
                 # monte carlo integrator expects a column
-                temp_ret *= self.xpy.rot90([pdf_func(temp_samples)], -1)
+                temp_ret *= pdf_func(temp_samples).reshape( temp_ret.shape) #self.xpy.rot90([pdf_func(temp_samples)], -1)
         return temp_ret
 
     def setup(self,n_comp=None,**kwargs):
@@ -277,8 +277,10 @@ class MCSampler(object):
       if external_rvs:
         rvs_here = external_rvs
 
+      xpy_here = np  # force np internal, because we don't have GMM implemented
+
       # apply tempering exponent (structurally slightly different than in low-level code - not just to likelihood)
-      ln_weights  = np.array(ln_weights) # force copy
+      ln_weights  = np.array(self.identity_convert(ln_weights)) # force copy
       ln_weights *= tempering_exp
 
       gmm_dict = self.integrator.gmm_dict  # direct acess
@@ -286,7 +288,8 @@ class MCSampler(object):
       n_history_to_use = np.min([n_history, len(ln_weights), len(rvs_here[self.params_ordered[0]])] )
 
       # Create appropriate history array
-      sample_array = np.empty( (len(self.params_ordered), n_history_to_use))
+      # keep in GPU form, because we don't need it all !  Only adapt in SOME dimensions, reduce bandwidth!
+      sample_array = self.xpy.empty( (len(self.params_ordered), n_history_to_use))
       for indx, p in enumerate(self.params_ordered):
           sample_array[indx] = rvs_here[p][-n_history_to_use:]
       sample_array = sample_array.T
@@ -305,7 +308,8 @@ class MCSampler(object):
             index = 0
             for dim in dim_group:
                 # get samples corresponding to the current model
-                temp_samples[:,index] = sample_array[:,dim]
+                # send from GPU as needed
+                temp_samples[:,index] = self.identity_convert(sample_array[:,dim])
                 index += 1
 
             # don't train with nan!
@@ -331,12 +335,12 @@ class MCSampler(object):
         """
         Draw a set of random variates for parameter(s) args. Left and right limits are handed to the function. If args is None, then draw *all* parameters. 'rdict' parameter is a boolean. If true, returns a dict matched to param name rather than list. rvs must be either a list of uniform random variates to transform for sampling, or an integer number of samples to draw.
         """
-        n_samples = n
+        n_samples = int(n)
         self.integrator.n = n # need to override this, so we sample with correct size
 
         if len(args) == 0:
             args = self.params
-        n_params = len(args)
+        n_params = int(len(args))
 
         save_no_samples= False
         if 'save_no_samples' in list(kwargs.keys()):
@@ -350,7 +354,10 @@ class MCSampler(object):
 
         self.integrator._sample()
         for indx, p in enumerate(self.params_ordered):
-            rv[indx,:]  = self.integrator.sample_array[:,indx]
+            if isinstance(type(rv), type(self.integrator.sample_array)):
+                rv[indx,:]  = self.integrator.sample_array[:,indx]
+            else:
+                rv[indx,:]  = self.identity_convert_togpu(self.integrator.sample_array[:,indx])
         joint_p_s = self.integrator.sampling_prior_array
         joint_p_prior = self.calc_pdf(rv.T).flatten()
 
