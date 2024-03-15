@@ -46,7 +46,7 @@ try:
 #  cupy.ndarray.asnumpy = verbose_cupy_asnumpy
 
 except:
-  print(' no cupy (mcsamplerAV)')
+  print(' no cupy (mcsamplerPortfolio)')
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   xpy_special_default = special
@@ -435,10 +435,13 @@ class MCSampler(object):
             ###
             ### WEIGHT UPDATE BLOCK (improve by adding all portfolio options - default vanilla independent updates now)
             ###
+            update_dict = {}
+            update_dict.update(self.extra_args)
+            update_dict['tempering_exp'] =tempering_exp
             for indx, member in enumerate(self.portfolio_realizations):
                 # update sampling prior, using ALL past data
                 if self.portfolio_weights[indx] > self.portfolio_freeze_wt:
-                  member.update_sampling_prior(log_weights, n_history,tempering_exp=tempering_exp,external_rvs=self._rvs,log_scale_weights=True, **self.extra_args)
+                  member.update_sampling_prior(log_weights, n_history,external_rvs=self._rvs,log_scale_weights=True, **update_dict)
                 else:
                   print("   - frozen sampling for member {} {}".format(indx, self.portfolio_weights[indx]))
 
