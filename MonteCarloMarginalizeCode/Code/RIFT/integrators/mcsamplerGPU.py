@@ -409,6 +409,7 @@ class MCSampler(object):
         if len(args) == 0:
             args = self.params
 
+        n_samples = int(n_samples) 
         n_params = len(args)
         
         save_no_samples = kwargs.get("save_no_samples", False)
@@ -535,7 +536,7 @@ class MCSampler(object):
         rvs_here = external_rvs
 
       # apply tempering exponent (structurally slightly different than in low-level code - not just to likelihood)
-      ln_weights  = np.array(ln_weights) # force copy
+      ln_weights  = self.xpy.array(ln_weights) # force copy
       ln_weights *= tempering_exp
 
       n_history_to_use = np.min([n_history, len(ln_weights), len(rvs_here[self.params_ordered[0]])] )
