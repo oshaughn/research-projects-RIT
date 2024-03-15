@@ -152,6 +152,7 @@ class MCSampler(object):
         # histogram setup
         self.xpy = numpy
         self.identity_convert = lambda x: x  # if needed, convert to numpy format  (e.g, cupy.asnumpy)
+        self.identity_convert_togpu = lambda x: x  # if needed, convert to numpy format  (e.g, cupy.asnumpy)
 
         # extra args, created during setup
         self.extra_args = {}
@@ -211,9 +212,9 @@ class MCSampler(object):
             )
             # type convert as needed, to GPU
             if not(isinstance( type(joint_p_s_here), type(joint_p_s))):
-              joint_p_s_here = self.identity_convert(joint_p_s_here)
-              joint_p_prior_here = self.identity_convert(joint_p_prior_here)
-              rv_here = self.identity_convert(rv_here)
+              joint_p_s_here = self.identity_convert_togpu(joint_p_s_here)
+              joint_p_prior_here = self.identity_convert_togpu(joint_p_prior_here)
+              rv_here = self.identity_convert_togpu(rv_here)
             indx_start = int(n_index_start_per_member[indx_member])
             indx_end = indx_start + int(n_samples_per_member[indx_member])
             joint_p_s[indx_start:indx_end] = joint_p_s_here
