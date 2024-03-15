@@ -85,11 +85,17 @@ class NanOrInf(Exception):
 ### scheduling functions : return probability array, given 
 ###
 
-def portfolio_default_weights(n_ess_list, wt_previous, portfolio_probability_floor=0.01, history_factor=0.5, **kwargs):
-  vals = np.array(n_ess_list)
+def portfolio_default_weights(n_ess_list, wt_previous, portfolio_probability_floor=0.01, history_factor=0.5, xpy=xpy_default, identity_convert=lambda x:x, **kwargs):
+  assert len(n_ess_list) == len(wt_previous)
+
+  vals = identity_convert(n_ess_list)
   rewt = vals - 1   # will be non-negative
-  rewt = np.ones(len(vals))*portfolio_probability_floor + rewt/np.sum(rewt) * (1-portfolio_probability_floor)
-  return (rewt * history_factor + wt_previous*(1-history_factor))
+  # don't update if we have insane answers
+  if any(xpy.isnan(rewt)):
+    return wt_previous
+  rewt = xpy.ones(len(rewt))*portfolio_probability_floor + (rewt/xpy.sum(rewt)) * (1-portfolio_probability_floor)
+  net = (rewt * history_factor + wt_previous*(1-history_factor))
+  return net/xpy.sum(net) # make SURE normalized correctly
 
 
 ###
@@ -104,7 +110,7 @@ class MCSampler(object):
 
 
 
-    def __init__(self,portfolio=None,portfolio_weights=None,n_chunk=400000, portfolio_freeze_wt=-1,**kwargs):
+    def __init__(self,portfolio=None,portfolio_weights=None,n_chunk=400000, portfolio_freeze_wt=0.05,**kwargs):
         if portfolio is None:
             raise Exception("mcsamplerPortfolio: must provide portfolio on init")
         self.portfolio=portfolio
@@ -147,6 +153,9 @@ class MCSampler(object):
         self.xpy = numpy
         self.identity_convert = lambda x: x  # if needed, convert to numpy format  (e.g, cupy.asnumpy)
 
+        # extra args, created during setup
+        self.extra_args = {}
+
     def add_parameter(self, params, pdf,  **kwargs):
         """
         Add one (or more) parameters to sample dimensions. params is either a string describing the parameter, or a tuple of strings. The tuple will indicate to the sampler that these parameters must be sampled together. left_limit and right_limit are on the infinite interval by default, but can and probably should be specified. If several params are given, left_limit, and right_limit must be a set of tuples with corresponding length. Sampling PDF is required, and if not provided, the cdf inverse function will be determined numerically from the sampling PDF.
@@ -163,6 +172,7 @@ class MCSampler(object):
 
 
     def setup(self,  **kwargs):
+        self.extra_args =kwargs  # may need to pass/use during the 'update' step
         for member in self.portfolio:
             if hasattr(member, 'setup'):
               print(" PORTFOLIO setup ", member)
@@ -183,15 +193,27 @@ class MCSampler(object):
 
         # Identify number of samples per member of the portfolio. Can be zero.
         n_samples_per_member = ((self.portfolio_weights)*n_samples).astype(int)
-        n_samples_per_member[-1] = n_samples - np.sum(n_samples_per_member[0:-1])
-        n_index_start_per_member = np.zeros(len(self.portfolio_realizations),dtype=int)
-        n_index_start_per_member[1:] = np.cumsum(n_samples_per_member)[:-1]
+        # logic to block cases where we zero out a number of samples per member.
+        # Note this motivates keeping portfolio adaptive weights frozen and not too small, to avoid accidental negative counts.
+        if self.xpy.sum(n_samples_per_member[0:-1]) < n_samples:
+          n_samples_per_member[-1] = n_samples - self.xpy.sum(n_samples_per_member[0:-1])
+        elif np.sum(n_samples_per_member[0:-2]) < n_samples:
+          n_samples_per_member[-1] = 0
+          n_samples_per_member[-2] = n_samples - self.xpy.sum(n_samples_per_member[0:-2])
+
+        n_index_start_per_member = self.xpy.zeros(len(self.portfolio_realizations),dtype=int)
+        n_index_start_per_member[1:] = self.xpy.cumsum(n_samples_per_member)[:-1]
 
         # Draw in blocks, and copy in place
         for indx_member, member in enumerate(self.portfolio_realizations):
             joint_p_s_here, joint_p_prior_here, rv_here = member.draw_simplified(
                 n_samples_per_member[indx_member], *self.params_ordered
             )
+            # type convert as needed, to GPU
+            if not(isinstance( type(joint_p_s_here), type(joint_p_s))):
+              joint_p_s_here = self.identity_convert(joint_p_s_here)
+              joint_p_prior_here = self.identity_convert(joint_p_prior_here)
+              rv_here = self.identity_convert(rv_here)
             indx_start = int(n_index_start_per_member[indx_member])
             indx_end = indx_start + int(n_samples_per_member[indx_member])
             joint_p_s[indx_start:indx_end] = joint_p_s_here
@@ -404,7 +426,7 @@ class MCSampler(object):
             print("\t",portfolio_report)
             # Weight based on n_ESS from batch.  remember these are >=1, so no negatives or 0 will happen
             dat =np.array([ portfolio_report[k][1] for k in range(len(self.portfolio))])
-            self.portfolio_weights = portfolio_wt_func(dat, self.portfolio_weights) # call weighting function
+            self.portfolio_weights = portfolio_wt_func(dat, self.portfolio_weights, xpy=self.xpy, identity_convert=self.identity_convert) # call weighting function
 
               
 
@@ -416,7 +438,7 @@ class MCSampler(object):
             for indx, member in enumerate(self.portfolio_realizations):
                 # update sampling prior, using ALL past data
                 if self.portfolio_weights[indx] > self.portfolio_freeze_wt:
-                  member.update_sampling_prior(log_weights, n_history,tempering_exp=tempering_exp,external_rvs=self._rvs,log_scale_weights=True)
+                  member.update_sampling_prior(log_weights, n_history,tempering_exp=tempering_exp,external_rvs=self._rvs,log_scale_weights=True, **self.extra_args)
                 else:
                   print("   - frozen sampling for member {} {}".format(indx, self.portfolio_weights[indx]))
 
