@@ -747,7 +747,16 @@ elif opts.sampler_method == "portfolio":
     opts.internal_use_lnL=True  # required, we only implement those scenarios right now
     sampler_list = []
     sampler_types = opts.sampler_portfolio
+
+    # prep xpy, etc
+    my_xpy = xpy_default
+    my_identity_convert=identity_convert
     print(" PORTFOLIO ", opts.sampler_portfolio)
+    xpy_asarray_already = lambda x: x  # do nothing because we are already on the board for GPU-generated 
+    if opts.sampler_xpy == "numpy":
+      mcsampler.set_xpy_to_numpy()
+      my_xpy= numpy
+      my_identity_convert= lambda x: x
     for name in sampler_types:
         if name =='AV':
             sampler = mcsamplerAdaptiveVolume.MCSampler()
@@ -760,6 +769,10 @@ elif opts.sampler_method == "portfolio":
             sampler.xpy = xpy_default
             sampler.identity_convert=identity_convert
         print('PORTFOLIO: adding {} '.format(name))
+        # enable xpy for low level sampler as needed 
+        if hasattr(sampler, xpy):
+          sampler.xpy = my_xpy
+          sampler.identity_convert= my_identity_convert
         sampler_list.append(sampler)
     sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
 
