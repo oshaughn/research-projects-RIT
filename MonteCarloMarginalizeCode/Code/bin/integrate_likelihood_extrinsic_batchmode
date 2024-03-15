@@ -768,6 +768,7 @@ elif opts.sampler_method == "portfolio":
             sampler = mcsamplerGPU.MCSampler()
             sampler.xpy = xpy_default
             sampler.identity_convert=identity_convert
+            mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
         print('PORTFOLIO: adding {} '.format(name))
         # enable xpy for low level sampler as needed 
         if hasattr(sampler, 'xpy'):
