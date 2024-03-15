@@ -777,6 +777,10 @@ elif opts.sampler_method == "portfolio":
           sampler.identity_convert_togpu=identity_convert_togpu
         sampler_list.append(sampler)
     sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
+    sampler.xpy = my_xpy
+    sampler.identity_convert= my_identity_convert
+    sampler.identity_convert_togpu= my_identity_convert_togpu
+    sampler.portfolio_weights = my_xpy.ones(len(sampler.portfolio)) # need to initialize to correct type !
 
 else:
     print(" ILE: original sampler")
