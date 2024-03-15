@@ -201,6 +201,11 @@ class MCSampler(object):
         self.xpy = numpy
         self.identity_convert = lambda x: x  # if needed, convert to numpy format  (e.g, cupy.asnumpy)
 
+        # sampling tool
+        self.V=None  # fractional volume
+        self.delta_V=None  # fractional volume
+        
+
     def setup(self):
         ndim = len(self.params)
         self.nbins = np.ones(ndim)
@@ -214,6 +219,12 @@ class MCSampler(object):
         self.dx0  = np.array(self.dx)   # Save initial prior widths (used for initial prior ragne at end/volume)
         self.cycle = 1
 
+        self.V=1
+        self.V_s = np.prod([ self.rlim[x] - self.llim[x] for x in self.llim])  # global sampling volume
+        self.lnL_thresh = -np.inf
+        self.enc_prob = 0.999
+
+        self.is_varaha=True
 
     def clear(self):
         """
@@ -275,6 +286,15 @@ class MCSampler(object):
             indx +=1
         return p_out
 
+
+    def draw_simplified(self,n_to_get, *args, **kwargs):
+        rv, log_p = self.draw_simple()
+        p = np.exp(log_p)[:n_to_get]
+        ps = self.xpy.ones(len(p))*self.V_s/self.V   # sampling prior, full hypercube normalized to 1
+        ps = ps[:n_to_get]
+        rv = rv[:n_to_get].T
+        return ps, p, rv
+
     def draw_simple(self):
         # Draws
         x =  sample_from_bins(self.my_ranges, self.dx, self.binunique, self.ninbin)
@@ -282,6 +302,116 @@ class MCSampler(object):
         log_p = np.log(self.prior_prod(x))
         # Not including any sampling prior factors, since it is de facto uniform right now (just discarding 'irrelevant' regions)
         return x, log_p
+
+    def update_sampling_prior_selfish(self, lnF, *args, xpy=xpy_default,no_protect_names=True,**kwargs):
+        """
+      update_sampling_prior
+
+      Update VARAHA sampling hypercubes/
+
+      Note that external samples are NOT uniform.
+      VARAHA should only be trained on its own samples, not others!
+
+      We therefore do a single pure step of VARAHA, including *independent* draws.  We will keep state about 'V' etc from previous iterations.
+        We therefore also have to know about the function we are integrating. However, we do not keep track of the integral result here -- the top -level routine does this.
+       """
+        xpy_here = self.xpy
+        enforce_bounds=True
+
+        # VT specific items
+        loglkl_thr = -1e15
+        enc_prob = 0.999 #The approximate upper limit on the final probability enclosed by histograms.
+        V = self.V  # nominal scale factor for hypercube volume
+        ndim = len(self.params_ordered)
+        allx, allloglkl = np.transpose([[]] * ndim), []
+        allp = []
+        trunc_p = 1e-10 #How much probability analysis removes with evolution
+        nsel = 1000# number of largest log-likelihood samples selected to estimate lkl_thr for the next cycle.
+        if cupy_ok:
+          alldx = identity_convert_togpu(allx)
+          allloglkl = identity_convert_togpu(allloglkl)
+
+        ntotal_true = 0
+        if True: # while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
+            # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
+            rv, log_joint_p_prior = self.draw_simple()  # Beware reversed order of rv
+            ntotal_true += len(rv)
+            if cupy_ok:
+              rv = identity_convert_togpu(rv) # send random numbers to GPU : ugh
+              log_joint_p_prior = identity_convert_togpu(log_joint_p_prior)    # send to GPU if required. Don't waste memory reassignment otherwise
+
+            # Evaluate function, protecting argument order
+            if True: #'no_protect_names' in kwargs:
+                unpacked0 = rv.T
+                lnL = lnF(*unpacked0)  # do not protect order
+            # else:
+            #     unpacked = dict(list(zip(self.params_ordered,rv.T)))
+            #     lnL= lnF(**unpacked)  # protect order using dictionary
+            # take log if we are NOT using lnL
+            if cupy_ok:
+              if not(isinstance(lnL,cupy.ndarray)):
+                lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
+
+
+            # For now: no prior, just duplicate VT algorithm
+            log_integrand =lnL  + log_joint_p_prior
+            
+            loglkl = log_integrand # note we are putting the prior in here
+
+            idxsel = xpy_here.where(loglkl > loglkl_thr)
+            #only admit samples that lie inside the live volume, i.e. one that cross likelihood threshold
+            allx = xpy_here.append(allx, rv[idxsel], axis = 0)
+            allloglkl = xpy_here.append(allloglkl, loglkl[idxsel])
+            allp = xpy_here.append(allp, log_joint_p_prior[idxsel])
+            ninj = len(allloglkl)
+
+
+            #just some test to verify if we dont discard more than 1 - Pthr probability
+            at_final_threshold = np.round(enc_prob/trunc_p) - np.round(enc_prob/(1 - enc_prob)) == 0
+            #Estimate likelihood threshold
+            if not(at_final_threshold):
+                loglkl_thr, truncp = get_likelihood_threshold(allloglkl, loglkl_thr, nsel, 1 - enc_prob - trunc_p,xpy_here=xpy_here)
+                trunc_p += truncp
+    
+            # Select with threshold
+            idxsel = xpy_here.where(allloglkl > loglkl_thr)
+            allloglkl = allloglkl[idxsel]
+            allp = allp[idxsel]
+            allx = allx[idxsel]
+            nrec = len(allloglkl)   # recovered size of active volume at present, after selection
+
+            # Weights
+            lw = allloglkl - xpy_here.max(allloglkl)
+            w = xpy_here.exp(lw)
+            neff_varaha = identity_convert(xpy_here.sum(w) ** 2 / xpy_here.sum(w ** 2))
+            eff_samp = identity_convert(xpy_here.sum(w)/xpy_here.max(w))  # to CPU as needed
+ 
+            #New live volume based on new likelihood threshold
+            V *= (nrec / ninj)
+            delta_V = V / np.sqrt(nrec) 
+ 
+            # Redefine bin sizes, reassign points to redefined hypercube set. [Asymptotically this becomes stationary]
+            # Note hypercube calculation is on CPU at present, always
+            if self.d_adaptive > 0:
+              self.nbins = np.ones(ndim)*(1/delta_V) ** (1/self.d_adaptive)  # uniform split in each dimension is normal, but we have array - can be irregular
+              self.nbins[self.indx_not_adaptive] = 1  # reset to 1 bin for non-adaptive dimensions
+            else:
+              self.nbins = np.ones(ndim) # why are we even doing this!
+
+            # bin sizes integers?  May slow us down
+            if enforce_bounds:
+              self.nbins = np.floor(self.nbins)
+
+            self.dx = np.diff(self.my_ranges, axis = 1).flatten() / self.nbins   # update bin widths
+            binidx = ( (( identity_convert(allx) - self.my_ranges.T[0]) / self.dx.T).astype(int)  ) #bin indexs of the samples ... sent back to CPU as needed
+
+            self.binunique = np.unique(binidx, axis = 0)
+            self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1) * np.ones(self.binunique.shape[0])).astype(int)
+
+            self.cycle += 1
+
+        self.V = V
+        self.delta_V  = delta_V
         
 
     @profile
