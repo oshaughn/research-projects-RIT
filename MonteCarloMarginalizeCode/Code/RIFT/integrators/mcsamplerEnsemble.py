@@ -108,6 +108,10 @@ class MCSampler(object):
         self.gmm_dict ={} # state variable
         self.integrator = None # state variable
 
+        # portfolio interfacing/GPU compatible cross-sampler operations
+        self.xpy = np
+        self.identity_convert = lambda x: x  # if needed, convert to numpy format  (e.g, cupy.asnumpy)
+
 
     def clear(self):
         """
@@ -187,14 +191,14 @@ class MCSampler(object):
         possibility of no prior for one of more dimensions
         '''
         n, _ = samples.shape
-        temp_ret = np.ones((n, 1))
+        temp_ret = self.xpy.ones((n, 1))
         # pdf functions expect 1D rows
         for index in range(len(self.curr_args)):
             if self.curr_args[index] in self.prior_pdf:
                 pdf_func = self.prior_pdf[self.curr_args[index]]
                 temp_samples = samples[:,index]
                 # monte carlo integrator expects a column
-                temp_ret *= np.rot90([pdf_func(temp_samples)], -1)
+                temp_ret *= self.xpy.rot90([pdf_func(temp_samples)], -1)
         return temp_ret
 
     def setup(self,n_comp=None,**kwargs):
@@ -339,9 +343,9 @@ class MCSampler(object):
 
 
         # Allocate memory.
-        rv = np.empty((n_params, n_samples), dtype=np.float64)
-        joint_p_s = np.ones(n_samples, dtype=np.float64)
-        joint_p_prior = np.ones(n_samples, dtype=np.float64)
+        rv = self.xpy.empty((n_params, n_samples), dtype=np.float64)
+        joint_p_s = self.xpy.ones(n_samples, dtype=np.float64)
+        joint_p_prior = self.xpy.ones(n_samples, dtype=np.float64)
 
         self.integrator._sample()
         for indx, p in enumerate(self.params_ordered):
