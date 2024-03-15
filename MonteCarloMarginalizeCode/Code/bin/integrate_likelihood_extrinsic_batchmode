@@ -770,7 +770,7 @@ elif opts.sampler_method == "portfolio":
             sampler.identity_convert=identity_convert
         print('PORTFOLIO: adding {} '.format(name))
         # enable xpy for low level sampler as needed 
-        if hasattr(sampler, xpy):
+        if hasattr(sampler, 'xpy'):
           sampler.xpy = my_xpy
           sampler.identity_convert= my_identity_convert
         sampler_list.append(sampler)
