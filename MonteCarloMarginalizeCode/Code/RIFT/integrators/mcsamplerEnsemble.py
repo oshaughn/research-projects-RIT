@@ -111,6 +111,7 @@ class MCSampler(object):
         # portfolio interfacing/GPU compatible cross-sampler operations
         self.xpy = np
         self.identity_convert = lambda x: x  # if needed, convert to numpy format  (e.g, cupy.asnumpy)
+        self.identity_convert_togpu = lambda x: x
 
 
     def clear(self):
