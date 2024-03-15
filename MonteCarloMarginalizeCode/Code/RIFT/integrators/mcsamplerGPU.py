@@ -161,6 +161,7 @@ class MCSampler(object):
         self.setup_hist()
         self.xpy = numpy
         self.identity_convert = lambda x: x  # if needed, convert to numpy format  (e.g, cupy.asnumpy)
+        self.identity_convert_togpu = lambda x: x
 
     def clear(self):
         """
@@ -428,7 +429,12 @@ class MCSampler(object):
             rv[i] = param_samples
             joint_p_s *= self.pdf[param](param_samples)
             #val= self.pdf[param](param_samples); print(type(val),param,xpy_default)
-            joint_p_prior *= self.prior_pdf[param](param_samples)
+            # portfolio compatibility: prior_pdf is not always returning nice things
+            prior_vals = self.prior_pdf[param](param_samples)
+            if isinstance(prior_vals, self.xpy.ndarray):
+              joint_p_prior *= prior_vals
+            else:
+              joint_p_prior *= identity_convert_togpu(prior_vals)
             #val=self.prior_pdf[param](param_samples); print(type(val),param)
 
         #
