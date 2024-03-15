@@ -88,7 +88,7 @@ class NanOrInf(Exception):
 def portfolio_default_weights(n_ess_list, wt_previous, portfolio_probability_floor=0.01, history_factor=0.5, xpy=xpy_default, identity_convert=lambda x:x, **kwargs):
   assert len(n_ess_list) == len(wt_previous)
 
-  vals = identity_convert(n_ess_list)
+  vals = n_ess_list
   rewt = vals - 1   # will be non-negative
   # don't update if we have insane answers
   if any(np.isnan(rewt)):
@@ -194,13 +194,14 @@ class MCSampler(object):
 
         # Identify number of samples per member of the portfolio. Can be zero.
         n_samples_per_member = ((self.portfolio_weights)*n_samples).astype(int)
+
         # logic to block cases where we zero out a number of samples per member.
         # Note this motivates keeping portfolio adaptive weights frozen and not too small, to avoid accidental negative counts.
-        if self.xpy.sum(n_samples_per_member[0:-1]) < n_samples:
-          n_samples_per_member[-1] = n_samples - self.xpy.sum(n_samples_per_member[0:-1])
+        if np.sum(n_samples_per_member[0:-1]) < n_samples:
+          n_samples_per_member[-1] = n_samples - np.sum(n_samples_per_member[0:-1])
         elif np.sum(n_samples_per_member[0:-2]) < n_samples:
           n_samples_per_member[-1] = 0
-          n_samples_per_member[-2] = n_samples - self.xpy.sum(n_samples_per_member[0:-2])
+          n_samples_per_member[-2] = n_samples - np.sum(n_samples_per_member[0:-2])
 
         n_index_start_per_member = np.zeros(len(self.portfolio_realizations),dtype=int)
         n_index_start_per_member[1:] = np.cumsum(n_samples_per_member)[:-1]
@@ -428,7 +429,7 @@ class MCSampler(object):
               ln_wt_here =  log_weights[indx_start:indx_end]
               ln_wt_here += - np.max(ln_wt_here)
               # evaluate  n_ess, n_eff for this set of samples in batch specifically,
-              portfolio_report[indx_member] = [ self.identity_convert(self.portfolio_weights[indx_member]), self.xpy.sum(self.xpy.exp(ln_wt_here))**2/self.xpy.sum(self.xpy.exp(ln_wt_here*2)), self.xpy.sum(self.xpy.exp(ln_wt_here))]
+              portfolio_report[indx_member] = [ self.portfolio_weights[indx_member], self.identity_convert(self.xpy.sum(self.xpy.exp(ln_wt_here))**2/self.xpy.sum(self.xpy.exp(ln_wt_here*2))), identity_convert(self.xpy.sum(self.xpy.exp(ln_wt_here)))]
             print("\t",portfolio_report)
             # Weight based on n_ESS from batch.  remember these are >=1, so no negatives or 0 will happen
             dat =np.array([ portfolio_report[k][1] for k in range(len(self.portfolio))])
@@ -461,7 +462,7 @@ class MCSampler(object):
         #   - create the cumulative weights
         #   - find and remove samples which contribute too little to the cumulative weights
         if (not save_no_samples) and ( "log_integrand" in self._rvs):
-            self._rvs["sample_n"] = numpy.arange(len(self._rvs["log_integrand"]))  # create 'iteration number'        
+            self._rvs["sample_n"] = self.identity_convert_togpu(numpy.arange(len(self._rvs["log_integrand"])))  # create 'iteration number'        
             # Step 1: Cut out any sample with lnL belw threshold
             indx_list = [k for k, value in enumerate( (self._rvs["log_integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
             # FIXME: This is an unncessary initial copy, the second step (cum i
