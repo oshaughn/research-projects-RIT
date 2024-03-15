@@ -91,11 +91,11 @@ def portfolio_default_weights(n_ess_list, wt_previous, portfolio_probability_flo
   vals = identity_convert(n_ess_list)
   rewt = vals - 1   # will be non-negative
   # don't update if we have insane answers
-  if any(xpy.isnan(rewt)):
+  if any(np.isnan(rewt)):
     return wt_previous
-  rewt = xpy.ones(len(rewt))*portfolio_probability_floor + (rewt/xpy.sum(rewt)) * (1-portfolio_probability_floor)
+  rewt = np.ones(len(rewt))*portfolio_probability_floor + (rewt/np.sum(rewt)) * (1-portfolio_probability_floor)
   net = (rewt * history_factor + wt_previous*(1-history_factor))
-  return net/xpy.sum(net) # make SURE normalized correctly
+  return net/np.sum(net) # make SURE normalized correctly
 
 
 ###
@@ -124,7 +124,7 @@ class MCSampler(object):
               # can pass low-level sampler object itself
               self.portfolio_realizations.append(member)
 
-        self.portfolio_weights =portfolio_weights
+        self.portfolio_weights =portfolio_weights   # cpu-type data structure !
         if not(self.portfolio_weights ):
             self.portfolio_weights = np.ones(len(self.portfolio))/(1.0*len(self.portfolio))
 
@@ -202,8 +202,8 @@ class MCSampler(object):
           n_samples_per_member[-1] = 0
           n_samples_per_member[-2] = n_samples - self.xpy.sum(n_samples_per_member[0:-2])
 
-        n_index_start_per_member = self.xpy.zeros(len(self.portfolio_realizations),dtype=int)
-        n_index_start_per_member[1:] = self.xpy.cumsum(n_samples_per_member)[:-1]
+        n_index_start_per_member = np.zeros(len(self.portfolio_realizations),dtype=int)
+        n_index_start_per_member[1:] = np.cumsum(n_samples_per_member)[:-1]
 
         # Draw in blocks, and copy in place
         for indx_member, member in enumerate(self.portfolio_realizations):
@@ -412,7 +412,12 @@ class MCSampler(object):
             #  Use this to reassess which portfolio members are being refined.
             n_samples = len(log_weights)
             n_samples_per_member = ((self.portfolio_weights)*len(log_weights)).astype(int)
-            n_samples_per_member[-1] = n_samples - np.sum(n_samples_per_member[0:-1])
+            if np.sum(n_samples_per_member[0:-1]) < n_samples:
+              n_samples_per_member[-1] = n_samples - np.sum(n_samples_per_member[0:-1])
+            elif np.sum(n_samples_per_member[0:-2]) < n_samples:
+              n_samples_per_member[-1] = 0
+              n_samples_per_member[-2] = n_samples - np.sum(n_samples_per_member[0:-2])
+
             n_index_start_per_member = np.zeros(len(self.portfolio_realizations),dtype=int)
             n_index_start_per_member[1:] = np.cumsum(n_samples_per_member)[:-1]
 
@@ -423,7 +428,7 @@ class MCSampler(object):
               ln_wt_here =  log_weights[indx_start:indx_end]
               ln_wt_here += - np.max(ln_wt_here)
               # evaluate  n_ess, n_eff for this set of samples in batch specifically,
-              portfolio_report[indx_member] = [ self.portfolio_weights[indx_member], np.sum(np.exp(ln_wt_here))**2/np.sum(np.exp(ln_wt_here*2)), np.sum(np.exp(ln_wt_here))]
+              portfolio_report[indx_member] = [ self.identity_convert(self.portfolio_weights[indx_member]), self.xpy.sum(self.xpy.exp(ln_wt_here))**2/self.xpy.sum(self.xpy.exp(ln_wt_here*2)), self.xpy.sum(self.xpy.exp(ln_wt_here))]
             print("\t",portfolio_report)
             # Weight based on n_ESS from batch.  remember these are >=1, so no negatives or 0 will happen
             dat =np.array([ portfolio_report[k][1] for k in range(len(self.portfolio))])
