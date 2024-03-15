@@ -510,8 +510,8 @@ class MCSampler(object):
 
         # Create extra dictionary to return things
         dict_return ={}
-        if convergence_tests is not None:
-            dict_return["convergence_test_results"] = None # last_convergence_test
+        # if convergence_tests is not None:
+        #     dict_return["convergence_test_results"] = None # last_convergence_test
 
         # perform type conversion of all stored variables
         if cupy_ok:
