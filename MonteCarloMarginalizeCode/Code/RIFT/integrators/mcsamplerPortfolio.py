@@ -115,6 +115,7 @@ class MCSampler(object):
             raise Exception("mcsamplerPortfolio: must provide portfolio on init")
         self.portfolio=portfolio
         self.portfolio_realizations = []
+        self.portfolio_member_varaha = {} # these members ONLY train from their own data (i.e., VARAHA), and use likelihood contours (VARAHA)
         for member in self.portfolio:
             if isinstance(member, ModuleType):
               # can pass it a top-level routine, OR
@@ -448,7 +449,11 @@ class MCSampler(object):
             for indx, member in enumerate(self.portfolio_realizations):
                 # update sampling prior, using ALL past data
                 if self.portfolio_weights[indx] > self.portfolio_freeze_wt:
-                  member.update_sampling_prior(log_weights, n_history,external_rvs=self._rvs,log_scale_weights=True, **update_dict)
+                  if not(hasattr(member, 'is_varaha')):
+                    member.update_sampling_prior(log_weights, n_history,external_rvs=self._rvs,log_scale_weights=True, **update_dict)
+                  else:
+                    # just do a single VARAHA step, independent of others
+                    member.update_sampling_prior_selfish(lnF)
                 else:
                   print("   - frozen sampling for member {} {}".format(indx, self.portfolio_weights[indx]))
 
