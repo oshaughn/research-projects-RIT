@@ -206,7 +206,7 @@ class MCSampler(object):
         self.delta_V=None  # fractional volume
         
 
-    def setup(self):
+    def setup(self, **kwargs):
         ndim = len(self.params)
         self.nbins = np.ones(ndim)
         self.d_adaptive = len(self.adaptive)
