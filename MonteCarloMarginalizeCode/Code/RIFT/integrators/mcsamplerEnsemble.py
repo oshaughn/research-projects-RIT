@@ -246,6 +246,16 @@ class MCSampler(object):
                 gmm_dict = {}
                 for i in range(dim):
                     gmm_dict[(i,)] = None
+      else:
+            # create bounds that depend on the dimension specifiers in the gmm integrator
+            bounds ={}
+            for dims in gmm_dict:
+                n_dims = len(dims)
+                bounds_here = np.empty((n_dims,2))
+                for indx in np.arange(n_dims):
+                    bounds_here[indx] = raw_bounds[dims[indx]]  # pull out bounds index
+                bounds[dims]=bounds_here
+
           
       # instantiate an integrator object, as that is front end to all the things we need.
       # we will need some dummy things 
@@ -261,6 +271,10 @@ class MCSampler(object):
       rvs_here = self._rvs
       if external_rvs:
         rvs_here = external_rvs
+
+      # apply tempering exponent (structurally slightly different than in low-level code - not just to likelihood)
+      ln_weights  = np.array(ln_weights) # force copy
+      ln_weights *= tempering_exp
 
       gmm_dict = self.integrator.gmm_dict  # direct acess
 
@@ -288,16 +302,23 @@ class MCSampler(object):
                 # get samples corresponding to the current model
                 temp_samples[:,index] = sample_array[:,dim]
                 index += 1
+
+            # don't train with nan!
+            if any(np.isnan(ln_weights)):
+                ok_indx = ~np.isnan(ln_weights)
+                temp_samples = temp_samples[ok_indx]
+                ln_weights = ln_weights[ok_indx]
+            
             if model is None:
                 # model doesn't exist yet
                 if isinstance(self.integrator.n_comp, int) and self.integrator.n_comp != 0:
                     model = GMM.gmm(self.integrator.n_comp, new_bounds,epsilon=self.gmm_epsilon)
-                    model.fit(temp_samples, log_sample_weights=log_weights)
+                    model.fit(temp_samples, log_sample_weights=ln_weights)
                 elif isinstance(self.integrator.n_comp, dict) and self.integrator.n_comp[dim_group] != 0:
                     model = GMM.gmm(self.integrator.n_comp[dim_group], new_bounds,epsilon=self.integrator.gmm_epsilon)
-                    model.fit(temp_samples, log_sample_weights=log_weights)
+                    model.fit(temp_samples, log_sample_weights=ln_weights)
             else:
-                model.update(temp_samples, log_sample_weights=log_weights)
+                model.update(temp_samples, log_sample_weights=ln_weights)
             self.integrator.gmm_dict[dim_group] = model
 
 
