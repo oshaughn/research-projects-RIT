@@ -360,7 +360,7 @@ ile_args=ile_args.rstrip()
 if opts.request_gpu_ILE or opts.request_xpu_ILE:
     ile_args+=" --vectorized --gpu "  # append this
 if opts.ile_n_events_to_analyze > 1:
-    ile_args+= " --n-events-to-analyze " + str(opts.ile_n_events_to_analyze)
+    ile_args+= " --n-events-to-analyze  $(macrongroup) " # + str(opts.ile_n_events_to_analyze)
 #ile_args += ' --soft-fail-event-range '  #important in case event is out of range. Simply exit NO ...not backwards compatible
 print("ILE", ile_args)
 
@@ -1292,6 +1292,7 @@ for it in np.arange(it_start,opts.n_iterations):
 #        ile_node.set_priority(JOB_PRIORITIES["ILE"])
         ile_node.set_retry(opts.ile_retries)
         ile_node.add_macro("macroevent", event*n_group)
+        ile_node.add_macro("macrongroup", n_group)
         ile_node.add_macro("macroiteration", it)
         if not(parent_fit_node is None):
             ile_node.add_parent(parent_fit_node)
@@ -1308,6 +1309,7 @@ for it in np.arange(it_start,opts.n_iterations):
             ile_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
             ile_node.set_retry(opts.ile_retries)
             ile_node.add_macro("macroevent", event*n_group)
+            ile_node.add_macro("macrongroup", n_group)
             ile_node.add_macro("macroiteration", it)
             if not(parent_fit_node is None):
                 ile_node.add_parent(parent_fit_node)
@@ -1330,6 +1332,7 @@ for it in np.arange(it_start,opts.n_iterations):
             ile_node = pipeline.CondorDAGNode(ileFetch_job)  # only difference is here: uses fetch. ASSUME it is the same size (!!) -- should make this controllable
             ile_node.set_retry(opts.ile_retries)
             ile_node.add_macro("macroevent", event*n_group)
+            ile_node.add_macro("macrongroup", n_group)
             ile_node.add_macro("macroiteration", it)
             if not(parent_fit_node is None):
                 ile_node.add_parent(parent_fit_node)
