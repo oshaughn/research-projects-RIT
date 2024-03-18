@@ -127,7 +127,7 @@ elif opts.marg_event_args_list_file:
         marg_event_exe_list = f.readlines()
     marg_event_nchunk_list = np.ones(len(marg_event_exe_list)) # default: one point per evaluation
     if opts.marg_event_nchunk_list_file and os.path.isfile(opts.marg_event_nchunk_list_file):
-        marg_event_nchunk_list = np.loadtxt(opts.marg_event_nchunk_list_file) # load in 1d array
+        marg_event_nchunk_list = np.loadtxt(opts.marg_event_nchunk_list_file,dtype=int) # load in 1d array
         assert len(marg_event_nchunk_list) == len(marg_event_exe_list)
         
     assert len(marg_event_exe_list) == len(marg_event_args_list)  # fail if not true: not matching MARG args to exe
@@ -275,7 +275,7 @@ if opts.marg_event_args:
 
 else:
     for indx in np.arange(len(marg_event_args_list)):
-        n_chunk_here = marg_event_nchunk_list[indx]
+        n_chunk_here = int(marg_event_nchunk_list[indx])
         cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='MARG_{}'.format(indx),log_dir=None,exe=marg_event_exe_list[indx],arg_str=marg_event_args_list[indx],using_eos='file:'+working_dir_inside_local+"/grid-$(macroiteration).dat",using_eos_index='$(macroevent)',n_events_to_analyze=n_chunk_here,request_memory=opts.request_memory_marg,input_net=working_dir_inside_local+'/event-$(macroid).net',output='MARG-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,universe=local_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../event-$(macroid).net']+transfer_file_names)
         # Modify: set 'initialdir'
         cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg")
@@ -489,7 +489,7 @@ for it in np.arange(it_start,opts.n_iterations):
             # Create consolidate job 1 for that event
             con_node = pipeline.CondorDAGNode(con_marg_job)
             con_node.add_macro("macroiteration",it)
-            con_node.add_macro("macroevent",event)
+            con_node.add_macro("macroevent",int(event))
             con_node.set_retry(opts.general_retries)
             for row in np.arange(indx_max_event): #np.arange(n_jobs_this_time):
                 # Add task per MARG operation
@@ -499,7 +499,7 @@ for it in np.arange(it_start,opts.n_iterations):
                     cip_node = pipeline.CondorDAGNode(cip_job_list[event])
                 cip_node.set_retry(opts.general_retries)
                 cip_node.add_macro("macroid",event)
-                cip_node.add_macro("macroevent", row*n_chunk_here)
+                cip_node.add_macro("macroevent", int(row*n_chunk_here))
                 cip_node.add_macro("macroiteration", it)
                 if not(parent_fit_node is None):
                     cip_node.add_parent(parent_fit_node)
@@ -513,8 +513,8 @@ for it in np.arange(it_start,opts.n_iterations):
                         else:
                             cipPuff_node = pipeline.CondorDAGNode(cip_puff_job_list[event])
                         cipPuff_node.set_retry(opts.general_retries)
-                        cipPuff_node.add_macro("macroid",event)
-                        cipPuff_node.add_macro("macroevent", row*n_chunk_here)
+                        cipPuff_node.add_macro("macroid",int(event))
+                        cipPuff_node.add_macro("macroevent", int(row*n_chunk_here))
                         cipPuff_node.add_macro("macroiteration", it)
                         if not(parent_fit_node is None):
                             cipPuff_node.add_parent(parent_fit_node)
