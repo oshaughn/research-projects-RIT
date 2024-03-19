@@ -195,7 +195,12 @@ class integrator:
                     model.fit(temp_samples, log_sample_weights=log_weights)
             else:
                 model.update(temp_samples, log_sample_weights=log_weights)
-            self.gmm_dict[dim_group] = model
+            try:
+                # Verify model can evaluated! Quick and dirty test to confirm not singular
+                model.score(temp_samples[:5])
+                self.gmm_dict[dim_group] = model
+            except:
+                print(" Failed to update ", dim_group)
 
 
     def _calculate_results(self):
