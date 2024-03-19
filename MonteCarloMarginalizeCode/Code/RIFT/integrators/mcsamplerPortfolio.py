@@ -534,6 +534,7 @@ class MCSampler(object):
           if not(isinstance(outvals[1], np.float64)):
             out1 = identity_convert(out1)
             eff_samp = identity_convert(eff_samp)
+          self._rvs['integrand'] = self._rvs['log_integrand'] # always integrating log function.  Match behavior of other routines
           return out0, out1 - np.log(self.ntotal), eff_samp, dict_return
         else: # very strange case where we terminate early
           return None, None, None, None
