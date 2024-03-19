@@ -116,6 +116,8 @@ class MCSampler(object):
         self.portfolio=portfolio
         self.portfolio_realizations = []
         self.portfolio_member_varaha = {} # these members ONLY train from their own data (i.e., VARAHA), and use likelihood contours (VARAHA)
+        self.portfolio_draw_iteration = 0  #  counter, used fo
+        self.portfolio_breakpoints = None # breakpoints, at which we activate the other samplers for (a) drawing and (b) training
         for member in self.portfolio:
             if isinstance(member, ModuleType):
               # can pass it a top-level routine, OR
@@ -175,16 +177,33 @@ class MCSampler(object):
 
     def setup(self,  **kwargs):
         self.extra_args =kwargs  # may need to pass/use during the 'update' step
+        if not('portfolio_breakpoints') in kwargs:
+          self.portfolio_breakpoints = np.zeros(len(self.portfolio)) # always use all of them
+        else:
+          self.portfolio_breakpoints = kwargs['portfolio_breakpoints']     
+          if self.portfolio_breakpoints is None:
+            self.portfolio_breakpoints = np.zeros(len(self.portfolio)) # always use all of them
+          assert len(self.portfolio_breakpoints) == len(self.portfolio_realizations)  # must match
+
         for member in self.portfolio:
             if hasattr(member, 'setup'):
               print(" PORTFOLIO setup ", member)
               member.setup(**kwargs)
 
     def draw(self,n_samples, *args, **kwargs):
+        """
+        draw n_samples
+
+        Draw from portfolio.
+        Uses portfolio weights to calculate desired outcomes.
+        Restricts to ACTIVE members.
+        """
         if len(args) == 0:
             args = self.params
         n_params = len(args)
         n_samples = int(n_samples)
+
+        self.portfolio_draw_iteration += 1
 
 
         # Allocate memory.
@@ -193,25 +212,36 @@ class MCSampler(object):
         joint_p_s = self.xpy.zeros(n_samples, dtype=numpy.float64)
         joint_p_prior = self.xpy.zeros(n_samples, dtype=numpy.float64)
 
-        # Identify number of samples per member of the portfolio. Can be zero.
-        n_samples_per_member = ((self.portfolio_weights)*n_samples).astype(int)
+        indx_active = np.argwhere(self.portfolio_breakpoints <= self.portfolio_draw_iteration).flatten() # provide indexes
+        weights_active = np.array([self.portfolio_weights[x] for x in indx_active]) # only provide desired ones
+        weights_active *= 1./np.sum(weights_active)  # renormalize
+        portfolio_active = [self.portfolio_realizations[x] for x in indx_active] # get the active portfolio members
+#        print(" \t ",indx_active, self.portfolio_breakpoints, self.portfolio_draw_iteration)
 
-        # logic to block cases where we zero out a number of samples per member.
-        # Note this motivates keeping portfolio adaptive weights frozen and not too small, to avoid accidental negative counts.
-        if np.sum(n_samples_per_member[0:-1]) < n_samples:
-          n_samples_per_member[-1] = n_samples - np.sum(n_samples_per_member[0:-1])
-        elif np.sum(n_samples_per_member[0:-2]) < n_samples:
-          n_samples_per_member[-1] = 0
-          n_samples_per_member[-2] = n_samples - np.sum(n_samples_per_member[0:-2])
+        # if only one method is active, just call the low-level function
+        if len(indx_active) == 1:
+           joint_p_s, joint_p_prior, rv = self.portfolio[indx_active[0]].draw_simplified(n_samples, *self.params_ordered, **kwargs)
+        else:
+          # Identify number of samples per member of the portfolio. Can be zero.
+          n_samples_per_member = ((np.array(weights_active))*n_samples).astype(int)
 
-        n_index_start_per_member = np.zeros(len(self.portfolio_realizations),dtype=int)
-        n_index_start_per_member[1:] = np.cumsum(n_samples_per_member)[:-1]
+          # logic to block cases where we zero out a number of samples per member.
+          # Note this motivates keeping portfolio adaptive weights frozen and not too small, to avoid accidental negative counts.
+          if np.sum(n_samples_per_member[0:-1]) < n_samples:
+            n_samples_per_member[-1] = n_samples - np.sum(n_samples_per_member[0:-1])
+          elif np.sum(n_samples_per_member[0:-2]) < n_samples:
+            n_samples_per_member[-1] = 0
+            n_samples_per_member[-2] = n_samples - np.sum(n_samples_per_member[0:-2])
 
-        # Draw in blocks, and copy in place
-        for indx_member, member in enumerate(self.portfolio_realizations):
+          n_index_start_per_member = np.zeros(len(portfolio_active),dtype=int)
+          n_index_start_per_member[1:] = np.cumsum(n_samples_per_member)[:-1]
+
+          # Draw in blocks, and copy in place
+          # only draw from ACTIVE members
+          for indx_member, member in enumerate(portfolio_active):
             joint_p_s_here, joint_p_prior_here, rv_here = member.draw_simplified(
-                n_samples_per_member[indx_member], *self.params_ordered
-            )
+                n_samples_per_member[indx_member], *self.params_ordered, **kwargs
+                )
             # type convert as needed, to GPU
             if not(isinstance( type(joint_p_s_here), type(joint_p_s))):
               joint_p_s_here = self.identity_convert_togpu(joint_p_s_here)
@@ -448,14 +478,18 @@ class MCSampler(object):
             update_dict['tempering_exp'] =tempering_exp
             for indx, member in enumerate(self.portfolio_realizations):
                 # update sampling prior, using ALL past data
-                if self.portfolio_weights[indx] > self.portfolio_freeze_wt:
+                # Don't update samples which are not being drawn
+                if self.portfolio_weights[indx] > self.portfolio_freeze_wt and self.portfolio_draw_iteration > self.portfolio_breakpoints[indx]:  
                   if not(hasattr(member, 'is_varaha')):
                     member.update_sampling_prior(log_weights, n_history,external_rvs=self._rvs,log_scale_weights=True, **update_dict)
                   else:
                     # just do a single VARAHA step, independent of others
                     member.update_sampling_prior_selfish(lnF)
                 else:
-                  print("   - frozen sampling for member {} {}".format(indx, self.portfolio_weights[indx]))
+                  if self.portfolio_draw_iteration > self.portfolio_breakpoints[indx]:  
+                    print("   - frozen sampling for member {} {}".format(indx, self.portfolio_weights[indx]))
+                  else:
+                    print("  - before activation breakpoint for member {} ".format( indx))
 
         # If we were pinning any values, undo the changes we did before
         # self.pdf.update(temppdfdict)
