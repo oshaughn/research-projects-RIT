@@ -279,6 +279,7 @@ integration_params.add_option("--auto-logarithm-offset",action='store_true',help
 integration_params.add_option("--internal-use-lnL",action='store_true',help="likelihood returns lnL, and integrator integrates lnL")
 integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
+integration_params.add_option("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionaryo to be passed to that sampler')
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
 integration_params.add_option("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., EM observations). EXPERTS-ONLY")
 integration_params.add_option("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external prior. EXPERTS ONLY")
@@ -1150,7 +1151,16 @@ if opts.sampler_method == "AV":
 # set up sampler, as needed.  Mainly for portfolio integrator
 if use_portfolio:
       print(" PORTFOLIO : setup")
-      sampler.setup(**pinned_params) # directly pass all parameters set above to low-level portfolios.  In particular, GMM setup
+      if opts.sampler_portfolio_args:
+          print(" PRE_EVAL", opts.sampler_portfolio_args)
+          #opts.sampler_portfolio_args = list(map(lambda x: eval(' "{}" '.format(x)), opts.sampler_portfolio_args))
+          opts.sampler_portfolio_args = list(map(eval, opts.sampler_portfolio_args))
+          # confirm all are dict
+          for indx in range(len(opts.sampler_portfolio_args)):
+            if not(isinstance(opts.sampler_portfolio_args[indx], dict)):
+                print(indx,opts.sampler_portfolio_args[indx]) 
+          print(" ARGS ", opts.sampler_portfolio_args)
+      sampler.setup(portfolio_args=opts.sampler_portfolio_args, **pinned_params) # directly pass all parameters set above to low-level portfolios.  In particular, GMM setup
 
 
 def resample_samples(my_samples,
@@ -1896,7 +1906,7 @@ lnL_sofar = -np.inf
 no_adapt_sky = False
 
 for indx in numpy.arange(len(P_list)):
- if True: #try:
+ try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.force_reset_all:  # depends on integrator!  May not always be availble
@@ -1921,7 +1931,7 @@ for indx in numpy.arange(len(P_list)):
       # Disable saving of the integrand -- saves on memory and will reduce speed. 
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
- else: #except Exception as exception_failure:
+ except Exception as exception_failure:
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
   if opts.internal_make_empty_file_on_error:
