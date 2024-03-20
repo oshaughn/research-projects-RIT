@@ -321,7 +321,7 @@ class MCSampler(object):
             if model is None:
                 # model doesn't exist yet
                 if isinstance(self.integrator.n_comp, int) and self.integrator.n_comp != 0:
-                    model = GMM.gmm(self.integrator.n_comp, new_bounds,epsilon=self.gmm_epsilon)
+                    model = GMM.gmm(self.integrator.n_comp, new_bounds,epsilon=self.integrator.gmm_epsilon)
                     model.fit(temp_samples, log_sample_weights=ln_weights)
                 elif isinstance(self.integrator.n_comp, dict) and self.integrator.n_comp[dim_group] != 0:
                     model = GMM.gmm(self.integrator.n_comp[dim_group], new_bounds,epsilon=self.integrator.gmm_epsilon)
