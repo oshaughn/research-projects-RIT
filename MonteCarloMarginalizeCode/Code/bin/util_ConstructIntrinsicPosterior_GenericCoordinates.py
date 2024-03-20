@@ -337,6 +337,7 @@ parser.add_argument("--eos-param", type=str, default=None, help="parameterizatio
 parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu|portfolio")
 parser.add_argument("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
+parser.add_argument("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionaryo to be passed to that sampler')
 parser.add_argument("--internal-use-lnL",action='store_true',help="integrator internally manipulates lnL. ONLY VIABLE FOR GMM AT PRESENT")
 parser.add_argument("--internal-temper-log",action='store_true',help="integrator internally uses lnL as sampling weights (only).  Designed to reduce insane contrast and overfitting for high-amplitude cases")
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
@@ -2152,12 +2153,14 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
     #   mcsampler.set_xpy_to_numpy()
     #   sampler.xpy= numpy
     #   sampler.identity_convert= lambda x: x
+use_portfolio=False
 if opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
 elif opts.sampler_method == "AV":
     sampler = mcsamplerAdaptiveVolume.MCSampler()
     opts.internal_use_lnL= True  # required!
 elif opts.sampler_method == "portfolio":
+    use_portfolio=True
     sampler_list = []
     sampler_types = opts.sampler_portfolio
     for name in sampler_types:
@@ -2494,7 +2497,20 @@ if opts.internal_use_lnL:
 if opts.internal_temper_log:
     extra_args.update({'temper_log':True})
 if hasattr(sampler, 'setup'):
-    sampler.setup()
+    extra_args_here = {}
+    extra_args_here.update(extra_args)
+    if use_portfolio:
+        print(" PORTFOLIO : setup")
+        if opts.sampler_portfolio_args:
+          print(" PRE_EVAL", opts.sampler_portfolio_args)
+          #opts.sampler_portfolio_args = list(map(lambda x: eval(' "{}" '.format(x)), opts.sampler_portfolio_args))
+          opts.sampler_portfolio_args = list(map(eval, opts.sampler_portfolio_args))
+          # confirm all are dict
+          for indx in range(len(opts.sampler_portfolio_args)):
+            if not(isinstance(opts.sampler_portfolio_args[indx], dict)):
+                print(indx,opts.sampler_portfolio_args[indx]) 
+          print(" ARGS ", opts.sampler_portfolio_args)
+    sampler.setup(portolio_args=opts.sampler_portfolio_args,**extra_args_here)
 res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 
