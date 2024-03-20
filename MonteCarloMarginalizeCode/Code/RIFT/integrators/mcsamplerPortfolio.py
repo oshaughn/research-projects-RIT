@@ -185,10 +185,19 @@ class MCSampler(object):
             self.portfolio_breakpoints = np.zeros(len(self.portfolio)) # always use all of them
           assert len(self.portfolio_breakpoints) == len(self.portfolio_realizations)  # must match
 
-        for member in self.portfolio:
+        portfolio_extra_args = [{} for x in self.portfolio_realizations] # empty list
+        if 'portfolio_args' in kwargs:
+          if len(kwargs['portfolio_args']) == len(self.portfolio_realizations): # Only pass args if valid
+            portfolio_extra_args = kwargs['portfolio_args']
+          else:
+            print(" PORTFOLIO - format ERROR ", kwargs['portfolio_args'])
+        for indx, member in enumerate(self.portfolio):
             if hasattr(member, 'setup'):
-              print(" PORTFOLIO setup ", member)
-              member.setup(**kwargs)
+              print(" PORTFOLIO setup ", member, portfolio_extra_args[indx])
+              args_here = {}
+              args_here.update(kwargs)
+              args_here.update(portfolio_extra_args[indx])
+              member.setup(**args_here)
 
     def draw(self,n_samples, *args, **kwargs):
         """
