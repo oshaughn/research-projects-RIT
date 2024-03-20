@@ -592,7 +592,7 @@ class MCSampler(object):
         """
 
         # Setup histogram data
-        n_bins = 100
+        n_bins = kwargs['n_bins'] if 'n_bins' in kwargs else 100
         for p in self.params_ordered:
             self.setup_hist_single_param(self.llim[p], self.rlim[p], n_bins, p)
 
