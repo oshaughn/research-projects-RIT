@@ -60,6 +60,6 @@ setuptools.setup(
    install_requires=REQUIREMENTS["install"],
    entry_points={
         'asimov.pipelines':
-        ["rift = rift.asimov:AsimovPipeline"]
+        ["rift = RIFT.asimov.rift:Rift"]
     },
 )
