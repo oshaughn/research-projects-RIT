@@ -3506,7 +3506,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                     hC = hlm[mode]
                     hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0,
                                                         hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
-                    hC2.data.data = (-1.)**mode[1] * np.conj(hC.data.data) # h(l,-m) = (-1)^m hlm^* for reflection symmetry
+                    hC2.data.data = (-1.)**mode[0] * np.conj(hC.data.data) # h(l,-m) = (-1)^ell hlm^* for reflection symmetry
                     hlm[mode_conj] = hC2
         return hlm
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
@@ -3624,7 +3624,7 @@ def hlmoft_SEOB_dict(P,Lmax=2):
                 hC = hlms[mode]
                 hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0, 
                                                     hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
-                hC2.data.data = (-1.)**mode[1] * np.conj(hC.data.data) # h(l,-m) = (-1)^m hlm^* for reflection symmetry
+                hC2.data.data = (-1.)**mode[0] * np.conj(hC.data.data) # h(l,-m) = (-1)^ell hlm^* for reflection symmetry
 #                hT = hlms[mode].copy() # hopefully this works
 #                hT.data.data = np.conj(hT.data.data)
                 hlms[mode_conj] = hC2
