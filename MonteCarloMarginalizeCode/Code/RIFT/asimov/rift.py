@@ -35,7 +35,7 @@ class Rift(Pipeline):
         super(Rift, self).__init__(production, category)
         self.logger = logger
         self.logger.info("Using the RIFT pipeline")
-        if not production.pipeline.lower() == "rift_direct":
+        if not production.pipeline.lower() == "rift":
             raise PipelineException
 
         if "bootstrap" in self.production.meta:
