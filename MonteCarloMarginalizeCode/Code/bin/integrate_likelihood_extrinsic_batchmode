@@ -723,7 +723,7 @@ elif opts.sampler_method == 'AV':
     print(" ILE: {}".format(opts.sampler_method))
     opts.internal_use_lnL=True
 
-    sampler = mcsamplerAdaptiveVolume.MCSampler()
+    sampler = mcsamplerAdaptiveVolume.MCSampler(n_chunk=opts.n_chunk) # note larger is better, but keep GPU mem limits in mind
     sampler.xpy = xpy_default
     sampler.identity_convert=identity_convert
 #    mcsampler  = mcsampler  # force use of routines in that file, for properly configured GPU-accelerated code as needed
