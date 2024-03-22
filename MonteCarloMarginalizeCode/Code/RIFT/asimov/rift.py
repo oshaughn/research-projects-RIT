@@ -28,7 +28,7 @@ class Rift(Pipeline):
         Defaults to "C01_offline".
     """
 
-    name = "RIFT_direct"
+    name = "RIFT"
     STATUS = {"wait", "stuck", "stopped", "running", "finished"}
 
     def __init__(self, production, category=None):
