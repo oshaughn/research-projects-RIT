@@ -172,7 +172,7 @@ class MCSampler(object):
         return (set(matched) ^ set(against)) == set()
 
 
-    def __init__(self,n_chunk=400000):
+    def __init__(self,n_chunk=400000,**kwargs):
         # Total number of samples drawn
         self.ntotal = 0
         # Parameter names
@@ -382,6 +382,7 @@ class MCSampler(object):
         allp = []
         trunc_p = 1e-10 #How much probability analysis removes with evolution
         nsel = 1000# number of largest log-likelihood samples selected to estimate lkl_thr for the next cycle.
+        nsel = np.min([nsel, int(0.1*self.n_chunk)]) #  if chunk size is small, don't pick too many points
         if cupy_ok:
           alldx = identity_convert_togpu(allx)
           allloglkl = identity_convert_togpu(allloglkl)
