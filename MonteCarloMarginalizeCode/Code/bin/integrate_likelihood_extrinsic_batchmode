@@ -762,7 +762,7 @@ elif opts.sampler_method == "portfolio":
       my_identity_convert_togpu= lambda x: x
     for name in sampler_types:
         if name =='AV':
-            sampler = mcsamplerAdaptiveVolume.MCSampler()
+            sampler = mcsamplerAdaptiveVolume.MCSampler(n_chunk=opts.n_chunk) # enforce now, so provided for setup phase
         if name =='GMM':
             sampler = mcsamplerEnsemble.MCSampler()
             # following override means sampler_method is CHANGED, so THIS MUST BE LAST, and can't condition on portfolio
