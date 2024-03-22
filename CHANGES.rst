@@ -6,12 +6,14 @@ Since last release
       prototype; pp_RIFT minor fixes (lalapps_path2cache); AV eos-tabular-infereence updates; hyperpipe; scitokens;
       fix online PE use case for O4 (PSD; gracedb-id logic if ini provided); request_memory units; EOSPlotUtilities;
       mcsamplerAdaptiveVolume (rc1)
+   - merge in 0.0.15.11, as well as below ( ILE_batchmode hard fail on JIT compilation error, from 15.12 below); AV in rosenbrock test; AV n_chunk size for portfolio; hyperpipe
+      integer events;  bugfix (-1)^m->(-1)^l reflection for aligned TEOBResumS external call (rc2)
 
 
 0.0.15.12
 -------------
 Since last release
-   - gracedb get file psd.xml.gz fix for online; ILE hard fail if CUDA/JIT compilation error
+   - gracedb get file psd.xml.gz fix for online; ILE hard fail if CUDA/JIT compilation error; bugfix (-1)^m->(-1)^l reflection for aligned TEOBResumS external call
 
 
 0.0.15.11
