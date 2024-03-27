@@ -10,6 +10,9 @@ from scipy import integrate, interpolate, special
 import itertools
 import functools
 
+from copy import deepcopy
+
+
 import os
 
 try:
@@ -110,11 +113,12 @@ class MCSampler(object):
 
 
 
-    def __init__(self,portfolio=None,portfolio_weights=None,n_chunk=400000, portfolio_freeze_wt=0.05,**kwargs):
+    def __init__(self,portfolio=None,portfolio_weights=None,oracle_realizations =None,n_chunk=400000, portfolio_freeze_wt=0.05,**kwargs):
         if portfolio is None:
             raise Exception("mcsamplerPortfolio: must provide portfolio on init")
         self.portfolio=portfolio
         self.portfolio_realizations = []
+        self.oracle_realizations= oracle_realizations if oracle_realizations else []
         self.portfolio_member_varaha = {} # these members ONLY train from their own data (i.e., VARAHA), and use likelihood contours (VARAHA)
         self.portfolio_draw_iteration = 0  #  counter, used fo
         self.portfolio_breakpoints = None # breakpoints, at which we activate the other samplers for (a) drawing and (b) training
@@ -166,7 +170,7 @@ class MCSampler(object):
         """
         self.params.add(params) # does NOT preserve order in which parameters are provided
         self.params_ordered.append(params)
-        for member in self.portfolio_realizations:
+        for member in self.portfolio_realizations  + self.oracle_realizations:
             member.add_parameter(params, pdf, **kwargs)
         # update dictionary limits
         self.llim.update( member.llim)
@@ -194,6 +198,13 @@ class MCSampler(object):
         for indx, member in enumerate(self.portfolio):
             if hasattr(member, 'setup'):
               print(" PORTFOLIO setup ", member, portfolio_extra_args[indx])
+              args_here = {}
+              args_here.update(kwargs)
+              args_here.update(portfolio_extra_args[indx])
+              member.setup(**args_here)
+        for indx, member in enumerate(self.oracle_realizations):
+            if hasattr(member, 'setup'):
+              print(" PORTFOLIO ORACLE setup ", member, portfolio_extra_args[indx])
               args_here = {}
               args_here.update(kwargs)
               args_here.update(portfolio_extra_args[indx])
@@ -351,8 +362,10 @@ class MCSampler(object):
 
 
         n_zero_prior =0
+        it_max_oracle = 3
+        it_now  =0
         while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
-
+            
 
             ###
             ### COMMON INTEGRATION BLOCK
@@ -363,6 +376,7 @@ class MCSampler(object):
             joint_p_s, joint_p_prior, rv = self.draw(
                 n, *self.params_ordered
             )
+            it_now +=1 
 
             #
             # Unpack rvs and evaluate integrand
@@ -476,7 +490,30 @@ class MCSampler(object):
             self.portfolio_weights = portfolio_wt_func(dat, self.portfolio_weights, xpy=self.xpy, identity_convert=self.identity_convert) # call weighting function
 
               
-
+            ###
+            ### ORACLE BLOCK
+            ###
+            rvs_train = self._rvs
+            if it_now < it_max_oracle and len(self.oracle_realizations )>0:
+              rvs_train = deepcopy(self._rvs)  # duplicate deeply, since we will append to it
+              n_samples_per_oracle = int(n*0.1/len(self.oracle_realizations)) # try to minimize oracle effort
+              print(" ORACLE: attempting updates ")
+              # update each oracle
+              for member in self.oracle_realizations:
+                member.update_sampling_prior(log_weights, n_history, external_rvs=rvs_train, log_scale_weights=True)
+              # generate samples from oracles
+              rv_oracle = self.xpy.empty((n_samples_per_oracle*len(self.oracle_realizations), len(self.params_ordered)))
+              base_now = 0
+              for member in self.oracle_realizations:
+                _, _, rv_here = member.draw_simplified(n_samples_per_oracle)
+                rv_oracle[base_now:base_now+n_samples_per_oracle] = rv_here
+                base_now += n_samples_per_oracle
+              # evaluate lnL for each,
+              lnL_oracles = lnF(*rv_oracle.T)
+              # put into weights and rvs, for use in training other samples
+              self.xpy.append(log_weights, lnL_oracles)
+              for indx, p in enumerate(self.params_ordered):
+                self.xpy.append(rvs_train[p],  rv_oracle[:,indx])
 
 
             ###
@@ -490,7 +527,7 @@ class MCSampler(object):
                 # Don't update samples which are not being drawn
                 if self.portfolio_weights[indx] > self.portfolio_freeze_wt and self.portfolio_draw_iteration > self.portfolio_breakpoints[indx]:  
                   if not(hasattr(member, 'is_varaha')):
-                    member.update_sampling_prior(log_weights, n_history,external_rvs=self._rvs,log_scale_weights=True, **update_dict)
+                    member.update_sampling_prior(log_weights, n_history,external_rvs=rvs_train,log_scale_weights=True, **update_dict)
                   else:
                     # just do a single VARAHA step, independent of others
                     member.update_sampling_prior_selfish(lnF)
