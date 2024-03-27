@@ -30,10 +30,15 @@ class ResamplingOracle(MCSamplerGeneric):
         self.reference_samples = reference_samples
         self.reference_params = reference_params
 
-        # parameters that match our list
-        self.valid_params = [p for p in self.reference_params  if p in self.params_ordered] # valid parameters to sample from
-        self.other_params = list( set(self.params_ordered) - set(self.valid_params)) # remainder, will be uniform
-            
+        # parameters that match our list.  
+        # Note: we may need to initialize this LATER, if we have not yet been passed our params!
+        if self.params_ordered and self.reference_params:
+            print(self.params_ordered, self.reference_params)
+            self.valid_params = [p for p in self.reference_params  if p in self.params_ordered] # valid parameters to sample from
+            self.other_params = list( set(self.params_ordered) - set(self.valid_params)) # remainder, will be uniform
+
+    def update_sampling_prior(self, *args, **kwargs):
+        True
 
 
     def draw_simplified(self, n_samples, *args, **kwargs):
