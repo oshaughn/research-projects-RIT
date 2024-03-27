@@ -48,7 +48,7 @@ class ClimbingOracle(MCSamplerGeneric):
             raise Exception(" oracle  - update  -update_sampling_prior requires initial history")
 
         n_history_to_use = np.min([n_history,  len(rvs_here[self.params_ordered[0]])] )
-        if ln_weights:
+        if not(ln_weights is None):
             n_history_to_use = np.min([n_history,len(ln_weights)])
         
         sample_array = self.xpy.empty( (len(self.params_ordered), n_history_to_use))
@@ -56,8 +56,8 @@ class ClimbingOracle(MCSamplerGeneric):
             sample_array[indx] = rvs_here[p][-n_history_to_use:]
 
 
-        if lnw_cut and ln_weights: # we can override and trainon all data
-            sample_array = sample_array[ln_weights > np.max(ln_weights) + lnw_cut ]  # training range
+        if lnw_cut and not(ln_weights is None): # we can override and trainon all data
+            sample_array = sample_array[:, ln_weights > np.max(ln_weights) + lnw_cut ]  # training range
 
         # Pick points to climb
         drawn_indx = np.random.choice(range(len(sample_array)), replace=True,size=self.n_climbers) # random samples
