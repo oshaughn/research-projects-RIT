@@ -10,6 +10,8 @@ from scipy import integrate, interpolate, special
 import itertools
 import functools
 
+xpy_default= numpy
+
 
 class MCSamplerGeneric(object):
     """
@@ -34,6 +36,12 @@ class MCSamplerGeneric(object):
 
 
         self.adaptive =[]
+
+        # sampling distribution
+        self.pdf = {}
+        self.cdf_inv = {}
+        # prior
+        self.prior_pdf = {}
 
 
         # histogram setup
@@ -72,16 +80,7 @@ class MCSamplerGeneric(object):
             else:
                 self.rlim[params] = right_limit
         self.pdf[params] = pdf
-        # FIXME: This only works automagically for the 1d case currently
-        self.cdf_inv[params] = cdf_inv
-        if not isinstance(params, tuple):
-            self.cdf[params] =  self.cdf_function(params)
-            if prior_pdf is None:
-                self.prior_pdf[params] = lambda x:1
-            else:
-                self.prior_pdf[params] = prior_pdf
-        else:
-            self.prior_pdf[params] = prior_pdf
+        self.prior_pdf[params] = prior_pdf
 
         if adaptive_sampling:
             print("   Adapting ", params)
