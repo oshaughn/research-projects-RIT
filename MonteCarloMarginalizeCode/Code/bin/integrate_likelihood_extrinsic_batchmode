@@ -124,10 +124,6 @@ class EvenBivariateLinearInterpolator:
 
         return f_approx
 
-try:
-  from ligo.skymap.io import fits as bfits
-except:
-  print(" -no bayestar- ")
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -708,6 +704,11 @@ if opts.internal_rotate_phase:
 #
 # Parameter integral sampling strategy
 #
+
+# Oracle for portfolio if needed
+
+
+# Portfolio
 use_portfolio=False
 params = {}
 sampler = mcsampler.MCSampler()
@@ -921,7 +922,8 @@ if opts.rom_use_basis and opts.rom_integrate_intrinsic:
 
 
 
-if opts.skymap_file is not None:
+if False: #opts.skymap_file is not None:
+    from ligo.skymap.io import fits as bfits
     #
     # Right ascension and declination -- use a provided skymap
     #
@@ -1001,6 +1003,28 @@ if not opts.time_marginalization:
                           right_limit = param_limits["t_ref"][1],
                           prior_pdf = functools.partial(mcsampler.uniform_samp_vector, param_limits["t_ref"][0], param_limits["t_ref"][1]))
 
+
+# skymap oracle
+oracleRS=None
+if opts.skymap_file:
+  # Read file
+  from RIFT.misc.reference_samples import ReferenceSamples
+  rs_object = ReferenceSamples()
+  if opts.skymap_file.endswith('fits'):
+    rs_object.from_skymap_fits(fname=opts.skymap_file,cos_dec=opts.declination_cosine_sampler)
+  else:
+      rs_object.from_ascii(fname=opts.skymap_file, reference_params=['ra', 'dec'])
+      if opts.declination_cosine_sampler:
+        rs_object.reference_params[:,1] = np.arccos(rs.reference_params[:,1])
+      # relabel
+      rs_object.reference_params  = ['right_ascension', 'declination']
+
+  # Pass to resampling oracle
+  from RIFT.integrators.unreliable_oracle.resampling import ResamplingOracle
+  oracleRS = ResamplingOracle()
+  for p in sampler.params_ordered:
+        oracleRS.add_parameter(p,pdf=None, left_limit =sampler.llim[p], right_limit = sampler.rlim[p])
+  oracleRS.setup(reference_samples=rs_object.reference_samples, reference_params=rs_object.reference_params)
 
 #
 # Determine pinned and non-pinned parameters
@@ -1161,6 +1185,10 @@ if use_portfolio:
                 print(indx,opts.sampler_portfolio_args[indx]) 
           print(" ARGS ", opts.sampler_portfolio_args)
       sampler.setup(portfolio_args=opts.sampler_portfolio_args, **pinned_params) # directly pass all parameters set above to low-level portfolios.  In particular, GMM setup
+
+# initialize sampler, before we call integrate, so we can seed it
+if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
+  sampler.setup()
 
 
 def resample_samples(my_samples,
@@ -1670,6 +1698,17 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                    like_to_integrate = zero_like
               else:
                    like_to_integrate = unit_like
+    if oracleRS:
+         print("  ORACLE  - seeding sampling  with" , oracleRS.params_ordered)
+         if hasattr(sampler, 'update_sampling_prior'):
+             rvs_train = {}
+             _, _, rv_oracle = oracleRS.draw_simplified(opts.n_chunk)
+             for indx,p  in enumerate(sampler.params_ordered):
+               rvs_train[p] = rv_oracle[:,indx]
+             # train with equal weight - no likelihood information
+             lnL_oracles  = np.zeros(opts.n_chunk)
+             sampler.update_sampling_prior(lnL_oracles, opts.n_chunk, external_rvs=rvs_train,log_scale_weights=True,floor_integrated_probability=opts.adapt_floor_level)
+
     res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
 
     if not(res): # no resut
@@ -1906,7 +1945,7 @@ lnL_sofar = -np.inf
 no_adapt_sky = False
 
 for indx in numpy.arange(len(P_list)):
- try:
+ if True: #try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.force_reset_all:  # depends on integrator!  May not always be availble
@@ -1931,7 +1970,7 @@ for indx in numpy.arange(len(P_list)):
       # Disable saving of the integrand -- saves on memory and will reduce speed. 
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
- except Exception as exception_failure:
+ else: #except Exception as exception_failure:
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
   if opts.internal_make_empty_file_on_error:
