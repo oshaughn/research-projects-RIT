@@ -53,3 +53,41 @@ class ReferenceSamples(object):
                 dat_mass_post[indx_line,indx] = P_list[indx_line].extract_param(coord_names[indx])/fac
 
         self.reference_samples = dat_mass_post
+
+
+    def from_skymap_fits(self, fname=None, reference_params=None,npts_out=None, cos_dec=False):
+        # see https://emfollow.docs.ligo.org/userguide/tutorial/multiorder_skymaps.html
+        from astropy.table import QTable
+        from astropy import units as u
+        import astropy_healpix as ah
+
+        if not(fname):
+            raise Exception(" ReferenceSamples : requires fname ")
+
+        self.reference_params = reference_params
+        skymap = QTable.read(fname)
+
+        # identify pertinent samples
+        skymap.sort('PROBDENSITY', reverse=True)
+        level, ipix = ah.uniq_to_level_ipix(skymap['UNIQ'])
+        pixel_area = ah.nside_to_pixel_area(ah.level_to_nside(level))
+        prob = pixel_area * skymap['PROBDENSITY']
+        cumprob = np.cumsum(prob)
+        i = cumprob.searchsorted(0.9)  # critical 90% area threshold
+        skymap=skymap[:i] # delete everything except this part
+
+        # convert to array of RA/DEC values (pixel centers)
+        ra = np.zeros(i)
+        dec = np.zeros(i)
+        for indx in range(i):
+            uniq = skymap[indx]['UNIQ']
+            level, ipix = ah.uniq_to_level_ipix(uniq)
+            nside = ah.level_to_nside(level)
+            ra_val, dec_val = ah.healpix_to_lonlat(ipix, nside, order='nested') # warning, units
+            ra[indx]  = ra_val.value
+            dec[indx] = dec_val.value
+
+        if cos_dec:
+            dec = np.arccos(dec)
+        self.reference_samples = np.c_[ra,dec]
+        self.param_names = ['right_ascension', 'declination']
