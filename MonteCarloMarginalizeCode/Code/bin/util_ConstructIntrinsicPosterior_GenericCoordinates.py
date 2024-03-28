@@ -338,7 +338,9 @@ parser.add_argument("--eos-param", type=str, default=None, help="parameterizatio
 parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu|portfolio")
 parser.add_argument("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
-parser.add_argument("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionaryo to be passed to that sampler')
+parser.add_argument("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionary to be passed to that sampler')
+parser.add_argument("--oracle-reference-sample-file",default=None,  type=str, help='filename of reference sample file to be used as oracle for seeding sampler')
+parser.add_argument("--oracle-reference-sample-params",default=None,  type=str,  help='parameters to be pulled from sample file (format comma-separated string)')
 parser.add_argument("--internal-use-lnL",action='store_true',help="integrator internally manipulates lnL. ONLY VIABLE FOR GMM AT PRESENT")
 parser.add_argument("--internal-temper-log",action='store_true',help="integrator internally uses lnL as sampling weights (only).  Designed to reduce insane contrast and overfitting for high-amplitude cases")
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
@@ -2255,6 +2257,41 @@ if not(opts.output_prior_dictionary_file is None):
 #        pickle.dump([stored_param_prior_pdf,stored_param_ranges],f)
 
 
+###
+### Oracles
+###
+sampler_oracle = None
+if opts.oracle_reference_sample_file:
+    # default i/o request is parameters provide. 
+    # NOTE: saved fields don't match sampling in general, so we can barf here unless using XML i/o 
+    ref_params  = sampler.params_ordered
+    if (opts.oracle_reference_sample_params):
+        ref_params = opts.oracle_reference_sample_params.replace('[','').replace(']','').split(',')
+
+    from RIFT.misc.reference_samples import ReferenceSamples
+    from RIFT.integrators.unreliable_oracle.resampling import ResamplingOracle
+
+    rs_object = ReferenceSamples()
+    if opts.oracle_reference_sample_file.endswith('.dat') or opts.oracle_reference_sample_file.endswith('.txt'):
+        rs_object.from_ascii(opts.oracle_reference_sample_file)
+    elif opts.oracle_reference_sample_file.endswith('.xml.gz'):
+        rs_object.from_sim_xml(opts.oracle_reference_sample_file,reference_params=ref_params)
+    else:
+        raise Exception(" Unknown reference params file format")
+
+
+    sampler_oracle = ResamplingOracle()
+    for p in sampler.params_ordered:
+        sampler_oracle.add_parameter(p,pdf=None, left_limit =sampler.llim[p], right_limit = sampler.rlim[p])
+    sampler_oracle.setup(reference_samples=rs_object.reference_samples, reference_params=rs_object.reference_params)
+
+
+
+
+###
+### Likelihood block
+###
+
 likelihood_function = None
 # prior p/ps rescaling, to enable prior inside integrand
 # These are functions of the INTEGRATION VARIABLES, not the fit variables
@@ -2512,6 +2549,22 @@ if hasattr(sampler, 'setup'):
                 print(indx,opts.sampler_portfolio_args[indx]) 
           print(" ARGS ", opts.sampler_portfolio_args)
     sampler.setup(portolio_args=opts.sampler_portfolio_args,**extra_args_here)
+
+# Call oracle if provided, to initialize sampler 
+if sampler_oracle:
+    if hasattr(sampler, 'update_sampling_prior'):
+        rvs_train = {}
+        _, _, rv_oracle = sampler_oracle.draw_simplified(n_step)
+        for indx,p  in enumerate(sampler.params_ordered):
+            rvs_train[p] = rv_oracle[:,indx]
+        # train with equal weight - no likelihood information
+        lnL_oracles  = np.zeros(n_step)
+        sampler.update_sampling_prior(lnL_oracles, n_step, external_rvs=rvs_train,log_scale_weights=True)
+    else:
+        print("   -- ORACLE: no mechanism to update sampling prior with oracle samples ")
+
+    
+
 res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 
