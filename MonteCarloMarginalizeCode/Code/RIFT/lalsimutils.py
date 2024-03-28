@@ -21,6 +21,7 @@ built from the SWIG wrappings of LAL and LALSimulation.
 import sys
 import copy
 import types
+import EOBRun_module
 has_external_teobresum=False
 import os
 info_use_ext = True
