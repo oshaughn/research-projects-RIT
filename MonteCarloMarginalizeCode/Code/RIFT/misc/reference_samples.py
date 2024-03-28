@@ -1,6 +1,6 @@
 import numpy as np
-
-
+import RIFT.lalsimutils as lalsimutils
+import lal
 
 # idea: be able to create oracle from reference samples
 class ReferenceSamples(object):
@@ -33,3 +33,23 @@ class ReferenceSamples(object):
             dat_out[:,indx] = dat[p]
 
         self.reference_samples = dat_out
+
+    def from_sim_xml(self, fname=None, reference_params=None,npts_out=None):
+        if not(fname) or (reference_params is None):
+            raise Exception(" ReferenceSamples : requires fname or reference_params")
+
+        self.reference_params = reference_params
+
+        P_list = lalsimutils.xml_to_ChooseWaveformParams_array(fname)
+
+        coord_names = reference_params
+        # code verbatim from CIP
+        dat_mass_post = np.zeros( (len(P_list),len(coord_names)),dtype=np.float64)
+        for indx_line  in np.arange(len(P_list)):
+            for indx in np.arange(len(coord_names)):
+                fac=1
+                if coord_names[indx] in ['mc', 'mtot', 'm1', 'm2']:
+                    fac = lal.MSUN_SI
+                dat_mass_post[indx_line,indx] = P_list[indx_line].extract_param(coord_names[indx])/fac
+
+        self.reference_samples = dat_mass_post
