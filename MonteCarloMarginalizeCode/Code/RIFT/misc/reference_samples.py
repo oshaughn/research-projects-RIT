@@ -90,4 +90,4 @@ class ReferenceSamples(object):
         if cos_dec:
             dec = np.arccos(dec)
         self.reference_samples = np.c_[ra,dec]
-        self.param_names = ['right_ascension', 'declination']
+        self.reference_params = ['right_ascension', 'declination']
