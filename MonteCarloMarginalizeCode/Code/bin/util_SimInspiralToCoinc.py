@@ -5,7 +5,17 @@
 import argparse
 import json
 
-from glue.ligolw import ilwd
+
+def ilwd_base():
+    return 0
+try:
+    from  glue.ligolw import ilwd
+    def ilwd_base(a):
+        return ilwd.ilwdchar(a)
+except:
+    from ligo.lw.utils import ilwd
+
+
 from ligo.lw import ligolw   # old style deprecated
 from ligo.lw import lsctables
 from ligo.lw import table
@@ -13,6 +23,8 @@ from ligo.lw import utils
 
 import RIFT.lalsimutils as lalsimutils
 import lal
+
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--sim-xml",help="input file")
@@ -58,13 +70,13 @@ def _empty_row(obj):
         elif cols[entry] == 'lstring':
             setattr(row,entry,'')
         elif entry == 'process_id':
-            row.process_id = ilwd.ilwdchar("sim_inspiral:process_id:0")
+            row.process_id = ilwd_base("sim_inspiral:process_id:0")
         elif entry == 'process:process_id':
             row.process_id = 0  # don't care
         elif entry == 'simulation_id':
-            row.simulation_id = ilwd.ilwdchar("sim_inspiral:simulation_id:0")
+            row.simulation_id = ilwd_base("sim_inspiral:simulation_id:0")
         elif entry == 'event_id':
-            row.event_id = ilwd.ilwdchar("sngl_inspiral:event_id:0")
+            row.event_id = ilwd_base("sngl_inspiral:event_id:0")
         else:
             raise ValueError("Column %s not recognized." %(entry) )
 
@@ -113,6 +125,7 @@ for indx in range(len(opts.ifo)):
     else:
         sngl.snr = 20.  # made up, needed for some algorithms to work
 
+    sngl.alpha4 = P.eccentricity
     # add to table
     sngl_table.append(sngl)
 

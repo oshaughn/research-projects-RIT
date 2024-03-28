@@ -17,7 +17,7 @@ stages:
 
 .install_docker_dependencies:
   before_script:
-     - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
+     - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
      - apk add --update git py3-pip 
      - if [ ! -e /usr/bin/python ]; then ln -s /usr/bin/python3 /usr/bin/python; fi
 

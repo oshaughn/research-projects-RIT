@@ -21,7 +21,7 @@ my_digits=7  # safety for high-SNR BNS
 
 
 import argparse
-parser = argparse.ArgumentParser(usage="util_CleanILE.py fname1.dat fname2.dat ... ")
+parser = argparse.ArgumentParser(usage="util_HyperCombine.py fname1.dat fname2.dat ... ")
 parser.add_argument("fname",action='append',nargs='+')
 parser.add_argument("--combination",default='average',help='average|sum|product, depends on if we treat them as independent trials of the same quantity or independent')
 opts = parser.parse_args()
@@ -53,7 +53,7 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         else:
 #            print " new key ", line[1:9]
             data_at_intrinsic[tuple(line[2:])] = [line[:2]]
-        n_terms = np.max([n_terms, data_at_intrinsic[tuple(line[2:])] ])
+        n_terms = np.max([n_terms, len(data_at_intrinsic[tuple(line[2:])]) ])
       except:
           continue
 
@@ -68,6 +68,7 @@ for key in data_at_intrinsic:
     if enforce_length:
         if len(data_at_intrinsic[key]) < n_terms:
             print(" Incomplete data for {} ".format(key),file=sys.stderr)
+            continue
     lnL, sigmaOverL =   np.transpose(data_at_intrinsic[key])
     lnLmax = np.max(lnL)
     if opts.combination =='product':

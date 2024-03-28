@@ -226,6 +226,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
 parser.add_argument("--input-eos-index",action='store_true',help="Use input format with eos index fields included")
+parser.add_argument("--n-events-to-analyze",default=1,type=int,help="Number of EOS realizations to analyze. Currently only supports 1")
 parser.add_argument("--input-distance",action='store_true',help="Use input format with distance fields (but not tidal fields?) enabled.")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
@@ -349,6 +350,7 @@ parser.add_argument("--fixed-parameter-value", action="append")
 parser.add_argument("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., external astro priors). EXPERTS-ONLY")
 parser.add_argument("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external likelihood. EXPERTS ONLY")
 parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
+parser.add_argument("--supplementary-prior-code",default=None,type=str,help="Import external priors, assumed in scope as extra_prior.prior_dict_pdf, extra_prior.prior_range.  Currentlyonly supports seperable external priors")
 
 opts=  parser.parse_args()
 if not(opts.no_adapt_parameter):
@@ -751,6 +753,11 @@ def s_component_zprior(x,R=chi_max):
     # Integrate[-1/2 Log[Abs[x]], {x, -1, 1}] == 1
     val = -1./(2*R) * np.log( (np.abs(x)/R+1e-7).astype(float))
     return val
+def s_component_zprior_positive(x,R=chi_max):
+    # assume maximum spin =1. Should get from appropriate prior range
+    # Integrate[-1/2 Log[Abs[x]], {x, -1, 1}] == 1
+    val = -1./(2*R) * np.log( (np.abs(x)/R+1e-7).astype(float))
+    return val*2
 
 
 def s_component_volumetricprior(x,R=1.):
@@ -928,6 +935,16 @@ if opts.aligned_prior == 'alignedspin-zprior':
         else:
             prior_map['chiz_plus'] = s_component_gaussian_prior
             prior_map['chiz_minus'] = s_component_gaussian_prior
+elif  opts.aligned_prior == 'alignedspin-zprior-positive':
+    # prior on s1z constructed to produce the standard distribution
+    prior_map["s1z"] = s_component_zprior_positive
+    prior_map["s2z"] = functools.partial(s_component_zprior_positive,R=chi_small_max)
+    prior_map["s1z_bar"] = s_component_zprior_positive
+    prior_map["s2z_bar"] = functools.partial(s_component_zprior_positive,R=chi_small_max)
+    prior_range_map['s1z'] = [0,chi_max]
+    prior_range_map['s2z'] = [0,chi_small_max]
+    prior_range_map['s1z_bar'] = [0,chi_max]
+    prior_range_map['s2z_bar'] = [0,chi_small_max]
 
 if opts.transverse_prior == 'uniform':
     # Don't do anything: let the default uniform priros for s1x, s1y ... OR chi1_perp-bar, etc used be used
@@ -1763,7 +1780,7 @@ if opts.tabular_eos_file:
     if mc_ref > 1e10:
         mc_ref = mc_ref/lal.MSUN_SI
     m_ref = mc_ref*np.power(2, 1./5.)   # assume equal mass
-    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=opts.tabular_eos_file,load_ns=True,oned_order_name='Lambda', oned_order_mass=m_ref)
+    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=opts.tabular_eos_file, load_ns=True, oned_order_name='Lambda', oned_order_mass=m_ref, no_sort = False)
 
     # Define prior, NOT NORMALIZED
     prior_map['ordering'] =lambda x: np.ones(x.shape)
@@ -1774,7 +1791,7 @@ if opts.tabular_eos_file:
     #  - note the saved values use the FIDUCIAL ORDERING, so must be used with GREAT CARE to preserve order!
     order_vals = np.zeros(len(dat_out))
     for indx in np.arange(len(order_vals)):
-        order_vals = my_eos_sequence.lambda_of_m_indx(m_ref, int(dat_out[indx,-1]))  # last field is index value
+        order_vals[indx] = my_eos_sequence.lambda_of_m_indx(m_ref, int(dat_out[indx,-1]))  # last field is index value
     # overwrite into the ordering statistic field
     dat_out[:,-1] = order_vals
     # overwrite the coordinate name for the last field, so conversion is trivial/identity
@@ -2172,7 +2189,21 @@ for p in low_level_coord_names:
     sampler.add_parameter(p, pdf=np.vectorize(lambda x,z=fac:1./z), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=adapt_me)
 
 
-# Import prior
+###
+### Supplemental priors: load module
+###
+
+if opts.supplementary_prior_code:
+  print(" EXTERNAL PRIOR IMPORT : {} ".format(opts.supplementary_prior_code))
+  __import__(opts.supplementary_prior_code)
+  external_prior_module = sys.modules[opts.supplementary_prior_code]
+  if hasattr(external_prior_module,'prior_pdf') and hasattr(external_prior_module,'param_ranges'):
+      if type(external_prior_module.prior_pdf) == dict:
+          for name in externa_prior_module.prior_pdf:
+              sampler.prior_pdf[name] = external_prior_module[name]
+              sampler.llim[name],sampler.rlim
+
+# Import prior (does not work as implemented! Need to edit)
 if not(opts.import_prior_dictionary_file is None):
     dat  =     joblib.load(opts.import_prior_dictionary_file)
 #    print dat

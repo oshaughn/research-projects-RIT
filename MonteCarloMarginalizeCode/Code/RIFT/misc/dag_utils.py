@@ -653,7 +653,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     return ile_job, ile_sub_name
 
 
-def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,simple_unique=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,request_disk=False,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,use_cvmfs_frames=False,frames_dir=None,cache_file=None,fragile_hold=False,max_runtime_minutes=None,condor_commands=None,**kwargs):
+def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,simple_unique=False,ncopies=1,arg_str=None,request_memory=4096,request_gpu=False,request_cross_platform=False,request_disk=False,arg_vals=None, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,use_cvmfs_frames=False,frames_dir=None,cache_file=None,fragile_hold=False,max_runtime_minutes=None,condor_commands=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -809,6 +809,10 @@ echo Starting ...
     requirements = []
     if request_gpu:
         nGPUs=1
+        if request_cross_platform:
+            # recipe from https://opensciencegrid.atlassian.net/browse/HTCONDOR-2200
+            nGPUs = 'countMatches(RequireGPUs, AvailableGPUs) >= 1 ? 1 : 0'
+            ile_job.add_condor_cmd('rank', 'RequestGPUs')
         ile_job.add_condor_cmd('request_GPUs', str(nGPUs)) 
 # Claim we don't need to make this request anymore to avoid out-of-memory errors. Also, no longer in 'requirements'
 #        requirements.append("CUDAGlobalMemoryMb >= 2048")  
@@ -826,8 +830,8 @@ echo Starting ...
     if use_cvmfs_frames:
         requirements.append("HAS_LIGO_FRAMES=?=TRUE")
         if 'LIGO_OATH_SCOPE' in os.environ:
-            ile_job.add_condor_cmd('use_oauth_services','ligo')
-            ile_job.add_condor_cmd('ligo_oauth_permissions',os.environ['LIGO_OATH_SCOPE'])
+            ile_job.add_condor_cmd('use_oauth_services','igwn')
+            ile_job.add_condor_cmd('igwn_oauth_permissions',os.environ['LIGO_OATH_SCOPE'])
         else:
             ile_job.add_condor_cmd('use_x509userproxy','True')
             if 'X509_USER_PROXY' in list(os.environ.keys()):
@@ -1085,7 +1089,7 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
         extra_args = ''
         if arg_str:
             extra_args = arg_str
-        f.write( exe + +extra_args+ base_str "*.composite \n")
+        f.write( exe + extra_args+ base_str+ "*.composite \n")
     st = os.stat(cmdname)
     import stat
     os.chmod(cmdname, st.st_mode | stat.S_IEXEC)

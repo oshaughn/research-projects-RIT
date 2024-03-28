@@ -15,7 +15,8 @@ Also, make sure you cite the relevant rapid_pe/RIFT papers
  1.  Pankow et al 2015
  2.  Lange et al 2018 (RIFT)
  3.  Wysocki et al 2019 (RIFT-GPU)
- 4.  Wofforde et al 2022 (RIFT-Update)
+ 4.  Wofford et al 2022 (RIFT-Update)
+ 5.  O'Shaughnessy et al in prep (RIFT-FinerNet)
 
 When preparing your work, please cite 
 
@@ -34,10 +35,14 @@ When preparing your work, please cite
      2.  TEOBResumS interface (original):  Lange et al 2018 RIFT paper
      3.  NR interface (parts inside ILE): Lange et al 2017 PRD 96, 404 [NR comparison methods paper](http://adsabs.harvard.edu/abs/2017PhRvD..96j4041L)
      4.  NRSur7dq2 interface: Lange et al 2018 (RIFT) [paper](https://arxiv.org/abs/1805.10457), and ...
+     5.  gwsignal interface: O'Shaughnessy et al in prep ('finer net')
+     6.  TEOBResumS eccentric interface: Iglesias et al
+     7.  TEOBResumS hyperbolic interface: Henshaw, Lange et al 
 
   5. If you are using an updated Monte Carlo integration package, please acknowledge the authors; papers will be prepared soon
      1.  GMM integrator: Elizabeth Champion; see [original repo](https://git.ligo.org/benjamin.champion/Monte-Carlo-Integrator), implemented via MonteCarloEnsemble and mcsamplerEnsemble; please cite Ristic et al https://arxiv.org/abs/2105.07013
      2.  GPU MC integrator:  Wysocki, O'Shaughnessy; cite Wofford et al https://dcc.ligo.org/P2200059
+     3.  AV integrator: O'Shaughnessy et al  in prep ('finer net'), based on Tiwari et al VARAHA
 
   6. If you are using a distance-marginalized likeliihood, please acknowledge 
      1. Distance marginalization : Soichiro Morisaki, Dan Wysocki, see  Wofford et al https://dcc.ligo.org/P2200059
@@ -63,8 +68,9 @@ The following authors should be contacted
   * Wysocki, O'Shaughnessy,  Fong, Lange: GPU optimizations
   * ...
 
-## Relationship to version of rapid_pe in lalsuite
-Chris Pankow has also been maintaining a [port of the original rapid_pe as part of lalsuite](https://github.com/lscsoft/lalsuite/tree/master/lalinference/python/lalinference/rapid_pe). While this code is unreviewed and has many API and workflow differences, the underlying likelihood evaluation procedure has been the same (until the recent GPU rewrite).  We hope to eventually merge the codebases, likely by modernizing the version in lalsuite and/or by ports of rapid_pe techniques to next-generation PE codes.
+## Relationship to rapid_pe
+RIFT and rapid_pe are two forks of the original implementation presented in Pankow  et al. 2015.
+RIFT and rapid_pe are now disseminated in a common git repository https://git.ligo.org/rapidpe-rift/, and share common code (i.e, the ``integrate_likelihood_extrinsic_batchmode`` executable).
 
 
 ## Version numbers

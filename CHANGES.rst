@@ -1,3 +1,46 @@
+
+0.0.16.0
+-----------
+Since last release
+    - Start roughly 0.0.15.9 in rift_O4b, merge with 0.0.15.10 into it.  ROMWaveformManager hlmoft backwards compatbile snarf extra options; pp_RIFT_with_ini
+      prototype; pp_RIFT minor fixes (lalapps_path2cache); AV eos-tabular-infereence updates; hyperpipe; scitokens;
+      fix online PE use case for O4 (PSD; gracedb-id logic if ini provided); request_memory units; EOSPlotUtilities;
+      mcsamplerAdaptiveVolume (rc1)
+   - merge in 0.0.15.11, as well as below ( ILE_batchmode hard fail on JIT compilation error, from 15.12 below); AV in rosenbrock test; AV n_chunk size for portfolio; hyperpipe
+      integer events;  bugfix (-1)^m->(-1)^l reflection for aligned TEOBResumS external call (rc2)
+
+
+0.0.15.12
+-------------
+Since last release
+   - gracedb get file psd.xml.gz fix for online; ILE hard fail if CUDA/JIT compilation error; bugfix (-1)^m->(-1)^l reflection for aligned TEOBResumS external call
+
+
+0.0.15.11
+-----------
+Since last release
+   - bugfix util_JoinExtrXML to catch last batch; bugfix --calibration-reweighting-initial-extra-args argument passing  (rc1)
+   - bugfix Lmag high-order PN coefficient; ourparams glue.ligolw -> ligo.lw (rc2)
+   - CI fix so integration test sane (rc3)
+
+Release is rc3
+
+0.0.15.10
+-----------
+Since last release
+   - ChooseFDWaveform J frame and fourier-transform-conditioning fixes as described in T2300304; add RIFT_BOOLEAN_LIST
+     environment variable (rc1)
+   - getenv=True workaround; CIP spin prior normalization fixes (just needed for evidence); gwsignal implement Lmax in
+     hlmoft (rc2)
+   - RIFT_GETENV_OSG; enable gwsignal aways even if RIFT_LOWLATENCY active; mcsamplerGPU typo fix (self.n_total) for
+     corner use case (rc3)
+   - add --allow-subsolar to prevent hardcoding 1Msun limit; dockerfile cleanup; has_GWS scoping fix to avoid crash in
+     factored_likelihood; remove glue.ligo_lw reference in util_SimInspiralToCoinc (rc4)
+  - bugfixes calmarg, mainly for use-gwsignal which wasn't implemented (rc5)
+  - minor fix to extrinsic export scripts to enable arbitrary output sample size (rc6)
+
+Release is rc6
+
 0.0.15.9
 -----------
 Since last release

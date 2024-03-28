@@ -8,32 +8,33 @@ import RIFT.lalsimutils as lalsimutils
 import numpy as np
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--ifos",help="Space-separated list of IFO names, eg 'H1 L1 V1', to use for this event ")
-parser.add_argument("--event")
+#parser.add_argument("--ifos",help="Space-separated list of IFO names, eg 'H1 L1 V1', to use for this event ")
+parser.add_argument("--event",type=int)
 parser.add_argument("--ini")
 parser.add_argument("--sim-xml")
 parser.add_argument("--guess-snr",type=float)
-parser.add_argument("--mc-range-limits")
-parser.add_argument("--mc-range-limits-snr-safety",type=float,default=8)
-parser.add_argument("--duration",type=int)
+parser.add_argument("--mc-range")
+#parser.add_argument("--mc-range-limits-snr-safety",type=float,default=8)
+#parser.add_argument("--duration",type=int)
 opts = parser.parse_args()
 
 #
-ifos =None
-
+#ifos =None
+print("Localizing ini file for event {}".format(opts.event))
 # Get IFOs for it
-with open(opts.ifo_classifier,'r') as f:
-    dat_ifos = json.load(f)
-    ifos  = dat_ifos[opts.event] 
+#with open(opts.ifos,'r') as f:
+#    dat_ifos = json.load(f)
+#    ifos  = dat_ifos[opts.event] 
 
 # Get event time from saved event object
 # sim-xml only has one event remember
-P=lalsimutils.xml_to_ChooseWaveformParams_array(opts.sim_xml)[0]
+P=lalsimutils.xml_to_ChooseWaveformParams_array(opts.sim_xml)[opts.event]
 
 # open mc file
-line = None
-mc_range=eval(opts.mc_range.replace(' ', '')) # completely eliminate whitespace
-snr_cut= float(snr_cut)
+#line = None
+#mc_range=eval(opts.mc_range.replace(' ', '')) # completely eliminate whitespace
+snr_cut = 50
+#snr_cut= float(snr_cut)
 
 with open(opts.ini,'r') as f:
     line = f.readline()
@@ -59,7 +60,7 @@ with open(opts.ini,'r') as f:
 
 print("force-hint-snr={}".format(opts.guess_snr))
 if opts.guess_snr<snr_cut:
-    print("force-mc-range={}".format(mc_range))
+    print("force-mc-range={}".format(opts.mc_range))
 else:
     print("limit-mc-range={}".format(mc_range))
 
@@ -75,6 +76,6 @@ if opts.guess_snr>100:
     print("internal-cip-use-lnL=True")
     print("internal-ile-rotate-phase=True")
     print("ile-sampler-method=GMM")
-if len(ifos) == 2 and not sky_printed:
-    print("internal-ile-sky-network-coordinates=True")
+#if len(ifos) == 2 and not sky_printed:
+#    print("internal-ile-sky-network-coordinates=True")
 print("event-time={}".format(P.tref))

@@ -12,7 +12,7 @@
 # EXAMPLES
 #   python helper_LDG_Events.py --gracedb-id G299775 --use-online-psd
 
-import os, sys
+import os, sys, shutil
 import numpy as np
 import argparse
 
@@ -24,6 +24,7 @@ from ligo.lw import lsctables, table, utils
 from glue.lal import CacheEntry
 
 import configparser as ConfigParser
+import gzip
 
 # Backward compatibility
 from RIFT.misc.dag_utils import which
@@ -85,7 +86,7 @@ def query_available_ifos_viadq(ifos_all,data_start,data_end):
             True
     return ifos_out
 
-def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_data_find', retrieve=False,machine_with_files="ldas-pcdev1.ligo.caltech.edu"):
+def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_data_find', retrieve=False,machine_with_files="ldas-pcdev2.ligo.caltech.edu"):
     fname_out_raw = ifo_base[0]+"_raw.cache"
     fname_out = ifo_base[0]+"_local.cache"
     print([ifo_base, types, server, data_start, data_end])
@@ -138,7 +139,8 @@ def ldg_make_psd(ifo, channel_name,psd_start_time,psd_end_time,srate=4096,use_gw
 observing_run_time ={}
 observing_run_time["O1"] = [1126051217,1137254417] # https://www.gw-openscience.org/O1/
 observing_run_time["O2"] = [1164556817,1187733618] # https://www.gw-openscience.org/O2/
-observing_run_time["O3"] = [1230000000,1430000000] # Completely made up boundaries, for now
+observing_run_time["O3"] = [1230000000,1282953618] # end O3
+observing_run_time["O4"] = [1282953618,1430000000] # Completely made up boundaries, for now
 def get_observing_run(t):
     for run in observing_run_time:
         if  t > observing_run_time[run][0] and t < observing_run_time[run][1]:
@@ -155,6 +157,7 @@ parser.add_argument("--force-mc-range",default=None,type=str,help="For PP plots,
 parser.add_argument("--limit-mc-range",default=None,type=str,help="For PP plots, or other analyses requiring a specific mc range (eg ini file), bounding the limit *above*.  Allows the code to auto-select its mc range as usual, then takes the intersection with this limit")
 parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
 parser.add_argument("--force-eta-range",default=None,type=str,help="For PP plots. Enforces initial grid placement inside this region")
+parser.add_argument("--allow-subsolar", action='store_true', help="Override limits which otherwise prevent subsolar mass PE")
 parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--event-time",type=float,default=None)
 parser.add_argument("--sim-xml",default=None)
@@ -286,12 +289,16 @@ standard_channel_names["O2"] = {}
 # Initialize O3
 data_types["O3"] = {}
 standard_channel_names["O3"] = {}
+# Initialize O4
+data_types["O4"] = {}
+standard_channel_names["O4"] = {}
 
 
 typical_bns_range_Mpc = {}
 typical_bns_range_Mpc["O1"] = 100 
 typical_bns_range_Mpc["O2"] = 100 
 typical_bns_range_Mpc["O3"] = 130
+typical_bns_range_Mpc["O4"] = 130
 
 ## O1 definitions
 cal_versions = {"C00", "C01", "C02"}
@@ -377,6 +384,35 @@ if opts.online:
 
 if opts.verbose:
     print(standard_channel_names["O3"])
+
+
+# O4, analysis-ready frames: 
+#  https://dcc.ligo.org/DocDB/0186/T2300083/007/O4-Analysis-Ready-Frames-v7.pdf
+cal_versions = {"C00","online"}
+for cal in cal_versions:
+    for ifo in "H1", "L1":
+        data_types["O4"][(cal,ifo)] = ifo+"_HOFT_" + cal+"_AR"
+        if opts.online:
+            data_types["O4"][(cal,ifo)] = ifo+"_llhoft"
+            standard_channel_names["O4"][(cal,ifo)] = "GDS-CALIB_STRAIN_CLEAN"
+        if cal == "C00":
+            standard_channel_names["O4"][(cal,ifo)] = "GDS-CALIB_STRAIN_CLEAN_AR" 
+            # Correct channel name is for May 1 onward : need to use *non-clean* before May 1; see Alan W email and https://wiki.ligo.org/Calibration/CalReview_20190502
+            if opts.online:
+                data_types["O4"][(cal,ifo)] = ifo+"_HOFT_" + cal
+                # Unlike O3, cleaning *is* available in low latency
+                standard_channel_names["O4"][(cal,ifo)] = "GDS-CALIB_STRAIN_CLEAN" 
+data_types["O4"][("C00", "V1")] = "HoftOnline"
+# https://wiki.ligo.org/LSC/JRPComm/ObsRun3#Virgo_AN1
+standard_channel_names["O4"][("C00", "V1")] = "Hrec_hoft_16384Hz"
+if opts.online:
+    data_types["O4"][("C00", "V1")] = "V1_llhoft"
+    standard_channel_names["O4"][("C00", "V1")] = "Hrec_hoft_16384Hz"
+
+if opts.verbose:
+    print(standard_channel_names["O4"])
+
+
 
 
 
@@ -492,14 +528,21 @@ if use_gracedb_event:
                 line[1] = line[1].replace(' ','').rstrip()
                 ifo_list = line[1].split(",")
                 event_dict["IFOs"] = list(set(event_dict["IFOs"]  +ifo_list))
+            elif param == "Pipeline":
+                event_dict["search_pipeline"] = line[1].lstrip().rstrip()
+                print(" event.log: PIPELINE -{}-".format( event_dict['search_pipeline']))
   try:
     # Read in event parameters. Use masses as quick estimate
-    cmd_event = gracedb_exe + download_request + opts.gracedb_id + " coinc.xml"
-    if not(opts.use_legacy_gracedb):
-        cmd_event += " > coinc.xml "
-    os.system(cmd_event)
-    cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
-    samples = lsctables.SnglInspiralTable.get_table(utils.load_filename("coinc.xml",contenthandler=lalsimutils.cthdler))
+    coinc_name = 'coinc.xml'
+    if not(opts.use_coinc):
+        cmd_event = gracedb_exe + download_request + opts.gracedb_id + " coinc.xml"
+        if not(opts.use_legacy_gracedb):
+            cmd_event += " > coinc.xml "
+        os.system(cmd_event)
+        cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
+    else:
+        coinc_name = opts.use_coinc
+    samples = lsctables.SnglInspiralTable.get_table(utils.load_filename(coinc_name,contenthandler=lalsimutils.cthdler))
     event_duration=4  # default
     for row in samples:
         m1 = row.mass1
@@ -521,14 +564,43 @@ if use_gracedb_event:
     event_dict["epoch"]  = event_duration
 
     # Get PSD
+    # and add PSD arguments to psd_names array.  NEEDS TO BE SIMPLIFIED, redundant code
     if opts.use_online_psd:
+        fmax = 1000.
         # After O3, switch to using psd embedded in coinc file!
         if P.tref > 1369054567 - 24*60*60*365: # guesstimate of changeover in gracedb
-            for ifo  in event_dict["IFOs"]:
-                cmd_event = "ligolw_print -t {}:array -d ' '  coinc.xml  > {}_psd_ascii.dat".format(ifo,ifo)
-                os.system(cmd_event)
-                cmd_event = "convert_psd_ascii2xml  --fname-psd-ascii {}_psd_ascii.dat --conventional-postfix --ifo {}  ".format(ifo,ifo)
-                os.system(cmd_event)
+            do_fallback=True
+            if 'search_pipeline' in event_dict:
+                # pycbc-specific logic
+                if event_dict['search_pipeline'] == 'pycbc':
+                    do_fallback=False
+                    shutil.copyfile(coinc_name,opts.working_directory+'/psd.xml.gz')
+#                    for ifo in event_dict["IFOs"]:
+#                        fname_psd_now = "{}-psd.xml".format(ifo)
+#                        shutil.copyfile(coinc_name, fname_psd_now)
+#                        os.system('gzip {}.gz'.format(fname_psd_now))
+                        # Same code as below
+                    cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
+                        # Label PSD file names in argument strings
+                    for ifo in event_dict["IFOs"]:
+                            if not opts.use_osg:
+                                psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
+                            else:
+                                psd_names[ifo] =  ifo + "-psd.xml.gz"
+                            cmd += " --ifo " + ifo
+                    os.system(cmd)
+            # gstlal-style coinc: psd embedded in a way we can retrieve with this command
+            if do_fallback:
+              for ifo  in event_dict["IFOs"]:
+                if event_dict['search_pipeline'] == 'gstlal':
+                  cmd_event = "ligolw_print -t {}:array -d ' '  {}  > {}_psd_ascii.dat".format(ifo,coinc_name,ifo)
+                  os.system(cmd_event)
+                  cmd_event = "convert_psd_ascii2xml  --fname-psd-ascii {}_psd_ascii.dat --conventional-postfix --ifo {}  ".format(ifo,ifo)
+                  os.system(cmd_event)
+                else: # for spiir,mbta just copy over coinc.xml as PSD
+                  fname_psd_now = "{}-psd.xml".format(ifo)
+                  shutil.copyfile(coinc_name, fname_psd_now)
+                  os.system('gzip {}'.format(fname_psd_now))
                 if not opts.use_osg:
                     psd_names[ifo] = opts.working_directory+"/" + ifo + "-psd.xml.gz"
                 else:
@@ -536,6 +608,8 @@ if use_gracedb_event:
         else:
             fmax = 1000.
             cmd_event = gracedb_exe + download_request + opts.gracedb_id + " psd.xml.gz"
+            if not(opts.use_legacy_gracedb):
+                cmd_event += " ./psd.xml.gz " # output file must be specified for new framework
             os.system(cmd_event)
             cmd = "helper_OnlinePSDCleanup.py --psd-file psd.xml.gz "
             # Convert PSD to a useful format
@@ -750,6 +824,7 @@ if not (opts.fake_data):
         # LI-style parsing
         if use_ini:
             data_type_here = unsafe_config_get(config,['datafind','types'])[ifo]
+            channel_name_here = unsafe_config_get(config,['data','channels'])[ifo]
         else:
             data_type_here = data_types[opts.observing_run][(opts.calibration_version,ifo)]
             # Special lookup for later in O3
@@ -757,6 +832,19 @@ if not (opts.fake_data):
             if opts.observing_run == "O3" and ('C01' in opts.calibration_version) and   event_dict["tref"] > 1252540000 and event_dict["tref"]< 1253980000 and ifo =='V1':
                 data_type_here=data_types["O3"][(opts.calibration_version, ifo,"September")]        
         ldg_datafind(ifo, data_type_here, datafind_server,int(data_start_time), int(data_end_time), datafind_exe=datafind_exe)
+        if opts.online:
+            import gwpy.timeseries
+            print(np.floor(event_dict["tref"]))
+            start_time= np.floor(event_dict["tref"]) - opts.data_LI_seglen - 4   #8s before analysis-start (4s prev) 
+            end_time= np.floor(event_dict["tref"]) + 6              #4s after analysis-end (2s prev) 
+            duration=round(end_time-start_time)
+            try:
+                data = gwpy.timeseries.TimeSeries.get(channel=channel_name_here,frametype=data_type_here,start=start_time,end=end_time,verbose=True)
+                datapath = os.path.join(opts.working_directory,f"{ifo}-{data_type_here}-{start_time}-{duration}.gwf")
+                data.write(datapath)
+            except:
+                print(" ===> FAILED gwpy.timeseries via NDS:  User must supply own frames! <=== ")
+
 if not opts.cache:  # don't make a cache file if we have one!
     real_data = not(opts.gracedb_id is None)
     real_data = real_data or  opts.check_ifo_availability
@@ -764,6 +852,9 @@ if not opts.cache:  # don't make a cache file if we have one!
     real_data = real_data or made_ifo_cache_files
     ldg_make_cache(retrieve=real_data) # we are using the ifo_local.cache files, generated in the previous step, almost without fail.
     opts.cache = "local.cache" # standard filename populated
+    if opts.online:
+        cmd = "/bin/find .  -name '*.gwf' | {} > local.cache".format(lalapps_path2cache)
+        os.system(cmd)
 
 # If needed, build PSDs
 transfer_files=[]
@@ -829,7 +920,9 @@ if not(opts.force_eta_range is None):
     eta_range_parsed = list(map(float,tmp.replace('[','').replace(']','').split(',')))
     delta_min_tight = np.sqrt(1 - 4*eta_range_parsed[1]) + 1e-4
     delta_max_tight = np.sqrt(1 - 4*eta_range_parsed[0])
-if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constraint eta to satisfy mc > 1
+if mc_center < 2.6 and opts.propose_initial_grid and not(opts.allow_subsolar):  
+    # BNS scale, need to constraint eta to satisfy mc > 1
+    # do NOT always want to do this ... override if we are using force-eta-range
     import scipy.optimize
     # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
     def crit_m2(delta):
@@ -840,7 +933,7 @@ if mc_center < 2.6 and opts.propose_initial_grid:  # BNS scale, need to constrai
     eta_min = 0.25*(1-delta_max*delta_max)
 # Need logic for BH-NS scale objects to be reasonable
 #   Typical problem for following up these triggers: segment length grows unreasonably long
-elif  mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid:  # BH-NS scale, want to make sure we do a decent job at covering high-mass-ratio end
+elif  mc_center < 18 and P.extract_param('q') < 0.6 and opts.propose_initial_grid and not(opts.allow_subsolar):  # BH-NS scale, want to make sure we do a decent job at covering high-mass-ratio end
    import scipy.optimize
    # solution to equation with m2 -> 1 is  1 == mc delta 2^(1/5)/(1-delta^2)^(3/5), which is annoying to solve
    def crit_m2(delta):
@@ -884,7 +977,9 @@ if use_ini:
     if 'q-min'  in engine_dict:
         q_min = float(engine_dict['q-min'])
         eta_min = q_min/(1.+q_min)**2
-
+    if 'ecc_min' in engine_dict:
+        ecc_range_str = "  ["+str(engine_dict['ecc_min'])+","+str(engine_dict['ecc_max'])+"]"
+        
 mc_range_str = "  ["+str(mc_min_tight)+","+str(mc_max_tight)+"]"  # Use a tight placement grid for CIP
 if not(opts.manual_mc_min is None):
     mc_min = opts.manual_mc_min
@@ -1075,7 +1170,8 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
     cmd += " --fmin " + str(opts.fmin_template)
     if opts.data_LI_seglen and not (opts.no_enforce_duration_bound):  
         cmd += " --enforce-duration-bound " + str(opts.data_LI_seglen)
-    cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
+    if not(opts.allow_subsolar):
+        cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
     if opts.assume_nospin:
         grid_size = 1000   # 500 was too small with noise
     else:
@@ -1090,6 +1186,8 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
 
         cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
         grid_size =2500
+    if opts.assume_eccentric:
+        cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
     if "SNR" in event_dict:
         grid_size *= np.max([1,event_dict["SNR"]/15])  # more grid points at higher amplitude. Yes, even though we also contract the paramete range
     if not (opts.force_initial_grid_size is None):
@@ -1116,7 +1214,8 @@ elif opts.propose_initial_grid:
     cmd += " --fmin " + str(opts.fmin_template)
     if opts.data_LI_seglen and not (opts.no_enforce_duration_bound):  
         cmd += " --enforce-duration-bound " + str(opts.data_LI_seglen)
-    cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
+    if not(opts.allow_subsolar):
+        cmd += "  --downselect-parameter m1 --downselect-parameter-range [1,10000]   --downselect-parameter m2 --downselect-parameter-range [1,10000]  "
     if tune_grid:
         cmd += " --reset-grid-via-match --match-value 0.85 --use-fisher  --use-fisher-resampling --approx  " + approx_str # ow, but useful
     if opts.assume_nospin:
@@ -1141,8 +1240,12 @@ elif opts.propose_initial_grid:
         if opts.assume_precessing_spin:
             # Handle problems with SEOBNRv3 failing for aligned binaries -- add small amount of misalignment in the initial grid
             cmd += " --parameter s1x --parameter-range [0.00001,0.00003] "
-
-    if opts.assume_matter and not opts.assume_matter_eos:
+    if opts.assume_eccentric:
+        cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
+    if opts.internal_tabular_eos_file:
+        cmd += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
+        grid_size *=2  # larger grids needed for discrete realization scenarios
+    elif opts.assume_matter and not opts.assume_matter_eos:
         # Do the initial grid assuming matter, with tidal parameters set by the AP4 EOS provided by lalsuite
         # We will leverage working off this to find the lambdaTilde dependence
 #        cmd += " --use-eos AP4 "  
@@ -1508,10 +1611,13 @@ if opts.propose_fit_strategy:
     elif opts.internal_tabular_eos_file:
         helper_cip_args += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
         helper_ile_args +=  " --export-eos-index "
-        helper_cip_args+= " --parameter-implied LambdaTilde --input-eos-index "  
+
+        # Askold: remove --parameter-implied LambdaTilde and DeltaLambdaTilde for tabular EOS, add --input-tides and --input-eos-index
+        helper_cip_args += " --input-tides --input-eos-index"  
         for indx in np.arange(len(helper_cip_arg_list)):
-            helper_cip_arg_list[indx] += " --parameter-implied LambdaTilde --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
-        helper_cip_arg_list[-1] += "  --parameter-implied DeltaLambdaTilde "
+            helper_cip_arg_list[indx] += " --input-tides --input-eos-index --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
+        # helper_cip_arg_list[-1] += "  --parameter-implied DeltaLambdaTilde "
+
     elif opts.assume_matter_eos:
         helper_cip_args += "  --input-tides --using-eos {} ".format(opts.assume_matter_eos)
         helper_cip_args+= " --parameter-implied LambdaTilde "
@@ -1593,6 +1699,11 @@ if opts.assume_matter:
 else:
     with open("helper_convert_args.txt",'w+') as f:
         f.write(" --fref {} ".format(opts.fmin_template))   # needed to insure correct precession angles derived from internal conversion
+# Askold: add --export-eos for tabular EOS file
+if opts.assume_matter and opts.internal_tabular_eos_file:
+    with open("helper_convert_args.txt", 'a') as f:
+        f.write(" --export-eos ")
+        
 if opts.assume_eccentric:
     with open("helper_convert_args.txt",'w+') as f:
         f.write(" --export-eccentricity ")
