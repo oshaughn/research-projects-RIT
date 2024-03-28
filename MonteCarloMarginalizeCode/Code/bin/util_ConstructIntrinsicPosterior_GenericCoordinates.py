@@ -338,7 +338,9 @@ parser.add_argument("--eos-param", type=str, default=None, help="parameterizatio
 parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu|portfolio")
 parser.add_argument("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
-parser.add_argument("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionary to be passed to that sampler')
+parser.add_argument("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionary to be passed to that sampler_')
+parser.add_argument("--sampler-oracle",default=None, action='append', type=str, help='names of oracles to be used')
+parser.add_argument("--sampler-oracle-args",default=None, action='append', type=str, help='eval-able dictionary to be passed to that oracle')
 parser.add_argument("--oracle-reference-sample-file",default=None,  type=str, help='filename of reference sample file to be used as oracle for seeding sampler')
 parser.add_argument("--oracle-reference-sample-params",default=None,  type=str,  help='parameters to be pulled from sample file (format comma-separated string)')
 parser.add_argument("--internal-use-lnL",action='store_true',help="integrator internally manipulates lnL. ONLY VIABLE FOR GMM AT PRESENT")
@@ -2144,7 +2146,24 @@ else:
 ### Integrate posterior
 ###
 
+# Oracle for portfolio if needed
+oracle_realizations = None
+if opts.sampler_method == 'portfolio' and not(opts.sampler_oracle is None):
+    oracle_realizations = []
+    from RIFT.integrators.unreliable_oracle.resampling import ResamplingOracle
+    from RIFT.integrators.unreliable_oracle.hill_climber import ClimbingOracle
+    for name in opts.sampler_oracle:
+        if name =='RS':
+            my_oracle = ResamplingOracle()
+        elif name =='Climb':
+            my_oracle = ClimbingOracle()
+        else:
+            raise Exception(" Unknown oracle type ")
+        print('ORACLE: adding {} '.format(name))
+        oracle_realizations.append(my_oracle)
+    
 
+# Sampler
 sampler = mcsampler.MCSampler()
 if opts.sampler_method == "adaptive_cartesian_gpu":
     sampler = mcsamplerGPU.MCSampler()
@@ -2537,6 +2556,7 @@ if opts.internal_temper_log:
 if hasattr(sampler, 'setup'):
     extra_args_here = {}
     extra_args_here.update(extra_args)
+    extra_args_here['oracle_realizations'] = oracle_realizations
     if use_portfolio:
         print(" PORTFOLIO : setup")
         if opts.sampler_portfolio_args:
@@ -2551,7 +2571,7 @@ if hasattr(sampler, 'setup'):
     sampler.setup(portolio_args=opts.sampler_portfolio_args,**extra_args_here)
 
 # Call oracle if provided, to initialize sampler 
-if sampler_oracle:
+if sampler_oracle:  # NON-PORTFOLIO SCENARIO TARGET 
     if hasattr(sampler, 'update_sampling_prior'):
         rvs_train = {}
         _, _, rv_oracle = sampler_oracle.draw_simplified(n_step)
