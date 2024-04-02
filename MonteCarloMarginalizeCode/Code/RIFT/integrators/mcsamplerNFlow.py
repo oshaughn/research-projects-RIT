@@ -572,7 +572,7 @@ class MCSampler(MCSamplerGeneric):
 #            print(self._rvs)
             log_joint_p_s = np.log(joint_p_s)
             log_joint_p_prior = np.log(joint_p_prior)
-            ntotal_true += len(rv)
+            ntotal_true += len(joint_p_s)
             if cupy_ok:
               rv = identity_convert_togpu(rv) # send random numbers to GPU : ugh
               log_joint_p_prior = identity_convert_togpu(log_joint_p_prior)    # send to GPU if required. Don't waste memory reassignment otherwise
