@@ -39,9 +39,10 @@ from nflows.transforms.permutations import ReversePermutation
 from nflows.transforms.base import InverseTransform
 from nflows.transforms.base import MultiscaleCompositeTransform
 from nflows.transforms.standard import IdentityTransform
-from nflows.transforms.standard import AffineScalarTransform
-from nflows.transforms.standard import AffineTransform
+#from nflows.transforms.standard import AffineScalarTransform
+#from nflows.transforms.standard import AffineTransform
 from nflows.transforms.standard import PointwiseAffineTransform
+from nflows.transforms.linear import NaiveLinear
 
 try:
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -127,6 +128,20 @@ class NanOrInf(Exception):
         return repr(self.value)
 
 
+def check_nonzero_deriv(my_seq,deriv_crit =0.05):
+  """
+  Computes  dy/dx/y \simeq (<yx> - <x><y>)/(<x><y>)
+  Tries to require more than a certain percentage change per test block
+  """
+  mean_y = np.mean(my_seq)  # <y>
+  mean_x  = len(my_seq)/2
+  mean_yx = np.mean(my_seq*np.arange(len(my_seq))) # <xy>
+  dydx_scale = mean_yx/(mean_y*mean_x) - 1  # relative change
+  std_y_scale = np.std(my_seq)/mean_y    # relative noise
+#  print(" deriv check ", dydx_scale, np.mean(my_seq), std_y_scale)  # should be PER ITERATION check
+  if dydx_scale < -deriv_crit:
+    return True
+
 
 class NFlowsNFS_Trainer:
     def __init__(self, bounds: List[Tuple[float, float]], 
@@ -141,18 +156,19 @@ class NFlowsNFS_Trainer:
         self.transform           = transform
         self.flow                = None
         self.plotting            = False
-        
+        self.loss_history = []
     
     def set_plotting(self, plotting: bool = False) -> None:
         self.plotting            = plotting
     
     def train_flow(self, samples_in: List[List[float]],
-                   out_n_samples: int, max_epochs: int, bound_offset: float):
+                   out_n_samples: int, max_epochs: int, bound_offset: float,n_print=50):
         if self.flow is None:
           self.flow                = Flow(self.transform, self.base_distribution(shape=[len(self.bounds)]))
+
         optimizer                = optim.Adam(self.flow.parameters())
         prev_efficiency          = float('inf')
-        losses                   = []
+        losses                   = self.loss_history
         # Fixed training input
         samples              = torch.tensor(samples_in, dtype=torch.float32)
         for epoch in range(1, int(max_epochs)):       
@@ -167,7 +183,11 @@ class NFlowsNFS_Trainer:
             
             # Store loss value for monitoring
             losses.append(loss.item()) 
-            
+            if (epoch%n_print)==0:
+              print(epoch, loss.item())
+              n_hist = np.min([len(losses), 100])
+#              if check_nonzero_deriv(losses[-n_hist:]):
+#                print("    -- stationary ---")
             
             optimizer.step()
             
@@ -254,8 +274,11 @@ class MCSampler(MCSamplerGeneric):
         bounds = np.array([ [self.llim[p],self.rlim[p]] for p in self.params_ordered])
 
         # https://github.com/bayesiains/nflows/blob/master/examples/moons.ipynb
-        self.num_layers = 15
+        self.num_layers = int(len(bounds)/2)  # autoregressive
         transforms = []
+        # trivial scale layer first, to get in the right place
+#        transforms.append(PointwiseAffineTransform())
+#        transforms.append(NaiveLinear(features=len(bounds)))
         for _ in range(self.num_layers):
           transforms.append(ReversePermutation(features = len(bounds)))
           transforms.append(MaskedAffineAutoregressiveTransform(features = len(bounds),
@@ -266,6 +289,7 @@ class MCSampler(MCSamplerGeneric):
         trainer    = NFlowsNFS_Trainer(bounds              = bounds, 
                                transform           = transform)
         self.nf_trainer = trainer
+        self.nf_flow = trainer.flow
         
 
 
@@ -331,12 +355,15 @@ class MCSampler(MCSamplerGeneric):
 
 
     def draw_simplified(self,n_to_get, *args, **kwargs):
-
+        verbose = kwargs["verbose"] if "verbose" in kwargs else False  # default
+        super_verbose = kwargs["super_verbose"] if "super_verbose" in kwargs else False  # default
         save_no_samples = kwargs.get("save_no_samples", False)
 
         args = self.params_ordered # by default draw all
 
         if self.nf_flow is None:
+          if super_verbose:
+            print(" Using uniform ")
           bounds = np.array([ [self.llim[p],self.rlim[p]] for p in self.params_ordered])
           V = np.prod((bounds[:,1] - bounds[:,0]))
           # rv = np.random.uniform(low=bounds[:,0], high=bounds[:,1], size = n_to_get)
@@ -347,10 +374,14 @@ class MCSampler(MCSamplerGeneric):
           log_p = np.log(self.prior_prod(rv.T))
 #          print('ps shape', log_p.shape)
         else:
-          flow = self.nf_flow.flow
-          rv = flowsample(n_to_get).detach().numpy()
-          log_ps = flow.log_prob(torch.tensor(flow_samples)).detach().numpy()
-          log_p  =  np.log(self.prior_prod(rv))
+          if super_verbose:
+            print(" Using actual flow ")
+          flow = self.nf_flow
+          flow_samples = flow.sample(n_to_get)
+          rv = flow_samples.detach().numpy().T
+          log_ps = flow.log_prob(flow_samples).detach().numpy()
+          log_p  =  np.log(self.prior_prod(rv.T))
+          # remove nan values
 
         # Cache the samples we chose
         #
@@ -374,6 +405,9 @@ class MCSampler(MCSamplerGeneric):
       update_sampling_prior
 
       """
+      verbose = kwargs["verbose"] if "verbose" in kwargs else False  # default
+      super_verbose = kwargs["super_verbose"] if "super_verbose" in kwargs else False  # default
+
       xpy_here = self.xpy
       enforce_bounds=True
 
@@ -384,7 +418,7 @@ class MCSampler(MCSamplerGeneric):
 
       # skip update if lnw is too flat
       if np.mean(lnw) > np.max(lnw)-1.5*len(self.params_ordered):
-        if 'super_verbose' in kwargs:
+        if super_verbose:
           print(" Skipping update ")
         return 
 
@@ -393,6 +427,9 @@ class MCSampler(MCSamplerGeneric):
       ln_weights *= tempering_exp
 
       n_history_to_use = np.min([n_history, len(ln_weights), len(rvs_here[self.params_ordered[0]])] )
+      if (n_history_to_use) < 10:
+        print("  Skipping update: no history ")
+        return
 
       # default is to use logarithmic (!) weights, relying on them being positive.
       weights_alt = ln_weights[-n_history_to_use:]  - self.xpy.max(ln_weights) + 100  
@@ -410,20 +447,32 @@ class MCSampler(MCSamplerGeneric):
 
       # Eliminate points with low weight.  Drop bottom half, right now
       indx_ok = weights_alt >  np.mean(weights_alt) +0.5*np.std(weights_alt)     
+      if np.sum(indx_ok) < 10:
+        if super_verbose:
+          print(" Skipping update: too few valid ") 
+        return
 #      print(indx_ok.shape, samples_train.shape)
       samples_train = samples_train[:,indx_ok]
-      if 'super_verbose' in kwargs:
+      if samples_train.shape[1] < 10:
+        if super_verbose:
+          print(" Skipping update: too few valid ") 
+        return        
+      if super_verbose:
         print("    NF: Training data shape ", samples_train.shape)
+        print("    NF: training data mean ", np.mean(samples_train,axis=-1))
 
       # Train
       trainer = self.nf_trainer
-      max_epochs = 50  # be short, don't need precision/long training
+      max_epochs = 300  # be short, don't need precision/long training
       if max_epochs < int(10*self.num_layers): max_epochs = int(10*self.num_layers)
 
       losses     = trainer.train_flow(samples_in= samples_train.T,
                                 out_n_samples = 100, 
                                 max_epochs    = max_epochs, 
                                 bound_offset  = 0.5)
+
+      self.nf_flow = trainer.flow
+
 
     @profile
     def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
@@ -469,7 +518,7 @@ class MCSampler(MCSamplerGeneric):
             print("  Note: cannot adapt, no history ")
 
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
-        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 10  # default to adapt to 10 chunks, then freeze
+        n_adapt = int(kwargs["n_adapt"]) if "n_adapt" in kwargs else 10  # default to adapt to 10 chunks, then freeze
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
         temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
         tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
@@ -516,6 +565,9 @@ class MCSampler(MCSamplerGeneric):
         while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
             # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
             rv, joint_p_s, joint_p_prior = self.draw_simplified(self.n_chunk, save_no_samples=False)  # Beware reversed order of rv
+            if super_verbose:
+              print(" Drawn ", np.mean(rv, axis=-1))
+#              print(" Drawn ", np.cov(rv))
 #            print(" Drawn rv ", rv)
 #            print(self._rvs)
             log_joint_p_s = np.log(joint_p_s)
@@ -557,10 +609,12 @@ class MCSampler(MCSamplerGeneric):
 
             # Adapt if needed; decrement adaptation counter
             if n_adapt > 0:
-              self.update_sampling_prior(lnL)
+              if super_verbose:
+                print("    -- n_adapt {} ".format(n_adapt))
+              self.update_sampling_prior(lnL,**kwargs)
               n_adapt += -1  # decrement
             else:
-              if 'super_verbose' in kwargs:
+              if super_verbose:
                 print("  ... skipping adaptation (NF) ")
 
             # Monitoring for i/o
