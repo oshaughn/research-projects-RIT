@@ -30,6 +30,6 @@ The final set of points produced by CIP after an iteration are joined with resul
 Reference Papers
 ----------------
 
-- Rapid and accurate parameter inference for coalescing, precessing compact binaries `[link] <https://arxiv.org/pdf/1805.10457.pdf>`_
+- Rapid and accurate parameter inference for coalescing, precessing compact binaries `[1805.10457] <https://arxiv.org/pdf/1805.10457.pdf>`_
 
-- Expanding RIFT: Improving performance for GW parameter inference `[link] <https://arxiv.org/pdf/2210.07912.pdf>`_
+- Expanding RIFT: Improving performance for GW parameter inference `[2210.07912] <https://arxiv.org/pdf/2210.07912.pdf>`_
