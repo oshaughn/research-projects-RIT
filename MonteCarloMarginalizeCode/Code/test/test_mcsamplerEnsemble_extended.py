@@ -9,6 +9,8 @@ from scipy.stats import truncnorm
 import matplotlib.pyplot as plt
 
 from RIFT.integrators import mcsampler, mcsamplerEnsemble, mcsamplerGPU, mcsamplerAdaptiveVolume
+from RIFT.integrators import mcsamplerNFlow
+
 
 import optparse
 parser = optparse.OptionParser()
@@ -69,6 +71,7 @@ sampler = mcsampler.MCSampler()
 samplerEnsemble = mcsamplerEnsemble.MCSampler()
 samplerAC = mcsamplerGPU.MCSampler()
 samplerAV = mcsamplerAdaptiveVolume.MCSampler()
+samplerNF = mcsamplerNFlow.MCSampler()
 
 ### add parameters
 for p in params:
@@ -85,6 +88,9 @@ for p in params:
             prior_pdf=np.vectorize(lambda x:1/(rlim-llim)),
             left_limit=llim, right_limit=rlim,adaptive_sampling=not opts.no_adapt)
     samplerAV.add_parameter(p, pdf=np.vectorize(lambda x:1/(rlim-llim)),
+            prior_pdf=np.vectorize(lambda x:1/(rlim-llim)),
+            left_limit=llim, right_limit=rlim,adaptive_sampling=True)
+    samplerNF.add_parameter(p, pdf=np.vectorize(lambda x:1/(rlim-llim)),
             prior_pdf=np.vectorize(lambda x:1/(rlim-llim)),
             left_limit=llim, right_limit=rlim,adaptive_sampling=True)
 
@@ -127,12 +133,27 @@ integral_3, var_3, eff_samp_3, _ = samplerAV.integrate_log(ln_f, *params, no_pro
         min_iter=n_iters, max_iter=n_iters, **extra_args)
 integral_3 = np.exp(integral_3)
 var_3 = np.exp(var_3)
+print(" -- finished AV -- ")
+samplerNF.setup()
+extra_args_here = {}
+extra_args_here.update(extra_args)
+extra_args_here['n_adapt'] = 10 # smaller count
+extra_args_here['tempering_exp']=1 # don't use 
+print(" INJECTIONS ", mu)
+integral_4, var_4, eff_samp_4, _ = samplerNF.integrate_log(ln_f, *params, no_protect_names=False,
+        nmax=nmax,
+        min_iter=n_iters, max_iter=n_iters, super_verbose=False,**extra_args_here)
+integral_4 = np.exp(integral_4)
+var_4 = np.exp(var_4)
+print(" -- finished NF -- ")
+
 
 print(np.array([integral_1,integral_1b,integral_2,integral_3])*width**3)  # remove prior factor, should get result of normal over domain
 print(np.array([np.sqrt(var_1)/integral_1,np.sqrt(var_1b)/integral_1b,np.sqrt(var_2)/integral_2,np.sqrt(var_3)/integral_3]))  # relative error in each integral
 print(" AC/default ",  integral_1b/integral_1, np.sqrt(var_1)/integral_1)  # off by width**3
 print(" GMM/default ",integral_2/integral_1, np.sqrt(var_1)/integral_1, np.sqrt(var_2)/integral_2)
 print(" AV/default ",integral_3/integral_1, np.sqrt(var_1)/integral_1, np.sqrt(var_3)/integral_3)
+print(" NF/default ",integral_4/integral_1, np.sqrt(var_1)/integral_1, np.sqrt(var_4)/integral_4)
 print("mu",mu)
 ### CDFs
 
