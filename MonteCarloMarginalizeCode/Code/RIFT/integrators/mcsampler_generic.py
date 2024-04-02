@@ -19,6 +19,35 @@ class MCSamplerGeneric(object):
     """
 
 
+    @staticmethod
+    def match_params_from_args(args, params):
+        """
+        Given two unordered sets of parameters, one a set of all "basic" elements (strings) possible, and one a set of elements both "basic" strings and "combined" (basic strings in tuples), determine whether the sets are equivalent if no basic element is repeated.
+        e.g. set A ?= set B
+        ("a", "b", "c") ?= ("a", "b", "c") ==> True
+        (("a", "b", "c")) ?= ("a", "b", "c") ==> True
+        (("a", "b"), "d")) ?= ("a", "b", "c") ==> False  # basic element 'd' not in set B
+        (("a", "b"), "d")) ?= ("a", "b", "d", "c") ==> False  # not all elements in set B represented in set A
+        """
+        not_common = set(args) ^ set(params)
+        if len(not_common) == 0:
+            # All params match
+            return True
+        if all([not isinstance(i, tuple) for i in not_common]):
+            # The only way this is possible is if there are
+            # no extraneous params in args
+            return False
+
+        to_match, against = [i for i in not_common if not isinstance(i, tuple)], [i for i in not_common if isinstance(i, tuple)]
+
+        matched = []
+        import itertools
+        for i in range(2, max(list(map(len, against)))+1):
+            matched.extend([t for t in itertools.permutations(to_match, i) if t in against])
+        return (set(matched) ^ set(against)) == set()
+
+
+
 
     def __init__(self,**kwargs):
 
