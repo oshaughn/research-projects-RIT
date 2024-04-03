@@ -8,12 +8,13 @@ Since last release
       mcsamplerAdaptiveVolume (rc1)
    - merge in 0.0.15.11, as well as below ( ILE_batchmode hard fail on JIT compilation error, from 15.12 below); AV in rosenbrock test; AV n_chunk size for portfolio; hyperpipe
       integer events;  bugfix (-1)^m->(-1)^l reflection for aligned TEOBResumS external call (rc2)
-
+   - asimov integration (as in rift_O4a/0.0.15.12 rc0); documentation update for hyperpipe, etc; CIP --n-events-to-analyze for hyperpipe
 
 0.0.15.12
 -------------
 Since last release
-   - gracedb get file psd.xml.gz fix for online; ILE hard fail if CUDA/JIT compilation error; bugfix (-1)^m->(-1)^l reflection for aligned TEOBResumS external call
+   - gracedb get file psd.xml.gz fix for online; ILE hard fail if CUDA/JIT compilation error; bugfix (-1)^m->(-1)^l
+     reflection for aligned TEOBResumS external call; asimov integration
 
 
 0.0.15.11
