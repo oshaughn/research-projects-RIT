@@ -1,3 +1,10 @@
+0.0.17.0
+-----------
+pre-release, only available in source tree for rift_O4c
+   - start roughly 0.0.16.0rc2. asimov integation, documentation, CIP --n-events-to-analyze; mcsamplerNFlow;
+     mcsamplerPortfolio; unreliable_oracles including reference samples; implement mcsamplerPortfolio and some oracles
+     in ILE and CIP; hyperpipe dag writer integer events
+
 
 0.0.16.0
 -----------
