@@ -16,8 +16,10 @@ Rapid inference via Iterative FiTting: this algorithm provides a framework for e
    examples-ini
    examples-noini
    getting-data
+   osg
    injections
    plotting
+   hyperpipe
    troubleshooting
 
 

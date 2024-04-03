@@ -36,6 +36,6 @@ Using an ini file for fake data
 
 
 Using an ini file for a production analysis
-----------------------------------
+-------------------------------------------
 For a production analysis, you will be provided with a pre-existing ini file, with the correct channel names, cache
 files, event times, PSD files, 
