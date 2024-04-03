@@ -57,5 +57,9 @@ setuptools.setup(
 # This pathname puts it in the same place as the other files, in site-packages/
    data_files=[('RIFT/likelihood',my_extra_source)],
    setup_requires=['setuptools','pip'],
-   install_requires=REQUIREMENTS["install"]
+   install_requires=REQUIREMENTS["install"],
+   entry_points={
+        'asimov.pipelines':
+        ["rift = RIFT.asimov.rift:Rift"]
+    },
 )
