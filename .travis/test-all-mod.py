@@ -46,6 +46,7 @@ EXCLUDE = re.compile("({})".format("|".join([
     r"\Atest_",
     r"\Aconftest\Z",
     r"\A_",
+    r"\Aasimov\Z",
 ])))
 
 # ignorable failures
@@ -54,6 +55,8 @@ IGNORE = re.compile("({})".format("|".join([
     r"\ANo module named 'torch'\Z",
     r"\ANo module named cupy\Z",
     r"\ANo module named 'cupy'\Z",
+    r"\ANo module named asimov\Z",
+    r"\ANo module named 'asimov'\Z",
 ])))
 
 
