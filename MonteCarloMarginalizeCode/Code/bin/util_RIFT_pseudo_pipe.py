@@ -1299,6 +1299,12 @@ if opts.use_osg:
         cmd += " --use-cvmfs-frames "
     elif not(opts.internal_truncate_files_for_osg_file_transfer):  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
         os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
+        # if environment variable active, check that frames were created! Fail otherwise
+        if 'RIFT_TRUNCATE_CHECK' in os.environ:
+            fnames_gwf = os.listdir('./frames_dir/')
+            if len(fnames_gwf)< len(event_dict["IFOs"]):
+                raise Exception(" Pipeline build failure: Problem generating truncated frames for OSG")
+            
 #        os.system("echo ../frames_dir >> helper_transfer_files.txt")
         cmd += " --frames-dir `pwd`/frames_dir "
     elif opts.use_osg_file_transfer:
