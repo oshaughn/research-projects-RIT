@@ -138,7 +138,9 @@ approx_recover_str = approx_str
 if config.has_option('waveform','approx_template'):
     approx_recover_str = config.get('waveform','approx_template')
 # danger: lmax only used in analysis, not in generation usually
-l_max = int(config.get('waveform','lmax')  )
+l_max = 2
+if config.has_option('waveform','lmax'):
+    l_max = int(config.get('waveform','lmax')  )
 fmin_template = float(config.get('waveform','fmin_template'))
 fmax = float(config.get('data','fmax'))
 flow_dict = unsafe_config_get(config,['data','flow'])
@@ -185,6 +187,11 @@ if use_eccentric:
 ifos = unsafe_config_get(config,['data','ifos'])
 username = config.get('make_workflow','username')
 group = config.get('make_workflow','accounting_group')
+cip_sampler = config.get('make_workflow', 'cip_sampler_method')
+ile_sampler = config.get('make_workflow', 'ile_sampler_method')
+## "default" incompatible with --force-reset-all inn ILE
+if ile_sampler == "default":
+    ile_sampler = 'adaptive_cartesian_gpu'
 # Based on priors and options, create set of signals with specified parameters
 ## If mdc already present, do not duplicate
 ## If changing inj approx for direct comparison, ensure tfe has necessary options
@@ -280,6 +287,7 @@ t_start = int(fiducial_event_time)-150
 t_stop = int(fiducial_event_time)+150
 
 mkdir('signal_frames')
+snr_dict = {}
 for indx in np.arange(n_events):
     os.chdir(working_dir_full)
     target_subdir = 'signal_frames/event_{}'.format(indx)
@@ -291,7 +299,8 @@ for indx in np.arange(n_events):
         os.system(get_snr)
         from ast import literal_eval
         with open('snr-report.txt', 'r') as f:
-            snr_dict = literal_eval(f.readlines()[-1])
+            this_snr_dict = literal_eval(f.readlines()[-1])
+            snr_dict[indx] = this_snr_dict['Network']
         continue
     print(" Writing ", indx)
     mkdir(target_subdir)
@@ -318,8 +327,8 @@ for indx in np.arange(n_events):
     os.system(get_snr)
     from ast import literal_eval
     with open('snr-report.txt', 'r') as f:
-        snr_dict = literal_eval(f.readlines()[-1])
-#    print(snr_dict['Network'])
+        this_snr_dict = literal_eval(f.readlines()[-1])
+        snr_dict[indx] = this_snr_dict['Network']
 
 print(" === Using fiducial noise frames === ")
 
@@ -352,6 +361,7 @@ for indx in np.arange(n_events):
 print(" === WRITING INI FILES === ")
 os.chdir(working_dir_full)
 config=configparser.ConfigParser()
+config.optionxform = str
 config.read('pseudo_ini.ini')
 
 ## ANALYSIS
@@ -377,7 +387,8 @@ config['condor']['accounting_group_user'] = username
 if 'lalinference' not in config.sections():
     config.add_section('lalinference')
 config['lalinference']['flow'] = "{'H1': 20, 'L1': 20, 'V1': 20}"
-config['lalinference']['fhigh'] = "{ 'H1': 896, 'L1': 896, 'V1': 896}"
+#config['lalinference']['fhigh'] = "{ 'H1': {}, 'L1': {}, 'V1': {}}".format(str(fmax), str(fmax), str(fmax))
+config['lalinference']['fhigh'] = "{ 'H1': 2000, 'L1': 2000, 'V1': 2000}"
 
 ## ENGINE
 if 'engine' not in config.sections():
@@ -402,24 +413,27 @@ config['rift-pseudo-pipe']['fmin-template'] = str(fmin_template)
 
 # ILE stuff
 config['rift-pseudo-pipe']['ile-n-eff'] = '10'
-config['rift-pseudo-pipe']['ile-sampler-method'] = '"adaptive_cartesian_gpu"'
+config['rift-pseudo-pipe']['ile-sampler-method'] = '"{}"'.format(str(ile_sampler))
 config['rift-pseudo-pipe']['internal-ile-freezeadapt'] = 'True'
 config['rift-pseudo-pipe']['ile-runtime-max-minutes'] = '700'
 config['rift-pseudo-pipe']['ile-jobs-per-worker'] = '20'
-config['rift-pseudo-pipe']['internal-ile-auto-logarithm-offset'] = 'True'
+config['rift-pseudo-pipe']['internal-ile-auto-logarithm-offset'] = 'False'
+config['rift-pseudo-pipe']['internal-ile-use-lnL'] = 'False'
+config['rift-pseudo-pipe']['internal-ile-reset-adapt'] = 'True'
+config['rift-pseudo-pipe']['internal-ile-request-disk']='"10M"'
 
 # CIP stuff
 #  * Fit method can be 'rf', 'gp'
 config['rift-pseudo-pipe']['cip-fit-method'] = '"rf"'
-#  * sampler method can be 'default', 'GMM', 'adaptive_cartesian_gpu'
-config['rift-pseudo-pipe']['cip-sampler-method'] = '"GMM"'
+#  * sampler method can be 'default', 'GMM', 'adaptive_cartesian_gpu', 'AV'
+config['rift-pseudo-pipe']['cip-sampler-method'] = '"{}"'.format(str(cip_sampler))
 print("Using {} for fitting and {} for sampling".format(config['rift-pseudo-pipe']['cip-fit-method'],config['rift-pseudo-pipe']['cip-sampler-method']))
 # run CIP workers simultaneously - larger = faster
 config['rift-pseudo-pipe']['cip-explode-jobs'] = '20'
 config['rift-pseudo-pipe']['internal-propose-converge-last-stage'] = 'True'
 
 # spin settings
-config['rift-pseudo-pipe']['l-max'] = '4'
+config['rift-pseudo-pipe']['l-max'] = str(l_max)
 if no_spin:
     config['rift-pseudo-pipe']['assume-nonprecessing'] = 'True'
     config['rift-pseudo-pipe']['assume-precessing'] = 'False'
@@ -499,13 +513,19 @@ for indx in np.arange(n_events):
     os.system(cmd)
     # Copy main pseudo_ini here and run pp_localize_ini.py to see if defaults should change
     os.system('cp ../pseudo_ini.ini pseudo_ini.ini')
-    localize = 'python ../../pp_localize_ini.py --event {} --ini pseudo_ini.ini --sim-xml ../mdc.xml.gz --guess-snr {}  --mc-range "[{}, {}]"'.format(indx, snr_dict['Network'], mc_min, mc_max)
+    localize = 'python ../../pp_localize_ini.py --event {} --ini pseudo_ini.ini --sim-xml ../mdc.xml.gz --guess-snr {}  --mc-range "[{}, {}]"'.format(indx, snr_dict[indx], mc_min, mc_max)
     os.system(localize)
     ## Make call to pseudo_pipe - should create rundir within event_dir
-    cmd = 'util_RIFT_pseudo_pipe.py --use-coinc `pwd`/coinc.xml --use-ini `pwd`/pseudo_ini.ini --use-rundir `pwd`/rundir --fake-data-cache `pwd`/local.cache --ile-no-gpu'
+    if os.path.exists('localize.ini'):
+        use_ini = 'localize.ini'
+    else:
+        use_ini = 'pseudo_ini.ini'
+    cmd = 'util_RIFT_pseudo_pipe.py --use-coinc `pwd`/coinc.xml --use-ini `pwd`/{} --use-rundir `pwd`/rundir --fake-data-cache `pwd`/local.cache --ile-no-gpu '.format(use_ini)
     cmd += " --manual-extra-ile-args '--d-min {} --d-max {} '".format(d_min, d_max)
     if fix_sky_location:
         cmd += "' --declination {} --right-ascension {} '".format(fiducial_dec, fiducial_ra)
+    if cip_sampler == 'AV':
+        cmd += " --manual-extra-cip-args '--downselect-parameter mc --downselect-parameter-range '[{},{}]''".format(mc_min, mc_max)
     print(cmd)
     os.system(cmd)
     os.chdir("rundir")
