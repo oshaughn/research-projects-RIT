@@ -2195,6 +2195,7 @@ elif opts.sampler_method == "NFlow":
     opts.internal_use_lnL= True  # required!
 elif opts.sampler_method == "portfolio":
     use_portfolio=True
+    sampler = None
     sampler_list = []
     sampler_types = opts.sampler_portfolio
     for name in sampler_types:
@@ -2207,6 +2208,20 @@ elif opts.sampler_method == "portfolio":
             sampler = mcsamplerGPU.MCSampler()
             sampler.xpy = xpy_default
             sampler.identity_convert=identity_convert
+        if name == 'NFlow':
+            # expensive import, only do if requested
+            try:
+                import RIFT.integrators.mcsamplerNFlow as mcsamplerNFlow
+                mcsampler_NF_ok = True
+            except:
+                print(" No mcsamplerNFlow ")
+                continue
+            sampler = mcsamplerNFlow.MCSampler()
+            sampler.xpy = xpy_default
+            sampler.identity_convert=identity_convert
+        if sampler is None:
+            # Don't add unknown type
+            continue
         print('PORTFOLIO: adding {} '.format(name))
         sampler_list.append(sampler)
     sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
