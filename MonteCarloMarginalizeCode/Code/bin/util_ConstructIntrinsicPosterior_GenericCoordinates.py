@@ -92,6 +92,8 @@ try:
 except:
     print(" No mcsamplerAV ")
     mcsampler_AV_ok = False
+mcsampler_NF_ok=False
+mcsamplerNFlow = None
 mcsampler_Portfolio_ok=False
 try:
     import RIFT.integrators.mcsamplerPortfolio as mcsamplerPortfolio
@@ -2181,6 +2183,16 @@ if opts.sampler_method == "GMM":
 elif opts.sampler_method == "AV":
     sampler = mcsamplerAdaptiveVolume.MCSampler()
     opts.internal_use_lnL= True  # required!
+elif opts.sampler_method == "NFlow":
+    # expensive import, only do if requested
+    try:
+        import RIFT.integrators.mcsamplerNFlow as mcsamplerNFlow
+        mcsampler_NF_ok = True
+    except:
+        print(" No mcsamplerNFlow ")
+    sampler = mcsamplerNFlow.MCSampler()
+
+    opts.internal_use_lnL= True  # required!
 elif opts.sampler_method == "portfolio":
     use_portfolio=True
     sampler_list = []
@@ -2490,6 +2502,8 @@ if opts.sampler_method == 'GMM':
 my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
 if opts.sampler_method == 'GMM':
     my_exp = np.min([1,4*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
+if opts.sampler_method == 'NFlow':
+    my_exp = 1 # don't use it
 #my_exp = np.max([my_exp,  1/np.log(n_step)]) # do not allow extreme contrast in adaptivity, to the point that one iteration will dominate
 print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto")
 
@@ -2539,6 +2553,8 @@ extra_args.update({
     "force_no_adapt":opts.force_no_adapt,
     "tripwire_fraction":opts.tripwire_fraction
 })
+if opts.sampler_method == 'NFlow':
+    extra_args['n_adapt'] = 10  # reduce this?
 tempering_adapt=True
 if opts.force_no_adapt:   
     tempering_adapt=False
