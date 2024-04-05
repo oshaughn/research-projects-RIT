@@ -379,8 +379,9 @@ if opts.lnL_shift_prevent_overflow:
 if not(opts.force_no_adapt):
     opts.force_no_adapt=False  # force explicit boolean false
 
-ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu', 'AV', 'portfolio']
-if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
+ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu', 'AV', 'NFlow', 'portfolio']
+bad_lnL_methods = ['default']
+if opts.internal_use_lnL and (opts.sampler_method  in bad_lnL_methods ):
   print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)
   sys.exit(99)
 
