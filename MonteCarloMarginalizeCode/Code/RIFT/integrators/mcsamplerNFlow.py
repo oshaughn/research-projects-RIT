@@ -358,6 +358,7 @@ class MCSampler(MCSamplerGeneric):
         verbose = kwargs["verbose"] if "verbose" in kwargs else False  # default
         super_verbose = kwargs["super_verbose"] if "super_verbose" in kwargs else False  # default
         save_no_samples = kwargs.get("save_no_samples", False)
+        enforce_bounds = kwargs["enforce_bounds"] if "enforce_bounds" in kwargs else False
 
         args = self.params_ordered # by default draw all
 
@@ -382,6 +383,18 @@ class MCSampler(MCSamplerGeneric):
           log_ps = flow.log_prob(flow_samples).detach().numpy()
           log_p  =  np.log(self.prior_prod(rv.T))
           # remove nan values
+          # enforce boundaries: don't trust flow
+          if enforce_bounds:
+            indx_valid = np.ones(len(log_p), dtype=bool)
+            bounds = np.array([ [self.llim[p],self.rlim[p]] for p in self.params_ordered])
+            for indx, p in enumerate(self.params_ordered):
+              indx_valid = np.logical_and(indx_valid, rv[indx] <= self.rlim[p])
+              indx_valid = np.logical_and(indx_valid, rv[indx] >= self.llim[p])
+            if super_verbose:
+              print(" Valid ", np.sum(indx_valid))
+            rv = rv[:,indx_valid]
+            log_ps = log_ps[indx_valid]
+            log_p = log_p[indx_valid]
 
         # Cache the samples we chose
         #
