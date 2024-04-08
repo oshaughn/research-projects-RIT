@@ -20,6 +20,18 @@ try:
 except:
     my_auth_decorator =lambda x: x
 
+try: 
+    from asimov import auth
+    my_auth_decorator = auth.refresh_scitoken
+except:
+    my_auth_decorator =lambda x: x
+
+try: 
+    from asimov import auth
+    my_auth_decorator = auth.refresh_scitoken
+except:
+    my_auth_decorator =lambda x: x
+
 
 class Rift(Pipeline):
     """
@@ -468,6 +480,38 @@ class Rift(Pipeline):
                     production=self.production.name,
                 )
 
+    def html(self):
+        """Return the HTML representation of this pipeline."""
+        pages_dir = os.path.join(
+            self.production.event.name, self.production.name, "pesummary"
+        )
+        out = ""
+        if self.production.status in {"uploaded"}:
+            out += """<div class="asimov-pipeline">"""
+            out += f"""<p><a href="{pages_dir}/home.html">Summary Pages</a></p>"""
+            out += f"""<img height=200 src="{pages_dir}/plots/{self.production.name}_psd_plot.png"</src>"""
+            out += f"""<img height=200 src="{pages_dir}/plots/{self.production.name}_waveform_time_domain.png"</src>"""
+
+            out += """</div>"""
+
+        return out
+
+    def html(self):
+        """Return the HTML representation of this pipeline."""
+        pages_dir = os.path.join(
+            self.production.event.name, self.production.name, "pesummary"
+        )
+        out = ""
+        if self.production.status in {"uploaded"}:
+            out += """<div class="asimov-pipeline">"""
+            out += f"""<p><a href="{pages_dir}/home.html">Summary Pages</a></p>"""
+            out += f"""<img height=200 src="{pages_dir}/plots/{self.production.name}_psd_plot.png"</src>"""
+            out += f"""<img height=200 src="{pages_dir}/plots/{self.production.name}_waveform_time_domain.png"</src>"""
+
+            out += """</div>"""
+
+        return out
+
     def resurrect(self):
         """
         Attempt to ressurrect a failed job.
@@ -524,6 +568,14 @@ class Rift(Pipeline):
             # user has most likely intervened, deleted al the rescue files, and we are about to start new, OR we have 'allow resurrect'
             print( "    - starting rift from scratch ? ")
             self.submit_dag()
+        elif count ==0:
+            # user has most likely intervened, deleted al the rescue files, and we are about to start new, OR we have 'allow resurrect'
+            print( "    - starting rift from scratch ? ")
+            self.submit_dag()
+        elif count ==0:
+            # user has most likely intervened, deleted al the rescue files, and we are about to start new, OR we have 'allow resurrect'
+            print( "    - starting rift from scratch ? ")
+            self.submit_dag()
         else:
             raise PipelineException(
                 "This job was resurrected too many times.",
@@ -575,6 +627,44 @@ class Rift(Pipeline):
                 return False
         else:
             return False
+
+    def collect_assets(self,absolute=False):
+        """
+        Gather all of the results assets for this job.
+        """
+        if absolute:
+            rundir = os.path.abspath(self.production.rundir)
+        else:
+            rundir = self.production.rundir
+        rift_all_lnL = os.path.join(rundir, 'all.net')
+        samples_raw = os.path.join(rundir,'extrinsic_posterior_samples.dat')
+        dict_out = {"samples":self.samples(), "lnL_marg":rift_all_lnL, "samples_raw":samples_raw}
+        rewt_file_name  = os.path.join(rundir,'reweighted_posterior_samples.dat')
+        if os.path.exists(rewt_file_name):
+            dict_out['samples_calmarg'] = rewt_file_name
+            dict_out['samples'] = rewt_file_name
+
+        return dict_out
+
+
+    def collect_assets(self,absolute=False):
+        """
+        Gather all of the results assets for this job.
+        """
+        if absolute:
+            rundir = os.path.abspath(self.production.rundir)
+        else:
+            rundir = self.production.rundir
+        rift_all_lnL = os.path.join(rundir, 'all.net')
+        samples_raw = os.path.join(rundir,'extrinsic_posterior_samples.dat')
+        dict_out = {"samples":self.samples(), "lnL_marg":rift_all_lnL, "samples_raw":samples_raw}
+        rewt_file_name  = os.path.join(rundir,'reweighted_posterior_samples.dat')
+        if os.path.exists(rewt_file_name):
+            dict_out['samples_calmarg'] = rewt_file_name
+            dict_out['samples'] = rewt_file_name
+
+        return dict_out
+
 
     def samples(self, absolute=False):
         """
