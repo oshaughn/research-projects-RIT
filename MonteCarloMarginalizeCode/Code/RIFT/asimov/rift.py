@@ -41,12 +41,16 @@ class Rift(Pipeline):
         super(Rift, self).__init__(production, category)
         self.logger = logger
         self.logger.info("Using the RIFT pipeline (rift.py)")
-        import RIFT.lalsimutils
-        self.config_template = RIFT.lalsimutils.__file__.replace("lalsimutils.py","asimov/rift.ini")
+        if 'RIFT_ASIMOV_INI' in os.environ:
+            self.config_template = os.getenv('RIFT_ASIMOV_INI')
+        else:
+            # FIXME: should use importlib in future!
+            import RIFT.lalsimutils
+            self.config_template = RIFT.lalsimutils.__file__.replace("lalsimutils.py","asimov/rift.ini")
         if not production.pipeline.lower() == "rift":
             raise PipelineException
 
-        if "bootstrap" in self.production.meta:
+        if "bootstrap" in self.production.meta:o
             self.bootstrap = self.production.meta["bootstrap"]
         else:
             self.bootstrap = False
