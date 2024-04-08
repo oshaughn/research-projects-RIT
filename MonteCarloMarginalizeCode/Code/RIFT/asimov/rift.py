@@ -34,7 +34,9 @@ class Rift(Pipeline):
     def __init__(self, production, category=None):
         super(Rift, self).__init__(production, category)
         self.logger = logger
-        self.logger.info("Using the RIFT pipeline")
+        self.logger.info("Using the RIFT pipeline (rift.py)")
+        import RIFT.lalsimutils
+        self.config_template = RIFT.lalsimutils.__file__.replace("lalsimutils.py","asimov/rift.ini")
         if not production.pipeline.lower() == "rift":
             raise PipelineException
 
