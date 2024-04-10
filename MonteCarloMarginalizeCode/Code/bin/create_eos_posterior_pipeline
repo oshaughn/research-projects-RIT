@@ -52,6 +52,7 @@ parser.add_argument("--general-request-disk",default="10M",type=str,help="Reques
 parser.add_argument("--transfer-file-list",default=None,help="File containing list of *input* filenames to transfer, one name per file. Copied into transfer_files for condor directly.  If provided, also enables attempts to deduce files that need to be transferred for the pipeline to operate, as needed for OSG, etc")
 parser.add_argument("--use-singularity",action='store_true',help="Attempts to use a singularity image in SINGULARITY_RIFT_IMAGE")
 parser.add_argument("--use-osg",action='store_true',help="Attempts to set up an OSG workflow.  Must submit from an osg allowed submit machine")
+parser.add_argument("--use-singularity-local",action='store_true',help="Uses the singularity container even for local universe jobs. Note we are NOT doing file transfer, just starting an image")
 parser.add_argument('--n-samples-per-job',default=2000,type=int,help="Number of samples generated each iteration; also, number of marg jobs run each iteration. Should increase with dimension of problem")
 parser.add_argument('--neff-threshold',default=800,type=int,help="Number of samples generated each iteration")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Uses local universe for non-worker condor jobs. Important to run in non-NFS location, as other jobs don't have file transfer set up.")
@@ -313,6 +314,7 @@ else:
 #  - if multiple events present, works fine,but will AVERAGE and not ADD, so not as significant as needed. Change?
 #  - skip for now, just have one event at firsty ==>? SONOT QUTE CORRECT because likelihoods are averaged, which reduces net significance.  FIXME: two-stage process
 
+# If we make the job inside the container (as usual), the paths will be correct, so no need to override this
 with open("con_marg.sh",'w') as f:
     f.write("""#! /bin/bash
 {} {}/iteration_$1_marg/event_$2/MARG*[0-9]+annotation.dat  > {}/iteration_$1_marg/consolidated_$1_$2.net_marg
@@ -331,6 +333,8 @@ if opts.use_full_submit_paths:
 if opts.use_osg:
     con_marg_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
     con_marg_job.add_condor_cmd("+flock_local",'true')
+if opts.use_singularity_local:
+    con_marg.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
 con_marg_job.write_sub_file()
 
 
@@ -357,6 +361,8 @@ if opts.use_full_submit_paths:
 if opts.use_osg:
     con_prod_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
     con_prod_job.add_condor_cmd("+flock_local",'true')
+if opts.use_singularity_local:
+    con_marg.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
 con_prod_job.write_sub_file()
         
 
@@ -379,6 +385,8 @@ if opts.use_full_submit_paths:
 if opts.use_osg:
     unify_marg_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
     unify_marg_job.add_condor_cmd("+flock_local",'true')
+if opts.use_singularity_local:
+    con_marg.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
 unify_marg_job.write_sub_file()
 
 
