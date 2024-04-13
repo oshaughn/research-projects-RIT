@@ -44,7 +44,7 @@ class Rift(Pipeline):
         if not production.pipeline.lower() == "rift":
             raise PipelineException
 
-        if "bootstrap" in self.production.meta:o
+        if "bootstrap" in self.production.meta:
             self.bootstrap = self.production.meta["bootstrap"]
         else:
             self.bootstrap = False
