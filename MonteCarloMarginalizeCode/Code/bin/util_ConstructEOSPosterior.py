@@ -134,7 +134,7 @@ parser.add_argument("--aligned-prior", default="uniform",help="Options are 'unif
 parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--lambda-max", default=4000,type=float,help="Maximum range of 'Lambda' allowed.  Minimum value is ZERO, not negative.")
 parser.add_argument("--lnL-shift-prevent-overflow",default=None,type=float,help="Define this quantity to be a large positive number to avoid overflows. Note that we do *not* define this dynamically based on sample values, to insure reproducibility and comparable integral results. BEWARE: If you shift the result to be below zero, because the GP relaxes to 0, you will get crazy answers.")
-parser.add_argument("--lnL-offset",type=float,default=10,help="lnL offset")
+parser.add_argument("--lnL-offset",type=float,default=np.inf,help="lnL offset")
 parser.add_argument("--lnL-cut",type=float,default=None,help="lnL cut [MANUAL]")
 parser.add_argument("--sigma-cut",type=float,default=0.6,help="Eliminate points with large error from the fit.")
 parser.add_argument("--ignore-errors-in-data",action='store_true',help='Ignore reported error in lnL. Helpful for testing purposes (i.e., if the error is zero)')
