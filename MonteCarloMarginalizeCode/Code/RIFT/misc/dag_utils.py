@@ -76,22 +76,29 @@ def generate_job_id():
 # for resolving environment variables
 def match_expr(my_list, my_expr):
   list_out = []
-  for name in my_list:
-    if re.match(my_expr,name):
+  p = re.compile(my_expr.replace('*','.*')) # shell-style globs
+  for name in my_list: 
+    if p.match(name):
       list_out.append(name)
+  print("  RESOLVE: for {} found ".format(my_expr), list_out)
   return list_out
 def build_resolved_env(my_str):
   env_dict =os.environ  
   str_out = ""  
   for pat in my_str.split(','):
-   list_out = match_expr( list(env_dict.keys()), pat)
+   print("  RESOLVE: building env for ", pat)
+   if ('*' in pat):  # only glob-expand, nothing more complicated
+       list_out = match_expr( list(env_dict.keys()), pat)
+   else:
+       if pat in env_dict:
+           list_out = [pat]
    for name in list_out:
      str_out += (" {}={} ".format(name, env_dict[name]))
-default_resolved_env=build_resolved_env(default_getenv_value)
-default_resolved_osg_env=build_resolved_env(default_getenv_osg_value)
-if not('RIFT_GETENV_RESOLVE' in os.environ):
-    default_resolved_env=None
-    default_resolved_osg_env=None
+default_resolved_env = None
+default_resolved_osg_env = None
+if 'RIFT_GETENV_RESOLVE' in os.environ:
+    default_resolved_env=build_resolved_env(default_getenv_value)
+    default_resolved_osg_env=build_resolved_env(default_getenv_osg_value)
     
 
 
@@ -174,7 +181,7 @@ def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log
     ile_job.add_var_opt("event")
 
     if default_resolved_env:
-        ile_job.add_condor_cmd('environment', default_resolved_env):
+        ile_job.add_condor_cmd('environment', default_resolved_env)
     else:
         ile_job.add_condor_cmd('getenv', default_getenv_value)
     ile_job.add_condor_cmd('request_memory', '2048M')
@@ -276,7 +283,7 @@ def write_integrate_likelihood_extrinsic_sub(tag='integrate', exe=None, log_dir=
     ile_job.add_var_opt("mass2")
 
     if default_resolved_env:
-        ile_job.add_condor_cmd('environment', default_resolved_env):
+        ile_job.add_condor_cmd('environment', default_resolved_env)
     else:
         ile_job.add_condor_cmd('getenv', default_getenv_value)
     ile_job.add_condor_cmd('request_memory', '2048M')
@@ -318,7 +325,7 @@ def write_result_coalescence_sub(tag='coalesce', exe=None, log_dir=None, output_
     sql_job.add_opt("verbose", None)
 
     if default_resolved_env:
-        sql_job.add_condor_cmd('environment', default_resolved_env):
+        sql_job.add_condor_cmd('environment', default_resolved_env)
     else:
         sql_job.add_condor_cmd('getenv', default_getenv_value)
     sql_job.add_condor_cmd('request_memory', '1024')
@@ -521,7 +528,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     if not use_osg:
         if default_resolved_env:
-            ile_job.add_condor_cmd('environment', default_resolved_env):
+            ile_job.add_condor_cmd('environment', default_resolved_env)
         else:
             ile_job.add_condor_cmd('getenv', default_getenv_value)
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M") 
@@ -669,7 +676,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
     if default_resolved_env:
-        ile_job.add_condor_cmd('environment', default_resolved_env):
+        ile_job.add_condor_cmd('environment', default_resolved_env)
     else:
         ile_job.add_condor_cmd('getenv', default_getenv_value)
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M") 
@@ -840,7 +847,7 @@ echo Starting ...
             env_statement+= ",CUDA_LAUNCH_BLOCKING"
         if default_resolved_env:
             new_resolved_env = build_resolved_env(env_statement)
-            ile_job.add_condor_cmd('environment', new_resolved_env):
+            ile_job.add_condor_cmd('environment', new_resolved_env)
         else:
             ile_job.add_condor_cmd('getenv', env_statement)  # retrieve any RIFT commands -- specifically RIFT_LOWLATENCY
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M") 
