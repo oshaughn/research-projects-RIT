@@ -176,7 +176,7 @@ class MCSampler(object):
         self.llim.update( member.llim)
         self.rlim.update(member.rlim)
         # set master list of adaptive parameters 
-        self.adaptive.append(member.adaptive)  # top level list of adaptive coordinates
+        self.adaptive = member.adaptive  # top level list of adaptive coordinates
 
 
     def setup(self,  **kwargs):
