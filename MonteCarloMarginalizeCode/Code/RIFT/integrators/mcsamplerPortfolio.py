@@ -365,6 +365,9 @@ class MCSampler(object):
         n_zero_prior =0
         it_max_oracle = 3
         it_now  =0
+        if 'integrand' in self._rvs:
+          # remove conflict
+          del self._rvs['integrand']
         while (eff_samp < neff and self.ntotal < nmax): #  and (not bConvergenceTests):
             
 
@@ -550,11 +553,12 @@ class MCSampler(object):
         if (not save_no_samples) and ( "log_integrand" in self._rvs):
             self._rvs["sample_n"] = self.identity_convert_togpu(numpy.arange(len(self._rvs["log_integrand"])))  # create 'iteration number'        
             # Step 1: Cut out any sample with lnL belw threshold
-            indx_list = [k for k, value in enumerate( (self._rvs["log_integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
-            # FIXME: This is an unncessary initial copy, the second step (cum i
-            # prob) can be accomplished with indexing first then only pare at
-            # the end
-            for key in list(self._rvs.keys()):
+            if deltalnL < 1e10: # not infinity, so we are truncating the sample list
+              indx_list = [k for k, value in enumerate( (self._rvs["log_integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
+              # FIXME: This is an unncessary initial copy, the second step (cum i
+              # prob) can be accomplished with indexing first then only pare at
+              # the end
+              for key in list(self._rvs.keys()):
                 if isinstance(key, tuple):
                     self._rvs[key] = self._rvs[key][:,indx_list]
                 else:
