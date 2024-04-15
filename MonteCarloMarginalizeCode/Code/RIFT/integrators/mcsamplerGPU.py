@@ -1259,12 +1259,13 @@ class MCSampler(object):
         #   - find and remove samples which contribute too little to the cumulative weights
         if (not save_no_samples) and ( "integrand" in self._rvs):
             self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
-            # Step 1: Cut out any sample with lnL belw threshold
-            indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
-            # FIXME: This is an unncessary initial copy, the second step (cum i
-            # prob) can be accomplished with indexing first then only pare at
-            # the end
-            for key in list(self._rvs.keys()):
+            if deltalnL < 1e10:
+              # Step 1: Cut out any sample with lnL belw threshold
+              indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
+              # FIXME: This is an unncessary initial copy, the second step (cum i
+              # prob) can be accomplished with indexing first then only pare at
+              # the end
+              for key in list(self._rvs.keys()):
                 if isinstance(key, tuple):
                     self._rvs[key] = self._rvs[key][:,indx_list]
                 else:
