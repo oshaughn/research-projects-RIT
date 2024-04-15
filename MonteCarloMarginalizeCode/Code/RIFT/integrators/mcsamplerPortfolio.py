@@ -194,8 +194,8 @@ class MCSampler(object):
           if not(kwargs['portfolio_args'] is None):
             if len(kwargs['portfolio_args']) == len(self.portfolio_realizations): # Only pass args if valid
               portfolio_extra_args = kwargs['portfolio_args']
-          else:
-            print(" PORTFOLIO - format ERROR ", kwargs['portfolio_args'])
+            else:
+              print(" PORTFOLIO - format ERROR ", kwargs['portfolio_args'])
         for indx, member in enumerate(self.portfolio):
             if hasattr(member, 'setup'):
               print(" PORTFOLIO setup ", member, portfolio_extra_args[indx])
