@@ -979,10 +979,12 @@ else:
     helper_ile_args += " --reference-freq " + str(unsafe_config_get(config,['engine','fref']))
 approx_str= "SEOBNRv4"  # default, should not be used.  See also cases where grid is tuned
 
-
+dmin = 1 # default
 if use_ini:
     # See above, provided by ini file
     engine_dict = dict(config['engine'])
+    if 'distance-min' in engine_dict:
+        dmin = float(engine_dict['distance-min'])
     if 'distance-max' in engine_dict:
         dmax = float(engine_dict['distance-max'])
     else:
@@ -1029,11 +1031,15 @@ if opts.lowlatency_propose_approximant:
 
 if not(internal_dmax is None):
     helper_ile_args +=  " --d-max " + str(int(internal_dmax))
+    if dmin != 1: # if not default value, add argument
+        helper_ile_args += " --d-min {} ".format(dmin)
     if opts.ile_distance_prior:
         helper_ile_args += " --d-prior {} ".format(opts.ile_distance_prior)   # moving here from pseudo_pipe
     if opts.internal_marginalize_distance and not(opts.internal_marginalize_distance_file):
         # Generate marginalization file (should probably be in DAG? But we may also want to override it with internal file)
         cmd_here = " util_InitMargTable --d-max {} ".format(internal_dmax)
+        if dmin != 1:
+            cmd_here += " --d-min {} ".format(dmin)
         if opts.ile_distance_prior:
             cmd_here += " --d-prior {} ".format(opts.ile_distance_prior)
         os.system(cmd_here)
