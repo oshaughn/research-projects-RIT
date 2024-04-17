@@ -514,8 +514,6 @@ class Rift(Pipeline):
         else:
             return False
 
-<<<<<<< HEAD
-
     def collect_assets(self,absolute=False):
         """
         Gather all of the results assets for this job.
@@ -535,8 +533,6 @@ class Rift(Pipeline):
         return dict_out
 
 
-=======
->>>>>>> rift_O4b
     def samples(self, absolute=False):
         """
         Collect the combined samples file for PESummary.
