@@ -423,7 +423,6 @@ class Rift(Pipeline):
                     production=self.production.name,
                 )
 
-<<<<<<< HEAD
     def html(self):
         """Return the HTML representation of this pipeline."""
         pages_dir = os.path.join(
@@ -440,8 +439,6 @@ class Rift(Pipeline):
 
         return out
 
-=======
->>>>>>> rift_O4b
     def resurrect(self):
         """
         Attempt to ressurrect a failed job.
