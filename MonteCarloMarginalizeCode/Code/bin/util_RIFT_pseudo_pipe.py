@@ -966,7 +966,8 @@ for indx in np.arange(len(instructions_cip)):
             if 's1z_bar' in line:
                 # FIRST attempt to replace with commas, note previous line
                 line = line.replace("mc,s1z'", "mc,s1z_bar'")
-    elif opts.internal_correlate_default and ('s1z' in line):
+    elif opts.internal_correlate_default and ('s1z' in line) and opts.cip_sampler_method == 'GMM':
+        # currently ONLY implementing correlations for GMM
         my_sampler_method='GMM'  # Warning can override default sampler setting if not careful!
         if opts.cip_sampler_method:
             my_sampler_method = opts.cip_sampler_method
