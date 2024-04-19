@@ -959,10 +959,13 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('parameter delta_mc', 'parameter q')
         line += " --prior-gaussian-mass-ratio --prior-gaussian-spin1-magnitude "   # should require precessing analysis
     elif opts.assume_highq and ('s1z' in line):
-        line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
-        if 's1z_bar' in line:
-            # FIRST attempt to replace with commas, note previous line
-            line = line.replace("mc,s1z'", "mc,s1z_bar'")
+        if not( opts.cip_sampler_method =='GMM'):
+            print("  ASSUME HIGHQ FAIL  - currently only GMM ")
+        else:
+            line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
+            if 's1z_bar' in line:
+                # FIRST attempt to replace with commas, note previous line
+                line = line.replace("mc,s1z'", "mc,s1z_bar'")
     elif opts.internal_correlate_default and ('s1z' in line):
         my_sampler_method='GMM'  # Warning can override default sampler setting if not careful!
         if opts.cip_sampler_method:
