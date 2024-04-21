@@ -305,6 +305,8 @@ class Rift(Pipeline):
                     command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
                 )
                 out, err = pipe.communicate()
+                # very large amount of information for asimov log !
+                self.logger.info(out)
                 if err:
                     self.production.status = "stuck"
                     if hasattr(self.production.event, "issue_object"):
