@@ -1282,7 +1282,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # skip nan ! Something horrible has happened
     if np.isnan(guess_snr):
       print("  --- NAN SNR GUESS, ABORTING THIS EVENT {} --".format(indx_event))
-      continue
+      return
 
     if opts.auto_logarithm_offset and guess_snr:
       # important: this only impacts *this* analysis
