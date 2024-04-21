@@ -1282,7 +1282,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # skip nan ! Something horrible has happened
     if np.isnan(guess_snr):
       print("  --- NAN SNR GUESS, ABORTING THIS EVENT {} --".format(indx_event))
-      return
+      raise Exception(" NAN SNR ")
 
     if opts.auto_logarithm_offset and guess_snr:
       # important: this only impacts *this* analysis
@@ -1950,8 +1950,9 @@ lnL_sofar = -np.inf
 no_adapt_sky = False
 
 for indx in numpy.arange(len(P_list)):
- if True: #try:
+ try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
+  # abort if horrible (nan event) - done with 'raise'
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.force_reset_all:  # depends on integrator!  May not always be availble
     if opts.sampler_method == "adaptive_cartesian_gpu": 
@@ -1975,7 +1976,7 @@ for indx in numpy.arange(len(P_list)):
       # Disable saving of the integrand -- saves on memory and will reduce speed. 
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
- else: #except Exception as exception_failure:
+ except Exception as exception_failure:
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
   if opts.internal_make_empty_file_on_error:
