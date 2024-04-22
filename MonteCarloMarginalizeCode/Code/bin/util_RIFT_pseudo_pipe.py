@@ -243,6 +243,7 @@ parser.add_argument("--internal-ile-force-noreset-adapt",action='store_true',hel
 parser.add_argument("--internal-ile-adapt-log",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE via helper.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset for ILE")
+parser.add_argument("--ile-additional-files-to-transfer",default=None,help="Comma-separated list of filenames. To append to the transfer file list for ILE jobs (only). Intended for surrogates in LAL_DATA_PATH for wide-ranging use")
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
@@ -855,6 +856,18 @@ if opts.internal_mitigate_fd_J_frame == 'L_frame':
     line += " --internal-waveform-fd-L-frame "
 with open('args_ile.txt','w') as f:
         f.write(line)
+
+# ILE transfer file list
+#  if arguments provided, append (usually empty file/nonexistent)
+if opts.ile_additional_files_to_transfer:
+    print(" Supplementary transfer request ",opts.ile_additional_files_to_transfer) 
+    my_files = list(map(lambda x: x.split(),opts.ile_additional_files_to_transfer.split(','))) # split on , remove whitespace
+    my_files = sum(my_files, []) # flatten the list
+    my_files = [x for x in my_files if x]  # remove empty elements
+    print("  File transfer request resolves to ", my_files)
+    with open("helper_transfer_files.txt",'a') as f:
+        for line in my_files:
+            f.write(line + "\n")
 
 
 #os.system("cp helper_test_args.txt args_test.txt")
