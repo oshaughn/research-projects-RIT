@@ -543,3 +543,4 @@ if not opts.test:
     os.system(cmd)
     mod = 'grep -v cip master.dag > master_clean.dag'
     os.system(mod)
+    os.system('mv master_clean.dag master.dag')
