@@ -421,7 +421,7 @@ def write_1dpos_plot_sub(tag='1d_post_plot', exe=None, log_dir=None, output_dir=
 
 
 
-def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,arg_vals=None, no_grid=False,request_disk=False, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,max_runtime_minutes=None,condor_commands=None,**kwargs):
+def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,request_memory_flex=False, arg_vals=None, no_grid=False,request_disk=False, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,max_runtime_minutes=None,condor_commands=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -531,7 +531,12 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
             ile_job.add_condor_cmd('environment', default_resolved_env)
         else:
             ile_job.add_condor_cmd('getenv', default_getenv_value)
-    ile_job.add_condor_cmd('request_memory', str(request_memory)+"M") 
+    if not(request_memory_flex):
+        ile_job.add_condor_cmd('request_memory', str(request_memory)+"M") 
+    if request_memory_flex:
+        ile_job.add_condor_cmd("+InitialRequestMemory",str(request_memory))
+        ile_job.add_condor_cmd('periodic_release', "HoldReasonCode =?= 34")
+        ile_job.add_condor_cmd('request_memory',  'ifthenelse( LastHoldReasonCode=!=34, InitialRequestMemory, int(1.5 * MemoryUsage) )')
     if not(request_disk is False):
         ile_job.add_condor_cmd('request_disk', str(request_disk)) 
     # To change interactively:
