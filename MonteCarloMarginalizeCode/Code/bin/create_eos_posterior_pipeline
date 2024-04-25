@@ -55,7 +55,8 @@ parser.add_argument("--use-osg",action='store_true',help="Attempts to set up an 
 parser.add_argument("--use-singularity-local",action='store_true',help="Uses the singularity container even for local universe jobs. Note we are NOT doing file transfer, just starting an image")
 parser.add_argument('--n-samples-per-job',default=2000,type=int,help="Number of samples generated each iteration; also, number of marg jobs run each iteration. Should increase with dimension of problem")
 parser.add_argument('--neff-threshold',default=800,type=int,help="Number of samples generated each iteration")
-parser.add_argument("--condor-local-nonworker",action='store_true',help="Uses local universe for non-worker condor jobs. Important to run in non-NFS location, as other jobs don't have file transfer set up.")
+parser.add_argument("--condor-local-nonworker",action='store_true',help="Uses local universe for non-worker condor jobs. Important to run in non-NFS location, as other jobs don't have file transfer set up.  Required for public OSG.")
+parser.add_argument("--condor-local-nonworker-igwn-prefix",action='store_true', help="Adds some prefix text to start up cvmfs igwn environment, so local jobs have access to standard RIFT operators. Required for public OSG.")
 parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="Uses local flocking for non-worker condor jobs. Important to run in non-NFS location, as other jobs don't have file transfer set up.")
 parser.add_argument('--n-iterations',default=3,type=int,help="Number of iterations to perform")
 parser.add_argument("--start-iteration",default=0,type=int,help="starting iteration. If >0, does not copy over --input-grid. DOES rewrite sub files.  This allows you to change the arguments provided (e.g., use more iterations or settings at late times). Note this overwrites the .sub files ")
@@ -72,6 +73,11 @@ if opts.condor_local_nonworker:
     local_worker_universe="local"
 if opts.condor_nogrid_nonworker:
     no_worker_grid=True
+
+extra_text = ''
+if opts.condor_local_nonworker_igwn_prefix:
+    extra_text += "source /cvmfs/software.igwn.org/conda/etc/profile.d/conda.sh \n"
+    extra_text +=  "conda activate igwn \n"
 
 
 working_dir_inside_local = working_dir_inside = opts.working_directory
@@ -316,9 +322,13 @@ else:
 
 # If we make the job inside the container (as usual), the paths will be correct, so no need to override this
 with open("con_marg.sh",'w') as f:
+    relevant_path = dag_utils.which('util_HyperCombine.py')
+    if opts.condor_local_nonworker_igwn_prefix:
+        relevant_path = 'util_HyperCombine.py'  # we are in igwn environment
     f.write("""#! /bin/bash
+ {}
 {} {}/iteration_$1_marg/event_$2/MARG*[0-9]+annotation.dat  > {}/iteration_$1_marg/consolidated_$1_$2.net_marg
-""".format(dag_utils.which('util_HyperCombine.py'),opts.working_directory,opts.working_directory) )
+""".format(extra_text,relevant_path,opts.working_directory,opts.working_directory) )
     os.system("chmod a+x con_marg.sh")
 
 con_marg_job, con_marg_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/con_marg.sh",tag='CON',log_dir=None,arg_str='',file_input="$(macroiteration)  $(macroevent) ", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
@@ -344,9 +354,13 @@ con_marg_job.write_sub_file()
 #  - if multiple events present, works fine,but will AVERAGE and not ADD, so not as significant as needed. Change?
 #  - skip for now, just have one event at firsty ==>? SONOT QUTE CORRECT because likelihoods are averaged, which reduces net significance.  FIXME: two-stage process
 with open("con_prod.sh",'w') as f:
+    relevant_path = dag_utils.which('util_HyperCombine.py')
+    if opts.condor_local_nonworker_igwn_prefix:
+        relevant_path = 'util_HyperCombine.py'  # we are in igwn environment
     f.write("""#! /bin/bash
+ {}
 {} --combination product {}/iteration_$1_marg/consolidated_*_*.net_marg  > {}/consolidated_$1.net_marg
-""".format(dag_utils.which('util_HyperCombine.py'),opts.working_directory,opts.working_directory) )
+""".format(extra_text,relevant_path,opts.working_directory,opts.working_directory) )
     os.system("chmod a+x con_prod.sh")
 
 con_prod_job, con_prod_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/con_prod.sh",tag='CON_PROD',log_dir=None,arg_str='',file_input="$(macroiteration)  ", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
