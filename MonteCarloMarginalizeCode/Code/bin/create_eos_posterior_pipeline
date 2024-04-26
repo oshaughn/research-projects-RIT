@@ -451,7 +451,19 @@ if opts.use_osg:
 # PUFF job
 #   ... pending
 if puff_args and puff_cadence:
-    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_marg,input_net=opts.working_directory+'/grid-$(macroiterationnext).dat',output=opts.working_directory+'/grid_puff-$(macroiterationnext).dat',out_dir=opts.working_directory,exe=opts.puff_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+    exe_here = opts.puff_exe
+    if opts.use_osg:
+        relevant_path = dag_utils.which(opts.puff_exe)
+        if opts.condor_local_nonworker_igwn_prefix:
+            relevant_path = relevant_path.split("/")[-1]
+            exe_here = opts.working_directory + "/local_puff.sh"
+        with open("local_puff.sh", 'w') as f:
+            f.write("""#! /bin/bash 
+{}
+{} $@
+""".format(extra_text,relevant_path))
+            os.system("chmod a+x local_puff.sh")
+    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_marg,input_net=opts.working_directory+'/grid-$(macroiterationnext).dat',output=opts.working_directory+'/grid_puff-$(macroiterationnext).dat',out_dir=opts.working_directory,exe=exe_here,universe=local_worker_universe,no_grid=no_worker_grid)
     # Modify: set 'initialdir' to CIP WORKING DIR 
     puff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_post")
     # Modify output argument: change logs and working directory to be subdirectory for the run
