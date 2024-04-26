@@ -247,7 +247,8 @@ parser.add_argument("--use-singularity",action='store_true',help="Attempts to us
 parser.add_argument("--use-osg",action='store_true',help="Attempts to set up an OSG workflow.  Must submit from an osg allowed submit machine")
 parser.add_argument("--use-osg-cip",action='store_true',help="If use-osg, attempts to run CIP on OSG as well.  Default is to run OSG on local machines")
 parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Uses an aggressive simplified requirements string for worker jobs")
-parser.add_argument("--condor-local-nonworker",action='store_true',help="Uses local universe for non-worker condor jobs. Important to run in non-NFS location, as other jobs don't have file transfer set up.")
+parser.add_argument("--condor-local-nonworker",action='store_true',help="Uses local universe for non-worker condor jobs. Important to run in non-NFS location, as other jobs don't have file transfer set up.  Required for public OSG")
+parser.add_argument("--condor-local-nonworker-igwn-prefix",action='store_true', help="Adds some prefix text to start up cvmfs igwn environment, so local jobs have access to standard RIFT operators. Required for public OSG.")
 parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="Uses local flocking for non-worker condor jobs. Important to run in non-NFS location, as other jobs don't have file transfer set up.")
 parser.add_argument("--frames-dir",default=None,help="If you are using synthetic dat")
 parser.add_argument("--cache-file",default=None,help="If you are using real data and have CVMS frames, you want to transfer the cache file over.")
@@ -271,6 +272,11 @@ if opts.condor_local_nonworker:
     local_worker_universe="local"
 if opts.condor_nogrid_nonworker:
     no_worker_grid=True
+
+extra_text = ''
+if opts.condor_local_nonworker_igwn_prefix:
+    extra_text += "source /cvmfs/software.igwn.org/conda/etc/profile.d/conda.sh \n"
+    extra_text +=  "conda activate igwn \n"
 
 if not opts.cip_explode_jobs_last:  # set realistic default, if not specified
     opts.cip_explode_jobs_last = opts.cip_explode_jobs
@@ -688,11 +694,18 @@ if  (opts.last_iteration_extrinsic):
         if not (convert_args is None):
             convert_args_extr += convert_args
         # batched convert shell script
+        relevant_path = dag_utils.which('util_JoinExtrXML.py')
+        relevant_path_2 = dag_utils.which('convert_output_format_ile2inference')
+        if opts.condor_local_nonworker_igwn_prefix:
+            # we are in igwn environment
+            relevant_path = 'util_HyperCombine.py'  
+            relevant_path_2 = 'convert_output_format_ile2inference'
         with open("allinone_convert.sh",'w') as f:
             f.write("""#! /bin/bash
+{}
 {} {}/iteration_$1_ile/'EXTR_out-*.xml_*_.xml.gz' --output {}/tmp_converted.xml.gz
 {} {} {}/tmp_converted.xml.gz > {}/extrinsic_posterior_samples.dat
-""".format(dag_utils.which('util_JoinExtrXML.py'),'.','.',dag_utils.which('convert_output_format_ile2inference'),convert_args_extr,opts.working_directory,opts.working_directory))
+""".format(extra_text,relevant_path,'.','.',relevant_path_2,convert_args_extr,opts.working_directory,opts.working_directory))
         os.system("chmod a+x allinone_convert.sh")
         # Create job submit file
         batchConvertExtr_job, batchConvertExtr_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/allinone_convert.sh",tag='convert_extr',log_dir=None,arg_str='',file_input="$(macroiteration) ",file_output="/dev/null", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
@@ -709,11 +722,16 @@ if  (opts.last_iteration_extrinsic):
         convert_args_extr =  " --convention LI  --export-cosmology --use-interpolated-cosmology " 
         if not (convert_args is None):
             convert_args_extr += convert_args
+        relevant_path = dag_utils.which('util_BatchConvertResampleILEOutput.py')
+        if opts.condor_local_nonworker_igwn_prefix:
+            # we are in igwn environment
+            relevant_path = 'util_BatchConvertResampleILEOutput.py'
         # batched convert shell script
         with open("batch_convert.sh",'w') as f:
             f.write("""#! /bin/bash
+{}
 {} {}/iteration_$1_ile/EXTR_out-$2.xml_*_.xml.gz {}
-""".format(dag_utils.which('util_BatchConvertResampleILEOutput.py'),opts.working_directory,convert_args_extr))
+""".format(extra_text,relevant_path,opts.working_directory,convert_args_extr))
         os.system("chmod a+x batch_convert.sh")
         # Create job submit file
         batchConvertExtr_job, batchConvertExtr_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/batch_convert.sh",tag='convert_extr',log_dir=None,arg_str='',file_input="$(macroiteration) $(macroevent)",file_output=opts.working_directory+"/iteration_$(macroiteration)_ile/EXTR_out-$(macroevent).downsampled_dat.dat", out_dir=opts.working_directory+"/iteration_$(macroiteration)_ile/",universe=local_worker_universe,no_grid=no_worker_grid)
@@ -863,7 +881,7 @@ if opts.cip_explode_jobs:
 
     # Create worker join job
     #   ... if we are using cip_explode_jobs_dag, we need a different script entirely
-    join_cip_job,join_cip_job_name = dag_utils.write_joingrids_sub(input_pattern=opts.working_directory+"/iteration_$(macroiteration)_cip/output-grid-*.xml.gz",target_dir=opts.working_directory,output_base="overlap-grid-$(macroiterationnext)",n_explode=n_explode,log_dir=opts.working_directory+"/iteration_$(macroiteration)_cip/logs",universe=local_worker_universe,no_grid=no_worker_grid)
+    join_cip_job,join_cip_job_name = dag_utils.write_joingrids_sub(input_pattern=opts.working_directory+"/iteration_$(macroiteration)_cip/output-grid-*.xml.gz",target_dir=opts.working_directory,output_base="overlap-grid-$(macroiterationnext)",n_explode=n_explode,log_dir=opts.working_directory+"/iteration_$(macroiteration)_cip/logs",universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
     join_cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
     # Modify output argument: change logs and working directory to be subdirectory for the run
     join_cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/join-$(cluster)-$(process).log")
