@@ -1892,7 +1892,7 @@ def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,t
     return ile_job, ile_sub_name
 
 
-def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pattern=None,target_dir=None,output_base=None,log_dir=None,n_explode=1, gzip="/usr/bin/gzip", old_add=False, old_style_add=False,no_grid=False, **kwargs):
+def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pattern=None,target_dir=None,output_base=None,log_dir=None,n_explode=1, gzip="/usr/bin/gzip", old_add=False, old_style_add=False,no_grid=False,extra_text='', **kwargs):
     """
     Write script to merge CIP 'overlap-grid-(iteration)-*.xml.gz  results.  Issue is that
     """
@@ -1919,8 +1919,9 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
             f.write("#! /bin/bash  \n")
             f.write(r"""
 # merge using glob command called from shell
+{}
 {}  {} --output {}  {}/{}*.xml.gz 
-""".format(exe,extra_arg,fname_out,alt_work_dir,alt_out))
+""".format(extra_text,exe,extra_arg,fname_out,alt_work_dir,alt_out))
         os.system("chmod a+x join_grids.sh")
         exe = target_dir + "/join_grids.sh"
 
