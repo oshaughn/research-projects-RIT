@@ -255,9 +255,9 @@ if opts.marg_event_args:
 #   - issue is that transfer files depend on event
 #   - all output goes into the same iter*_marg directory
 #   - join script will merge all together
-    cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='MARG',log_dir=None,arg_str=marg_event_args,using_eos='file:'+working_dir_inside+"/grid-$(macroiteration).dat",using_eos_index='$(macroevent)',request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,exe=marg_exe_master,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../event-$(macroid).net']+transfer_file_names)
+    cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='MARG',log_dir=None,arg_str=marg_event_args,using_eos='file:'+working_dir_inside+"/grid-$(macroiteration).dat",using_eos_index='$(macroevent)',request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,exe=marg_exe_master,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../../event-$(macroid).net']+transfer_file_names)
     # Modify: set 'initialdir'
-    cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg")
+    cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg/event_$(macroid)")
     # Modify output argument: change logs and working directory to be subdirectory for the run
     cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(macroid)-$(cluster)-$(process).log")
     cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(macroid)-$(cluster)-$(process).err")
@@ -269,9 +269,9 @@ if opts.marg_event_args:
     cip_job.write_sub_file()
 
     # PUFF variant
-    cipPuff_job, cipPuff_job_name = dag_utils.write_CIP_sub(tag='MARG_PUFF',log_dir=None,arg_str=marg_event_args,using_eos='file:'+working_dir_inside+"/grid_puff-$(macroiteration).dat",using_eos_index='$(macroevent)',request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG_puff-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,exe=marg_exe_master,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../event-$(macroid).net']+transfer_file_names)
+    cipPuff_job, cipPuff_job_name = dag_utils.write_CIP_sub(tag='MARG_PUFF',log_dir=None,arg_str=marg_event_args,using_eos='file:'+working_dir_inside+"/grid_puff-$(macroiteration).dat",using_eos_index='$(macroevent)',request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG_puff-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,exe=marg_exe_master,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../../event-$(macroid).net']+transfer_file_names)
     # Modify: set 'initialdir'
-    cipPuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg")
+    cipPuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg/event_$(macroid)")
     # Modify output argument: change logs and working directory to be subdirectory for the run
     cipPuff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(macroevent)-$(cluster)-$(process).log")
     cipPuff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(macroevent)-$(cluster)-$(process).err")
@@ -285,9 +285,9 @@ if opts.marg_event_args:
 else:
     for indx in np.arange(len(marg_event_args_list)):
         n_chunk_here = int(marg_event_nchunk_list[indx])
-        cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='MARG_{}'.format(indx),log_dir=None,exe=marg_event_exe_list[indx],arg_str=marg_event_args_list[indx],using_eos='file:'+working_dir_inside+"/grid-$(macroiteration).dat",using_eos_index='$(macroevent)',n_events_to_analyze=n_chunk_here,request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../event-$(macroid).net']+transfer_file_names)
+        cip_job, cip_job_name = dag_utils.write_CIP_sub(tag='MARG_{}'.format(indx),log_dir=None,exe=marg_event_exe_list[indx],arg_str=marg_event_args_list[indx],using_eos='file:'+working_dir_inside+"/grid-$(macroiteration).dat",using_eos_index='$(macroevent)',n_events_to_analyze=n_chunk_here,request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../../event-$(macroid).net']+transfer_file_names)
         # Modify: set 'initialdir'
-        cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg")
+        cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg/event_$(macroid)")
         # Modify output argument: change logs and working directory to be subdirectory for the run
         cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(macroid)-$(cluster)-$(process).log")
         cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/marg-$(macroevent)-$(macroid)-$(cluster)-$(process).err")
@@ -300,9 +300,9 @@ else:
         cip_job_list.append(cip_job)
 
         # PUFF variant
-        cipPuff_job, cipPuff_job_name = dag_utils.write_CIP_sub(tag='MARG_PUFF_{}'.format(indx),log_dir=None,exe=marg_event_exe_list[indx],arg_str=marg_event_args_list[indx],using_eos='file:'+working_dir_inside+"/grid_puff-$(macroiteration).dat",using_eos_index='$(macroevent)',n_events_to_analyze=n_chunk_here,request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG_puff-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../event-$(macroid).net']+transfer_file_names)
+        cipPuff_job, cipPuff_job_name = dag_utils.write_CIP_sub(tag='MARG_PUFF_{}'.format(indx),log_dir=None,exe=marg_event_exe_list[indx],arg_str=marg_event_args_list[indx],using_eos='file:'+working_dir_inside+"/grid_puff-$(macroiteration).dat",using_eos_index='$(macroevent)',n_events_to_analyze=n_chunk_here,request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG_puff-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../../event-$(macroid).net']+transfer_file_names)
     # Modify: set 'initialdir'
-        cipPuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg")
+        cipPuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg/event_$(macroid)")
     # Modify output argument: change logs and working directory to be subdirectory for the run
         cipPuff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(macroevent)-$(macroid)-$(cluster)-$(process).log")
         cipPuff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_marg/logs/margPuff-$(macroevent)-$(macroid)-$(cluster)-$(process).err")
