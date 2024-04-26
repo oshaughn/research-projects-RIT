@@ -86,6 +86,7 @@ out_dir_inside_marg = opts.working_directory
 out_dir_inside_marg+= "/iteration_$(macroiteration)_marg/event_$(macroid)/"
 if opts.use_singularity or opts.use_osg:
     working_dir_inside = "./" # all files on the remote machine are in the current directory
+    out_dir_inside_marg = "./"
 
 singularity_image = None
 if opts.use_singularity:
