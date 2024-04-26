@@ -413,6 +413,7 @@ eospost_marg_job, eospost_marg_job_name = dag_utils.write_hyperpost_sub(exe=eosp
 eospost_marg_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_post")
 if opts.use_singularity:
     eospost_marg_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    eospost_marg_job.add_condor_cmd("transfer_executable", 'False') # don't copy it
 eospost_marg_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_post/logs/post-$(cluster)-$(process).log")
 eospost_marg_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_post/logs/post-$(cluster)-$(process).err")
 eospost_marg_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_post/logs/post-$(cluster)-$(process).out")
