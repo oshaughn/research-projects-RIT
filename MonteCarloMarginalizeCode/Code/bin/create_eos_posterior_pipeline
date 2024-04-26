@@ -84,9 +84,11 @@ if opts.condor_local_nonworker_igwn_prefix:
 working_dir_inside_local = working_dir_inside = opts.working_directory
 out_dir_inside_marg = opts.working_directory
 out_dir_inside_marg+= "/iteration_$(macroiteration)_marg/event_$(macroid)/"
+out_dir_inside_post = opts.working_directory
 if opts.use_singularity or opts.use_osg:
     working_dir_inside = "./" # all files on the remote machine are in the current directory
     out_dir_inside_marg = "./"
+    out_dir_inside_post = "./"
 
 singularity_image = None
 if opts.use_singularity:
@@ -409,7 +411,7 @@ unify_marg_job.write_sub_file()
 
 ##   EOS_POST job  (workers)
 #  - main hyperparameter integration executable
-eospost_marg_job, eospost_marg_job_name = dag_utils.write_hyperpost_sub(exe=eospost_exe,tag='EOS_POST_worker',arg_str=eos_post_args,out_dir=opts.working_directory,output='iteration_$(macroiteration)_post/output-$(macroiterationnext)-$(cluster)',input_net=working_dir_inside + "/all.marg_net",transfer_files=transfer_file_names_post)
+eospost_marg_job, eospost_marg_job_name = dag_utils.write_hyperpost_sub(exe=eospost_exe,tag='EOS_POST_worker',arg_str=eos_post_args,out_dir=out_dir_inside_post,output='iteration_$(macroiteration)_post/output-$(macroiterationnext)-$(cluster)',input_net=working_dir_inside + "/all.marg_net",transfer_files=transfer_file_names_post)
 eospost_marg_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_post")
 if opts.use_singularity:
     eospost_marg_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
