@@ -411,7 +411,10 @@ unify_marg_job.write_sub_file()
 
 ##   EOS_POST job  (workers)
 #  - main hyperparameter integration executable
-eospost_marg_job, eospost_marg_job_name = dag_utils.write_hyperpost_sub(exe=eospost_exe,tag='EOS_POST_worker',arg_str=eos_post_args,out_dir=out_dir_inside_post,output='iteration_$(macroiteration)_post/output-$(macroiterationnext)-$(cluster)',input_net=working_dir_inside + "/all.marg_net",transfer_files=transfer_file_names_post)
+eospost_outfile = 'iteration_$(macroiteration)_post/output-$(macroiterationnext)-$(cluster)'
+if opts.use_osg:
+    eospost_outfile = 'output-$(macroiterationnext)-$(cluster)'
+eospost_marg_job, eospost_marg_job_name = dag_utils.write_hyperpost_sub(exe=eospost_exe,tag='EOS_POST_worker',arg_str=eos_post_args,out_dir=out_dir_inside_post,output=eospost_outfile,input_net=working_dir_inside + "/all.marg_net",transfer_files=transfer_file_names_post)
 eospost_marg_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_post")
 if opts.use_singularity:
     eospost_marg_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
