@@ -21,7 +21,7 @@ built from the SWIG wrappings of LAL and LALSimulation.
 import sys
 import copy
 import types
-import EOBRun_module
+#import EOBRun_module
 has_external_teobresum=False
 import os
 info_use_ext = True
@@ -2927,7 +2927,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                 'inclination'        : P.incl,
                 'output_hpc'         : 0,
                 'ecc'                : P.eccentricity,
-                'ecc_freq'           : 1 #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
+                'ecc_freq'           : 0 #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
             }
         print("Starting EOBRun_module")
         t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
