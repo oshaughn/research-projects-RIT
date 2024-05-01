@@ -467,6 +467,10 @@ class Rift(Pipeline):
             count += 1
             # os.system("cat *_local.cache > local.cache")
             self.submit_dag()
+        elif count ==0:
+            # user has most likely intervened, deleted al the rescue files, and we are about to start new, OR we have 'allow resurrect'
+            print( "    - starting rift from scratch ? ")
+            self.submit_dag()
         else:
             raise PipelineException(
                 "This job was resurrected too many times.",
