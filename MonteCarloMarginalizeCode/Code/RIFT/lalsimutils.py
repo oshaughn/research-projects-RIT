@@ -3557,6 +3557,17 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             if TDlen < hlm_dict[mode].data.length:  # we have generated too long a signal!...truncate from LEFT. Danger!
                     hlm_dict[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm_dict[mode],hlm_dict[mode].data.length-TDlen,TDlen)
 
+    # Tapering: applies to cases without direct return, like TDmodesFromPolarizations and ChooseTDModes
+    if not(no_condition):
+        # Base taper, based on 1% of waveform length
+        ntaper = int(0.01*TDlen)  # fixed 1% of waveform length, at start
+        ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
+        vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+        # Taper at the start of the segment
+        for mode in hlm_dict:
+            hlm_dict[mode].data.data[:ntaper]*=vectaper
+
+
     return hlm_dict   # note data type is different than with SEOB; need to finish port to pure dictionary
 
 def hlmoft_FromFD_dict(P,Lmax=2):
