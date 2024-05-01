@@ -71,6 +71,20 @@ class Rift(Pipeline):
         self.production.status = "processing"
 
     def before_submit(self):
+        # Check for dependencies (mainly for cache files from gwdata)
+        productions = {}
+        if self.production.dependencies:
+          for production in self.production.event.productions:
+                productions[production.name] = production
+          # concatenate all cache files into main local.cache directory
+          for previous_job in self.production.dependencies:
+            print("assets", productions[previous_job].pipeline.collect_assets())
+
+            if "caches" in productions[previous_job].pipeline.collect_assets():
+                cache_files = productions[previous_job].pipeline.collect_assets()['caches'].values()
+                for cache_file in cache_files:
+                    os.system(' cat {}  >> {}/local.cache '.format(cache_file, self.production.rundir))
+
         pass
 
     def before_config(self, dryrun=False):
