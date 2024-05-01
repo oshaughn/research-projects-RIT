@@ -1330,6 +1330,9 @@ if opts.use_osg:
     elif opts.use_osg_file_transfer:
         cmd += " --frames-dir `pwd`/frames_dir "  # assume this will be built by the end user for us, for now
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
+elif opts.ile_additional_files_to_transfer:
+    # also transfer files if we request by hand!
+    cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
 if opts.condor_local_nonworker:
     cmd += " --condor-local-nonworker "
 if opts.condor_nogrid_nonworker:
