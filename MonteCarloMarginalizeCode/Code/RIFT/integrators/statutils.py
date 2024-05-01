@@ -165,16 +165,17 @@ def update_log(existingLogAggregate, newLogValues_orig,special=scipy.special,xpy
     log_M2B = logsumexp( 2*xpy_here.log(xpy_here.abs(xpy_here.exp(newLogValues-log_refB) - xpy_here.exp(log_xBmean) )))
 
     # Find new common scale factor, and apply it
-    logRef = xpy_here.max([log_refA,log_refB])
+    #   Warning: cupy.max does not work recently, must cast
+    logRef = xpy_here.max(xpy_here.array([log_refA,log_refB]))
     log_xAmean += -(logRef - log_refA)
     log_xBmean += -(logRef - log_refB)
     log_M2A += -2*(logRef-log_refA)  # scale is quadratic
     log_M2B += -2*(logRef-log_refB)
 
     # Update mean and second moment
-    log_xNewMean = logsumexp([log_xAmean + xpy_here.log(nA),log_xBmean + xpy_here.log(nB)]) - xpy_here.log(nA+nB)
+    log_xNewMean = logsumexp(xpy_here.array([log_xAmean + xpy_here.log(nA),log_xBmean + xpy_here.log(nB)])) - xpy_here.log(nA+nB)
     log_delta = xpy_here.log(xpy_here.abs(xpy_here.exp(log_xAmean)- xpy_here.exp(log_xBmean))) # sign irrelevant
-    log_M2New = logsumexp([log_M2A,log_M2B,2*log_delta + xpy_here.log(nA)+ xpy_here.log(nB) - xpy_here.log(nA+nB)])
+    log_M2New = logsumexp(xpy_here.array([log_M2A,log_M2B,2*log_delta + xpy_here.log(nA)+ xpy_here.log(nB) - xpy_here.log(nA+nB)]))
 
     # return new aggregate
     return (nA+nB, log_xNewMean, log_M2New, logRef)
