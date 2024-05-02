@@ -5381,7 +5381,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         for name in ['mc', 'm1', 'm2']:
             if name in coord_names:
                 indx_name = coord_names.index(name)
-                x_out[name]* = (1+source_redshift)
+                x_out[name] *= (1+source_redshift)
 
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
     if len(coord_names_reduced)<1:
