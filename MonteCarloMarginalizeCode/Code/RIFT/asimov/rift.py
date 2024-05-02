@@ -451,6 +451,21 @@ class Rift(Pipeline):
                 )
             )
         )
+        # check if dagman.out  newer than rescue - job has not really died? Prevent superfluous restarts!
+        time_mod_out = os.path.getmtime(                os.path.join(
+                    self.production.rundir,
+                    "marginalize_intrinsic_parameters_BasicIterationWorkflow.dag.dagman.out",
+                ))
+        last_rescue =        glob.glob(
+                os.path.join(
+                    self.production.rundir,
+                    "marginalize_intrinsic_parameters_BasicIterationWorkflow.dag.rescue*",
+                )
+            ).sort()[-1]
+        time_mod_rescue = os.path.getmtime(last_rescue)
+        if time_mod_out > time_mod_rescue+30: # some buffer in seconds for file i/o
+            print("   ... still going, leaving it alone ")
+            return None
         if "allow ressurect" in self.production.meta:
             count = 0
         if (count < 90) and (
