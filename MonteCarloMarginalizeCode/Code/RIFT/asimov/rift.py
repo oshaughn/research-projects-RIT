@@ -463,7 +463,7 @@ class Rift(Pipeline):
                 )
             ).sort()[-1]
         time_mod_rescue = os.path.getmtime(last_rescue)
-        if time_mod_out > time_mod_rescue+30: # some buffer in seconds for file i/o
+        if count < 100 and (time_mod_out > time_mod_rescue+30): # some buffer in seconds for file i/o
             print("   ... still going, leaving it alone ")
             return None
         if "allow ressurect" in self.production.meta:
