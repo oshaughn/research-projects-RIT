@@ -4992,6 +4992,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
     Special cases:
       - coordinates in x_out already in x_in are copied over directly
       - xi==chi_eff, chiMinus, mu1,mu2 : transformed directly from mc, delta_mc, s1z,s2z coordinates, using fast vectorized transformations.
+      - source_redshift: if nonzero, convert m1 -> m1 (1+z)=m_z, as fit is done in the detector frame.  We are **assuming source-frame sampling**
     """
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
     # Check for trivial identity transformations and do those by direct copy, then remove those from the list of output coord names
@@ -5374,6 +5375,13 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
                 x_out[:,indx_q_out] = dLt
                 coord_names_reduced.remove('DeltaLambdaTilde')
 
+
+    # perform any mass conversions needed, so output in detector frame given input in source frame
+    if source_redshift:
+        for name in ['mc', 'm1', 'm2']:
+            if name in coord_names:
+                indx_name = coord_names.index(name)
+                x_out[name]* = (1+source_redshift)
 
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
     if len(coord_names_reduced)<1:
