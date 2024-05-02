@@ -178,6 +178,7 @@ class MCSampler(object):
         # Parameter names
         self.params = set()
         self.params_ordered = []  # keep them in order. Important to break likelihood function need for names
+        self.params_pinned_vals = {}
         # If the pdfs aren't normalized, this will hold the normalization 
         # Cache for the sampling points
         self._rvs = {}
@@ -298,6 +299,12 @@ class MCSampler(object):
     def draw_simple(self):
         # Draws
         x =  sample_from_bins(self.my_ranges, self.dx, self.binunique, self.ninbin)
+        # if pinning, assign hard values. Note this means prior probabilities are still propagated as arbitrary scales
+        if self.params_pinned_vals:
+            for p in self.params_pinned_vals:
+               indx_p = self.params_ordered.index(p)
+               x[:,indx_p] = self.params_pinned_vals[p]
+          
         # probabilities at these points.  
         log_p = np.log(self.prior_prod(x))
         # Not including any sampling prior factors, since it is de facto uniform right now (just discarding 'irrelevant' regions)
@@ -439,6 +446,24 @@ class MCSampler(object):
 
 
         xpy_here = self.xpy
+
+        #
+        # Pin values
+        #
+        for p, val in list(kwargs.items()):
+            reset_indexes = False
+            if p in self.params_ordered:
+              reset_indexes = True
+              # add to list of pinned values
+              self.params_pinned_vals[p] = val
+              # disable adaptivity in this parameter, if present
+              if p in self.adaptive:
+                self.adaptive.remove(p)
+            if reset_indexes:
+              ndim = len(self.params)
+              self.indx_adaptive = [self.params_ordered.index(name) for name in self.adaptive]
+              self.indx_not_adaptive = list(set(list( range(ndim))) -set( self.indx_adaptive))
+
         
         #
         # Determine stopping conditions
