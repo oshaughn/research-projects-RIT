@@ -166,6 +166,7 @@ parser.add_argument("--assume-well-placed",action='store_true',help="If present,
 parser.add_argument("--ile-distance-prior",default=None,help="If present, passed through to the distance prior option.   If provided, BLOCKS distance marginalization")
 parser.add_argument("--internal-ile-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
 parser.add_argument("--internal-ile-n-max",default=None,type=int,help="Set maximum number of evaluations each ILE worker uses. EXPERTS ONLY")
+parser.add_argument("--internal-ile-inv-spec-trunc-time",default=None,type=float,help="Timescale of inverse spectrum truncation time. Default in pipeline is zero. Should be no more than 1/2 the segment length")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help="If present, the code will marginalize over the distance variable. Passed diretly to helper script. Default will be to generate d_marg script *on the fly*")
 parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
@@ -857,6 +858,8 @@ if opts.internal_ile_force_noreset_adapt:
     line = line.replace(' --force-reset-all ', ' ')
 if opts.internal_mitigate_fd_J_frame == 'L_frame':
     line += " --internal-waveform-fd-L-frame "
+if opts.internal_ile_inv_spec_trunc_time:
+    line = line.replace("inv-spec-trunc-time 0 ","inv-spec-trunc-time {} ".format(opts.internal_ile_inv_spec_trunc_time))
 with open('args_ile.txt','w') as f:
         f.write(line)
 
