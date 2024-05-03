@@ -3,7 +3,15 @@
 pre-release, only available in source tree for rift_O4c
    - start roughly 0.0.16.0rc2. asimov integation, documentation, CIP --n-events-to-analyze; mcsamplerNFlow;
      mcsamplerPortfolio; unreliable_oracles including reference samples; implement mcsamplerPortfolio and some oracles
-     in ILE and CIP; hyperpipe dag writer integer events
+     in ILE and CIP; hyperpipe dag writer integer events; pp_RIFT_with_ini merge; hyperpipe EOS_POST other integrators;
+     helper parses d-min from ini file;  hyperpipe change EOS_POST default to include all data; 
+     more asimov (n-output-samples, request_disk, additional-files-to-transfer, distance prior, fmax, dmin; gwdata interface), AV integrator pinned params,
+     inv-spec-trunc-time access at pipeline, source_redshift in convert_waveform_coordinates vectorized; statutils
+     xpy.max fix for new cupy/python; helper_transfer_files access for eg surrogate files; hlmoft **tapering for some
+     cases** (ChooseTDModes, SimInspiralTDModesFromPolarizations) not previously start-tapered; 
+      Public OSG operation setup, focusing on hyperpipe (condor-local-nonworker-igwn-prefix, etc). 
+      Fix barf where pseudo_pipe required coinc with row.alpha4 (eccentricity).
+     **bugfix** sign error reflection for some modes (TEOBResumS and SEOBv4HM - not precessing);
 
 
 0.0.16.0
