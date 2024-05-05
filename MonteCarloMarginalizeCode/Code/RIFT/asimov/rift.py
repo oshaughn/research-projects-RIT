@@ -280,7 +280,7 @@ class Rift(Pipeline):
                 elif value == "False" or value == "false" or value == False:
                     pass
                 else:
-                    command += [f"--{key}", f"{value}"]
+                    command += [f"--{key}={value}"]
 
         # If a starting frequency is specified, add it
         if "start-frequency" in self.production.meta:
@@ -312,6 +312,7 @@ class Rift(Pipeline):
                 if self.production.meta["scheduler"]["osg"]:
                     command += ["--use-osg-file-transfer"]
 
+#        print(" ".join(command))
         if dryrun:
             print(" ".join(command))
 
@@ -343,6 +344,14 @@ class Rift(Pipeline):
                             production=self.production.name,
                         )
                 else:
+                    dagfile = os.path.join(rundir,'marginalize_intrinsic_parameters_BasicIterationWorkflow.dag')
+                    if not(os.path.exists(dagfile)):
+                        self.production.status = "stuck"
+                        self.logger.info(out) #, production=self.production)
+                        self.logger.error(err) # , production=self.production)
+                        raise PipelineException(f"DAG file could not be created.\n{command}\n{out}\n\n{err}",
+                            production=self.production.name,
+                        )
                     if self.production.event.repository:
                         # with set_directory(os.path.abspath(self.production.rundir)):
                         for psdfile in self.production.get_psds("xml"):
@@ -398,7 +407,6 @@ class Rift(Pipeline):
             f"rift/{self.production.event.name}/{self.production.name}",
             "marginalize_intrinsic_parameters_BasicIterationWorkflow.dag",
         ]
-
         if dryrun:
             for psdfile in self.production.get_psds("xml"):
                 print(f"cp {psdfile} {self.production.rundir}/{psdfile.split('/')[-1]}")
