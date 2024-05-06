@@ -29,6 +29,7 @@ import argparse
 parser = argparse.ArgumentParser(usage="util_CleanILE.py fname1.dat fname2.dat ... ")
 parser.add_argument("fname",action='append',nargs='+')
 parser.add_argument("--eccentricity", action="store_true")
+parser.add_argument("--hyperbolic", action="store_true")
 #Askold: adding specification for tabular eos file
 parser.add_argument("--tabular-eos-file", action="store_true") 
 opts = parser.parse_args()
@@ -54,13 +55,16 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         if opts.eccentricity:
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,ecc, lnL, sigmaOverL, ntot, neff = line
             col_intrinsic = 10
+        if opts.hyperbolic:
+            indx, m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, E0, p_phi0, lnL, sigmaOverL, ntot, neff = line
+            col_intrinsic = 11
         elif len(line) == 13 and (not tides_on) and (not distance_on):  # strip lines with the wrong length
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,lnL, sigmaOverL, ntot, neff = line
         elif  len(line) == 14:
             distance_on=True
             col_intrinsic=10
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,dist, lnL, sigmaOverL, ntot, neff = line
-        elif len(line)==15:
+        elif len(line)==15 and not opts.hyperbolic:
             tides_on  = True
             col_intrinsic =11
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z, lambda1,lambda2,lnL, sigmaOverL, ntot, neff = line
@@ -94,6 +98,8 @@ for key in data_at_intrinsic:
 
     if opts.eccentricity:
         print(-1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
+    elif opts.hyperbolic:
+        print(-1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8],key[9], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
     elif tides_on:
         print(-1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8],key[9], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
     elif distance_on:

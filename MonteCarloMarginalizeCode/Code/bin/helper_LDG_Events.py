@@ -198,6 +198,11 @@ parser.add_argument("--assume-matter-eos",type=str,default=None,help="If present
 parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!. NOT YET IMPLEMENTED (initial grids, etc)")
 parser.add_argument("--assume-eccentric",action='store_true',help="If present, the code will add options necessary to manage eccentric arguments. The proposed fit strategy and initial grid will allow for eccentricity")
+parser.add_argument("--assume-hyperbolic",action='store_true',help="If present, the code will add options necessary to manage hyperbolic arguments. The proposed fit strategy and initial grid will allow for hyperbolic orbits")
+parser.add_argument("--E0-max", default=1.060,type=float,help="Maximum range of 'E0' allowed.")
+parser.add_argument("--E0-min", default=1.0,type=float,help="Minimum range of 'E0' allowed.")
+parser.add_argument("--pphi0-max", default=5.4,type=float,help="Maximum range of 'p_phi0' allowed.")
+parser.add_argument("--pphi0-min", default=3.8,type=float,help="Minumum range of 'p_phi0' allowed.")
 parser.add_argument("--assume-nospin",action='store_true',help="If present, the code will not add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-precessing-spin",action='store_true',help="If present, the code will add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-volumetric-spin",action='store_true',help="If present, the code will assume a volumetric spin prior in its last iterations. If *not* present, the code will adopt a uniform magnitude spin prior in its last iterations. If not present, generally more iterations are taken.")
@@ -450,6 +455,9 @@ elif opts.sim_xml:  # right now, configured to do synthetic data only...should b
     event_dict["s2z"] = P.s2z
     event_dict["P"] = P
     event_dict["epoch"]  = 0 # no estimate for now
+    if opts.assume_hyperbolic:
+        event_dict["E0"] = P.E0
+        event_dict["p_phi0"] = P.p_phi0
 elif opts.use_coinc: # If using a coinc through injections and not a GraceDB event.
     # Same code as used before for gracedb
     coinc_file = opts.use_coinc
@@ -1159,6 +1167,8 @@ elif opts.data_LI_seglen:
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0  --window-shape " + str(window_shape)
 if opts.assume_eccentric:
     helper_ile_args += " --save-eccentricity "
+if opts.assume_hyperbolic:
+    helper_ile_args += " --save-hyperbolic "
 if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 10.):
     cmd  = "util_AnalyticFisherGrid.py  --inj-file-out  proposed-grid  "
     # Add standard downselects : do not have m1, m2 be less than 1
@@ -1291,6 +1301,12 @@ elif opts.propose_initial_grid:
 
     if not (opts.force_initial_grid_size is None):
         grid_size = opts.force_initial_grid_size
+        
+    # hyperbolic grid:
+    if opts.assume_hyperbolic:
+        # note - currently uniform for testing purposes
+        cmd += f" --parameter E0 --parameter-range [{opts.E0_min},{opts.E0_max}] --parameter p_phi0 --parameter-range [{opts.pphi0_min},{opts.pphi0_max}] "
+        
     cmd += " --grid-cartesian-npts  " + str(int(grid_size))
     print(" Executing grid command ", cmd)
     os.system(cmd)
@@ -1387,6 +1403,8 @@ puff_max_it=0
 helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
 if opts.assume_eccentric:
     helper_puff_args += " --parameter eccentricity "
+if opts.assume_hyperbolic:
+    helper_puff_args += " --parameter E0 --parameter p_phi0 "
 
 if event_dict["MChirp"] >25:
     # at high mass, mc/eta correlation weak, don't want to have eta coordinate degeneracy at q=1 to reduce puff proposals  near there
@@ -1707,6 +1725,10 @@ if opts.assume_matter and opts.internal_tabular_eos_file:
 if opts.assume_eccentric:
     with open("helper_convert_args.txt",'w+') as f:
         f.write(" --export-eccentricity ")
+        
+if opts.assume_hyperbolic:
+    with open("helper_convert_args.txt",'w+') as f:
+        f.write(" --export-hyperbolic ")
 
 if opts.propose_fit_strategy:
     with open("helper_puff_max_it.txt",'w') as f:

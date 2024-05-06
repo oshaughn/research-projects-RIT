@@ -338,6 +338,11 @@ parser.add_argument("--internal-n-comp",default=1,type=int,help="number of compo
 parser.add_argument("--internal-gmm-memory-chisquared-factor",default=None,type=float,help="Multiple of the number of degrees of freedom to save. 5 is a part in 10^6, 4 is 10^{-4}, and None keeps all up to lnL_offset.  Note that low-weight points can contribute notably to n_eff, and it can be dangerous to assume a simple chisquared likelihood!  Provided in case we need very long runs")
 parser.add_argument("--assume-eos-but-primary-bh",action='store_true',help="Special case of known EOS, but primary is a BH")
 parser.add_argument("--use-eccentricity", action="store_true")
+parser.add_argument("--use-hyperbolic", action="store_true")
+parser.add_argument("--E0-max", default=1.060,type=float,help="Maximum range of 'E0' allowed.")
+parser.add_argument("--E0-min", default=1.0,type=float,help="Minumum range of 'E0' allowed.")
+parser.add_argument("--pphi0-max", default=5.4,type=float,help="Maximum range of 'p_phi0' allowed.")
+parser.add_argument("--pphi0-min", default=3.8,type=float,help="Minimum range of 'p_phi0' allowed.")
 parser.add_argument("--tripwire-fraction",default=0.05,type=float,help="Fraction of nmax of iterations after which n_eff needs to be greater than 1+epsilon for a small number epsilon")
 
 # FIXME hacky options added by me (Liz) to try to get my capstone project to work.
@@ -357,6 +362,12 @@ if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
 ECC_MAX = opts.ecc_max
 ECC_MIN = opts.ecc_min
+
+E0_MAX = opts.E0_max
+E0_MIN = opts.E0_min
+PPHI0_MAX = opts.pphi0_max
+PPHI0_MIN = opts.pphi0_min
+
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
@@ -817,6 +828,12 @@ def eccentricity_prior(x):
 def precession_prior(x):
     return 0.5*np.ones(x.shape) # uniform over the interval [0.0, 2.0]
 
+def initial_energy_prior(x):
+    return np.ones(x.shape) / (E0_MAX-E0_MIN) # uniform over the interval [E0_MIN, E0_MAX]
+
+def initial_angmom_prior(x):
+    return np.ones(x.shape) / (PPHI0_MAX-PPHI0_MIN) # uniform over the interval [PPHI0_MIN, PPHI0_MAX]
+
 def unnormalized_uniform_prior(x):
     return np.ones(x.shape)
 def unnormalized_log_prior(x):
@@ -864,6 +881,8 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     # Other priors
     'eccentricity':eccentricity_prior,
     'chi_pavg':precession_prior,
+    'E0':initial_energy_prior,
+    'p_phi0':initial_angmom_prior,
     'mu1': unnormalized_log_prior,
     'mu2': unnormalized_uniform_prior
 }
@@ -881,7 +900,9 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'lambda_plus':[0.01,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   'eccentricity':[ECC_MIN, ECC_MAX],
-  'chi_pavg':[0.0,2.0],  
+  'chi_pavg':[0.0,2.0],
+  'E0':[E0_MIN,E0_MAX],
+  'p_phi0':[PPHI0_MIN,PPHI0_MAX],
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],
@@ -1576,6 +1597,11 @@ if opts.input_tides:
 elif opts.use_eccentricity:
     print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
     col_lnL += 1
+elif opts.use_hyperbolic:
+    # add two columns for hyperbolic params
+    print("E0 import: [",E0_MIN, ", ",E0_MAX, "]")
+    print("p_phi0 import: [",PPHI0_MIN, ", ",PPHI0_MAX, "]")
+    col_lnL += 2
 if opts.input_distance:
     print(" Distance input")
     col_lnL +=1
@@ -1669,6 +1695,9 @@ for line in dat:
         P.eos_table_index = line[11]
     if opts.use_eccentricity:
         P.eccentricity = line[9]
+    if opts.use_hyperbolic:
+        P.E0 = line[9]
+        P.p_phi0 = line[10]
     if opts.input_distance:
         P.dist = lal.PC_SI*1e6*line[9]  # Incompatible with tides, note!
     

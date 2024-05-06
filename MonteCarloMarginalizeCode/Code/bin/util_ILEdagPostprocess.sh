@@ -27,6 +27,12 @@ then
 else
     util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k10 > $BASE_OUT.composite
 fi
+if [ "$3" == '--hyperbolic' ]
+then
+    util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k12 > $BASE_OUT.composite
+else
+    util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k10 > $BASE_OUT.composite
+fi
 
 # Manifest
 rm -f ${BASE_OUT}.manifest
