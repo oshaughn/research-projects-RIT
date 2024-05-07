@@ -481,7 +481,14 @@ for file_path in file_paths:
     for i, line in enumerate(reversed(lines)):
         if line.strip().startswith("queue"):
             queue_index = len(lines) - 1 - i
-            break    
+            break
+
+    # Find the index of the line containing 'request_memory'
+    memory_index = None
+    for i, line in enumerate(lines):
+        if line.strip().startswith("request_memory"):
+            memory_index = i
+            break
     
     # Modify lines
     if requirements_index is not None:
@@ -494,6 +501,10 @@ for file_path in file_paths:
         else:
             requirements_line = "requirements = " + avoid_string + "\n"
             lines[requirements_index] = requirements_line
+
+    # Modify the 'request_memory' line if opts.use_hyperbolic is true
+    if opts.use_hyperbolic and memory_index is not None:
+        lines[memory_index] = "request_memory = 16384M\n"
             
     # Write the modified contents back to the file
     with open(full_path, "w") as file:

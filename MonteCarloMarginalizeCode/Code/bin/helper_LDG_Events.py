@@ -1299,13 +1299,13 @@ elif opts.propose_initial_grid:
     if "SNR" in event_dict:
         grid_size *= np.max([1,event_dict["SNR"]/15])  # more grid points at higher amplitude. Yes, even though we also contract the paramete range
 
-    if not (opts.force_initial_grid_size is None):
-        grid_size = opts.force_initial_grid_size
-        
     # hyperbolic grid:
     if opts.assume_hyperbolic:
-        # note - currently uniform for testing purposes
-        cmd += f" --parameter E0 --parameter-range [{opts.E0_min},{opts.E0_max}] --parameter p_phi0 --parameter-range [{opts.pphi0_min},{opts.pphi0_max}] "
+        # note - currently testing
+        cmd += f" --random-parameter E0 --random-parameter-range [{opts.E0_min},{opts.E0_max}] --random-parameter p_phi0 --random-parameter-range [{opts.pphi0_min},{opts.pphi0_max}] "
+
+    if not (opts.force_initial_grid_size is None):
+        grid_size = opts.force_initial_grid_size
         
     cmd += " --grid-cartesian-npts  " + str(int(grid_size))
     print(" Executing grid command ", cmd)
