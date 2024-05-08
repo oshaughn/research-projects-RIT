@@ -60,7 +60,7 @@ if opts.random_parameter is None:
     opts.random_parameter = []
 
 # Extract parameter names
-coord_names = opts.parameter # Used  in fit
+coord_names = list(set(opts.parameter)) # Used  in fit
 #if opts.parameter_nofit:
 #    coord_names = coord_names + opts.parameter_nofit
 if coord_names is None:
