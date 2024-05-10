@@ -240,6 +240,7 @@ optp.add_option("--internal-waveform-fd-no-condition",action='store_true',help='
 optp.add_option("--internal-waveform-extra-lalsuite-args",type=str,default=None)
 optp.add_option("--verbose",action='store_true')
 optp.add_option("--save-eccentricity", action="store_true")
+optp.add_option("--save-hyperbolic", action="store_true")
 #
 # Add the integration options
 #
@@ -1633,6 +1634,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         if opts.save_eccentricity:
             # output format when eccentricity is being used
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+        if opts.save_hyperbolic:
+            # output format when hyperbolic is being used
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.E0, P.p_phi0, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
         elif not (P.lambda1>0 or P.lambda2>0):
           # output format when lambda is NOT used
           if not opts.pin_distance_to_sim:
