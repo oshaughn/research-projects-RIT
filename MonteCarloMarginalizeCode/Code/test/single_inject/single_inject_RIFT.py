@@ -454,12 +454,12 @@ avoid_string = "&&".join(excluded_hosts)
 
 # List of file paths to modify
 file_paths = ["ILE.sub","ILE_puff.sub","iteration_4_cip/ILE.sub","iteration_4_cip/ILE_puff.sub"]
-
-if opts.add_extrinsic:
-    file_paths.append("ILE_extr.sub")
     
 if opts.use_hyperbolic:
     file_paths = ["ILE.sub","ILE_puff.sub","iteration_2_cip/ILE.sub","iteration_2_cip/ILE_puff.sub"]
+    
+if opts.add_extrinsic:
+    file_paths.append("ILE_extr.sub")
 
 for file_path in file_paths:
     # Construct the full file path
