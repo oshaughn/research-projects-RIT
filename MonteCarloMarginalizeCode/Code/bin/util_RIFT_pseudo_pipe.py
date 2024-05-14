@@ -93,6 +93,8 @@ def retrieve_event_from_coinc(fname_coinc):
     event_dict["s1z"] = row.spin1z
     event_dict["s2z"] = row.spin2z
     event_dict["eccentricity"] = row.alpha4
+    event_dict["E0"] = row.psi3
+    event_dict["p_phi0"] = row.beta
     event_dict["IFOs"] = list(set(ifo_list))
     max_snr_idx = snr_list.index(max(snr_list))
     event_dict['SNR'] = snr_list[max_snr_idx]
