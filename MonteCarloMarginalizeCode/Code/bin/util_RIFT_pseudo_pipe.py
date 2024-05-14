@@ -92,9 +92,18 @@ def retrieve_event_from_coinc(fname_coinc):
     event_dict["m2"] = row.mass2
     event_dict["s1z"] = row.spin1z
     event_dict["s2z"] = row.spin2z
-    event_dict["eccentricity"] = row.alpha4
-    event_dict["E0"] = row.psi3
-    event_dict["p_phi0"] = row.beta
+    try:
+        event_dict["E0"] = row.psi3
+    except:
+        event_dict["E0"] = 0.0
+    try:
+        event_dict["p_phi0"] = row.beta
+    except:
+        event_dict["p_phi0"] = 0.0
+    try:
+        event_dict["eccentricity"] = row.alpha4
+    except:
+        event_dict["eccentricity"] = 0.0
     event_dict["IFOs"] = list(set(ifo_list))
     max_snr_idx = snr_list.index(max(snr_list))
     event_dict['SNR'] = snr_list[max_snr_idx]
@@ -212,9 +221,13 @@ parser.add_argument("--force-lambda-max",default=None,type=float,help="Provde th
 parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provde this value to override the value of lambda-small-max provided") 
 parser.add_argument("--force-lambda-no-linear-init",action='store_true',help="Disables use of priors focused towards small lambda for initial iterations. Designed for PP plot tests with wide/uniform priors.")
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
-parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
+parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided")
 parser.add_argument("--force-ecc-max",default=None,type=float,help="Provde this value to override the value of ecc-max provided")
-parser.add_argument("--force-ecc-min",default=None,type=float,help="Provde this value to override the value of ecc-min provided")
+parser.add_argument("--force-ecc-min",default=0.0,type=float,help="Provde this value to override the value of ecc-min provided")
+parser.add_argument("--force-E0-max",default=None,type=float,help="Provde this value to override the value of E0-max provided")
+parser.add_argument("--force-E0-min",default=None,type=float,help="Provde this value to override the value of E0-min provided")
+parser.add_argument("--force-pphi0-max",default=None,type=float,help="Provde this value to override the value of phi0-max provided")
+parser.add_argument("--force-pphi0-min",default=None,type=float,help="Provde this value to override the value of pphi0-min provided")
 parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
 parser.add_argument("--limit-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
@@ -487,7 +500,6 @@ if opts.assume_eccentric:
         is_analysis_eccentric = True
 if opts.assume_hyperbolic:
         is_analysis_hyperbolic = True
-
 
 dirname_run = gwid+ "_" + opts.calibration+ "_"+ opts.approx+"_fmin" + str(fmin) +"_fmin-template"+str(fmin_template) +"_lmax"+str(opts.l_max) + "_"+opts.spin_magnitude_prior
 if opts.online:
@@ -1075,13 +1087,13 @@ for indx in np.arange(len(instructions_cip)):
             E0_max = opts.force_E0_max
             line += " --E0-max {}  ".format(E0_max)
         if not(opts.force_E0_min is None):
-            E0_max = opts.force_E0_min
+            E0_min = opts.force_E0_min
             line += " --E0-min {}  ".format(E0_min)
         if not(opts.force_pphi0_max is None):
             pphi0_max = opts.force_pphi0_max
             line += " --pphi0-max {}  ".format(pphi0_max)
         if not(opts.force_pphi0_min is None):
-            pphi0_max = opts.force_pphi0_min
+            pphi0_min = opts.force_pphi0_min
             line += " --pphi0-min {}  ".format(pphi0_min)
     if not(opts.manual_extra_cip_args is None):
         line += " {} ".format(opts.manual_extra_cip_args)  # embed with space on each side, avoid collisions
@@ -1144,7 +1156,7 @@ if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
 if opts.assume_eccentric:
-        puff_params += " --parameter eccentricity --downselect-parameter eccentricity --downselect-parameter-range '[0,0.9]' "
+        puff_params += " --parameter eccentricity --downselect-parameter eccentricity --downselect-parameter-range '[{},{}]' ".format(ecc_min,ecc_max)  
 if opts.assume_hyperbolic:
         puff_params += " --parameter E0 --downselect-parameter E0 --downselect-parameter-range '[1.0,1.060]' --parameter E0 --downselect-parameter p_phi0 --downselect-parameter-range '[3.8,5.4]' "
         if not(opts.force_E0_max is None and opts.force_E0_min is None):

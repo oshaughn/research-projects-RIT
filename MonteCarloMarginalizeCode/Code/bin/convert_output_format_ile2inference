@@ -86,7 +86,7 @@ if opts.convention == 'LI':
   if opts.export_eccentricity:
       print( "eccentricity ",)
   if opts.export_hyperbolic:
-      print( "E0 p_phi0 ",)  
+      print( "E0 p_phi0 ",)
   else:
       print('')
   for fname in args:
@@ -99,10 +99,11 @@ if opts.convention == 'LI':
 
     if opts.export_eccentricity:
         ecc = [row.alpha4 for row in points]
-        
+
     if opts.export_hyperbolic:
         p_phi0 = [row.beta for row in points]
         E0 = [row.psi3 for row in points]
+
     
     wt = np.exp(like)*p/ps
     neff_here = np.sum(wt)/np.max(wt)  # neff for this file.  Assumes NOT mixed samples: dangerous

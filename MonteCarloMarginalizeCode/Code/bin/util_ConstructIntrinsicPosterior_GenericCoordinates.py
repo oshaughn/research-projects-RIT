@@ -278,6 +278,10 @@ parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a'
 parser.add_argument("--chi-small-max", default=None,type=float,help="Maximum range of 'a' allowed on the smaller body.  If not specified, defaults to chi_max")
 parser.add_argument("--ecc-max", default=0.9,type=float,help="Maximum range of 'eccentricity' allowed.")
 parser.add_argument("--ecc-min", default=0.0,type=float,help="Minimum range of 'eccentricity' allowed.")
+parser.add_argument("--E0-max", default=1.060,type=float,help="Maximum range of 'E0' allowed.")
+parser.add_argument("--E0-min", default=1.0,type=float,help="Minimum range of 'E0' allowed.")
+parser.add_argument("--pphi0-max", default=5.4,type=float,help="Maximum range of 'p_phi0' allowed.")
+parser.add_argument("--pphi0-min", default=3.8,type=float,help="Minimum range of 'p_phi0' allowed.")
 parser.add_argument("--chiz-plus-range", default=None,help="USE WITH CARE: If you are using chiz_minus, chiz_plus for a near-equal-mass system, then setting the chiz-plus-range can improve convergence (e.g., for aligned-spin systems), loosely by setting a chi_eff range that is allowed")
 parser.add_argument("--lambda-max", default=4000,type=float,help="Maximum range of 'Lambda' allowed.  Minimum value is ZERO, not negative.")
 parser.add_argument("--lambda-small-max", default=None,type=float,help="Maximum range of 'Lambda' allowed for smaller body. If provided and smaller than lambda_max, used ")
@@ -339,10 +343,6 @@ parser.add_argument("--internal-gmm-memory-chisquared-factor",default=None,type=
 parser.add_argument("--assume-eos-but-primary-bh",action='store_true',help="Special case of known EOS, but primary is a BH")
 parser.add_argument("--use-eccentricity", action="store_true")
 parser.add_argument("--use-hyperbolic", action="store_true")
-parser.add_argument("--E0-max", default=1.060,type=float,help="Maximum range of 'E0' allowed.")
-parser.add_argument("--E0-min", default=1.0,type=float,help="Minumum range of 'E0' allowed.")
-parser.add_argument("--pphi0-max", default=5.4,type=float,help="Maximum range of 'p_phi0' allowed.")
-parser.add_argument("--pphi0-min", default=3.8,type=float,help="Minimum range of 'p_phi0' allowed.")
 parser.add_argument("--tripwire-fraction",default=0.05,type=float,help="Fraction of nmax of iterations after which n_eff needs to be greater than 1+epsilon for a small number epsilon")
 
 # FIXME hacky options added by me (Liz) to try to get my capstone project to work.

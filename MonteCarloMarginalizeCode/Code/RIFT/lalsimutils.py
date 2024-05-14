@@ -977,7 +977,7 @@ class ChooseWaveformParams:
             else:
                 Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
             xi = np.dot(Lhat, (self.m1*chi1Vec + self.m2* chi2Vec))/(self.m1+self.m2)   # see also 'Xi', defined below
-            shu = xi - 0.5*np.dot(Lhat, chi1Vec+chi2Vec) * (self.m1*self.m2)/ (self.m1+self.m2)**2
+            shu = xi - 0.5*np.dot(Lhat, chi1Vec+chi2Vec) * ((self.m1*self.m2)/ (self.m1+self.m2)**2)
             return shu
         # Soichiro's coordinates : mu1, mu2, q_mu, chi2z_mu
         if p == 'mu1':
@@ -2879,7 +2879,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                 'output_hpc'         : "no"
             }
         elif (P.eccentricity == 0.0):
-            print("Using hyperbolic call")
+            print("Using hyperbolic call RIFT O4b branch")
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
@@ -3468,7 +3468,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             }
             
         elif (P.eccentricity == 0.0):
-            print("Using hyperbolic call")
+            print("Using hyperbolic call RIFT O4b branch")
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,

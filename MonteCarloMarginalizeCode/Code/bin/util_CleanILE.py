@@ -64,7 +64,7 @@ for fname in opts.fname[0]: #sys.argv[1:]:
             distance_on=True
             col_intrinsic=10
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,dist, lnL, sigmaOverL, ntot, neff = line
-        elif len(line)==15 and not opts.hyperbolic:
+        elif len(line)==15 and (not opts.hyperbolic):
             tides_on  = True
             col_intrinsic =11
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z, lambda1,lambda2,lnL, sigmaOverL, ntot, neff = line

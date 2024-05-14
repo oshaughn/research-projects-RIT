@@ -8,7 +8,7 @@
 
 DIR_PROCESS=$1
 BASE_OUT=$2
-ECC=$3 # Liz (Capstone): this will only be non-blank in the case where my eccentric PE Makefile has inserted "--eccentricity" into join.sub
+ECC=$3 # Liz (Capstone): this will only be non-blank in the case where my eccentric PE Makefile has inserted "--eccentricity" into join.sub. Now also works with "--hyperbolic"
 
 # join together the .dat files
 echo " Joining data files .... "
