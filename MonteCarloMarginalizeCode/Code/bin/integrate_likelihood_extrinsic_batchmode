@@ -1714,6 +1714,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["alpha4"] =numpy.ones(samples["psi"].shape)*P.eccentricity
             samples["alpha5"] =numpy.ones(samples["psi"].shape)*P.lambda1
             samples["alpha6"] =numpy.ones(samples["psi"].shape)*P.lambda2
+            samples["psi3"] =numpy.ones(samples["psi"].shape)*P.E0
+            samples["beta"] =numpy.ones(samples["psi"].shape)*P.p_phi0
+            
             # Below exist solely to placate XML export; new issue as of latest lalsuite say 7.15+ or so
             samples["alpha2"] = numpy.zeros(samples["psi"].shape)
             samples["alpha3"] = numpy.zeros(samples["psi"].shape)
@@ -1724,7 +1727,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         # Extra metadata
-      dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
+      dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "psi3":P.E0, "beta":P.p_phi0,  "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
 #      if 'distance' in pinned_params:
 #            dict_out['distance'] = pinned_params["distance"]
       converged_result = False
