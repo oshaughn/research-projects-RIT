@@ -207,6 +207,20 @@ class Rift(Pipeline):
         os.environ[
             "LIGO_ACCOUNTING"
         ] = f"{self.production.meta['scheduler']['accounting group']}"
+        if 'avoid hosts' in self.production.meta['scheduler']:
+            val = ""
+            for name in self.production.meta['scheduler']['avoid hosts']:
+                val += "{},".format(name)
+            if len(val)>0:
+                val = val[:-1] # remove last comma
+            os.environ['RIFT_AVOID_HOSTS'] = val
+        if 'gpu architectures' in self.production.meta['scheduler']:
+            val =""
+            for name in self.production.meta['scheduler']['gpu architectures']:
+                val += '(DeviceName=!="{}")&&'.format(name)
+            if len(val)>0:
+                val = val[:-2] # remove last two and
+            os.environ['RIFT_REQUIRE_GPUS'] = val
 
         if "singularity image" in self.production.meta["scheduler"]:
             # Collect the correct information for the singularity image
