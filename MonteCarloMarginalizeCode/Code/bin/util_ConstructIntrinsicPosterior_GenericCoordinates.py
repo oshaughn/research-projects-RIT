@@ -3160,6 +3160,9 @@ for indx_here in indx_list:
             True
 
 
+# FAILURE MODE: no exportable data
+if len(P_list) <1:
+    raise Exception(" Run failure: no export data! ")
 
  ###
  ### Export data
@@ -3180,6 +3183,12 @@ if not opts.no_plots:
     plt.savefig("lnL_cumulative_distribution_posterior_estimate.png"); plt.clf()
 
 
+###
+### STOP IF NO MORE PLOTS
+###
+if no_plots:
+    sys.exit(0)
+
 
 ###
 ### Identify, save best point
@@ -3191,11 +3200,6 @@ lnL_best = lnL_list[np.argmax(lnL_list)]
 np.savetxt("best_point_by_lnL_value.dat", np.array([lnL_best]));
 
 
-###
-### STOP IF NO MORE PLOTS
-###
-if no_plots:
-    sys.exit(0)
 
 ###
 ### Extract data from samples, in array form. INCLUDES any cuts (e.g., kerr limit)
