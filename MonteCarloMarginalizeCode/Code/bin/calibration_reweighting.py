@@ -82,8 +82,8 @@ parser.add(
     "--use_nested_samples", type=bool, default=False,
     help="Use nested samples with their weights to generate the samples. This significantly improves efficiency.")
 parser.add(
-    "--time_marginalization_interval", default=0.1, type=float,
-    help="Interval over which the time marginalization is undertaken")
+    "--data-integration-window-half", default=0.1, type=float,
+    help="Half-Interval over which the time marginalization is undertaken")
 parser.add(
     "--use_rift_samples", type=bool, default=False,
     help="Uses a different waveform function if using RIFT samples. This matches the phase definitions in RIFT")
