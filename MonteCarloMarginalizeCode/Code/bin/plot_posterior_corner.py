@@ -770,7 +770,7 @@ if composite_list:
     # Create data for corner plot
     dat_mass = np.zeros( (len(np.atleast_1d(samples[samples_ref_name])), len(labels_tex)) )
     dat_mass_orig = np.zeros( (len(np.atleast_1d(samples_orig[samples_orig_ref_name])), len(labels_tex)) )
-    cm = plt.cm.get_cmap('rainbow') #'RdYlBu_r')
+    cm = matplotlib.colormaps['rainbow'] #'RdYlBu_r')
     if "lnL" in samples.dtype.names:
         lnL = samples["lnL"]
         indx_sorted = lnL.argsort()
