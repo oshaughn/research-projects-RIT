@@ -535,12 +535,21 @@ class Rift(Pipeline):
         """
         Check for the production of the posterior file to signal that the job has completed.
         """
+        # check if calmarg requested -- different filename
+        calmarg_requested = False
+        if 'likelihood' in self.production.meta['sampler']:
+            if 'calibration' in self.production.meta['sampler']['likelihood']:
+                calmarg_requested = self.production.meta['sampler']['likelihood']['calibration']['sample']
+        fname_last = "extrinsic_posterior_samples.dat"
+        if calmarg_requested:
+            fname_last = 'reweighted_posterior_samples.dat'
+
         results_dir = glob.glob(f"{self.production.rundir}")
         if len(results_dir) > 0:  # dynesty_merge_result.json
             if (
                 len(
                     glob.glob(
-                        os.path.join(results_dir[0], "extrinsic_posterior_samples.dat")
+                        os.path.join(results_dir[0], fname_last)
                     )
                 )
                 > 0
