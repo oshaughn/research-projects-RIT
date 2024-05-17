@@ -1151,7 +1151,7 @@ if not ( (opts.data_start_time is None) and (opts.data_end_time is None)):
     # Manually set the data start and end time.
     T_window = opts.data_end_time - opts.data_start_time
     # Use LI-style tukey windowing
-    window_shape = 0.4*2/T_window
+    window_shape = opts.data_tukey_window_time*2/T_window
     data_start_time =opts.data_start_time
     data_end_time =opts.data_end_time
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape " + str(window_shape)
@@ -1159,7 +1159,7 @@ elif opts.data_LI_seglen:
     seglen = opts.data_LI_seglen
     # Use LI-style positioning of trigger relative to 2s before end of buffer
     # Use LI-style tukey windowing
-    window_shape = 0.4*2/seglen
+    window_shape = opts.data_tukey_window_time*2/seglen
     data_end_time = event_dict["tref"]+2
     data_start_time = event_dict["tref"] +2 - seglen
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0  --window-shape " + str(window_shape)
