@@ -1808,7 +1808,7 @@ if opts.tabular_eos_file:
     for indx in np.arange(len(order_vals)):
         order_vals[indx] = my_eos_sequence.lambda_of_m_indx(m_ref, int(dat_out[indx,-1]))  # last field is index value
     # overwrite into the ordering statistic field
-    dat_out[:,-1] = order_vals
+    dat_out[:,-3] = order_vals  # note this is last entry of DATA
     # overwrite the coordinate name for the last field, so conversion is trivial/identity
     coord_names[-1] = 'ordering'
 
