@@ -255,7 +255,7 @@ print(f'Log noise evidence: {original_likelihood.noise_log_likelihood()}')
 
 # TODO have not yet implemented the parameter reconstruction in the case where
 # time and calibration marginalization are used
-if args.data_integration_window_half: time_marginalization:
+if args.data_integration_window_half: # time_marginalization:
     conversion_function = None
 else:
     conversion_function = bilby.gw.conversion.generate_all_bbh_parameters
