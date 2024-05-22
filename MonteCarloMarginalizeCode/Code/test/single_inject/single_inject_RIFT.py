@@ -512,3 +512,74 @@ for file_path in file_paths:
 
 #
 #
+## special configuration for hyperbolic analysis in the IGWN pool
+if opts.use_hyperbolic and opts.use_osg:
+    
+    print('Modifying submit files for hyperbolics in the IGWN pool')
+    
+    # need to edit all ILE and CIP submit files
+    ILE_file_paths = ["ILE.sub","ILE_puff.sub","iteration_2_cip/ILE.sub","iteration_2_cip/ILE_puff.sub"]
+    CIP_file_paths = ["CIP.sub", "CIP_worker.sub", "CIP_0.sub", "CIP_worker0.sub", "CIP_1.sub", "CIP_worker1.sub", "CIP_2.sub", "CIP_worker2.sub", "iteration_2_cip/CIP.sub", "iteration_2_cip/CIP_worker.sub"]
+    
+
+    if opts.add_extrinsic:
+        ILE_file_paths.append("ILE_extr.sub")
+        
+        
+    total_file_paths = ILE_file_paths + CIP_file_paths
+    
+    
+    def modify_submit_file(input_file):
+        
+        current_singularity_image = 'rift_o4b_jl-chadhenshaw-teobresums_eccentric-2024-05-14_12-02-56.sif'
+        sif_path = 'osdf:///igwn/cit/staging/james.clark/' + current_singularity_image
+        
+        with open(input_file, 'r') as file:
+            lines = file.readlines()
+    
+        lines_to_remove = ['getenv', '+SingularityBindCVMFS', '+SingularityImage']
+        lines_to_add = [f'MY.SingularityImage = "{current_singularity_image}"', 'use_oauth_services = scitokens']
+        modifications = {'request_disk': 'request_disk = 3G', 'requirements': 'requirements = (HAS_SINGULARITY=?=TRUE)&&(IS_GLIDEIN=?=TRUE)', 'transfer_input_files': None}
+
+        modified_lines = []
+        queue_line = None
+
+        for line in lines:
+            stripped_line = line.strip()
+
+            # remove lines
+            if any(stripped_line.startswith(keyword) for keyword in lines_to_remove):
+                continue
+
+            # modify lines
+            modified = False
+            for key, new_value in modifications.items():
+                if stripped_line.startswith(key):
+                    if key == 'transfer_input_files':
+                        line = stripped_line + ',' + sif_path + '\n'
+                    else:
+                        line = new_value + '\n'
+                    modified_lines.append(line)
+                    modified = True
+                    break
+                    
+            if stripped_line.startswith('queue'):
+                queue_line = line
+            elif not modified:
+                modified_lines.append(line)
+                
+
+        # add new lines
+        modified_lines.extend([line + '\n' for line in lines_to_add])
+        
+        if queue_line:
+            modified_lines.append(queue_line)
+
+        with open(input_file, 'w') as file:
+            file.writelines(modified_lines)
+            
+        return
+    
+    
+    for submit_file in total_file_paths:
+        modify_submit_file(submit_file)

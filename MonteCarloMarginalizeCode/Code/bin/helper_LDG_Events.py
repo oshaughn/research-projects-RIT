@@ -987,10 +987,6 @@ if use_ini:
         eta_min = q_min/(1.+q_min)**2
     if 'ecc_min' in engine_dict:
         ecc_range_str = "  ["+str(engine_dict['force_ecc_min'])+","+str(engine_dict['force_ecc_max'])+"]"
-    if 'E0_min' in engine_dict:
-        E0_range_str = "  ["+str(engine_dict['force_E0_min'])+","+str(engine_dict['force_E0_max'])+"]"
-    if 'pphi0_min' in engine_dict:
-        pphi0_range_str = "  ["+str(engine_dict['force_pphi0_min'])+","+str(engine_dict['force_pphi0_max'])+"]"
         
 mc_range_str = "  ["+str(mc_min_tight)+","+str(mc_max_tight)+"]"  # Use a tight placement grid for CIP
 if not(opts.manual_mc_min is None):
@@ -1203,8 +1199,7 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
     if opts.assume_eccentric:
         cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
     if opts.assume_hyperbolic:
-        cmd += " --random-parameter E0 --random-parameter-range " + E0_range_str
-        cmd += " --random-parameter p_phi0 --random-parameter-range " + pphi0_range_str
+        cmd += f" --random-parameter E0 --random-parameter-range [{opts.E0_min},{opts.E0_max}] --random-parameter p_phi0 --random-parameter-range [{opts.pphi0_min},{opts.pphi0_max}] "
     if "SNR" in event_dict:
         grid_size *= np.max([1,event_dict["SNR"]/15])  # more grid points at higher amplitude. Yes, even though we also contract the paramete range
     if not (opts.force_initial_grid_size is None):
@@ -1260,8 +1255,7 @@ elif opts.propose_initial_grid:
     if opts.assume_eccentric:
         cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
     if opts.assume_hyperbolic:
-        cmd += " --random-parameter E0 --random-parameter-range " + E0_range_str
-        cmd += " --random-parameter p_phi0 --random-parameter-range " + pphi0_range_str
+        cmd += f" --random-parameter E0 --random-parameter-range [{opts.E0_min},{opts.E0_max}] --random-parameter p_phi0 --random-parameter-range [{opts.pphi0_min},{opts.pphi0_max}] "
     if opts.internal_tabular_eos_file:
         cmd += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
         grid_size *=2  # larger grids needed for discrete realization scenarios
@@ -1308,11 +1302,6 @@ elif opts.propose_initial_grid:
 
     if "SNR" in event_dict:
         grid_size *= np.max([1,event_dict["SNR"]/15])  # more grid points at higher amplitude. Yes, even though we also contract the paramete range
-
-    # hyperbolic grid:
-    if opts.assume_hyperbolic:
-        # note - currently testing
-        cmd += f" --random-parameter E0 --random-parameter-range [{opts.E0_min},{opts.E0_max}] --random-parameter p_phi0 --random-parameter-range [{opts.pphi0_min},{opts.pphi0_max}] "
 
     if not (opts.force_initial_grid_size is None):
         grid_size = opts.force_initial_grid_size
