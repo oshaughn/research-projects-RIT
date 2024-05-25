@@ -110,52 +110,18 @@ rosDebugMessagesDictionary["DebugMessages"] = False
 rosDebugMessagesDictionary["DebugMessagesLong"] = False
 
 
-#
-# Main driver functions
-#
-def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
-        psd_dict, Lmax, fMax, analyticPSD_Q=False,
-        inv_spec_trunc_Q=False, T_spec=0., verbose=True,quiet=False,
-         NR_group=None,NR_param=None,
-        ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
+def internal_hlm_generator(P, 
+        Lmax, 
+        verbose=True,quiet=False,
+        NR_group=None,NR_param=None,
         extra_waveform_kwargs={},
         use_gwsignal=False,
         use_gwsignal_approx=None,
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False):
+       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False,**kwargs):
     """
-    Compute < h_lm(t) | d > and < h_lm | h_l'm' >
-
-    Returns:
-        - Dictionary of interpolating functions, keyed on detector, then (l,m)
-          e.g. rholms_intp['H1'][(2,2)]
-        - Dictionary of "cross terms" <h_lm | h_l'm' > keyed on (l,m),(l',m')
-          e.g. crossTerms[((2,2),(2,1))]
-        - Dictionary of discrete time series of < h_lm(t) | d >, keyed the same
-          as the interpolating functions.
-          Their main use is to validate the interpolating functions
+    internal_hlm_generator: top-level front end to all waveform generators used.
+    Needs to be restructured so it works on a 'hook' basis, so we are not constantly changing the source code
     """
-    assert data_dict.keys() == psd_dict.keys()
-    global distMpcRef
-    detectors = list(data_dict.keys())
-    first_data = data_dict[detectors[0]]
-    rholms = {}
-    rholms_intp = {}
-    crossTerms = {}
-    crossTermsV = {}
-
-    # Compute hlms at a reference distance, distance scaling is applied later
-    P.dist = distMpcRef*1e6*lsu.lsu_PC
-
-    if not quiet:
-            print("  ++++ Template data being computed for the following binary +++ ")
-            P.print_params()
-    if use_external_EOB:
-            # Mass sanity check "
-            if  (P.m1/lal.MSUN_SI)>3 or P.m2/lal.MSUN_SI>3:
-                    print(" ----- external EOB code: MASS DANGER ---")
-    # Compute all hlm modes with l <= Lmax
-    # Zero-pad to same length as data - NB: Assuming all FD data same resolution
-    P.deltaF = first_data.deltaF
     if not( ROM_group is None) and not (ROM_param is None):
        # For ROM, use the ROM basis. Note that hlmoff -> basis_off henceforth
        acatHere= romwf.WaveformModeCatalog(ROM_group,ROM_param,max_nbasis_per_mode=ROM_limit_basis_size,lmax=Lmax)
@@ -359,6 +325,65 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
             print(" No waveform available ")
             import sys
             sys.exit(0)
+
+    return hlms, hlms_conj
+
+#
+# Main driver functions
+#
+def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
+        psd_dict, Lmax, fMax, analyticPSD_Q=False,
+        inv_spec_trunc_Q=False, T_spec=0., verbose=True,quiet=False,
+         NR_group=None,NR_param=None,
+        ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
+        extra_waveform_kwargs={},
+        use_gwsignal=False,
+        use_gwsignal_approx=None,
+       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False):
+    """
+    Compute < h_lm(t) | d > and < h_lm | h_l'm' >
+
+    Returns:
+        - Dictionary of interpolating functions, keyed on detector, then (l,m)
+          e.g. rholms_intp['H1'][(2,2)]
+        - Dictionary of "cross terms" <h_lm | h_l'm' > keyed on (l,m),(l',m')
+          e.g. crossTerms[((2,2),(2,1))]
+        - Dictionary of discrete time series of < h_lm(t) | d >, keyed the same
+          as the interpolating functions.
+          Their main use is to validate the interpolating functions
+    """
+    assert data_dict.keys() == psd_dict.keys()
+    global distMpcRef
+    detectors = list(data_dict.keys())
+    first_data = data_dict[detectors[0]]
+    rholms = {}
+    rholms_intp = {}
+    crossTerms = {}
+    crossTermsV = {}
+
+    # Compute hlms at a reference distance, distance scaling is applied later
+    P.dist = distMpcRef*1e6*lsu.lsu_PC
+
+    if not quiet:
+            print("  ++++ Template data being computed for the following binary +++ ")
+            P.print_params()
+    if use_external_EOB:
+            # Mass sanity check "
+            if  (P.m1/lal.MSUN_SI)>3 or P.m2/lal.MSUN_SI>3:
+                    print(" ----- external EOB code: MASS DANGER ---")
+    # Compute all hlm modes with l <= Lmax
+    # Zero-pad to same length as data - NB: Assuming all FD data same resolution
+    P.deltaF = first_data.deltaF
+
+    # call internal waveform generator
+    hlms, hlms_conj = internal_hlm_generator(P,Lmax, verbose=verbose, quiet=quiet,
+                                             NR_group=NR_group,NR_param=NR_param, nr_lookup=nr_lookup,nr_lookup_valid_groups=nr_lookup_valid_groups,
+                                             no_memory=no_memory,perturbative_extraction=perturbative_extraction,perturbative_extraction_full=perturbative_extraction_full,
+                                             hybrid_use=hybrid_use,hybrid_method=hybrid_method,use_provided_strain=use_provided_strain,
+                                             ROM_group=ROM_group,ROM_param=ROM_param,ROM_use_basis=ROM_use_basis,ROM_limit_basis_size=ROM_limit_basis_size,
+                                             extra_waveform_kwargs=extra_waveform_kwargs,use_gwsignal=use_gwsignal,use_gwsignal_approx=use_gwsignal_approx,
+                                             skip_interpolation=skip_interpolation)
+                                             
 
     if not(ignore_threshold is None) and (not ROM_use_basis):
             crossTermsFiducial = ComputeModeCrossTermIP(hlms,hlms, psd_dict[detectors[0]], 
