@@ -49,7 +49,7 @@ from .SphericalHarmonics_gpu import SphericalHarmonicsVectorized
 
 from scipy import interpolate, integrate
 from scipy import special
-from itertools import product
+from itertools import product, combinations
 import math
 
 from .vectorized_lal_tools import ComputeDetAMResponse,TimeDelayFromEarthCenter
@@ -334,6 +334,7 @@ def internal_hlm_generator(P,
 def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         psd_dict, Lmax, fMax, analyticPSD_Q=False,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,quiet=False,
+        internal_fast_precompute=True,
          NR_group=None,NR_param=None,
         ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
         extra_waveform_kwargs={},
@@ -388,7 +389,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     if not(ignore_threshold is None) and (not ROM_use_basis):
             crossTermsFiducial = ComputeModeCrossTermIP(hlms,hlms, psd_dict[detectors[0]], 
                                                         P.fmin, fMax,
-                                                        1./2./P.deltaT, P.deltaF, analyticPSD_Q, inv_spec_trunc_Q, T_spec,verbose=verbose)
+                                                        1./2./P.deltaT, P.deltaF, analyticPSD_Q=analyticPSD_Q, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec,verbose=verbose,same_waveform_Q=internal_fast_precompute)
             theWorthwhileModes =  IdentifyEffectiveModesForDetector(crossTermsFiducial, ignore_threshold, detectors)
             # Make sure worthwhile modes satisfy reflection symmetry! Do not truncate egregiously!
             theWorthwhileModes  = theWorthwhileModes.union(  set([(p,-q) for (p,q) in theWorthwhileModes]))
@@ -429,10 +430,10 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # Compute cross terms < h_lm | h_l'm' >
         crossTerms[det] = ComputeModeCrossTermIP(hlms, hlms, psd_dict[det], P.fmin,
                 fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q,
-                inv_spec_trunc_Q, T_spec,verbose=verbose)
+                inv_spec_trunc_Q, T_spec,verbose=verbose,same_waveform_Q=internal_fast_precompute)
         crossTermsV[det] = ComputeModeCrossTermIP(hlms_conj, hlms, psd_dict[det], P.fmin,
                 fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q,
-                inv_spec_trunc_Q, T_spec,prefix="V",verbose=verbose)
+                inv_spec_trunc_Q, T_spec,prefix="V",verbose=verbose,same_waveform_Q=internal_fast_precompute)
         # Compute rholm(t) = < h_lm(t) | d >
         rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
                 psd_dict[det], P.fmin, fMax, 1./2./P.deltaT, N_shift, N_window,
@@ -962,8 +963,8 @@ def InterpolateRholms(rholms, t,verbose=False):
 
     return rholm_intp
 
-def ComputeModeCrossTermIP(hlmsA, hlmsB, psd, fmin, fMax, fNyq, deltaF,
-        analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0., verbose=True,prefix="U"):
+def ComputeModeCrossTermIP(hlmsA, hlmsB, psd, fmin, fMax, fNyq, deltaF, 
+        analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0., verbose=True,prefix="U",same_waveform_Q=False):
     """
     Compute the 'cross terms' between waveform modes, i.e.
     < h_lm | h_l'm' >.
@@ -972,12 +973,28 @@ def ComputeModeCrossTermIP(hlmsA, hlmsB, psd, fmin, fMax, fNyq, deltaF,
 
     Returns a dictionary of inner product values keyed by tuples of mode indices
     i.e. ((l,m),(l',m'))
+
+    same_waveform_Q:  if true, it will do a loop that assumes (a) the same keys in both loops and (b) the same waveform in both (i.e., conjugate transpose)
+        Note we WILL use the 'prefix' quantity to identify if we are computing 'V' and therefore using a different symmetry!
     """
     # Create an instance of class to compute inner product
     IP = lsu.ComplexIP(fmin, fMax, fNyq, deltaF, psd, analyticPSD_Q,
             inv_spec_trunc_Q, T_spec)
 
     crossTerms = {}
+
+    if same_waveform_Q:
+      mode_list = list(hlmsA.keys())
+      pairs = combinations(mode_list, 2)  # all pairs, no diagonal terms, sorted order ! 
+      # do diagonal
+      for mode in mode_list:
+        crossTerms[ (mode,mode) ] = IP.ip(hlmsA[mode], hlmsB[mode])
+      for mode1, mode2 in pairs:
+        crossTerms[ (mode1,mode2) ] = IP.ip(hlmsA[mode1], hlmsB[mode2])
+        if prefix == "V":
+          crossTerms[ (mode2,mode1) ] = crossTerms[(mode1,mode2)]
+        else:
+          crossTerms[ (mode2,mode1) ] = np.conj(crossTerms[(mode1,mode2)])
 
     for mode1 in hlmsA.keys():
         for mode2 in hlmsB.keys():
