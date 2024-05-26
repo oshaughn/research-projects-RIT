@@ -208,6 +208,19 @@ def standard_expand_samples(samples):
         samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
         samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
 
+        # Askold: this part will check if phi1, phi2, phi12 are present. If not, compute and add the missing ones
+        phi_fields = ['phi1', 'phi2', 'phi12']
+        phi_func_dict = {
+            'phi1': lambda samples: np.arctan2(samples['a1x'], samples['a1y']),
+            'phi2': lambda samples: np.arctan2(samples['a2x'], samples['a2y']),
+            'phi12': lambda samples: samples['phi2'] - samples['phi1']
+        }
+
+        for field_name in phi_fields:
+            if not (field_name in samples.dtype.names):
+                samples = add_field(samples, [(field_name, float)])
+                samples[field_name] = phi_func_dict[field_name](samples)
+
     if 'lambda1' in samples.dtype.names and not ('lambdat' in samples.dtype.names):
         Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
         samples = add_field(samples, [('lambdat', float)]); samples['lambdat'] = Lt

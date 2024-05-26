@@ -68,6 +68,17 @@ try:
 except:
     print( " No mcsamplerGPU ")
     mcsampler_gpu_ok = False
+try:
+    import RIFT.integrators.mcsamplerAdaptiveVolume as mcsamplerAdaptiveVolume
+    mcsampler_AV_ok = True
+except:
+    print(" No mcsamplerAV ")
+    mcsampler_AV_ok = False
+try:
+    import RIFT.integrators.mcsamplerPortfolio as mcsamplerPortfolio
+    mcsampler_Portfolio_ok = True
+except:
+    print(" No mcsamplerPortolfio ")
 
 
 
@@ -123,7 +134,7 @@ parser.add_argument("--aligned-prior", default="uniform",help="Options are 'unif
 parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--lambda-max", default=4000,type=float,help="Maximum range of 'Lambda' allowed.  Minimum value is ZERO, not negative.")
 parser.add_argument("--lnL-shift-prevent-overflow",default=None,type=float,help="Define this quantity to be a large positive number to avoid overflows. Note that we do *not* define this dynamically based on sample values, to insure reproducibility and comparable integral results. BEWARE: If you shift the result to be below zero, because the GP relaxes to 0, you will get crazy answers.")
-parser.add_argument("--lnL-offset",type=float,default=10,help="lnL offset")
+parser.add_argument("--lnL-offset",type=float,default=np.inf,help="lnL offset")
 parser.add_argument("--lnL-cut",type=float,default=None,help="lnL cut [MANUAL]")
 parser.add_argument("--sigma-cut",type=float,default=0.6,help="Eliminate points with large error from the fit.")
 parser.add_argument("--ignore-errors-in-data",action='store_true',help='Ignore reported error in lnL. Helpful for testing purposes (i.e., if the error is zero)')
@@ -141,6 +152,8 @@ parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial
 parser.add_argument("--no-plots",action='store_true')
 parser.add_argument("--using-eos-type", type=str, default=None, help="Name of EOS parameterization (must match what is used for inputs). Will use EOS parameterization to identify appropriate field headers")
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
+parser.add_argument("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
+parser.add_argument("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionary to be passed to that sampler_')
 parser.add_argument("--internal-use-lnL",action='store_true',help="integrator internally manipulates lnL..   ")
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
 parser.add_argument("--internal-n-comp",default=1,type=int,help="number of components to use for GMM sampling. Default is 1, because we expect a unimodal posterior in well-adapted coordinates.  If you have crappy coordinates, use more")
@@ -534,6 +547,41 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
     #   sampler.identity_convert= lambda x: x
 if opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
+elif opts.sampler_method == "AV":
+    sampler = mcsamplerAdaptiveVolume.MCSampler()
+    opts.internal_use_lnL= True  # required!
+elif opts.sampler_method == "portfolio":
+    use_portfolio=True
+    sampler = None
+    sampler_list = []
+    sampler_types = opts.sampler_portfolio
+    for name in sampler_types:
+        if name =='AV':
+            sampler = mcsamplerAdaptiveVolume.MCSampler()
+        if name =='GMM':
+            sampler = mcsamplerEnsemble.MCSampler()
+            opts.sampler_method = 'GMM'  # this will force the creation/parsing of GMM-specific arguments below, so they are properly passed
+        if name == "adaptive_cartesian_gpu":
+            sampler = mcsamplerGPU.MCSampler()
+            sampler.xpy = xpy_default
+            sampler.identity_convert=identity_convert
+        if name == 'NFlow':
+            # expensive import, only do if requested
+            try:
+                import RIFT.integrators.mcsamplerNFlow as mcsamplerNFlow
+                mcsampler_NF_ok = True
+            except:
+                print(" No mcsamplerNFlow ")
+                continue
+            sampler = mcsamplerNFlow.MCSampler()
+            sampler.xpy = xpy_default
+            sampler.identity_convert=identity_convert
+        if sampler is None:
+            # Don't add unknown type
+            continue
+        print('PORTFOLIO: adding {} '.format(name))
+        sampler_list.append(sampler)
+    sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
 
 
 ##

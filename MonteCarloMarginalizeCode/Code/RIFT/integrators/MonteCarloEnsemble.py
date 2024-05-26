@@ -131,6 +131,8 @@ class integrator:
             # create a matrix of the left and right limits for this set of dimensions
             new_bounds = np.empty((len(dim_group), 2))
             new_bounds = self.bounds[dim_group]
+            if len(new_bounds.shape) < 2:
+                new_bounds = np.array([new_bounds])
             # index = 0
             # for dim in dim_group:
             #     new_bounds[index] = self.bounds[dim]
@@ -193,7 +195,12 @@ class integrator:
                     model.fit(temp_samples, log_sample_weights=log_weights)
             else:
                 model.update(temp_samples, log_sample_weights=log_weights)
-            self.gmm_dict[dim_group] = model
+            try:
+                # Verify model can evaluated! Quick and dirty test to confirm not singular
+                model.score(temp_samples[:5])
+                self.gmm_dict[dim_group] = model
+            except:
+                print(" Failed to update ", dim_group)
 
 
     def _calculate_results(self):

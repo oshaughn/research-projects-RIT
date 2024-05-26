@@ -33,20 +33,20 @@ This script, :code:`plot_posterior_corner.py`, currently includes the following 
 	      --parameter chi1_perp        spin on BH 1
 	      --parameter chi2_perp        spin on BH 2
 	      --parameter LambdaTilde        combined dimensionless tidal deformability
-	      --parameter DeltaLambdaTilde
-	      --parameter lambdat
-	      --parameter dlambdat
+	      --parameter DeltaLambdaTilde        change in tidal deformability
+	      --parameter lambdat        lambdat
+	      --parameter dlambdat        dlambdat
 	      --parameter eccentricity        orbital eccentricity
 
 There are also many arguments that can be added to the command line call to customize the corner plots. Open the pull down "optional arguments" below to see the additional options and their descriptions.
 
 .. collapse:: **Optional arguments**
 	      
-	      --posterior-file   filename of *.dat file [standard LI output]
+	      --posterior-file   filename of .dat file [standard LI output]
 	      --truth-file    file containing the true parameters
 	      --posterior-distance-factor   Sequence of factors used to correct the distances
 	      --truth-event        number of event in file containing the true parameters
-	      --composite-file        filename of *.dat file [standard ILE intermediate]
+	      --composite-file        filename of .dat file [standard ILE intermediate]
 	      --use-all-composite-but-grayscale        Composite; plot all grid points used in iteration but make them grayscale
 	      --flag-tides-in-composite        Required if you want to parse files with tidal parameters
 	      --flag-eos-index-in-composite        Required if you want to parse files with EOS index in composite (and tides)
@@ -92,19 +92,19 @@ This script ``pp_plot_dataproduct.py`` uses the last iteration output posterior 
 
 PP plots require information from each injection, so it is easiest to make a script to loop over your data files that includes the following:
 
-.. code-block:: console
+.. code-block:: bash
 
-   export PATH=${PATH}:path_to_file
-   HERE=`pwd`
-   for  i in  `seq 0 5` ; do 
-     echo " ++" $i; 
-     export HIGHEST_SAMPLE_FILE=`ls  analysis_event_${i}/posterior_samples-*.dat | sort | tail -n 1`
-     echo Sample file: ${HIGHEST_SAMPLE_FILE}
-     echo `python pp_plot_dataproduct.py --posterior-file "${HIGHEST_SAMPLE_FILE}" --truth-file ${HERE}/mdc.xml.gz --truth-event ${i}  --parameter mc --parameter q --parameter a1z --parameter a2z --composite-file analysis_event_${i}/all.net | tail -n 1`  `cat analysis_event_${i}/iteration*/logs/test*.out | tail -n 1` ; 
-   done > net_pp.dat
-
-   # grab number-only entries, don't remove floating point
-   grep -v ++ net_pp.dat | grep -v [a-df-z] > net_pp.dat_clean
+		export PATH=${PATH}:path_to_file
+		HERE= `pwd`
+		for  i in  `seq 0 5`; do 
+		    echo " ++" $i; 
+		    export HIGHEST_SAMPLE_FILE= `ls  analysis_event_${i}/posterior_samples*.dat | sort | tail -n 1`
+		    echo Sample file: ${HIGHEST_SAMPLE_FILE}
+		    echo `python pp_plot_dataproduct.py --posterior-file "${HIGHEST_SAMPLE_FILE}" --truth-file ${HERE}/mdc.xml.gz --truth-event ${i}  --parameter mc --parameter q --parameter a1z --parameter a2z --composite-file analysis_event_${i}/all.net | tail -n 1`
+		    echo `cat analysis_event_${i}/iteration*/logs/test*.out | tail -n 1`; 
+		done > net_pp.dat
+		# grab number-only entries, don't remove floating point
+		grep -v ++ net_pp.dat | grep -v [a-df-z] > net_pp.dat_clean
 
 This gathers the information from above (the parameter p-values for each injection, the maximum log-likelihood, as well as the convergence statistic) into a single file called ``net_pp.dat_clean``. Load in the data and make a cumulative CDF plot for each variable, with your favorite plotting code. For lightweight tests, we provide ``pp_plot.py``
 

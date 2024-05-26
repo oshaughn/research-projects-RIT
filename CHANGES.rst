@@ -1,3 +1,45 @@
+0.0.17.0
+-----------
+pre-release, only available in source tree for rift_O4c
+   - start roughly 0.0.16.0rc2. asimov integation, documentation, CIP --n-events-to-analyze; mcsamplerNFlow;
+     mcsamplerPortfolio; unreliable_oracles including reference samples; implement mcsamplerPortfolio and some oracles
+     in ILE and CIP; hyperpipe dag writer integer events; pp_RIFT_with_ini merge; hyperpipe EOS_POST other integrators;
+     helper parses d-min from ini file;  hyperpipe change EOS_POST default to include all data; 
+     more asimov (n-output-samples, request_disk, additional-files-to-transfer, distance prior, fmax, dmin; gwdata interface), AV integrator pinned params,
+     inv-spec-trunc-time access at pipeline, source_redshift in convert_waveform_coordinates vectorized; statutils
+     xpy.max fix for new cupy/python; helper_transfer_files access for eg surrogate files; hlmoft **tapering for some
+     cases** (ChooseTDModes, SimInspiralTDModesFromPolarizations) not previously start-tapered; 
+      Public OSG operation setup, focusing on hyperpipe (condor-local-nonworker-igwn-prefix, etc). 
+      Fix barf where pseudo_pipe required coinc with row.alpha4 (eccentricity).
+     **bugfix** sign error reflection for some modes (TEOBResumS and SEOBv4HM - not precessing);
+
+
+0.0.16.0
+-----------
+Since last release
+    - Start roughly 0.0.15.9 in rift_O4b, merge with 0.0.15.10 into it.  ROMWaveformManager hlmoft backwards compatbile snarf extra options; pp_RIFT_with_ini
+      prototype; pp_RIFT minor fixes (lalapps_path2cache); AV eos-tabular-infereence updates; hyperpipe; scitokens;
+      fix online PE use case for O4 (PSD; gracedb-id logic if ini provided); request_memory units; EOSPlotUtilities;
+      mcsamplerAdaptiveVolume (rc1)
+   - merge in 0.0.15.11, as well as below ( ILE_batchmode hard fail on JIT compilation error, from 15.12 below); AV in rosenbrock test; AV n_chunk size for portfolio; hyperpipe
+      integer events;  bugfix (-1)^m->(-1)^l reflection for aligned TEOBResumS external call (rc2)
+   - asimov integration (as in rift_O4a/0.0.15.12 rc0); documentation update for hyperpipe, etc; CIP --n-events-to-analyze for hyperpipe
+
+0.0.15.12
+-------------
+Since last release
+   - gracedb get file psd.xml.gz fix for online; ILE hard fail if CUDA/JIT compilation error; bugfix (-1)^m->(-1)^l
+     reflection for aligned TEOBResumS external call; asimov integration
+
+
+0.0.15.11
+-----------
+Since last release
+   - bugfix util_JoinExtrXML to catch last batch; bugfix --calibration-reweighting-initial-extra-args argument passing  (rc1)
+   - bugfix Lmag high-order PN coefficient; ourparams glue.ligolw -> ligo.lw (rc2)
+   - CI fix so integration test sane (rc3)
+
+Release is rc3
 
 0.0.15.10
 -----------
@@ -8,6 +50,12 @@ Since last release
      hlmoft (rc2)
    - RIFT_GETENV_OSG; enable gwsignal aways even if RIFT_LOWLATENCY active; mcsamplerGPU typo fix (self.n_total) for
      corner use case (rc3)
+   - add --allow-subsolar to prevent hardcoding 1Msun limit; dockerfile cleanup; has_GWS scoping fix to avoid crash in
+     factored_likelihood; remove glue.ligo_lw reference in util_SimInspiralToCoinc (rc4)
+  - bugfixes calmarg, mainly for use-gwsignal which wasn't implemented (rc5)
+  - minor fix to extrinsic export scripts to enable arbitrary output sample size (rc6)
+
+Release is rc6
 
 0.0.15.9
 -----------

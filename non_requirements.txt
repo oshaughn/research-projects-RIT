@@ -3,3 +3,5 @@ gwsurrogate==0.9.3
 cupy
 gwalk
 teobresums
+torch
+nflows

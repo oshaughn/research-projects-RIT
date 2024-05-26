@@ -92,6 +92,10 @@ def retrieve_event_from_coinc(fname_coinc):
     event_dict["m2"] = row.mass2
     event_dict["s1z"] = row.spin1z
     event_dict["s2z"] = row.spin2z
+    if hasattr(row, 'alpha4'):
+        event_dict["eccentricity"] = row.alpha4
+    else:
+        event_dict["eccentricity"] = None
     event_dict["IFOs"] = list(set(ifo_list))
     max_snr_idx = snr_list.index(max(snr_list))
     event_dict['SNR'] = snr_list[max_snr_idx]
@@ -162,6 +166,8 @@ parser.add_argument("--assume-well-placed",action='store_true',help="If present,
 parser.add_argument("--ile-distance-prior",default=None,help="If present, passed through to the distance prior option.   If provided, BLOCKS distance marginalization")
 parser.add_argument("--internal-ile-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
 parser.add_argument("--internal-ile-n-max",default=None,type=int,help="Set maximum number of evaluations each ILE worker uses. EXPERTS ONLY")
+parser.add_argument("--internal-ile-inv-spec-trunc-time",default=None,type=float,help="Timescale of inverse spectrum truncation time. Default in pipeline is zero. Should be no more than 1/2 the segment length")
+parser.add_argument("--internal-ile-data-tukey-window-time",default=None,type=float,help="Timescale of the tukey window (total, both sides)")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help="If present, the code will marginalize over the distance variable. Passed diretly to helper script. Default will be to generate d_marg script *on the fly*")
 parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
@@ -194,6 +200,7 @@ parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--cip-internal-use-eta-in-sampler",action='store_true', help="Use 'eta' as a sampling parameter. Designed to make GMM sampling behave particularly nicely for objects which could be equal mass")
 parser.add_argument("--ile-jobs-per-worker",type=int,default=None,help="Default will be 20 per worker usually for moderate-speed approximants, and more for very fast configurations")
 parser.add_argument("--ile-no-gpu",action='store_true')
+parser.add_argument("--ile-xpu",action='store_true',help='Request ILE run on both GPU and CPU. Disables ile_force_gpu, if provided!')
 parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--fake-data-cache",type=str)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [uniform mag for precessing, zprior for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
@@ -241,11 +248,13 @@ parser.add_argument("--internal-ile-force-noreset-adapt",action='store_true',hel
 parser.add_argument("--internal-ile-adapt-log",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE via helper.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset for ILE")
+parser.add_argument("--ile-additional-files-to-transfer",default=None,help="Comma-separated list of filenames. To append to the transfer file list for ILE jobs (only). Intended for surrogates in LAL_DATA_PATH for wide-ranging use")
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--manual-extra-puff-args",default=None,type=str,help="Avenue to adjoin extra PUFF arguments.  ")
 parser.add_argument("--manual-extra-test-args",default=None,type=str,help="Avenue to adjoin extra TEST arguments.  ")
+parser.add_argument("--manual-extra-cip-args",default=None,type=str,help="Avenue to adjoin extra CIP arguments.  Needed for external priors or likelihoods in CIP stage")
 parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--use-downscale-early",action='store_true', help="If provided, the first block of iterations are performed with lnL-downscale-factor passed to CIP, such that rho*2/2 * lnL-downscale-factor ~ (15)**2/2, if rho_hint > 15 ")
 parser.add_argument("--use-gauss-early",action='store_true',help="If provided, use gaussian resampling in early iterations ('G'). Note this is a different CIP instance than using a quadratic likelihood!")
@@ -326,7 +335,8 @@ if opts.assume_nonprecessing or opts.approx == "IMRPhenomD":
 if opts.use_osg:
     opts.condor_nogrid_nonworker = True  # note we ALSO have to check this if we set use_osg in the ini file! Moved statement so flagged
 
-
+if opts.ile_xpu:
+    opts.ile_force_gpu = False
 
 if not(opts.ile_jobs_per_worker):
     opts.ile_jobs_per_worker=20
@@ -382,8 +392,9 @@ elif opts.approx is None:
     print( " Approximant required! ")
     sys.exit(1)
 
-if opts.use_osg:
-    os.environ["LIGO_DATAFIND_SERVER"]="datafind.ligo.org:443"   #  enable lookup of data
+if opts.use_osg and not(opts.use_osg_file_transfer): 
+    print(" datafind: changing LIGO_DATAFIND_SERVER internally to find CVMFS-disseminated data")
+    os.environ["LIGO_DATAFIND_SERVER"]="datafind.ligo.org:443"   #  enable lookup of data for public cvmfs
 
 if opts.make_bw_psds:
     if not(opts.choose_data_LI_seglen) and (opts.data_LI_seglen is None):
@@ -535,6 +546,9 @@ if not(opts.use_ini is None):
     print( "IFO list from ini ", ifo_list)
     P.fmin = fmin_fiducial
     P.fref = unsafe_config_get(config,['engine','fref'])
+    # default value for eccentricity is 0 for 'P'!  Only change this value from default if eccentricity is present, do NOT want to fill it with None in particular
+    if not(event_dict['eccentricity'] is None):   
+        P.eccentricity = event_dict["eccentricity"]
     # Write 'target_params.xml.gz' file
     lalsimutils.ChooseWaveformParams_array_to_xml([P], "target_params")
 
@@ -594,7 +608,7 @@ if opts.internal_use_rescaled_transverse_spin_coordinates:
 if not(opts.internal_use_amr) and not(opts.manual_initial_grid):
     cmd+= " --propose-initial-grid "
 if opts.force_initial_grid_size:
-    cmd += " --force-initial-grid-size {} ".format(opts.force_initial_grid_size)
+    cmd += " --force-initial-grid-size {} ".format(int(opts.force_initial_grid_size))
 if opts.assume_matter:
         cmd += " --assume-matter "
         npts_it = 1000
@@ -632,7 +646,8 @@ if opts.internal_ile_use_lnL:
     cmd+= " --internal-ile-use-lnL "
 if opts.internal_cip_use_lnL:
     cmd += " --internal-cip-use-lnL "
-
+if opts.internal_ile_data_tukey_window_time:
+    cmd += " --data-tukey-window-time {} ".format(opts.internal_ile_data_tukey_window_time)
 if not(opts.ile_n_eff is None):
     cmd += " --ile-n-eff {} ".format(opts.ile_n_eff)
 if opts.limit_mc_range:
@@ -760,6 +775,10 @@ if opts.fake_data_cache:
         cmd += " --manual-ifo-list {} ".format(short_list.replace(' ',''))
 print( cmd)
 os.system(cmd)
+# we MUST make helper_ile_args.txt
+if not(os.path.exists('helper_ile_args.txt')):
+    print(" FAILURE: helper call failed to generate required file helper_ile_args.txt")
+    sys.exit(1)
 #sys.exit(0)
 
 # Create distance maximum (since that is NOT always chosen by the helper, and makes BNS runs needlessly much more painful!)
@@ -863,8 +882,22 @@ if opts.internal_ile_force_noreset_adapt:
     line = line.replace(' --force-reset-all ', ' ')
 if opts.internal_mitigate_fd_J_frame == 'L_frame':
     line += " --internal-waveform-fd-L-frame "
+if opts.internal_ile_inv_spec_trunc_time:
+    line = line.replace("inv-spec-trunc-time 0 ","inv-spec-trunc-time {} ".format(opts.internal_ile_inv_spec_trunc_time))
 with open('args_ile.txt','w') as f:
         f.write(line)
+
+# ILE transfer file list
+#  if arguments provided, append (usually empty file/nonexistent)
+if opts.ile_additional_files_to_transfer:
+    print(" Supplementary transfer request ",opts.ile_additional_files_to_transfer) 
+    my_files = list(map(lambda x: x.split(),opts.ile_additional_files_to_transfer.split(','))) # split on , remove whitespace
+    my_files = sum(my_files, []) # flatten the list
+    my_files = [x for x in my_files if x]  # remove empty elements
+    print("  File transfer request resolves to ", my_files)
+    with open("helper_transfer_files.txt",'a') as f:
+        for line in my_files:
+            f.write(line + "\n")
 
 
 #os.system("cp helper_test_args.txt args_test.txt")
@@ -975,11 +1008,15 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('parameter delta_mc', 'parameter q')
         line += " --prior-gaussian-mass-ratio --prior-gaussian-spin1-magnitude "   # should require precessing analysis
     elif opts.assume_highq and ('s1z' in line):
-        line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
-        if 's1z_bar' in line:
-            # FIRST attempt to replace with commas, note previous line
-            line = line.replace("mc,s1z'", "mc,s1z_bar'")
-    elif opts.internal_correlate_default and ('s1z' in line):
+        if not( opts.cip_sampler_method =='GMM'):
+            print("  ASSUME HIGHQ FAIL  - currently only GMM ")
+        else:
+            line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
+            if 's1z_bar' in line:
+                # FIRST attempt to replace with commas, note previous line
+                line = line.replace("mc,s1z'", "mc,s1z_bar'")
+    elif opts.internal_correlate_default and ('s1z' in line) and opts.cip_sampler_method == 'GMM':
+        # currently ONLY implementing correlations for GMM
         my_sampler_method='GMM'  # Warning can override default sampler setting if not careful!
         if opts.cip_sampler_method:
             my_sampler_method = opts.cip_sampler_method
@@ -1044,6 +1081,8 @@ for indx in np.arange(len(instructions_cip)):
         if not(opts.force_ecc_min is None):
             ecc_min = opts.force_ecc_min
             line += " --ecc-min {}  ".format(ecc_min)
+    if not(opts.manual_extra_cip_args is None):
+        line += " {} ".format(opts.manual_extra_cip_args)  # embed with space on each side, avoid collisions
     line += "\n"
     lines.append(line)
 
@@ -1286,6 +1325,8 @@ if opts.external_fetch_native_from:
     cmd += " --fetch-ext-grid-exe `which util_FetchExternalGrid.py`  --fetch-ext-grid-args `pwd`/fetch_args.txt "
 if not(opts.ile_no_gpu):
     cmd +=" --request-gpu-ILE "
+if opts.ile_xpu:
+    cmd += " --request-xpu-ILE "
 if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples)
     if opts.add_extrinsic_time_resampling:
@@ -1311,10 +1352,19 @@ if opts.use_osg:
         cmd += " --use-cvmfs-frames "
     elif not(opts.internal_truncate_files_for_osg_file_transfer):  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
         os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
+        # if environment variable active, check that frames were created! Fail otherwise
+        if 'RIFT_TRUNCATE_CHECK' in os.environ:
+            fnames_gwf = os.listdir('./frames_dir/')
+            if len(fnames_gwf)< len(event_dict["IFOs"]):
+                raise Exception(" Pipeline build failure: Problem generating truncated frames for OSG")
+            
 #        os.system("echo ../frames_dir >> helper_transfer_files.txt")
         cmd += " --frames-dir `pwd`/frames_dir "
     elif opts.use_osg_file_transfer:
         cmd += " --frames-dir `pwd`/frames_dir "  # assume this will be built by the end user for us, for now
+    cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
+elif opts.ile_additional_files_to_transfer:
+    # also transfer files if we request by hand!
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
 if opts.condor_local_nonworker:
     cmd += " --condor-local-nonworker "
@@ -1328,8 +1378,19 @@ if opts.archive_pesummary_label:
 # Horribly annoying XPHM/XO4a fix because ChooseFDWaveform called.  Seems to be UNIVERSAL for the approximant name, but only if precessing
 if opts.internal_mitigate_fd_J_frame == 'rotate' and (opts.approx == 'IMRPhenomXPHM' or 'XO4a' in opts.approx) and opts.assume_precessing:
     cmd += " --frame-rotation "
-if opts.internal_mitigate_fd_J_frame =="L_frame":
-    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame' "
+#if opts.internal_mitigate_fd_J_frame =="L_frame" and not(opts.manual_extra_ile_args) and not(opts.use_gwsignal):
+#    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame' "
+if opts.calibration_reweighting:
+    my_extra_string = ''
+    if opts.use_gwsignal:
+        my_extra_string = ' --use-gwsignal '
+    if opts.manual_extra_ile_args:
+         my_extra_string += ' ' + opts.manual_extra_ile_args + ' '
+    if (opts.internal_mitigate_fd_J_frame =="L_frame"):
+        my_extra_string += ' --internal-waveform-fd-L-frame '
+    cmd +=" --calibration-reweighting-initial-extra-args='  {}' ".format(my_extra_string)
+#if opts.internal_mitigate_fd_J_frame =="L_frame" and opts.use_gwsignal and not(opts.manual_extra_ile_args):
+#    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
 print(cmd)
 os.system(cmd)
 

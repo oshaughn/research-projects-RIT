@@ -1,6 +1,6 @@
-================
+=====================
 Getting data for RIFT
-================
+=====================
 
 RIFT can be run on any LIGO or LIGO-like data. It uses frames containing noise and signals to ...
 

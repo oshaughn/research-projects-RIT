@@ -98,8 +98,12 @@ if opts.convention == 'LI':
         ecc = [row.alpha4 for row in points]
     
     wt = np.exp(like)*p/ps
+    # remove nan wt - can happen for extrinsic output
+    indx_nan = np.isnan(wt)
+    wt[indx_nan] =0
     neff_here = np.sum(wt)/np.max(wt)  # neff for this file.  Assumes NOT mixed samples: dangerous
-
+    if np.isnan(neff_here):
+        neff_here =len(wt)
 
     for indx in np.arange(len(points)):
         pt = points[indx]

@@ -12,6 +12,13 @@ try:
 except:
     True
 
+has_GWS=False  # make sure defined in top-level scope
+try:
+        import RIFT.physics.GWSignal as rgws
+        has_GWS=True
+except:
+        has_GWS=False
+
 
 def RIFT_lal_binary_black_hole(
         frequency_array, mass_1, mass_2, luminosity_distance, spin_1x, spin_1y, spin_1z,
@@ -38,7 +45,7 @@ def RIFT_lal_binary_black_hole(
         h_method = kwargs['h_method']
 
     approximant = lalsim.GetApproximantFromString(waveform_approximant)
-
+    
     P = lalsimutils.ChooseWaveformParams()
     P.m1 = mass_1 * lal.MSUN_SI
     P.m2 = mass_2 * lal.MSUN_SI
@@ -64,6 +71,22 @@ def RIFT_lal_binary_black_hole(
         P.phiref = 0
         P.incl = 0  # L direction frame
         hlmT = lalsimutils.hlmoft(P,Lmax=Lmax,extra_waveform_kwargs=extra_waveform_kwargs) # extra needed to control ChooseFDWaveform
+        P.phiref = phase
+        P.incl =  iota # restore
+        h22T = hlmT[(2,2)]
+        hT = lal.CreateCOMPLEX16TimeSeries("hoft", h22T.epoch, h22T.f0, h22T.deltaT, h22T.sampleUnits, h22T.data.length)
+        hT.data.data = np.zeros(hT.data.length)
+
+        # combine modes
+        phase_offset = 0#np.pi/2 # TODO this could be a different value i.e. np.pi/2
+        for mode in hlmT:
+            hT.data.data += hlmT[mode].data.data * lal.SpinWeightedSphericalHarmonic(
+                P.incl,phase_offset - 1.0*P.phiref, -2, int(mode[0]), int(mode[1]))
+    elif h_method == 'gws_hlmoft':
+        # gwsignal specific
+        P.phiref = 0
+        P.incl = 0  # L direction frame
+        hlmT = rgws.hlmoft(P,Lmax=Lmax,approx_string=waveform_approximant,**extra_waveform_kwargs)
         P.phiref = phase
         P.incl =  iota # restore
         h22T = hlmT[(2,2)]

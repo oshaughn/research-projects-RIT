@@ -69,6 +69,12 @@ try:
 except:
     print(" No mcsamplerAV ")
     mcsampler_AV_ok = False
+mcsampler_Portfolio_ok=False
+try:
+    import RIFT.integrators.mcsamplerPortfolio as mcsamplerPortfolio
+    mcsampler_Portfolio_ok = True
+except:
+    print(" No mcsamplerPortolfio ")
 
 import RIFT.likelihood.priors_utils as priors_utils
 import RIFT.misc.xmlutils as xmlutils
@@ -118,10 +124,6 @@ class EvenBivariateLinearInterpolator:
 
         return f_approx
 
-try:
-  from ligo.skymap.io import fits as bfits
-except:
-  print(" -no bayestar- ")
 
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
@@ -275,6 +277,8 @@ integration_params.add_option("--manual-logarithm-offset",type=float,default=0,h
 integration_params.add_option("--auto-logarithm-offset",action='store_true',help="Use the 'guess_snr' field returned in the precompute stage to change --manual-logarithm-offset for each event.")
 integration_params.add_option("--internal-use-lnL",action='store_true',help="likelihood returns lnL, and integrator integrates lnL")
 integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
+integration_params.add_option("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
+integration_params.add_option("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionaryo to be passed to that sampler')
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
 integration_params.add_option("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., EM observations). EXPERTS-ONLY")
 integration_params.add_option("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external prior. EXPERTS ONLY")
@@ -323,7 +327,7 @@ opts, args = optp.parse_args()
 #
 # Failure modes
 #
-ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu','AV']
+ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu','AV','portfolio']
 if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
   print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)
   sys.exit(99)
@@ -705,6 +709,12 @@ if opts.internal_rotate_phase:
 #
 # Parameter integral sampling strategy
 #
+
+# Oracle for portfolio if needed
+
+
+# Portfolio
+use_portfolio=False
 params = {}
 sampler = mcsampler.MCSampler()
 xpy_asarray_already = functools.partial(xpy_default.asarray,dtype=np.float64)
@@ -728,7 +738,7 @@ elif opts.sampler_method == 'AV':
     print(" ILE: {}".format(opts.sampler_method))
     opts.internal_use_lnL=True
 
-    sampler = mcsamplerAdaptiveVolume.MCSampler()
+    sampler = mcsamplerAdaptiveVolume.MCSampler(n_chunk=opts.n_chunk) # note larger is better, but keep GPU mem limits in mind
     sampler.xpy = xpy_default
     sampler.identity_convert=identity_convert
 #    mcsampler  = mcsampler  # force use of routines in that file, for properly configured GPU-accelerated code as needed
@@ -739,6 +749,45 @@ elif opts.sampler_method == 'AV':
       mcsampler.set_xpy_to_numpy()
       sampler.xpy= numpy
       sampler.identity_convert= lambda x: x
+elif opts.sampler_method == "portfolio":
+    use_portfolio=True
+    opts.internal_use_lnL=True  # required, we only implement those scenarios right now
+    sampler_list = []
+    sampler_types = opts.sampler_portfolio
+
+    # prep xpy, etc
+    my_xpy = xpy_default
+    my_identity_convert=identity_convert
+    my_identity_convert_togpu=identity_convert_togpu
+    print(" PORTFOLIO ", opts.sampler_portfolio)
+    xpy_asarray_already = lambda x: x  # do nothing because we are already on the board for GPU-generated 
+    if opts.sampler_xpy == "numpy":
+      mcsampler.set_xpy_to_numpy()
+      my_xpy= numpy
+      my_identity_convert= lambda x: x
+      my_identity_convert_togpu= lambda x: x
+    for name in sampler_types:
+        if name =='AV':
+            sampler = mcsamplerAdaptiveVolume.MCSampler(n_chunk=opts.n_chunk) # enforce now, so provided for setup phase
+        if name =='GMM':
+            sampler = mcsamplerEnsemble.MCSampler()
+            # following override means sampler_method is CHANGED, so THIS MUST BE LAST, and can't condition on portfolio
+            opts.sampler_method = 'GMM'  # this will force the creation/parsing of GMM-specific arguments below, so they are properly passed
+        if name == "adaptive_cartesian_gpu":
+            sampler = mcsamplerGPU.MCSampler()
+            mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
+        print('PORTFOLIO: adding {} '.format(name))
+        # enable xpy for low level sampler as needed 
+        if hasattr(sampler, 'xpy'):
+          sampler.xpy = my_xpy
+          sampler.identity_convert= my_identity_convert
+          sampler.identity_convert_togpu=identity_convert_togpu
+        sampler_list.append(sampler)
+    sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
+    sampler.xpy = my_xpy
+    sampler.identity_convert= my_identity_convert
+    sampler.identity_convert_togpu= my_identity_convert_togpu
+    # sampler weights will be CPU-typed, so don't change them
 
 else:
     print(" ILE: original sampler")
@@ -784,7 +833,7 @@ if not (opts.distance_marginalization and lookup_table["phase_marginalization"])
 #
 
 adapt_extra_extrinsic=False
-if (opts.sampler_method == "adaptive_cartesian_gpu"  or opts.sampler_method == 'AV') or opts.force_adapt_all:  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
+if (opts.sampler_method == "adaptive_cartesian_gpu"  or opts.sampler_method == 'AV' ) or use_portfolio or opts.force_adapt_all:  # this is a better/more stable/faster adaptive code, trust it to adapt in more extrinsic dimensions
   adapt_extra_extrinsic=True
 
 if not opts.inclination_cosine_sampler:
@@ -878,7 +927,8 @@ if opts.rom_use_basis and opts.rom_integrate_intrinsic:
 
 
 
-if opts.skymap_file is not None:
+if False: #opts.skymap_file is not None:
+    from ligo.skymap.io import fits as bfits
     #
     # Right ascension and declination -- use a provided skymap
     #
@@ -959,10 +1009,31 @@ if not opts.time_marginalization:
                           prior_pdf = functools.partial(mcsampler.uniform_samp_vector, param_limits["t_ref"][0], param_limits["t_ref"][1]))
 
 
+# skymap oracle
+oracleRS=None
+if opts.skymap_file:
+  # Read file
+  from RIFT.misc.reference_samples import ReferenceSamples
+  rs_object = ReferenceSamples()
+  if opts.skymap_file.endswith('fits'):
+    rs_object.from_skymap_fits(fname=opts.skymap_file,cos_dec=opts.declination_cosine_sampler)
+  else:
+      rs_object.from_ascii(fname=opts.skymap_file, reference_params=['ra', 'dec'])
+      if opts.declination_cosine_sampler:
+        rs_object.reference_params[:,1] = np.arccos(rs.reference_params[:,1])
+      # relabel
+      rs_object.reference_params  = ['right_ascension', 'declination']
+
+  # Pass to resampling oracle
+  from RIFT.integrators.unreliable_oracle.resampling import ResamplingOracle
+  oracleRS = ResamplingOracle()
+  for p in sampler.params_ordered:
+        oracleRS.add_parameter(p,pdf=None, left_limit =sampler.llim[p], right_limit = sampler.rlim[p])
+  oracleRS.setup(reference_samples=rs_object.reference_samples, reference_params=rs_object.reference_params)
+
 #
 # Determine pinned and non-pinned parameters
 #
-
 pinned_params = get_pinned_params(opts)
 unpinned_params = get_unpinned_params(opts, sampler.params)
 print( "{0:<25s} {1:>5s} {2:>5s} {3:>20s} {4:<10s}".format("parameter", "lower limit", "upper limit", "pinned?", "pin value"))
@@ -1026,10 +1097,13 @@ pinned_params.update({
 if opts.sampler_method == "adaptive_cartesian_gpu":
   pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!  
 return_lnL=False
-if opts.sampler_method=="GMM" and opts.internal_use_lnL:
+if opts.sampler_method=="GMM"  and opts.internal_use_lnL:
   return_lnL=True
   pinned_params.update({"use_lnL":True,"return_lnI":True})
 if opts.sampler_method =="adaptive_cartesian_gpu" and opts.internal_use_lnL:
+  return_lnL=True
+  pinned_params.update({"use_lnL":True})
+if opts.sampler_method =="portfolio":
   return_lnL=True
   pinned_params.update({"use_lnL":True})
 if opts.sampler_method == "GMM":
@@ -1101,6 +1175,25 @@ if opts.sampler_method == "GMM":
 if opts.sampler_method == "AV":
   return_lnL=True
   pinned_params.update( { 'enforce_bounds':True})  # don't go out of range : choose integer bin sizes
+
+
+# set up sampler, as needed.  Mainly for portfolio integrator
+if use_portfolio:
+      print(" PORTFOLIO : setup")
+      if opts.sampler_portfolio_args:
+          print(" PRE_EVAL", opts.sampler_portfolio_args)
+          #opts.sampler_portfolio_args = list(map(lambda x: eval(' "{}" '.format(x)), opts.sampler_portfolio_args))
+          opts.sampler_portfolio_args = list(map(eval, opts.sampler_portfolio_args))
+          # confirm all are dict
+          for indx in range(len(opts.sampler_portfolio_args)):
+            if not(isinstance(opts.sampler_portfolio_args[indx], dict)):
+                print(indx,opts.sampler_portfolio_args[indx]) 
+          print(" ARGS ", opts.sampler_portfolio_args)
+      sampler.setup(portfolio_args=opts.sampler_portfolio_args, **pinned_params) # directly pass all parameters set above to low-level portfolios.  In particular, GMM setup
+
+# initialize sampler, before we call integrate, so we can seed it
+if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
+  sampler.setup()
 
 
 def resample_samples(my_samples,
@@ -1190,6 +1283,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             use_gwsignal=opts.use_gwsignal,
             use_gwsignal_approx=opts.approximant,
             use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized, extra_waveform_kwargs=extra_waveform_kwargs)
+
+    # skip nan ! Something horrible has happened
+    if np.isnan(guess_snr):
+      print("  --- NAN SNR GUESS, ABORTING THIS EVENT {} --".format(indx_event))
+      raise Exception(" NAN SNR ")
 
     if opts.auto_logarithm_offset and guess_snr:
       # important: this only impacts *this* analysis
@@ -1610,6 +1708,17 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                    like_to_integrate = zero_like
               else:
                    like_to_integrate = unit_like
+    if oracleRS:
+         print("  ORACLE  - seeding sampling  with" , oracleRS.params_ordered)
+         if hasattr(sampler, 'update_sampling_prior'):
+             rvs_train = {}
+             _, _, rv_oracle = oracleRS.draw_simplified(opts.n_chunk)
+             for indx,p  in enumerate(sampler.params_ordered):
+               rvs_train[p] = rv_oracle[:,indx]
+             # train with equal weight - no likelihood information
+             lnL_oracles  = np.zeros(opts.n_chunk)
+             sampler.update_sampling_prior(lnL_oracles, opts.n_chunk, external_rvs=rvs_train,log_scale_weights=True,floor_integrated_probability=opts.adapt_floor_level)
+
     res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
 
     if not(res): # no resut
@@ -1844,9 +1953,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
 lnL_sofar = -np.inf
 no_adapt_sky = False
+
 for indx in numpy.arange(len(P_list)):
  try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
+  # abort if horrible (nan event) - done with 'raise'
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.force_reset_all:  # depends on integrator!  May not always be availble
     if opts.sampler_method == "adaptive_cartesian_gpu": 
@@ -1881,7 +1992,7 @@ for indx in numpy.arange(len(P_list)):
 #  if len(exception_failure) >0:
 #    if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
 #      sys.exit(1) 
-  if ("CUDA" in str(exception_failure)) or ('CUBLAS' in str(exception_failure) or ('cuda' in str(exception_failure))): # Hard fail if a cuda error with a catchable error code
+  if ("CUDA" in str(exception_failure)) or ('CUBLAS' in str(exception_failure)) or ('cuda' in str(exception_failure)) or ('compilation' in (str(exception_failure)) ): # Hard fail if a cuda error with a catchable error code
     if (opts.internal_soft_fail_on_cuda_error):
       sys.exit(0)
     sys.exit(62)
