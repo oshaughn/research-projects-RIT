@@ -120,7 +120,7 @@ var_3 = np.exp(var_3)
 
 
 print(integral_1/np.exp(lnL_offset),integral_1b/np.exp(lnL_offset),integral_2/np.exp(lnL_offset),integral_3/np.exp(lnL_offset),np.exp(Z_rosenbrock))
-print(np.array([integral_1,integral_1b,integral_2])/np.exp(Z_rosenbrock))
+print(np.array([integral_1,integral_1b,integral_2,integral_3])/np.exp(Z_rosenbrock+lnL_offset))
 print(" AC/default ", integral_1b/integral_1, np.sqrt(var_1)/integral_1)  # off by width**3
 print(" GMM/default ",integral_2/integral_1, np.sqrt(var_1)/integral_1, np.sqrt(var_2)/integral_2)
 print(" AV/default ",integral_3/integral_1, np.sqrt(var_1)/integral_1, np.sqrt(var_3)/integral_3)
@@ -196,10 +196,10 @@ if save_fairdraws:
     indx_save_1b = np.random.choice(np.arange(len(p)), size=npts_out_1b, p=p)
     np.savetxt(save_fairdraw_prefix+"_1b.dat", arr_1b[indx_save_1b],header=" x1 x2")
 
-    npts_out_3 = int(n_ess_3)
+    npts_out_3 = np.min([int(n_ess_3*0.8),5000])
     p = np.array(weights_3/np.sum(weights_3),dtype=np.float64)
     indx_save_3 = np.random.choice(np.arange(len(p)), size=npts_out_3, p=p)
-    np.savetxt(save_fairdraw_prefix+"_3.dat", arr_1b[indx_save_3],header=" x1 x2")
+    np.savetxt(save_fairdraw_prefix+"_3.dat", arr_3[indx_save_3],header=" x1 x2")
 
 
 ##
@@ -244,13 +244,13 @@ for i in range(ndim):
     y_3 = np.cumsum(weights_3)
     y_3 /= y_3[-1]
     ### plot recovered cdf
-    plt.plot(x_1, y_1, "--", label="Recovered CDF, mcsampler", color=colors[i],
+    plt.plot(x_1, y_1, "--", label="CDF, mcsampler", color=colors[i],
             linewidth=2)
-    plt.plot(x_2, y_2, ":", label="Recovered CDF, mcsamplerEnsemble",
+    plt.plot(x_2, y_2, ":", label="CDF, mcsamplerEnsemble",
             color=colors[i], linewidth=2)
-    plt.plot(x_1b, y_1b, ".", label="Recovered CDF, mcsamplerAC",
+    plt.plot(x_1b, y_1b, ".", label="CDF, mcsamplerAC",
             color=colors[i], linewidth=1)
-    plt.plot(x_3, y_3, "--", label="Recovered CDF, mcsamplerAV",
+    plt.plot(x_3, y_3, "--", label="CDF, mcsamplerAV",
             color=colors[i], linewidth=1)
 
 

@@ -12,7 +12,7 @@ import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
 import lal
 
-from glue.ligolw import utils, lsctables, table, ligolw
+from ligo.lw import utils, lsctables, table
 
 try:
     hasNR=True

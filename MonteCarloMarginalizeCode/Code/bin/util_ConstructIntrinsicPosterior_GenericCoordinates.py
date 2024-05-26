@@ -92,6 +92,14 @@ try:
 except:
     print(" No mcsamplerAV ")
     mcsampler_AV_ok = False
+mcsampler_NF_ok=False
+mcsamplerNFlow = None
+mcsampler_Portfolio_ok=False
+try:
+    import RIFT.integrators.mcsamplerPortfolio as mcsamplerPortfolio
+    mcsampler_Portfolio_ok = True
+except:
+    print(" No mcsamplerPortolfio ")
 try:
     import RIFT.interpolators.senni as senni
     senni_ok = True
@@ -226,6 +234,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
 parser.add_argument("--input-eos-index",action='store_true',help="Use input format with eos index fields included")
+parser.add_argument("--n-events-to-analyze",default=1,type=int,help="Number of EOS realizations to analyze. Currently only supports 1")
 parser.add_argument("--input-distance",action='store_true',help="Use input format with distance fields (but not tidal fields?) enabled.")
 parser.add_argument("--fname-lalinference",help="filename of posterior_samples.dat file [standard LI output], to overlay on corner plots")
 parser.add_argument("--fname-output-samples",default="output-ILE-samples",help="output posterior samples (default output-ILE-samples -> output-ILE)")
@@ -329,7 +338,13 @@ parser.add_argument("--protect-coordinate-conversions", action='store_true', hel
 parser.add_argument("--source-redshift",default=0,type=float,help="Source redshift (used to convert from source-frame mass [integration limits] to arguments of fitting function.  Note that if nonzero, integration done in SOURCE FRAME MASSES, but the fit is calculated using DETECTOR FRAME")
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state")
 parser.add_argument("--eos-param-values", default=None, help="Specific parameter list for EOS")
-parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
+parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu|portfolio")
+parser.add_argument("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
+parser.add_argument("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionary to be passed to that sampler_')
+parser.add_argument("--sampler-oracle",default=None, action='append', type=str, help='names of oracles to be used')
+parser.add_argument("--sampler-oracle-args",default=None, action='append', type=str, help='eval-able dictionary to be passed to that oracle')
+parser.add_argument("--oracle-reference-sample-file",default=None,  type=str, help='filename of reference sample file to be used as oracle for seeding sampler')
+parser.add_argument("--oracle-reference-sample-params",default=None,  type=str,  help='parameters to be pulled from sample file (format comma-separated string)')
 parser.add_argument("--internal-use-lnL",action='store_true',help="integrator internally manipulates lnL. ONLY VIABLE FOR GMM AT PRESENT")
 parser.add_argument("--internal-temper-log",action='store_true',help="integrator internally uses lnL as sampling weights (only).  Designed to reduce insane contrast and overfitting for high-amplitude cases")
 parser.add_argument("--internal-correlate-parameters",default=None,type=str,help="comman-separated string indicating parameters that should be sampled allowing for correlations. Must be sampling parameters. Only implemented for gmm.  If string is 'all', correlate *all* parameters")
@@ -349,6 +364,7 @@ parser.add_argument("--fixed-parameter-value", action="append")
 parser.add_argument("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., external astro priors). EXPERTS-ONLY")
 parser.add_argument("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external likelihood. EXPERTS ONLY")
 parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
+parser.add_argument("--supplementary-prior-code",default=None,type=str,help="Import external priors, assumed in scope as extra_prior.prior_dict_pdf, extra_prior.prior_range.  Currentlyonly supports seperable external priors")
 
 opts=  parser.parse_args()
 if not(opts.no_adapt_parameter):
@@ -363,8 +379,9 @@ if opts.lnL_shift_prevent_overflow:
 if not(opts.force_no_adapt):
     opts.force_no_adapt=False  # force explicit boolean false
 
-ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu', 'AV']
-if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
+ok_lnL_methods = ['GMM', 'adaptive_cartesian', 'adaptive_cartesian_gpu', 'AV', 'NFlow', 'portfolio']
+bad_lnL_methods = ['default']
+if opts.internal_use_lnL and (opts.sampler_method  in bad_lnL_methods ):
   print(" OPTION MISMATCH : --internal-use-lnL not compatible with", opts.sampler_method, " can only use ", ok_lnL_methods)
   sys.exit(99)
 
@@ -751,6 +768,11 @@ def s_component_zprior(x,R=chi_max):
     # Integrate[-1/2 Log[Abs[x]], {x, -1, 1}] == 1
     val = -1./(2*R) * np.log( (np.abs(x)/R+1e-7).astype(float))
     return val
+def s_component_zprior_positive(x,R=chi_max):
+    # assume maximum spin =1. Should get from appropriate prior range
+    # Integrate[-1/2 Log[Abs[x]], {x, -1, 1}] == 1
+    val = -1./(2*R) * np.log( (np.abs(x)/R+1e-7).astype(float))
+    return val*2
 
 
 def s_component_volumetricprior(x,R=1.):
@@ -928,6 +950,16 @@ if opts.aligned_prior == 'alignedspin-zprior':
         else:
             prior_map['chiz_plus'] = s_component_gaussian_prior
             prior_map['chiz_minus'] = s_component_gaussian_prior
+elif  opts.aligned_prior == 'alignedspin-zprior-positive':
+    # prior on s1z constructed to produce the standard distribution
+    prior_map["s1z"] = s_component_zprior_positive
+    prior_map["s2z"] = functools.partial(s_component_zprior_positive,R=chi_small_max)
+    prior_map["s1z_bar"] = s_component_zprior_positive
+    prior_map["s2z_bar"] = functools.partial(s_component_zprior_positive,R=chi_small_max)
+    prior_range_map['s1z'] = [0,chi_max]
+    prior_range_map['s2z'] = [0,chi_small_max]
+    prior_range_map['s1z_bar'] = [0,chi_max]
+    prior_range_map['s2z_bar'] = [0,chi_small_max]
 
 if opts.transverse_prior == 'uniform':
     # Don't do anything: let the default uniform priros for s1x, s1y ... OR chi1_perp-bar, etc used be used
@@ -1763,7 +1795,7 @@ if opts.tabular_eos_file:
     if mc_ref > 1e10:
         mc_ref = mc_ref/lal.MSUN_SI
     m_ref = mc_ref*np.power(2, 1./5.)   # assume equal mass
-    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=opts.tabular_eos_file,load_ns=True,oned_order_name='Lambda', oned_order_mass=m_ref)
+    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=opts.tabular_eos_file, load_ns=True, oned_order_name='Lambda', oned_order_mass=m_ref, no_sort = False)
 
     # Define prior, NOT NORMALIZED
     prior_map['ordering'] =lambda x: np.ones(x.shape)
@@ -1774,9 +1806,9 @@ if opts.tabular_eos_file:
     #  - note the saved values use the FIDUCIAL ORDERING, so must be used with GREAT CARE to preserve order!
     order_vals = np.zeros(len(dat_out))
     for indx in np.arange(len(order_vals)):
-        order_vals[indx] = my_eos_sequence.lambda_of_m_indx(m_ref, int(dat_out[indx,-1]))  # last field is index value
+        order_vals[indx] = my_eos_sequence.lambda_of_m_indx(m_ref, int(dat_out[indx,-3]))  # last field is index value
     # overwrite into the ordering statistic field
-    dat_out[:,-1] = order_vals
+    dat_out[:,-3] = order_vals  # note this is last entry of DATA
     # overwrite the coordinate name for the last field, so conversion is trivial/identity
     coord_names[-1] = 'ordering'
 
@@ -2117,7 +2149,24 @@ else:
 ### Integrate posterior
 ###
 
+# Oracle for portfolio if needed
+oracle_realizations = None
+if opts.sampler_method == 'portfolio' and not(opts.sampler_oracle is None):
+    oracle_realizations = []
+    from RIFT.integrators.unreliable_oracle.resampling import ResamplingOracle
+    from RIFT.integrators.unreliable_oracle.hill_climber import ClimbingOracle
+    for name in opts.sampler_oracle:
+        if name =='RS':
+            my_oracle = ResamplingOracle()
+        elif name =='Climb':
+            my_oracle = ClimbingOracle()
+        else:
+            raise Exception(" Unknown oracle type ")
+        print('ORACLE: adding {} '.format(name))
+        oracle_realizations.append(my_oracle)
+    
 
+# Sampler
 sampler = mcsampler.MCSampler()
 if opts.sampler_method == "adaptive_cartesian_gpu":
     sampler = mcsamplerGPU.MCSampler()
@@ -2129,12 +2178,54 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
     #   mcsampler.set_xpy_to_numpy()
     #   sampler.xpy= numpy
     #   sampler.identity_convert= lambda x: x
+use_portfolio=False
 if opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
-
-if opts.sampler_method == "AV":
+elif opts.sampler_method == "AV":
     sampler = mcsamplerAdaptiveVolume.MCSampler()
     opts.internal_use_lnL= True  # required!
+elif opts.sampler_method == "NFlow":
+    # expensive import, only do if requested
+    try:
+        import RIFT.integrators.mcsamplerNFlow as mcsamplerNFlow
+        mcsampler_NF_ok = True
+    except:
+        print(" No mcsamplerNFlow ")
+    sampler = mcsamplerNFlow.MCSampler()
+
+    opts.internal_use_lnL= True  # required!
+elif opts.sampler_method == "portfolio":
+    use_portfolio=True
+    sampler = None
+    sampler_list = []
+    sampler_types = opts.sampler_portfolio
+    for name in sampler_types:
+        if name =='AV':
+            sampler = mcsamplerAdaptiveVolume.MCSampler()
+        if name =='GMM':
+            sampler = mcsamplerEnsemble.MCSampler()
+            opts.sampler_method = 'GMM'  # this will force the creation/parsing of GMM-specific arguments below, so they are properly passed
+        if name == "adaptive_cartesian_gpu":
+            sampler = mcsamplerGPU.MCSampler()
+            sampler.xpy = xpy_default
+            sampler.identity_convert=identity_convert
+        if name == 'NFlow':
+            # expensive import, only do if requested
+            try:
+                import RIFT.integrators.mcsamplerNFlow as mcsamplerNFlow
+                mcsampler_NF_ok = True
+            except:
+                print(" No mcsamplerNFlow ")
+                continue
+            sampler = mcsamplerNFlow.MCSampler()
+            sampler.xpy = xpy_default
+            sampler.identity_convert=identity_convert
+        if sampler is None:
+            # Don't add unknown type
+            continue
+        print('PORTFOLIO: adding {} '.format(name))
+        sampler_list.append(sampler)
+    sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
 
 
 ##
@@ -2172,7 +2263,21 @@ for p in low_level_coord_names:
     sampler.add_parameter(p, pdf=np.vectorize(lambda x,z=fac:1./z), prior_pdf=prior_here,left_limit=range_here[0],right_limit=range_here[1],adaptive_sampling=adapt_me)
 
 
-# Import prior
+###
+### Supplemental priors: load module
+###
+
+if opts.supplementary_prior_code:
+  print(" EXTERNAL PRIOR IMPORT : {} ".format(opts.supplementary_prior_code))
+  __import__(opts.supplementary_prior_code)
+  external_prior_module = sys.modules[opts.supplementary_prior_code]
+  if hasattr(external_prior_module,'prior_pdf') and hasattr(external_prior_module,'param_ranges'):
+      if type(external_prior_module.prior_pdf) == dict:
+          for name in externa_prior_module.prior_pdf:
+              sampler.prior_pdf[name] = external_prior_module[name]
+              sampler.llim[name],sampler.rlim
+
+# Import prior (does not work as implemented! Need to edit)
 if not(opts.import_prior_dictionary_file is None):
     dat  =     joblib.load(opts.import_prior_dictionary_file)
 #    print dat
@@ -2198,6 +2303,41 @@ if not(opts.output_prior_dictionary_file is None):
 #    with open(opts.output_prior_dictionary_file,'w') as f:
 #        pickle.dump([stored_param_prior_pdf,stored_param_ranges],f)
 
+
+###
+### Oracles
+###
+sampler_oracle = None
+if opts.oracle_reference_sample_file:
+    # default i/o request is parameters provide. 
+    # NOTE: saved fields don't match sampling in general, so we can barf here unless using XML i/o 
+    ref_params  = sampler.params_ordered
+    if (opts.oracle_reference_sample_params):
+        ref_params = opts.oracle_reference_sample_params.replace('[','').replace(']','').split(',')
+
+    from RIFT.misc.reference_samples import ReferenceSamples
+    from RIFT.integrators.unreliable_oracle.resampling import ResamplingOracle
+
+    rs_object = ReferenceSamples()
+    if opts.oracle_reference_sample_file.endswith('.dat') or opts.oracle_reference_sample_file.endswith('.txt'):
+        rs_object.from_ascii(opts.oracle_reference_sample_file)
+    elif opts.oracle_reference_sample_file.endswith('.xml.gz'):
+        rs_object.from_sim_xml(opts.oracle_reference_sample_file,reference_params=ref_params)
+    else:
+        raise Exception(" Unknown reference params file format")
+
+
+    sampler_oracle = ResamplingOracle()
+    for p in sampler.params_ordered:
+        sampler_oracle.add_parameter(p,pdf=None, left_limit =sampler.llim[p], right_limit = sampler.rlim[p])
+    sampler_oracle.setup(reference_samples=rs_object.reference_samples, reference_params=rs_object.reference_params)
+
+
+
+
+###
+### Likelihood block
+###
 
 likelihood_function = None
 # prior p/ps rescaling, to enable prior inside integrand
@@ -2378,6 +2518,8 @@ if opts.sampler_method == 'GMM':
 my_exp = np.min([1,0.8*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
 if opts.sampler_method == 'GMM':
     my_exp = np.min([1,4*np.log(n_step)/np.max(Y)])   # target value : scale to slightly sublinear to (n_step)^(0.8) for Ymax = 200. This means we have ~ n_step points, with peak value wt~ n_step^(0.8)/n_step ~ 1/n_step^(0.2), limiting contrast
+if opts.sampler_method == 'NFlow':
+    my_exp = 1 # don't use it
 #my_exp = np.max([my_exp,  1/np.log(n_step)]) # do not allow extreme contrast in adaptivity, to the point that one iteration will dominate
 print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.max(Y), "; exp(ditto) =  ", np.exp(my_exp*np.max(Y)), " which should ideally be no larger than of order the number of trials in each epoch, to insure reweighting doesn't select a single preferred bin too strongly.  Note also the floor exponent also constrains the peak, de-facto")
 
@@ -2425,8 +2567,11 @@ extra_args.update({
     "n_adapt": 100, # Number of chunks to allow adaption over
     "history_mult": 10, # Multiplier on 'n' - number of samples to estimate marginalized 1D histograms with, 
     "force_no_adapt":opts.force_no_adapt,
-    "tripwire_fraction":opts.tripwire_fraction
+    "tripwire_fraction":opts.tripwire_fraction,
+    "enforce_bounds":True   #  needed for any AV integrators used
 })
+if opts.sampler_method == 'NFlow':
+    extra_args['n_adapt'] = 10  # reduce this?
 tempering_adapt=True
 if opts.force_no_adapt:   
     tempering_adapt=False
@@ -2441,6 +2586,38 @@ if opts.internal_use_lnL:
     extra_args.update({"use_lnL":True,"return_lnI":True})
 if opts.internal_temper_log:
     extra_args.update({'temper_log':True})
+if hasattr(sampler, 'setup'):
+    extra_args_here = {}
+    extra_args_here.update(extra_args)
+    extra_args_here['oracle_realizations'] = oracle_realizations
+    if use_portfolio:
+        print(" PORTFOLIO : setup")
+        if opts.sampler_portfolio_args:
+          print(" PRE_EVAL", opts.sampler_portfolio_args)
+          #opts.sampler_portfolio_args = list(map(lambda x: eval(' "{}" '.format(x)), opts.sampler_portfolio_args))
+          opts.sampler_portfolio_args = list(map(eval, opts.sampler_portfolio_args))
+          # confirm all are dict
+          for indx in range(len(opts.sampler_portfolio_args)):
+            if not(isinstance(opts.sampler_portfolio_args[indx], dict)):
+                print(indx,opts.sampler_portfolio_args[indx]) 
+          print(" ARGS ", opts.sampler_portfolio_args)
+    sampler.setup(portolio_args=opts.sampler_portfolio_args,**extra_args_here)
+
+# Call oracle if provided, to initialize sampler 
+if sampler_oracle:  # NON-PORTFOLIO SCENARIO TARGET 
+    if hasattr(sampler, 'update_sampling_prior'):
+        rvs_train = {}
+        _, _, rv_oracle = sampler_oracle.draw_simplified(n_step)
+        for indx,p  in enumerate(sampler.params_ordered):
+            rvs_train[p] = rv_oracle[:,indx]
+        # train with equal weight - no likelihood information
+        lnL_oracles  = np.zeros(n_step)
+        sampler.update_sampling_prior(lnL_oracles, n_step, external_rvs=rvs_train,log_scale_weights=True)
+    else:
+        print("   -- ORACLE: no mechanism to update sampling prior with oracle samples ")
+
+    
+
 res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
 
 
@@ -2984,6 +3161,9 @@ for indx_here in indx_list:
             True
 
 
+# FAILURE MODE: no exportable data
+if len(P_list) <1:
+    raise Exception(" Run failure: no export data! ")
 
  ###
  ### Export data
@@ -3004,6 +3184,12 @@ if not opts.no_plots:
     plt.savefig("lnL_cumulative_distribution_posterior_estimate.png"); plt.clf()
 
 
+###
+### STOP IF NO MORE PLOTS
+###
+if no_plots:
+    sys.exit(0)
+
 
 ###
 ### Identify, save best point
@@ -3015,11 +3201,6 @@ lnL_best = lnL_list[np.argmax(lnL_list)]
 np.savetxt("best_point_by_lnL_value.dat", np.array([lnL_best]));
 
 
-###
-### STOP IF NO MORE PLOTS
-###
-if no_plots:
-    sys.exit(0)
 
 ###
 ### Extract data from samples, in array form. INCLUDES any cuts (e.g., kerr limit)

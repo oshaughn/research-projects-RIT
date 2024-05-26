@@ -460,7 +460,7 @@ field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lnL",
 if opts.flag_tides_in_composite:
     if opts.flag_eos_index_in_composite:
         print(" Reading composite file, assumingtide/eos-index-based format ")
-        field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "eos_table_index","lnL", "sigmaOverL", "ntot", "neff")
+        field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "eos_indx","lnL", "sigmaOverL", "ntot", "neff")
     else:
         print(" Reading composite file, assuming tide-based format ")
         field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "lnL", "sigmaOverL", "ntot", "neff")
@@ -507,6 +507,13 @@ if opts.composite_file:
         chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
         samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
         samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
+
+        phi1 = np.arctan2(samples['a1x'], samples['a1y']);
+        phi2 = np.arctan2(samples['a2x'], samples['a2y']);
+        samples = add_field(samples, [('phi1',float), ('phi2',float), ('phi12',float)])
+        samples['phi1'] = phi1
+        samples['phi2'] = phi2
+        samples['phi12'] = phi2 - phi1
 
         if ('lambda1' in samples.dtype.names):
             Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
@@ -763,7 +770,7 @@ if composite_list:
     # Create data for corner plot
     dat_mass = np.zeros( (len(np.atleast_1d(samples[samples_ref_name])), len(labels_tex)) )
     dat_mass_orig = np.zeros( (len(np.atleast_1d(samples_orig[samples_orig_ref_name])), len(labels_tex)) )
-    cm = plt.cm.get_cmap('rainbow') #'RdYlBu_r')
+    cm = matplotlib.colormaps['rainbow'] #'RdYlBu_r')
     if "lnL" in samples.dtype.names:
         lnL = samples["lnL"]
         indx_sorted = lnL.argsort()

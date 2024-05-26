@@ -161,6 +161,7 @@ class MCSampler(object):
         self.setup_hist()
         self.xpy = numpy
         self.identity_convert = lambda x: x  # if needed, convert to numpy format  (e.g, cupy.asnumpy)
+        self.identity_convert_togpu = lambda x: x
 
     def clear(self):
         """
@@ -408,6 +409,7 @@ class MCSampler(object):
         if len(args) == 0:
             args = self.params
 
+        n_samples = int(n_samples) 
         n_params = len(args)
         
         save_no_samples = kwargs.get("save_no_samples", False)
@@ -428,7 +430,12 @@ class MCSampler(object):
             rv[i] = param_samples
             joint_p_s *= self.pdf[param](param_samples)
             #val= self.pdf[param](param_samples); print(type(val),param,xpy_default)
-            joint_p_prior *= self.prior_pdf[param](param_samples)
+            # portfolio compatibility: prior_pdf is not always returning nice things
+            prior_vals = self.prior_pdf[param](param_samples)
+            if isinstance(prior_vals, self.xpy.ndarray):
+              joint_p_prior *= prior_vals
+            else:
+              joint_p_prior *= identity_convert_togpu(prior_vals)
             #val=self.prior_pdf[param](param_samples); print(type(val),param)
 
         #
@@ -509,6 +516,58 @@ class MCSampler(object):
             return dict(list(zip(args, res)))
         return list(zip(*res))
 
+    def setup(self,n_bins=100,**kwargs):
+        # Setup histogram data.  Used in portfolio
+        for p in self.params_ordered:
+            self.setup_hist_single_param(self.llim[p], self.rlim[p], n_bins, p)
+
+    def update_sampling_prior(self,ln_weights, n_history,tempering_exp=1,log_scale_weights=True,floor_integrated_probability=0,external_rvs=None,**kwargs):
+      """
+      update_sampling_prior
+
+      Default setting is for lnL. The choices adopted are fairly arbitrary. For simplicity, we are using 'log scale weights' (derived from lnL, not L)
+      which lets us sample well away from the posterior at the expense of not being as strongly sampling near the peak.
+
+      NOTE: Currently deployed for mcsamplerPortfolio, NOT yet part of core code here
+      """
+      # Allow updates provided from outside sources,
+      rvs_here = self._rvs
+      if external_rvs:
+        rvs_here = external_rvs
+
+      # apply tempering exponent (structurally slightly different than in low-level code - not just to likelihood)
+      ln_weights  = self.xpy.array(ln_weights) # force copy
+      ln_weights *= tempering_exp
+
+      n_history_to_use = np.min([n_history, len(ln_weights), len(rvs_here[self.params_ordered[0]])] )
+
+      # default is to use logarithmic (!) weights, relying on them being positive.
+      weights_alt = ln_weights[-n_history_to_use:]  - self.xpy.max(ln_weights) + 100  
+      weights_alt = self.xpy.maximum(weights_alt, 1e-5)    # prevent negative weights, in case integrating function with lnL < 0
+      # now treat as sum
+      weights_alt = weights_alt/(weights_alt.sum())
+      if weights_alt.dtype == numpy.float128:
+        weights_alt = weights_alt.astype(numpy.float64,copy=False)
+
+      def function_wrapper(f, p):
+          def inner(arg):
+            return f(arg, p)
+          return inner
+
+
+      for itr, p in enumerate(self.params_ordered):
+                # # FIXME: The second part of this condition should be made more
+                # # specific to pinned parameters
+                if p not in self.adaptive or p in list(kwargs.keys()):
+                    continue
+
+                points = rvs_here[p][-n_history_to_use:]
+                self.compute_hist(points, p,weights=weights_alt,floor_level=floor_integrated_probability)
+                self.pdf[p] = function_wrapper(self.pdf_from_hist, p)
+                self.cdf_inv[p] = function_wrapper(self.cdf_inverse_from_hist, p)
+
+
+
     @profile
     def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
         """
@@ -533,7 +592,7 @@ class MCSampler(object):
         """
 
         # Setup histogram data
-        n_bins = 100
+        n_bins = kwargs['n_bins'] if 'n_bins' in kwargs else 100
         for p in self.params_ordered:
             self.setup_hist_single_param(self.llim[p], self.rlim[p], n_bins, p)
 
@@ -1200,12 +1259,13 @@ class MCSampler(object):
         #   - find and remove samples which contribute too little to the cumulative weights
         if (not save_no_samples) and ( "integrand" in self._rvs):
             self._rvs["sample_n"] = numpy.arange(len(self._rvs["integrand"]))  # create 'iteration number'        
-            # Step 1: Cut out any sample with lnL belw threshold
-            indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
-            # FIXME: This is an unncessary initial copy, the second step (cum i
-            # prob) can be accomplished with indexing first then only pare at
-            # the end
-            for key in list(self._rvs.keys()):
+            if deltalnL < 1e10:
+              # Step 1: Cut out any sample with lnL belw threshold
+              indx_list = [k for k, value in enumerate( (self._rvs["integrand"] > maxlnL - deltalnL)) if value] # threshold number 1
+              # FIXME: This is an unncessary initial copy, the second step (cum i
+              # prob) can be accomplished with indexing first then only pare at
+              # the end
+              for key in list(self._rvs.keys()):
                 if isinstance(key, tuple):
                     self._rvs[key] = self._rvs[key][:,indx_list]
                 else:

@@ -82,8 +82,8 @@ parser.add(
     "--use_nested_samples", type=bool, default=False,
     help="Use nested samples with their weights to generate the samples. This significantly improves efficiency.")
 parser.add(
-    "--time_marginalization_interval", default=0.1, type=float,
-    help="Interval over which the time marginalization is undertaken")
+    "--data-integration-window-half", default=0.1, type=float,
+    help="Half-Interval over which the time marginalization is undertaken")
 parser.add(
     "--use_rift_samples", type=bool, default=False,
     help="Uses a different waveform function if using RIFT samples. This matches the phase definitions in RIFT")
@@ -92,6 +92,8 @@ parser.add(
     help="For RIFT, uses two different options for h(t) reconstruction ")
 parser.add("--internal-waveform-fd-L-frame",action='store_true',help='If true, passes extra_waveform_kwargs = {fd_L_frame=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only.')
 parser.add("--internal-waveform-fd-no-condition",action='store_true',help='If true, adds extra_waveform_kwargs = {no_condition=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only. Provided to enable controlled tests of conditioning impact on PE')
+parser.add("--use-gwsignal",default=False,action='store_true',help='Use gwsignal. In this case the approx name is passed as a string to the lalsimulation.gwsignal interface')
+parser.add("--use-gwsignal-lmax-nyquist",default=None,type=int,help='Passes lmax_nyquist integer to the gwsignal waveform interface')
 parser.add("--fmin", default=None, type=float)
 parser.add("--l-max", default=4, type=int)
 parser.add("--start_index", default=None, type=int)
@@ -146,7 +148,7 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
 outdir = os.path.dirname(os.path.abspath(args.posterior_sample_file))
 
 ifos = data.interferometers
-time_marginalization_interval = args.time_marginalization_interval
+time_marginalization_interval = args.data_integration_window_half #args.time_marginalization_interval
 
 spline_calibration_envelope_dict = bilby_pipe.utils.convert_string_to_dict(
                 data.meta_data['command_line_args']['spline_calibration_envelope_dict'])
@@ -154,7 +156,7 @@ ifos_for_reweighting = deepcopy(ifos)
 for ifo in ifos: # removes any model for the calibration that was set up in the file
     ifo.calibration_model = bilby.gw.calibration.Recalibrate()
 
-if args.time_marginalization:
+if args.data_integration_window_half: #args.time_marginalization:
     result.posterior['geocent_time'] = ifos.start_time * np.ones(len(result.posterior))
     if 'time_jitter' not in result.posterior.keys():
         result.posterior['time_jitter'] = np.zeros(len(result.posterior))
@@ -162,6 +164,8 @@ if args.time_marginalization:
 if args.phase_marginalization:
     if not args.use_rift_samples:
         result.posterior['phase'] = np.zeros(len(result.posterior))
+if args.use_gwsignal:
+    args.h_method = 'gws_hlmoft' 
 
 # Setting up the waveform generator using the data dump features
 waveform_arguments = dict(
@@ -176,6 +180,8 @@ if args.internal_waveform_fd_L_frame:
     extra_waveform_kwargs = {'fd_L_frame':True}
 if args.internal_waveform_fd_no_condition:
     extra_waveform_kwargs['no_condition'] = True
+if args.use_gwsignal_lmax_nyquist:
+    extra_waveform_kwargs['lmax_nyquist'] = int(args.use_gwsignal_lmax_nyquist)
 waveform_arguments['extra_waveform_kwargs'] = extra_waveform_kwargs
 if args.waveform_approximant:
     waveform_arguments['waveform_approximant'] = args.waveform_approximant
@@ -214,7 +220,7 @@ for ifo in ifos_for_reweighting:
 
 marg_priors = bilby.core.prior.PriorDict() # priors for the non-calibration likelihood
 
-if args.time_marginalization:
+if args.data_integration_window_half: # args.time_marginalization:
     priors['geocent_time'] = bilby.core.prior.Uniform(
         float(data.meta_data['command_line_args']['trigger_time']) - time_marginalization_interval,
         float(data.meta_data['command_line_args']['trigger_time']) + time_marginalization_interval)
@@ -233,22 +239,23 @@ for ifo in ifos:
     calibration_lookup_table[ifo.name] =\
                         f'{outdir}/{ifo.name}_calibration_file.h5'
 
+# WARNING: time marginalization is done with *bool*, so actual value of time window  is NOT USED.
 original_likelihood = bilby.gw.GravitationalWaveTransient(
     interferometers=ifos, waveform_generator=waveform_generator,
-    time_marginalization=args.time_marginalization,
+    time_marginalization=args.data_integration_window_half,
     phase_marginalization=args.phase_marginalization, priors=marg_priors)
 
 calibration_likelihood = bilby.gw.GravitationalWaveTransient(
     interferometers=ifos_for_reweighting, waveform_generator=copy(waveform_generator),
     number_of_response_curves=args.number_of_calibration_curves, calibration_marginalization=True,
-    priors=priors, time_marginalization=args.time_marginalization, phase_marginalization=args.phase_marginalization,
+    priors=priors, time_marginalization=args.data_integration_window_half, phase_marginalization=args.phase_marginalization,
     calibration_lookup_table=calibration_lookup_table)
 
 print(f'Log noise evidence: {original_likelihood.noise_log_likelihood()}')
 
 # TODO have not yet implemented the parameter reconstruction in the case where
 # time and calibration marginalization are used
-if args.time_marginalization:
+if args.data_integration_window_half: # time_marginalization:
     conversion_function = None
 else:
     conversion_function = bilby.gw.conversion.generate_all_bbh_parameters
