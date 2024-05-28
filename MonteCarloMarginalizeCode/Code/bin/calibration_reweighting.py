@@ -56,6 +56,125 @@ import bilby_pipe
 
 import RIFT.calmarg.rift_source as rift_source
 
+from  bilby.core.utils import logger
+
+
+# Alternate implementation of bilby.core.result.reweight
+#   - we are using draws, not the prior!
+#   - sometimes we get delta-function defailt cal priors, so we get infinities//nan
+def alt_reweight(result, label=None, new_likelihood=None, new_prior=None,
+             old_likelihood=None, old_prior=None, conversion_function=None, npool=1,
+             verbose_output=False, resume_file=None, n_checkpoint=5000,
+             use_nested_samples=False):
+    """ Reweight a result to a new likelihood/prior using rejection sampling
+
+    Parameters
+    ==========
+    label: str, optional
+        An updated label to apply to the result object
+    new_likelihood: bilby.core.likelood.Likelihood, (optional)
+        If given, the new likelihood to reweight too. If not given, likelihood
+        reweighting is not applied
+    new_prior: bilby.core.prior.PriorDict, (optional)
+        If given, the new prior to reweight too. If not given, prior
+        reweighting is not applied
+    old_likelihood: bilby.core.likelihood.Likelihood, (optional)
+        If given, calculate the old likelihoods from this object. If not given,
+        the values stored in the posterior are used.
+    old_prior: bilby.core.prior.PriorDict, (optional)
+        If given, calculate the old prior from this object. If not given,
+        the values stored in the posterior are used.
+    conversion_function: function, optional
+        Function which adds in extra parameters to the data frame,
+        should take the data_frame, likelihood and prior as arguments.
+    npool: int, optional
+        Number of threads with which to execute the conversion function
+    verbose_output: bool, optional
+        Flag determining whether the weight array and associated prior and
+        likelihood evaluations are output as well as the result file
+    resume_file: string, optional
+        filepath for the resume file which stores the weights
+    n_checkpoint: int, optional
+        Number of samples to reweight before writing a resume file
+    use_nested_samples: bool, optional
+        If true reweight the nested samples instead. This can greatly improve reweighting efficiency, especially if the
+        target distribution has support beyond the proposal posterior distribution.
+
+    Returns
+    =======
+    result: bilby.core.result.Result
+        A copy of the result object with a reweighted posterior
+    new_log_likelihood_array: array, optional (if verbose_output=True)
+        An array of the natural-log likelihoods from the new likelihood
+    new_log_prior_array: array, optional (if verbose_output=True)
+        An array of the natural-log priors from the new likelihood
+    old_log_likelihood_array: array, optional (if verbose_output=True)
+        An array of the natural-log likelihoods from the old likelihood
+    old_log_prior_array: array, optional (if verbose_output=True)
+        An array of the natural-log priors from the old likelihood
+
+    """
+    from scipy.special import logsumexp
+
+    result = copy(result)
+
+    if use_nested_samples:
+        result.posterior = result.nested_samples
+
+    nposterior = len(result.posterior)
+    logger.info("Reweighting posterior with {} samples".format(nposterior))
+
+    ln_weights, new_log_likelihood_array, new_log_prior_array, old_log_likelihood_array, old_log_prior_array =\
+        bilby.core.result.get_weights_for_reweighting(
+            result, new_likelihood=new_likelihood, new_prior=new_prior,
+            old_likelihood=old_likelihood, old_prior=old_prior,
+            resume_file=resume_file, n_checkpoint=n_checkpoint, npool=npool)
+
+    # ONLY USING LIKEILHOOD: we are NOT changing priors, just using cal draws
+    
+    ln_weights = new_log_likelihood_array - old_log_likelihood_array
+
+    weights = np.exp(ln_weights)
+
+    # Overwrite the likelihood and prior evaluations
+    result.posterior["log_likelihood"] = new_log_likelihood_array
+    result.posterior["log_prior"] = new_log_prior_array
+
+    result.posterior = bilby.core.result.rejection_sample(result.posterior, weights=weights)
+    result.posterior = result.posterior.reset_index(drop=True)
+    logger.info("Rejection sampling resulted in {} samples".format(len(result.posterior)))
+    result.meta_data["reweighted_using_rejection_sampling"] = True
+
+    if use_nested_samples:
+        result.log_evidence += np.log(np.sum(weights))
+    else:
+        result.log_evidence += logsumexp(ln_weights) - np.log(nposterior)
+
+    if new_prior is not None:
+        for key, prior in new_prior.items():
+            result.priors[key] = prior
+
+    if conversion_function is not None:
+        data_frame = result.posterior
+        if "npool" in inspect.signature(conversion_function).parameters:
+            data_frame = conversion_function(data_frame, new_likelihood, new_prior, npool=npool)
+        else:
+            data_frame = conversion_function(data_frame, new_likelihood, new_prior)
+        result.posterior = data_frame
+
+    if label:
+        result.label = label
+    else:
+        result.label += "_reweighted"
+
+    if verbose_output:
+        return result, weights, new_log_likelihood_array, \
+            new_log_prior_array, old_log_likelihood_array, old_log_prior_array
+    else:
+        return result
+
+
+
 parser = argparse.ArgumentParser(description='calibration marginalization via reweighting of posterior samples')
 parser.add(
     "--posterior_sample_file", default=None,
@@ -98,7 +217,7 @@ parser.add("--fmin", default=None, type=float)
 parser.add("--l-max", default=4, type=int)
 parser.add("--start_index", default=None, type=int)
 parser.add("--end_index", default=None, type=int)
-
+parser.add("--internal-use-normal-reweight", default=None, type=float)
 args = parser.parse_args()
 
 with open(args.data_dump_file, "rb") as data_file:
@@ -217,8 +336,15 @@ for ifo in ifos_for_reweighting:
 
     priors.update(ifo_calibration_priors)
 
+# Documentation: priors used for cal marg!  
+#   Important sanity check
+print(" CALMARG PRIORS")
+for name in priors:
+    print(name, priors[name])
+
 
 marg_priors = bilby.core.prior.PriorDict() # priors for the non-calibration likelihood
+
 
 if args.data_integration_window_half: # args.time_marginalization:
     priors['geocent_time'] = bilby.core.prior.Uniform(
@@ -272,14 +398,18 @@ else:
     resume_file = f'{outdir}/reweighting_resume.dat'
     weights_file = f'{outdir}/weights.dat'
 
+reweight_func = alt_reweight
+if args.internal_use_bilby_reweight:
+    reweight_func = bilby.core.result.reweight
+
 if args.reevaluate_likelihood:
-    result_reweighted, weights, _, _, _, _ = bilby.core.result.reweight(
+    result_reweighted, weights, _, _, _, _ = reweight_func(
         result, new_likelihood=calibration_likelihood, old_likelihood=original_likelihood,
         conversion_function=conversion_function, verbose_output=True,
         resume_file=resume_file, n_checkpoint=5000,
         use_nested_samples=args.use_nested_samples)
 else:
-    result_reweighted, weights, _, _, _, _ = bilby.core.result.reweight(
+    result_reweighted, weights, _, _, _, _ = reweight_func(
         result, new_likelihood=conversion_function,
         conversion_function=bilby.gw.conversion.generate_all_bbh_parameters, verbose_output=True,
         resume_file=resume_file, n_checkpoint=5000,
