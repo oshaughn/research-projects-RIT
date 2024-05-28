@@ -3020,10 +3020,30 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
             ht.data.data[0:n_samp] *= vectaper
             # If Scattering waveform, tapers same amount as early taper
             # If Capture waveform, no end taper
-            if np.abs(ht.data.length-nmax) > 3e3:
-                n_samp2=n_samp
-                vectaper2= 0.5 - 0.5*np.cos(np.pi* (1-np.arange(n_samp2+1)/(1.*n_samp2)))
-                ht.data.data[-(n_samp2+1):] *= vectaper2
+            
+            # peak finding to determine system type
+            peaks, props = signal.find_peaks(ht.data.data, height = 0.25*np.abs(np.amax(ht.data.data)))
+            peak_heights = props['peak_heights']
+            indices_to_keep = set()
+            sorted_indices = np.argsort(peak_heights)[::-1]
+            tol = 300 # hardcoded peak spacing tolerance. if spacing is less than tol, discard the peak
+            for i in sorted_indices:
+                peak = peaks[i]                
+                keep = True
+                for kept_index in indices_to_keep:
+                    if abs(peaks[kept_index] - peak) <= tol:
+                        keep = False
+                        break                
+                if keep:
+                    indices_to_keep.add(i)                    
+            filtered_peaks = peaks[list(indices_to_keep)]
+            
+            if len(filtered_peaks) == 1:
+                # check if a scatter or a plunge            
+                if np.abs(ht.data.length-nmax) > 3e3:
+                    n_samp2=n_samp
+                    vectaper2= 0.5 - 0.5*np.cos(np.pi* (1-np.arange(n_samp2+1)/(1.*n_samp2)))
+                    ht.data.data[-(n_samp2+1):] *= vectaper2
                 
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
@@ -3654,11 +3674,30 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 hlm[mode].data.data[0:n_samp] *= vectaper
             # If Capture waveform, no end taper
             # If Scattering waveform, tapers end same amount as early taper
-            if np.abs(hlm[(2,2)].data.length-nmax) > 3e3:
-                n_samp2=n_samp
-                vectaper2= 0.5 - 0.5*np.cos(np.pi* (1-np.arange(n_samp2+1)/(1.*n_samp2)))
-                for mode in modes_used_new2:
-                    hlm[mode].data.data[-(n_samp2+1):] *= vectaper2
+            # peak finding to determine system type
+            peaks, props = signal.find_peaks(hlm[(2,2)].data.data, height = 0.25*np.amax(hlm[(2,2)].data.data))
+            peak_heights = props['peak_heights']
+            indices_to_keep = set()
+            sorted_indices = np.argsort(peak_heights)[::-1]
+            tol = 300 # hardcoded tolerance
+            for i in sorted_indices:
+                peak = peaks[i]                
+                keep = True
+                for kept_index in indices_to_keep:
+                    if abs(peaks[kept_index] - peak) <= tol:
+                        keep = False
+                        break                
+                if keep:
+                    indices_to_keep.add(i)                    
+            filtered_peaks = peaks[list(indices_to_keep)]
+            
+            if len(filtered_peaks) == 1:
+                #check for scatter waveform            
+                if np.abs(hlm[(2,2)].data.length-nmax) > 3e3:
+                    n_samp2=n_samp
+                    vectaper2= 0.5 - 0.5*np.cos(np.pi* (1-np.arange(n_samp2+1)/(1.*n_samp2)))
+                    for mode in modes_used_new2:
+                        hlm[mode].data.data[-(n_samp2+1):] *= vectaper2
         for mode in modes_used_new2:
             if not (P.deltaF is None):
                 TDlen = int(1./P.deltaF * 1./P.deltaT)
