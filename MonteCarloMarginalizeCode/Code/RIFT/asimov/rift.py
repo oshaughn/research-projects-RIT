@@ -14,6 +14,12 @@ from asimov.utils import set_directory
 from asimov.pipeline import Pipeline, PipelineException, PipelineLogger
 from asimov.pipeline import PESummaryPipeline
 
+try: 
+    from asimov import auth
+    my_auth_decorator = auth.refresh_scitoken
+except:
+    my_auth_decorator =lambda x: x
+
 
 class Rift(Pipeline):
     """
@@ -120,6 +126,7 @@ class Rift(Pipeline):
                     )
                     self.logger.info(f"Saved at {saveloc}")
 
+    @my_auth_decorator
     def build_dag(self, user=None, dryrun=False):
         """
         Construct a DAG file in order to submit a production to the
