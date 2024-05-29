@@ -1795,7 +1795,7 @@ if opts.tabular_eos_file:
     if mc_ref > 1e10:
         mc_ref = mc_ref/lal.MSUN_SI
     m_ref = mc_ref*np.power(2, 1./5.)   # assume equal mass
-    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=opts.tabular_eos_file, load_ns=True, oned_order_name='Lambda', oned_order_mass=m_ref, no_sort = False)
+    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=opts.tabular_eos_file, load_ns=True, oned_order_name='Lambda', oned_order_mass=m_ref, no_sort = True)
 
     # Define prior, NOT NORMALIZED
     prior_map['ordering'] =lambda x: np.ones(x.shape)
@@ -1806,7 +1806,11 @@ if opts.tabular_eos_file:
     #  - note the saved values use the FIDUCIAL ORDERING, so must be used with GREAT CARE to preserve order!
     order_vals = np.zeros(len(dat_out))
     for indx in np.arange(len(order_vals)):
-        order_vals[indx] = my_eos_sequence.lambda_of_m_indx(m_ref, int(dat_out[indx,-3]))  # last field is index value
+        eos_indx_here = int(dat_out[indx,-3])
+        # find the revised EOS index, after sorting, IF the EOS is using a sorted order. (this should not happen)
+        if my_eos_sequence.oned_order_sorted:
+                eos_index_here = my_eos_sequence.oned_order_indx_sorted[eos_indx_here]
+        order_vals[indx] = my_eos_sequence.lambda_of_m_indx(m_ref,eos_index_here))  # last field is index value. Note we ASSUME UNSORTED here
     # overwrite into the ordering statistic field
     dat_out[:,-3] = order_vals  # note this is last entry of DATA
     # overwrite the coordinate name for the last field, so conversion is trivial/identity
@@ -3112,7 +3116,10 @@ for indx_here in indx_list:
         elif opts.tabular_eos_file:
             # save the index of the SORTED SIMULATION (because that's how I'll be accessing it!)
             eos_indx_here = my_eos_sequence.lookup_closest(samples['ordering'][indx_here])
+            # note we must pass the CORRECT underlying index, correcting for sorting used internally
             Pgrid.eos_table_index = eos_indx_here
+            if my_eos_sequence.oned_order_sorted:
+                Pgrid.eos_table_index = my_eos_sequence.oned_order_indx_original[eos_indx_here]
             # Compute lambda1, lambda2 for output for this EOS, using ASSUMED source redshift (not currently with consistent/flexible distances)
             Pgrid.lambda1 = my_eos_sequence.lambda_of_m_indx(Pgrid.m1/lal.MSUN_SI/(1+source_redshift), eos_indx_here)
             Pgrid.lambda2 = my_eos_sequence.lambda_of_m_indx(Pgrid.m2/lal.MSUN_SI/(1+source_redshift), eos_indx_here)
