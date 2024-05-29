@@ -1212,6 +1212,8 @@ class EOSSequenceLandry:
         self.oned_order_mass=oned_order_mass
         self.oned_order_values=None
         self.oned_order_indx_original = None
+        self.oned_order_indx_sorted = None
+        self.oned_order_sorted =False
         self.verbose=verbose
         with h5py.File(self.fname, 'r') as f:
             names = list(f['ns'].keys())
@@ -1248,17 +1250,21 @@ class EOSSequenceLandry:
                         for indx in np.arange(len(self.eos_names)):
                             vals[indx] =self.R_of_m_indx(self.oned_order_mass,indx)
 
-                    # resort 'names' field with new ordering
-                    # is it actually important to do the sorting?  NO, code should work with original lexographic order, since we only use nearest neighbors!
+                    # provide a list of sorted indexes, for faster lookup later if needed
+                    indx_sorted = np.argsort(vals)
+                    self.oned_order_indx_sorted = indx_sorted
                     if no_sort:
                         self.oned_order_values = vals
                     else:
-                        indx_sorted = np.argsort(vals)
+                        # resort 'names' field with new ordering
+                        # is it actually important to do the sorting?  NO, code should work with original lexographic order, since we only use nearest neighbors!
                         if verbose: 
                             print(indx_sorted)
                         self.eos_names = self.eos_names[indx_sorted]  
                         self.oned_order_values = vals[indx_sorted]
                         self.oned_order_indx_original =  self.oned_order_indx_original[indx_sorted]
+                        self.oned_order_indx_sorted = np.arange(len(self.eos_names))
+                        self.oned_order_sorted =True
 
             if load_eos:
                 self.eos_tables = {}
@@ -1326,7 +1332,10 @@ class EOSSequenceLandry:
         """
         if self.eos_ns_tov is None:
             raise Exception(" Did not load TOV results ")
-        name = self.eos_names[indx]
+        indx_here= indx
+        if self.oned_order_sorted:   # undo  sorting, look up using ORIGINAL INDEXING
+            indx_here = self.oned_order_indx_original[indx]  
+        name = self.eos_names[indx_here]
         if self.verbose:
             print(" Loading from {}".format(name))
         dat = np.array(self.eos_ns_tov[name])
@@ -1346,7 +1355,10 @@ class EOSSequenceLandry:
         """
         if self.eos_ns_tov is None:
             raise Exception(" Did not load TOV results ")
-        name = self.eos_names[indx]
+        indx_here= indx
+        if self.oned_order_sorted:   # undo  sorting, look up using ORIGINAL INDEXING
+            indx_here = self.oned_order_indx_original[indx]  
+        name = self.eos_names[indx_here]
         if self.verbose:
             print(" Loading from {}".format(name))
         dat = np.array(self.eos_ns_tov[name])
@@ -1361,7 +1373,10 @@ class EOSSequenceLandry:
     def m_max_of_indx(self,indx):
         if self.eos_ns_tov is None:
             raise Exception(" Did not load TOV results ")
-        name = self.eos_names[indx]
+        indx_here= indx
+        if self.oned_order_sorted:   # undo  sorting, look up using ORIGINAL INDEXING
+            indx_here = self.oned_order_indx_original[indx]  
+        name = self.eos_names[indx_here]
         if self.verbose:
             print(" Loading from {}".format(name))
         
@@ -1370,13 +1385,13 @@ class EOSSequenceLandry:
     def lookup_closest(self,order_val):
         """
         Given a proposed ordering statistic value, provides the *index* of the closest value.  Assumes *scalar* input
-        Should be using the fact that this is ordered ... but we are not
+        Does not require ordering 
         """
         if self.eos_ns_tov is None:
             raise Exception(" Did not load TOV results ")
         if self.oned_order_values is None:
             raise Exception(" Did not generate ordering statistic ")
-        
+
         return np.argmin( np.abs(order_val - self.oned_order_values))
 
     def interpolate_eos_tables(self, interp_base: str, n_points: int = 1000, verbose: bool = None):
