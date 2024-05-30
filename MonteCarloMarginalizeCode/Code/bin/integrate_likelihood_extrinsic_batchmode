@@ -332,6 +332,10 @@ if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
 if cupy_success and opts.gpu and opts.sampler_method == 'adaptive_cartesian_gpu':
   identity_convert_lnL  = lambda x:x
 
+if opts.use_gwsignal and not(factored_likelihood.has_GWS):
+  print(" HARD FAILURE: this node could not import gwsignal ! ")
+  sys.exit(98)
+
 
 if opts.resample_time_marginalization:
   import scipy.special
