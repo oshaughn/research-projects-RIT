@@ -1809,8 +1809,8 @@ if opts.tabular_eos_file:
         eos_indx_here = int(dat_out[indx,-3])
         # find the revised EOS index, after sorting, IF the EOS is using a sorted order. (this should not happen)
         if my_eos_sequence.oned_order_sorted:
-                eos_index_here = my_eos_sequence.oned_order_indx_sorted[eos_indx_here]
-        order_vals[indx] = my_eos_sequence.lambda_of_m_indx(m_ref,eos_index_here))  # last field is index value. Note we ASSUME UNSORTED here
+                eos_indx_here = my_eos_sequence.oned_order_indx_sorted[eos_indx_here]
+        order_vals[indx] = my_eos_sequence.lambda_of_m_indx(m_ref,eos_indx_here)  # last field is index value. Note we ASSUME UNSORTED here
     # overwrite into the ordering statistic field
     dat_out[:,-3] = order_vals  # note this is last entry of DATA
     # overwrite the coordinate name for the last field, so conversion is trivial/identity
