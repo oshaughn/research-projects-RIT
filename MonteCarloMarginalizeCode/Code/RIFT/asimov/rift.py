@@ -485,13 +485,18 @@ class Rift(Pipeline):
                     self.production.rundir,
                     "marginalize_intrinsic_parameters_BasicIterationWorkflow.dag.dagman.out",
                 ))
-        last_rescue =        glob.glob(
+        if count > 0:
+            last_rescue =        glob.glob(
                 os.path.join(
                     self.production.rundir,
                     "marginalize_intrinsic_parameters_BasicIterationWorkflow.dag.rescue*",
                 )
-            ).sort()[-1]
-        time_mod_rescue = os.path.getmtime(last_rescue)
+                )
+            last_rescue.sort()
+            last_rescue =last_rescue[-1]
+            time_mod_rescue = os.path.getmtime(last_rescue)
+        else:
+            time_mod_rescue = time_mod_out 100  # no rescues
         if count < 100 and (time_mod_out > time_mod_rescue+30): # some buffer in seconds for file i/o
             print("   ... still going, leaving it alone ")
             return None
