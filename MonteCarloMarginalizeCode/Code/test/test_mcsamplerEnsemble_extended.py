@@ -162,7 +162,7 @@ print(np.array([np.sqrt(var_1)/integral_1,np.sqrt(var_1b)/integral_1b,np.sqrt(va
 print(" AC/default ",  integral_1b/integral_1, np.sqrt(var_1)/integral_1)  # off by width**3
 print(" GMM/default ",integral_2/integral_1, np.sqrt(var_1)/integral_1, np.sqrt(var_2)/integral_2)
 print(" AV/default ",integral_3/integral_1, np.sqrt(var_1)/integral_1, np.sqrt(var_3)/integral_3)
-if has_nf:
+if has_nflow:
     print(" NF/default ",integral_4/integral_1, np.sqrt(var_1)/integral_1, np.sqrt(var_4)/integral_4)
 print("mu",mu)
 ### CDFs
