@@ -1144,7 +1144,7 @@ if opts.calibration_reweighting:
     # job to combine things. Write here to make logic human-readable
     if (opts.calibration_reweighting_batchsize): # single run
         reweight_merge_job, reweight_merge_job_name = dag_utils.write_convert_sub(exe=which('combine_weights_and_rejection_sample.py'),tag='CAL_REWEIGHT_COMBINE',log_dir=None,arg_str=opts.calibration_reweighting_extra_args,file_input=opts.working_directory+'/extrinsic_posterior_samples.dat weight_files/',file_output=None, out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
-        reweight_merge_job.add_condor_cmd("initialdir",opts.working_directory+"/calmarg/")
+        reweight_merge_job.add_condor_cmd("initialdir",opts.working_directory) # NOT calmarg, because the normal 'weight files' is put in the location of the *samples*, which is the rundir
         reweight_merge_job.set_log_file(opts.working_directory+"/calmarg/logs/reweight-merge-$(cluster)-$(process).log")
         reweight_merge_job.set_stderr_file(opts.working_directory+"/calmarg/logs/reweight-merge-$(cluster)-$(process).err")
         reweight_merge_job.set_stdout_file(opts.working_directory+"/calmarg/logs/reweight-merge-$(cluster)-$(process).out")
