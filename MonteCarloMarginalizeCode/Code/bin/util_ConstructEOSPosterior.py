@@ -472,21 +472,22 @@ max_lnL = np.max(Y)
 if np.isinf(opts.lnL_offset):
     indx_ok= np.ones(len(Y),dtype=bool)  # default case, we preserve all the data
 else:
-    indx_ok = Y>np.max(Y)-opts.lnL_offset
+    indx_ok = np.array(Y>np.max(Y)-opts.lnL_offset,dtype=bool)  # force cast : sometimes indx_ok is a mappable object?
+n_ok = np.sum(indx_ok)
 # Provide some random points, to insure reasonable tapering behavior away from the sample
-print(" Points used in fit : ", np.sum(indx_ok), " given max lnL ", max_lnL)
+print(" Points used in fit : ", n_ok, " out of ", len(indx_ok), " given max lnL ", max_lnL)
 if max_lnL < 10 and np.mean(Y) > -10: # second condition to allow synthetic tests not to fail, as these often have maxlnL not large
     print(" Resetting to use ALL input data -- beware ! ")
     # nothing matters, we will reject it anyways
     indx_ok = np.ones(len(Y),dtype=bool)
-elif np.sum(indx_ok) < 10: # and max_lnL > 30:
+elif n_ok < 10: # and max_lnL > 30:
     # mark the top 10 elements and use them for fits
     # this may be VERY VERY DANGEROUS if the peak is high and poorly sampled
     idx_sorted_index = np.lexsort((np.arange(len(Y)), Y))  # Sort the array of Y, recovering index values
     indx_list = np.array( [[k, Y[k]] for k in idx_sorted_index])     # pair up with the weights again
     indx_list = indx_list[::-1]  # reverse, so most significant are first
-    indx_ok = map(int,indx_list[:10,0])
-    print(" Revised number of points for fit: ", np.sum(indx_ok), indx_ok, indx_list[:10])
+    indx_ok = list(map(int,indx_list[:10,0]))
+    print(" Revised number of points for fit: ", np.sum(indx_ok), len(indx_ok), indx_list[:10])
 X_raw = X.copy()
 
 my_fit= None
