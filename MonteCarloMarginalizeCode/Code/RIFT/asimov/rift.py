@@ -14,6 +14,24 @@ from asimov.utils import set_directory
 from asimov.pipeline import Pipeline, PipelineException, PipelineLogger
 from asimov.pipeline import PESummaryPipeline
 
+try: 
+    from asimov import auth
+    my_auth_decorator = auth.refresh_scitoken
+except:
+    my_auth_decorator =lambda x: x
+
+try: 
+    from asimov import auth
+    my_auth_decorator = auth.refresh_scitoken
+except:
+    my_auth_decorator =lambda x: x
+
+try: 
+    from asimov import auth
+    my_auth_decorator = auth.refresh_scitoken
+except:
+    my_auth_decorator =lambda x: x
+
 
 class Rift(Pipeline):
     """
@@ -35,12 +53,16 @@ class Rift(Pipeline):
         super(Rift, self).__init__(production, category)
         self.logger = logger
         self.logger.info("Using the RIFT pipeline (rift.py)")
-        import RIFT.lalsimutils
-        self.config_template = RIFT.lalsimutils.__file__.replace("lalsimutils.py","asimov/rift.ini")
+        if 'RIFT_ASIMOV_INI' in os.environ:
+            self.config_template = os.getenv('RIFT_ASIMOV_INI')
+        else:
+            # FIXME: should use importlib in future!
+            import RIFT.lalsimutils
+            self.config_template = RIFT.lalsimutils.__file__.replace("lalsimutils.py","asimov/rift.ini")
         if not production.pipeline.lower() == "rift":
             raise PipelineException
 
-        if "bootstrap" in self.production.meta:
+        if "bootstrap" in self.production.meta:o
             self.bootstrap = self.production.meta["bootstrap"]
         else:
             self.bootstrap = False
@@ -71,6 +93,20 @@ class Rift(Pipeline):
         self.production.status = "processing"
 
     def before_submit(self):
+        # Check for dependencies (mainly for cache files from gwdata)
+        productions = {}
+        if self.production.dependencies:
+          for production in self.production.event.productions:
+                productions[production.name] = production
+          # concatenate all cache files into main local.cache directory
+          for previous_job in self.production.dependencies:
+            print("assets", productions[previous_job].pipeline.collect_assets())
+
+            if "caches" in productions[previous_job].pipeline.collect_assets():
+                cache_files = productions[previous_job].pipeline.collect_assets()['caches'].values()
+                for cache_file in cache_files:
+                    os.system(' cat {}  >> {}/local.cache '.format(cache_file, self.production.rundir))
+
         pass
 
     def before_config(self, dryrun=False):
@@ -102,6 +138,7 @@ class Rift(Pipeline):
                     )
                     self.logger.info(f"Saved at {saveloc}")
 
+    @my_auth_decorator
     def build_dag(self, user=None, dryrun=False):
         """
         Construct a DAG file in order to submit a production to the
@@ -193,6 +230,20 @@ class Rift(Pipeline):
         os.environ[
             "LIGO_ACCOUNTING"
         ] = f"{self.production.meta['scheduler']['accounting group']}"
+        if 'avoid hosts' in self.production.meta['scheduler']:
+            val = ""
+            for name in self.production.meta['scheduler']['avoid hosts']:
+                val += "{},".format(name)
+            if len(val)>0:
+                val = val[:-1] # remove last comma
+            os.environ['RIFT_AVOID_HOSTS'] = val
+        if 'gpu architectures' in self.production.meta['scheduler']:
+            val =""
+            for name in self.production.meta['scheduler']['gpu architectures']:
+                val += '(DeviceName=!="{}")&&'.format(name)
+            if len(val)>0:
+                val = val[:-2] # remove last two and
+            os.environ['RIFT_REQUIRE_GPUS'] = val
 
         if "singularity image" in self.production.meta["scheduler"]:
             # Collect the correct information for the singularity image
@@ -262,7 +313,7 @@ class Rift(Pipeline):
                 elif value == "False" or value == "false" or value == False:
                     pass
                 else:
-                    command += [f"--{key}", f"{value}"]
+                    command += [f"--{key}={value}"]
 
         # If a starting frequency is specified, add it
         if "start-frequency" in self.production.meta:
@@ -294,6 +345,7 @@ class Rift(Pipeline):
                 if self.production.meta["scheduler"]["osg"]:
                     command += ["--use-osg-file-transfer"]
 
+#        print(" ".join(command))
         if dryrun:
             print(" ".join(command))
 
@@ -305,6 +357,8 @@ class Rift(Pipeline):
                     command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
                 )
                 out, err = pipe.communicate()
+                # very large amount of information for asimov log !
+                self.logger.info(out)
                 if err:
                     self.production.status = "stuck"
                     if hasattr(self.production.event, "issue_object"):
@@ -323,6 +377,14 @@ class Rift(Pipeline):
                             production=self.production.name,
                         )
                 else:
+                    dagfile = os.path.join(rundir,'marginalize_intrinsic_parameters_BasicIterationWorkflow.dag')
+                    if not(os.path.exists(dagfile)):
+                        self.production.status = "stuck"
+                        self.logger.info(out) #, production=self.production)
+                        self.logger.error(err) # , production=self.production)
+                        raise PipelineException(f"DAG file could not be created.\n{command}\n{out}\n\n{err}",
+                            production=self.production.name,
+                        )
                     if self.production.event.repository:
                         # with set_directory(os.path.abspath(self.production.rundir)):
                         for psdfile in self.production.get_psds("xml"):
@@ -378,7 +440,6 @@ class Rift(Pipeline):
             f"rift/{self.production.event.name}/{self.production.name}",
             "marginalize_intrinsic_parameters_BasicIterationWorkflow.dag",
         ]
-
         if dryrun:
             for psdfile in self.production.get_psds("xml"):
                 print(f"cp {psdfile} {self.production.rundir}/{psdfile.split('/')[-1]}")
@@ -419,6 +480,38 @@ class Rift(Pipeline):
                     production=self.production.name,
                 )
 
+    def html(self):
+        """Return the HTML representation of this pipeline."""
+        pages_dir = os.path.join(
+            self.production.event.name, self.production.name, "pesummary"
+        )
+        out = ""
+        if self.production.status in {"uploaded"}:
+            out += """<div class="asimov-pipeline">"""
+            out += f"""<p><a href="{pages_dir}/home.html">Summary Pages</a></p>"""
+            out += f"""<img height=200 src="{pages_dir}/plots/{self.production.name}_psd_plot.png"</src>"""
+            out += f"""<img height=200 src="{pages_dir}/plots/{self.production.name}_waveform_time_domain.png"</src>"""
+
+            out += """</div>"""
+
+        return out
+
+    def html(self):
+        """Return the HTML representation of this pipeline."""
+        pages_dir = os.path.join(
+            self.production.event.name, self.production.name, "pesummary"
+        )
+        out = ""
+        if self.production.status in {"uploaded"}:
+            out += """<div class="asimov-pipeline">"""
+            out += f"""<p><a href="{pages_dir}/home.html">Summary Pages</a></p>"""
+            out += f"""<img height=200 src="{pages_dir}/plots/{self.production.name}_psd_plot.png"</src>"""
+            out += f"""<img height=200 src="{pages_dir}/plots/{self.production.name}_waveform_time_domain.png"</src>"""
+
+            out += """</div>"""
+
+        return out
+
     def resurrect(self):
         """
         Attempt to ressurrect a failed job.
@@ -435,6 +528,26 @@ class Rift(Pipeline):
                 )
             )
         )
+        # check if dagman.out  newer than rescue - job has not really died? Prevent superfluous restarts!
+        time_mod_out = os.path.getmtime(                os.path.join(
+                    self.production.rundir,
+                    "marginalize_intrinsic_parameters_BasicIterationWorkflow.dag.dagman.out",
+                ))
+        if count > 0:
+            last_rescue =        glob.glob(
+                os.path.join(
+                    self.production.rundir,
+                    "marginalize_intrinsic_parameters_BasicIterationWorkflow.dag.rescue*",
+                )
+                )
+            last_rescue.sort()
+            last_rescue =last_rescue[-1]
+            time_mod_rescue = os.path.getmtime(last_rescue)
+        else:
+            time_mod_rescue = time_mod_out 100  # no rescues
+        if count < 100 and (time_mod_out > time_mod_rescue+30): # some buffer in seconds for file i/o
+            print("   ... still going, leaving it alone ")
+            return None
         if "allow ressurect" in self.production.meta:
             count = 0
         if (count < 90) and (
@@ -450,6 +563,18 @@ class Rift(Pipeline):
         ):
             count += 1
             # os.system("cat *_local.cache > local.cache")
+            self.submit_dag()
+        elif count ==0:
+            # user has most likely intervened, deleted al the rescue files, and we are about to start new, OR we have 'allow resurrect'
+            print( "    - starting rift from scratch ? ")
+            self.submit_dag()
+        elif count ==0:
+            # user has most likely intervened, deleted al the rescue files, and we are about to start new, OR we have 'allow resurrect'
+            print( "    - starting rift from scratch ? ")
+            self.submit_dag()
+        elif count ==0:
+            # user has most likely intervened, deleted al the rescue files, and we are about to start new, OR we have 'allow resurrect'
+            print( "    - starting rift from scratch ? ")
             self.submit_dag()
         else:
             raise PipelineException(
@@ -478,12 +603,21 @@ class Rift(Pipeline):
         """
         Check for the production of the posterior file to signal that the job has completed.
         """
+        # check if calmarg requested -- different filename
+        calmarg_requested = False
+        if 'likelihood' in self.production.meta['sampler']:
+            if 'calibration' in self.production.meta['sampler']['likelihood']:
+                calmarg_requested = self.production.meta['sampler']['likelihood']['calibration']['sample']
+        fname_last = "extrinsic_posterior_samples.dat"
+        if calmarg_requested:
+            fname_last = 'reweighted_posterior_samples.dat'
+
         results_dir = glob.glob(f"{self.production.rundir}")
         if len(results_dir) > 0:  # dynesty_merge_result.json
             if (
                 len(
                     glob.glob(
-                        os.path.join(results_dir[0], "extrinsic_posterior_samples.dat")
+                        os.path.join(results_dir[0], fname_last)
                     )
                 )
                 > 0
@@ -493,6 +627,44 @@ class Rift(Pipeline):
                 return False
         else:
             return False
+
+    def collect_assets(self,absolute=False):
+        """
+        Gather all of the results assets for this job.
+        """
+        if absolute:
+            rundir = os.path.abspath(self.production.rundir)
+        else:
+            rundir = self.production.rundir
+        rift_all_lnL = os.path.join(rundir, 'all.net')
+        samples_raw = os.path.join(rundir,'extrinsic_posterior_samples.dat')
+        dict_out = {"samples":self.samples(), "lnL_marg":rift_all_lnL, "samples_raw":samples_raw}
+        rewt_file_name  = os.path.join(rundir,'reweighted_posterior_samples.dat')
+        if os.path.exists(rewt_file_name):
+            dict_out['samples_calmarg'] = rewt_file_name
+            dict_out['samples'] = rewt_file_name
+
+        return dict_out
+
+
+    def collect_assets(self,absolute=False):
+        """
+        Gather all of the results assets for this job.
+        """
+        if absolute:
+            rundir = os.path.abspath(self.production.rundir)
+        else:
+            rundir = self.production.rundir
+        rift_all_lnL = os.path.join(rundir, 'all.net')
+        samples_raw = os.path.join(rundir,'extrinsic_posterior_samples.dat')
+        dict_out = {"samples":self.samples(), "lnL_marg":rift_all_lnL, "samples_raw":samples_raw}
+        rewt_file_name  = os.path.join(rundir,'reweighted_posterior_samples.dat')
+        if os.path.exists(rewt_file_name):
+            dict_out['samples_calmarg'] = rewt_file_name
+            dict_out['samples'] = rewt_file_name
+
+        return dict_out
+
 
     def samples(self, absolute=False):
         """
