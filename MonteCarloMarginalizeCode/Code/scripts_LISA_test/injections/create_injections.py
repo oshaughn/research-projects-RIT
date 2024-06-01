@@ -1,5 +1,5 @@
 ## 
-# TODO: Make this a proper code to write injections for LISA (use hoft, FFT it and the again in time domain?)(include options to read in NR-h5files)
+# TODO: Make this a proper code to write injections for LISA (use hlmoft, FFT it and the again in time domain?)(include options to read in NR-h5files)
 # Choose waveform params needs to print LISA related parameters
 # Confirm if phiref needs to be zero in P or not
 # Add functionality so that we include tref at fref
@@ -26,10 +26,9 @@ import lalsimulation
 # opts = parser.parse_args()
 # P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))
 
-
-
-# psd_path = ""
+#############################################
 injection_save_path = "/Users/aasim/Desktop/Research/Projects/RIFT_LISA/Development/injections"
+psd_path = "/Users/aasim/Desktop/Research/Mcodes/RIFT-LISA-3G-O4c/MonteCarloMarginalizeCode/Code/scripts_LISA_test/psd_generation/A-psd.xml.gz"
 
 P = lalsimutils.ChooseWaveformParams()
 
@@ -37,7 +36,7 @@ P.m1 = 1e6 * lal.MSUN_SI
 P.m2 = 5e5 * lal.MSUN_SI
 P.s1z = 0.2
 P.s2z = 0.4
-P.dist = 18e3  * lal.PC_SI * 1e6 
+P.dist = 80e3  * lal.PC_SI * 1e6 
 P.phiref = 0.0   # add phiref later (confirm with ROS)!
 P.inclination = 0.0 # add inclination later (confirm with ROS)!
 P.fref = 0.0001
@@ -54,35 +53,47 @@ psi = np.pi/4
 phi_ref = np.pi/3
 inclination = np.pi/2
 
+snr_fmin = 10**(-4)
+snr_fmax = 1
+##############################################
+
+def calculate_snr(data_dict, fmin, fmax, path_to_psd):
+    """This function calculates zero-noise snr of a LISA signal."""
+    print(f"Reading PSD to calculate SNR for LISA instrument from {path_to_psd}")
+    psd = lalsimutils.get_psd_series_from_xmldoc(path_to_psd, "A")
+    assert data_dict["A"].deltaF == data_dict["E"].deltaF == data_dict["T"].deltaF
+    deltaF = data_dict["A"].deltaF
+    psd = lalsimutils.resample_psd_series(psd, deltaF)
+    psd_fvals = psd.f0 + deltaF*np.arange(psd.data.length)
+    print(f"Integrating from {fmin} to {fmax} Hz.")
+    psd.data.data[ psd_fvals < P.fmin] = 0 # 
+
+    IP = lalsimutils.ComplexIP(fmin, fmax, fmax, deltaF, psd, False, False, 0.0,)  # second fmax is fNyq
+    A_snr, E_snr, T_snr = np.sqrt(IP.ip(data_dict["A"], data_dict["A"])), np.sqrt(IP.ip(data_dict["E"], data_dict["E"])), np.sqrt(IP.ip(data_dict["T"], data_dict["T"]))
+
+    snr = np.real(np.sqrt(A_snr**2 + E_snr**2 + T_snr**2)) # SNR = sqrt(<h|h>)
+    print(f"A-channel snr = {A_snr.real:0.3f}, E-channel snr = {E_snr.real:0.3f}, T-channel snr = {T_snr.real:0.3f},\n\tTotal SNR = {snr:0.3f}.")
+    return snr
+
 print(f"Choose waveform params set to with approx {lalsimulation.GetStringFromApproximant(P.approx)}: \n {P.__dict__}")
 hlmf, hlmf_conj = lalsimutils.std_and_conj_hlmoff(P) 
 modes = list(hlmf.keys())
 
-
-tf_dict, f_dict, amp_dict, phase_dict = get_tf_from_phase_dict(hlmf, P.fmax)
-A = 0
-E = 0
-T = 0
-for mode in modes:
-    l, m = mode[0], mode[1]
-    H_0 = transformed_Hplus_Hcross(beta, lamda, psi, inclination, phi_ref, mode[0], mode[1])  # my function is define for marginalization
-    L1, L2, L3 = Evaluate_Gslr(tf_dict[mode] + P.tref, f_dict[mode], H_0, beta, lamda)
-    time_shifted_phase = phase_dict[mode] + 2*np.pi*P.tref*f_dict[mode]
-    tmp_data = amp_dict[mode] * np.exp(1j*time_shifted_phase)  
-    # I belive BBHx conjugates because the formalism is define for A*exp(-1jphase), but I need to check with ROS and Mike Katz.
-    A += np.conj(tmp_data * L1)
-    E += np.conj(tmp_data * L2)
-    T += np.conj(tmp_data * L3)
-
+data_dict = create_lisa_injections(hlmf, P.fmax, beta, lamda, psi, inclination, phi_ref, P.tref)
 
 A_h5_file = h5py.File(f'{injection_save_path}/A-fake_strain.h5', 'w')
-A_h5_file.create_dataset('data', data=A)
+A_h5_file.create_dataset('data', data=data_dict["A"].data.data)
 A_h5_file.attrs["deltaF"], A_h5_file.attrs["epoch"], A_h5_file.attrs["length"], A_h5_file.attrs["f0"] = hlmf[modes[0]].deltaF, float(hlmf[modes[0]].epoch), hlmf[modes[0]].data.length, hlmf[modes[0]].f0 
+A_h5_file.close()
 
 E_h5_file = h5py.File(f'{injection_save_path}/E-fake_strain.h5', 'w')
-E_h5_file.create_dataset('data', data=E)
+E_h5_file.create_dataset('data', data=data_dict["E"].data.data)
 E_h5_file.attrs["deltaF"], E_h5_file["epoch"], E_h5_file["length"], E_h5_file["f0"] =  hlmf[modes[0]].deltaF, float(hlmf[modes[0]].epoch), hlmf[modes[0]].data.length, hlmf[modes[0]].f0
+E_h5_file.close()
 
 T_h5_file = h5py.File(f'{injection_save_path}/T-fake_strain.h5', 'w')
-T_h5_file.create_dataset('data', data=T)
+T_h5_file.create_dataset('data', data=data_dict["T"].data.data)
 T_h5_file["deltaF"], T_h5_file["epoch"], T_h5_file["length"], T_h5_file["f0"] = hlmf[modes[0]].deltaF, float(hlmf[modes[0]].epoch), hlmf[modes[0]].data.length, hlmf[modes[0]].f0
+T_h5_file.close()
+
+calculate_snr(data_dict, snr_fmin, snr_fmax, psd_path)
