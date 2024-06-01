@@ -109,7 +109,7 @@ else:
     R_exists = False
     interp_func = False
 
-f  = np.linspace(1.0e-5, 1.0e0, 10000)  # these many points are sufficient, rely on RIFT's interpolation  after
+f  = np.linspace(5.0e-5, 1.0e0, 500001)  # these many points are sufficient, rely on RIFT's interpolation  after. RIFT doesn't like if deltaF is larger than f0.
 sens = Sn(f, Tobs, NC, R_exists, interp_func)
 
 
