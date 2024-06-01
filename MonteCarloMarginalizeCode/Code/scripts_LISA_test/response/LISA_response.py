@@ -265,9 +265,9 @@ def get_tf_from_phase_dict(hlm, fmax, debug = False):#tested
     freq_dict = {}
     amp_dict = {}
     phase_dict = {}
-    for mode in list(hlm.keys()):
+    for mode in np.array(list(hlm.keys())):
         print(f"\n\tMode = {mode}")
-
+        mode = tuple(mode)
         #get frequency and mode data
         freq, hlm_tmp = np.arange(-fmax, fmax, hlm[mode].deltaF), hlm[mode]
         if debug:
