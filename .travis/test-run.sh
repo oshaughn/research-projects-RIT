@@ -11,7 +11,7 @@ switcheroo '--maximize-only '  ' --force-xpy ' command-single.sh
 # Reduce number of analyses for this worker to 1, to reduce runtime
 switcheroo '\$\(macrongroup\)' 1  command-single.sh
 # new format for n-events-to-analyze.  Backstop
-export macrongroup='echo 1'
+alias macrongroup='echo 1'
 # Reduce the number of points investigated by x100
 switcheroo 'n-max 2000000' 'n-max 50000' command-single.sh
 ./command-single.sh
