@@ -7,7 +7,10 @@
 # Future work
 ## 1) Add a different response code for Stellar mass binaries.
 
-
+# Speed ups:
+# https://stackoverflow.com/questions/49493482/numpy-np-multiply-vs-operator np.multiply vs * (no speedup)
+# https://stackoverflow.com/questions/25870923/how-to-square-or-raise-to-a-power-elementwise-a-2d-numpy-array np.square vs **2 (no speedup for array of length 1e7). np.power is slow
+# https://stackoverflow.com/questions/49459661/differences-between-numpy-divide-and-python-divide np.divide vs / (no speedup)
 
 import numpy as np
 import lal
@@ -31,7 +34,7 @@ def create_lal_frequency_series(frequency_values, frequency_series, epoch = 9500
             lal.COMPLEX16FrequencySeries object"""
     assert len(frequency_values) == len(frequency_series), "frequency_values and frequency_series don't have the same length."
     hf_lal = lal.CreateCOMPLEX16FrequencySeries("hf", epoch, f0,  np.abs(np.diff(frequency_values)[0]), lal.HertzUnit, len(frequency_values))
-    hf_lal.data.data = hf
+    hf_lal.data.data = frequency_series
     return hf_lal
 
 
@@ -523,3 +526,24 @@ def Evaluate_Gslr_test_2(tf, f, beta, lamda):
     transferL3_zz = T_term * Traw_zz
 
     return np.array([transferL1_xx, transferL1_xy, transferL1_xz, transferL1_yy, transferL1_yz, transferL1_zz]), np.array([transferL2_xx, transferL2_xy, transferL2_xz, transferL2_yy, transferL2_yz, transferL2_zz]), np.array([transferL3_xx, transferL3_xy, transferL3_xz, transferL3_yy, transferL3_yz, transferL3_zz])
+
+
+def create_lisa_injections(hlmf, fmax, beta, lamda, psi, inclination, phi_ref, tref):
+    tf_dict, f_dict, amp_dict, phase_dict = get_tf_from_phase_dict(hlmf, fmax)
+    A = 0
+    E = 0
+    T = 0
+    modes = list(hlmf.keys())
+    for mode in modes:
+        H_0 = transformed_Hplus_Hcross(beta, lamda, psi, inclination, phi_ref, mode[0], mode[1])  # my function is define for marginalization
+        L1, L2, L3 = Evaluate_Gslr(tf_dict[mode] + tref, f_dict[mode], H_0, beta, lamda)
+        time_shifted_phase = phase_dict[mode] + 2*np.pi*tref*f_dict[mode]
+        tmp_data = amp_dict[mode] * np.exp(1j*time_shifted_phase)  
+        # I belive BBHx conjugates because the formalism is define for A*exp(-1jphase), but I need to check with ROS and Mike Katz.
+        A += np.conj(tmp_data * L1)
+        E += np.conj(tmp_data * L2)
+        T += np.conj(tmp_data * L3)
+    A_lal, E_lal, T_lal = create_lal_frequency_series(f_dict[modes[0]], A), create_lal_frequency_series(f_dict[modes[0]], E), create_lal_frequency_series(f_dict[modes[0]], T)
+    data_dict = {}
+    data_dict["A"], data_dict["E"], data_dict["T"] = A_lal, E_lal, T_lal
+    return data_dict
