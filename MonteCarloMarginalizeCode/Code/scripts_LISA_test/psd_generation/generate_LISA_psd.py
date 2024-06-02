@@ -99,13 +99,14 @@ def Sn(f, Tobs = 0.5, NC = 3, R_exists=False, interp_func=None):
 NC = 3 # number of channels
 Tobs = 0.5*YRSID_SI # years
 
-if os.path.exists(os.getcwd()+"/R.txt"):
-    data = np.loadtxt(os.getcwd()+"/R.txt")
+if os.path.exists("R.txt"):
+    data = np.loadtxt("R.txt")
     R = data[:,1]*NC
     f = data[:,0]*fstar
     interp_func = interpolate.splrep(f, R, s=0)
     R_exists = True
 else:
+    print("R.txt doesn't exist.")
     R_exists = False
     interp_func = False
 
