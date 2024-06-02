@@ -99,12 +99,12 @@ A_h5_file.close()
 
 E_h5_file = h5py.File(f'{injection_save_path}/E-fake_strain-1000000-10000.h5', 'w')
 E_h5_file.create_dataset('data', data=data_dict["E"].data.data)
-E_h5_file.attrs["deltaF"], E_h5_file["epoch"], E_h5_file["length"], E_h5_file["f0"] =  hlmf[modes[0]].deltaF, float(hlmf[modes[0]].epoch), hlmf[modes[0]].data.length, hlmf[modes[0]].f0
+E_h5_file.attrs["deltaF"], E_h5_file.attrs["epoch"], E_h5_file.attrs["length"], E_h5_file.attrs["f0"] =  hlmf[modes[0]].deltaF, float(hlmf[modes[0]].epoch), hlmf[modes[0]].data.length, hlmf[modes[0]].f0
 E_h5_file.close()
 
 T_h5_file = h5py.File(f'{injection_save_path}/T-fake_strain-1000000-10000.h5', 'w')
 T_h5_file.create_dataset('data', data=data_dict["T"].data.data)
-T_h5_file["deltaF"], T_h5_file["epoch"], T_h5_file["length"], T_h5_file["f0"] = hlmf[modes[0]].deltaF, float(hlmf[modes[0]].epoch), hlmf[modes[0]].data.length, hlmf[modes[0]].f0
+T_h5_file.attrs["deltaF"], T_h5_file.attrs["epoch"], T_h5_file.attrs["length"], T_h5_file.attrs["f0"] = hlmf[modes[0]].deltaF, float(hlmf[modes[0]].epoch), hlmf[modes[0]].data.length, hlmf[modes[0]].f0
 T_h5_file.close()
 
 print(f"Reading PSD to calculate SNR for LISA instrument from {psd_path}")
