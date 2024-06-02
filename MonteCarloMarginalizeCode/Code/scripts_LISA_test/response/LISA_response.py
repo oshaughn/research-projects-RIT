@@ -535,7 +535,7 @@ def create_lisa_injections(hlmf, fmax, beta, lamda, psi, inclination, phi_ref, t
     T = 0
     modes = list(hlmf.keys())
     for mode in modes:
-        H_0 = transformed_Hplus_Hcross(beta, lamda, psi, inclination, phi_ref, mode[0], mode[1])  # my function is define for marginalization
+        H_0 = transformed_Hplus_Hcross(beta, lamda, psi, inclination, phi_ref, mode[0], mode[1]) 
         L1, L2, L3 = Evaluate_Gslr(tf_dict[mode] + tref, f_dict[mode], H_0, beta, lamda)
         time_shifted_phase = phase_dict[mode] + 2*np.pi*tref*f_dict[mode]
         tmp_data = amp_dict[mode] * np.exp(1j*time_shifted_phase)  
