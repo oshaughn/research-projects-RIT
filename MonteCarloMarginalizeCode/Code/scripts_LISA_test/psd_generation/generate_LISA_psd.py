@@ -13,7 +13,7 @@ a = 149597870700. #meters
 Larm = 2*np.sqrt(3)*a*e
 fstar = C_SI/(2*np.pi*Larm)
 
-
+path_to_file=os.path.dirname(__file__)
 #FUNCTIONS
 ### These function were taken from LISA.py of LISA sensitivty (https://github.com/eXtremeGravityInstitute/LISA_Sensitivity)
 
@@ -99,8 +99,8 @@ def Sn(f, Tobs = 0.5, NC = 3, R_exists=False, interp_func=None):
 NC = 3 # number of channels
 Tobs = 0.5*YRSID_SI # years
 
-if os.path.exists("R.txt"):
-    data = np.loadtxt("R.txt")
+if os.path.exists(f"{path_to_file}/R.txt"):
+    data = np.loadtxt(f"{path_to_file}/R.txt")
     R = data[:,1]*NC
     f = data[:,0]*fstar
     interp_func = interpolate.splrep(f, R, s=0)
