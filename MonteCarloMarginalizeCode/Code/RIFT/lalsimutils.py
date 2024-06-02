@@ -4467,11 +4467,35 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
 
 
 
-#LISA change
+#LISA 
+def frame_h5_to_hoff(fname, channel, start=None, stop=None, verbose=True):
+    """
+    Function to read in frequency domain data from a h5 file, the h5 file should contain all the information
+    needed to create a COMPLEX16FrequencySeries. Also, this can now take in A, E, T as channels."""
+    if verbose:
+        print( " ++ Loading from cache ", fname, channel)
+    cache_data = np.loadtxt(fname, dtype = str)
+    if not(isinstance(cache_data[0], (list, np.ndarray))):  # for a single detector case, the data from cache file gets treated like a 1d array, hence need to reshape it.
+        cache_data = cache_data.reshape(1,len(cache_data))
+
+    #Find out exactly where the path is
+    for i in np.arange(len(cache_data)):
+        if cache_data[i][0] == channel[0]:
+            index =  cache_data[i,-1].find("localhost") #THIS can be problematic, it is assumed that the path is after localhost. If errors arise, this is where you should check
+            path_to_h5 = cache_data[i,-1][index+len("localhost"):]
+    print(f"Reading h5 file {path_to_h5}")
+    #read the h5 file
+    data = h5py.File(path_to_h5, "r")
+    #create a new lal COMPLEX16 Frequency series, and populate its attributes
+    hoff = lal.CreateCOMPLEX16FrequencySeries("hoff", data.attrs["epoch"], data.attrs["f0"], data.attrs["deltaF"], lsu_HertzUnit, int(data.attrs["length"]))
+    hoff.data.data = data["data"]
+    data.close()
+    return hoff
+#LISA 
 def frame_h5_to_hoft(fname,channel, start=None, stop = None, verbose=True):
     """
     Function to read in data from a h5 file, the h5 file should contain all the information
-    needed to create a REAL8TimeSeries. SMBH waveforms seem to be having issues with lal frame readers."""
+    needed to create a REAL8TimeSeries. MBHB waveforms seem to be having issues with lal frame readers."""
     if verbose:
         print( " ++ Loading from cache ", fname, channel)
     cache_data = np.loadtxt(fname, dtype = str)
