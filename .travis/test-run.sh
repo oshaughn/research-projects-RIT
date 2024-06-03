@@ -12,6 +12,7 @@ switcheroo '--maximize-only '  ' --force-xpy ' command-single.sh
 switcheroo '\$\(macrongroup\)' 1  command-single.sh
 # new format for n-events-to-analyze.  Backstop
 alias macrongroup='echo 1'
+echo 'echo 1' > macrongroup; chmod a+x macrongroup; PATH=${PATH}:`pwd`
 # Reduce the number of points investigated by x100
 switcheroo 'n-max 2000000' 'n-max 50000' command-single.sh
 ./command-single.sh
