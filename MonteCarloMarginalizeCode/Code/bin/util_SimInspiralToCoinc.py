@@ -126,6 +126,8 @@ for indx in range(len(opts.ifo)):
         sngl.snr = 20.  # made up, needed for some algorithms to work
 
     sngl.alpha4 = P.eccentricity
+    sngl.psi3 = P.E0
+    sngl.beta = P.p_phi0
     # add to table
     sngl_table.append(sngl)
 

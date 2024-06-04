@@ -531,8 +531,11 @@ if opts.use_hyperbolic and opts.use_osg:
     
     def modify_submit_file(input_file):
         
-        current_singularity_image = 'rift_o4b_jl-chadhenshaw-teobresums_eccentric-2024-05-14_12-02-56.sif'
-        sif_path = 'osdf:///igwn/cit/staging/james.clark/' + current_singularity_image
+        #current_singularity_image = 'rift_o4b_jl-chadhenshaw-teobresums_eccentric-2024-05-14_12-02-56.sif'
+        #sif_path = 'osdf:///igwn/cit/staging/james.clark/' + current_singularity_image
+        
+        current_singularity_image = 'rift_o4b_jl-2024-05-29_09-54-05.sif'
+        sif_path = 'osdf:///igwn/cit/staging/chad.henshaw/' + current_singularity_image
         
         with open(input_file, 'r') as file:
             lines = file.readlines()
