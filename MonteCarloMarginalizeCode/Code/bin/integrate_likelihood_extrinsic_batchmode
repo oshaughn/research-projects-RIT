@@ -1,12 +1,15 @@
 #!/usr/bin/env python
-#
+
+# This code marginalizes over extrinsic parameters by precomputing terms, setting up a sampler (based on adaptive importance sampling) and creating a likelihood function which\
+# is passed downstream to the sampler. 
+
 # FOLLOWUP TEST (if known injection)
 #    util_PrintInjection.py --inj mdc.xml.gz --event 0 --verbose
 #   util_PrintInjection.py --inj maxpt_zero_noise.xml.gz.xml.gz --event 0
 """
 Integrate the extrinsic parameters of the prefactored likelihood function.
 """
-
+####################### Import ###################################
 import sys
 import functools
 from optparse import OptionParser, OptionGroup
@@ -79,6 +82,7 @@ except:
 import RIFT.likelihood.priors_utils as priors_utils
 import RIFT.misc.xmlutils as xmlutils
 
+###################################################################
 
 class EvenBivariateLinearInterpolator:
     def __init__(self, x0, dx, y0, dy, f):
@@ -241,9 +245,14 @@ optp.add_option("--internal-waveform-fd-no-condition",action='store_true',help='
 optp.add_option("--internal-waveform-extra-lalsuite-args",type=str,default=None)
 optp.add_option("--verbose",action='store_true')
 optp.add_option("--save-eccentricity", action="store_true")
-##LISA
-optp.add_option("--h5-frame", action="store_true")
 
+# 
+# Add LISA options
+#
+optp.add_option("--LISA", action="store_true", help = "Let the code know that you are analysing LISA data. For now makes the code use analyze_event_LISA instead of analyze_event.")
+optp.add_option("--h5-frame", action="store_true", help = "LISA injection frames are in h5 format. Data is assumed to be in time domain when this option is used.")
+optp.add_option("--h5-frame-FD", action="store_true", help = "LISA injection frames are in h5 format. Data is assumed to be in frequency domain when this option is used.")
+optp.add_option("--reference-time", type = float, help = "Time at reference frequency, if reference frequency is not provided then reference frequency is the frequency at max(f^2 * A_22(f)).")
 #
 # Add the integration options
 #
@@ -599,15 +608,23 @@ else:
 #
 data_dict, psd_dict = {}, {}
 
-if opts.h5_frame:
-    h5_frame = True
-for inst, chan in map(lambda c: c.split("="), opts.channel_name):
-    print( "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
-    data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
-            inst+":"+chan, start=start_time, stop=end_time,
-            window_shape=opts.window_shape,deltaT=deltaT, h5_frame=h5_frame)
-    print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
-            data_dict[inst].data.length) )
+#LISA
+if opts.h5_frame_FD: # this handles LISA FD data
+    for inst, chan in map(lambda c: c.split("="), opts.channel_name):
+      print( "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
+      data_dict[inst] = lalsimutils.frame_h5_to_hoff(opts.cache_file,
+              inst)
+      print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
+                data_dict[inst].data.length) )
+
+else:  # this can handle both LIGO and LISA TD data
+  for inst, chan in map(lambda c: c.split("="), opts.channel_name):
+      print( "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
+      data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
+              inst+":"+chan, start=start_time, stop=end_time,
+              window_shape=opts.window_shape,deltaT=deltaT, h5_frame=opts.h5_frame)
+      print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
+              data_dict[inst].data.length) )
 
 flow_ifo_dict = {}
 if opts.fmin_ifo:
@@ -660,7 +677,7 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
         fmax = opts.fmax # fmax is now the upper freq. of IP integral
 
 # Ensure data and PSDs keyed to same detectors
-if sorted(psd_dict.keys()) != sorted(data_dict.keys()):
+if sorted(psd_dict.keys()) != sorted(data_dict.keys()) and not(opts.LISA):
     print >>sys.stderr, "Got a different set of instruments based on data and PSDs provided."
 
 # Ensure waveform has same sample rate, padded length as data
@@ -1247,9 +1264,349 @@ def resample_samples(my_samples,
   
   return my_samples
 
-  
+#
+# Main analysis functions for LIGO (analyze_event) and LISA (analyze_event_LISA). This precomputes terms (eq 23 10.1103/PhysRevD.92.023002) and then based on your settings\
+# creates a likelihood function which is then passed to a sampler.
+#
 
-def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
+def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
+    ### import statements for local testing
+    import sys
+    RIFT = "RIFT-LISA-3G-O4c"
+    sys.path.append(f"/Users/aasim/Desktop/Research/Mcodes/{RIFT}/MonteCarloMarginalizeCode/Code")
+    import RIFT.likelihood.factored_likelihood_LISA as factored_likelihood_LISA
+    ###
+    nEvals=0
+    P = P_list[indx_event]
+    # if pin-distance-to-sim, change the distance prior accordingly
+    if opts.pin_distance_to_sim:
+      pinned_params['distance']=P.dist/(1.e6 * lal.PC_SI)
+
+    # Call external likleihood preparation if any
+    if supplemental_ln_likelhood_prep:
+      supplemental_ln_likelhood_prep(P=P,config=supplemental_ln_likelhood_parsed_ini)
+    
+    print("Generating modes for parameters:\n")
+    P.print_params()
+
+    # Generate modes
+    hlms_FD = lalsimutils.hlmoff_for_LISA(P, opts.l_max)
+    fNyq = 0.5/P.deltaT
+    modes = np.array(list(hlms_FD.keys()))
+    reference_distance = P.dist
+
+    # Precompute
+    # fNyq is the max resolvable frequency for a waveform. It is 0.5/deltaT. RIFT needs deltaT, deltaF for waveform generation (information present in P) and for integration it needs fmax (fmax <= fNyq)
+    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest = factored_likelihood_LISA.PrecomputeAlignedSpinLISA(opts.reference_time, opts.data_integration_window_half, hlms_FD, None, data_dict, psd_dict, flow_ifo_dict["A"], fmax, fNyq, P.deltaT,  pinned_params["right_ascension"], pinned_params["declination"], analyticPSD_Q=False, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec)
+    
+    # reset to default.  Should not be needed, but weird python scoping error
+    manual_avoid_overflow_logarithm = manual_avoid_overflow_logarithm_default 
+
+    def likelihood_function(right_ascension, declination, phi_orb, inclination,
+      psi, distance):
+      P.phi = xpy_asarray_already(right_ascension) 
+      if opts.declination_cosine_sampler:
+        P.theta = numpy.pi/2 - xpy_default.arccos(xpy_asarray_already(declination))
+      else:
+        P.theta = xpy_asarray_already(declination)
+      P.phiref = xpy_asarray_already(phi_orb)
+      if opts.inclination_cosine_sampler:
+        P.incl = xpy_default.arccos(xpy_asarray_already(inclination))
+      else:
+        P.incl = xpy_asarray_already(inclination)
+      P.psi = xpy_asarray_already(psi)
+      P.dist = xpy_asarray_already(distance* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
+
+      # rotate sky if needed
+      if opts.internal_sky_network_coordinates:
+        P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
+        P.theta = np.pi/2 - P.theta
+        P.phi = xpy_default.mod(P.phi, 2*np.pi)
+
+      # rotate phase if needed
+      # make copies of arrays
+      #   Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
+      if opts.internal_rotate_phase:
+        phi_orb_true = (P.phiref + P.psi)/2.
+        psi_true = (P.phiref - P.psi)/2.
+        P.psi= psi_true
+        P.phiref = phi_orb_true
+
+
+      lnL = factored_likelihood_LISA.FactoredLogLikelihoodAlignedSpinLISA(rholms, cross_terms, pinned_params["right_ascension"], pinned_params["declination"], P.psi, P.incl, P.phiref, P.dist, modes, reference_distance)
+      return lnL
+      #return identity_convert_lnL(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
+    
+    if opts.sampler_method == "adaptive_cartesian_gpu":
+      # reset sampling parameter as needed (distance, inclination but not sky location)
+      # distance (and inclination) can conceivably correlate with mass, and we don't want to truncate in distance/inclination prematurely from history effects
+      # method ONLY implemented for adaptcart!
+      if 'distance' in sampler.params:
+        sampler.reset_sampling('distance')
+      sampler.reset_sampling('inclination')
+    elif opts.sampler_method == "GMM":
+      if 'distance' in sampler.params:
+         pair_d_incl = sampler_param_tuple(sampler, ['distance','inclination'])
+         if  pair_d_incl in gmm_dict:
+            gmm_dict[pair_d_incl] = None # reset inclination/distance sampling
+      single_incl = sampler_param_tuple(sampler, ['inclination'])
+      if (opts.distance_marginalization) and single_incl in gmm_dict:
+        gmm_dict[single_incl] = None # reset inclination sampling
+
+
+    # Integrate
+    args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
+    print( " --------> Arguments ", args)
+    # if exactly zero likelihood function
+    like_to_integrate = likelihood_function
+    if opts.zero_likelihood:
+              if opts.internal_use_lnL:
+                   like_to_integrate = zero_like
+              else:
+                   like_to_integrate = unit_like
+    if oracleRS:
+         print("  ORACLE  - seeding sampling  with" , oracleRS.params_ordered)
+         if hasattr(sampler, 'update_sampling_prior'):
+             rvs_train = {}
+             _, _, rv_oracle = oracleRS.draw_simplified(opts.n_chunk)
+             for indx,p  in enumerate(sampler.params_ordered):
+               rvs_train[p] = rv_oracle[:,indx]
+             # train with equal weight - no likelihood information
+             lnL_oracles  = np.zeros(opts.n_chunk)
+             sampler.update_sampling_prior(lnL_oracles, opts.n_chunk, external_rvs=rvs_train,log_scale_weights=True,floor_integrated_probability=opts.adapt_floor_level)
+
+    res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
+
+    if not(res): # no resut
+      raise ValueError(" No integral result returned")
+
+    if not(opts.internal_use_lnL):
+      log_res = numpy.log(res)
+      sqrt_var_over_res =  numpy.sqrt(var)/res
+    else:
+      log_res = res
+      sqrt_var_over_res =  numpy.exp(var/2 - log_res)
+
+    # Report results
+    if opts.output_file:
+        fname_output_txt = opts.output_file +"_"+str(indx_event)+"_" + ".dat"
+        m1 =P.m1/lal.MSUN_SI
+        m2 =P.m2/lal.MSUN_SI
+        if opts.sim_xml: 
+            event_id = opts.event
+        else:
+            event_id = -1
+        if opts.event == None:
+            event_id = -1
+        if opts.save_eccentricity:
+            # output format when eccentricity is being used
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+        elif not (P.lambda1>0 or P.lambda2>0):
+          # output format when lambda is NOT used
+          if not opts.pin_distance_to_sim:
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+          else:
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, pinned_params["distance"], log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+        else:
+          if not(opts.export_eos_index):
+            # Alternative output format if lambda is active
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+          else:
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, P.eos_table_index, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+
+
+    # Comprehensive output (not yet provided)
+    # Convert declination, inclination  parameters in sampler if needed
+    if opts.save_samples and opts.output_file:
+      import copy
+      samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!
+      # Insert reference distance if it was marginalized over
+      if "distance" not in samples:
+        # Not distance output is the same as internal calculations: in *Mpc*
+        samples["distance"] = np.full_like(
+          samples["psi"],
+          factored_likelihood.distMpcRef,  #*1e6*lal.PC_SI,
+          )
+      # Insert reference phase if it was marginalized over
+      if "phi_orb" not in samples:
+        samples["phi_orb"] = np.full_like(samples["psi"], 0.)
+      if opts.inclination_cosine_sampler:
+        samples["inclination"] = numpy.arccos(samples["inclination"].astype(numpy.float64))
+      if opts.declination_cosine_sampler:
+        samples["declination"] = numpy.pi/2 - numpy.arccos(samples["declination"].astype(numpy.float64))
+      xmldoc = ligolw.Document()
+      xmldoc.appendChild(ligolw.LIGO_LW())
+      process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
+      if not(opts.resample_time_marginalization): 
+        if not opts.time_marginalization:
+            samples["t_ref"] += float(fiducial_epoch)
+        else:
+            samples["t_ref"] = float(fiducial_epoch)*numpy.ones(len(samples["psi"]))
+      # rotate sky to recover physical coordinates.  Note on CPU
+      if opts.internal_sky_network_coordinates:
+        tmp_th, tmp_ph = my_rotation_cpu(np.pi/2 - samples['declination'],samples['right_ascension'])
+        samples['declination'] = np.pi/2 - tmp_th
+        samples['right_ascension'] = np.mod(tmp_ph, 2*np.pi)
+
+      # recover true phase, polarization samples
+      if opts.internal_rotate_phase:
+        phi_orb_true = np.mod((samples['phi_orb'] + samples['psi'])/2., 2*np.pi)
+        psi_true = np.mod((samples['phi_orb'] - samples['psi'])/2., 2*np.pi)   # keep as 2 pi range, to be consistent with past work
+        samples['psi']= psi_true
+        samples['phi_orb'] = phi_orb_true
+      samples["polarization"] = samples["psi"]
+      samples["coa_phase"] = samples["phi_orb"]        
+      if ("declination", "right_ascension") in sampler.params:
+            samples["latitude"], samples["longitude"] = samples[("declination", "right_ascension")]
+      else:
+            samples["latitude"] = samples["declination"]
+            samples["longitude"] = samples["right_ascension"]
+      if "log_integrand" in samples:
+        samples["loglikelihood"] = samples["log_integrand"] +  manual_avoid_overflow_logarithm
+      else:
+        samples["loglikelihood"] = numpy.log(samples["integrand"]) + manual_avoid_overflow_logarithm  # export with consistent offset
+      if not opts.rom_integrate_intrinsic:
+            # ILE mode: insert fixed model parameters
+            samples["mass1"] = numpy.ones(samples["psi"].shape)*m1 # opts.mass1
+            samples["mass2"] = numpy.ones(samples["psi"].shape)*m2 # opts.mass2
+            samples["spin1x"] =numpy.ones(samples["psi"].shape)*P.s1x
+            samples["spin1y"] =numpy.ones(samples["psi"].shape)*P.s1y
+            samples["spin1z"] =numpy.ones(samples["psi"].shape)*P.s1z
+            samples["spin2x"] =numpy.ones(samples["psi"].shape)*P.s2x
+            samples["spin2y"] =numpy.ones(samples["psi"].shape)*P.s2y
+            samples["spin2z"] =numpy.ones(samples["psi"].shape)*P.s2z
+            samples["alpha4"] =numpy.ones(samples["psi"].shape)*P.eccentricity
+            samples["alpha5"] =numpy.ones(samples["psi"].shape)*P.lambda1
+            samples["alpha6"] =numpy.ones(samples["psi"].shape)*P.lambda2
+            # Below exist solely to placate XML export; new issue as of latest lalsuite say 7.15+ or so
+            samples["alpha2"] = numpy.zeros(samples["psi"].shape)
+            samples["alpha3"] = numpy.zeros(samples["psi"].shape)
+
+      if opts.resample_time_marginalization:
+        samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict)
+        samples["loglikelihood" ] = samples["lnL_raw"]  # export the non-time-marginalized likelihood, if we are in the final stages
+#        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
+      xmlutils.append_samples_to_xmldoc(xmldoc, samples)
+        # Extra metadata
+      dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
+#      if 'distance' in pinned_params:
+#            dict_out['distance'] = pinned_params["distance"]
+      converged_result = False
+      if "convergence_test_results" in dict_return:
+        converged_result = dict_return["convergence_test_results"]["normal_integral"]
+      xmlutils.append_likelihood_result_to_xmldoc(xmldoc, log_res+manual_avoid_overflow_logarithm, neff=neff, converged=converged_result, **dict_out)
+      fname_output_xml = opts.output_file +"_"+str(indx_event)+"_" + ".xml.gz"
+      utils.write_filename(xmldoc, fname_output_xml, compress="gz")
+
+
+
+
+    if opts.maximize_only and opts.output_file:
+      # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)
+      if "integrand" in sampler._rvs:
+        indx_guess = numpy.argmax(sampler._rvs["integrand"])   # start search near maximum-likelihood point. (WARNING: can be very close by)
+      else:
+        indx_guess = numpy.argmax(sampler._rvs["log_integrand"])
+      P.radec=True
+      P.phi = sampler._rvs["right_ascension"][indx_guess]
+      P.theta = sampler._rvs["declination"][indx_guess]
+      P.phiref = sampler._rvs["phi_orb"][indx_guess]
+      P.incl = sampler._rvs["inclination"][indx_guess]
+      P.psi = sampler._rvs["psi"][indx_guess]
+      P.dist = sampler._rvs["distance"][indx_guess]*1e6*lal.PC_SI
+      print( " ---- Best extrinsic paramers in MC   ---- ")
+      P.print_params()
+      lalsimutils.ChooseWaveformParams_array_to_xml([P],"notime_raw_maxpt_"+opts.output_file) # best point, not including time
+
+      import scipy.optimize
+      def fn_scaled(x):
+          P.phi = float(x[0]*2*numpy.pi) # right ascension
+          P.theta = float((x[1])*numpy.pi) # declination, really polar angle. NOT zero on equator
+          P.tref = fiducial_epoch + float((x[2]-0.5)*2*t_ref_wind) # ref. time (rel to epoch for data taking)
+          P.phiref = float(x[3]*numpy.pi*2) # ref. orbital phase
+          P.incl = float(x[4]*numpy.pi) # inclination
+          P.psi = float(x[5]*numpy.pi) # polarization angle
+          P.dist = x[6]*dmax* 1.e6 * lalsimutils.lsu_PC # luminosity distance
+    
+          return -1.0* factored_likelihood.FactoredLogLikelihood(
+                    P, rholms,rholms_intp, cross_terms, cross_terms_V, opts.l_max)
+
+    # Pick the best extrinsic parameters, except for time (assumed not set: time marginalization)
+      x0 =numpy.array( [ \
+       sampler._rvs["right_ascension"][indx_guess]/(2*numpy.pi) , \
+       (sampler._rvs["declination"][indx_guess]/numpy.pi),  \
+       0.5, \
+       (sampler._rvs["phi_orb"][indx_guess]/(2*numpy.pi)), \
+       sampler._rvs["inclination"][indx_guess]/(numpy.pi),\
+       sampler._rvs["psi"][indx_guess]/numpy.pi,\
+       sampler._rvs["distance"][indx_guess]/dmax\
+            ],dtype=numpy.float128)
+      x0 = numpy.fmod(x0,numpy.ones(len(x0)))  # had BETTER be defined on this range!
+      # Pick the best starting time. BRUTE FORCE METHOD: use grid
+      def fn_scaled_t(t,x0):
+        return fn_scaled( [x0[0], x0[1], t, x0[3], x0[4], x0[5], x0[6]])
+      npts_guess = int(t_ref_wind*2/(0.5*1e-4))   # Need to have enough points to fully explore the peak, timing to sub-ms accuracy
+      print( " Using ", npts_guess, " time points to select the best time, fixing the remaining extrinsic parameters ")
+      tvals_scaled_guess = numpy.linspace(0,1,npts_guess)
+      lnLvals = numpy.array([-1*fn_scaled_t(t,x0) for t in tvals_scaled_guess])   # note the two -1's cancel
+    #    from matplotlib import pyplot as plt;  plt.plot(tvals_scaled_guess,lnLvals,'o'); plt.show(); numpy.savetxt("dump-lnL.dat", numpy.array([tvals_scaled_guess*2*t_ref_wind,lnLvals]).T)
+      tbest = tvals_scaled_guess[numpy.argmax(lnLvals)]
+      print( " ---- Best extrinsic paramers in MC, after time offset   ---- ")
+      P.tref = fiducial_epoch + tbest
+      P.print_params()
+      lalsimutils.ChooseWaveformParams_array_to_xml([P],"withtime_raw_maxpt_"+opts.output_file) # best point, not including time
+      x0[2] = tbest
+      x0p = x0
+    # Refine best starting time with a search
+    #    t_scaled_est = scipy.optimize.brent(fn_scaled_t, brack=(tbest-0.01,tbest,tbest+0.01),args=(x0),maxiter=500)
+    #    print "Scaled starting time estimate after, before ",  t_scaled_est, tbest
+    #    x0p[2] = t_scaled_est
+      t_best_now = lal.LIGOTimeGPS()   # create correct data type
+      t_best_now = fiducial_epoch + float((x0p[2]-0.5)*2*t_ref_wind)
+      t_best_now_s = int(numpy.floor(t_best_now))
+      t_best_now_ns = int((t_best_now - t_best_now_s)*1e9)
+      print( " Fitting best (geocentric) time : ", str(t_best_now_s)+ '.'+ str(t_best_now_ns) , " relative time ", (x0p[2]-0.5)*2*t_ref_wind)
+      x0  = x0p
+    # Full multi-d search for best point
+      print( " Starting point [dimensionless] ", x0)
+      print( " Starting point [physical] ", [x0[0]*2*numpy.pi, numpy.pi*(x0[1]),  t_ref_wind*2*(x0[2]-0.5), 2*numpy.pi*x0[3], numpy.pi*x0[4], numpy.pi*x0[5], x0[6]*dmax])
+      lnLstart = -1*fn_scaled(x0)   # note the two -1's cancel. Compare to 'rho^2/2' value reported by code
+      print( " lnL at start :", lnLstart, " [note can be lower than peak because of time offset]: best reported by ILE (including weights) is ", numpy.log(numpy.max(sampler._rvs["integrand"])))
+      x = scipy.optimize.fmin(fn_scaled,x0, xtol=1e-5,ftol=1e-3,maxiter=opts.n_max,maxfun=opts.n_max)
+      lnLmax = -1.0*fn_scaled(x)
+      if lnLmax < lnLstart:
+        print( " Maximization failed to improve our initial point ! ")
+        x = x0p
+        lnLmax = lnLstart
+      t_best_now = fiducial_epoch + float((x[2]-0.5)*2*t_ref_wind)
+      print( "Best lnL = ", lnLmax)
+      print( "Best time =", t_best_now)
+      print( "Best point", [x[0]*2*numpy.pi, numpy.pi*(x[1]),  t_ref_wind*2*(x[2]-0.5), 2*numpy.pi*x[3], numpy.pi*x[4], numpy.pi*x[5], x[6]*dmax])
+      # Output best fit.  Note STANDARD output will occur as usual
+      P_max = P.manual_copy()
+      P_max.tref = t_best_now
+      P_max.phi = float(x[0]*2*numpy.pi)
+      P_max.theta = float(numpy.pi*(x[1]))
+      P_max.phiref =float(x[3]*numpy.pi*2)
+      P_max.incl = float(x[4]*numpy.pi)
+      P_max.psi = float(x[5]*numpy.pi)
+      P_max.dist = x[6]*dmax*1e6*lal.PC_SI
+      P_max.m1 = lal.MSUN_SI*m1
+      P_max.m2 = lal.MSUN_SI*m2
+      print( " Sanity check: log likelihood for this set is ", factored_likelihood.FactoredLogLikelihood(
+                    P_max, rholms, rholms_intp, cross_terms, cross_terms_V, opts.l_max))
+      print( " ---- Best extrinsic paramers after polishing   ---- ")
+      P_max.print_params()
+      P_list = [P_max]
+      lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"maxpt_"+opts.output_file)
+
+    # Clear sampler _rvs, to avoid side effects when called again
+    for key in sampler._rvs.keys():
+      sampler._rvs[key] = []
+
+    return res
+
+def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
     nEvals=0
     P = P_list[indx_event]
     # if pin-distance-to-sim, change the distance prior accordingly
@@ -1955,8 +2312,11 @@ lnL_sofar = -np.inf
 no_adapt_sky = False
 
 for indx in numpy.arange(len(P_list)):
- try:
-  res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
+#  try:
+  if opts.LISA:
+    res = analyze_event_LISA(P_list, indx, data_dict, psd_dict, fmax, opts)
+  else:
+    res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   # abort if horrible (nan event) - done with 'raise'
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.force_reset_all:  # depends on integrator!  May not always be availble
@@ -1981,41 +2341,41 @@ for indx in numpy.arange(len(P_list)):
       # Disable saving of the integrand -- saves on memory and will reduce speed. 
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
- except Exception as exception_failure:
-  print( "  ===> FAILED ANALYSIS <==== ")
-  print( exception_failure)
-  if opts.internal_make_empty_file_on_error:
-    fname_output_txt = opts.output_file +"_"+str(indx)+"_" + ".dat"
-    open(fname_output_txt,'a').close()  # create empty file
-  if opts.internal_hard_fail_on_error:
-    sys.exit(1)
-#  if len(exception_failure) >0:
-#    if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
-#      sys.exit(1) 
-  if ("CUDA" in str(exception_failure)) or ('CUBLAS' in str(exception_failure)) or ('cuda' in str(exception_failure)) or ('compilation' in (str(exception_failure)) ): # Hard fail if a cuda error with a catchable error code
-    if (opts.internal_soft_fail_on_cuda_error):
-      sys.exit(0)
-    sys.exit(62)
-  if 'Out of memory' in str(exception_failure):   # should never happen, most likely a crappy node or failure to set correct memory limit for ILE.
-    sys.exit(63)
-  str_err = " {} ".format(exception_failure)
-  if ('Zero prior failure' in str_err) or ('effective samples' in str_err):
-    # common failures that require reset of sampler
-    #    - zero prior : very rare case where the prior is exactly zero for some reason. User error most likely (floors, etc). Should never happen
-    #    - effective samples = nan : error with AC where the integrator gets confused. Reset
-    # reset all variables sampling, so we don't contaminate subsequent versions
-    #    - again, this should only be a problem if we are using multiply adaptive sampling, so it should NEVER happen on the first time through
-    for name in sampler.params:
-      sampler.reset_sampling(param)
+#  except Exception as exception_failure:
+#   print("  ===> FAILED ANALYSIS <==== ")
+#   print(exception_failure)
+#   if opts.internal_make_empty_file_on_error:
+#     fname_output_txt = opts.output_file +"_"+str(indx)+"_" + ".dat"
+#     open(fname_output_txt,'a').close()  # create empty file
+#   if opts.internal_hard_fail_on_error:
+#     sys.exit(1)
+# #  if len(exception_failure) >0:
+# #    if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
+# #      sys.exit(1) 
+#   if ("CUDA" in str(exception_failure)) or ('CUBLAS' in str(exception_failure)) or ('cuda' in str(exception_failure)) or ('compilation' in (str(exception_failure)) ): # Hard fail if a cuda error with a catchable error code
+#     if (opts.internal_soft_fail_on_cuda_error):
+#       sys.exit(0)
+#     sys.exit(62)
+#   if 'Out of memory' in str(exception_failure):   # should never happen, most likely a crappy node or failure to set correct memory limit for ILE.
+#     sys.exit(63)
+#   str_err = " {} ".format(exception_failure)
+#   if ('Zero prior failure' in str_err) or ('effective samples' in str_err):
+#     # common failures that require reset of sampler
+#     #    - zero prior : very rare case where the prior is exactly zero for some reason. User error most likely (floors, etc). Should never happen
+#     #    - effective samples = nan : error with AC where the integrator gets confused. Reset
+#     # reset all variables sampling, so we don't contaminate subsequent versions
+#     #    - again, this should only be a problem if we are using multiply adaptive sampling, so it should NEVER happen on the first time through
+#     for name in sampler.params:
+#       sampler.reset_sampling(param)
 
-  #a sketch of how I would do custom failure modes, but for sake of speed I'm just setting the above right now
-  #for i,failure_mode in enumerate(opts.custom_fails):
-  #  if failure_mode in str(exception_failure):
-  #    sys.exit(opts.custom_fail_codes[i])
+#   #a sketch of how I would do custom failure modes, but for sake of speed I'm just setting the above right now
+#   #for i,failure_mode in enumerate(opts.custom_fails):
+#   #  if failure_mode in str(exception_failure):
+#   #    sys.exit(opts.custom_fail_codes[i])
 
-  print( " Probable reasons: SEOB nyquist or starting frequency limit or signal duration ")
-  print( " Skipping the following binary! ")
-  # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
-  P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
-  P_list[indx].print_params()
+#   print( " Probable reasons: SEOB nyquist or starting frequency limit or signal duration ")
+#   print( " Skipping the following binary! ")
+#   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
+#   P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
+#   P_list[indx].print_params()
   
