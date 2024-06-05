@@ -37,17 +37,17 @@ P.m1 = 1e6 * lal.MSUN_SI
 P.m2 = 5e5 * lal.MSUN_SI
 P.s1z = 0.2
 P.s2z = 0.4
-P.dist = 80e3  * lal.PC_SI * 1e6 
+P.dist = 800e3  * lal.PC_SI * 1e6 
 P.phiref = 0.0   # add phiref later (confirm with ROS)!
 P.inclination = 0.0 # add inclination later (confirm with ROS)!
 P.fref = 8*10**(-5)
 P.fmin = 8*10**(-5)
 P.fmax = 1
-P.deltaF = 1/(8*32768)
+P.deltaF = 1/(16*32768)
 P.deltaT = 0.5/P.fmax
-P.approx = lalsimulation.GetApproximantFromString("IMRPhenomD")
+P.approx = lalsimulation.GetApproximantFromString("IMRPhenomHM")
 P.tref = 0.0
-
+lmax = 2
 beta  = np.pi/6
 lamda = np.pi/5
 psi = np.pi/4
@@ -83,11 +83,13 @@ def create_PSD_injection_figure(data_dict, psd, injection_save_path, snr):
     psd_fvals = psd.f0 + data_dict[channels[0]].deltaF*np.arange(psd.data.length)
     plt.loglog(psd_fvals, np.sqrt(psd_fvals * psd.data.data), label = "PSD", linewidth = 1.5, color = "cornflowerblue")
     plt.legend()
+    plt.gca().set_ylim([10**(-24), 10**(-17)])
+    plt.gca().set_xlim([10**(-4), 1])
     plt.grid(alpha = 0.5)
     plt.savefig(injection_save_path + "/injection-psd.png", bbox_inches = "tight")
     
 print(f"Choose waveform params set to with approx {lalsimulation.GetStringFromApproximant(P.approx)}: \n {P.__dict__}")
-hlmf, hlmf_conj = lalsimutils.std_and_conj_hlmoff(P) 
+hlmf = lalsimutils.hlmoff_for_LISA(P, Lmax = lmax) 
 modes = list(hlmf.keys())
 
 data_dict = create_lisa_injections(hlmf, P.fmax, beta, lamda, psi, inclination, phi_ref, P.tref)
