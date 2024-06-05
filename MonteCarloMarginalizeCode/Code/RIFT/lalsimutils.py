@@ -4468,6 +4468,35 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
 
 
 #LISA 
+
+def hlmoff_for_LISA(P, 
+Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.5,fd_alignment_postevent_time=None,**kwargs):
+    """
+    
+    """
+    assert Lmax >= 2
+
+    # Check that masses are not nan!
+    assert (not np.isnan(P.m1)) and (not np.isnan(P.m2)), " masses are NaN "
+
+    # includes the 'release' version
+    extra_waveform_args = {}
+    if 'extra_waveform_args' in kwargs:
+        extra_waveform_args.update(kwargs['extra_waveform_args'])
+    extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
+    fNyq = 0.5/P.deltaT
+    TDlen = int(1./(P.deltaT*P.deltaF))
+    if fd_alignment_postevent_time:
+        if fd_alignment_postevent_time < TDlen*P.deltaT/2:
+            fd_centering_factor = 1-fd_alignment_postevent_time/(TDlen*P.deltaT)  # align so there is a time fd_alignment_time_postevent
+        else:
+            print(" Warning: fd alignment postevent time requested incompatible with short duration ",file=sys.stderr)
+    hlms_struct = lalsim.SimInspiralChooseFDModes(P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.deltaF, P.fmin*fd_standoff_factor, fNyq, P.fref, P.phiref, P.dist, P.incl, extra_params, P.approx)
+    hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct,Lmax)
+    for mode in hlmsdict:
+          hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
+    return hlmsdict
+
 def frame_h5_to_hoff(fname, channel, start=None, stop=None, verbose=True):
     """
     Function to read in frequency domain data from a h5 file, the h5 file should contain all the information
