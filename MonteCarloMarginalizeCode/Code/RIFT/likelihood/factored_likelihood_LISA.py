@@ -1,5 +1,12 @@
 from __future__ import print_function
+#########
+import sys
+RIFT = "RIFT-LISA-3G-O4c"
+sys.path.append(f"/Users/aasim/Desktop/Research/Mcodes/{RIFT}/MonteCarloMarginalizeCode/Code")
+from scripts_LISA_test.response.LISA_response import *
 
+
+##########
 import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lsu  # problem of relative comprehensive import - dangerous due to package name
@@ -75,223 +82,6 @@ rosDebugMessagesDictionary["DebugMessages"] = False
 rosDebugMessagesDictionary["DebugMessagesLong"] = False
 
 
-def internal_hlm_generator(P, 
-        Lmax, 
-        verbose=True,quiet=False,
-        NR_group=None,NR_param=None,
-        extra_waveform_kwargs={},
-        use_gwsignal=False,
-        use_gwsignal_approx=None,
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False,**kwargs):
-    """
-    internal_hlm_generator: top-level front end to all waveform generators used.
-    Needs to be restructured so it works on a 'hook' basis, so we are not constantly changing the source code
-    """
-    if not( ROM_group is None) and not (ROM_param is None):
-       # For ROM, use the ROM basis. Note that hlmoff -> basis_off henceforth
-       acatHere= romwf.WaveformModeCatalog(ROM_group,ROM_param,max_nbasis_per_mode=ROM_limit_basis_size,lmax=Lmax)
-       if ROM_use_basis:
-            if hybrid_use:
-               # WARNING
-               #    - Hybridization is NOT enabled 
-                    print(" WARNING: Hybridization will not be applied (obviously) if you are using a ROM basis. ")
-            bT = acatHere.basis_oft(P,return_numpy=False,force_T=1./P.deltaF)
-            # Fake names, to re-use the code below.  
-            hlms = {}
-            hlms_conj = {}
-            for mode in bT:
-              if mode[0]<=Lmax:  # don't report waveforms from modes outside the target L range
-                if rosDebugMessagesDictionary["DebugMessagesLong"]:
-                        print(" FFT for mode ", mode, bT[mode].data.length, " note duration = ", bT[mode].data.length*bT[mode].deltaT)
-                hlms[mode] = lsu.DataFourier(bT[mode])
-#                print " FFT for conjugate mode ", mode, bT[mode].data.length
-                bT[mode].data.data = np.conj(bT[mode].data.data)
-                hlms_conj[mode] = lsu.DataFourier(bT[mode])
-
-                # APPLY SCALE FACTOR
-                hlms[mode].data.data *=rom_basis_scale
-                hlms_conj[mode].data.data *=rom_basis_scale
-       else:
-           # enforce tapering of this waveform at start, based on discussion with Aasim
-           # this code is modular but inefficient: the waveform is regenerated twice
-           hlms = acatHere.hlmoff(P, use_basis=False,deltaT=P.deltaT,force_T=1./P.deltaF,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method,**extra_waveform_kwargs)  # Must force duration consistency, very annoying
-           hlms_conj = acatHere.conj_hlmoff(P, force_T=1./P.deltaF, use_basis=False,deltaT=P.deltaT,Lmax=Lmax,hybrid_use=hybrid_use,hybrid_method=hybrid_method,**extra_waveform_kwargs)  # Must force duration consistency, very annoying
-           mode_list = list(hlms.keys())  # make copy: dictionary will change during iteration
-           for mode in mode_list:
-                   if no_memory and mode[1]==0 and P.SoftAlignedQ():
-                           # skip memory modes if requested to do so. DANGER
-                        print(" WARNING: Deleting memory mode in precompute stage ", mode)
-                        del hlms[mode]
-                        del hlms_conj[mode]
-                        continue
-
-
-    elif use_gwsignal and (has_GWS):  # this MUST be called first, so the P.approx is never tested
-        if not quiet:
-            print( "  FACTORED LIKELIHOOD WITH hlmoff (GWsignal) " )            
-        hlms, hlms_conj = rgws.std_and_conj_hlmoff(P,Lmax,approx_string=use_gwsignal_approx,**extra_waveform_kwargs)
-
-    elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx ==lsu.lalSEOBNRv4HM or P.approx == lalsim.EOBNRv2 or P.approx == lsu.lalTEOBv2 or P.approx==lsu.lalTEOBv4 ):
-        # note: alternative to this branch is to call hlmoff, which will actually *work* if ChooseTDModes is propertly implemented for that model
-        #   or P.approx == lsu.lalSEOBNRv4PHM or P.approx == lsu.lalSEOBNRv4P  
-        if not quiet:
-                print("  FACTORED LIKELIHOOD WITH SEOB ")
-        hlmsT = {}
-        hlmsT = lsu.hlmoft(P,Lmax)  # do a standard function call NOT anything special; should be wrapped properly now!
-        # if P.approx == lalsim.SEOBNRv3:
-        #         hlmsT = lsu.hlmoft_SEOBv3_dict(P)  # only 2,2 modes -- Lmax irrelevant
-        # else:
-        #         if useNR:
-        #                 nrwf.HackRoundTransverseSpin(P) # HACK, to make reruns of NR play nicely, without needing to rerun
-
-        #         hlmsT = lsu.hlmoft_SEOB_dict(P, Lmax)  # only 2,2 modes -- Lmax irrelevant
-        if not quiet:
-                print("  hlm generation complete ")
-        if P.approx == lalsim.SEOBNRv3 or  P.deltaF == None: # h_lm(t) should be zero-padded properly inside code
-                TDlen = int(1./(P.deltaF*P.deltaT))#TDlen = lsu.nextPow2(hlmsT[(2,2)].data.length)
-                if not quiet:
-                        print(" Resizing to ", TDlen, " from ", hlmsT[(2,2)].data.length)
-                for mode in hlmsT:
-                        hlmsT[mode] = lal.ResizeCOMPLEX16TimeSeries(hlmsT[mode],0, TDlen)
-                #h22 = hlmsT[(2,2)]
-                #h2m2 = hlmsT[(2,-2)]
-                #hlmsT[(2,2)] = lal.ResizeCOMPLEX16TimeSeries(h22, 0, TDlen)
-                #hlmsT[(2,-2)] = lal.ResizeCOMPLEX16TimeSeries(h2m2, 0, TDlen)
-        hlms = {}
-        hlms_conj = {}
-        for mode in hlmsT:
-                if verbose:
-                        print(" FFT for mode ", mode, hlmsT[mode].data.length, " note duration = ", hlmsT[mode].data.length*hlmsT[mode].deltaT)
-                hlms[mode] = lsu.DataFourier(hlmsT[mode])
-                if verbose:
-                        print(" -> ", hlms[mode].data.length)
-                        print(" FFT for conjugate mode ", mode, hlmsT[mode].data.length)
-                hlmsT[mode].data.data = np.conj(hlmsT[mode].data.data)
-                hlms_conj[mode] = lsu.DataFourier(hlmsT[mode])
-    elif (not (NR_group) or not (NR_param)) and  (not use_external_EOB) and (not nr_lookup) and (not use_gwsignal):
-        if not quiet:
-                print( "  FACTORED LIKELIHOOD WITH hlmoff (default ChooseTDModes) " )
-        # hlms_list = lsu.hlmoff(P, Lmax) # a linked list of hlms
-        # if not isinstance(hlms_list, dict):
-        #         hlms = lsu.SphHarmFrequencySeries_to_dict(hlms_list, Lmax) # a dictionary
-        # else:
-        #         hlms = hlms_list
-        # hlms_conj_list = lsu.conj_hlmoff(P, Lmax)
-        # if not isinstance(hlms_list,dict):
-        #         hlms_conj = lsu.SphHarmFrequencySeries_to_dict(hlms_conj_list, Lmax) # a dictionary
-        # else:
-        #         hlms_conj = hlms_conj_list
-        hlms, hlms_conj = lsu.std_and_conj_hlmoff(P,Lmax,**extra_waveform_kwargs)
-    elif (nr_lookup or NR_group) and useNR:
-	    # look up simulation
-	    # use nrwf to get hlmf
-        print(" Using NR waveforms ")
-        group = None
-        param = None
-        if nr_lookup:
-                compare_dict = {}
-                compare_dict['q'] = P.m2/P.m1 # Need to match the template parameter. NOTE: VERY IMPORTANT that P is updated with the event params
-                compare_dict['s1z'] = P.s1z
-                compare_dict['s1x'] = P.s1x
-                compare_dict['s1y'] = P.s1y
-                compare_dict['s2z'] = P.s2z
-                compare_dict['s2x'] = P.s2x
-                compare_dict['s2y'] = P.s2y
-                print(" Parameter matching condition ", compare_dict)
-                good_sim_list = nrwf.NRSimulationLookup(compare_dict,valid_groups=nr_lookup_valid_groups)
-                if len(good_sim_list)< 1:
-                        print(" ------- NO MATCHING SIMULATIONS FOUND ----- ")
-                        import sys
-                        sys.exit(0)
-                        print(" Identified set of matching NR simulations ", good_sim_list)
-                try:
-                        print("   Attempting to pick longest simulation matching  the simulation  ")
-                        MOmega0  = 1
-                        good_sim = None
-                        for key in good_sim_list:
-                                print(key, nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]])
-                                if nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0'] < MOmega0:
-                                        good_sim = key
-                                        MOmega0 = nrwf.internal_WaveformMetadata[key[0]][key[1]]['Momega0']
-                                print(" Picked  ",key,  " with MOmega0 ", MOmega0, " and peak duration ", nrwf.internal_EstimatePeakL2M2Emission[key[0]][key[1]])
-                except:
-                        good_sim  = good_sim_list[0] # pick the first one.  Note we will want to reduce /downselect the lookup process
-                group = good_sim[0]
-                param = good_sim[1]
-        else:
-                group = NR_group
-                param = NR_param
-        print(" Identified matching NR simulation ", group, param)
-        mtot = P.m1 + P.m2
-        q = P.m2/P.m1
-        # Load the catalog
-        wfP = nrwf.WaveformModeCatalog(group, param, \
-                                       clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True,perturbative_extraction_full=perturbative_extraction_full,perturbative_extraction=perturbative_extraction,lmax=Lmax,align_at_peak_l2_m2_emission=True, build_strain_and_conserve_memory=True,use_provided_strain=use_provided_strain)
-        # Overwrite the parameters in wfP to set the desired scale
-        wfP.P.m1 = mtot/(1+q)
-        wfP.P.m2 = mtot*q/(1+q)
-        wfP.P.dist =distMpcRef*1e6*lal.PC_SI  # fiducial distance
-        wfP.P.approx = P.approx
-        wfP.P.deltaT = P.deltaT
-        wfP.P.deltaF = P.deltaF
-        wfP.P.fmin = P.fmin
-
-        hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # force a window.  Check the time
-        hlms_conj = wfP.conj_hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF,hybrid_use=hybrid_use)  # force a window.  Check the time
-
-        if rosDebugMessages:
-                print("NR variant: Length check: ",hlms[(2,2)].data.length, first_data.data.length)
-        # Remove memory modes (ALIGNED ONLY: Dangerous for precessing spins)
-        if no_memory and wfP.P.SoftAlignedQ():
-                for key in hlms.keys():
-                        if key[1]==0:
-                                hlms[key].data.data *=0.
-                                hlms_conj[key].data.data *=0.
-
-
-    elif hasEOB and use_external_EOB:
-            print("    Using external EOB interface (Bernuzzi)    ")
-            # Code WILL FAIL IF LAMBDA=0
-            P.taper = lsu.lsu_TAPER_START
-            lambda_crit=1e-3  # Needed to have adequate i/o output 
-            if P.lambda1<lambda_crit:
-                    P.lambda1=lambda_crit
-            if P.lambda2<lambda_crit:
-                    P.lambda2=lambda_crit
-            if P.deltaT > 1./16384:
-                    print(" Bad idea to use such a low sampling rate for EOB tidal ")
-            wfP = eobwf.WaveformModeCatalog(P,lmax=Lmax)
-            hlms = wfP.hlmoff(force_T=1./P.deltaF,deltaT=P.deltaT)
-            # Reflection symmetric
-            hlms_conj = wfP.conj_hlmoff(force_T=1./P.deltaF,deltaT=P.deltaT)
-
-            # Code will not make the EOB waveform shorter, so the code can fail if you have insufficient data, later
-            print(" External EOB length check ", hlms[(2,2)].data.length, first_data.data.length, first_data.data.length*P.deltaT)
-            print(" External EOB length check (in M) ", end=' ')
-            print(" Comparison EOB duration check vs epoch vs window size (sec) ", wfP.estimateDurationSec(),  -hlms[(2,2)].epoch, 1./hlms[(2,2)].deltaF)
-            assert hlms[(2,2)].data.length ==first_data.data.length
-            if rosDebugMessagesDictionary["DebugMessagesLong"]:
-                    hlmT_ref = lsu.DataInverseFourier(hlms[(2,2)])
-                    print(" External EOB: Time offset of largest sample (should be zero) ", hlms[(2,2)].epoch + np.argmax(np.abs(hlmT_ref.data.data))*P.deltaT)
-    elif useNR: # NR signal required
-        mtot = P.m1 + P.m2
-        # Load the catalog
-        wfP = nrwf.WaveformModeCatalog(NR_group, NR_param, \
-                                           clean_initial_transient=True,clean_final_decay=True, shift_by_extraction_radius=True, 
-                                       lmax=Lmax,align_at_peak_l2_m2_emission=True,use_provided_strain=use_provided_strain)
-        # Overwrite the parameters in wfP to set the desired scale
-        q = wfP.P.m2/wfP.P.m1
-        wfP.P.m1 *= mtot/(1+q)
-        wfP.P.m2 *= mtot*q/(1+q)
-        wfP.P.dist =distMpcRef*1e6*lal.PC_SI  # fiducial distance.
-
-        hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF)  # force a window
-    else:
-            print(" No waveform available ")
-            import sys
-            sys.exit(0)
-
-    return hlms, hlms_conj
 
 #
 # Main driver functions
@@ -323,10 +113,11 @@ def ComputeIPTimeSeries(IP, hf, data, N_shift, N_window, analyticPSD_Q=False,
     tmp= lsu.DataRollBins(rhoTS, N_shift)  # restore functionality for bidirectional shifts: waveform need not start at t=0
     rho_time_series =lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
     if debug:
-        print(f"Max in the original series = {np.max(rhoTS.data.data)}, Max in the truncated series = {np.max(rho_time_series.data.data)}")
+        print(f"Max in the original series = {np.max(rhoTS.data.data)}, Max in the truncated series = {np.max(rho_time_series.data.data)}, max index in the original series = {np.argmax(rhoTS.data.data)}.")
     return rho_time_series
 
 def PrecomputeAlignedSpinLISA(tref, t_window, hlms, hlms_conj, data_dict, psd_dict, flow, fNyq, fhigh, deltaT,  beta, lamda, analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0.):
+    print(f"PrecomputeAlignedSpinLISA has been called with the following arguments: {locals()}")
    # GENERATE DETECTOR RESPONSE
    # Compute time truncation (this assumes no existing time shifts, so don't inlcude them)
    # Compute Qlm (order of entires in the IP, conj, t_ref)
@@ -497,8 +288,14 @@ def PrecomputeAlignedSpinLISA(tref, t_window, hlms, hlms_conj, data_dict, psd_di
                     U_lm_pq[f"{channel}_{p}_{q}_zz_{l}_{m}_yy"] = np.conj(U_lm_pq[f"{channel}_{l}_{m}_yy_{p}_{q}_zz"])
                     U_lm_pq[f"{channel}_{p}_{q}_zz_{l}_{m}_yz"] = np.conj(U_lm_pq[f"{channel}_{l}_{m}_yz_{p}_{q}_zz"])
                     U_lm_pq[f"{channel}_{p}_{q}_zz_{l}_{m}_zz"] = np.conj(U_lm_pq[f"{channel}_{l}_{m}_zz_{p}_{q}_zz"])
-                
-    return collect_mode_terms, Q_lm, U_lm_pq
+
+    # Match RIFT's output
+    guess_snr = None # right now, it is painful to evaluate this
+    rholms_intp = None
+    V_lm_pq = None
+    rest = None
+    # current RIFT output for precompute rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest     
+    return rholms_intp, U_lm_pq, V_lm_pq,  Q_lm,  guess_snr, rest
 
 
 def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclination, phi_ref, distance, modes, reference_distance):
@@ -588,10 +385,11 @@ def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclinat
     total_lnL = 0
     for channel in ["A", "E", "T"]:
         total_lnL += np.real(reference_distance/distance * Qlm[channel] - ((reference_distance/distance)**2)*0.5*Ulmpq[channel])
+    # shape (time terms, extrinsic_params)
     Q_lm_term = list(Q_lm.keys())[0]
-    L_t = np.exp(total_lnL - np.max(total_lnL))
+    L_t = np.exp(total_lnL - np.max(total_lnL, axis=0))
     L = integrate.simpson(L_t, dx = Q_lm[Q_lm_term].deltaT, axis=0) #P.deltaT
-    lnL  = np.max(total_lnL) + L
+    lnL  = np.max(total_lnL, axis=0) + L
     return lnL
 
 
