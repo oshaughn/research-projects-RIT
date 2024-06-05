@@ -33,7 +33,7 @@ else:
     import EOBRun_module
     has_external_teobresum=True
  except:
-    print('Failed to import EOBRun_module')
+    #print('Failed to import EOBRun_module')
     has_external_teobresum=False
     True; # print(" - no EOBRun (TEOBResumS) - ")
 info_use_resum_polarizations = False
