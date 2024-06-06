@@ -360,8 +360,9 @@ def get_beta_lamda_psi_terms_Hp(beta, lamda, psi):
                 np.cos(beta)*np.sin(psi)*(-np.cos(lamda)*np.cos(psi) - np.sin(beta)*np.sin(lamda)*np.sin(psi)))
     
     zz_term = (-np.cos(beta)**2 * np.cos(psi)**2 + np.cos(beta)**2 * np.sin(psi)**2)
+    combined = np.vstack([xx_term, xy_term, xz_term, yy_term, yz_term, zz_term])
 
-    return xx_term, xy_term, xz_term, yy_term, yz_term, zz_term
+    return combined
 
 def get_beta_lamda_psi_terms_Hc(beta, lamda, psi):
     """This function gives beta lamda psi terms for each term when we split up n_l * P_lm * n_l in equation 21 of http://arxiv.org/abs/2003.00357. We need this to bring out the psi dependence to marginalize over 
@@ -395,7 +396,8 @@ it. This gives those terms after we transform the cross polarization's frame to 
     
     zz_term = 2 * np.cos(beta)**2 * np.cos(psi) * np.sin(psi)
 
-    return xx_term, xy_term, xz_term, yy_term, yz_term, zz_term
+    combined = np.vstack([xx_term, xy_term, xz_term, yy_term, yz_term, zz_term])
+    return combined
 
 
 def Evaluate_Gslr_test_2(tf, f, beta, lamda):
