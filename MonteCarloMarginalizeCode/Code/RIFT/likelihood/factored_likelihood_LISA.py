@@ -294,8 +294,8 @@ def PrecomputeAlignedSpinLISA(tref, t_window, hlms, hlms_conj, data_dict, psd_di
     rholms_intp = None
     V_lm_pq = None
     rest = None
-    # current RIFT output for precompute rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest     
-    return rholms_intp, U_lm_pq, V_lm_pq,  Q_lm,  guess_snr, rest
+    # current RIFT output for precompute is: rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest     
+    return rholms_intp, U_lm_pq, V_lm_pq, Q_lm, guess_snr, rest
 
 
 def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclination, phi_ref, distance, modes, reference_distance):
@@ -304,6 +304,8 @@ def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclinat
     # call psi terms
     plus_terms = get_beta_lamda_psi_terms_Hp(beta, lam, psi)
     cross_terms =  get_beta_lamda_psi_terms_Hc(beta, lam, psi)
+    terms = 0.5*(plus_terms - 1j*cross_terms)
+    conj_terms = 0.5*(plus_terms + 1j*cross_terms)
 
     # call spherical harmonics 
     factor = np.ones(modes.shape)
@@ -312,84 +314,95 @@ def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclinat
     spherical_harmonics  = SphericalHarmonicsVectorized(modes, inclination, -phi_ref)
     negative_m_harmonics = SphericalHarmonicsVectorized(negative_m_modes, inclination, -phi_ref)
 
+    term_lm_conj_conjterm_lm__ = {}
+    conjterm_lm_term_lm__conj = {}
+
     Qlm = {}
     Qlm["A"], Qlm["E"], Qlm["T"] = 0, 0, 0
-
     for i, mode in enumerate(modes):
         l, m = mode[0], mode[1]
+
+        # This is used in calculating Ulmpq too, so we will save it now instead of calculating it again
         Sp_harm_lm, Sp_harm_lm_  = spherical_harmonics[:,i], negative_m_harmonics[:,i]
-        Sp_harm_lm_conjugate = np.conj((Sp_harm_lm))
+        Sp_harm_lm_conjugate, Sp_harm_lm__conjugate = np.conj((Sp_harm_lm)), np.conj(Sp_harm_lm_)
+
+        term_lm_conj_conjterm_lm__[f"{l}_{m}"] = (terms)*Sp_harm_lm_conjugate + (-1)**(l)*(conj_terms)*(Sp_harm_lm_) 
+        conjterm_lm_term_lm__conj[f"{l}_{m}"]  = conj_terms*(Sp_harm_lm) + (-1)**(l)*(terms)*Sp_harm_lm__conjugate
+
         for channel in ["A", "E", "T"]:
-            Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_xx"].data.data.reshape(-1,1) * (0.5*(plus_terms[0] - 1j*cross_terms[0])*Sp_harm_lm_conjugate + 0.5*(-1)**(l)*(plus_terms[0] + 1j*cross_terms[0])*(Sp_harm_lm_))
-            Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_xy"].data.data.reshape(-1,1) * (0.5*(plus_terms[1] - 1j*cross_terms[1])*Sp_harm_lm_conjugate + 0.5*(-1)**(l)*(plus_terms[1] + 1j*cross_terms[1])*(Sp_harm_lm_))
-            Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_xz"].data.data.reshape(-1,1) * (0.5*(plus_terms[2] - 1j*cross_terms[2])*Sp_harm_lm_conjugate + 0.5*(-1)**(l)*(plus_terms[2] + 1j*cross_terms[2])*(Sp_harm_lm_))
-            Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_yy"].data.data.reshape(-1,1) * (0.5*(plus_terms[3] - 1j*cross_terms[3])*Sp_harm_lm_conjugate + 0.5*(-1)**(l)*(plus_terms[3] + 1j*cross_terms[3])*(Sp_harm_lm_))
-            Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_yz"].data.data.reshape(-1,1) * (0.5*(plus_terms[4] - 1j*cross_terms[4])*Sp_harm_lm_conjugate + 0.5*(-1)**(l)*(plus_terms[4] + 1j*cross_terms[4])*(Sp_harm_lm_))
-            Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_zz"].data.data.reshape(-1,1) * (0.5*(plus_terms[5] - 1j*cross_terms[5])*Sp_harm_lm_conjugate + 0.5*(-1)**(l)*(plus_terms[5] + 1j*cross_terms[5])*(Sp_harm_lm_))
+            Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_xx"].data.data.reshape(-1,1) * (term_lm_conj_conjterm_lm__[f"{l}_{m}"][0])
+            Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_xy"].data.data.reshape(-1,1) * (term_lm_conj_conjterm_lm__[f"{l}_{m}"][1])
+            Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_xz"].data.data.reshape(-1,1) * (term_lm_conj_conjterm_lm__[f"{l}_{m}"][2])
+            Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_yy"].data.data.reshape(-1,1) * (term_lm_conj_conjterm_lm__[f"{l}_{m}"][3])
+            Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_yz"].data.data.reshape(-1,1) * (term_lm_conj_conjterm_lm__[f"{l}_{m}"][4])
+            Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_zz"].data.data.reshape(-1,1) * (term_lm_conj_conjterm_lm__[f"{l}_{m}"][5])
+            # Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_xx"].data.data.reshape(-1,1) * (0.5*(plus_terms[0] - 1j*cross_terms[0])*Sp_harm_lm_conjugate + 0.5*(-1)**(l)*(plus_terms[0] + 1j*cross_terms[0])*(Sp_harm_lm_))
+            # Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_xy"].data.data.reshape(-1,1) * (0.5*(plus_terms[1] - 1j*cross_terms[1])*Sp_harm_lm_conjugate + 0.5*(-1)**(l)*(plus_terms[1] + 1j*cross_terms[1])*(Sp_harm_lm_))
+            # Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_xz"].data.data.reshape(-1,1) * (0.5*(plus_terms[2] - 1j*cross_terms[2])*Sp_harm_lm_conjugate + 0.5*(-1)**(l)*(plus_terms[2] + 1j*cross_terms[2])*(Sp_harm_lm_))
+            # Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_yy"].data.data.reshape(-1,1) * (0.5*(plus_terms[3] - 1j*cross_terms[3])*Sp_harm_lm_conjugate + 0.5*(-1)**(l)*(plus_terms[3] + 1j*cross_terms[3])*(Sp_harm_lm_))
+            # Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_yz"].data.data.reshape(-1,1) * (0.5*(plus_terms[4] - 1j*cross_terms[4])*Sp_harm_lm_conjugate + 0.5*(-1)**(l)*(plus_terms[4] + 1j*cross_terms[4])*(Sp_harm_lm_))
+            # Qlm[channel] += Q_lm[f"{channel}_{l}_{m}_zz"].data.data.reshape(-1,1) * (0.5*(plus_terms[5] - 1j*cross_terms[5])*Sp_harm_lm_conjugate + 0.5*(-1)**(l)*(plus_terms[5] + 1j*cross_terms[5])*(Sp_harm_lm_))
 
     Ulmpq = {}
     Ulmpq["A"], Ulmpq["E"], Ulmpq["T"] = 0, 0, 0
-    for i, mode in enumerate(modes):
+    for i in np.arange(len(modes)):
         l, m = modes[i][0], modes[i][1]
-        
-        Sp_harm_lm, Sp_harm_lm_ = spherical_harmonics[:,i], negative_m_harmonics[:,i]
-        Sp_harm_lm__conjugate = np.conj(Sp_harm_lm_),
-        for j, mode in enumerate(modes): 
+        for j in np.arange(len(modes))[i:]:
             p, q =  modes[j][0], modes[j][1]
-
-            Sp_harm_pq, Sp_harm_pq_  = spherical_harmonics[:,j], negative_m_harmonics[:,j]
-            Sp_harm_pq_conjugate =  np.conj(Sp_harm_pq)
-
             for channel in ["A", "E", "T"]:
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_xx"]* (0.5*(plus_terms[0] + 1j*cross_terms[0])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[0] - 1j*cross_terms[0])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[0] - 1j*cross_terms[0])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[0] + 1j*cross_terms[0])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_xy"]* (0.5*(plus_terms[0] + 1j*cross_terms[0])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[0] - 1j*cross_terms[0])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[1] - 1j*cross_terms[1])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[1] + 1j*cross_terms[1])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_xz"]* (0.5*(plus_terms[0] + 1j*cross_terms[0])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[0] - 1j*cross_terms[0])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[2] - 1j*cross_terms[2])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[2] + 1j*cross_terms[2])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_yy"]* (0.5*(plus_terms[0] + 1j*cross_terms[0])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[0] - 1j*cross_terms[0])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[3] - 1j*cross_terms[3])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[3] + 1j*cross_terms[3])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_yz"]* (0.5*(plus_terms[0] + 1j*cross_terms[0])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[0] - 1j*cross_terms[0])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[4] - 1j*cross_terms[4])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[4] + 1j*cross_terms[4])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_zz"]* (0.5*(plus_terms[0] + 1j*cross_terms[0])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[0] - 1j*cross_terms[0])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[5] - 1j*cross_terms[5])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[5] + 1j*cross_terms[5])*(Sp_harm_pq_))
+                temp_value = 0.0 # so we can exploit conjugate symmetry! (tested)
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_xx"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][0]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][0])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_xy"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][0]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][1])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_xz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][0]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][2])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_yy"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][0]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][3])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_yz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][0]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][4])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_zz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][0]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][5])
 
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xy_{p}_{q}_xx"]* (0.5*(plus_terms[1] + 1j*cross_terms[1])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[1] - 1j*cross_terms[1])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[0] - 1j*cross_terms[0])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[0] + 1j*cross_terms[0])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xy_{p}_{q}_xy"]* (0.5*(plus_terms[1] + 1j*cross_terms[1])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[1] - 1j*cross_terms[1])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[1] - 1j*cross_terms[1])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[1] + 1j*cross_terms[1])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xy_{p}_{q}_xz"]* (0.5*(plus_terms[1] + 1j*cross_terms[1])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[1] - 1j*cross_terms[1])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[2] - 1j*cross_terms[2])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[2] + 1j*cross_terms[2])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xy_{p}_{q}_yy"]* (0.5*(plus_terms[1] + 1j*cross_terms[1])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[1] - 1j*cross_terms[1])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[3] - 1j*cross_terms[3])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[3] + 1j*cross_terms[3])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xy_{p}_{q}_yz"]* (0.5*(plus_terms[1] + 1j*cross_terms[1])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[1] - 1j*cross_terms[1])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[4] - 1j*cross_terms[4])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[4] + 1j*cross_terms[4])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xy_{p}_{q}_zz"]* (0.5*(plus_terms[1] + 1j*cross_terms[1])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[1] - 1j*cross_terms[1])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[5] - 1j*cross_terms[5])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[5] + 1j*cross_terms[5])*(Sp_harm_pq_))
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xy_{p}_{q}_xx"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][1]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][0])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xy_{p}_{q}_xy"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][1]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][1])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xy_{p}_{q}_xz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][1]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][2])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xy_{p}_{q}_yy"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][1]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][3])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xy_{p}_{q}_yz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][1]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][4])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xy_{p}_{q}_zz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][1]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][5])
 
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xz_{p}_{q}_xx"]* (0.5*(plus_terms[2] + 1j*cross_terms[2])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[2] - 1j*cross_terms[2])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[0] - 1j*cross_terms[0])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[0] + 1j*cross_terms[0])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xz_{p}_{q}_xy"]* (0.5*(plus_terms[2] + 1j*cross_terms[2])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[2] - 1j*cross_terms[2])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[1] - 1j*cross_terms[1])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[1] + 1j*cross_terms[1])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xz_{p}_{q}_xz"]* (0.5*(plus_terms[2] + 1j*cross_terms[2])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[2] - 1j*cross_terms[2])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[2] - 1j*cross_terms[2])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[2] + 1j*cross_terms[2])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xz_{p}_{q}_yy"]* (0.5*(plus_terms[2] + 1j*cross_terms[2])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[2] - 1j*cross_terms[2])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[3] - 1j*cross_terms[3])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[3] + 1j*cross_terms[3])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xz_{p}_{q}_yz"]* (0.5*(plus_terms[2] + 1j*cross_terms[2])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[2] - 1j*cross_terms[2])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[4] - 1j*cross_terms[4])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[4] + 1j*cross_terms[4])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_xz_{p}_{q}_zz"]* (0.5*(plus_terms[2] + 1j*cross_terms[2])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[2] - 1j*cross_terms[2])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[5] - 1j*cross_terms[5])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[5] + 1j*cross_terms[5])*(Sp_harm_pq_))
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xz_{p}_{q}_xx"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][2]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][0])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xz_{p}_{q}_xy"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][2]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][1])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xz_{p}_{q}_xz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][2]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][2])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xz_{p}_{q}_yy"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][2]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][3])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xz_{p}_{q}_yz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][2]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][4])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_xz_{p}_{q}_zz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][2]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][5])
 
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_yy_{p}_{q}_xx"]* (0.5*(plus_terms[3] + 1j*cross_terms[3])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[3] - 1j*cross_terms[3])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[0] - 1j*cross_terms[0])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[0] + 1j*cross_terms[0])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_yy_{p}_{q}_xy"]* (0.5*(plus_terms[3] + 1j*cross_terms[3])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[3] - 1j*cross_terms[3])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[1] - 1j*cross_terms[1])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[1] + 1j*cross_terms[1])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_yy_{p}_{q}_xz"]* (0.5*(plus_terms[3] + 1j*cross_terms[3])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[3] - 1j*cross_terms[3])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[2] - 1j*cross_terms[2])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[2] + 1j*cross_terms[2])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_yy_{p}_{q}_yy"]* (0.5*(plus_terms[3] + 1j*cross_terms[3])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[3] - 1j*cross_terms[3])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[3] - 1j*cross_terms[3])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[3] + 1j*cross_terms[3])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_yy_{p}_{q}_yz"]* (0.5*(plus_terms[3] + 1j*cross_terms[3])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[3] - 1j*cross_terms[3])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[4] - 1j*cross_terms[4])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[4] + 1j*cross_terms[4])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_yy_{p}_{q}_zz"]* (0.5*(plus_terms[3] + 1j*cross_terms[3])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[3] - 1j*cross_terms[3])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[5] - 1j*cross_terms[5])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[5] + 1j*cross_terms[5])*(Sp_harm_pq_))
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_yy_{p}_{q}_xx"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][3]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][0])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_yy_{p}_{q}_xy"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][3]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][1])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_yy_{p}_{q}_xz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][3]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][2])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_yy_{p}_{q}_yy"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][3]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][3])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_yy_{p}_{q}_yz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][3]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][4])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_yy_{p}_{q}_zz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][3]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][5])
 
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_yz_{p}_{q}_xx"]* (0.5*(plus_terms[4] + 1j*cross_terms[4])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[4] - 1j*cross_terms[4])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[0] - 1j*cross_terms[0])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[0] + 1j*cross_terms[0])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_yz_{p}_{q}_xy"]* (0.5*(plus_terms[4] + 1j*cross_terms[4])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[4] - 1j*cross_terms[4])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[1] - 1j*cross_terms[1])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[1] + 1j*cross_terms[1])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_yz_{p}_{q}_xz"]* (0.5*(plus_terms[4] + 1j*cross_terms[4])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[4] - 1j*cross_terms[4])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[2] - 1j*cross_terms[2])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[2] + 1j*cross_terms[2])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_yz_{p}_{q}_yy"]* (0.5*(plus_terms[4] + 1j*cross_terms[4])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[4] - 1j*cross_terms[4])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[3] - 1j*cross_terms[3])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[3] + 1j*cross_terms[3])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_yz_{p}_{q}_yz"]* (0.5*(plus_terms[4] + 1j*cross_terms[4])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[4] - 1j*cross_terms[4])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[4] - 1j*cross_terms[4])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[4] + 1j*cross_terms[4])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_yz_{p}_{q}_zz"]* (0.5*(plus_terms[4] + 1j*cross_terms[4])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[4] - 1j*cross_terms[4])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[5] - 1j*cross_terms[5])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[5] + 1j*cross_terms[5])*(Sp_harm_pq_))
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_yz_{p}_{q}_xx"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][4]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][0])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_yz_{p}_{q}_xy"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][4]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][1])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_yz_{p}_{q}_xz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][4]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][2])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_yz_{p}_{q}_yy"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][4]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][3])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_yz_{p}_{q}_yz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][4]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][4])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_yz_{p}_{q}_zz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][4]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][5])
 
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_zz_{p}_{q}_xx"]* (0.5*(plus_terms[5] + 1j*cross_terms[5])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[5] - 1j*cross_terms[5])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[0] - 1j*cross_terms[0])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[0] + 1j*cross_terms[0])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_zz_{p}_{q}_xy"]* (0.5*(plus_terms[5] + 1j*cross_terms[5])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[5] - 1j*cross_terms[5])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[1] - 1j*cross_terms[1])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[1] + 1j*cross_terms[1])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_zz_{p}_{q}_xz"]* (0.5*(plus_terms[5] + 1j*cross_terms[5])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[5] - 1j*cross_terms[5])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[2] - 1j*cross_terms[2])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[2] + 1j*cross_terms[2])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_zz_{p}_{q}_yy"]* (0.5*(plus_terms[5] + 1j*cross_terms[5])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[5] - 1j*cross_terms[5])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[3] - 1j*cross_terms[3])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[3] + 1j*cross_terms[3])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_zz_{p}_{q}_yz"]* (0.5*(plus_terms[5] + 1j*cross_terms[5])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[5] - 1j*cross_terms[5])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[4] - 1j*cross_terms[4])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[4] + 1j*cross_terms[4])*(Sp_harm_pq_))
-                Ulmpq[channel] += U_lm_pq[f"{channel}_{l}_{m}_zz_{p}_{q}_zz"]* (0.5*(plus_terms[5] + 1j*cross_terms[5])*(Sp_harm_lm) + 0.5*(-1)**(l)*(plus_terms[5] - 1j*cross_terms[5])*Sp_harm_lm__conjugate) * (0.5*(plus_terms[5] - 1j*cross_terms[5])*Sp_harm_pq_conjugate + 0.5*(-1)**(p)*(plus_terms[5] + 1j*cross_terms[5])*(Sp_harm_pq_))
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_zz_{p}_{q}_xx"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][5]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][0])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_zz_{p}_{q}_xy"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][5]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][1])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_zz_{p}_{q}_xz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][5]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][2])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_zz_{p}_{q}_yy"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][5]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][3])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_zz_{p}_{q}_yz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][5]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][4])
+                temp_value += U_lm_pq[f"{channel}_{l}_{m}_zz_{p}_{q}_zz"]* (conjterm_lm_term_lm__conj[f"{l}_{m}"][5]) * (term_lm_conj_conjterm_lm__[f"{p}_{q}"][5])
+                if (l,m) != (p,q):
+                    temp_value += np.conj(temp_value)
+                Ulmpq[channel] += temp_value
     total_lnL = 0
     for channel in ["A", "E", "T"]:
         total_lnL += np.real(reference_distance/distance * Qlm[channel] - ((reference_distance/distance)**2)*0.5*Ulmpq[channel])
-    # shape (time terms, extrinsic_params)
+    # shape (time terms, extrinsic_params), integrating in time --> axis 0
     Q_lm_term = list(Q_lm.keys())[0]
     L_t = np.exp(total_lnL - np.max(total_lnL, axis=0))
     L = integrate.simpson(L_t, dx = Q_lm[Q_lm_term].deltaT, axis=0) #P.deltaT
-    lnL  = np.max(total_lnL, axis=0) + L
-    return lnL
+    lnL  = np.max(total_lnL, axis=0) + np.log(L)
+    return lnL , Qlm, Ulmpq
 
 
