@@ -403,6 +403,6 @@ def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclinat
     L_t = np.exp(total_lnL - np.max(total_lnL, axis=0))
     L = integrate.simpson(L_t, dx = Q_lm[Q_lm_term].deltaT, axis=0) #P.deltaT
     lnL  = np.max(total_lnL, axis=0) + np.log(L)
-    return lnL , Qlm, Ulmpq
+    return lnL
 
 
