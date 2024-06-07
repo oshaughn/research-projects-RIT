@@ -3962,7 +3962,7 @@ def SphHarmTimeSeries_to_dict(hlms, Lmax):
 
     return hlm_dict
 
-def SphHarmFrequencySeries_to_dict(hlms, Lmax):
+def SphHarmFrequencySeries_to_dict(hlms, Lmax, modes=None):
     """
     Convert a SphHarmFrequencySeries SWIG-wrapped linked list into a dictionary.
 
@@ -3975,12 +3975,20 @@ def SphHarmFrequencySeries_to_dict(hlms, Lmax):
     if isinstance(hlms, dict):
         return hlms
     hlm_dict = {}
-    for l in range(2, Lmax+1):
-        for m in range(-l, l+1):
+    ## Allow for specific modes
+    if modes:
+        for mode in modes:
+            l, m = mode[0], mode[1]
             hxx = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
             if hxx is not None:
                 hlm_dict[(l,m)] = hxx
-
+    ## use for lmax, we use Lmax=2 by default so modes should be none by default.
+    else:
+        for l in range(2, Lmax+1):
+            for m in range(-l, l+1):
+                hxx = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
+                if hxx is not None:
+                    hlm_dict[(l,m)] = hxx
     return hlm_dict
 
 def complex_hoft(P, sgn=-1,**kwargs):
@@ -4470,7 +4478,7 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
 #LISA 
 
 def hlmoff_for_LISA(P, 
-Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964,no_condition=False,fd_L_frame=False,fd_centering_factor=0.5,fd_alignment_postevent_time=None,**kwargs):
+Lmax=2, modes=None, nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964, no_condition=False, fd_L_frame=False, fd_centering_factor=0.5, fd_alignment_postevent_time=None,**kwargs):
     """
     
     """
@@ -4492,7 +4500,7 @@ Lmax=2,nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_s
         else:
             print(" Warning: fd alignment postevent time requested incompatible with short duration ",file=sys.stderr)
     hlms_struct = lalsim.SimInspiralChooseFDModes(P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.deltaF, P.fmin*fd_standoff_factor, fNyq, P.fref, P.phiref, P.dist, P.incl, extra_params, P.approx)
-    hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct,Lmax)
+    hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct, Lmax, modes)
     for mode in hlmsdict:
           hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
     return hlmsdict

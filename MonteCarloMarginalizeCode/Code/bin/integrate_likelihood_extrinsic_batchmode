@@ -252,7 +252,8 @@ optp.add_option("--save-eccentricity", action="store_true")
 optp.add_option("--LISA", action="store_true", help = "Let the code know that you are analysing LISA data. For now makes the code use analyze_event_LISA instead of analyze_event.")
 optp.add_option("--h5-frame", action="store_true", help = "LISA injection frames are in h5 format. Data is assumed to be in time domain when this option is used.")
 optp.add_option("--h5-frame-FD", action="store_true", help = "LISA injection frames are in h5 format. Data is assumed to be in frequency domain when this option is used.")
-optp.add_option("--reference-time", type = float, help = "Time at reference frequency, if reference frequency is not provided then reference frequency is the frequency at max(f^2 * A_22(f)).")
+optp.add_option("--reference-time", type=float, help = "Time at reference frequency, if reference frequency is not provided then reference frequency is the frequency at max(f^2 * A_22(f)).")
+optp.add_option("--modes", default=None, help = "If you need specific modes, set modes to an array eg --modes '[(2,2),(3,3)]")
 #
 # Add the integration options
 #
@@ -1290,7 +1291,10 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
     P.print_params()
 
     # Generate modes
-    hlms_FD = lalsimutils.hlmoff_for_LISA(P, opts.l_max)
+    if opts.modes:
+    	modes=np.array(eval(opts.modes))
+        print(f"hlm being called with modes = {modes}")
+    hlms_FD = lalsimutils.hlmoff_for_LISA(P, opts.l_max, modes)
     fNyq = 0.5/P.deltaT
     modes = np.array(list(hlms_FD.keys()))
     reference_distance = P.dist
@@ -2310,7 +2314,6 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_
 
 lnL_sofar = -np.inf
 no_adapt_sky = False
-
 for indx in numpy.arange(len(P_list)):
 #  try:
   if opts.LISA:
