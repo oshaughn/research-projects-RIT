@@ -14,7 +14,7 @@
 
 import numpy as np
 import lal
-import lalsimutils as lsu
+import RIFT.lalsimutils as lsu
 
 
 e = 0.004824185218078991
