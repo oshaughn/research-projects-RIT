@@ -3,7 +3,7 @@ from __future__ import print_function
 import sys
 RIFT = "RIFT-LISA-3G-O4c"
 sys.path.append(f"/Users/aasim/Desktop/Research/Mcodes/{RIFT}/MonteCarloMarginalizeCode/Code")
-from scripts_LISA_test.response.LISA_response import *
+from RIFT.LISA.response.LISA_response import *
 
 
 ##########
@@ -115,7 +115,7 @@ def ComputeIPTimeSeries(IP, hf, data, N_shift, N_window, analyticPSD_Q=False,
     return rho_time_series
 
 def PrecomputeAlignedSpinLISA(tref, fref, t_window, hlms, hlms_conj, data_dict, psd_dict, flow, fNyq, fhigh, deltaT,  beta, lamda, analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0.):
-    print(f"PrecomputeAlignedSpinLISA has been called with the following arguments: {locals()}")
+    print(f"PrecomputeAlignedSpinLISA has been called with the following arguments: \n{locals()}")
    # GENERATE DETECTOR RESPONSE
    # Compute time truncation (this assumes no existing time shifts, so don't inlcude them)
    # Compute Qlm (order of entires in the IP, conj, t_ref)
