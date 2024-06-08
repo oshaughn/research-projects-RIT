@@ -1,8 +1,7 @@
 ## 
-# TODO: Make this a proper code to write injections for LISA (use hlmoft, FFT it and the again in time domain?)(include options to read in NR-h5files)
-# Choose waveform params needs to print LISA related parameters
-# Confirm if phiref needs to be zero in P or not
-# Add functionality so that we include tref at fref
+# TODO: 
+# Use argparser
+# use mdc.xml.gz
 
 
 import sys
@@ -37,17 +36,20 @@ P.m1 = 1e6 * lal.MSUN_SI
 P.m2 = 5e5 * lal.MSUN_SI
 P.s1z = 0.2
 P.s2z = 0.4
-P.dist = 800e3  * lal.PC_SI * 1e6 
-P.phiref = 0.0   # add phiref later (confirm with ROS)!
-P.inclination = 0.0 # add inclination later (confirm with ROS)!
-P.fref = 8*10**(-5)
+P.dist = 120e3  * lal.PC_SI * 1e6 
 P.fmin = 8*10**(-5)
-P.fmax = 1
-P.deltaF = 1/(16*32768)
+P.fmax = 0.125
+P.deltaF = 1/(32*32768)
 P.deltaT = 0.5/P.fmax
 P.approx = lalsimulation.GetApproximantFromString("IMRPhenomHM")
+
+P.phiref = 0.0   # add phiref later (confirm with ROS)!
+P.inclination = 0.0 # add inclination later (confirm with ROS)!
+P.fref = 8*10**(-5) # what happens?
 P.tref = 0.0
+
 lmax = 2
+modes = [(2,2), (3,3), (3,2)]
 beta  = np.pi/6
 lamda = np.pi/5
 psi = np.pi/4
@@ -55,45 +57,57 @@ phi_ref = np.pi/3
 inclination = np.pi/2
 
 snr_fmin = 10**(-4)
-snr_fmax = 1
+snr_fmax = 0.125
 ##############################################
-
-def calculate_snr(data_dict, fmin, fmax, psd):
+# Functions
+def calculate_snr(data_dict, fmin, fmax, fNyq, psd):
     """This function calculates zero-noise snr of a LISA signal."""
-    
     assert data_dict["A"].deltaF == data_dict["E"].deltaF == data_dict["T"].deltaF
     print(f"Integrating from {fmin} to {fmax} Hz.")
-
-    IP = lalsimutils.ComplexIP(fmin, fmax, fmax, data_dict["A"].deltaF, psd, False, False, 0.0,)  # second fmax is fNyq
+    # create instance of inner product
+    IP = lalsimutils.ComplexIP(fmin, fmax, fNyq, data_dict["A"].deltaF, psd, False, False, 0.0,)
+    # calculate SNR of each channel 
     A_snr, E_snr, T_snr = np.sqrt(IP.ip(data_dict["A"], data_dict["A"])), np.sqrt(IP.ip(data_dict["E"], data_dict["E"])), np.sqrt(IP.ip(data_dict["T"], data_dict["T"]))
-
-    snr = np.real(np.sqrt(A_snr**2 + E_snr**2 + T_snr**2)) # SNR = sqrt(<h|h>)
+    # combine SNR
+    snr = np.real(np.sqrt(A_snr**2 + E_snr**2 + T_snr**2)) # SNR (zero noise) = sqrt(<h|h>)
     print(f"A-channel snr = {A_snr.real:0.3f}, E-channel snr = {E_snr.real:0.3f}, T-channel snr = {T_snr.real:0.3f},\n\tTotal SNR = {snr:0.3f}.")
     return snr
 
 def create_PSD_injection_figure(data_dict, psd, injection_save_path, snr):
-    plt.title(f"Injection vs PSD (SNR = {snr:0.2f})")
-    plt.xlabel("Frequency [Hz]")
-    plt.ylabel("Characterstic strain")
+    """This function create a FD injection figure with PSD."""
     channels = list(data_dict.keys())
     fmax = data_dict[channels[0]].data.length * 0.5 * data_dict[channels[0]].deltaF #assumed double sided
     fvals = np.arange(-fmax, fmax, data_dict[channels[0]].deltaF)
+
+    plt.title(f"Injection vs PSD (SNR = {snr:0.2f})")
+    plt.xlabel("Frequency [Hz]")
+    plt.ylabel("Characterstic strain")
+    # plot data
     for channel in channels:
-        plt.loglog(fvals, 2*fvals*np.abs(data_dict[channel].data.data), label = channel, linewidth = 1.2)
+        # For m > 0, hlm is define for f < 0 in lalsimulation. That's why abs is over fvals too.
+        data = np.abs(2*fvals*data_dict[channel].data.data) # we need get both -m and m modes, right now this only has positive modes present.
+        plt.loglog(-fvals, data, label = channel, linewidth = 1.2)
+    # plot PSD
     psd_fvals = psd.f0 + data_dict[channels[0]].deltaF*np.arange(psd.data.length)
     plt.loglog(psd_fvals, np.sqrt(psd_fvals * psd.data.data), label = "PSD", linewidth = 1.5, color = "cornflowerblue")
     plt.legend()
+    # place x-y limits
     plt.gca().set_ylim([10**(-24), 10**(-17)])
     plt.gca().set_xlim([10**(-4), 1])
     plt.grid(alpha = 0.5)
+    # save
     plt.savefig(injection_save_path + "/injection-psd.png", bbox_inches = "tight")
-    
-print(f"Choose waveform params set to with approx {lalsimulation.GetStringFromApproximant(P.approx)}: \n {P.__dict__}")
-hlmf = lalsimutils.hlmoff_for_LISA(P, Lmax = lmax) 
+##############################################
+
+# generate modes
+print(f"ChooseWaveformParams set to with approx {lalsimulation.GetStringFromApproximant(P.approx)}: \n {P.__dict__}")
+hlmf = lalsimutils.hlmoff_for_LISA(P, Lmax=lmax, modes=modes) 
 modes = list(hlmf.keys())
 
-data_dict = create_lisa_injections(hlmf, P.fmax, beta, lamda, psi, inclination, phi_ref, P.tref)
+# create injections
+data_dict = create_lisa_injections(hlmf, P.fmax, beta, lamda, psi, inclination, phi_ref, P.tref) 
 
+# save them in h5 format
 A_h5_file = h5py.File(f'{injection_save_path}/A-fake_strain-1000000-10000.h5', 'w')
 A_h5_file.create_dataset('data', data=data_dict["A"].data.data)
 A_h5_file.attrs["deltaF"], A_h5_file.attrs["epoch"], A_h5_file.attrs["length"], A_h5_file.attrs["f0"] = hlmf[modes[0]].deltaF, float(hlmf[modes[0]].epoch), hlmf[modes[0]].data.length, hlmf[modes[0]].f0 
@@ -109,11 +123,14 @@ T_h5_file.create_dataset('data', data=data_dict["T"].data.data)
 T_h5_file.attrs["deltaF"], T_h5_file.attrs["epoch"], T_h5_file.attrs["length"], T_h5_file.attrs["f0"] = hlmf[modes[0]].deltaF, float(hlmf[modes[0]].epoch), hlmf[modes[0]].data.length, hlmf[modes[0]].f0
 T_h5_file.close()
 
-print(f"Reading PSD to calculate SNR for LISA instrument from {psd_path}")
+# calculate SNR
+print(f"Reading PSD to calculate SNR for LISA instrument from {psd_path}.")
 psd = lalsimutils.get_psd_series_from_xmldoc(psd_path, "A")
 psd = lalsimutils.resample_psd_series(psd, P.deltaF)
 psd_fvals = psd.f0 + P.deltaF*np.arange(psd.data.length)
-psd.data.data[ psd_fvals < P.fmin] = 0 # 
-snr = calculate_snr(data_dict, snr_fmin, snr_fmax, psd)
+psd.data.data[ psd_fvals < snr_fmin] = 0 
+snr = calculate_snr(data_dict, snr_fmin, snr_fmax, 0.5/P.deltaT, psd)
+
+# plot figure
 create_PSD_injection_figure(data_dict, psd, injection_save_path, snr)
 
