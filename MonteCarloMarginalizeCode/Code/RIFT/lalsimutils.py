@@ -18,7 +18,7 @@
 A collection of useful data analysis routines
 built from the SWIG wrappings of LAL and LALSimulation.
 """
-#LISA
+# LISA
 import h5py
 #
 import sys
@@ -413,18 +413,21 @@ class ChooseWaveformParams:
             that assumes (theta,phi) are spherical coord. 
             in a frame centered at the detector
     """
-    def __init__(self, phiref=0., deltaT=1./4096., m1=10.*lsu_MSUN, 
-            m2=10.*lsu_MSUN, s1x=0., s1y=0., s1z=0., 
-            s2x=0., s2y=0., s2z=0., fmin=40., fref=0., dist=1.e6*lsu_PC,
-            incl=0., lambda1=0., lambda2=0., waveFlags=None, nonGRparams=None,
+    def __init__(self, m1=10.*lsu_MSUN, m2=10.*lsu_MSUN, 
+            s1x=0., s1y=0., s1z=0., 
+            s2x=0., s2y=0., s2z=0., 
+            dist=1.e6*lsu_PC,
+            incl=0., phiref=0., theta=0., phi=0., psi=0., radec=False,
+            deltaT=1./4096., tref=0., lambda1=0., lambda2=0., waveFlags=None, nonGRparams=None,
             ampO=0, phaseO=7, approx=lalsim.TaylorT4, 
-            theta=0., phi=0., psi=0., tref=0., radec=False, detector="H1",
+            detector="H1",
+            fmin=40., fref=0., 
             deltaF=None, fmax=0., # for use w/ FD approximants
             taper=lsu_TAPER_NONE, # for use w/TD approximants
             eccentricity=0. # make eccentricity a parameter
             ):
-        self.phiref = phiref
-        self.deltaT = deltaT
+        
+        # intrinsic parameters
         self.m1 = m1
         self.m2 = m2
         self.s1x = s1x
@@ -433,10 +436,25 @@ class ChooseWaveformParams:
         self.s2x = s2x
         self.s2y = s2y
         self.s2z = s2z
-        self.fmin = fmin
-        self.fref = fref
+        self.eccentricity=eccentricity
+
         self.dist = dist
         self.incl = incl
+        self.phiref = phiref
+        self.theta = theta     # DEC.  DEC =0 on the equator; the south pole has DEC = - pi/2. Also, Lambda (Ecliptic longitude for LISA)
+        self.phi = phi         # RA.   Also, beta (Ecliptic latitude for LISA)
+        self.psi = psi
+        self.meanPerAno = 0.0  # port 
+        self.longAscNodes = self.psi # port to master
+        self.radec = radec
+
+        self.tref = tref
+        self.deltaT = deltaT
+        self.fmin = fmin
+        self.fref = fref
+        self.deltaF=deltaF
+        self.fmax=fmax
+
         self.lambda1 = lambda1
         self.lambda2 = lambda2
         self.waveFlags = waveFlags
@@ -444,17 +462,7 @@ class ChooseWaveformParams:
         self.ampO = ampO
         self.phaseO = phaseO
         self.approx = approx
-        self.theta = theta     # DEC.  DEC =0 on the equator; the south pole has DEC = - pi/2
-        self.phi = phi         # RA.   
-        self.psi = psi
-        self.meanPerAno = 0.0  # port 
-        self.longAscNodes = self.psi # port to master
-        self.eccentricity=eccentricity
-        self.tref = tref
-        self.radec = radec
         self.detector = "H1"
-        self.deltaF=deltaF
-        self.fmax=fmax
         self.taper = taper
         self.snr = None  # Only used for compatibility with AMR grid rapid_pe, should not usually be setting or using this
         self.eos_table_index = None  # only used for compatibility with tabular EOS formalisms, note user MUST always provide lambda1, lambda2 correctly for waveform generators!  
@@ -1566,6 +1574,84 @@ class ChooseWaveformParams:
         print( "starting frequency is =", self.fmin)
         print( "reference frequency is =", self.fref)
         print( "Max frequency is =", self.fmax)
+        print( "time step =", self.deltaT, "(s) <==>", 1./self.deltaT,\
+                "(Hz) sample rate")
+        print( "freq. bin size is =", self.deltaF, "(Hz)")
+        if isinstance(self.approx,str):
+           print( "approximant is =", self.approx)
+        else:
+           print( "approximant is =", lalsim.GetStringFromApproximant(self.approx))
+        print( "phase order =", self.phaseO)
+        print( "amplitude order =", self.ampO)
+        if self.waveFlags:
+            thePrefix=""
+            print( thePrefix, " :  Spin order " , lalsim.SimInspiralGetSpinOrder(self.waveFlags))
+            print( thePrefix, " :  Tidal order " , lalsim.SimInspiralGetTidalOrder(self.waveFlags))
+        else:
+            print( "waveFlags struct is = ", self.waveFlags)
+        print( "nonGRparams struct is", self.nonGRparams)
+        if self.taper==lsu_TAPER_NONE:
+            print( "Tapering is set to LAL_SIM_INSPIRAL_TAPER_NONE")
+        elif self.taper==lsu_TAPER_START:
+            print( "Tapering is set to LAL_SIM_INSPIRAL_TAPER_START")
+        elif self.taper==lsu_TAPER_END:
+            print( "Tapering is set to LAL_SIM_INSPIRAL_TAPER_END")
+        elif self.taper==lsu_TAPER_STARTEND:
+            print( "Tapering is set to LAL_SIM_INSPIRAL_TAPER_STARTEND")
+        else:
+            print( "Warning! Invalid value for taper:", self.taper)
+    
+    def print_params_lisa(self, show_system_frame=False):
+        """
+        Print all key-value pairs belonging in the class instance
+        """
+        print( "This ChooseWaveformParams has the following parameter values:")
+        print( rf"m1 = {self.m1 / lsu_MSUN / 1e3:0.3f} x 1e3 (Msun)")
+        print( rf"m2 = {self.m2 / lsu_MSUN / 1e3:0.3f} x 1e3 (Msun)")
+        print( "s1x =", self.s1x)
+        print( "s1y =", self.s1y)
+        print( "s1z =", self.s1z)
+        print( "s2x =", self.s2x)
+        print( "s2y =", self.s2y)
+        print( "s2z =", self.s2z)
+        S1vec = np.array([self.s1x,self.s1y,self.s1z])*self.m1*self.m1
+        S2vec = np.array([self.s2x,self.s2y,self.s2z])*self.m2*self.m2
+        qval = self.m2/self.m1
+        print(   " : Vector spin products")
+        print(   " : |s1|, |s2| = ", np.sqrt(vecDot([self.s1x,self.s1y,self.s1z],[self.s1x,self.s1y,self.s1z])), np.sqrt(vecDot([self.s2x,self.s2y,self.s2z],[self.s2x,self.s2y,self.s2z])))
+        print(   " : s1.s2 = ",  vecDot([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z]))
+        if spin_convention == "L":
+            Lhat = np.array([0,0,1]) # CRITICAL to work with modern PE output. Argh. Must swap convention elsewhere
+        else:
+            Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
+        print(   " : hat(L). s1 x s2 =  ",  vecDot( Lhat, vecCross([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z])))
+        print(   " : hat(L).(S1(1+q)+S2(1+1/q)) = ", vecDot( Lhat, S1vec*(1+qval)  + S2vec*(1+1./qval) )/(self.m1+self.m2)/(self.m1+self.m2))
+        if show_system_frame:
+            thePrefix = ""
+            thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = self.extract_system_frame()
+            print( thePrefix, " :+ theta_JN = ", thetaJN)
+            print( thePrefix, " :+ psiJ = ", psiJ)
+            print( thePrefix, " :+ phiJL=alphaJL = ", phiJL)
+            print( thePrefix, " :+ chi1 = ", chi1)
+            print( thePrefix, " :+ chi2 = ", chi2)
+            print( thePrefix, " :+ theta1 = ", theta1)
+            print( thePrefix, " :+ theta2 = ", theta2)
+            print( thePrefix, " :+ phi12 = ", phi12)
+            print( thePrefix, " :+ beta = ", self.extract_param('beta'))
+        print( "lambda1 =", self.lambda1)
+        print( "lambda2 =", self.lambda2)
+        print( "inclination =", self.incl)
+        print( "distance =", self.dist / 1.e+9 / lsu_PC, "(Gpc)")
+        print( "reference orbital phase =", self.phiref)
+        print( "polarization angle =", self.psi)
+        print( "eccentricity = ", self.eccentricity)
+        print( "reference time = ", float(self.tref), "(s)")
+        print( "detector is: LISA")
+        print( "ecliptic latitude (beta):", self.phi, "(radians)")
+        print( "ecliptic longitude (lambda):", self.theta, "(radians)")
+        print( "starting frequency is =", self.fmin, "(Hz)")
+        print( "reference frequency is =", self.fref, "(Hz)")
+        print( "Max frequency is =", self.fmax, "(Hz)")
         print( "time step =", self.deltaT, "(s) <==>", 1./self.deltaT,\
                 "(Hz) sample rate")
         print( "freq. bin size is =", self.deltaF, "(Hz)")
@@ -3962,6 +4048,7 @@ def SphHarmTimeSeries_to_dict(hlms, Lmax):
 
     return hlm_dict
 
+# LISA
 def SphHarmFrequencySeries_to_dict(hlms, Lmax, modes=None):
     """
     Convert a SphHarmFrequencySeries SWIG-wrapped linked list into a dictionary.
@@ -3975,14 +4062,14 @@ def SphHarmFrequencySeries_to_dict(hlms, Lmax, modes=None):
     if isinstance(hlms, dict):
         return hlms
     hlm_dict = {}
-    ## Allow for specific modes
-    if modes:
+    # allow for specific modes. If both modes and Lmax provided then modes overides Lmax.
+    if isinstance(modes, (list, np.ndarray)):
         for mode in modes:
             l, m = mode[0], mode[1]
             hxx = lalsim.SphHarmFrequencySeriesGetMode(hlms, l, m)
             if hxx is not None:
                 hlm_dict[(l,m)] = hxx
-    ## use for lmax, we use Lmax=2 by default so modes should be none by default.
+    # for lmax, we use Lmax=2 by default so if modes are not provided it will use Lmax=2 or whatever is provided.
     else:
         for l in range(2, Lmax+1):
             for m in range(-l, l+1):
@@ -4475,17 +4562,22 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
 
 
 
-#LISA 
-
-def hlmoff_for_LISA(P, 
-Lmax=2, modes=None, nr_polarization_convention=False, fixed_tapering=False, silent=True, fd_standoff_factor=0.964, no_condition=False, fd_L_frame=False, fd_centering_factor=0.5, fd_alignment_postevent_time=None,**kwargs):
+# LISA 
+def hlmoff_for_LISA(P, Lmax=2, modes=None, fd_standoff_factor=0.964, fd_alignment_postevent_time=None,**kwargs):
     """
-    
+    Funtion that outputs the modes in frequency domain. Due to conditioning in hlmoft, it wasn't suitable for obtainging tf from phase. Takes in ChooseWaveformParams object to populate \
+    the waveform call from lalsimulation. Takes in Lmax and modes, defaults to Lmax of 2. Can only take in IMRPhenomHM, IMRPhenomXPHM, IMRPhenomXHM, 
+    Args:
+        P: A ChooseWaveformParams object,
+        Lmax: max l content in the hlm dictionary,
+        modes: Specific modes requested, None by default and overides lmax.
+    Output:
+        hlmf: A dictionary conating frequency domain modes.
     """
     assert Lmax >= 2
 
     # Check that masses are not nan!
-    assert (not np.isnan(P.m1)) and (not np.isnan(P.m2)), " masses are NaN "
+    assert (not np.isnan(P.m1)) and (not np.isnan(P.m2)), "Masses are NaN."
 
     # includes the 'release' version
     extra_waveform_args = {}
@@ -4498,59 +4590,74 @@ Lmax=2, modes=None, nr_polarization_convention=False, fixed_tapering=False, sile
         if fd_alignment_postevent_time < TDlen*P.deltaT/2:
             fd_centering_factor = 1-fd_alignment_postevent_time/(TDlen*P.deltaT)  # align so there is a time fd_alignment_time_postevent
         else:
-            print(" Warning: fd alignment postevent time requested incompatible with short duration ",file=sys.stderr)
+            print(" Warning: fd alignment postevent time requested incompatible with short duration ", file=sys.stderr)
+    # call lalsimulation function
     hlms_struct = lalsim.SimInspiralChooseFDModes(P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.deltaF, P.fmin*fd_standoff_factor, fNyq, P.fref, P.phiref, P.dist, P.incl, extra_params, P.approx)
+    # convert into dictionary
     hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct, Lmax, modes)
+    # Resize it such that deltaF = 1/TDlen
     for mode in hlmsdict:
           hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
+    
     return hlmsdict
 
+# LISA 
 def frame_h5_to_hoff(fname, channel, start=None, stop=None, verbose=True):
     """
-    Function to read in frequency domain data from a h5 file, the h5 file should contain all the information
+    Function to read in frequency domain data from a h5 file, the h5 file should contain all the information\
     needed to create a COMPLEX16FrequencySeries. Also, this can now take in A, E, T as channels."""
     if verbose:
         print( " ++ Loading from cache ", fname, channel)
+    # read the cache file
     cache_data = np.loadtxt(fname, dtype = str)
-    if not(isinstance(cache_data[0], (list, np.ndarray))):  # for a single detector case, the data from cache file gets treated like a 1d array, hence need to reshape it.
+    
+    # for a single detector case, the data from cache file gets treated like a 1d array, hence need to reshape it
+    if not(isinstance(cache_data[0], (list, np.ndarray))): 
         cache_data = cache_data.reshape(1,len(cache_data))
 
-    #Find out exactly where the path is
+    # find out exactly where the path is
     for i in np.arange(len(cache_data)):
         if cache_data[i][0] == channel[0]:
             index =  cache_data[i,-1].find("localhost") #THIS can be problematic, it is assumed that the path is after localhost. If errors arise, this is where you should check
             path_to_h5 = cache_data[i,-1][index+len("localhost"):]
     print(f"Reading h5 file {path_to_h5}")
-    #read the h5 file
+    # read the h5 file
     data = h5py.File(path_to_h5, "r")
-    #create a new lal COMPLEX16 Frequency series, and populate its attributes
+    # create a new lal COMPLEX16FrequencySeries, and populate its attributes
     hoff = lal.CreateCOMPLEX16FrequencySeries("hoff", data.attrs["epoch"], data.attrs["f0"], data.attrs["deltaF"], lsu_HertzUnit, int(data.attrs["length"]))
     hoff.data.data = data["data"]
+    # close the h5 file
     data.close()
+
     return hoff
-#LISA 
-def frame_h5_to_hoft(fname,channel, start=None, stop = None, verbose=True):
+# LISA 
+def frame_h5_to_hoft(fname, channel, start=None, stop=None, verbose=True):
     """
     Function to read in data from a h5 file, the h5 file should contain all the information
     needed to create a REAL8TimeSeries. MBHB waveforms seem to be having issues with lal frame readers."""
     if verbose:
         print( " ++ Loading from cache ", fname, channel)
+    # read the cache file
     cache_data = np.loadtxt(fname, dtype = str)
-    if not(isinstance(cache_data[0], (list, np.ndarray))):  # for a single detector case, the data from cache file gets treated like a 1d array, hence need to reshape it.
+
+    # for a single detector case, the data from cache file gets treated like a 1d array, hence need to reshape it
+    if not(isinstance(cache_data[0], (list, np.ndarray))):
         cache_data = cache_data.reshape(1,len(cache_data))
 
-    #Find out exactly where the path is
+    # find out exactly where the path is
     for i in np.arange(len(cache_data)):
         if cache_data[i][0] == channel[0]:
             index =  cache_data[i,-1].find("localhost") #THIS can be problematic, it is assumed that the path is after localhost. If errors arise, this is where you should check
             path_to_h5 = cache_data[i,-1][index+len("localhost"):]
     print(f"Reading h5 file {path_to_h5}")
-    #read the h5 file
+    # read the h5 file
     data = h5py.File(path_to_h5, "r")
-    #create a new lal REAL8 Time series, and populate its attributes
+    # create a new lal REAL8TimeSeries, and populate its attributes
     hoft = lal.CreateREAL8TimeSeries("hoft", data.attrs["epoch"], data.attrs["f0"], data.attrs["deltaT"], lal.DimensionlessUnit, int(data.attrs["length"]))
     hoft.data.data = data["data"]
+    # close the h5 file
     data.close()
+
     return hoft
 
 def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
