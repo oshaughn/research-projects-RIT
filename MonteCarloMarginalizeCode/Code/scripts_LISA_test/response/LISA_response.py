@@ -321,7 +321,7 @@ def get_tf_from_phase_dict(hlm, fmax, fref = None, debug = True):#tested
         tf_dict[mode] = tf_dict[mode]  - tf_22_current
         phase_dict[mode] = phase_dict[mode] - 2*np.pi*tf_22_current*freq_dict[mode]
     if debug:
-        print(f"tf[2,2] at fref ({fref} Hz) aftet shift {tf_dict[2,2][index_at_fref]}.")
+        print(f"tf[2,2] at fref ({fref} Hz) after shift {tf_dict[2,2][index_at_fref]}.")
 
     return tf_dict, freq_dict, amp_dict, phase_dict
 
@@ -552,9 +552,9 @@ def Evaluate_Gslr_test_2(tf, f, beta, lamda):
     return np.array([transferL1_xx, transferL1_xy, transferL1_xz, transferL1_yy, transferL1_yz, transferL1_zz]), np.array([transferL2_xx, transferL2_xy, transferL2_xz, transferL2_yy, transferL2_yz, transferL2_zz]), np.array([transferL3_xx, transferL3_xy, transferL3_xz, transferL3_yy, transferL3_yz, transferL3_zz])
 
 
-def create_lisa_injections(hlmf, fmax, beta, lamda, psi, inclination, phi_ref, tref):
+def create_lisa_injections(hlmf, fmax, fref, beta, lamda, psi, inclination, phi_ref, tref):
     print(f"create_lisa_injections function has been called with following arguments:\n{locals()}")
-    tf_dict, f_dict, amp_dict, phase_dict = get_tf_from_phase_dict(hlmf, fmax)
+    tf_dict, f_dict, amp_dict, phase_dict = get_tf_from_phase_dict(hlmf, fmax, fref)
     A = 0.0
     E = 0.0
     T = 0.0
