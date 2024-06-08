@@ -73,7 +73,7 @@ else:
   useROM=False; rom_basis_scale=1
   useNR=False
 
-distMpcRef = 1000 # a fiducial distance for the template source.
+distGpcRef = 200 # a fiducial distance for the template source.
 tWindowExplore = [-0.15, 0.15] # Not used in main code.  Provided for backward compatibility for ROS. Should be consistent with t_ref_wind in ILE.
 rosDebugMessages = True
 rosDebugMessagesDictionary = {}   # Mutable after import (passed by reference). Not clear if it can be used by caling routines
@@ -103,20 +103,18 @@ def ComputeIPTimeSeries(IP, hf, data, N_shift, N_window, analyticPSD_Q=False,
     for discrete values of the reference time tref.  The epoch of the
     SphHarmTimeSeries object is set to account for the transformation
     """
-    rholms = {}
     assert data.deltaF == hf.deltaF
     assert data.data.length == hf.data.length
-
 
     rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hf, data)
     rhoTS.epoch = data.epoch - hf.epoch
     tmp= lsu.DataRollBins(rhoTS, N_shift)  # restore functionality for bidirectional shifts: waveform need not start at t=0
     rho_time_series =lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
     if debug:
-        print(f"Max in the original series = {np.max(rhoTS.data.data)}, Max in the truncated series = {np.max(rho_time_series.data.data)}, max index in the original series = {np.argmax(rhoTS.data.data)}.")
+        print(f"Max in the original series = {np.max(rhoTS.data.data)}, max in the truncated series = {np.max(rho_time_series.data.data)}, max index in the original series = {np.argmax(rhoTS.data.data) + N_shift}.")
     return rho_time_series
 
-def PrecomputeAlignedSpinLISA(tref, t_window, hlms, hlms_conj, data_dict, psd_dict, flow, fNyq, fhigh, deltaT,  beta, lamda, analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0.):
+def PrecomputeAlignedSpinLISA(tref, fref, t_window, hlms, hlms_conj, data_dict, psd_dict, flow, fNyq, fhigh, deltaT,  beta, lamda, analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0.):
     print(f"PrecomputeAlignedSpinLISA has been called with the following arguments: {locals()}")
    # GENERATE DETECTOR RESPONSE
    # Compute time truncation (this assumes no existing time shifts, so don't inlcude them)
@@ -134,7 +132,7 @@ def PrecomputeAlignedSpinLISA(tref, t_window, hlms, hlms_conj, data_dict, psd_di
     N_window = int(2 * t_window/deltaT)
     
     # first get 6 terms per mode, and multiply with detector response
-    tf_dict, f_dict, amp_dict, phase_dict = get_tf_from_phase_dict(hlms, fNyq)  #here we need fmax, but RIFT has fhigh
+    tf_dict, f_dict, amp_dict, phase_dict = get_tf_from_phase_dict(hlms, fNyq, fref)  #here we need fmax, but RIFT has fhigh
     collect_mode_terms = {}
     modes = list(hlms.keys())
 
@@ -142,7 +140,6 @@ def PrecomputeAlignedSpinLISA(tref, t_window, hlms, hlms_conj, data_dict, psd_di
     collect_mode_terms["E"] = {}
     collect_mode_terms["T"] = {}
     for mode in modes:
-        print(mode)
         A_terms, E_terms, T_terms = Evaluate_Gslr_test_2(tf_dict[mode]+tref, f_dict[mode], beta, lamda) # NOTE: I added t_ref
         
         amp, phase = amp_dict[mode], phase_dict[mode]
@@ -246,7 +243,6 @@ def PrecomputeAlignedSpinLISA(tref, t_window, hlms, hlms_conj, data_dict, psd_di
                 U_lm_pq[f"{channel}_{l}_{m}_zz_{p}_{q}_zz"] = inner_product.ip(collect_mode_terms[channel][modes[i]][5], collect_mode_terms[channel][modes[j]][5])
 
                 if (l,m) != (p,q):
-                    print( (l,m), (p,q))
                     U_lm_pq[f"{channel}_{p}_{q}_xx_{l}_{m}_xx"] = np.conj(U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_xx"])
                     U_lm_pq[f"{channel}_{p}_{q}_xx_{l}_{m}_xy"] = np.conj(U_lm_pq[f"{channel}_{l}_{m}_xy_{p}_{q}_xx"])
                     U_lm_pq[f"{channel}_{p}_{q}_xx_{l}_{m}_xz"] = np.conj(U_lm_pq[f"{channel}_{l}_{m}_xz_{p}_{q}_xx"])
@@ -300,7 +296,6 @@ def PrecomputeAlignedSpinLISA(tref, t_window, hlms, hlms_conj, data_dict, psd_di
 
 def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclination, phi_ref, distance, modes, reference_distance):
     # Calculated marginalized likelihood, marginalized over time, psi, inlincation, phiref and distance.
-
     # call psi terms
     plus_terms = get_beta_lamda_psi_terms_Hp(beta, lam, psi)
     cross_terms =  get_beta_lamda_psi_terms_Hc(beta, lam, psi)
