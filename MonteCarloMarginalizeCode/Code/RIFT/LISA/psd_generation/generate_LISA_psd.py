@@ -140,4 +140,4 @@ plt.savefig(os.getcwd()+"/LISA_psd_plot.png",  bbox_inches="tight")
 np.savetxt(os.getcwd() +"/LISA_psd.txt", sens_save)
 
 # Save as xml
-os.system(f"/Users/aasim/Desktop/Research/Mcodes/RIFT-LISA-3G-O4c/MonteCarloMarginalizeCode/Code/bin/convert_psd_ascii2xml --fname-psd-ascii {os.getcwd()}/LISA_psd.txt --conventional-postfix --ifo A")
+os.system(f"convert_psd_ascii2xml --fname-psd-ascii {os.getcwd()}/LISA_psd.txt --conventional-postfix --ifo A")
