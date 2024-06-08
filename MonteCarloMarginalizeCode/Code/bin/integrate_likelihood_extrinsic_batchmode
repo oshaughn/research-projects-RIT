@@ -10,7 +10,11 @@
 Integrate the extrinsic parameters of the prefactored likelihood function.
 """
 ####################### Import ###################################
+### import statements for local testing
 import sys
+RIFT = "RIFT-LISA-3G-O4c"
+sys.path.append(f"/Users/aasim/Desktop/Research/Mcodes/{RIFT}/MonteCarloMarginalizeCode/Code")
+###
 import functools
 from optparse import OptionParser, OptionGroup
 
@@ -52,6 +56,7 @@ import glue.lal
 
 import RIFT.lalsimutils as lalsimutils
 import RIFT.likelihood.factored_likelihood as factored_likelihood
+import RIFT.likelihood.factored_likelihood_LISA as factored_likelihood_LISA
 import RIFT.integrators.mcsampler as mcsampler
 import RIFT.misc.sky_rotations as sky_rotations
 try:
@@ -169,10 +174,8 @@ def sampler_param_tuple(sampler,args):
   param_list = sampler.params_ordered
   return tuple( [param_list.index(x) for x in args])
 
-#
-# Option parsing
-#
 
+####################### Option parsing ###################################
 optp = OptionParser()
 optp.add_option( "--zero-likelihood", action='store_true', help="Run with exactly zero likelihood.  Prior test (e.g., alternative distance priors)")
 optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
@@ -249,11 +252,15 @@ optp.add_option("--save-eccentricity", action="store_true")
 # 
 # Add LISA options
 #
-optp.add_option("--LISA", action="store_true", help = "Let the code know that you are analysing LISA data. For now makes the code use analyze_event_LISA instead of analyze_event.")
-optp.add_option("--h5-frame", action="store_true", help = "LISA injection frames are in h5 format. Data is assumed to be in time domain when this option is used.")
-optp.add_option("--h5-frame-FD", action="store_true", help = "LISA injection frames are in h5 format. Data is assumed to be in frequency domain when this option is used.")
-optp.add_option("--reference-time", type=float, help = "Time at reference frequency, if reference frequency is not provided then reference frequency is the frequency at max(f^2 * A_22(f)).")
-optp.add_option("--modes", default=None, help = "If you need specific modes, set modes to an array eg --modes '[(2,2),(3,3)]")
+lisa_params = OptionGroup(optp, "LISA parameters")
+lisa_params.add_option("--LISA", action="store_true", help = "Let the code know that you are analysing LISA data. For now makes the code use analyze_event_LISA instead of analyze_event.")
+lisa_params.add_option("--h5-frame", action="store_true", help = "LISA injection frames are in h5 format. Data is assumed to be in time domain when this option is used.")
+lisa_params.add_option("--h5-frame-FD", action="store_true", help = "LISA injection frames are in h5 format. Data is assumed to be in frequency domain when this option is used.")
+lisa_params.add_option("--lisa-reference-time", default=0.0, type=float, help = "Time in seconds at reference frequency, if reference frequency is not provided then reference frequency is the frequency at max(f^2 * A_22(f)).")
+lisa_params.add_option("--lisa-reference-frequency", default=None, type=float, help = "Reference frequency in Hz, if reference frequency is not provided then reference frequency is the frequency at max(f^2 * A_22(f)).")
+lisa_params.add_option("--modes", default=None, help = "If you need specific modes, set modes to an array eg --modes '[(2,2),(3,3)]")
+optp.add_option_group(lisa_params)
+
 #
 # Add the integration options
 #
@@ -321,11 +328,9 @@ intrinsic_int_params.add_option("--parameter-range",action='append',type=str)
 intrinsic_int_params.add_option("--adapt-intrinsic",action='store_true')
 optp.add_option_group(intrinsic_int_params)
 
-
-
 #
 # Add the pinnable parameters
-#
+# LISA check for beta and lambda pin
 pinnable = OptionGroup(optp, "Pinnable Parameters", "Specifying these command line options will pin the value of that parameter to the specified value with a probability of unity.")
 for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
     option = "--" + pin_param.replace("_", "-")
@@ -399,6 +404,7 @@ if opts.gpu and xpy_default is numpy:
 manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 manual_avoid_overflow_logarithm_default =  manual_avoid_overflow_logarithm
 
+# LISA check (Sampling rate)
 deltaT = None
 fSample= opts.srate # change sampling rate
 if not(fSample is None):
@@ -431,7 +437,7 @@ if intrinsic_param_names:
             param_ranges[indx]= numpy.array(param_ranges[indx])* lal.MSUN_SI
 
 
-
+# LISA check (what if I am working in FD?)
 # Check both or neither of --data-start/end-time given
 if opts.data_start_time is None and opts.data_end_time is not None:
     raise ValueError("You must provide both or neither of --data-start-time and --data-end-time.")
@@ -484,22 +490,22 @@ n_eff = opts.n_eff # Effective number of points evaluated
 if opts.seed is not None:
     numpy.random.seed(opts.seed)
 
-
-if opts.event_time is not None:
-    event_time = glue.lal.LIGOTimeGPS(opts.event_time)
-    print( "Event time from command line: %s" % str(event_time))
-else:
-    print( " Error! ")
-    sys.exit(1)
+# LISA check, reference time instead of event time
+if not(opts.LISA):
+  if opts.event_time is not None:
+      event_time = glue.lal.LIGOTimeGPS(opts.event_time)
+      print( "Event time from command line: %s" % str(event_time))
+  else:
+      print( " Error! ")
+      sys.exit(1)
+  fiducial_epoch = lal.LIGOTimeGPS()
+  fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more direct access to gpsSeconds
 
 #
 # Template descriptors
 #
 
-fiducial_epoch = lal.LIGOTimeGPS()
-fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more direct access to gpsSeconds
-
-# Struct to hold template parameters
+# Struct to hold template parameters, P.deltaF comes from data (data.deltaF)
 P_list = None
 P=None # force allocation so I can use the preferred event later
 if opts.sim_xml:
@@ -516,17 +522,24 @@ if opts.sim_xml:
       sys.exit(0)
     for P in P_list:
         P.radec =False  # do NOT propagate the epoch later
-        P.fref = opts.reference_freq
+        # LISA 
+        if opts.LISA:
+           #P.fref = opts.lisa_reference_frequency
+           P.fref = opts.reference_freq # we are distinguishing between tempalte fref and lisa_fref
+           P.tref = opts.lisa_reference_time
+           P.dist = factored_likelihood_LISA.distGpcRef * 1.e9 * lal.PC_SI 
+        else:
+          P.fref = opts.reference_freq
+          P.tref = fiducial_epoch  # the XML table
+          P.dist = factored_likelihood.distMpcRef * 1.e6 * lal.PC_SI   # use *nonstandard* distance
         P.fmin = template_min_freq
-        P.tref = fiducial_epoch  # the XML table
         m1 = P.m1/lal.MSUN_SI
         m2 =P.m2/lal.MSUN_SI
         lambda1, lambda2 = P.lambda1,P.lambda2
-        P.dist = factored_likelihood.distMpcRef * 1.e6 * lal.PC_SI   # use *nonstandard* distance
         P.phiref=0.0
         P.psi=0.0
         P.incl = 0.0       # only works for aligned spins. Be careful.
-        P.fref = opts.reference_freq
+        #P.fref = opts.reference_freq  # twice?
         if opts.approximant != "TaylorT4": # not default setting
             P.approx = lalsimutils.lalsim.GetApproximantFromString(opts.approximant)  # allow user to override the approx setting. Important for NR followup, where no approx set in sim_xml!
         if opts.approximant == "EccentricTD":
@@ -544,7 +557,7 @@ else:
  if opts.spin2z is not None:
     s2z = opts.spin2z
 
-
+# LISA check (should I change things here? Seems like it is for Neutron stars, so maybe not)
  lambda1, lambda2 = 0, 0
  if opts.eff_lambda is not None:
         lambda1, lambda2 = lalsimutils.tidal_lambda_from_tilde(m1, m2, opts.eff_lambda, opts.deff_lambda or 0)
@@ -570,60 +583,61 @@ else:
     )
  P_list= [P]
 
-# User requested bounds for data segment
-if not (opts.data_start_time == None) and  not (opts.data_end_time == None):
-    start_time =  opts.data_start_time
-    end_time =  opts.data_end_time
-    print( "Fetching data segment with start=", start_time)
-    print( "                             end=", end_time)
+# Time information not needed for FD data
+if not(opts.h5_frame_FD):
+  # User requested bounds for data segment
+  if not (opts.data_start_time == None) and  not (opts.data_end_time == None):
+      start_time =  opts.data_start_time
+      end_time =  opts.data_end_time
+      print( "Fetching data segment with start=", start_time)
+      print( "                             end=", end_time)
 
-# Automatically choose data segment bounds so region of interest isn't corrupted
-# FIXME: Use estimate, instead of painful full waveform generation call here.
-else:
-    approxTmp = P.approx
-    LmaxEff = 2
-    if opts.fmin_template_correct_for_lmax:
-      LmaxEff=opts.l_max
-    T_tmplt = lalsimutils.estimateWaveformDuration(P,LmaxEff) + 4  # Much more robust than the previous (slow, prone-to-crash approach)
-#     if (m1+m2)<30:
-#         P.approx = lalsimutils.lalsim.TaylorT4  # should not impact length much.  IMPORTANT because EOB calls will fail at the default sampling rate
-#         htmplt = lalsimutils.hoft(P)   # Horribly wasteful waveform gneeration solely to estimate duration.  Will also crash if spins are used.
-#         P.approx = approxTmp
-#         T_tmplt = - float(htmplt.epoch)    # ASSUMES time returned by hlm is a RELATIVE time that does not add tref. P.radec=False !
-#         print fiducial_epoch, event_time, htmplt.epoch
-#     else:
-#         print " Using estimate for waveform length in a high mass regime: beware!"
-#         T_tmplt = lalsimutils.estimateWaveformDuration(P) + 4
-    T_seg = T_tmplt + T_spec + T_safety # Amount before and after event time
-#    if opts.use_external_EOB:
-#        T_seg *=2   # extra safety factor
-    start_time = float(event_time) - T_seg
-    end_time = float(event_time) + T_seg
-    print( "Fetching data segment with start=", start_time)
-    print( "                             end=", end_time)
-    print( "\t\tEvent time is: ", float(event_time))
-    print( "\t\tT_seg is: ", T_seg)
+  # Automatically choose data segment bounds so region of interest isn't corrupted
+  # FIXME: Use estimate, instead of painful full waveform generation call here.
+  else:
+      approxTmp = P.approx
+      LmaxEff = 2
+      if opts.fmin_template_correct_for_lmax:
+        LmaxEff=opts.l_max
+      T_tmplt = lalsimutils.estimateWaveformDuration(P,LmaxEff) + 4  # Much more robust than the previous (slow, prone-to-crash approach)
+  #     if (m1+m2)<30:
+  #         P.approx = lalsimutils.lalsim.TaylorT4  # should not impact length much.  IMPORTANT because EOB calls will fail at the default sampling rate
+  #         htmplt = lalsimutils.hoft(P)   # Horribly wasteful waveform gneeration solely to estimate duration.  Will also crash if spins are used.
+  #         P.approx = approxTmp
+  #         T_tmplt = - float(htmplt.epoch)    # ASSUMES time returned by hlm is a RELATIVE time that does not add tref. P.radec=False !
+  #         print fiducial_epoch, event_time, htmplt.epoch
+  #     else:
+  #         print " Using estimate for waveform length in a high mass regime: beware!"
+  #         T_tmplt = lalsimutils.estimateWaveformDuration(P) + 4
+      T_seg = T_tmplt + T_spec + T_safety # Amount before and after event time
+  #    if opts.use_external_EOB:
+  #        T_seg *=2   # extra safety factor
+      start_time = float(event_time) - T_seg
+      end_time = float(event_time) + T_seg
+      print( "Fetching data segment with start=", start_time)
+      print( "                             end=", end_time)
+      print( "\t\tEvent time is: ", float(event_time))
+      print( "\t\tT_seg is: ", T_seg)
 
 #
 # Load in data and PSDs
 #
 data_dict, psd_dict = {}, {}
 
-#LISA
-if opts.h5_frame_FD: # this handles LISA FD data
+# this if statement will handle LISA FD data.
+if opts.h5_frame_FD:
     for inst, chan in map(lambda c: c.split("="), opts.channel_name):
-      print( "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
-      data_dict[inst] = lalsimutils.frame_h5_to_hoff(opts.cache_file,
-              inst)
-      print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
-                data_dict[inst].data.length) )
+      print("Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
+      data_dict[inst] = lalsimutils.frame_h5_to_hoff(opts.cache_file,inst)
+      print("Frequency binning: %e, length %d" % (data_dict[inst].deltaF, data_dict[inst].data.length) )
 
-else:  # this can handle both LIGO and LISA TD data
+# this can handle both LIGO and LISA TD data
+else:  
   for inst, chan in map(lambda c: c.split("="), opts.channel_name):
       print( "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
       data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
               inst+":"+chan, start=start_time, stop=end_time,
-              window_shape=opts.window_shape,deltaT=deltaT, h5_frame=opts.h5_frame)
+              window_shape=opts.window_shape, deltaT=deltaT, h5_frame=opts.h5_frame)
       print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
               data_dict[inst].data.length) )
 
@@ -640,7 +654,10 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
 
     deltaF = data_dict[inst].deltaF
     psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
-    print( "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF)
+    if opts.LISA:
+       print( "PSD deltaF after interpolation %e" % psd_dict[inst].deltaF)
+    else:
+      print( "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF)
 
     # Implement PSD window rescaling: see T1900249
     if opts.psd_window_shape > 0 or opts.window_shape > 0:
@@ -655,7 +672,7 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
             psd_fvals = psd_dict[inst].f0 + deltaF*numpy.arange(psd_dict[inst].data.length)
             psd_dict[inst].data.data[ psd_fvals < flow_ifo_dict[inst]] = 0 # 
         else:
-            print( 'FAIL on PSD import')
+            print('FAIL on PSD import')
             sys.exit(1)
 #        elif isinstance(psd_dict[inst], pylal.xlal.datatypes.real8frequencyseries.REAL8FrequencySeries):  # for backward compatibility
 #            psd_fvals = psd_dict[inst].f0 + deltaF*numpy.arange(len(psd_dict[inst].data))
@@ -678,6 +695,7 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
         fmax = opts.fmax # fmax is now the upper freq. of IP integral
 
 # Ensure data and PSDs keyed to same detectors
+# For LISA we only provde one PSD, so this check is not necessary.
 if sorted(psd_dict.keys()) != sorted(data_dict.keys()) and not(opts.LISA):
     print >>sys.stderr, "Got a different set of instruments based on data and PSDs provided."
 
@@ -727,7 +745,8 @@ if opts.internal_rotate_phase:
 #
 # Parameter integral sampling strategy
 #
-
+print("\n")
+print("## Initiating integrator ##")
 # Oracle for portfolio if needed
 
 
@@ -736,6 +755,7 @@ use_portfolio=False
 params = {}
 sampler = mcsampler.MCSampler()
 xpy_asarray_already = functools.partial(xpy_default.asarray,dtype=np.float64)
+
 if opts.sampler_method == "adaptive_cartesian_gpu":
     print(" ILE: {}".format(opts.sampler_method))
     sampler = mcsamplerGPU.MCSampler()
@@ -749,9 +769,11 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
       mcsampler.set_xpy_to_numpy()
       sampler.xpy= numpy
       sampler.identity_convert= lambda x: x
+    
 elif opts.sampler_method == "GMM":
     print(" ILE: {}".format(opts.sampler_method))
     sampler = mcsamplerEnsemble.MCSampler()
+  
 elif opts.sampler_method == 'AV':
     print(" ILE: {}".format(opts.sampler_method))
     opts.internal_use_lnL=True
@@ -767,6 +789,7 @@ elif opts.sampler_method == 'AV':
       mcsampler.set_xpy_to_numpy()
       sampler.xpy= numpy
       sampler.identity_convert= lambda x: x
+
 elif opts.sampler_method == "portfolio":
     use_portfolio=True
     opts.internal_use_lnL=True  # required, we only implement those scenarios right now
@@ -1009,6 +1032,7 @@ else:
         prior_pdf = dec_sampler,
         adaptive_sampling = opts.force_adapt_all or (not opts.no_adapt))
 
+# LISA: What will change here if we don't marginalize in time for LISA?
 if not opts.time_marginalization:
     #
     # tref - GPS time of geocentric end time
@@ -1068,7 +1092,7 @@ for p in sampler.params:
             print( "|{0:<25s} {1:>1.3g}   {2:>1.3g} {3:>20s} {4:<10s}".format(subp, subl, subr, str(False), ""))
     else:
         p = p + " "*min(0, plen-len(p))
-        print( "{0:<25s} {1:>1.3g}   {2:>1.3g} {3:>20s} {4:<10s}".format(p, sampler.llim[p], sampler.rlim[p], str(pinned), value))
+        print("{0:<25s} {1:>5g} {2:>5g} {3:>20s} {4:<10s}".format(p, sampler.llim[p], sampler.rlim[p], str(pinned), value))
 
 # Special case: t_ref is assumed to be relative to the epoch
 if "t_ref" in pinned_params:
@@ -1213,7 +1237,7 @@ if use_portfolio:
 if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
   sampler.setup()
 
-
+# LISA check: what is this?
 def resample_samples(my_samples,
                      lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None): # uses LOTS of global variables, don't pass them all
   # will look a LOT like the likelihood function definitions, unfortunately
@@ -1271,12 +1295,8 @@ def resample_samples(my_samples,
 #
 
 def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
-    ### import statements for local testing
-    import sys
-    RIFT = "RIFT-LISA-3G-O4c"
-    sys.path.append(f"/Users/aasim/Desktop/Research/Mcodes/{RIFT}/MonteCarloMarginalizeCode/Code")
-    import RIFT.likelihood.factored_likelihood_LISA as factored_likelihood_LISA
-    ###
+    print("\n")
+    print("## Precomputing ##")
     nEvals=0
     P = P_list[indx_event]
     # if pin-distance-to-sim, change the distance prior accordingly
@@ -1287,27 +1307,27 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
     if supplemental_ln_likelhood_prep:
       supplemental_ln_likelhood_prep(P=P,config=supplemental_ln_likelhood_parsed_ini)
     
-    print("Generating modes for parameters:\n")
-    P.print_params()
-
+    print("Generating modes for parameters:")
+    P.print_params_lisa()
     # Generate modes
     if opts.modes:
-    	modes=np.array(eval(opts.modes))
-        print(f"hlm being called with modes = {modes}")
+      modes=np.array(eval(opts.modes))
+      print(f"modes = \n{modes}")
+    
     hlms_FD = lalsimutils.hlmoff_for_LISA(P, opts.l_max, modes)
     fNyq = 0.5/P.deltaT
     modes = np.array(list(hlms_FD.keys()))
     reference_distance = P.dist
+    print(f"Reference distance = {reference_distance/lal.PC_SI/1e9} Gpc, 1/deltaF = {1/P.deltaF} s, deltaT = {P.deltaT} s")
 
     # Precompute
     # fNyq is the max resolvable frequency for a waveform. It is 0.5/deltaT. RIFT needs deltaT, deltaF for waveform generation (information present in P) and for integration it needs fmax (fmax <= fNyq)
-    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest = factored_likelihood_LISA.PrecomputeAlignedSpinLISA(opts.reference_time, opts.data_integration_window_half, hlms_FD, None, data_dict, psd_dict, flow_ifo_dict["A"], fmax, fNyq, P.deltaT,  pinned_params["right_ascension"], pinned_params["declination"], analyticPSD_Q=False, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec)
+    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest = factored_likelihood_LISA.PrecomputeAlignedSpinLISA(opts.lisa_reference_time, opts.lisa_reference_frequency, opts.data_integration_window_half, hlms_FD, None, data_dict, psd_dict, flow_ifo_dict["A"], fmax, fNyq, P.deltaT, pinned_params["right_ascension"], pinned_params["declination"], analyticPSD_Q=False, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec)
     
     # reset to default.  Should not be needed, but weird python scoping error
     manual_avoid_overflow_logarithm = manual_avoid_overflow_logarithm_default 
 
-    def likelihood_function(right_ascension, declination, phi_orb, inclination,
-      psi, distance):
+    def likelihood_function(right_ascension, declination, phi_orb, inclination, psi, distance):
       P.phi = xpy_asarray_already(right_ascension) 
       if opts.declination_cosine_sampler:
         P.theta = numpy.pi/2 - xpy_default.arccos(xpy_asarray_already(declination))
@@ -1329,7 +1349,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
 
       # rotate phase if needed
       # make copies of arrays
-      #   Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
+      # Sampling assumes P.phiref == phi+ \psi ,   P.psi == phi - psi
       if opts.internal_rotate_phase:
         phi_orb_true = (P.phiref + P.psi)/2.
         psi_true = (P.phiref - P.psi)/2.
@@ -2315,7 +2335,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_
 lnL_sofar = -np.inf
 no_adapt_sky = False
 for indx in numpy.arange(len(P_list)):
-#  try:
+ try:
   if opts.LISA:
     res = analyze_event_LISA(P_list, indx, data_dict, psd_dict, fmax, opts)
   else:
@@ -2344,41 +2364,41 @@ for indx in numpy.arange(len(P_list)):
       # Disable saving of the integrand -- saves on memory and will reduce speed. 
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
-#  except Exception as exception_failure:
-#   print("  ===> FAILED ANALYSIS <==== ")
-#   print(exception_failure)
-#   if opts.internal_make_empty_file_on_error:
-#     fname_output_txt = opts.output_file +"_"+str(indx)+"_" + ".dat"
-#     open(fname_output_txt,'a').close()  # create empty file
-#   if opts.internal_hard_fail_on_error:
-#     sys.exit(1)
-# #  if len(exception_failure) >0:
-# #    if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
-# #      sys.exit(1) 
-#   if ("CUDA" in str(exception_failure)) or ('CUBLAS' in str(exception_failure)) or ('cuda' in str(exception_failure)) or ('compilation' in (str(exception_failure)) ): # Hard fail if a cuda error with a catchable error code
-#     if (opts.internal_soft_fail_on_cuda_error):
-#       sys.exit(0)
-#     sys.exit(62)
-#   if 'Out of memory' in str(exception_failure):   # should never happen, most likely a crappy node or failure to set correct memory limit for ILE.
-#     sys.exit(63)
-#   str_err = " {} ".format(exception_failure)
-#   if ('Zero prior failure' in str_err) or ('effective samples' in str_err):
-#     # common failures that require reset of sampler
-#     #    - zero prior : very rare case where the prior is exactly zero for some reason. User error most likely (floors, etc). Should never happen
-#     #    - effective samples = nan : error with AC where the integrator gets confused. Reset
-#     # reset all variables sampling, so we don't contaminate subsequent versions
-#     #    - again, this should only be a problem if we are using multiply adaptive sampling, so it should NEVER happen on the first time through
-#     for name in sampler.params:
-#       sampler.reset_sampling(param)
+ except Exception as exception_failure:
+  print("  ===> FAILED ANALYSIS <==== ")
+  print(exception_failure)
+  if opts.internal_make_empty_file_on_error:
+    fname_output_txt = opts.output_file +"_"+str(indx)+"_" + ".dat"
+    open(fname_output_txt,'a').close()  # create empty file
+  if opts.internal_hard_fail_on_error:
+    sys.exit(1)
+#  if len(exception_failure) >0:
+#    if "CUBLAS" in exception_failure[0]:  # Hard fail if a cuda error!
+#      sys.exit(1) 
+  if ("CUDA" in str(exception_failure)) or ('CUBLAS' in str(exception_failure)) or ('cuda' in str(exception_failure)) or ('compilation' in (str(exception_failure)) ): # Hard fail if a cuda error with a catchable error code
+    if (opts.internal_soft_fail_on_cuda_error):
+      sys.exit(0)
+    sys.exit(62)
+  if 'Out of memory' in str(exception_failure):   # should never happen, most likely a crappy node or failure to set correct memory limit for ILE.
+    sys.exit(63)
+  str_err = " {} ".format(exception_failure)
+  if ('Zero prior failure' in str_err) or ('effective samples' in str_err):
+    # common failures that require reset of sampler
+    #    - zero prior : very rare case where the prior is exactly zero for some reason. User error most likely (floors, etc). Should never happen
+    #    - effective samples = nan : error with AC where the integrator gets confused. Reset
+    # reset all variables sampling, so we don't contaminate subsequent versions
+    #    - again, this should only be a problem if we are using multiply adaptive sampling, so it should NEVER happen on the first time through
+    for name in sampler.params:
+      sampler.reset_sampling(param)
 
-#   #a sketch of how I would do custom failure modes, but for sake of speed I'm just setting the above right now
-#   #for i,failure_mode in enumerate(opts.custom_fails):
-#   #  if failure_mode in str(exception_failure):
-#   #    sys.exit(opts.custom_fail_codes[i])
+  #a sketch of how I would do custom failure modes, but for sake of speed I'm just setting the above right now
+  #for i,failure_mode in enumerate(opts.custom_fails):
+  #  if failure_mode in str(exception_failure):
+  #    sys.exit(opts.custom_fail_codes[i])
 
-#   print( " Probable reasons: SEOB nyquist or starting frequency limit or signal duration ")
-#   print( " Skipping the following binary! ")
-#   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
-#   P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
-#   P_list[indx].print_params()
+  print( " Probable reasons: SEOB nyquist or starting frequency limit or signal duration ")
+  print( " Skipping the following binary! ")
+  # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
+  P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
+  P_list[indx].print_params()
   
