@@ -45,6 +45,7 @@ P.approx = lalsimulation.GetApproximantFromString("IMRPhenomHM")
 
 P.phiref = 0.0   # add phiref later (confirm with ROS)!
 P.inclination = 0.0 # add inclination later (confirm with ROS)!
+P.psi = 0.0 # is not used when generating a waveform
 P.fref = 8*10**(-5) # what happens?
 P.tref = 0.0
 
@@ -55,6 +56,7 @@ lamda = np.pi/5
 psi = np.pi/4
 phi_ref = np.pi/3
 inclination = np.pi/2
+fref = None
 
 snr_fmin = 10**(-4)
 snr_fmax = 0.125
@@ -105,7 +107,7 @@ hlmf = lalsimutils.hlmoff_for_LISA(P, Lmax=lmax, modes=modes)
 modes = list(hlmf.keys())
 
 # create injections
-data_dict = create_lisa_injections(hlmf, P.fmax, beta, lamda, psi, inclination, phi_ref, P.tref) 
+data_dict = create_lisa_injections(hlmf, P.fmax, fref, beta, lamda, psi, inclination, phi_ref, P.tref) 
 
 # save them in h5 format
 A_h5_file = h5py.File(f'{injection_save_path}/A-fake_strain-1000000-10000.h5', 'w')
