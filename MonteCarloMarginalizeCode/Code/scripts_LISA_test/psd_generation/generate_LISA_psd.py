@@ -2,9 +2,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from scipy import interpolate
+from argparse import ArgumentParser
 
+parser = ArgumentParser()
+parser.add_argument("--NC", default=3, type=int, help="Number of channels.")
+parser.add_argument("--Tobs", default=0.5, type=float,  help="Observation time in years.")
+parser.add_argument("--fmin", default=5.0e-5, type=float, help="Lowest frequency at which PSD needs to be generated.")
+parser.add_argument("--fmax", default=1, type=float, help="Highest frequency at which PSD needs to be generated.")
+opts=parser.parse_args()
 
-#CONSTANTS
+print(f"Argument parser has the following arguments:\n{vars(opts)}")
+
+# CONSTANTS
 fm     = 3.168753575e-8   # confirm this
 YRSID_SI = 31558149.763545603 # year in seconds
 C_SI = 299792458.      # speed of light (m/s)
@@ -14,9 +23,9 @@ Larm = 2*np.sqrt(3)*a*e
 fstar = C_SI/(2*np.pi*Larm)
 
 path_to_file=os.path.dirname(__file__)
-#FUNCTIONS
-### These function were taken from LISA.py of LISA sensitivty (https://github.com/eXtremeGravityInstitute/LISA_Sensitivity)
 
+# FUNCTIONS
+# These function were taken from LISA.py of LISA sensitivty (https://github.com/eXtremeGravityInstitute/LISA_Sensitivity)
 def Pn(f):
     """
     Caclulate the Strain Power Spectral Density
@@ -96,8 +105,8 @@ def Sn(f, Tobs = 0.5, NC = 3, R_exists=False, interp_func=None):
     return Sn
 
 
-NC = 3 # number of channels
-Tobs = 0.5*YRSID_SI # years
+NC = opts.NC # number of channels
+Tobs = opts.Tobs*YRSID_SI # years
 
 if os.path.exists(f"{path_to_file}/R.txt"):
     data = np.loadtxt(f"{path_to_file}/R.txt")
@@ -110,18 +119,25 @@ else:
     R_exists = False
     interp_func = False
 
-f  = np.linspace(5.0e-5, 1.0e0, 500001)  # these many points are sufficient, rely on RIFT's interpolation  after. RIFT doesn't like if deltaF is larger than f0.
+# fvals over which PSD will be generated, needs to be in linear space for RIFT to read it.
+f  = np.linspace(opts.fmin, opts.fmax, 500001)  # these many points are sufficient, rely on RIFT's interpolation  after. RIFT doesn't like if deltaF is larger than f0.
+
+# generate PSD
 sens = Sn(f, Tobs, NC, R_exists, interp_func)
 
-
+# reshape to save
 f = f.reshape(-1,1)
 sens = sens.reshape(-1,1)
 sens_save=np.hstack([f,sens])
+
+# Plot
 plt.xlabel("Frequency [Hz]")
 plt.ylabel("Characteristic strain")
 plt.loglog(f, np.sqrt(f*sens))
 plt.savefig(os.getcwd()+"/LISA_psd_plot.png",  bbox_inches="tight")
 
+# Save as txt
 np.savetxt(os.getcwd() +"/LISA_psd.txt", sens_save)
 
+# Save as xml
 os.system(f"/Users/aasim/Desktop/Research/Mcodes/RIFT-LISA-3G-O4c/MonteCarloMarginalizeCode/Code/bin/convert_psd_ascii2xml --fname-psd-ascii {os.getcwd()}/LISA_psd.txt --conventional-postfix --ifo A")
