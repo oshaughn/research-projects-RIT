@@ -1,14 +1,10 @@
-## 
+#/usr/bin/env python 
 # TODO: 
 # Use argparser
 # use mdc.xml.gz
 
 
 import sys
-RIFT = "RIFT-LISA-3G-O4c"
-sys.path.append(f"/Users/aasim/Desktop/Research/Mcodes/{RIFT}/MonteCarloMarginalizeCode/Code")
-
-
 import numpy as np
 import h5py
 import RIFT.lalsimutils as lalsimutils
@@ -17,18 +13,21 @@ import lal
 import lalsimulation
 import matplotlib.pyplot as plt
 
-# from argparse import ArgumentParser
-# parser = ArgumentParser()
+from argparse import ArgumentParser
+parser = ArgumentParser()
+parser.add_argument("--save-path", default=None, help="Path where you want to save the h5 files")
 # parser.add_argument("--inj", default=None, help="Inspiral XML file containing injection information.")
 # parser.add_argument("--calculate-snr", default=False, help="Calculate SNR of the fake signal.")
-# parser.add_argument("--psd-path", default=None, help="Path to a xml.gz PSD needed to calculate SNR.")
+parser.add_argument("--psd-path", default=None, help="Path to a xml.gz PSD needed to calculate SNR.")
 # parser.add_argument("--event", default=0, help="Event ID of injection XML to use.")
-# opts = parser.parse_args()
+opts = parser.parse_args()
 # P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))
 
 #############################################
-injection_save_path = "/Users/aasim/Desktop/Research/Projects/RIFT_LISA/Development/injections"
-psd_path = "/Users/aasim/Desktop/Research/Mcodes/RIFT-LISA-3G-O4c/MonteCarloMarginalizeCode/Code/RIFT/LISA/psd_generation/A-psd.xml.gz"
+if not(opts.save_path):
+    print("Save path not provided")
+    opts.save_path = os.getcwd()
+print(f"Saving frames in {opts.save_path}")
 
 P = lalsimutils.ChooseWaveformParams()
 
@@ -112,29 +111,29 @@ modes = list(hlmf.keys())
 data_dict = create_lisa_injections(hlmf, P.fmax, fref, beta, lamda, psi, inclination, phi_ref, P.tref) 
 
 # save them in h5 format
-A_h5_file = h5py.File(f'{injection_save_path}/A-fake_strain-1000000-10000.h5', 'w')
+A_h5_file = h5py.File(f'{opts.save_path}/A-fake_strain-1000000-10000.h5', 'w')
 A_h5_file.create_dataset('data', data=data_dict["A"].data.data)
 A_h5_file.attrs["deltaF"], A_h5_file.attrs["epoch"], A_h5_file.attrs["length"], A_h5_file.attrs["f0"] = hlmf[modes[0]].deltaF, float(hlmf[modes[0]].epoch), hlmf[modes[0]].data.length, hlmf[modes[0]].f0 
 A_h5_file.close()
 
-E_h5_file = h5py.File(f'{injection_save_path}/E-fake_strain-1000000-10000.h5', 'w')
+E_h5_file = h5py.File(f'{opts.save_path}/E-fake_strain-1000000-10000.h5', 'w')
 E_h5_file.create_dataset('data', data=data_dict["E"].data.data)
 E_h5_file.attrs["deltaF"], E_h5_file.attrs["epoch"], E_h5_file.attrs["length"], E_h5_file.attrs["f0"] =  hlmf[modes[0]].deltaF, float(hlmf[modes[0]].epoch), hlmf[modes[0]].data.length, hlmf[modes[0]].f0
 E_h5_file.close()
 
-T_h5_file = h5py.File(f'{injection_save_path}/T-fake_strain-1000000-10000.h5', 'w')
+T_h5_file = h5py.File(f'{opts.save_path}/T-fake_strain-1000000-10000.h5', 'w')
 T_h5_file.create_dataset('data', data=data_dict["T"].data.data)
 T_h5_file.attrs["deltaF"], T_h5_file.attrs["epoch"], T_h5_file.attrs["length"], T_h5_file.attrs["f0"] = hlmf[modes[0]].deltaF, float(hlmf[modes[0]].epoch), hlmf[modes[0]].data.length, hlmf[modes[0]].f0
 T_h5_file.close()
 
 # calculate SNR
-print(f"Reading PSD to calculate SNR for LISA instrument from {psd_path}.")
-psd = lalsimutils.get_psd_series_from_xmldoc(psd_path, "A")
+print(f"Reading PSD to calculate SNR for LISA instrument from {opts.psd_path}.")
+psd = lalsimutils.get_psd_series_from_xmldoc(opts.psd_path, "A")
 psd = lalsimutils.resample_psd_series(psd, P.deltaF)
 psd_fvals = psd.f0 + P.deltaF*np.arange(psd.data.length)
 psd.data.data[ psd_fvals < snr_fmin] = 0 
 snr = calculate_snr(data_dict, snr_fmin, snr_fmax, 0.5/P.deltaT, psd)
 
 # plot figure
-create_PSD_injection_figure(data_dict, psd, injection_save_path, snr)
+create_PSD_injection_figure(data_dict, psd, opts.save_path, snr)
 
