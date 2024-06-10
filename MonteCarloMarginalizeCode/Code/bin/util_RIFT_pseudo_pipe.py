@@ -272,11 +272,17 @@ parser.add_argument("--archive-pesummary-label",default=None,help="If provided, 
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
 
-#LISA
-parser.add_argument("--h5-frame", default=None, action="store_true", help="Let the code know that the frames are in h5 format and not in gwf, the information is passed down to ILE scripts")
+# LISA ILE
+parser.add_argument("--LISA", default=False, help="Let ILE know that a LISA signal is being analyzed, causing the ILE script to use analyze_event_lisa function instead of analyze_event.")
+parser.add_argument("--lisa-reference-time", default=0.0, help="Reference time of a LISA signal, defined at lisa-reference-frequency. Passed downstream to ILE and is used in computing LISA response + time shift in precomputation. ")
+parser.add_argument("--modes", default=None, help="List of modes to be used in recovery waveforms, supersedes lmax (only works for LISA analysis so far due to difference waveform functions). --modes '[(2,2),(3,3)]'")
+parser.add_argument("--h5-frame-FD", default=False, action="store_true", help="Let the code know that the frames are in h5 format (and in frequency domain) and not in gwf, the information is passed down to ILE scripts")
+parser.add_argument("--h5-frame", default=False, action="store_true", help="Let the code know that the frames are in h5 format and not in gwf, the information is passed down to ILE scripts")
 parser.add_argument("--data-integration-window-half", default=None, help="For longer signal srate might be such the integration range is smaller than deltaT, so need to redefine it. By default it takes a value of 300 ms")
-parser.add_argument("--downselect-parameter-range", default="[1,1000]", help="m2 downselect parameter range, default being [1,1000].") 
+# LISA CIP
+parser.add_argument("--downselect-parameter-range", default="[1,1000]", help="m2 downselect parameter range, default being [1,1000] in CIP.") 
 parser.add_argument("--M-max-cut", default=None, help="Mtotal max cut for CIP, by default CIP takes a value of 1e5")
+
 
 opts=  parser.parse_args()
 
@@ -369,6 +375,12 @@ if opts.internal_use_amr:
 if opts.internal_force_iterations and opts.internal_propose_converge_last_stage:
     print("==> Inconsistent options --internal-force-iterations and --internal-propose-converge-last-stage, overriding former")
     opts.internal_force_iterations= None # Can't force iteration number if we are using arbitrary iterate to convergence!
+
+# LISA (shouldn't have to provide these arguments so fixing this for now when analyzing a LISA event.)
+if opts.LISA:
+    opts.downselect_parameter_range = "[100000,1000000000]" # from 1e5 to 1e9, might need to change as we analyze EMRIs and SBHBs.
+    opts.M_max_cut = 1e9 
+    opts.data_integration_half = 300.0 
 
 download_request = " get file "
 gracedb_exe =opts.gracedb_exe
@@ -813,6 +825,25 @@ line = ' '.join(instructions_ile)
 if opts.internal_ile_n_max:
     line = line.replace('--n-max 4000000 ', str(opts.internal_ile_n_max)+" ")
 line += " --l-max " + str(opts.l_max) 
+
+# LISA ILE
+if opts.LISA:
+    if 'lisa-reference-time' in config['engine']:
+        opts.lisa_reference_time = float(config['engine']['lisa-reference-time'])
+    line += " --lisa-reference-time {}".format(opts.lisa_reference_time) 
+    if 'h5-frame-FD' in config['engine'] or opts.h5_frame_FD:
+        line += "--h5-frame-FD"
+    if 'h5-frame' in config['engine'] or opts.h5_frame:
+        line += "--h5-frame"
+    if 'data-integration-half' in config['engine']:
+        opts.data_integration_half = float(config['engine']['data-integration-half'])
+    line += "--data-integration-half {}".format(opts.data_integration_half) 
+    if "modes" in config['engine']:
+        opts.modes = (config['engine']['modes'])
+        line += "--modes {}".format(opts.modes)
+    if not(opts.modes is None):
+        line += "--modes {}".format(opts.modes)
+        
 if 'data-start-time' in line and 's1z' in event_dict:  # only call this if we have (a) fixed time interval and (b) CBC parameters for event
     # Print warnings based on duration and fmin
     line_dict = unsafe_parse_arg_string_dict(line)
