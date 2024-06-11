@@ -273,17 +273,18 @@ parser.add_argument("--archive-pesummary-event-label",default="this_event",help=
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
 
 # LISA ILE
-parser.add_argument("--LISA", default=False, help="Let ILE know that a LISA signal is being analyzed, causing the ILE script to use analyze_event_lisa function instead of analyze_event.")
+parser.add_argument("--LISA", action="store_true", help="Let ILE know that a LISA signal is being analyzed, causing the ILE script to use analyze_event_lisa function instead of analyze_event.")
 parser.add_argument("--lisa-reference-time", default=0.0, help="Reference time of a LISA signal, defined at lisa-reference-frequency. Passed downstream to ILE and is used in computing LISA response + time shift in precomputation. ")
 parser.add_argument("--modes", default=None, help="List of modes to be used in recovery waveforms, supersedes lmax (only works for LISA analysis so far due to difference waveform functions). --modes '[(2,2),(3,3)]'")
 parser.add_argument("--h5-frame-FD", default=False, action="store_true", help="Let the code know that the frames are in h5 format (and in frequency domain) and not in gwf, the information is passed down to ILE scripts")
 parser.add_argument("--h5-frame", default=False, action="store_true", help="Let the code know that the frames are in h5 format and not in gwf, the information is passed down to ILE scripts")
 parser.add_argument("--data-integration-window-half", default=None, help="For longer signal srate might be such the integration range is smaller than deltaT, so need to redefine it. By default it takes a value of 300 ms")
+parser.add_argument("--right-ascension", default=None)
+parser.add_argument("--declination", default=None)
 # LISA CIP
 parser.add_argument("--downselect-parameter-range", default="[1,1000]", help="m2 downselect parameter range, default being [1,1000] in CIP.") 
 parser.add_argument("--M-max-cut", default=None, help="Mtotal max cut for CIP, by default CIP takes a value of 1e5")
-
-
+parser.add_argument("--force-cip", action="store_true", help="Force CIP to neff=nsamples for intermediate iterations")
 opts=  parser.parse_args()
 
 
@@ -605,8 +606,8 @@ if not(opts.skip_reproducibility): # not(assume_lowlatency):
 # Run helper command
 npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options  --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
-if not(opts.h5_frame is None):# or "h5-frame" in config_dict:
-    cmd += " --h5-frame "
+if not(opts.h5_frame is False):# or "h5-frame" in config_dict:
+    cmd += " --h5-frame"
 if not(opts.data_integration_window_half is None): 
     cmd += " --data-integration-window-half {}".format(opts.data_integration_window_half)
 if opts.internal_use_gracedb_bayestar:
@@ -780,6 +781,7 @@ if opts.use_ini:
         cmd_cat = 'cat ' + ' '.join(fake_cache_fnames) + ' > local.cache'
         os.system(cmd_cat)
         cmd += " --cache local.cache --fake-data  "
+
 if opts.fake_data_cache:
     cmd += " --cache {} --fake-data  ".format(opts.fake_data_cache)
     if len(event_dict["IFOs"]) >0 :
@@ -828,23 +830,21 @@ line += " --l-max " + str(opts.l_max)
 
 # LISA ILE
 if opts.LISA:
-    if 'lisa-reference-time' in config['engine']:
-        opts.lisa_reference_time = float(config['engine']['lisa-reference-time'])
-    line += " --lisa-reference-time {}".format(opts.lisa_reference_time) 
-    if 'h5-frame-FD' in config['engine'] or opts.h5_frame_FD:
-        line += "--h5-frame-FD"
-    if 'h5-frame' in config['engine'] or opts.h5_frame:
-        line += "--h5-frame"
-    if 'data-integration-half' in config['engine']:
-        opts.data_integration_half = float(config['engine']['data-integration-half'])
-    line += "--data-integration-half {}".format(opts.data_integration_half) 
-    if "modes" in config['engine']:
-        opts.modes = (config['engine']['modes'])
-        line += "--modes {}".format(opts.modes)
-    if not(opts.modes is None):
-        line += "--modes {}".format(opts.modes)
+    line += " --LISA "
+    line += "--lisa-reference-time {} ".format(opts.lisa_reference_time) 
+    if opts.h5_frame_FD:
+        line += "--h5-frame-FD "
+    if opts.h5_frame:
+        line += "--h5-frame "
+    line += "--data-integration-half {} ".format(opts.data_integration_half) 
+    if opts.modes: 
+        line += "--modes {} ".format(opts.modes)
+    # Hacky solution
+    line +=" --channel-name E=FAKE-STRAIN  --channel-name T=FAKE-STRAIN "
+    if opts.right_ascension and opts.declination:
+        line +=" --right-ascension {} --declination {} ".format(opts.right_ascension, opts.declination)
         
-if 'data-start-time' in line and 's1z' in event_dict:  # only call this if we have (a) fixed time interval and (b) CBC parameters for event
+if 'data-start-time' in line and 's1z' in event_dict and not(opts.LISA):  # only call this if we have (a) fixed time interval and (b) CBC parameters for event
     # Print warnings based on duration and fmin
     line_dict = unsafe_parse_arg_string_dict(line)
     data_start_time = float(line_dict['data-start-time'])
@@ -993,6 +993,9 @@ for indx in np.arange(len(instructions_cip)):
     if indx < len(instructions_cip)-1: # on all but 
         n_eff_cip_here= int(n_sample_target/n_workers)
         n_eff_cip_here = np.amin([opts.internal_cip_cap_neff/n_workers + 1, n_eff_cip_here]) # n_eff: make sure to do *less* than the limit. Lowering this saves immensely on internal/exploration runtime
+        # LISA
+        if opts.force_cip:
+            n_eff_cip_here = int(n_sample_target/n_workers)
     else:
         n_eff_cip_here = n_eff_cip_last
     n_sample_min_per_worker = int(n_eff_cip_here/100)+2  # need at least 2 samples, and don't have any worker fall down on the job too much compared to the target
@@ -1242,7 +1245,8 @@ if opts.archive_pesummary_label:
 # Overwrite iteration number
 if opts.internal_force_iterations:
     n_iterations = opts.internal_force_iterations
-
+if "manual-initial-grid" in config["engine"]:
+    opts.manual_initial_grid = config["engine"]["manual-initial-grid"]
 # Overwrite grid if needed
 if not (opts.manual_initial_grid is None):
     shutil.copyfile(opts.manual_initial_grid, "proposed-grid.xml.gz")
@@ -1250,7 +1254,6 @@ if not (opts.manual_initial_grid is None):
 # override npts_it if needed
 if opts.internal_n_evaluations_per_iteration:
     npts_it = opts.internal_n_evaluations_per_iteration
-
 # Build DAG
 cip_mem  = 30000
 n_jobs_per_worker=opts.ile_jobs_per_worker
