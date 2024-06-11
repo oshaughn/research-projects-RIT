@@ -1313,7 +1313,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
     if opts.modes:
       modes=np.array(eval(opts.modes))
       print(f"modes = \n{modes}")
-    
+    P.deltaF=deltaF # why do we need this? why is it becoming None? 
     hlms_FD = lalsimutils.hlmoff_for_LISA(P, opts.l_max, modes)
     fNyq = 0.5/P.deltaT
     modes = np.array(list(hlms_FD.keys()))
