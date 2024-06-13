@@ -2860,6 +2860,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                 'interp_uniform_grid': "yes",
                 'distance'           : P.dist/(lal.PC_SI*1e6),
                 'inclination'        : P.incl,
+                "coalescence_angle": np.pi / 2 - P.phiref,
                 'output_hpc'         : "no"
             }
         else:
@@ -2882,6 +2883,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                 'interp_uniform_grid': 1,
                 'distance'           : P.dist/(lal.PC_SI*1e6),
                 'inclination'        : P.incl,
+                "coalescence_angle": np.pi / 2 - P.phiref,
                 'output_hpc'         : 0,
                 'ecc'                : P.eccentricity,
                 'ecc_freq'           : 1 #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
