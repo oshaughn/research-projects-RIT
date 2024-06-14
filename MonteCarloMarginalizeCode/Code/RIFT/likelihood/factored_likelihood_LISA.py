@@ -1,8 +1,8 @@
 from __future__ import print_function
 #########
 import sys
-RIFT = "RIFT-LISA-3G-O4c"
-sys.path.append(f"/Users/aasim/Desktop/Research/Mcodes/{RIFT}/MonteCarloMarginalizeCode/Code")
+#RIFT = "RIFT-LISA-3G-O4c"
+#sys.path.append(f"/Users/aasim/Desktop/Research/Mcodes/{RIFT}/MonteCarloMarginalizeCode/Code")
 from RIFT.LISA.response.LISA_response import *
 
 
