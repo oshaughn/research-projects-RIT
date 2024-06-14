@@ -380,8 +380,9 @@ if opts.internal_force_iterations and opts.internal_propose_converge_last_stage:
 # LISA (shouldn't have to provide these arguments so fixing this for now when analyzing a LISA event.)
 if opts.LISA:
     opts.downselect_parameter_range = "[100000,1000000000]" # from 1e5 to 1e9, might need to change as we analyze EMRIs and SBHBs.
-    opts.M_max_cut = 1e9 
-    opts.data_integration_half = 300.0 
+    opts.M_max_cut = 1e9
+    if opts.data_integration_window_half is None:
+        opts.data_integration_window_half = 300.0 
 
 download_request = " get file "
 gracedb_exe =opts.gracedb_exe
@@ -836,7 +837,7 @@ if opts.LISA:
         line += "--h5-frame-FD "
     if opts.h5_frame:
         line += "--h5-frame "
-    line += "--data-integration-half {} ".format(opts.data_integration_half) 
+    line += "--data-integration-window-half {} ".format(opts.data_integration_window_half) 
     if opts.modes: 
         line += "--modes {} ".format(opts.modes)
     # Hacky solution
