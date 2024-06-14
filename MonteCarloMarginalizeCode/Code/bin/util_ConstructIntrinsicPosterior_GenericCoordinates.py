@@ -2277,7 +2277,7 @@ if opts.supplementary_prior_code:
   external_prior_module = sys.modules[opts.supplementary_prior_code]
   if hasattr(external_prior_module,'prior_pdf') and hasattr(external_prior_module,'param_ranges'):
       if type(external_prior_module.prior_pdf) == dict:
-          for name in externa_prior_module.prior_pdf:
+          for name in external_prior_module.prior_pdf:
               sampler.prior_pdf[name] = external_prior_module[name]
               sampler.llim[name],sampler.rlim
 
