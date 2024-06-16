@@ -516,7 +516,7 @@ class Rift(Pipeline):
             last_rescue =last_rescue[-1]
             time_mod_rescue = os.path.getmtime(last_rescue)
         else:
-            time_mod_rescue = time_mod_out 100  # no rescues
+            time_mod_rescue = time_mod_out - 100  # no rescues
         if count < 100 and (time_mod_out > time_mod_rescue+30): # some buffer in seconds for file i/o
             print("   ... still going, leaving it alone ")
             return None
