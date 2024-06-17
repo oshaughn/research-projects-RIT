@@ -17,7 +17,7 @@ import RIFT.physics.EOSManager as EOSManager
 import RIFT.lalsimutils as lalsimutils
 from natsort import natsorted
 import warnings
-import seaborn as sns
+# import seaborn as sns
 
 def EOS_data_loader(tabular_eos_file: str, data_label: str = None, verbose: bool = False, save_eos_manager: bool = False) -> dict:
     """
@@ -731,7 +731,7 @@ def posterior_hist_plot(*posterior_hist_data: dict, r_lim: tuple = (8, 17), lamb
 
         bins = np.linspace(r_lim[0], r_lim[1], 100)
         ax1.hist(R_data, bins = bins, color = colors(i), label = label_i, alpha = alpha_i, density = True)
-        sns.kdeplot(R_data, color = colors(i))
+        # sns.kdeplot(R_data, color = colors(i))
         ax1.axvline(x = data['R_mean_std'][0], color = colors(i), linestyle = '--')
         ax1.axvspan(data['R_mean_std'][0] - data['R_mean_std'][1], data['R_mean_std'][0] + data['R_mean_std'][1], alpha = 0.1, color = colors(i))
         print(f'{label_i} R at {m_ref} M_sun: {data["R_mean_std"][0]:.2f} +/- {data["R_mean_std"][1]:.2f} km')
@@ -757,7 +757,7 @@ def posterior_hist_plot(*posterior_hist_data: dict, r_lim: tuple = (8, 17), lamb
 
         bins = np.linspace(lambda_lim[0], lambda_lim[1], 200)
         ax2.hist(Lambda_data, bins = bins, color = colors(i), label = label_i, alpha = alpha_i, density = True)
-        sns.kdeplot(Lambda_data, color = colors(i))
+        # sns.kdeplot(Lambda_data, color = colors(i))
         ax2.axvline(x = data['LambdaTilde_mean_std'][0], color = colors(i), linestyle = '--')
         ax2.axvspan(data['LambdaTilde_mean_std'][0] - data['LambdaTilde_mean_std'][1], data['LambdaTilde_mean_std'][0] + data['LambdaTilde_mean_std'][1], alpha = 0.1, color = colors(i))
         print(f'{label_i} Lambda at {m_ref} M_sun: {data["LambdaTilde_mean_std"][0]:.2f} +/- {data["LambdaTilde_mean_std"][1]:.2f}')
