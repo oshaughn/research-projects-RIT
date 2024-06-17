@@ -45,7 +45,15 @@ argparse_help_dict = {
     Should be specified by the label of the tabular EOS files and the posterior samples files. 
     The input format should be a dictionary in the form of a string:
     '{'tabular_eos_file_1': ['posterior_file_1', 'posterior_file_2'] 'tabular_eos_file_2': 'posterior_file_3', ...}'. 
-    Use either labels instead of the file names.''')
+    Use either labels instead of the file names.'''),
+
+    'posterior-histogram-range-r': textwrap.dedent('''\
+    Set the range for the Radius at the posterior samples histogram plot. 
+    The input format should be a list of two numbers defining a range for the Radius. (e.g. [10, 15])'''),
+
+    'posterior-histogram-range-lambda': textwrap.dedent('''\
+    Set the range for the Tidal Deformability Lambda at the posterior samples histogram plot.
+    The input format should be a list of two numbers defining a range for the Tidal Deformability Lambda. (e.g. [400, 1600])''')
 }
 
 parser = argparse.ArgumentParser(description = argparse_help_dict['help'])
@@ -60,12 +68,16 @@ parser.add_argument('--posterior-label', action = 'append', help = 'Label for th
 parser.add_argument('--color', action = 'append', help = 'Colors for the plot. If not provided, colors will be chosen automatically')
 parser.add_argument('--use-bgcgb-colormap', action = 'store_true', help = 'Use the BlackGreyCyanGreenBlue colormap for the plots')
 parser.add_argument('--verbose', action = 'store_true', help = 'Print information on the progress of the code')
+parser.add_argument('--plot-p-vs-rho-title', action = 'store', help = 'Title for the pressure vs. density plot')
+parser.add_argument('--plot-m-vs-r-title', action = 'store', help = 'Title for the mass vs. radius plot')
 
 # extra arguments for more advanced plotting (plot posteriors for multiple tabular EOS files, plot tabular EOS priors, etc.)
 parser.add_argument('--plot-tabular-eos-prior', action = 'append', help = argparse_help_dict['plot-tabular-eos-prior'])
 parser.add_argument('--posterior-tabular-map', action = 'store', help = argparse_help_dict['posterior-tabular-map'])
-parser.add_argument('--plot-p-vs-rho-title', action = 'store', help = 'Title for the pressure vs. density plot')
-parser.add_argument('--plot-m-vs-r-title', action = 'store', help = 'Title for the mass vs. radius plot')
+parser.add_argument('--plot-posterior-histogram', action = 'store_true', help = 'Plot the posterior samples histogram')
+parser.add_argument('--plot-lambda-tilde-ratio', action = 'store_true', help = 'Plot the lambda_tilde vs ordering statistics S ratio')
+parser.add_argument('--posterior-histogram-range-r', action = 'store', help = 'Range for Radius at the posterior samples histogram plot')
+parser.add_argument('--posterior-histogram-range-lambda', action = 'store', help = 'Range for Tidal Deformability Lambda at the posterior samples histogram plot')
 
 args = parser.parse_args()
 
@@ -83,10 +95,20 @@ if args.tabular_eos_label is not None:
     if args.verbose:
         print('\nChecked the tabular EOS file labels, proceeding with the data loading...')
 
+# posterior histogram and lambda_tilde ratio plots require saving the EOS manager object and/or the posterior samples (not just eos_indx column)
+save_eos_manager = False
+save_posterior_samples = False
+if args.plot_posterior_histogram or args.plot_lambda_tilde_ratio:
+    if args.posterior_file is None:
+        raise ValueError('You have chosen to plot the posterior samples histogram or lambda_tilde ratio without providing the posterior samples files. Please provide the posterior samples files.')
+    save_eos_manager = True
+if args.plot_lambda_tilde_ratio:
+    save_posterior_samples = True
+
 # load the tabular EOS files
 tabular_eos_data = {}
 for i, tabular_eos_file in enumerate(args.tabular_eos_file):
-    eos_data_i = tabplot.EOS_data_loader(tabular_eos_file, tabular_eos_labels[i], args.verbose)
+    eos_data_i = tabplot.EOS_data_loader(tabular_eos_file, tabular_eos_labels[i], args.verbose, save_eos_manager)
     eos_data_i_label = eos_data_i['data_label'] # if the label was not provided, the EOS_data_loader function will assign a default label
     tabular_eos_data[eos_data_i_label] = eos_data_i
     tabular_eos_labels[i] = eos_data_i_label # update the label in case the default label was assigned
@@ -114,7 +136,7 @@ if args.posterior_file is not None:
     # load the posterior samples files
     posterior_samples_data = {}
     for i, posterior_file in enumerate(args.posterior_file):
-        posterior_data_i = tabplot.posterior_data_loader(posterior_file, posterior_samples_labels[i], args.verbose)
+        posterior_data_i = tabplot.posterior_data_loader(posterior_file, posterior_samples_labels[i], args.verbose, save_posterior_samples)
         posterior_data_i_label = posterior_data_i['data_label']
         posterior_samples_data[posterior_data_i_label] = posterior_data_i
         posterior_samples_labels[i] = posterior_data_i_label
@@ -281,3 +303,56 @@ if args.plot_p_vs_rho:
 # plot the M vs R EOS inference
 if args.plot_m_vs_r:
     EOS_plotter(args, tabular_eos_data, posterior_samples_data, posterior_tabular_map, priors_labels, 'mass_radius')
+
+# plot the posterior samples histogram
+if args.plot_posterior_histogram:
+    
+    posterior_hist_data = []
+    for tabular_label in posterior_tabular_map.keys():
+        if isinstance(posterior_tabular_map[tabular_label], list):
+            for posterior_label in posterior_tabular_map[tabular_label]:
+                posteriors_eos = posterior_samples_data[posterior_label]['posterior_samples_eos']
+                eos_manager = tabular_eos_data[tabular_label]['eos_manager']
+                posterior_hist_data.append(tabplot.posterior_hist_data_gen(posteriors_eos, eos_manager, posterior_label))
+        else:
+            posteriors_eos = posterior_samples_data[posterior_tabular_map[tabular_label]]['posterior_samples_eos']
+            eos_manager = tabular_eos_data[tabular_label]['eos_manager']
+            posterior_label = posterior_tabular_map[tabular_label]
+            posterior_hist_data.append(tabplot.posterior_hist_data_gen(posteriors_eos, eos_manager, posterior_label))
+    
+    if args.verbose:
+        print('\nProcessed the data for the posterior samples histogram. Plotting...')
+
+
+    r_lim = (8, 17)
+    lambda_lim = (0, 1000)
+    if args.posterior_histogram_range_r is not None:
+        r_lim_input = ast.literal_eval(args.posterior_histogram_range_r)
+        r_lim = (r_lim_input[0], r_lim_input[1])
+    if args.posterior_histogram_range_lambda is not None:
+        lambda_lim_input = ast.literal_eval(args.posterior_histogram_range_lambda)
+        lambda_lim = (lambda_lim_input[0], lambda_lim_input[1])
+
+    tabplot.posterior_hist_plot(*posterior_hist_data, r_lim = r_lim, lambda_lim = lambda_lim)
+
+# plot the lambda_tilde vs S ratio
+if args.plot_lambda_tilde_ratio:
+    
+    lambda_tilde_ratio_data = []
+    for tabular_label in posterior_tabular_map.keys():
+        if isinstance(posterior_tabular_map[tabular_label], list):
+            for posterior_label in posterior_tabular_map[tabular_label]:
+                posteriors_samples_all = posterior_samples_data[posterior_label]['posterior_samples_all']
+                eos_manager = tabular_eos_data[tabular_label]['eos_manager']
+                lambda_tilde_ratio_data.append(tabplot.LambdaTilderatio_data_gen(posteriors_samples_all, eos_manager, posterior_label))
+        else:
+            posteriors_samples_all = posterior_samples_data[posterior_tabular_map[tabular_label]]['posterior_samples_all']
+            eos_manager = tabular_eos_data[tabular_label]['eos_manager']
+            posterior_label = posterior_tabular_map[tabular_label]
+            lambda_tilde_ratio_data.append(tabplot.LambdaTilderatio_data_gen(posteriors_samples_all, eos_manager, posterior_label))
+    
+    if args.verbose:
+        print('\nProcessed the data for the lambda_tilde vs S ratio plot. Plotting...')
+    
+    tabplot.LambdaTilderatio_plot(*lambda_tilde_ratio_data)
+    tabplot.LambdaTilderatio_plot(*lambda_tilde_ratio_data, ylim = (0.8, 1.2))

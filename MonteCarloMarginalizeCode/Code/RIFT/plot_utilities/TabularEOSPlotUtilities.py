@@ -14,10 +14,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import h5py
 import RIFT.physics.EOSManager as EOSManager
+import RIFT.lalsimutils as lalsimutils
 from natsort import natsorted
 import warnings
+# import seaborn as sns
 
-def EOS_data_loader(tabular_eos_file: str, data_label: str = None, verbose: bool = False) -> dict:
+def EOS_data_loader(tabular_eos_file: str, data_label: str = None, verbose: bool = False, save_eos_manager: bool = False) -> dict:
     """
     Load tabular EOS data from a HDF5 file.
 
@@ -30,6 +32,8 @@ def EOS_data_loader(tabular_eos_file: str, data_label: str = None, verbose: bool
         The label of the tabular EOS data that is loaded. If not provided the label will be generated from the file name automatically.
     verbose : bool, optional
         If True, the function will print information about the progress.
+    save_eos_manager : bool, optional
+        If True, the function will save the EOSManager object. Default is False.
 
     Returns
     -------
@@ -40,6 +44,7 @@ def EOS_data_loader(tabular_eos_file: str, data_label: str = None, verbose: bool
         - 'tov_tables': the TOV data (not interpolated)
         - 'eos_names': the names of the EOS tables
         - 'data_label': the label of the tabular EOS data
+        - 'eos_manager': the EOSManager object (only if `save_eos_manager` is True)
     """
 
     # load tabular EOS data
@@ -59,6 +64,9 @@ def EOS_data_loader(tabular_eos_file: str, data_label: str = None, verbose: bool
         warnings.warn(f"Data label for the tabular EOS file is not one of the commonly used: {data_label}. Please make sure the data label is correct.")
     
     EOS_data['data_label'] = data_label
+
+    if save_eos_manager:
+        EOS_data['eos_manager'] = EOSManager_Local
 
     if verbose:
         print(f'Loaded tabular EOS data from {tabular_eos_file} with data label: {data_label}')
@@ -294,7 +302,7 @@ def pressure_density_plot_data_gen(eos_tables: dict, posteriors_eos: np.ndarray,
     
     return density_pressure_data
 
-def pressure_density_plot(*density_pressure_data: dict, use_energy_dens: bool = False, units: str = 'cgs', xlim: tuple = (1e14, 1e16), ylim: tuple = (1e32, 1e38), title: str = None):
+def pressure_density_plot(*density_pressure_data: dict, use_energy_dens: bool = False, units: str = 'cgs', xlim: tuple = (1e14, 1e16), ylim: tuple = (1e32, 1e38), title: str = None) -> None:
     """
     This function generates a plot of pressure vs. baryon density for the given EOS data.
 
@@ -531,7 +539,7 @@ def mass_radius_plot_data_gen(tov_tables: dict, posteriors_eos: np.ndarray, eos_
 
     return mass_radius_data
 
-def mass_radius_plot(*mass_radius_data: dict, xlim: tuple = (8, 17), ylim: tuple = (1, 1.9), title: str = None):
+def mass_radius_plot(*mass_radius_data: dict, xlim: tuple = (8, 17), ylim: tuple = (1, 1.9), title: str = None) -> None:
     """
     This function generates a plot of mass vs. radius for the given EOS data.
 
@@ -615,3 +623,267 @@ def mass_radius_plot(*mass_radius_data: dict, xlim: tuple = (8, 17), ylim: tuple
         ax.set_title(title, fontsize = 16)
         plt.savefig(f'{title}.pdf')
     plt.show()
+
+def posterior_hist_data_gen(posteriors_eos: np.ndarray, EOSManager_Local: EOSManager.EOSSequenceLandry, data_label: str, m_ref: float = 1.4) -> dict:
+    """
+    This function generates the data for the posterior histogram plots. 
+    It is designed as an auxiliary function to the `posterior_hist_plot` function and should be used as an input to that function.
+    The user has to provide the posterior samples in terms of the EOS table index, the EOSManager object, the data label, and the reference mass (default is 1.4 M_sun).
+
+    Parameters
+    ----------
+    posteriors_eos: np.ndarray
+        The posterior samples in terms of the EOS table index.
+    EOSManager_Local: EOSManager.EOSSequenceLandry
+        The EOSManager object. Load the tabular EOS data separately and provide it as an input to avoid loading it multiple times.
+    data_label: str
+        The data label for the plot.
+    m_ref: float
+        The reference mass for the EOS. Default is 1.4 M_sun. 
+        The code will use functions `R_of_m_indx` and `lambda_of_m_indx` from the EOSManager object to calculate the radius and tidal deformability for a given mass m_ref.
+        Should be in range [1.0, 2.5]
+    
+    Returns
+    -------
+    posterior_hist_data: dict
+        A dictionary containing the data for the posterior histogram plot.
+        The dictionary contains the following keys:
+        - 'R': the radius data of each of the posterior samples
+        - 'LambdaTilde': the tidal deformability data of each of the posterior samples
+        - 'R_mean_std': the mean and standard deviation of radius of the posterior samples (tuple) of format (mean, std)
+        - 'LambdaTilde_mean_std': the mean and standard deviation of tidal deformability of the posterior samples (tuple) of format (mean, std)
+        - 'data_label': the data label for the plot
+        - 'm_ref': the reference mass used for the EOS calculations
+    
+    Raises
+    ------
+    ValueError
+        If the reference mass is not in range [1.0, 2.5]
+    """
+    if m_ref < 1.0 or m_ref > 2.5:
+        raise ValueError("The reference mass should be in range [1.0, 2.5]")
+
+    posterior_hist_data = {}
+    R = np.zeros(len(posteriors_eos))
+    LambdaTilde = np.zeros(len(posteriors_eos))
+    for i, eos_indx in enumerate(posteriors_eos):
+        R[i] = EOSManager_Local.R_of_m_indx(m_ref, int(eos_indx))
+        LambdaTilde[i] = EOSManager_Local.lambda_of_m_indx(m_ref, int(eos_indx))
+    
+    R_mean_std = (np.mean(R), np.std(R))
+    LambdaTilde_mean_std = (np.mean(LambdaTilde), np.std(LambdaTilde))
+
+    posterior_hist_data['R'] = R
+    posterior_hist_data['LambdaTilde'] = LambdaTilde
+    posterior_hist_data['R_mean_std'] = R_mean_std
+    posterior_hist_data['LambdaTilde_mean_std'] = LambdaTilde_mean_std
+    posterior_hist_data['data_label'] = data_label
+    posterior_hist_data['m_ref'] = m_ref
+
+    return posterior_hist_data
+
+def posterior_hist_plot(*posterior_hist_data: dict, r_lim: tuple = (8, 17), lambda_lim: tuple = (0, 1000), title: str = None) -> None:
+    """
+    This function generates the posterior histogram plots.
+
+    Parameters
+    ----------
+    posterior_hist_data: dict
+        The data for the posterior histogram plot. 
+        The user can provide multiple dictionaries as input, each containing the data for a different posterior sample.
+        The dictionaries should be generated using the `posterior_hist_data_gen` function and should contain the following keys:
+        - 'R': the radius data of each of the posterior samples
+        - 'LambdaTilde': the tidal deformability data of each of the posterior samples
+        - 'R_mean_std': the mean and standard deviation of radius of the posterior samples (tuple) of format (mean, std)
+        - 'LambdaTilde_mean_std': the mean and standard deviation of tidal deformability of the posterior samples (tuple) of format (mean, std)
+        - 'data_label': the data label for the plot
+        - 'm_ref': the reference mass used for the EOS calculations
+
+    r_lim: tuple, optional
+        The limits for the radius axis. Default is (8, 17).
+    lambda_lim: tuple, optional
+        The limits for the tidal deformability axis. Default is (0, 1000).
+    title: str, optional
+        The title for the plots. Default is None.
+
+    Returns
+    -------
+    None  
+
+    Raises
+    ------
+    ValueError
+        If the reference masses for the different data entries are not the same.
+    """
+    if len(posterior_hist_data) > 1:
+        for i in range(len(posterior_hist_data) - 1):
+            if posterior_hist_data[i]['m_ref'] != posterior_hist_data[i + 1]['m_ref']:
+                raise ValueError("The reference masses for the EOS calculations are not the same.")
+
+    colors = plt.cm.get_cmap('tab10')
+    m_ref = posterior_hist_data[0]['m_ref']
+
+    fig, ax1 = plt.subplots()
+    for i, data in enumerate(posterior_hist_data):
+        R_data = data['R']
+        label_i = data['data_label']
+        alpha_i = 1 - 0.1 * i
+
+        bins = np.linspace(r_lim[0], r_lim[1], 100)
+        ax1.hist(R_data, bins = bins, color = colors(i), label = label_i, alpha = alpha_i, density = True)
+        # sns.kdeplot(R_data, color = colors(i))
+        ax1.axvline(x = data['R_mean_std'][0], color = colors(i), linestyle = '--')
+        ax1.axvspan(data['R_mean_std'][0] - data['R_mean_std'][1], data['R_mean_std'][0] + data['R_mean_std'][1], alpha = 0.1, color = colors(i))
+        print(f'{label_i} R at {m_ref} M_sun: {data["R_mean_std"][0]:.2f} +/- {data["R_mean_std"][1]:.2f} km')
+
+    ax1.set_xlabel(f'Radius at $M = {m_ref} M_\\odot$ [km]', fontsize = 16)
+    ax1.set_ylabel('Probability Density', fontsize = 16)
+    ax1.set_xlim(r_lim)
+    ax1.legend()
+    ax1.grid(True)
+    if title is not None:
+        ax1.set_title(title, fontsize = 16)
+        plt.savefig(f'{title}_radius.pdf')
+    else:
+        ax1.set_title('Posterior distribution of $R_{' + str(m_ref) + '}$', fontsize = 16)
+        plt.savefig(f'R_{m_ref}_posterior.pdf')
+    plt.show()
+    
+    fig, ax2 = plt.subplots()
+    for i, data in enumerate(posterior_hist_data):
+        Lambda_data = data['LambdaTilde']
+        label_i = data['data_label']
+        alpha_i = 1 - 0.1 * i
+
+        bins = np.linspace(lambda_lim[0], lambda_lim[1], 200)
+        ax2.hist(Lambda_data, bins = bins, color = colors(i), label = label_i, alpha = alpha_i, density = True)
+        # sns.kdeplot(Lambda_data, color = colors(i))
+        ax2.axvline(x = data['LambdaTilde_mean_std'][0], color = colors(i), linestyle = '--')
+        ax2.axvspan(data['LambdaTilde_mean_std'][0] - data['LambdaTilde_mean_std'][1], data['LambdaTilde_mean_std'][0] + data['LambdaTilde_mean_std'][1], alpha = 0.1, color = colors(i))
+        print(f'{label_i} Lambda at {m_ref} M_sun: {data["LambdaTilde_mean_std"][0]:.2f} +/- {data["LambdaTilde_mean_std"][1]:.2f}')
+
+    ax2.set_xlabel(f'Tidal Deformability at $M = {m_ref} M_\\odot$', fontsize = 16)
+    ax2.set_ylabel('Probability Density', fontsize = 16)
+    ax2.set_xlim(lambda_lim)
+    ax2.legend()
+    ax2.grid(True)
+    if title is not None:
+        ax2.set_title(title, fontsize = 16)
+        plt.savefig(f'{title}_lambda.pdf')
+    else:
+        ax2.set_title('Posterior distribution of $\\tilde{{\\Lambda}}_{' + str(m_ref)+ '}$', fontsize = 16)
+        plt.savefig(f'Lambda_{m_ref}_posterior.pdf')
+    plt.show()
+
+    return None
+
+def LambdaTilderatio_data_gen(posterior_samples: np.ndarray, EOSManager_Local: EOSManager.EOSSequenceLandry, data_label: str) -> dict:
+    """
+    This function generates the data for the Lambda tilde ratio plot. This is a ratio of the tidal deformability Lambda tilde to the ordering statistics S.
+    Tidal deformability Lambda tilde is calculated from the individual masses and lambdas of the binary components.
+    The ordering statistics S is calculated from the reference mass of the binary and the EOS table index.
+    This ratio serves as a test for the credibility of the EOS inference ordering statistics S.
+    The data will be generated based on the posterior samples and the EOS tables.
+    The posterior samples should be loaded from the posterior samples file. 
+    The user can use the 'posterior_samples_all' key from the `posterior_data_loader` if `out_all` is set to True in the `posterior_data_loader` function.
+
+    Parameters
+    ----------
+    posterior_samples : np.ndarray
+        The posterior samples. Should be loaded from the posterior samples file. Must contain the following columns: 'm1', 'm2', 'mc', 'q', 'lambda1', 'lambda2', 'eos_indx'.
+    EOSManager_Local : EOSManager.EOSSequenceLandry
+        The EOS manager object. Load the tabular EOS data separately and provide it as an input to avoid loading it multiple times.
+    data_label : str
+        The label for the data. There are no restrictions on this parameter.
+    
+    Returns
+    -------
+    LambdaTilderatio_data : dict
+        The dictionary with the data for the Lambda tilde ratio plot.
+        It will contain the following keys:
+        - 'q': the mass ratio of the binary
+        - 'Lambda_tilde_ratio': the ratio of the tidal deformability Lambda tilde to the ordering statistics S
+        - 'data_label': the label for the data (e.g. 'PSR+GW+NICER', 'PSR', etc.)
+    """
+    # load the proper columns from the posterior samples
+    m1 = posterior_samples['m1']
+    m2 = posterior_samples['m2']
+    mc = posterior_samples['mc']
+    q = posterior_samples['q']
+    Lambda1 = posterior_samples['lambda1']
+    Lambda2 = posterior_samples['lambda2']
+    eos_indx = posterior_samples['eos_indx']
+
+    # calculate the real Lambda tilde values
+    Lambda_tilde = lalsimutils.tidal_lambda_tilde(m1, m2, Lambda1, Lambda2)[0]
+
+    # calculate the ordering statistics S values
+    S = np.zeros(len(mc))
+    for i in range(len(mc)):
+        m_ref = mc[i] * np.power(2, 1/5)
+        S[i] = EOSManager_Local.lambda_of_m_indx(m_ref, int(eos_indx[i]))
+    
+    # calculate the Lambda tilde ratio
+    Lambda_tilde_ratio = Lambda_tilde / S
+
+    # collect the data in the dictionary
+    LambdaTilderatio_data = {}
+    LambdaTilderatio_data['q'] = q
+    LambdaTilderatio_data['Lambda_tilde_ratio'] = Lambda_tilde_ratio
+    LambdaTilderatio_data['data_label'] = data_label
+
+    return LambdaTilderatio_data
+
+def LambdaTilderatio_plot(*LambdaTilderatio_data: dict, qlim: tuple = None, ylim: tuple = (0, 2), title: str = None) -> None:
+    """
+    This function generates a plot of the Lambda tilde ratio vs. mass ratio for the given EOS data.
+
+    Parameters
+    ----------
+    LambdaTilderatio_data : np.ndarray
+        The data for the Lambda tilde ratio plot. Should be generated using the LambdaTilderatio_data_gen() function.
+    qlim : tuple
+        The mass ratio limits. Default is None. If None, the limits will be set to (q_min, q_max). 
+        If the user provides the limits that do not fit in [0, 1] range, the code will raise a ValueError.
+    ylim : tuple
+        Y-axis limits. Default is (0, 2).
+    title : str
+        Title of the plot. Default is None. If no title has been provided, the title will be set to generic Lambda tilde ratio vs Mass ratio. 
+    
+    Returns
+    -------
+    None
+    """
+    if qlim is not None:
+        if qlim[0] < 0 or qlim[1] > 1:
+            raise ValueError('The mass ratio limits must be in the range [0, 1]! Please provide the limits that fit in this range.')
+
+    colors = plt.cm.get_cmap('tab10')
+    q_min = 1
+    q_max = 0
+
+    fig, ax1 = plt.subplots()
+    for i, data in enumerate(LambdaTilderatio_data):
+        q = data['q']
+        Lambda_tilde_ratio = data['Lambda_tilde_ratio']
+        ax1.plot(q, Lambda_tilde_ratio, 'o', markersize = 1, color = colors(i), label = data['data_label'])
+        q_min = min(q_min, np.min(q))
+        q_max = max(q_max, np.max(q))
+    
+    ax1.set_xlabel('Mass ratio, $q$', fontsize = 16)
+    ax1.set_ylabel('Lambda tilde ratio, $\\tilde{\Lambda}/S$', fontsize = 16)
+    if qlim is None:
+        qlim = (q_min, q_max)
+    ax1.set_xlim(qlim)
+    ax1.set_ylim(ylim)
+    ax1.legend()
+    ax1.grid(True)
+    if title is None:
+        ax1.set_title('Tidal deformability ratio vs Mass ratio', fontsize = 16)
+        plt.savefig(f'Lambda_tilde_ratio_{ylim[0]}-{ylim[1]}.pdf')
+    else:
+        ax1.set_title(title, fontsize = 16)
+        plt.savefig(f'{title}.pdf')
+    plt.show()
+
+    return None
