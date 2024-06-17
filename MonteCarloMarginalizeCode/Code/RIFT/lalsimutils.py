@@ -1700,7 +1700,10 @@ class ChooseWaveformParams:
                 self.phaseO = lalsim.GetOrderFromString(str(row.waveform))
             else:
                 self.phaseO = -1
-            self.approx = lalsim.GetApproximantFromString(str(row.waveform))  # this is buggy for SEOB waveforms, adding irrelevant PN terms
+            try:
+                self.approx = lalsim.GetApproximantFromString(str(row.waveform))  # this is buggy for SEOB waveforms, adding irrelevant PN terms
+            except:
+                self.approx = row.waveform  # direct pass strings if failure, for gwsignal
             if row.waveform == 'SEOBNRv3': 
                 self.approx = lalsim.SEOBNRv3
             if row.waveform == 'SEOBNRv2':
