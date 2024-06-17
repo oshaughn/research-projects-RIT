@@ -12,7 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import h5py
 import RIFT.physics.EOSManager as EOSManager
-from natsort import natsorted
+#from natsort import natsorted
 import warnings
 import argparse
 
