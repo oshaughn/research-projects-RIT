@@ -164,6 +164,7 @@ def internal_hlm_generator(P,
     elif use_gwsignal and (has_GWS):  # this MUST be called first, so the P.approx is never tested
         if not quiet:
             print( "  FACTORED LIKELIHOOD WITH hlmoff (GWsignal) " )            
+        P.taper =  lsu.lsu_TAPER_START # MUST DO
         hlms, hlms_conj = rgws.std_and_conj_hlmoff(P,Lmax,approx_string=use_gwsignal_approx,**extra_waveform_kwargs)
 
     elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx ==lsu.lalSEOBNRv4HM or P.approx == lalsim.EOBNRv2 or P.approx == lsu.lalTEOBv2 or P.approx==lsu.lalTEOBv4 ):
