@@ -105,7 +105,7 @@ class Rift(Pipeline):
             if "caches" in productions[previous_job].pipeline.collect_assets():
                 cache_files = productions[previous_job].pipeline.collect_assets()['caches'].values()
                 cache_files_str = ' '.join(cache_files)
-                os.system(' cat {} | sort | uniq  >> {}/local.cache '.format(cache_files_str, self.production.rundir))
+                os.system(' cat {} | sort | uniq  > {}/local.cache '.format(cache_files_str, self.production.rundir))
 
         pass
 
