@@ -3496,7 +3496,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         check_if_only_positive_m = False  
         # check : if TEOBResumS only returns modes with m>=0, it is assuming reflection symmetry!  So impose it
         mode_keys = np.array([[l,m] for l,m in hlm.keys()])[:,1]
-        check_if_only_positive_m = (mode_keys < 0).any
+        check_if_only_positive_m = not( (mode_keys < 0).any())
         for mode in modes_used:
             hlmtmp2[mode][0]*=(m_total_s/distance_s)*nu
             hlm[mode] = lal.CreateCOMPLEX16TimeSeries("Complex hlm(t)", hpepoch, 0,
@@ -3544,6 +3544,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             P.deltaT, P.fmin, P.fref, \
             extra_params, P.approx)
 
+
     # FIXME: Add ability to taper
     # COMMENT: Add ability to generate hlmoft at a nonzero GPS time directly.
     #      USUALLY we will use the hlms in template-generation mode, so will want the event at zero GPS time
@@ -3556,6 +3557,27 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
 
     hlm_dict = SphHarmTimeSeries_to_dict(hlms,Lmax)
+
+
+    # positive m only check: should never happen
+    # ...but if it does (for NRSur lalsuite interface), perform reflection.
+    approx_string = P.approx
+    if not(isinstance(approx_string,str)):
+        approx_string = lalsim.GetStringFromApproximant(approx_string)
+    if 'NRSur' in approx_string:
+        # some NRSur are aligned only and return only m>=0 modes, so reflect IF NEEDED
+        mode_keys = np.array([[l,m] for l,m in hlm_dict.keys()])[:,1]
+        check_if_only_positive_m = not((mode_keys < 0).any())
+        if check_if_only_positive_m:
+            mode_keys2 = list(hlm_dict.keys())
+            for mode  in mode_keys2:
+                mode_conj = (mode[0],-mode[1])
+                if not mode_conj in hlm_dict:  # sanity check
+                    hC = hlm_dict[mode]
+                    hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0,
+                                                        hC.deltaT, lsu_DimensionlessUnit, hC.data.length)
+                    hC2.data.data = (-1.)**mode[0] * np.conj(hC.data.data) # h(l,-m) = (-1)^ell hlm^* for reflection symmetry
+                    hlm_dict[mode_conj] = hC2
 
     for mode in hlm_dict:
         hlm_dict[mode].data.data *= sign_factor
