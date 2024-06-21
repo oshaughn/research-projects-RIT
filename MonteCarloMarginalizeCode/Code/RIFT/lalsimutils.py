@@ -5035,6 +5035,35 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             coord_names_reduced.remove(p)
             x_out[:,indx_p_out] = x_in[:,indx_p_in]
 
+    if 'mc' in low_level_coord_names and ('eta' in low_level_coord_names or 'delta_mc' in low_level_coord_names):
+        if 'm1' in coord_names_reduced:
+            indx_mc = low_level_coord_names.index('mc')
+
+            m1_vals =np.zeros(len(x_in))  
+            m2_vals =np.zeros(len(x_in))  
+            if ('delta_mc' in low_level_coord_names):
+                indx_delta = low_level_coord_names.index('delta_mc')
+                eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
+            elif ('eta' in low_level_coord_names):
+                indx_eta = low_level_coord_names.index('eta')
+                eta_vals = x_in[:,indx_eta]
+            m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+            indx_p_out = coord_names.index('m1')
+            x_out[:,indx_p_out] = m1_vals
+            coord_names_reduced.remove('m1')
+            if 'm2' in coord_names_reduced:
+                indx_p_out = coord_names.index('m2')
+                x_out[:,indx_p_out] = m1_vals
+                coord_names_reduced.remove('m2')
+
+        if 'm1' in coord_names:
+            m1_vals =np.zeros(len(x_in))  
+            m2_vals =np.zeros(len(x_in))  
+            indx_eta = low_level_coord_names.index('eta')
+            eta_vals = x_in[:,indx_eta]
+        m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+
+
     if 'delta_mc' in coord_names_reduced and 'eta' in low_level_coord_names:
         indx_p_out = coord_names.index('delta_mc')
         indx_eta = low_level_coord_names.index('eta')
