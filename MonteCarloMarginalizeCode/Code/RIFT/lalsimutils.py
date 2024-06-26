@@ -3492,7 +3492,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 #            hlmtmp2[mode]=np.array(hlmtmp[str(count)])
         check_if_only_positive_m = False  
         # check : if TEOBResumS only returns modes with m>=0, it is assuming reflection symmetry!  So impose it
-        mode_keys = np.array([[l,m] for l,m in hlm.keys()])[:,1]
+        mode_keys = np.array([[l,m] for l,m in hlmtmp2.keys()])[:,1]
         check_if_only_positive_m = (mode_keys < 0).any
         for mode in modes_used:
             hlmtmp2[mode][0]*=(m_total_s/distance_s)*nu
