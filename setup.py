@@ -60,6 +60,10 @@ setuptools.setup(
    install_requires=REQUIREMENTS["install"],
    entry_points={
         'asimov.pipelines':
-        ["rift = RIFT.asimov.rift:Rift"]
+        ["rift = RIFT.asimov.rift:Rift"],
+        'RIFT.integrator_plugins':
+        ['AC = RIFT.integrators.mcsamplerGPU:MCSampler',
+         'AV = RIFT.integrators.mcsamplerAdaptiveVolume:MCSampler',
+         'GMM = RIFT.integrators.mcsamplerEnsemble:MCSampler']
     },
 )

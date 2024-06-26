@@ -122,6 +122,7 @@ def internal_hlm_generator(P,
     internal_hlm_generator: top-level front end to all waveform generators used.
     Needs to be restructured so it works on a 'hook' basis, so we are not constantly changing the source code
     """
+    P.taper =  lsu.lsu_TAPER_START # use to pass to romwf, rgws/gwsignal. Pass through
     if not( ROM_group is None) and not (ROM_param is None):
        # For ROM, use the ROM basis. Note that hlmoff -> basis_off henceforth
        acatHere= romwf.WaveformModeCatalog(ROM_group,ROM_param,max_nbasis_per_mode=ROM_limit_basis_size,lmax=Lmax)

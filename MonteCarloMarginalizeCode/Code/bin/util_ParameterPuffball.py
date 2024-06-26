@@ -50,7 +50,7 @@ parser.add_argument("--random-parameter-range", action='append', type=str,help="
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
-parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
+parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points. Note mc-range, eta-range,mtot-range are syntactic sugar for this usage ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--enforce-duration-bound",default=None,type=float,help="If present, enforce a duration bound. Used to prevent grid placement for obscenely long signals, when the window size is prescribed")
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
@@ -65,7 +65,6 @@ coord_names = opts.parameter # Used  in fit
 #    coord_names = coord_names + opts.parameter_nofit
 if coord_names is None:
     sys.exit(0)
-print(coord_names)
 
 # match up pairs in --no-correlation
 corr_list = None
@@ -87,12 +86,18 @@ if not(opts.no_correlation is None):
 downselect_dict = {}
 
 # Add some pre-built downselects, to avoid common out-of-range-error problems
-downselect_dict['chi1'] = [0,1]
-downselect_dict['chi2'] = [0,1]
+# Don't add full spin constraint unless called for. If so, we need to retain transverse values!  That will be done AT END
+#downselect_dict['chi1'] = [0,1]
+#downselect_dict['chi2'] = [0,1]
 downselect_dict['eta'] = [0,0.25]
+if opts.eta_range:
+    downselect_dict['eta'] = eval(opts.eta_range)
 downselect_dict['m1'] = [0,1e10]
 downselect_dict['m2'] = [0,1e10]
-
+if opts.mc_range:
+    downselect_dict['mc'] = eval(opts.mc_range)
+if opts.mtot_range:
+    downselect_dict['mtot'] = eval(opts.mtot_range)
 
 if opts.downselect_parameter:
     dlist = opts.downselect_parameter
@@ -112,7 +117,7 @@ for indx in np.arange(len(dlist_ranges)):
 # Load data
 P_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj_file)
 
-# extract parameters to measure the co
+# extract parameters to measure the coordinates. 
 dat_out = []
 for P in P_list:
     # Force override of fmin, fref ... not always correctly populated. DANGEROUS, relies on helper to pass correct arguments
@@ -172,49 +177,48 @@ else:
     X_out = X+delta_X
 
 # Sanity check parameters
-for indx in np.arange(len(coord_names)):
-    if coord_names[indx] == 'eta':
-        X_out[:,indx] = np.minimum(X_out[:,indx], 0.25)
-        X_out[:,indx] = np.maximum(X_out[:,indx], 0.01)
-    if coord_names[indx] == 's1z' or coord_names[indx]=='s2z':
-        X_out[:,indx] = np.minimum(X_out[:,indx], 0.99)
-        X_out[:,indx] = np.maximum(X_out[:,indx], -0.99)
+#for indx in np.arange(len(coord_names)):
+    # if coord_names[indx] == 'eta':
+    #     X_out[:,indx] = np.minimum(X_out[:,indx], 0.25)
+    #     X_out[:,indx] = np.maximum(X_out[:,indx], opts.internal_eta_min)  # overrides downselect_dict
+    # if coord_names[indx] == 's1z' or coord_names[indx]=='s2z':
+    #     X_out[:,indx] = np.minimum(X_out[:,indx], 0.99)
+    #     X_out[:,indx] = np.maximum(X_out[:,indx], -0.99)
+
+# Apply downselect constraints, using conversion utility for speed
+#   WARNING: For spin, we are NOT retaining transverse DOF by default!
+names_downselect = list(downselect_dict.keys())
+x_out_down = lalsimutils.convert_waveform_coordinates(X_out, coord_names=names_downselect, low_level_coord_names=coord_names)
+indx_ok = np.ones(len(x_out_down),dtype=bool)
+for indx, name in enumerate(names_downselect):
+    indx_ok = np.logical_not(np.isnan(x_out_down[:,indx]))
+    indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]< downselect_dict[name][1] )
+    indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]> downselect_dict[name][0] )
+print(" Range downselect : ", np.sum(indx_ok), len(indx_ok))
+X_out = X_out[indx_ok]
+P_list = list(itertools.compress(P_list, indx_ok))  # https://stackoverflow.com/questions/18665873/filtering-a-list-based-on-a-list-of-booleans
 
 # Discard points which are 'close' to the original data set
 #   - there are MUCH faster codes eg in scipy which should do this
 if opts.force_away > 0:
     icov= np.linalg.pinv(cov_orig)
-    Y = scipy.spatial.distance.cdist(X,X, metric='mahalanobis',VI=icov)
+    Y = np.min(scipy.spatial.distance.cdist(X,X_out, metric='mahalanobis',VI=icov),axis=0)
+    Y_id = Y > opts.force_away
+    print(" Puffball distance rejection size change " , np.sum(Y_id), len(Y_id))
+    X_out = X_out[Y_id]
+    P_list = list(itertools.compress(P_list, Y_id))  # https://stackoverflow.com/questions/18665873/filtering-a-list-based-on-a-list-of-booleans
 
-    def test_index_distance(indx,thresh=opts.force_away):
-        a = Y[indx]
-#        print np.min(a[np.nonzero(a)]),np.min(a[np.nonzero(a)]) > thresh
-        if np.min(a[np.nonzero(a)]) > thresh:
-            return True
-        else:
-            return False
 
-#     def test_point_distance(pt,thresh=opts.force_away):
-#         include_point=True
-#         for indx in np.arange(len(X)):
-#             dist= np.dot((pt - X[indx]).T , np.dot( icov, (pt-X[indx])))/len(pt)  # roughly, get '1' at target puff level offsets
-# #            print dist
-#             if dist< thresh:
-#                 include_point=False
-# #                print " Rejecting puffed point as too close to existing set ", pt
-#                 return False
-#         return include_point
-    
-    X_out_shorter = []
-    P_list_shorter = []
-    for indx in np.arange(len(X_out)):
-        if test_index_distance(indx): #test_point_distance(X_out[indx]):
-            X_out_shorter.append(X_out[indx])
-            P_list_shorter.append(P_list[indx])
-    X_out_shorter=np.array(X_out_shorter)
-    print(" Puffball distance rejection size change " , len(X_out), len(X_out_shorter))
-    X_out = X_out_shorter
-    P_list = P_list_shorter
+    # X_out_shorter = []
+    # P_list_shorter = []
+    # for indx in np.arange(len(X_out)):
+    #     if test_index_distance(indx): #test_point_distance(X_out[indx]):
+    #         X_out_shorter.append(X_out[indx])
+    #         P_list_shorter.append(P_list[indx])
+    # X_out_shorter=np.array(X_out_shorter)
+    # print(" Puffball distance rejection size change " , len(X_out), len(X_out_shorter))
+    # X_out = X_out_shorter
+    # P_list = P_list_shorter
 
 
 
@@ -230,6 +234,8 @@ else:
 
 print(" The number of raw points is ", len(P_list))
 
+
+
 # Copy parameters back in.  MAKE SURE THIS IS POSSIBLE
 P_out = []
 for indx_P in np.arange(len(P_list)):
@@ -238,9 +244,9 @@ for indx_P in np.arange(len(P_list)):
     for indx in np.arange(len(coord_names)):
         fac=1
         # sanity check restrictions, which may cause problems with the coordinate converters
-        if coord_names[indx] is 'eta' and (X_out[indx_P,indx]>0.25 or out[indx_P,indx]<0.001) :
+        if coord_names[indx] == 'eta' and (X_out[indx_P,indx]>0.25 or X_out[indx_P,indx]<1e-5) :
             continue
-        if coord_names[indx] is 'delta_mc' and (X_out[indx_P,indx]>1 or out[indx_P,indx]<0.) :
+        if coord_names[indx] == 'delta_mc' and (X_out[indx_P,indx]>1 or X_out[indx_P,indx]<0.) :
             continue
         if coord_names[indx] in ['mc','m1','m2','mtot']:
             fac = lal.MSUN_SI
@@ -252,15 +258,18 @@ for indx_P in np.arange(len(P_list)):
     if not(opts.enforce_duration_bound is None):
       if lalsimutils.estimateWaveformDuration(P)> opts.enforce_duration_bound:
         include_item = False
-    for param in downselect_dict:
-        val = P.extract_param(param)
-        if np.isnan(val):
-            include_item=False   # includes check on m1,m2
-            continue # stop trying to calculate with this parameter
-        if param in ['mc','m1','m2','mtot']:
-            val = val/ lal.MSUN_SI
-        if val < downselect_dict[param][0] or val > downselect_dict[param][1]:
-            include_item =False
+    # Apply unit spin magnitude constraint, which can ONLY be applied with the P_list construction, which has all spin information
+    if P_list[indx_P].extract_param('chi1')>1 or P_list[indx_P].extract_param('chi2')>1:
+        include_item =False
+    # for param in downselect_dict:
+    #     val = P.extract_param(param)
+    #     if np.isnan(val):
+    #         include_item=False   # includes check on m1,m2
+    #         continue # stop trying to calculate with this parameter
+    #     if param in ['mc','m1','m2','mtot']:
+    #         val = val/ lal.MSUN_SI
+    #     if val < downselect_dict[param][0] or val > downselect_dict[param][1]:
+    #         include_item =False
     if include_item:
         P_out.append(P)
 
