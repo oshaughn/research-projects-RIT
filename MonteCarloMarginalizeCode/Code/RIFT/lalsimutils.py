@@ -4059,8 +4059,15 @@ def SphHarmFrequencySeries_to_dict(hlms, Lmax, modes=None):
     lalsimulation.SphHarmFrequencySeriesGetMode(hlms, l, m)
     returns a non-null pointer.
     """
-    if isinstance(hlms, dict):
+    if isinstance(hlms, dict) and modes is None:
         return hlms
+    if isinstance(hlms, dict) and modes is not(None):
+        hlm_dict = {}
+        for mode in modes:
+            l, m = mode[0], mode[1]
+            if hxx is not None:
+                hlm_dict[(l,m)] = hxx
+        return hlm_dict
     hlm_dict = {}
     # allow for specific modes. If both modes and Lmax provided then modes overides Lmax.
     if isinstance(modes, (list, np.ndarray)):
