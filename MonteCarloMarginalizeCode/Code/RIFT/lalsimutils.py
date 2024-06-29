@@ -4563,7 +4563,7 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
 
 
 # LISA 
-def hlmoff_for_LISA(P, Lmax=2, modes=None, fd_standoff_factor=0.964, fd_alignment_postevent_time=None,**kwargs):
+def hlmoff_for_LISA(P, Lmax=4, modes=None, fd_standoff_factor=0.964, fd_alignment_postevent_time=None,**kwargs):
     """
     Funtion that outputs the modes in frequency domain. Due to conditioning in hlmoft, it wasn't suitable for obtainging tf from phase. Takes in ChooseWaveformParams object to populate \
     the waveform call from lalsimulation. Takes in Lmax and modes, defaults to Lmax of 2. Can only take in IMRPhenomHM, IMRPhenomXPHM, IMRPhenomXHM, 
@@ -4591,14 +4591,20 @@ def hlmoff_for_LISA(P, Lmax=2, modes=None, fd_standoff_factor=0.964, fd_alignmen
             fd_centering_factor = 1-fd_alignment_postevent_time/(TDlen*P.deltaT)  # align so there is a time fd_alignment_time_postevent
         else:
             print(" Warning: fd alignment postevent time requested incompatible with short duration ", file=sys.stderr)
-    # call lalsimulation function
-    hlms_struct = lalsim.SimInspiralChooseFDModes(P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.deltaF, P.fmin*fd_standoff_factor, fNyq, P.fref, P.phiref, P.dist, P.incl, extra_params, P.approx)
-    # convert into dictionary
-    hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct, Lmax, modes)
-    # Resize it such that deltaF = 1/TDlen
-    for mode in hlmsdict:
-          hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
-    
+    if P.approx == lalIMRPhenomHM:
+        # call lalsimulation function
+        hlms_struct = lalsim.SimInspiralChooseFDModes(P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.deltaF, P.fmin*fd_standoff_factor, fNyq, P.fref, P.phiref, P.dist, P.incl, extra_params, P.approx)
+        # convert into dictionary
+        hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct, Lmax, modes)
+        # Resize it such that deltaF = 1/TDlen
+        for mode in hlmsdict:
+            hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
+    if P.approx == lalNRHybSur3dq8: # will resize such that deltaF = 1/TDlen
+        hlms_struct = hlmoff(P, Lmax=Lmax)
+        hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct, Lmax, modes)
+        # Resize it such that deltaF = 1/TDlen
+        for mode in hlmsdict:
+            hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
     return hlmsdict
 
 # LISA 
