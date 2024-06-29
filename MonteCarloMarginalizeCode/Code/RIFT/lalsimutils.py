@@ -4628,7 +4628,6 @@ def hlmoft_from_NRhdf5(path_to_hdf5, P, lmax= None, only_mode=None, taper_percen
         tvals = np.arange(0, P.deltaT * len(generated_amp), P.deltaT)
         if 100 >= taper_percent > 0: #percent defined with respect to peak time, 100 percent mean taper all the way to peak
             peak_index = generated_amp.argmax()
-            print(peak_index, generated_amp[peak_index])
             time_peak = tvals[peak_index]
             taper_time = time_peak * taper_percent/100
             index_taper = np.abs(tvals-taper_time).argmin()
