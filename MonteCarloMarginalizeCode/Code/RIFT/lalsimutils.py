@@ -4585,7 +4585,8 @@ def hlmoft_from_NRhdf5(path_to_hdf5, P, lmax= None, only_mode=None, taper_percen
 
     #just to know what time array we are dealing with
     data_1 = h5py.File(path_to_hdf5)
-    
+    P.fref = 0
+    print(f"Setting P.fref to {P.fref}")
     m1 = data_1.attrs["mass1"] * mtotal 
     m2 = data_1.attrs["mass2"] * mtotal
     fmin = data_1.attrs["f_lower_at_1MSUN"] * lal.MSUN_SI/mtotal
@@ -4598,18 +4599,15 @@ def hlmoft_from_NRhdf5(path_to_hdf5, P, lmax= None, only_mode=None, taper_percen
     modes = []
     if only_mode == None and lmax == None:
         lmax = data_1.attrs["Lmax"]
-    if only_mode==None and lmax is not None:
+    if only_mode==None:
         for l in range(2,lmax+1):
             for m in range(-l,0):
                 modes.append((l,m))
             for m in range(1,l+1):
                 modes.append((l,m))
-    if only_mode is not None and lmax is None:
+    if only_mode is not None:
         for j in only_mode:
             modes.append(j)
-    if only_mode is not None and lmax is not None:
-        print("Inconsistent input, use either lmax or only_mode.")
-        sys.exit()
     print(f"modes used = {modes}")
 
     #interpolating using romspline
@@ -4630,6 +4628,7 @@ def hlmoft_from_NRhdf5(path_to_hdf5, P, lmax= None, only_mode=None, taper_percen
         tvals = np.arange(0, P.deltaT * len(generated_amp), P.deltaT)
         if 100 >= taper_percent > 0: #percent defined with respect to peak time, 100 percent mean taper all the way to peak
             peak_index = generated_amp.argmax()
+            print(peak_index, generated_amp[peak_index])
             time_peak = tvals[peak_index]
             taper_time = time_peak * taper_percent/100
             index_taper = np.abs(tvals-taper_time).argmin()
@@ -4653,8 +4652,8 @@ def hlmoft_from_NRhdf5(path_to_hdf5, P, lmax= None, only_mode=None, taper_percen
         print(f"Reading mode {modes[i]}, max for this mode: {max_Re, max_Im}")
         wf = lal.CreateCOMPLEX16TimeSeries("hlm", 0, 0, P.deltaT,lal.DimensionlessUnit, len(wf_data))
         wf.data.data = wf_data
-        assert wf_data.data.length * wf_data.deltaT <= TDlen
-        hlm[modes[i][0],modes[i][1]]  = lal.ResizeCOMPLEX16FrequencySeries(wf, 0, TDlen)
+        assert wf.data.length * wf.deltaT <= TDlen
+        hlm[modes[i][0],modes[i][1]]  = lal.ResizeCOMPLEX16TimeSeries(wf, 0, TDlen)
     return hlm
     
 def hlmoff_for_LISA(P, Lmax=4, modes=None, fd_standoff_factor=0.964, fd_alignment_postevent_time=None, path_to_NR_hdf5=None,**kwargs):
