@@ -4065,8 +4065,8 @@ def SphHarmFrequencySeries_to_dict(hlms, Lmax, modes=None):
         hlm_dict = {}
         for mode in modes:
             l, m = mode[0], mode[1]
-            if hxx is not None:
-                hlm_dict[(l,m)] = hxx
+            if hlms[(l,m)] is not None:
+                hlm_dict[(l,m)] =  hlms[(l,m)] 
         return hlm_dict
     hlm_dict = {}
     # allow for specific modes. If both modes and Lmax provided then modes overides Lmax.
