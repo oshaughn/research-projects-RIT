@@ -4570,7 +4570,94 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
 
 
 # LISA 
-def hlmoff_for_LISA(P, Lmax=4, modes=None, fd_standoff_factor=0.964, fd_alignment_postevent_time=None,**kwargs):
+def hlmoft_from_NRhdf5(path_to_hdf5, P, lmax= None, only_mode=None, taper_percent = 10, beta = 8, verbose = True):
+    """Takes in an NR h5 file and uses romspline interpolation to generate hlm. Outputs a hlm dict. The binary class will only populate distance and deltaT, intrinsic params are set by the simulation/file and other extrinsic params either go into detector response or Ylm.
+    Note: Would need to see how precessing waveforms work with this, considering I would need to change frames depending on fref."""
+
+    import romspline
+    assert 0<=taper_percent <=100, "taper_percent should be between 0 and 100."
+    #For unit conversion
+    MSUN_sec = lal.G_SI/lal.C_SI**3
+
+    mtotal = (P.m1 + P.m2)
+    mtot_in_sec= mtotal *  MSUN_sec
+    dist_in_sec = P.dist * 1/lal.C_SI
+
+    #just to know what time array we are dealing with
+    data_1 = h5py.File(path_to_hdf5)
+    
+    m1 = data_1.attrs["mass1"] * mtotal 
+    m2 = data_1.attrs["mass2"] * mtotal
+    fmin = data_1.attrs["f_lower_at_1MSUN"] * lal.MSUN_SI/mtotal
+    if verbose:
+        print(f"Smallest possible fmin for this waveform {fmin} Hz. fmin at 1 solar mass is {data_1.attrs['f_lower_at_1MSUN']}")
+    s1x, s1y, s1z, s2x, s2y, s2z = lalsim.SimInspiralNRWaveformGetSpinsFromHDF5File(P.fref, mtotal/lal.MSUN_SI, path_to_hdf5)
+    print(f"Generating waveform with m1 = {m1/lal.MSUN_SI:0.4f} MSUN, m2 = {m2/lal.MSUN_SI:0.4f} MSUN \n s1 = {s1x, s1y, s1z}, s2 = {s2x, s2y, s2z}\n fmin = {fmin} Hz")
+
+    #Which modes to get
+    modes = []
+    if only_mode == None and lmax == None:
+        lmax = data_1.attrs["Lmax"]
+    if only_mode==None and lmax is not None:
+        for l in range(2,lmax+1):
+            for m in range(-l,0):
+                modes.append((l,m))
+            for m in range(1,l+1):
+                modes.append((l,m))
+    if only_mode is not None and lmax is None:
+        for j in only_mode:
+            modes.append(j)
+    if only_mode is not None and lmax is not None:
+        print("Inconsistent input, use either lmax or only_mode.")
+        sys.exit()
+    print(f"modes used = {modes}")
+
+    #interpolating using romspline
+    hlm = {}
+    TDlen = int(1/P.deltaT/P.deltaF)
+    for i in range(len(modes)):
+        amp22_time_0=np.array(data_1[f"phase_l{modes[i][0]}_m{modes[i][1]}"]["X"])
+
+        amp = romspline.readSpline(path_to_hdf5, f"amp_l{modes[i][0]}_m{modes[i][1]}")
+        phase = romspline.readSpline(path_to_hdf5, f"phase_l{modes[i][0]}_m{modes[i][1]}")
+        
+        amp22_time_0 = np.arange(np.min(amp22_time_0), np.max(amp22_time_0), P.deltaT/mtot_in_sec)
+        generated_amp = amp(amp22_time_0)
+        generated_phase = phase(amp22_time_0)
+        generated_phase = unwind_phase(generated_phase)
+
+        #tapering
+        tvals = np.arange(0, P.deltaT * len(generated_amp), P.deltaT)
+        if 100 >= taper_percent > 0: #percent defined with respect to peak time, 100 percent mean taper all the way to peak
+            peak_index = generated_amp.argmax()
+            time_peak = tvals[peak_index]
+            taper_time = time_peak * taper_percent/100
+            index_taper = np.abs(tvals-taper_time).argmin()
+
+            time_start = tvals[np.argwhere(generated_amp > 0)[0][0]]
+            width = tvals[index_taper] - time_start
+            winlen = 2 * int(width / P.deltaT)
+            window = np.array(signal.get_window(('kaiser', beta), winlen))
+            xmin = int((time_start - tvals[0]) / P.deltaT)
+            xmax = xmin + winlen//2
+            if verbose and i == 0:
+                print(f"total time = {tvals[-1]}s, taper till {tvals[index_taper]} which is {tvals[index_taper]/time_peak * 100} percent.")
+                print(time_start, tvals[index_taper], xmin, xmax)
+            generated_amp[xmin:xmax] *= window[:winlen//2]
+            
+            
+
+        wf_data = mtot_in_sec/dist_in_sec * generated_amp * np.exp(1j*generated_phase)
+
+        max_Re, max_Im = np.max(np.real(wf_data)), -np.max(np.imag(wf_data))
+        print(f"Reading mode {modes[i]}, max for this mode: {max_Re, max_Im}")
+        wf = lal.CreateCOMPLEX16TimeSeries("hlm", 0, 0, P.deltaT,lal.DimensionlessUnit, len(wf_data))
+        wf.data.data = wf_data
+        assert wf_data.data.length * wf_data.deltaT <= TDlen
+        hlm[modes[i][0],modes[i][1]]  = lal.ResizeCOMPLEX16FrequencySeries(wf, 0, TDlen)
+    return hlm
+    
+def hlmoff_for_LISA(P, Lmax=4, modes=None, fd_standoff_factor=0.964, fd_alignment_postevent_time=None, path_to_NR_hdf5=None,**kwargs):
     """
     Funtion that outputs the modes in frequency domain. Due to conditioning in hlmoft, it wasn't suitable for obtainging tf from phase. Takes in ChooseWaveformParams object to populate \
     the waveform call from lalsimulation. Takes in Lmax and modes, defaults to Lmax of 2. Can only take in IMRPhenomHM, IMRPhenomXPHM, IMRPhenomXHM, 
@@ -4598,6 +4685,13 @@ def hlmoff_for_LISA(P, Lmax=4, modes=None, fd_standoff_factor=0.964, fd_alignmen
             fd_centering_factor = 1-fd_alignment_postevent_time/(TDlen*P.deltaT)  # align so there is a time fd_alignment_time_postevent
         else:
             print(" Warning: fd alignment postevent time requested incompatible with short duration ", file=sys.stderr)
+    
+    if path_to_NR_hdf5 is not None:
+        hlms_struct =  hlmoft_from_NRhdf5(path_to_NR_hdf5, P, Lmax, only_mode=modes, taper_percent = 10, beta = 8, verbose = True)
+        hlmsdict = {}
+        for mode in hlms_struct:
+            hlmsdict[mode] = DataFourier(hlms_struct[mode])
+    
     if P.approx == lalIMRPhenomHM:
         # call lalsimulation function
         hlms_struct = lalsim.SimInspiralChooseFDModes(P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.deltaF, P.fmin*fd_standoff_factor, fNyq, P.fref, P.phiref, P.dist, P.incl, extra_params, P.approx)
@@ -4606,6 +4700,7 @@ def hlmoff_for_LISA(P, Lmax=4, modes=None, fd_standoff_factor=0.964, fd_alignmen
         # Resize it such that deltaF = 1/TDlen
         for mode in hlmsdict:
             hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
+        
     if P.approx == lalNRHybSur3dq8: # will resize such that deltaF = 1/TDlen
         hlms_struct = hlmoff(P, Lmax=Lmax)
         hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct, Lmax, modes)
