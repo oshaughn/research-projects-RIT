@@ -56,6 +56,7 @@ psi = np.pi/4
 phi_ref = np.pi/3
 inclination = np.pi/2
 fref = None
+path_to_NR_hdf5="/Users/aasim/Desktop/Research/Projects/Wf_accuracy_gb/NR-h5-files/D12_q1.00_a0.60_m200.h5"
 
 snr_fmin = 10**(-4)
 snr_fmax = 0.125
@@ -104,7 +105,7 @@ def create_PSD_injection_figure(data_dict, psd, injection_save_path, snr):
 print("\n################")
 P.print_params_lisa()
 print("################\n")
-hlmf = lalsimutils.hlmoff_for_LISA(P, Lmax=lmax, modes=modes) 
+hlmf = lalsimutils.hlmoff_for_LISA(P, Lmax=lmax, modes=modes, path_to_NR_hdf5=path_to_NR_hdf5) 
 modes = list(hlmf.keys())
 
 # create injections
