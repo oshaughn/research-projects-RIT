@@ -49,14 +49,14 @@ P.fref = 8*10**(-5) # what happens?
 P.tref = 0.0
 
 lmax = 4
-modes = [(2,1),(2,2),(3,3),(3,2),(3,1),(4,4),(4,3),(4,2)]
+modes = [(2,2),(2,1),(3,3),(3,2),(3,1),(4,4),(4,3),(4,2)]
 beta  = np.pi/6
 lamda = np.pi/5
 psi = np.pi/4
 phi_ref = np.pi/3
 inclination = np.pi/2
 fref = None
-path_to_NR_hdf5="/Users/aasim/Desktop/Research/Projects/Wf_accuracy_gb/NR-h5-files/D12_q1.00_a0.60_m200.h5"
+path_to_NR_hdf5="/home/aasim.jan/NR-manager/Sequence-MAYA-Generic/nr-errors/D12_q1.00_a0.60_m200.h5"
 
 snr_fmin = 10**(-4)
 snr_fmax = 0.125
