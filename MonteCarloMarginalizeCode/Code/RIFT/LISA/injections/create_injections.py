@@ -32,15 +32,15 @@ print(f"Saving frames in {opts.save_path}")
 P = lalsimutils.ChooseWaveformParams()
 
 P.m1 = 1e6 * lal.MSUN_SI
-P.m2 = 5e5 * lal.MSUN_SI
-P.s1z = 0.2
-P.s2z = 0.4
-P.dist = 120e3  * lal.PC_SI * 1e6 
+P.m2 = 1e6 * lal.MSUN_SI
+P.s1z = 0.6
+P.s2z = 0.6
+P.dist = 48e3  * lal.PC_SI * 1e6 
 P.fmin = 8*10**(-5)
 P.fmax = 0.125
 P.deltaF = 1/(32*32768)
 P.deltaT = 0.5/P.fmax
-P.approx = lalsimulation.GetApproximantFromString("IMRPhenomHM")
+P.approx = lalsimulation.GetApproximantFromString("NRHybSur3dq8")
 
 P.phiref = 0.0   # add phiref later (confirm with ROS)!
 P.inclination = 0.0 # add inclination later (confirm with ROS)!
@@ -48,8 +48,8 @@ P.psi = 0.0 # is not used when generating a waveform
 P.fref = 8*10**(-5) # what happens?
 P.tref = 0.0
 
-lmax = 2
-modes = [(2,2), (3,3), (3,2)]
+lmax = 4
+modes = [(2,1),(2,2),(3,3),(3,2),(3,1),(4,4),(4,3),(4,2)]
 beta  = np.pi/6
 lamda = np.pi/5
 psi = np.pi/4
@@ -91,7 +91,7 @@ def create_PSD_injection_figure(data_dict, psd, injection_save_path, snr):
     # plot PSD
     psd_fvals = psd.f0 + data_dict[channels[0]].deltaF*np.arange(psd.data.length)
     plt.loglog(psd_fvals, np.sqrt(psd_fvals * psd.data.data), label = "PSD", linewidth = 1.5, color = "cornflowerblue")
-    plt.legend()
+    plt.legend(loc="upper left")
     # place x-y limits
     plt.gca().set_ylim([10**(-24), 10**(-17)])
     plt.gca().set_xlim([10**(-4), 1])
