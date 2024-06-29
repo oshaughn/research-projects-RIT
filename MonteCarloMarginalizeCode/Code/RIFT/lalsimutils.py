@@ -4689,7 +4689,8 @@ def hlmoff_for_LISA(P, Lmax=4, modes=None, fd_standoff_factor=0.964, fd_alignmen
         hlmsdict = {}
         for mode in hlms_struct:
             hlmsdict[mode] = DataFourier(hlms_struct[mode])
-    
+        return hlmsdict
+
     if P.approx == lalIMRPhenomHM:
         # call lalsimulation function
         hlms_struct = lalsim.SimInspiralChooseFDModes(P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.deltaF, P.fmin*fd_standoff_factor, fNyq, P.fref, P.phiref, P.dist, P.incl, extra_params, P.approx)
@@ -4698,14 +4699,15 @@ def hlmoff_for_LISA(P, Lmax=4, modes=None, fd_standoff_factor=0.964, fd_alignmen
         # Resize it such that deltaF = 1/TDlen
         for mode in hlmsdict:
             hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
-        
+        return hlmsdict
+
     if P.approx == lalNRHybSur3dq8: # will resize such that deltaF = 1/TDlen
         hlms_struct = hlmoff(P, Lmax=Lmax)
         hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct, Lmax, modes)
         # Resize it such that deltaF = 1/TDlen
         for mode in hlmsdict:
             hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
-    return hlmsdict
+        return hlmsdict
 
 # LISA 
 def frame_h5_to_hoff(fname, channel, start=None, stop=None, verbose=True):
