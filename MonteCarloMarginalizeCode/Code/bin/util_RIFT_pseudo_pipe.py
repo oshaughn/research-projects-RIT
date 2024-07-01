@@ -193,6 +193,8 @@ parser.add_argument("--fmin-template",default=None,type=float,help="Mininum freq
 parser.add_argument("--data-LI-seglen",default=None,type=int,help="If specified, passed to the helper. Uses data selection appropriate to LI. Must specify the specific LI seglen used.")
 parser.add_argument("--choose-data-LI-seglen",action='store_true')
 parser.add_argument("--fix-bns-sky",action='store_true')
+parser.add_argument("--declination",default=0.1,type=float)
+parser.add_argument("--right-ascension",default=0.57,type=float)
 parser.add_argument("--ile-sampler-method",type=str,default=None)
 parser.add_argument("--ile-n-eff",type=int,default=None,help="ILE n_eff passed to helper/downstream. Default internally is 50; lower is faster but less accurate, going much below 10 could be dangerous ")
 parser.add_argument("--cip-sampler-method",type=str,default=None)
@@ -819,11 +821,13 @@ if (opts.use_ini is None) and not('--d-max' in line):
     line += " --d-max " + str(dmax_guess)
 if opts.ile_distance_prior:
     line += " --d-prior {} ".format(opts.ile_distance_prior)
+if opts.fix_bns_sky:
+    line +=" --declination " + str(opts.declination) + " --right-ascension " + str(opts.right_ascension)
 if opts.ile_force_gpu:
     line +=" --force-gpu-only "
 sur_location_prefix = "my_surrogates/nr_surrogates/"
 if 'GW_SURROGATE' in os.environ:
-    sur_location_prefix=''
+    sur_location_prefix='surrogate_downloads/'
 if opts.use_osg:
     sur_location_prefix = "/"
 if opts.use_gwsignal:
