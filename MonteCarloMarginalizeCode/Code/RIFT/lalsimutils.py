@@ -4570,7 +4570,7 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
 
 
 # LISA 
-def hlmoft_from_NRhdf5(path_to_hdf5, P, lmax= None, only_mode=None, taper_percent = 2, beta = 8, verbose = True):
+def hlmoft_from_NRhdf5(path_to_hdf5, P, lmax= None, only_mode=None, taper_percent = 15, beta = 8, verbose = True):
     """Takes in an NR h5 file and uses romspline interpolation to generate hlm. Outputs a hlm dict. The binary class will only populate distance and deltaT, intrinsic params are set by the simulation/file and other extrinsic params either go into detector response or Ylm.
     Note: Would need to see how precessing waveforms work with this, considering I would need to change frames depending on fref."""
 
