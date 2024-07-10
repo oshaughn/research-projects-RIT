@@ -9,6 +9,7 @@
 DIR_PROCESS=$1
 BASE_OUT=$2
 GROUP=$3
+ECC=$4
 
 # join together the .dat files
 echo " Joining data files .... "
@@ -18,12 +19,23 @@ find ${DIR_PROCESS} -name 'CME*.dat' -exec cat {} \; > ${DIR_PROCESS}_tmp.dat
 
 # clean them (=join duplicate lines)
 echo " Consolidating multiple instances of the monte carlo  .... "
-util_CleanILE.py ${DIR_PROCESS}_tmp.dat | sort -rg -k10 > $BASE_OUT.composite
+if [ "$4" == '--eccentricity' ]
+then
+    util_CleanILE.py ${DIR_PROCESS}_tmp.dat $4 | sort -rg -k11 > $BASE_OUT.composite
+else
+    util_CleanILE.py ${DIR_PROCESS}_tmp.dat $4 | sort -rg -k10 > $BASE_OUT.composite
+fi
 
 # index them
 echo " Reindexing the data to   .... "
-util_ILEtoNRIndex.py --group ${GROUP} --fname ${BASE_OUT}.composite | grep '^-1*' > ${BASE_OUT}.indexed
-
+#util_ILEtoNRIndex.py --group ${GROUP} --fname ${BASE_OUT}.composite | grep '^-1*' > ${BASE_OUT}.indexed
+if [ "$4" == '--eccentricity' ]
+then
+    #    util_NRRelabelILE.py --group ${GROUP} --fname ${BASE_OUT}.composite --eccentricity | grep '^-1*' > ${BASE_OUT}.indexed
+    util_NRRelabelILE.py --group Sequence-RIT-All --fname ${BASE_OUT}.composite --eccentricity | sed -n '/ -----  BEST MATCHES ------ /,$p' > ${BASE_OUT}.indexed
+else
+    util_NRRelabelILE.py --group ${GROUP} --fname ${BASE_OUT}.composite | grep '^-1*' > ${BASE_OUT}.indexed
+fi
 
 # Manifest
 rm -f ${BASE_OUT}.manifest

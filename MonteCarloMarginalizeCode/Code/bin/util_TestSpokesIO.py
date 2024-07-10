@@ -28,6 +28,7 @@ except:
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname", default=None, help="Base output file for XML loading")
 parser.add_argument("--fname-dat",default=None)
+parser.add_argument("--is-eccentric",action='store_true',default=False)
 parser.add_argument("--test-refinement",action='store_true')
 parser.add_argument("--save-refinement-fname", default="refined-grid",help="Output to save refined grid xml. REQUIRES valid pairing")
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
@@ -41,7 +42,7 @@ opts=  parser.parse_args()
 ###
 
 if opts.fname and opts.mega_verbose:
- sdHere = spokes.LoadSpokeXML(opts.fname)
+ sdHere = spokes.LoadSpokeXML(opts.fname,is_eccentric=opts.is_eccentric)
  for key in sdHere:
     print(" Spoke : ", key)
     for P in sdHere[key]:
@@ -54,7 +55,7 @@ if opts.fname and opts.mega_verbose:
 ###
 
 if opts.fname_dat:
- sdHere = spokes.LoadSpokeDAT(opts.fname_dat)
+ sdHere = spokes.LoadSpokeDAT(opts.fname_dat,is_eccentric=opts.is_eccentric)
  print(" Spoke count : ", len(sdHere.keys()))
  fig_index =0
  for key in sdHere:
@@ -102,8 +103,8 @@ if opts.verbose:
 
 
 if opts.fname and opts.fname_dat:
-   sd_dat = spokes.LoadSpokeDAT(opts.fname_dat)
-   sd_P =  sdHere = spokes.LoadSpokeXML(opts.fname)
+   sd_dat = spokes.LoadSpokeDAT(opts.fname_dat,is_eccentric=opts.is_eccentric)
+   sd_P =  sdHere = spokes.LoadSpokeXML(opts.fname,is_eccentric=opts.is_eccentric)
 
    print(" --- Refinement: Writing XML --- ")
    print(" data file ", len(sd_dat))
@@ -115,6 +116,7 @@ if opts.fname and opts.fname_dat:
    for spoke_id in sd_dat.keys():
       nCount +=1
       # Cross-look-up
+      print(spoke_id)
       try:
          P_sample = sd_P[spoke_id][0] # if this fails
          P_sample.waveFlags =None
