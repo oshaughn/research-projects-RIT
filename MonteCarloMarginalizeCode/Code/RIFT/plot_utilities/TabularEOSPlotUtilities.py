@@ -649,9 +649,9 @@ def posterior_hist_data_gen(posteriors_eos: np.ndarray, EOSManager_Local: EOSMan
         A dictionary containing the data for the posterior histogram plot.
         The dictionary contains the following keys:
         - 'R': the radius data of each of the posterior samples
-        - 'LambdaTilde': the tidal deformability data of each of the posterior samples
+        - 'Lambda_': the tidal deformability data of each of the posterior samples
         - 'R_mean_std': the mean and standard deviation of radius of the posterior samples (tuple) of format (mean, std)
-        - 'LambdaTilde_mean_std': the mean and standard deviation of tidal deformability of the posterior samples (tuple) of format (mean, std)
+        - 'Lambda_mean_std': the mean and standard deviation of tidal deformability of the posterior samples (tuple) of format (mean, std)
         - 'data_label': the data label for the plot
         - 'm_ref': the reference mass used for the EOS calculations
     
@@ -665,18 +665,18 @@ def posterior_hist_data_gen(posteriors_eos: np.ndarray, EOSManager_Local: EOSMan
 
     posterior_hist_data = {}
     R = np.zeros(len(posteriors_eos))
-    LambdaTilde = np.zeros(len(posteriors_eos))
+    Lambda_ = np.zeros(len(posteriors_eos))
     for i, eos_indx in enumerate(posteriors_eos):
         R[i] = EOSManager_Local.R_of_m_indx(m_ref, int(eos_indx))
-        LambdaTilde[i] = EOSManager_Local.lambda_of_m_indx(m_ref, int(eos_indx))
+        Lambda_[i] = EOSManager_Local.lambda_of_m_indx(m_ref, int(eos_indx))
     
     R_mean_std = (np.mean(R), np.std(R))
-    LambdaTilde_mean_std = (np.mean(LambdaTilde), np.std(LambdaTilde))
+    Lambda_mean_std = (np.mean(Lambda_), np.std(Lambda_))
 
     posterior_hist_data['R'] = R
-    posterior_hist_data['LambdaTilde'] = LambdaTilde
+    posterior_hist_data['Lambda_'] = Lambda_
     posterior_hist_data['R_mean_std'] = R_mean_std
-    posterior_hist_data['LambdaTilde_mean_std'] = LambdaTilde_mean_std
+    posterior_hist_data['Lambda_mean_std'] = Lambda_mean_std
     posterior_hist_data['data_label'] = data_label
     posterior_hist_data['m_ref'] = m_ref
 
@@ -693,9 +693,9 @@ def posterior_hist_plot(*posterior_hist_data: dict, r_lim: tuple = (8, 17), lamb
         The user can provide multiple dictionaries as input, each containing the data for a different posterior sample.
         The dictionaries should be generated using the `posterior_hist_data_gen` function and should contain the following keys:
         - 'R': the radius data of each of the posterior samples
-        - 'LambdaTilde': the tidal deformability data of each of the posterior samples
+        - 'Lambda_': the tidal deformability data of each of the posterior samples
         - 'R_mean_std': the mean and standard deviation of radius of the posterior samples (tuple) of format (mean, std)
-        - 'LambdaTilde_mean_std': the mean and standard deviation of tidal deformability of the posterior samples (tuple) of format (mean, std)
+        - 'Lambda_mean_std': the mean and standard deviation of tidal deformability of the posterior samples (tuple) of format (mean, std)
         - 'data_label': the data label for the plot
         - 'm_ref': the reference mass used for the EOS calculations
 
@@ -751,16 +751,16 @@ def posterior_hist_plot(*posterior_hist_data: dict, r_lim: tuple = (8, 17), lamb
     
     fig, ax2 = plt.subplots()
     for i, data in enumerate(posterior_hist_data):
-        Lambda_data = data['LambdaTilde']
+        Lambda_data = data['Lambda_']
         label_i = data['data_label']
         alpha_i = 1 - 0.1 * i
 
         bins = np.linspace(lambda_lim[0], lambda_lim[1], 200)
         ax2.hist(Lambda_data, bins = bins, color = colors(i), label = label_i, alpha = alpha_i, density = True)
         # sns.kdeplot(Lambda_data, color = colors(i))
-        ax2.axvline(x = data['LambdaTilde_mean_std'][0], color = colors(i), linestyle = '--')
-        ax2.axvspan(data['LambdaTilde_mean_std'][0] - data['LambdaTilde_mean_std'][1], data['LambdaTilde_mean_std'][0] + data['LambdaTilde_mean_std'][1], alpha = 0.1, color = colors(i))
-        print(f'{label_i} Lambda at {m_ref} M_sun: {data["LambdaTilde_mean_std"][0]:.2f} +/- {data["LambdaTilde_mean_std"][1]:.2f}')
+        ax2.axvline(x = data['Lambda_mean_std'][0], color = colors(i), linestyle = '--')
+        ax2.axvspan(data['Lambda_mean_std'][0] - data['Lambda_mean_std'][1], data['Lambda_mean_std'][0] + data['Lambda_mean_std'][1], alpha = 0.1, color = colors(i))
+        print(f'{label_i} Lambda at {m_ref} M_sun: {data["Lambda_mean_std"][0]:.2f} +/- {data["Lambda_mean_std"][1]:.2f}')
 
     ax2.set_xlabel(f'Tidal Deformability at $M = {m_ref} M_\\odot$', fontsize = 16)
     ax2.set_ylabel('Probability Density', fontsize = 16)
@@ -771,7 +771,7 @@ def posterior_hist_plot(*posterior_hist_data: dict, r_lim: tuple = (8, 17), lamb
         ax2.set_title(title, fontsize = 16)
         plt.savefig(f'{title}_lambda.pdf')
     else:
-        ax2.set_title('Posterior distribution of $\\tilde{{\\Lambda}}_{' + str(m_ref)+ '}$', fontsize = 16)
+        ax2.set_title('Posterior distribution of ${{\\Lambda}}_{' + str(m_ref)+ '}$', fontsize = 16)
         plt.savefig(f'Lambda_{m_ref}_posterior.pdf')
     plt.show()
 
