@@ -1313,7 +1313,61 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
 
     return ile_job, ile_sub_name
 
+def write_refine_sub(tag='refine', exe=None, input_net=None,input_grid=None,output=None,universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, target=None,no_grid=False,**kwargs):
+    """
+    Write a submit file for creating a refined CIP grid for NR-based runs.
+    """
+    
+    exe = exe or which("util_TestSpokesIO.py")
 
+    ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    arg_str = arg_str.lstrip() # remove leading whitespace and minus signs                                                                                                                     
+    arg_str = arg_str.lstrip('-')
+    ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
+    #    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line                                                    
+
+    ile_job.add_opt("fname-dat", input_net)
+    ile_job.add_opt("fname", input_grid)
+    ile_job.add_opt("save-refinement-fname", output)
+
+    # Add normal arguments
+    # FIXME: Get valid options from a module
+    #
+    for opt, param in list(kwargs.items()):
+        if isinstance(param, list) or isinstance(param, tuple):
+            # NOTE: Hack to get around multiple instances of the same option                                                                                                                   
+            for p in param:
+                ile_job.add_arg("--%s %s" % (opt.replace("_", "-"), str(p)))
+        elif param is True:
+            ile_job.add_opt(opt.replace("_", "-"), None)
+        elif param is None or param is False:
+            continue
+        else:
+            ile_job.add_opt(opt.replace("_", "-"), str(param))
+
+    # Logging options
+    #
+    uniq_str = "$(macromassid)-$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file(target)
+
+    ile_job.add_condor_cmd('getenv', default_getenv_value)
+    # To change interactively:
+    #   condor_qedit
+    # for example:
+    #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all
+    try:
+        ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
+    except:
+        print(" LIGO accounting information not available.  You must add this manually to refine.sub !")
+
+    return ile_job, ile_sub_name
 
 def write_plot_sub(tag='converge', exe=None,samples_files=None, base=None,target=None,arg_str=None,log_dir=None, use_eos=False,ncopies=1, **kwargs):
     """

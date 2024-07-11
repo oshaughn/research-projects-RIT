@@ -233,6 +233,8 @@ def internal_hlm_generator(P,
                 compare_dict['s2z'] = P.s2z
                 compare_dict['s2x'] = P.s2x
                 compare_dict['s2y'] = P.s2y
+                if P.eccentricity is not None and P.eccentricity > 0:
+                  compare_dict['eccentricity'] = P.eccentricity
                 print(" Parameter matching condition ", compare_dict)
                 good_sim_list = nrwf.NRSimulationLookup(compare_dict,valid_groups=nr_lookup_valid_groups)
                 if len(good_sim_list)< 1:
