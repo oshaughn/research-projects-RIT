@@ -2891,19 +2891,20 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                 'ecc'                : P.eccentricity,
                 'ecc_freq'           : 1 #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
             }
-            print("Starting EOBRun_module")
-            t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
-            print("EOBRun_module done")
-            hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
-            hplen = len(hptmp)
-            hp = {}
-            hc = {}
-            hp = lal.CreateREAL8TimeSeries("hoft", hpepoch, 0,
-                                           P.deltaT, lsu_DimensionlessUnit, hplen)
-            hc = lal.CreateREAL8TimeSeries("hoft", hpepoch, 0,
-                                           P.deltaT, lsu_DimensionlessUnit, hplen)
-            hp.data.data = hptmp
-            hc.data.data = hctmp
+        print("Starting EOBRun_module")
+        print(pars)
+        t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
+        print("EOBRun_module done")
+        hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+        hplen = len(hptmp)
+        hp = {}
+        hc = {}
+        hp = lal.CreateREAL8TimeSeries("hoft", hpepoch, 0,
+                                       P.deltaT, lsu_DimensionlessUnit, hplen)
+        hc = lal.CreateREAL8TimeSeries("hoft", hpepoch, 0,
+                                       P.deltaT, lsu_DimensionlessUnit, hplen)
+        hp.data.data = hptmp
+        hc.data.data = hctmp
 
 
 
@@ -3416,7 +3417,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         # Run the WF generator
         print("Starting EOBRun_module")
         print(pars)
-        t, hptmp, hctmp, hlmtmp = EOBRun_module.EOBRunPy(pars)
+        t, hptmp, hctmp, hlmtmp, dym = EOBRun_module.EOBRunPy(pars)
         print("EOBRun_module done")
         k_list_orig = hlmtmp.keys()
         hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
