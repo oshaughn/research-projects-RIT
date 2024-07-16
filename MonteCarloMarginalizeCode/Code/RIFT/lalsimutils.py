@@ -2879,6 +2879,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
             }
         elif (P.eccentricity == 0.0):
             print("Using hyperbolic call RIFT O4b branch")
+            hyp_wav = True # convenient way to know if the waveform is hyperbolic
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
@@ -2933,7 +2934,42 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
         print("Starting EOBRun_module")
         t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
         print("EOBRun_module done")
-        hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+        
+        if not(hyp_wav):
+            ## Set the epoch for non-hyperbolic cases ##
+            hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)            
+        else:
+            ## custom epoch for the hyperbolic case ##            
+            # wf amplitude
+            amp = np.abs(hptmp)**2+np.abs(hctmp)**2
+            amp_times = P.deltaT*np.arange(len(amp))
+            amp_max_ind = np.argmax(amp)        
+            amp_norm = amp / amp[amp_max_ind] # normalize amplitude for peak finding                
+            # peak finding to determine system type
+            peaks, props = signal.find_peaks(amp_norm, height = 0.25)    
+            peak_heights = props['peak_heights']
+            # filtering out peaks so we only keep the local maxima
+            indices_to_keep = set()
+            sorted_indices = np.argsort(peak_heights)[::-1]
+            tol = int(pars['srate_interp'] / 13.65) # 300 samples at srate of 4096 - minimum distance between peaks.
+            for i in sorted_indices:
+                peak = peaks[i]                
+                keep = True
+                for kept_index in indices_to_keep:
+                    if abs(peaks[kept_index] - peak) <= tol:
+                        keep = False
+                        break                
+                if keep:
+                    indices_to_keep.add(i)                    
+            filtered_peaks = peaks[list(indices_to_keep)]
+            # parsing number of peaks after filtering against distance tolerance
+            if len(filtered_peaks) == 1:
+                # scatter case OR plunge case, we can set the epoch normally
+                hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+            else:
+                # capture case, we need to force the epoch to be the last peak
+                hpepoch = -P.deltaT*filtered_peaks[-1]
+                
         hplen = len(hptmp)
         hp = {}
         hc = {}
@@ -3488,6 +3524,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             
         elif (P.eccentricity == 0.0):
             print("Using hyperbolic call RIFT O4b branch")
+            hyp_wav = True # convenient way to know if the waveform is hyperbolic
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
@@ -3548,7 +3585,42 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         t, hptmp, hctmp, hlmtmp, dym = EOBRun_module.EOBRunPy(pars)
         print("EOBRun_module done")
         k_list_orig = hlmtmp.keys()
-        hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+        
+        if not(hyp_wav):
+            ## Set the epoch for non-hyperbolic cases ##
+            hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)            
+        else:
+            ## custom epoch for the hyperbolic case ##            
+            # wf amplitude
+            amp = np.abs(hptmp)**2+np.abs(hctmp)**2
+            amp_times = P.deltaT*np.arange(len(amp))
+            amp_max_ind = np.argmax(amp)        
+            amp_norm = amp / amp[amp_max_ind] # normalize amplitude for peak finding                
+            # peak finding to determine system type
+            peaks, props = signal.find_peaks(amp_norm, height = 0.25)    
+            peak_heights = props['peak_heights']
+            # filtering out peaks so we only keep the local maxima
+            indices_to_keep = set()
+            sorted_indices = np.argsort(peak_heights)[::-1]
+            tol = int(pars['srate_interp'] / 13.65) # 300 samples at srate of 4096 - minimum distance between peaks.
+            for i in sorted_indices:
+                peak = peaks[i]                
+                keep = True
+                for kept_index in indices_to_keep:
+                    if abs(peaks[kept_index] - peak) <= tol:
+                        keep = False
+                        break                
+                if keep:
+                    indices_to_keep.add(i)                    
+            filtered_peaks = peaks[list(indices_to_keep)]
+            # parsing number of peaks after filtering against distance tolerance
+            if len(filtered_peaks) == 1:
+                # scatter case OR plunge case, we can set the epoch normally
+                hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+            else:
+                # capture case, we need to force the epoch to be the last peak
+                hpepoch = -P.deltaT*filtered_peaks[-1]
+                
         hlmlen = len(hptmp)
         hlm = {}
         hlmtmp2 = {}

@@ -15,7 +15,7 @@
 ## Basic Code Process: ##
 
 # The code process is as follows, starting from reading in the ini file: (example: single_inject_RIFT.py -- /home/albert.einstein/path/to/config/BBH_inject_example.ini)
-# Create a MDC (mock data challenge) SimInspiral table xml from the waveform parameters
+# Create a MDC (mock data challenge) SimInspiral table xml from the waveform parameterrs
 # uses LALWriteFrame.py to create frame files for the specified detectors, stored in the signal_frames dir (also combined_frames if there is no noise)
 # if specified with --use-noise, adds noise frames and dumps the combined into the combined_frames dir
 # calculates SNR with util_FrameZeroNoiseSNR.py, uses network SNR as the initial guess
