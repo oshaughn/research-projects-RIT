@@ -35,12 +35,11 @@ P.m1 = 1e6 * lal.MSUN_SI
 P.m2 = 1e6 * lal.MSUN_SI
 P.s1z = 0.6
 P.s2z = 0.6
-P.dist = 48e3  * lal.PC_SI * 1e6 
+P.dist = 320e3  * lal.PC_SI * 1e6 
 P.fmin = 8*10**(-5)
 P.fmax = 0.125
 P.deltaF = 1/(32*32768)
 P.deltaT = 0.5/P.fmax
-P.approx = lalsimulation.GetApproximantFromString("NRHybSur3dq8")
 
 P.phiref = 0.0   # add phiref later (confirm with ROS)!
 P.inclination = 0.0 # add inclination later (confirm with ROS)!
@@ -56,6 +55,7 @@ psi = np.pi/4
 phi_ref = np.pi/3
 inclination = np.pi/2
 fref = None
+P.approx = lalsimulation.GetApproximantFromString("NRHybSur3dq8")
 path_to_NR_hdf5="/home/aasim.jan/NR-manager/Sequence-MAYA-Generic/nr-errors/D12_q1.00_a0.60_m200.h5"
 
 snr_fmin = 10**(-4)
