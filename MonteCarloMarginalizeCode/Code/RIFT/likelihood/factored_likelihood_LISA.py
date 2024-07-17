@@ -294,7 +294,7 @@ def PrecomputeAlignedSpinLISA(tref, fref, t_window, hlms, hlms_conj, data_dict, 
     return rholms_intp, U_lm_pq, V_lm_pq, Q_lm, guess_snr, rest
 
 
-def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclination, phi_ref, distance, modes, reference_distance):
+def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclination, phi_ref, distance, modes, reference_distance, return_lnLt=False):
     # Calculated marginalized likelihood, marginalized over time, psi, inlincation, phiref and distance.
     # call psi terms
     plus_terms = get_beta_lamda_psi_terms_Hp(beta, lam, psi)
@@ -393,6 +393,9 @@ def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclinat
     total_lnL = 0
     for channel in ["A", "E", "T"]:
         total_lnL += np.real(reference_distance/distance * Qlm[channel] - ((reference_distance/distance)**2)*0.5*Ulmpq[channel])
+    # for time sampling, return likelihood time series.
+    if return_lnLt:
+        return total_lnL
     # shape (time terms, extrinsic_params), integrating in time --> axis 0
     Q_lm_term = list(Q_lm.keys())[0]
     L_t = np.exp(total_lnL - np.max(total_lnL, axis=0))
