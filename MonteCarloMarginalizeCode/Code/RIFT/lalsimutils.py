@@ -359,7 +359,7 @@ tex_dictionary  = {
   "SOverM2_L" : "$S_{||}$",
   "eta": "$\eta$",
   "chi_eff": "$\chi_{eff}$",
-  "xi": "$\chi_{eff}$",
+  "xi": "$\chi_{\mathrm{eff}}$",
   "chi_p": "$\chi_{p}$",
    "chiMinus":"$\chi_{eff,-}$",
   "chiz_plus":"$\chi_{z,+}$",
