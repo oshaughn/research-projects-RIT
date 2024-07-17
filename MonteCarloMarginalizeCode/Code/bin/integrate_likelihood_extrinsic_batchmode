@@ -500,7 +500,8 @@ if not(opts.LISA):
       sys.exit(1)
   fiducial_epoch = lal.LIGOTimeGPS()
   fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more direct access to gpsSeconds
-
+else:
+    fiducial_epoch = opts.lisa_reference_time
 #
 # Template descriptors
 #
