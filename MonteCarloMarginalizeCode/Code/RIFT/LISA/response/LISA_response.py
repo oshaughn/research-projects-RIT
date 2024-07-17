@@ -315,14 +315,16 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=True):#tested
         # find tf at fref
         index_at_fref = get_closest_index(freq_dict[2,2], fref)
         tf_22_current = tf_dict[2,2][index_at_fref]
+        phase_22_current = phase_dict[2,2][index_at_fref]
         if debug:
-            print(f"tf[2,2] at fref ({freq_dict[2,2][index_at_fref]} Hz) before shift is {tf_22_current}s.")
+            print(f"tf[2,2] at fref ({freq_dict[2,2][index_at_fref]} Hz) before shift is {tf_22_current}s (phase[2,2] = {phase_22_current}).")
         # subtract that from all modes. tf for (2,2) needs to be zero at fref, I will add t_ref to all modes later (create_lisa_injections for injections and precompute for recovery), making tf=t_ref at fref.
         for mode in (list(hlm.keys())):
-            tf_dict[mode] = tf_dict[mode]  - tf_22_current
-            phase_dict[mode] = phase_dict[mode] - 2*np.pi*tf_22_current*freq_dict[mode]
+            tf_dict[mode] = tf_dict[mode]  - tf_22_current  # confirmed that I don't need to set all modes tf as 0. Conceptually, for the same time the other modes will be at a different frequency.
+            #phase_dict[mode] = phase_dict[mode] - 2*np.pi*tf_22_current*freq_dict[mode]
+            phase_dict[mode] = phase_dict[mode] - phase_dict[mode][index_at_fref] # subtracting so the phase is 0 for each mode. Then each mode will have m*phi when multiplied by phi in Ylm.
         if debug:
-            print(f"tf[2,2] at fref ({fref} Hz) after shift {tf_dict[2,2][index_at_fref]}.")
+            print(f"tf[2,2] at fref ({fref} Hz) after shift {tf_dict[2,2][index_at_fref]} (phase[2,2] = {phase_dict[2,2][index_at_fref]}).")
 
     return tf_dict, freq_dict, amp_dict, phase_dict
 
