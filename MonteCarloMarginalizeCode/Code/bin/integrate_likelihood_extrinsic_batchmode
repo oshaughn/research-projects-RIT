@@ -1245,7 +1245,7 @@ def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, decl
   print(" Time resampling size : {} ".format(n_samples))
 
   # t_ref_wind is defined as data_window_integration_half
-  print(f" Sampling for time from -{t_ref_wind} to  {t_ref_wind - P.deltaT} with deltaT {P.deltaT}") 
+  print(f" Sampling for time from -{P.deltaT*2} to  {2*P.deltaT} with deltaT {0.001}") 
   tvals = xpy_default.linspace(-t_ref_wind, t_ref_wind - P.deltaT,int(t_ref_wind*2/P.deltaT))  # the array should have P.deltaT as deltaT between entries and for that you need to subtract P.deltaT from the final point.
   
   # the selected samples will give a likelihood time series, so we enter these samples to generate that time series
@@ -1276,12 +1276,15 @@ def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, decl
   # Loop over and resample in time, picking index according to weights
   t_out = np.zeros(n_samples)
   lnL_out = np.zeros(n_samples)
-  indx_list =np.arange(len(tvals))
+  interp_tvals  = xpy_default.arange(-2*P.deltaT, 2*P.deltaT, 0.0001)
+  indx_list =np.arange(len(interp_tvals))
   for indx in np.arange(n_samples):
-    indx_choose = np.random.choice(indx_list, p=np.exp(lnLt[indx] - lnLt_norm[indx]))
-    t_out[indx] = tvals[indx_choose]
-    lnL_out[indx] = lnLt[indx][indx_choose]
-
+    interp = scipy.interpolate.interp1d(tvals, lnLt[indx] - lnLt_norm[indx])
+    interp_lnLt = interp(interp_tvals)
+    indx_choose = np.random.choice(indx_list, p=np.exp(interp_lnLt)/np.sum(np.exp(interp_lnLt)))
+    t_out[indx] = interp_tvals[indx_choose]
+    lnL_out[indx] = interp_lnLt[indx_choose]
+  print(t_out)
   my_samples['t_ref'] = fiducial_epoch + t_out # add sample time jitter from reweighting to samples
   my_samples["lnL_raw"] = lnL_out   # export likelihoods (equivalent to SNR). Note needs downstream code filters to catch this and put it somewhere.
   return my_samples
