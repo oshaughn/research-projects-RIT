@@ -1114,7 +1114,7 @@ except:
 if opts.internal_puff_transverse:
     if not(opts.manual_extra_puff_args):
         opts.manual_extra_puff_args = ''
-    manual_extra_puff_args += ' --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u  '
+    opts.manual_extra_puff_args += ' --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u  '
 instructions_puff = np.loadtxt("helper_puff_args.txt", dtype=str)  # should be one line
 puff_params = ' '.join(instructions_puff)
 if opts.assume_matter:
