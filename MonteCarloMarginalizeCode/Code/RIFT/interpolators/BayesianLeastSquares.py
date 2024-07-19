@@ -147,7 +147,7 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
 
 
 
-def fit_quadratic_and_resample(x,y,npts,rho_fac=1,x0=None,gamma_x=None,prior_x_gamma=None,prior_quadratic_gamma=None,verbose=False,n_digits=None,hard_regularize_negative=False,hard_regularize_scale=1):
+def fit_quadratic_and_resample(x,y,npts,rho_fac=1,x0=None,gamma_x=None,prior_x_gamma=None,prior_quadratic_gamma=None,verbose=False,n_digits=None,hard_regularize_negative=False,hard_regularize_scale=1,force_include_mean=False):
     """
     Simple least squares to a quadratic, *and* resamples from the quadratic derived from the fit.
     Critical for iterative evaluation of 
@@ -157,13 +157,19 @@ def fit_quadratic_and_resample(x,y,npts,rho_fac=1,x0=None,gamma_x=None,prior_x_g
          - implement non-stochastic placement as option (e.g., like effectiveFisher.py)
     """
     # Find the fit
-    the_quadratic_results = fit_quadratic(x,y,x0=x0,gamma_x=gamma_x,prior_x_gamma=prior_x_gamma,prior_quadratic_gamma=prior_quadratic_gamma,n_digits=n_digits,hard_regularize_negative=hard_regularize_negative,hard_regularize_scale=hard_regularize_scale)
+    the_quadratic_results = fit_quadratic(x,y,x0=x0,gamma_x=gamma_x,prior_x_gamma=prior_x_gamma,prior_quadratic_gamma=prior_quadratic_gamma,n_digits=n_digits,hard_regularize_negative=hard_regularize_negative,hard_regularize_scale=hard_regularize_scale,verbose=verbose)
     peak_val_est, best_val_est, my_fisher_est, linear_term_est,fit_here = the_quadratic_results
 
 
     # Use the inverse covariance mattrix
     my_fisher_est_inv = linalg.pinv(my_fisher_est)   # SEE INVERSE DISCUSSION
     x_new = np.random.multivariate_normal(best_val_est,my_fisher_est_inv/(rho_fac*rho_fac),size=npts)
+
+    if force_include_mean:
+#        print(" including best value ")
+#        print(x_new.shape, best_val_est.shape)
+        x_new = np.array(np.append(x_new, np.array(best_val_est[np.newaxis,:],dtype=float), axis=0), dtype=float)
+#        print(x_new.shape)
 
     return x_new
 
