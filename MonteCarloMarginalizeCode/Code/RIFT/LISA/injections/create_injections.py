@@ -109,7 +109,7 @@ hlmf = lalsimutils.hlmoff_for_LISA(P, Lmax=lmax, modes=modes, path_to_NR_hdf5=pa
 modes = list(hlmf.keys())
 
 # create injections
-data_dict = create_lisa_injections(hlmf, P.fmax, fref, beta, lamda, psi, inclination, -phi_ref, P.tref) 
+data_dict = create_lisa_injections(hlmf, P.fmax, fref, beta, lamda, psi, inclination, phi_ref, P.tref) 
 
 # save them in h5 format
 A_h5_file = h5py.File(f'{opts.save_path}/A-fake_strain-1000000-10000.h5', 'w')
