@@ -435,12 +435,14 @@ else:
 
 P=lalsimutils.ChooseWaveformParams()
 if opts.inj:
-    from ligo.lw import lsctables, table, utils # check all are needed
-    filename = opts.inj
-    event = opts.event_id
-    xmldoc = utils.load_filename(filename, verbose = True,contenthandler =lalsimutils.cthdler)
-    sim_inspiral_table = lsctables.Table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
-    P.copy_sim_inspiral(sim_inspiral_table[int(event)])
+    #from ligo.lw import lsctables, table, utils # check all are needed
+    #filename = opts.inj
+    #event = opts.event_id
+    #xmldoc = utils.load_filename(filename, verbose = True,contenthandler =lalsimutils.cthdler)
+    #sim_inspiral_table = lsctables.Table.get_table(xmldoc, lsctables.SimInspiralTable.tableName)
+    P_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj)
+    P = P_list[0]
+    #P.copy_sim_inspiral(sim_inspiral_table[int(event)])
     P.fmin =opts.fmin
     if opts.approx:
         P.approx = lalsim.GetApproximantFromString(opts.approx)
