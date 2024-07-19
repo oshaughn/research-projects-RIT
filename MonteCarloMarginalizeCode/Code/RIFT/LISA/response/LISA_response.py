@@ -321,8 +321,8 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=True):#tested
         # subtract that from all modes. tf for (2,2) needs to be zero at fref, I will add t_ref to all modes later (create_lisa_injections for injections and precompute for recovery), making tf=t_ref at fref.
         for mode in (list(hlm.keys())):
             tf_dict[mode] = tf_dict[mode]  - tf_22_current  # confirmed that I don't need to set all modes tf as 0. Conceptually, for the same time the other modes will be at a different frequency.
-            #phase_dict[mode] = phase_dict[mode] - 2*np.pi*tf_22_current*freq_dict[mode]
-            phase_dict[mode] = phase_dict[mode] - phase_dict[mode][index_at_fref] # subtracting so the phase is 0 for each mode. Then each mode will have m*phi when multiplied by phi in Ylm.
+            phase_dict[mode] = phase_dict[mode] - 2*np.pi*tf_22_current*freq_dict[mode]
+            #phase_dict[mode] = phase_dict[mode] - phase_dict[mode][index_at_fref] # subtracting so the phase is 0 for each mode. Then each mode will have m*phi when multiplied by phi in Ylm.
         if debug:
             print(f"tf[2,2] at fref ({fref} Hz) after shift {tf_dict[2,2][index_at_fref]} (phase[2,2] = {phase_dict[2,2][index_at_fref]}).")
 
@@ -563,7 +563,7 @@ def create_lisa_injections(hlmf, fmax, fref, beta, lamda, psi, inclination, phi_
     T = 0.0
     modes = list(hlmf.keys())
     for mode in modes:
-        H_0 = transformed_Hplus_Hcross(beta, lamda, psi, inclination, phi_ref, mode[0], mode[1]) 
+        H_0 = transformed_Hplus_Hcross(beta, lamda, psi, inclination, -phi_ref, mode[0], mode[1]) 
         L1, L2, L3 = Evaluate_Gslr(tf_dict[mode] + tref, f_dict[mode], H_0, beta, lamda)
         time_shifted_phase = phase_dict[mode] + 2*np.pi*tref*f_dict[mode]
         tmp_data = amp_dict[mode] * np.exp(1j*time_shifted_phase)  
