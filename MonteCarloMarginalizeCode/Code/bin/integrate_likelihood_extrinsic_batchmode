@@ -259,6 +259,9 @@ lisa_params.add_option("--h5-frame-FD", action="store_true", help = "LISA inject
 lisa_params.add_option("--lisa-reference-time", default=0.0, type=float, help = "Time in seconds at reference frequency, if reference frequency is not provided then reference frequency is the frequency at max(f^2 * A_22(f)).")
 lisa_params.add_option("--lisa-reference-frequency", default=None, type=float, help = "Reference frequency in Hz, if reference frequency is not provided then reference frequency is the frequency at max(f^2 * A_22(f)).")
 lisa_params.add_option("--modes", default=None, help = "If you need specific modes, set modes to an array eg --modes '[(2,2),(3,3)]")
+lisa_params.add_option("--lisa-fixed-sky", default=False, help="Not varying skylocation")
+lisa_params.add_option("--ecliptic-latitude", default=0, help="Value of ecliptic latitude (beta) if sky location is fixed")
+lisa_params.add_option("--ecliptic-longitude", default=0, help="Value of ecliptic longitude (lambda) if sky location is fixed")
 optp.add_option_group(lisa_params)
 
 #
@@ -1077,8 +1080,21 @@ if opts.skymap_file:
 #
 # Determine pinned and non-pinned parameters
 #
+
+# For LISA, right now we cannot vary over skylocation here. So we either fix it to true value or to zero, depending on whether we are fitting for skylocation.
+# I am calling ecliptic latitude (beta) as declination and ecliptic longitude (lambda) as right-ascension.
+
 pinned_params = get_pinned_params(opts)
 unpinned_params = get_unpinned_params(opts, sampler.params)
+
+if opts.LISA and opts.lisa_fixed_sky:
+    pinned_params["right_ascension"] = float(opts.ecliptic_longitude)
+    pinned_params["declination"] = float(opts.ecliptic_latitude)
+if opts.LISA and not(opts.lisa_fixed_sky): # read the grid for sky location co-ordinate, but fixing it to prevent sampler from wasting time sampling skylocation.
+    pinned_params["right_ascension"] = 0.0
+    pinned_params["declination"] = 0.0
+
+
 print( "{0:<25s} {1:>5s} {2:>5s} {3:>20s} {4:<10s}".format("parameter", "lower limit", "upper limit", "pinned?", "pin value"))
 plen = len(sorted(sampler.params, key=lambda p: len(p))[-1])
 for p in sampler.params:
@@ -1239,16 +1255,22 @@ if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
   sampler.setup()
 
 
-def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, declination, P, modes, reference_distance): 
-
+def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, declination, P, modes, reference_distance):
+    """This function takes in extrinsic samples and for each sample samples a time shift. This is done by generating a likelihood time series at an extrinsic sample and then weighted sampling in time."""
+  # How many time samples? Same as the extrinsic samples being passed
   n_samples = len(my_samples['longitude'])
   print(" Time resampling size : {} ".format(n_samples))
 
+  # Hardcoded time sampling limits, should change it in future
+  low_t_lim, high_t_lim, delta_t = -2, 2, 0.0001
+  
   # t_ref_wind is defined as data_window_integration_half
-  print(f" Sampling for time from -{P.deltaT*2} to  {2*P.deltaT} with deltaT {0.001}") 
+  print(f" Sampling for time from -{low_t_lim} to  {high_t_lim} with deltaT {delta_t}") 
+
+  # This is the time series over which we interpolate.
   tvals = xpy_default.linspace(-t_ref_wind, t_ref_wind - P.deltaT,int(t_ref_wind*2/P.deltaT))  # the array should have P.deltaT as deltaT between entries and for that you need to subtract P.deltaT from the final point.
   
-  # the selected samples will give a likelihood time series, so we enter these samples to generate that time series
+  # Generating likelihood time series for these samples
   P.phi =  identity_convert_togpu(my_samples['right_ascension'])  # cast to float
   P.theta =   identity_convert_togpu(my_samples['declination'])
   P.tref = float(fiducial_epoch) # defined earlier as lisa-reference-time
@@ -1263,8 +1285,8 @@ def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, decl
       setattr(P,name, getattr(P,name).astype(float) )
   
   # plugging the selected samples
-  lnLt = factored_likelihood_LISA.FactoredLogLikelihoodAlignedSpinLISA(rholms, cross_terms, right_ascension, declination, P.psi, P.incl, P.phiref, P.dist, modes, reference_distance, return_lnLt = True)
-  print(lnLt.shape)
+  lnLt = factored_likelihood_LISA.FactoredLogLikelihoodAlignedSpinLISA(rholms, cross_terms, declination, right_ascension, P.psi, P.incl, P.phiref, P.dist, modes, reference_distance, return_lnLt = True)
+  
   # axis 0  is time axis 1 is each point, transposing it
   lnLt = lnLt.T 
   lnLt = identity_convert(lnLt) # back to CPU.  Note we have removed offsets 
@@ -1276,15 +1298,20 @@ def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, decl
   # Loop over and resample in time, picking index according to weights
   t_out = np.zeros(n_samples)
   lnL_out = np.zeros(n_samples)
-  interp_tvals  = xpy_default.arange(-2*P.deltaT, 2*P.deltaT, 0.0001)
+  # tvals over which we will resample
+  interp_tvals  = xpy_default.arange(-low_t_lim, high_t_lim, delta_t)
   indx_list =np.arange(len(interp_tvals))
+  # Loop over each extrinsic sample
   for indx in np.arange(n_samples):
     interp = scipy.interpolate.interp1d(tvals, lnLt[indx] - lnLt_norm[indx])
+    # interpolating
     interp_lnLt = interp(interp_tvals)
+    # weighted resampling
     indx_choose = np.random.choice(indx_list, p=np.exp(interp_lnLt)/np.sum(np.exp(interp_lnLt)))
     t_out[indx] = interp_tvals[indx_choose]
     lnL_out[indx] = interp_lnLt[indx_choose]
   print(t_out)
+  # saving 
   my_samples['t_ref'] = fiducial_epoch + t_out # add sample time jitter from reweighting to samples
   my_samples["lnL_raw"] = lnL_out   # export likelihoods (equivalent to SNR). Note needs downstream code filters to catch this and put it somewhere.
   return my_samples
@@ -1372,9 +1399,14 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
     reference_distance = P.dist
     print(f"Reference distance = {reference_distance/lal.PC_SI/1e9} Gpc, 1/deltaF = {1/P.deltaF} s, deltaT = {P.deltaT} s")
 
+    # Are we varying skylocation? If we are, read it from the grid and pass it to precompute. If not, take in the value as is passed as an argument to ILE.
+    if not(opts.lisa_fixed_sky):
+        pinned_params["declination"] = P.theta
+        pinned_params["right_ascension"] = P.phi
+
     # Precompute
     # fNyq is the max resolvable frequency for a waveform. It is 0.5/deltaT. RIFT needs deltaT, deltaF for waveform generation (information present in P) and for integration it needs fmax (fmax <= fNyq)
-    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest = factored_likelihood_LISA.PrecomputeAlignedSpinLISA(opts.lisa_reference_time, opts.lisa_reference_frequency, opts.data_integration_window_half, hlms_FD, None, data_dict, psd_dict, flow_ifo_dict["A"], fmax, fNyq, P.deltaT, pinned_params["right_ascension"], pinned_params["declination"], analyticPSD_Q=False, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec)
+    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest = factored_likelihood_LISA.PrecomputeAlignedSpinLISA(opts.lisa_reference_time, opts.lisa_reference_frequency, opts.data_integration_window_half, hlms_FD, None, data_dict, psd_dict, flow_ifo_dict["A"], fmax, fNyq, P.deltaT, pinned_params["declination"], pinned_params["right_ascension"], analyticPSD_Q=False, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec)
     
     # reset to default.  Should not be needed, but weird python scoping error
     manual_avoid_overflow_logarithm = manual_avoid_overflow_logarithm_default 
@@ -1409,7 +1441,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
         P.phiref = phi_orb_true
 
 
-      lnL = factored_likelihood_LISA.FactoredLogLikelihoodAlignedSpinLISA(rholms, cross_terms, pinned_params["right_ascension"], pinned_params["declination"], P.psi, P.incl, P.phiref, P.dist, modes, reference_distance)
+      lnL = factored_likelihood_LISA.FactoredLogLikelihoodAlignedSpinLISA(rholms, cross_terms, pinned_params["declination"], pinned_params["right_ascension"], P.psi, P.incl, P.phiref, P.dist, modes, reference_distance)
       return lnL
       #return identity_convert_lnL(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
     
@@ -1474,22 +1506,8 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
             event_id = -1
         if opts.event == None:
             event_id = -1
-        if opts.save_eccentricity:
-            # output format when eccentricity is being used
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-        elif not (P.lambda1>0 or P.lambda2>0):
-          # output format when lambda is NOT used
-          if not opts.pin_distance_to_sim:
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-          else:
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, pinned_params["distance"], log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-        else:
-          if not(opts.export_eos_index):
-            # Alternative output format if lambda is active
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-          else:
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, P.eos_table_index, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-
+        # Current response only applicable to quasicircular MBHB signals. Save sky location even if not varying.
+        numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.phi, P.theta, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res, sampler.ntotal, neff ]])) 
 
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
