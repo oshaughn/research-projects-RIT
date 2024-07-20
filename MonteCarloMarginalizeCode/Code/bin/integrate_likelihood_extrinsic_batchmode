@@ -1256,7 +1256,7 @@ if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
 
 
 def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, declination, P, modes, reference_distance):
-    """This function takes in extrinsic samples and for each sample samples a time shift. This is done by generating a likelihood time series at an extrinsic sample and then weighted sampling in time."""
+  """This function takes in extrinsic samples and for each sample samples a time shift. This is done by generating a likelihood time series at an extrinsic sample and then weighted sampling in time."""
   # How many time samples? Same as the extrinsic samples being passed
   n_samples = len(my_samples['longitude'])
   print(" Time resampling size : {} ".format(n_samples))
