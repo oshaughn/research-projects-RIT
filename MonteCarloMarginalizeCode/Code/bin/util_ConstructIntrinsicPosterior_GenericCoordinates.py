@@ -366,6 +366,8 @@ parser.add_argument("--supplementary-likelihood-factor-function", default=None,t
 parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
 parser.add_argument("--supplementary-prior-code",default=None,type=str,help="Import external priors, assumed in scope as extra_prior.prior_dict_pdf, extra_prior.prior_range.  Currentlyonly supports seperable external priors")
 
+# LISA
+parser.add_argument("--LISA", action="store_true", help="Code knows that it is being used for LISA. This allows the code to read all.net in a format that is for LISA.")
 opts=  parser.parse_args()
 if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
@@ -880,7 +882,11 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'eccentricity':eccentricity_prior,
     'chi_pavg':precession_prior,
     'mu1': unnormalized_log_prior,
-    'mu2': unnormalized_uniform_prior
+    'mu2': unnormalized_uniform_prior,
+    # LISA skylocation
+    'lambda':mcsampler.uniform_samp_phase,
+    'beta': mcsampler.uniform_samp_phase,
+    'cos_beta':mcsampler.uniform_samp_cos_theta
 }
 prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_small_max,0.999*chi_small_max], "mc":[0.9,250], "eta":[0.01,0.2499999],'delta_mc':[0,0.9], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
    's1x':[-chi_max,chi_max],
@@ -915,7 +921,11 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   's1z_bar':[-1,1],
   's2z_bar':[-1,1],
   'mu1':[0.0001,1e3],    # suboptimal, but something  
-  'mu2':[-300,1e3]
+  'mu2':[-300,1e3],
+  # LISA skylocation
+  'lambda':[0,2*np.pi],
+  'beta':[-np.pi/2,np.pi/2],
+  'cos_beta':[-1,1]
 }
 if not (opts.chiz_plus_range is None):
     print(" Warning: Overriding default chiz_plus range. USE WITH CARE", opts.chiz_plus_range)
@@ -1587,7 +1597,10 @@ if opts.input_tides:
             low_level_coord_names += ['ordering'] 
         print(" Revised fit coord names (for lookup) : ", coord_names) # 'eos_table_index' will be overwritten here
         print(" Revised sampling coord names  : ", low_level_coord_names)
-
+# LISA
+elif opts.LISA:
+    # shift by two due to two skylocation parameters being present in all.net for LISA
+    col_lnL +=2
 elif opts.use_eccentricity:
     print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
     col_lnL += 1
@@ -1684,6 +1697,10 @@ for line in dat:
         P.eos_table_index = line[11]
     if opts.use_eccentricity:
         P.eccentricity = line[9]
+    # LISA skylocation
+    if opts.LISA:
+        P.phi = line[9]
+        P.theta = line[10]
     if opts.input_distance:
         P.dist = lal.PC_SI*1e6*line[9]  # Incompatible with tides, note!
     
