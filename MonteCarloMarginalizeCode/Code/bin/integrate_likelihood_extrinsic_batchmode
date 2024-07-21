@@ -1088,8 +1088,10 @@ pinned_params = get_pinned_params(opts)
 unpinned_params = get_unpinned_params(opts, sampler.params)
 
 if opts.LISA and opts.lisa_fixed_sky:
-    pinned_params["right_ascension"] = float(opts.ecliptic_longitude)
-    pinned_params["declination"] = float(opts.ecliptic_latitude)
+    lisa_sky_lamda = float(opts.ecliptic_longitude)
+    lisa_sky_beta = float(opts.ecliptic_latitude)
+    pinned_params["right_ascension"] = 0.0
+    pinned_params["declination"] = 0.0
 if opts.LISA and not(opts.lisa_fixed_sky): # read the grid for sky location co-ordinate, but fixing it to prevent sampler from wasting time sampling skylocation.
     pinned_params["right_ascension"] = 0.0
     pinned_params["declination"] = 0.0
@@ -1401,22 +1403,20 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
 
     # Are we varying skylocation? If we are, read it from the grid and pass it to precompute. If not, take in the value as is passed as an argument to ILE.
     if not(opts.lisa_fixed_sky):
-        pinned_params["declination"] = P.theta
-        pinned_params["right_ascension"] = P.phi
+        lisa_sky_beta = P.theta
+        lisa_sky_lamda = P.phi
 
     # Precompute
     # fNyq is the max resolvable frequency for a waveform. It is 0.5/deltaT. RIFT needs deltaT, deltaF for waveform generation (information present in P) and for integration it needs fmax (fmax <= fNyq)
-    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest = factored_likelihood_LISA.PrecomputeAlignedSpinLISA(opts.lisa_reference_time, opts.lisa_reference_frequency, opts.data_integration_window_half, hlms_FD, None, data_dict, psd_dict, flow_ifo_dict["A"], fmax, fNyq, P.deltaT, pinned_params["declination"], pinned_params["right_ascension"], analyticPSD_Q=False, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec)
+    print(f"Sky location lambda = {lisa_sky_lamda}, sky location beta = {lisa_sky_beta}")
+    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest = factored_likelihood_LISA.PrecomputeAlignedSpinLISA(opts.lisa_reference_time, opts.lisa_reference_frequency, opts.data_integration_window_half, hlms_FD, None, data_dict, psd_dict, flow_ifo_dict["A"], fmax, fNyq, P.deltaT, lisa_sky_beta, lisa_sky_lamda, analyticPSD_Q=False, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec)
     
     # reset to default.  Should not be needed, but weird python scoping error
     manual_avoid_overflow_logarithm = manual_avoid_overflow_logarithm_default 
 
     def likelihood_function(right_ascension, declination, phi_orb, inclination, psi, distance):
       P.phi = xpy_asarray_already(right_ascension) 
-      if opts.declination_cosine_sampler:
-        P.theta = numpy.pi/2 - xpy_default.arccos(xpy_asarray_already(declination))
-      else:
-        P.theta = xpy_asarray_already(declination)
+      P.theta = xpy_asarray_already(declination)
       P.phiref = xpy_asarray_already(phi_orb)
       if opts.inclination_cosine_sampler:
         P.incl = xpy_default.arccos(xpy_asarray_already(inclination))
@@ -1424,12 +1424,6 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
         P.incl = xpy_asarray_already(inclination)
       P.psi = xpy_asarray_already(psi)
       P.dist = xpy_asarray_already(distance* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
-
-      # rotate sky if needed
-      if opts.internal_sky_network_coordinates:
-        P.theta,P.phi = my_rotation(np.pi/2 - P.theta,P.phi)
-        P.theta = np.pi/2 - P.theta
-        P.phi = xpy_default.mod(P.phi, 2*np.pi)
 
       # rotate phase if needed
       # make copies of arrays
@@ -1439,9 +1433,10 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
         psi_true = (P.phiref - P.psi)/2.
         P.psi= psi_true
         P.phiref = phi_orb_true
+      #print(f"Sky location lambda = {lisa_sky_lamda}, sky location beta = {lisa_sky_beta}")
 
 
-      lnL = factored_likelihood_LISA.FactoredLogLikelihoodAlignedSpinLISA(rholms, cross_terms, pinned_params["declination"], pinned_params["right_ascension"], P.psi, P.incl, P.phiref, P.dist, modes, reference_distance)
+      lnL = factored_likelihood_LISA.FactoredLogLikelihoodAlignedSpinLISA(rholms, cross_terms, lisa_sky_beta, lisa_sky_lamda, P.psi, P.incl, P.phiref, P.dist, modes, reference_distance)
       return lnL
       #return identity_convert_lnL(xpy_default.exp(lnL-manual_avoid_overflow_logarithm))
     
@@ -1507,7 +1502,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
         if opts.event == None:
             event_id = -1
         # Current response only applicable to quasicircular MBHB signals. Save sky location even if not varying.
-        numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, pinned_params["declination"], pinned_params["right_ascension"], log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res, sampler.ntotal, neff ]])) 
+        numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, lisa_sky_lamda, lisa_sky_beta, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res, sampler.ntotal, neff ]])) 
 
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
@@ -1577,7 +1572,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
             samples["alpha3"] = numpy.zeros(samples["psi"].shape)
 
       if opts.resample_time_marginalization:
-        samples = resample_samples_LISA(samples, rholms, cross_terms, pinned_params["right_ascension"], pinned_params["declination"], P, modes, reference_distance)
+        samples = resample_samples_LISA(samples, rholms, cross_terms, lisa_sky_lamda, lisa_sky_beta, P, modes, reference_distance)
         samples["loglikelihood" ] = samples["lnL_raw"]  # export the non-time-marginalized likelihood, if we are in the final stages
 #        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
@@ -2405,7 +2400,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_
 lnL_sofar = -np.inf
 no_adapt_sky = False
 for indx in numpy.arange(len(P_list)):
- try:
+ #try:
   if opts.LISA:
     res = analyze_event_LISA(P_list, indx, data_dict, psd_dict, fmax, opts)
   else:
@@ -2434,7 +2429,7 @@ for indx in numpy.arange(len(P_list)):
       # Disable saving of the integrand -- saves on memory and will reduce speed. 
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
- except Exception as exception_failure:
+ #except Exception as exception_failure:
   print("  ===> FAILED ANALYSIS <==== ")
   print(exception_failure)
   if opts.internal_make_empty_file_on_error:
