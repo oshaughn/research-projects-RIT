@@ -235,6 +235,7 @@ parser.add_argument("--eccentricity", action="store_true", help="Read sample fil
 parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Relies entirely on user to set plot options for plot styles from matplotlibrc")
 parser.add_argument("--no-mod-psi",action="store_true",help="Default is to take psi mod pi. If present, does not do this")
 parser.add_argument("--verbose",action='store_true',help='print matplotlibrc data')
+parser.add_argument("--LISA",action='store_true',help='Lets the code know that the composite file will be in LISA format')
 opts=  parser.parse_args()
 
 plt.rc('axes',unicode_minus=False)
@@ -279,8 +280,8 @@ if opts.change_parameter_label:
           lalsimutils.tex_dictionary[name] = "$"+new_str+"$"  # should be able to ASSIGN NEW NAMES, not restrict
 
 special_param_ranges = {
-  'q':[0,1],
-  'eta':[0,0.25],
+#  'q':[0,1],
+#  'eta':[0,0.25],
   'a1z':[-opts.chi_max,opts.chi_max],
   'a2z':[-opts.chi_max,opts.chi_max],
   'chi_eff': [-opts.chi_max,opts.chi_max],  # this can backfire for very narrow constraints
@@ -289,8 +290,11 @@ special_param_ranges = {
   'chi_pavg':[0,2],
   'chi_p':[0,1],
   'lambdat':[0,4000],
-  'eccentricity':[0,1]
+  'eccentricity':[0,1],
+  'phiorb':[0,2*np.pi],
+  'psi':[0,2*np.pi]
 }
+
 
 #mc_range deprecated by generic bind_param
 #if opts.mc_range:
@@ -467,6 +471,9 @@ if opts.flag_tides_in_composite:
 if opts.eccentricity:
     print(" Reading composite file, assuming eccentricity-based format ")
     field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","eccentricity", "lnL", "sigmaOverL", "ntot", "neff")
+if opts.LISA:
+    print(" Reading composite file, assuming LISA format ")
+    field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","ra","dec", "lnL", "sigmaOverL", "ntot", "neff")
 field_formats = [np.float32 for x in field_names]
 composite_dtype = [ (x,float) for x in field_names] #np.dtype(names=field_names ,formats=field_formats)
 # Load posterior files
@@ -617,10 +624,13 @@ if opts.posterior_file:
         if len(dat_here) < 1:
             print(" Failed to etract data ", param,  " from ", opts.posterior_file[indx])
 
+
         # extend the limits, so we have *extremal* limits 
         xmax_list.append(np.max(dat_here))
         xmin_list.append(np.min(dat_here))
     x_range[param] = np.array([np.min(xmin_list), np.max(xmax_list)])  # give a small buffer
+    #if param in [ 'mc', 'm1', 'm2', 'mtotal', 'mtot']: #LISA
+    #    x_range[param] = x_range[param]/1e5
 #    if param == 'chi_eff':
 #        x_range[param] -= 0.1*np.sign([-1,1])*(x_range[param]+np.array([-1,1]))
             
@@ -655,6 +665,8 @@ for pIndex in np.arange(len(posterior_list)):
 
         if param in opts.parameter_log_scale:
             dat_mass[:,indx] = np.log10(dat_mass[:,indx])
+        #if param in [ 'mc', 'm1', 'm2', 'mtotal', 'mtot']: #LISA
+        #    dat_mass[:,indx] = dat_mass[:, indx]/1e5
 
         # Parameter ranges (duplicate)
         dat_here = np.array(dat_mass[:,indx])  # force copy ! I need to sort
@@ -689,7 +701,7 @@ for pIndex in np.arange(len(posterior_list)):
                 truths_here[indx] = P_ref.tref
                 continue
             truths_here[indx] = P_ref.extract_param(param_to_extract)
-            if param in [ 'mc', 'm1', 'm2', 'mtotal']:
+            if param in [ 'mc', 'm1', 'm2', 'mtotal', 'mtot']:
                 truths_here[indx] = truths_here[indx]/lal.MSUN_SI
             if param in ['dist', 'distance']:
                 truths_here[indx] = truths_here[indx]/lal.PC_SI/1e6
