@@ -1265,7 +1265,7 @@ def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, decl
   low_t_lim, high_t_lim, delta_t = -2, 2, 0.0001
   
   # t_ref_wind is defined as data_window_integration_half
-  print(f" Sampling for time from -{low_t_lim} to  {high_t_lim} with deltaT {delta_t}") 
+  print(f" Sampling for time from {low_t_lim} to  {high_t_lim} with deltaT {delta_t}") 
 
   # This is the time series over which we interpolate.
   tvals = xpy_default.linspace(-t_ref_wind, t_ref_wind - P.deltaT,int(t_ref_wind*2/P.deltaT))  # the array should have P.deltaT as deltaT between entries and for that you need to subtract P.deltaT from the final point.
@@ -1299,8 +1299,8 @@ def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, decl
   t_out = np.zeros(n_samples)
   lnL_out = np.zeros(n_samples)
   # tvals over which we will resample
-  interp_tvals  = xpy_default.arange(-low_t_lim, high_t_lim, delta_t)
-  indx_list =np.arange(len(interp_tvals))
+  interp_tvals  = xpy_default.arange(low_t_lim, high_t_lim, delta_t)
+  indx_list = np.arange(len(interp_tvals))
   # Loop over each extrinsic sample
   for indx in np.arange(n_samples):
     interp = scipy.interpolate.interp1d(tvals, lnLt[indx] - lnLt_norm[indx])
