@@ -1507,7 +1507,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
         if opts.event == None:
             event_id = -1
         # Current response only applicable to quasicircular MBHB signals. Save sky location even if not varying.
-        numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.phi, P.theta, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res, sampler.ntotal, neff ]])) 
+        numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, pinned_params["declination"], pinned_params["right_ascension"], log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res, sampler.ntotal, neff ]])) 
 
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
