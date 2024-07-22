@@ -9,8 +9,8 @@ OUT=frames_dir
 
 cd $1
 mkdir ${OUT}
-cat local.cache | awk '{print $NF}'  | tr -d '\r' > my_temp_files
-switcheroo file://localhost ' ' my_temp_files
+#cat local.cache | awk '{print $NF}'  | tr -d '\r' > my_temp_files
+#switcheroo file://localhost ' ' my_temp_files
 if [ ! -e ILE.sub ]; then 
    echo " CANNOT IDENTIFY EVENT TIME; failing convert attempt "
 fi
@@ -30,8 +30,15 @@ cat my_channel_pairs | awk '{print $1}' > my_ifo_list
 # Loop over interferometers.  Join together all frames from that interferometer
 for i in `cat my_ifo_list`
 do
- echo ${i}  `grep ${i} my_temp_files`
+ echo Frame truncation starting   $i
+ # note some horrible old frame names have 'V1' in them, notably LOSC GW710817. So I need a workaround 
+ # I also need a workaround if the channel name contains dashes: I can't put that in the filename if I want to run on OSG properly
+  ifo_name=`echo $i | tr 1 ' ' | awk '{$1=$1;print}' `
+  grep ^${ifo_name} local.cache | awk '{print $NF}' | tr -d '\r' > temp_file_now
+  switcheroo file://localhost '' temp_file_now
+  INFILES=`cat temp_file_now`
   CHANNEL=`grep $i my_channel_pairs | awk '{print $NF}' `
-  util_TruncateMergeFrames.py  --start ${TSTART} --end ${TEND} --output ${OUT}/${i}-${CHANNEL}-${TSTART}-${SEGLEN}.gwf --channel ${i}:${CHANNEL}  `grep ${i} my_temp_files`
+  CHANNEL_NO_DASH=`echo ${CHANNEL} | tr '-' '_'`
+  util_TruncateMergeFrames.py  --start ${TSTART} --end ${TEND} --output ${OUT}/${i}-${CHANNEL_NO_DASH}-${TSTART}-${SEGLEN}.gwf --channel ${i}:${CHANNEL}  ${INFILES}
 #  FrCopy -f ${TSTART} -l ${TEND}  -i `grep ${i} my_temp_files`  -o  ${OUT}/${i}-${CHANNEL}-${TSTART}-${SEGLEN}.gwf
 done
