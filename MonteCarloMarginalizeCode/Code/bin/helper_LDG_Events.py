@@ -889,7 +889,12 @@ if use_ini:
     if 'q-min'  in engine_dict:
         q_min = float(engine_dict['q-min'])
         eta_min = q_min/(1.+q_min)**2
-
+    if 'q-max'  in engine_dict:
+        q_max = float(engine_dict['q-max'])
+        eta_max = q_max/(1.+q_max)**2
+    if 'ecc_min' in engine_dict:
+        ecc_range_str = "  ["+str(engine_dict['ecc_min'])+","+str(engine_dict['ecc_max'])+"]"
+        
 mc_range_str = "  ["+str(mc_min_tight)+","+str(mc_max_tight)+"]"  # Use a tight placement grid for CIP
 if not(opts.manual_mc_min is None):
     mc_min = opts.manual_mc_min
