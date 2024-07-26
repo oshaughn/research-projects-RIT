@@ -228,6 +228,7 @@ parser.add_argument("--scale-mc-range",type=float,default=None,help="If using th
 parser.add_argument("--limit-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-eta-range",default=None,type=str,help="Pass this argumen through to the helper to set the eta range")
+parser.add_argument("--force-mtot-range",default=None,type=str,help="Pass this argument through to the helper to set the mtot range. Overrides mc parameter with mtot parameter broadly throughout the pipeline.")
 parser.add_argument("--force-comp-max",default=1000,type=float,help="Provde this value to override the value of component mass in CIP provided")
 parser.add_argument("--force-comp-min",default=1,type=float,help="Provde this value to override the value of component mass in CIP provided")
 parser.add_argument("--allow-subsolar", action='store_true', help="Override limits which otherwise prevent subsolar mass PE")
@@ -287,6 +288,8 @@ parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Pr
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
+parser.add_argument("--first-iteration-jumpstart",action='store_true',help="No ILE jobs the first iteration.  Assumes you already have .composite files and want to get going. Particularly helpful for subdag systems")
+parser.add_argument("--use-mtot-coords",action='store_true',help="Passed to the helper to configure CIP and PUFF for mtot instead of mc.")
 opts=  parser.parse_args()
 
 
@@ -562,6 +565,10 @@ if not(opts.use_ini is None):
     # default value for eccentricity is 0 for 'P'!  Only change this value from default if eccentricity is present, do NOT want to fill it with None in particular
     if not(event_dict['eccentricity'] is None):   
         P.eccentricity = event_dict["eccentricity"]
+    # same for the hyperbolic params
+    if not(event_dict['E0'] is None):
+        P.E0 = event_dict['E0']
+        P.p_phi0 = event_dict["p_phi0"]
     # Write 'target_params.xml.gz' file
     lalsimutils.ChooseWaveformParams_array_to_xml([P], "target_params")
 
@@ -680,6 +687,8 @@ elif opts.scale_mc_range:
     cmd += " --scale-mc-range  " + str(opts.scale_mc_range).replace(' ','')
 if not(opts.force_eta_range is None):
     cmd+= " --force-eta-range  " + str(opts.force_eta_range).replace(' ','')
+if not(opts.force_mtot_range is None):
+    cmd+= " --force-mtot-range  " + str(opts.force_mtot_range).replace(' ','')
 if opts.allow_subsolar:
     cmd += " --allow-subsolar "
 if opts.force_chi_max:
@@ -1076,7 +1085,10 @@ for indx in np.arange(len(instructions_cip)):
             line += " --ecc-min {}  ".format(ecc_min)
     if opts.assume_hyperbolic:
         if not(opts.internal_use_aligned_phase_coordinates):
-            line = line.replace('parameter mc', 'parameter mc --parameter E0 --parameter p_phi0 --use-hyperbolic')
+            if not(opts.use_mtot_coords):
+                line = line.replace('parameter mc', 'parameter mc --parameter E0 --parameter p_phi0 --use-hyperbolic')
+            else:
+                line = line.replace('parameter mtot', 'parameter mtot --parameter E0 --parameter p_phi0 --use-hyperbolic')
         else:
             line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter E0 --parameter p_phi0 --use-hyperbolic')
         if not(opts.force_E0_max is None):
@@ -1281,6 +1293,8 @@ if opts.distance_reweighting:
     cmd += " --comov-distance-reweighting --comov-distance-reweighting-exe `which make_uni_comov_skymap.py` --convert-ascii2h5-exe `which convert_output_format_ascii2h5.py` "
 if opts.use_gauss_early:
     cmd += " --cip-exe-G `which util_ConstructIntrinsicPosterior_GaussianResampling.py ` "
+if opts.first_iteration_jumpstart:
+    cmd += " --first-iteration-jumpstart "
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
     cmd += " --cip-exe `which util_AMRGrid.py ` "
