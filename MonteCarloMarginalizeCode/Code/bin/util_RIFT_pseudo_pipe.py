@@ -689,6 +689,8 @@ if not(opts.force_eta_range is None):
     cmd+= " --force-eta-range  " + str(opts.force_eta_range).replace(' ','')
 if not(opts.force_mtot_range is None):
     cmd+= " --force-mtot-range  " + str(opts.force_mtot_range).replace(' ','')
+if opts.use_mtot_coords:
+    cmd+= " --use-mtot-coords "
 if opts.allow_subsolar:
     cmd += " --allow-subsolar "
 if opts.force_chi_max:
@@ -1088,7 +1090,7 @@ for indx in np.arange(len(instructions_cip)):
             if not(opts.use_mtot_coords):
                 line = line.replace('parameter mc', 'parameter mc --parameter E0 --parameter p_phi0 --use-hyperbolic')
             else:
-                line = line.replace('parameter mtot', 'parameter mtot --parameter E0 --parameter p_phi0 --use-hyperbolic')
+                line = line.replace('parameter mc', 'parameter mtot --parameter E0 --parameter p_phi0 --use-hyperbolic')
         else:
             line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter E0 --parameter p_phi0 --use-hyperbolic')
         if not(opts.force_E0_max is None):
