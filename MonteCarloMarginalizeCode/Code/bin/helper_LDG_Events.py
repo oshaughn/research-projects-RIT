@@ -980,6 +980,8 @@ if use_ini:
     if 'q-max'  in engine_dict:
         q_max = float(engine_dict['q-max'])
         eta_max = q_max/(1.+q_max)**2
+        if eta_max >=0.25:
+            eta_max = 0.24999999  # rounding/finite-precision issues may cause nan problems 
     if 'ecc_min' in engine_dict:
         ecc_range_str = "  ["+str(engine_dict['ecc_min'])+","+str(engine_dict['ecc_max'])+"]"
         
