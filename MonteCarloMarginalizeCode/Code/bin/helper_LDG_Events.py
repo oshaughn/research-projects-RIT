@@ -1435,10 +1435,7 @@ if opts.propose_fit_strategy:
     lnLoffset_late = 15 # default
     helper_cip_args += ' --no-plots --fit-method {}  '.format(fit_method)
     if not opts.internal_use_aligned_phase_coordinates:
-        if not(opts.use_mtot_coords):
-            helper_cip_args += '   --parameter mc --parameter delta_mc '
-        else:
-            helper_cip_args += '   --parameter mtot --parameter delta_mc '
+        helper_cip_args += '   --parameter mc --parameter delta_mc '
     else:
         helper_cip_args += " --parameter-implied mu1 --parameter-implied mu2 --parameter-nofit mc --parameter delta_mc "  
     if 'gp' in fit_method:
