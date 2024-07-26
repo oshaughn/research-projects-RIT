@@ -118,6 +118,7 @@ parser.add_argument("--use-noise",action='store_true',help="Combine clean signal
 parser.add_argument("--bypass-frames",action='store_true',help="Skip making mdc and frame files, use with caution")
 parser.add_argument("--just-frames",action='store_true',help="Stop after making frame files, use with caution")
 parser.add_argument("--use-hyperbolic",action='store_true',help="Adds hyperbolic options, requires TEOBResumS approx. NOTE: development still in progress.")
+parser.add_argument("--alternate-start",action='store_true',help="Currently just passses first-iteration-jumpstart to start from CIP")
 opts =  parser.parse_args()
 
 config = configparser.ConfigParser(allow_no_value=True) #SafeConfigParser deprecated from py3.2
@@ -393,6 +394,13 @@ if opts.use_osg:
 if opts.use_hyperbolic:
     print('Adding hyperbolic options')
     cmd += ' --assume-hyperbolic '
+    
+if opts.alternate_start:
+    # ensure there is first iteration jumpstart
+    if config.getboolean('rift-pseudo-pipe', 'first-iteration-jumpstart'):
+        pass
+    else:
+        cmd += ' --first-iteration-jumpstart '
 
     
 os.system(cmd)   
@@ -433,10 +441,37 @@ if dist_marg:
         shutil.copy2('distance_marginalization_lookup.npz', working_dir_full)
     
 
-    
-# change name of dag
+# edit dag file + change name of dag
 os.chdir(working_dir_full+"/"+rundir)
+if opts.alternate_start:
+    with open('marginalize_intrinsic_parameters_BasicIterationWorkflow.dag', 'r') as file:
+        lines = file.readlines()
+        
+    # remove first 6 lines
+    lines = lines[6:]
+    
+    # Find the start of the parent/child section
+    parent_child_start = None
+    for i, line in enumerate(lines):
+        if line.startswith('PARENT'):
+            parent_child_start = i
+            break
+    
+    if parent_child_start is not None:
+        # Remove the first 2 lines in the parent/child section
+        lines = lines[:parent_child_start] + lines[parent_child_start+2:]
+
+    # Write the modified lines back to the file
+    with open('marginalize_intrinsic_parameters_BasicIterationWorkflow.dag', 'w') as file:
+        file.writelines(lines)
+
+
 os.rename('marginalize_intrinsic_parameters_BasicIterationWorkflow.dag', working_dir + '.dag')
+
+# For alternate start, copy over all.net file
+if opts.alternate_start:
+    net_file = os.path.join(working_dir_full, 'analysis_0/all.net')
+    shutil.copy2(net_file, working_dir_full+"/"+rundir+"/all.net")
 
 
 ## Update ILE requirements to avoid bad hosts ##
@@ -455,8 +490,11 @@ avoid_string = "&&".join(excluded_hosts)
 # List of file paths to modify
 file_paths = ["ILE.sub","ILE_puff.sub","iteration_4_cip/ILE.sub","iteration_4_cip/ILE_puff.sub"]
     
-if opts.use_hyperbolic:
-    file_paths = ["ILE.sub","ILE_puff.sub","iteration_2_cip/ILE.sub","iteration_2_cip/ILE_puff.sub"]
+if opts.use_hyperbolic:    
+    if config.getboolean('rift-pseudo-pipe', 'internal-use-aligned-phase-coordinates'):  
+        file_paths = ["ILE.sub","ILE_puff.sub","iteration_2_cip/ILE.sub","iteration_2_cip/ILE_puff.sub"]
+    else:
+        file_paths = ["ILE.sub","ILE_puff.sub","iteration_3_cip/ILE.sub","iteration_3_cip/ILE_puff.sub"]
     
 if opts.add_extrinsic:
     file_paths.append("ILE_extr.sub")
@@ -518,8 +556,14 @@ if opts.use_hyperbolic and opts.use_osg:
     print('Modifying submit files for hyperbolics in the IGWN pool')
     
     # need to edit all ILE and CIP submit files
-    ILE_file_paths = ["ILE.sub","ILE_puff.sub","iteration_2_cip/ILE.sub","iteration_2_cip/ILE_puff.sub"]
-    CIP_file_paths = ["CIP.sub", "CIP_worker.sub", "CIP_0.sub", "CIP_worker0.sub", "CIP_1.sub", "CIP_worker1.sub", "CIP_2.sub", "CIP_worker2.sub", "iteration_2_cip/CIP.sub", "iteration_2_cip/CIP_worker.sub"]
+    if config.getboolean('rift-pseudo-pipe', 'internal-use-aligned-phase-coordinates'):
+        ILE_file_paths = ["ILE.sub","ILE_puff.sub","iteration_2_cip/ILE.sub","iteration_2_cip/ILE_puff.sub"]
+        CIP_file_paths = ["CIP.sub", "CIP_worker.sub", "CIP_0.sub", "CIP_worker0.sub", "CIP_1.sub", "CIP_worker1.sub", "CIP_2.sub", "CIP_worker2.sub", "iteration_2_cip/CIP.sub", "iteration_2_cip/CIP_worker.sub"]
+        PUFF_file_paths = ["PUFF.sub", "iteration_2_cip/PUFF.sub"]
+    else:
+        ILE_file_paths = ["ILE.sub","ILE_puff.sub","iteration_3_cip/ILE.sub","iteration_3_cip/ILE_puff.sub"]
+        CIP_file_paths = ["CIP.sub", "CIP_worker.sub", "CIP_0.sub", "CIP_worker0.sub", "CIP_1.sub", "CIP_worker1.sub", "CIP_2.sub", "CIP_worker2.sub", "iteration_3_cip/CIP.sub", "iteration_3_cip/CIP_worker.sub"]
+        PUFF_file_paths = ["PUFF.sub", "iteration_3_cip/PUFF.sub"]
     
 
     if opts.add_extrinsic:
@@ -534,7 +578,7 @@ if opts.use_hyperbolic and opts.use_osg:
         #current_singularity_image = 'rift_o4b_jl-chadhenshaw-teobresums_eccentric-2024-05-14_12-02-56.sif'
         #sif_path = 'osdf:///igwn/cit/staging/james.clark/' + current_singularity_image
         
-        current_singularity_image = 'rift_o4b_jl-2024-05-29_09-54-05.sif'
+        current_singularity_image = 'rift_o4b_jl-2024-07-16_12-21-57.sif'
         sif_path = 'osdf:///igwn/cit/staging/chad.henshaw/' + current_singularity_image
         
         with open(input_file, 'r') as file:
@@ -583,6 +627,50 @@ if opts.use_hyperbolic and opts.use_osg:
             
         return
     
+    def modify_CIP_coords(input_file, mtot_range):
+        with open(input_file, 'r') as file:
+            lines = file.readlines()
+
+        # Format the new mtot_range string
+        mtot_range_str = f"[{mtot_range[0]}, {mtot_range[1]}]"
+
+        for i, line in enumerate(lines):
+            if line.startswith("arguments ="):
+                # Replace --parameter mc with --parameter mtot
+                line = line.replace('--parameter mc', '--parameter mtot')
+                # Use regular expression to find and replace the --mc-range argument
+                line = re.sub(r'--mc-range\s*\'\[.*?\]\'', f"--mtot-range '{mtot_range_str}'", line)
+                lines[i] = line
+
+        with open(input_file, 'w') as file:
+            file.writelines(lines)
+    
+        return
+    
+    def modify_puff_coords(input_file):
+        with open(input_file, 'r') as file:
+            lines = file.readlines()
+        
+        for i, line in enumerate(lines):
+            if line.startswith("arguments ="):
+                # Replace --parameter mc with --parameter mtot
+                line = line.replace('--parameter mc', '--parameter mtot')
+                
+                lines[i] = line
+        with open(input_file, 'w') as file:
+            file.writelines(lines)
+    
+        return
     
     for submit_file in total_file_paths:
         modify_submit_file(submit_file)
+        
+    if opts.alternate_start:
+        # calculate mtotal range
+        mtot_inj = float(config.get('injection-parameters','m1')) + float(config.get('injection-parameters','m2'))
+        mtot_range = [0.5*mtot_inj, 1.5*mtot_inj]
+        for submit_file in CIP_file_paths:
+            modify_CIP_coords(submit_file, mtot_range)
+            
+        for submit_file in PUFF_file_paths:
+            modify_puff_coords(submit_file)
