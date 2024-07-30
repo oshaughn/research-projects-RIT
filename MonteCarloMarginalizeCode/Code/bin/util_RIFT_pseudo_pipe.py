@@ -274,13 +274,15 @@ parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_f
 
 # LISA ILE
 parser.add_argument("--LISA", action="store_true", help="Let ILE know that a LISA signal is being analyzed, causing the ILE script to use analyze_event_lisa function instead of analyze_event.")
+parser.add_argument("--lisa-reference-frequency", default=None, help="Reference frequency of a LISA signal. Passed downstream to ILE and is used in computing LISA response. If none, then code sets f**2 A(f) frequency as fref. ")
 parser.add_argument("--lisa-reference-time", default=0.0, help="Reference time of a LISA signal, defined at lisa-reference-frequency. Passed downstream to ILE and is used in computing LISA response + time shift in precomputation. ")
 parser.add_argument("--modes", default=None, help="List of modes to be used in recovery waveforms, supersedes lmax (only works for LISA analysis so far due to difference waveform functions). --modes '[(2,2),(3,3)]'")
 parser.add_argument("--h5-frame-FD", default=False, action="store_true", help="Let the code know that the frames are in h5 format (and in frequency domain) and not in gwf, the information is passed down to ILE scripts")
 parser.add_argument("--h5-frame", default=False, action="store_true", help="Let the code know that the frames are in h5 format and not in gwf, the information is passed down to ILE scripts")
 parser.add_argument("--data-integration-window-half", default=None, help="For longer signal srate might be such the integration range is smaller than deltaT, so need to redefine it. By default it takes a value of 300 ms")
-parser.add_argument("--right-ascension", default=None)
-parser.add_argument("--declination", default=None)
+parser.add_argument("--lisa-fixed-sky", default=False, help="Set true if you want to fix the skylocation")
+parser.add_argument("--ecliptic-longitude", default=None)
+parser.add_argument("--ecliptic-latitude", default=None)
 # LISA CIP
 parser.add_argument("--downselect-parameter-range", default="[1,1000]", help="m2 downselect parameter range, default being [1,1000] in CIP.") 
 parser.add_argument("--M-max-cut", default=None, help="Mtotal max cut for CIP, by default CIP takes a value of 1e5")
@@ -832,7 +834,8 @@ line += " --l-max " + str(opts.l_max)
 # LISA ILE
 if opts.LISA:
     line += " --LISA "
-    line += "--lisa-reference-time {} ".format(opts.lisa_reference_time) 
+    line += "--lisa-reference-time {} ".format(opts.lisa_reference_time)
+    line += "--lisa-reference-frequency {} ".format(opts.lisa_reference_frequency)
     if opts.h5_frame_FD:
         line += "--h5-frame-FD "
     if opts.h5_frame:
@@ -842,8 +845,8 @@ if opts.LISA:
         line += "--modes {} ".format(opts.modes)
     # Hacky solution
     line +=" --channel-name E=FAKE-STRAIN  --channel-name T=FAKE-STRAIN "
-    if opts.right_ascension and opts.declination:
-        line +=" --right-ascension {} --declination {} ".format(opts.right_ascension, opts.declination)
+    if opts.lisa_fixed_sky:
+        line +=" --ecliptic-latitude {} --ecliptic-longitude {} ".format(opts.ecliptic_latitude, opts.ecliptic_longitude)
         
 if 'data-start-time' in line and 's1z' in event_dict and not(opts.LISA):  # only call this if we have (a) fixed time interval and (b) CBC parameters for event
     # Print warnings based on duration and fmin
@@ -1005,7 +1008,8 @@ for indx in np.arange(len(instructions_cip)):
     n_eff_expected_max_easy = 1e-2 * n_max_cip
     n_eff_expected_max_hard = 1e-7 * n_max_cip
     print( " cip iteration group {} : n_eff likely will be between {} and {}, you are asking for at least {} and targeting {}".format(indx,n_eff_expected_max_easy, n_eff_expected_max_hard, n_sample_min_per_worker,n_eff_cip_here))
-
+    if opts.LISA:
+        line +=" --LISA"
     line +=" --n-output-samples {}  --n-eff {} --n-max {}  --fail-unless-n-eff {}  ".format(int(n_sample_target/n_workers), n_eff_cip_here, n_max_cip,n_sample_min_per_worker)
     if 'downselect-parameter-range' in config['engine']:
         opts.downselect_parameter_range = str(config['engine']['downselect-parameter-range']).replace('"','')
@@ -1105,6 +1109,8 @@ for indx in np.arange(len(instructions_cip)):
 
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
+    if not(opts.lisa_fixed_sky): # fit and sample over sky location
+        line += " --parameter lambda --paramater beta "
     if opts.assume_eccentric:
         if not(opts.internal_use_aligned_phase_coordinates):
             line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
