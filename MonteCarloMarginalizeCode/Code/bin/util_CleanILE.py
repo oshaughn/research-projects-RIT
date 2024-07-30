@@ -31,6 +31,7 @@ parser.add_argument("fname",action='append',nargs='+')
 parser.add_argument("--eccentricity", action="store_true")
 #Askold: adding specification for tabular eos file
 parser.add_argument("--tabular-eos-file", action="store_true") 
+parser.add_argument("--LISA", default=True)
 opts = parser.parse_args()
 
 #print opts.fname
@@ -54,6 +55,9 @@ for fname in opts.fname[0]: #sys.argv[1:]:
         if opts.eccentricity:
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,ecc, lnL, sigmaOverL, ntot, neff = line
             col_intrinsic = 10
+        elif opts.LISA:
+            indx, m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, ra, dec, lnL, sigmaOverL, ntot, neff = line
+            col_intrinsic=11
         elif len(line) == 13 and (not tides_on) and (not distance_on):  # strip lines with the wrong length
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,lnL, sigmaOverL, ntot, neff = line
         elif  len(line) == 14:
@@ -94,6 +98,8 @@ for key in data_at_intrinsic:
 
     if opts.eccentricity:
         print(-1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
+    elif opts.LISA:
+        print(-1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], key[9], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
     elif tides_on:
         print(-1,  key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8],key[9], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
     elif distance_on:
