@@ -441,8 +441,8 @@ class ChooseWaveformParams:
         self.dist = dist
         self.incl = incl
         self.phiref = phiref
-        self.theta = theta     # DEC.  DEC =0 on the equator; the south pole has DEC = - pi/2. Also, Lambda (Ecliptic longitude for LISA)
-        self.phi = phi         # RA.   Also, beta (Ecliptic latitude for LISA)
+        self.theta = theta     # DEC.  DEC =0 on the equator; the south pole has DEC = - pi/2. Also, beta (Ecliptic latitude for LISA)
+        self.phi = phi         # RA.   Also, lambda (Ecliptic longitude for LISA)
         self.psi = psi
         self.meanPerAno = 0.0  # port 
         self.longAscNodes = self.psi # port to master
@@ -628,6 +628,16 @@ class ChooseWaveformParams:
             self.s2x = chi2_perp_new*np.cos(phi2)
             self.s2y = chi2_perp_new*np.sin(phi2)
             return self
+        # LISA sky co-ordinates
+        if p == 'lambda':
+            self.phi = val
+            return self
+        if p == 'beta':
+            self.theta = val
+            return self
+        if  p == 'cos_beta':
+            self.assign_param('beta',np.arccos(val))
+            return self
         if p == 'lambda_plus':
             # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
             # Fixes chiz_minus by construction
@@ -729,7 +739,7 @@ class ChooseWaveformParams:
             self.init_via_system_frame(thetaJN=thetaJN,phiJL=phiJL,theta1=theta1,theta2=val,phi12=phi12,chi1=chi1,chi2=chi2,psiJ=psiJ)
             return self
         if p == 'theta2':
-            # Do it MANUALLY, assuming the L frame! 
+            # o it MANUALLY, assuming the L frame! 
             # Implementation avoids calling 'system_frame' transformations needlessly
             chiperp_vec_now = np.array([self.s2x,self.s2y])
             chiperp_now = np.sqrt(np.dot(chiperp_vec_now,chiperp_vec_now))
@@ -1000,6 +1010,13 @@ class ChooseWaveformParams:
             return self.m2/self.m1  
         if p == 'chi2z_mu':
             return self.s2z
+        # LISA skylocation parameters
+        if p == 'beta':
+            return self.theta
+        if p == 'lambda':
+            return self.phi
+        if p == 'cos_beta':
+            return np.cos(self.extract_param('beta'))
         if p == 'lambda_plus':
             # Designed to give the benefits of sampling in chi_eff, without introducing a transformation/prior that depends on mass
             return (self.lambda1+self.lambda2)/2.
@@ -5311,6 +5328,13 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             indx_p_in = low_level_coord_names.index(p)
             coord_names_reduced.remove(p)
             x_out[:,indx_p_out] = x_in[:,indx_p_in]
+
+    # LISA sky co-ordinates, beta if being sampled in cos
+    if 'cos_beta' in  coord_names_reduced and 'beta' in low_level_coord_names:
+        indx_p_out = coord_names.index('beta')
+        indx_cos_beta = low_level_coord_names.index('cos_beta')
+        x_out[:,indx_p_out] = np.arcos(x_in[:,indx_cos_beta])
+        coord_names_reduced.remove('beta')
 
     if 'delta_mc' in coord_names_reduced and 'eta' in low_level_coord_names:
         indx_p_out = coord_names.index('delta_mc')
