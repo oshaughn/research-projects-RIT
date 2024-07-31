@@ -1110,7 +1110,7 @@ for indx in np.arange(len(instructions_cip)):
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
     if not(opts.lisa_fixed_sky): # fit and sample over sky location
-        line += " --parameter lambda --paramater beta "
+        line += " --parameter lambda --parameter beta "
     if opts.assume_eccentric:
         if not(opts.internal_use_aligned_phase_coordinates):
             line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
