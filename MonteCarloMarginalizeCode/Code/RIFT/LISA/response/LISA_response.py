@@ -284,7 +284,7 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=True):#tested
         # get amplitude and phase
         amp, phase = get_amplitude_phase(hlm[mode])
         # compute tf = -1/(2pi) * d(phase)/df
-        dphi = np.unwrap(np.diff(phase)) # alaways monotonicall decreasing
+        dphi = np.unwrap(np.diff(phase)) 
         time = np.divide(-dphi, (2.*np.pi*np.diff(freq)))
         # diff reduces len by 1 so artifically increasing it by adding an extra zero at the end
         tmp = np.zeros(len(time)+1)
