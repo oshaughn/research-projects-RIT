@@ -283,6 +283,7 @@ parser.add_argument("--data-integration-window-half", default=None, help="For lo
 parser.add_argument("--lisa-fixed-sky", default=False, help="Set true if you want to fix the skylocation")
 parser.add_argument("--ecliptic-longitude", default=None)
 parser.add_argument("--ecliptic-latitude", default=None)
+parser.add_argument("--puff-search-hypercube", default=False, help="Allow puff to search uniform in a hypercube of lnLcut 15")
 # LISA CIP
 parser.add_argument("--downselect-parameter-range", default="[1,1000]", help="m2 downselect parameter range, default being [1,1000] in CIP.") 
 parser.add_argument("--M-max-cut", default=None, help="Mtotal max cut for CIP, by default CIP takes a value of 1e5")
@@ -1225,6 +1226,17 @@ with open("args_puff.txt",'w') as f:
                 puff_args+= " --enforce-duration-bound " +str(opts.data_LI_seglen)
         if opts.internal_use_force_away:
             puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away')," --force-away {} ".format(str(opts.internal_use_force_away)))
+        if not(opts.lisa_fixed_sky):
+            print(opts.puff_search_hypercube)
+            tmp_line = "--parameter lambda --parameter beta "
+            if opts.puff_search_hypercube:
+                tmp_line += f"--composite-file {os.getcwd()}/all.net --search-hypercube True "
+            if not(opts.manual_extra_puff_args is None):
+                opts.manual_extra_puff_args += tmp_line
+            else:
+                opts.manual_extra_puff_args = tmp_line
+
+        
         if not(opts.manual_extra_puff_args is None):
             puff_args += " {} ".format(opts.manual_extra_puff_args)  # embed with space on each side, avoid collisions
         f.write("X " + puff_args)
