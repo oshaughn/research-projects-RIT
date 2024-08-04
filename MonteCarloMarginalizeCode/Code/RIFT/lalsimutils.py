@@ -333,43 +333,43 @@ def lsu_StringFromPNOrder(order):
 valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','mu1','mu2','eos_table_index']
 
 tex_dictionary  = {
- "mtot": '$M$',
- "mc": '${\cal M}_c$',
- "mc_ecc": '${\cal M}_{\rm c,ecc}$',
+ "mtot": r'$M$',
+ "mc": r'${\cal M}_c$',
+ "mc_ecc": r'${\cal M}_{\rm c,ecc}$',
  "m1": '$m_1$',
  "m2": '$m_2$',
  "m1_source": r'$m_{1,source}$',
  "m2_source": r'$m_{2,source}$',
  "mtotal_source": r'$M_{source}$',
   "q": "$q$",
-  "delta" : "$\delta$",
-  "delta_mc" : "$\delta$",
-  "beta" : "$\beta$",
-  "cos_beta" : "$\cos(\\beta)$",
-  "sin_beta" : "$\sin(\\beta)$",
-  "sin_phiJL" : "$\sin(\\phi_{JL})$",
-  "cos_phiJL" : "$\cos(\\phi_{JL})$",
-  "phi12" : "$\phi_{12}$",
-  "DeltaOverM2_perp" : "$\Delta_\perp$",
-  "DeltaOverM2_L" : "$\Delta_{||}$",
-  "SOverM2_perp" : "$S_\perp$",
-  "SOverM2_L" : "$S_{||}$",
-  "eta": "$\eta$",
-  "chi_eff": "$\chi_{eff}$",
-  "xi": "$\chi_{eff}$",
-  "chi_p": "$\chi_{p}$",
-   "chiMinus":"$\chi_{eff,-}$",
-  "chiz_plus":"$\chi_{z,+}$",
-  "chiz_minus":"$\chi_{z,-}$",
+  "delta" : r"$\delta$",
+  "delta_mc" : r"$\delta$",
+  "beta" : r"$\beta$",
+  "cos_beta" : r"$\cos(\\beta)$",
+  "sin_beta" : r"$\sin(\\beta)$",
+  "sin_phiJL" : r"$\sin(\\phi_{JL})$",
+  "cos_phiJL" : r"$\cos(\\phi_{JL})$",
+  "phi12" : r"$\phi_{12}$",
+  "DeltaOverM2_perp" : r"$\Delta_\perp$",
+  "DeltaOverM2_L" : r"$\Delta_{||}$",
+  "SOverM2_perp" : r"$S_\perp$",
+  "SOverM2_L" : r"$S_{||}$",
+  "eta": r"$\eta$",
+  "chi_eff": r"$\chi_{eff}$",
+  "xi": r"$\chi_{eff}$",
+  "chi_p": r"$\chi_{p}$",
+   "chiMinus":r"$\chi_{eff,-}$",
+  "chiz_plus":r"$\chi_{z,+}$",
+  "chiz_minus":r"$\chi_{z,-}$",
   "chi_pavg":r"$\langle\chi_{p}\rangle$", 
-  "lambda_plus":"$\lambda_{+}$",
-  "lambda_minus":"$\lambda_{-}$",
-  "s1z": "$\chi_{1,z}$",
-  "s2z": "$\chi_{2,z}$",
-  "s1x": "$\chi_{1,x}$",
-  "s2x": "$\chi_{2,x}$",
-  "s1y": "$\chi_{1,y}$",
-  "s2y": "$\chi_{2,y}$",
+  "lambda_plus":r"$\lambda_{+}$",
+  "lambda_minus":r"$\lambda_{-}$",
+  "s1z": r"$\chi_{1,z}$",
+  "s2z": r"$\chi_{2,z}$",
+  "s1x": r"$\chi_{1,x}$",
+  "s2x": r"$\chi_{2,x}$",
+  "s1y": r"$\chi_{1,y}$",
+  "s2y": r"$\chi_{2,y}$",
   "eccentricity":"$e$",
   # tex labels for inherited LI names
  "a1z": r'$\chi_{1,z}$',
@@ -379,12 +379,12 @@ tex_dictionary  = {
  "theta2":r"$\theta_2$",
  "phi1":r"$\phi_1$",
  "phi2":r"$\phi_2$",
- "cos_theta1":"$\cos \\theta_1$",
- "cos_theta2":"$\cos \\theta_2$",
- "chi1_perp": "$\chi_{1,\perp}$",
- "chi2_perp": "$\chi_{2,\perp}$",
-  'chi1':'$|\chi_1|$',
-  'chi2':'$|\chi_2|$',
+ "cos_theta1":r"$\cos \\theta_1$",
+ "cos_theta2":r"$\cos \\theta_2$",
+ "chi1_perp": r"$\chi_{1,\perp}$",
+ "chi2_perp": r"$\chi_{2,\perp}$",
+  'chi1':r'$|\chi_1|$',
+  'chi2':r'$|\chi_2|$',
   'lambda1':r'$\lambda_1$',
   'lambda2':r'$\lambda_2$',
   'LambdaTilde': r'$\tilde{\Lambda}$',
@@ -2121,7 +2121,7 @@ class InnerProduct(object):
 
 
 class RealIP(InnerProduct):
-    """
+    r"""
     Real-valued inner product. self.ip(h1,h2) computes
 
              fNyq
@@ -2156,7 +2156,7 @@ class RealIP(InnerProduct):
 
 
 class HermitianComplexIP(InnerProduct):
-    """
+    r"""
     Complex-valued inner product. self.ip(h1,h2) computes
 
           fNyq
@@ -2193,7 +2193,7 @@ class HermitianComplexIP(InnerProduct):
 
 
 class ComplexIP(InnerProduct):
-    """
+    r"""
     Complex-valued inner product. self.ip(h1,h2) computes
 
           fNyq
@@ -2237,7 +2237,7 @@ class ComplexIP(InnerProduct):
         return val
 
 class Overlap(InnerProduct):
-    """
+    r"""
     Inner product maximized over time and phase. self.ip(h1,h2) computes:
 
                   fNyq
@@ -2333,7 +2333,7 @@ class Overlap(InnerProduct):
         return tShift
 
 class ComplexOverlap(InnerProduct):
-    """
+    r"""
     Inner product maximized over time and polarization angle. 
     This inner product does not assume Hermitianity and is therefore
     valid for waveforms that are complex in the TD, e.g. h+(t) + 1j hx(t).
@@ -2598,7 +2598,7 @@ try:
 except:  
     from scipy.misc import factorial2
 def lamtilde_of_eta_lam1_lam2(eta, lam1, lam2):
-    """
+    r"""
     $\tilde\Lambda(\eta, \Lambda_1, \Lambda_2)$.
     Lambda_1 is assumed to correspond to the more massive (primary) star m_1.
     Lambda_2 is for the secondary star m_2.
@@ -2606,7 +2606,7 @@ def lamtilde_of_eta_lam1_lam2(eta, lam1, lam2):
     return (8.0/13.0)*((1.0+7.0*eta-31.0*eta**2)*(lam1+lam2) + np.sqrt(1.0-4.0*eta)*(1.0+9.0*eta-11.0*eta**2)*(lam1-lam2))
     
 def deltalamtilde_of_eta_lam1_lam2(eta, lam1, lam2):
-    """
+    r"""
     This is the definition found in Les Wade's paper.
     Les has factored out the quantity \sqrt(1-4\eta). It is different from Marc Favata's paper.
     $\delta\tilde\Lambda(\eta, \Lambda_1, \Lambda_2)$.
@@ -2639,7 +2639,7 @@ def lam1_lam2_of_pe_params(eta, lamt, dlamt):
     return lam1, lam2
 
 def Yagi13_fitcoefs(ell):
-    """
+    r"""
     Coefficients of Yagi 2013 fits for multipolar
     $\bar{\lambda}_\ell = 2 k_\ell/(C^{2\ell+1} (2\ell-1)!!)$
     Tab.I (NS) http://arxiv.org/abs/1311.0872
@@ -2653,7 +2653,7 @@ def Yagi13_fitcoefs(ell):
     return c;
 
 def Yagi13_fit_barlamdel(barlam2, ell):
-    """
+    r"""
     Yagi 2013 fits for multipolar
     $\bar{\lambda}_\ell$ = 2 k_\ell/(C^{2\ell+1} (2\ell-1)!!)$
     Eq.(10),(61); Tab.I; Fig.8 http://arxiv.org/abs/1311.0872
@@ -2664,7 +2664,7 @@ def Yagi13_fit_barlamdel(barlam2, ell):
     return np.exp(lny)
 
 def barlamdel_to_kappal(q, barlaml, ell):
-    """
+    r"""
     $\kappa^{A,B}_\ell(\bar{\lambda}_\ell)$
     Assume $q=M_A/M_B>=1$
     """
@@ -3653,7 +3653,7 @@ def hlmoft_SEOBv3_dict(P,Lmax=2):
     return hlm_dict
 
 def hlmoft_SEOB_dict(P,Lmax=2):
-    """
+    r"""
     Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
     with parameters P. Returns a dictionary of modes.
     Just for SEOBNRv2 SEOBNRv1, and EOBNRv2.  Uses aligned-spin trick to get (2,2) and (2,-2) modes.
@@ -4805,7 +4805,7 @@ def evaluate_tvals(lal_tseries):
     return float(lal_tseries.epoch) +lal_tseries.deltaT*np.arange(lal_tseries.data.length)
 
 def evaluate_fvals(lal_2sided_fseries):
-    """
+    r"""
     evaluate_fvals(lal_2sided_fseries)
     Associates frequencies with a 2sided lal complex array.  Compare with 'self.longweights' code
     Done by HAND in PrecessingOrbitModesOfFrequency
