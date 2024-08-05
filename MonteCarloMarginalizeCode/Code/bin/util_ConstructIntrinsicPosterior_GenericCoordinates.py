@@ -231,6 +231,7 @@ def extract_combination_from_LI(samples_LI, p):
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--check-good-enough", action='store_true', help="If active, tests if a file 'cip_good_enough' in the current directory exists and has content of nonzero length. Terminates with 'success' if the file exists and has nonzero length ")
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
 parser.add_argument("--input-eos-index",action='store_true',help="Use input format with eos index fields included")
@@ -367,6 +368,20 @@ parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=s
 parser.add_argument("--supplementary-prior-code",default=None,type=str,help="Import external priors, assumed in scope as extra_prior.prior_dict_pdf, extra_prior.prior_range.  Currentlyonly supports seperable external priors")
 
 opts=  parser.parse_args()
+
+# good enough file: terminate always with success if present, don't try any more work
+if opts.check_good_enough:
+  fname = 'cip_good_enough'
+  import os
+  if os.path.isfile(fname):
+#    dat = np.loadtxt(fname,dtype=str)
+    if os.path.getsize(fname) > 0:
+      print(" Good enough file valid: terminating CIP")
+      sys.exit(0)
+    else:
+      print(" Good enough file ZERO LENGTH, continuing")
+
+
 if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
 ECC_MAX = opts.ecc_max
@@ -718,7 +733,7 @@ def s2z_prior(x):
 def mc_prior(x):
     return 2*x/(mc_max**2-mc_min**2)
 def unscaled_eta_prior_cdf(eta_min):
-    """
+    r"""
     cumulative for integration of x^(-6/5)(1-4x)^(-1/2) from eta_min to 1/4.
     Used to normalize the eta prior
     Derivation in mathematica:

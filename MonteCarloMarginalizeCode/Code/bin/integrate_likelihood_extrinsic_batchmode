@@ -324,8 +324,8 @@ opts, args = optp.parse_args()
 if opts.check_good_enough:
   fname = 'ile_good_enough'
   if os.path.isfile(fname):
-    dat = np.loadtxt(fname,dtype=str)
-    if len(dat) > 0:
+#    dat = np.loadtxt(fname,dtype=str)
+    if os.path.getsize(fname)  > 0:
       print(" Good enough file valid: terminating ILE")
       sys.exit(0)
     else:
