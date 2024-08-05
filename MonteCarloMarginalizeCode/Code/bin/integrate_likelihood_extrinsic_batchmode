@@ -170,6 +170,7 @@ def sampler_param_tuple(sampler,args):
 #
 
 optp = OptionParser()
+optp.add_option("--check-good-enough", action='store_true', help="If active, tests if a file 'ile_good_enough' in the current directory exists and has content of nonzero length. Terminates with 'success' if the file exists and has nonzero length ")
 optp.add_option( "--zero-likelihood", action='store_true', help="Run with exactly zero likelihood.  Prior test (e.g., alternative distance priors)")
 optp.add_option("-c", "--cache-file", default=None, help="LIGO cache file containing all data needed.")
 optp.add_option("-C", "--channel-name", action="append", help="instrument=channel-name, e.g. H1=FAKE-STRAIN. Can be given multiple times for different instruments.")
@@ -308,8 +309,6 @@ intrinsic_int_params.add_option("--parameter-range",action='append',type=str)
 intrinsic_int_params.add_option("--adapt-intrinsic",action='store_true')
 optp.add_option_group(intrinsic_int_params)
 
-
-
 #
 # Add the pinnable parameters
 #
@@ -320,6 +319,19 @@ for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
 optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
+
+# good enough file: terminate always with success if present, don't try any more work
+if opts.check_good_enough:
+  fname = 'ile_good_enough'
+  if os.path.isfile(fname):
+    dat = np.loadtxt(fname,dtype=str)
+    if len(dat) > 0:
+      print(" Good enough file valid: terminating ILE")
+      sys.exit(0)
+    else:
+      print(" Good enough file ZERO LENGTH, continuing")
+
+
 
 #
 # Failure modes
