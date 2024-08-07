@@ -1,9 +1,12 @@
+#!/usr/bin/env python
+
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 from scipy import interpolate
 from argparse import ArgumentParser
 
+###########################################################################################
 parser = ArgumentParser()
 parser.add_argument("--NC", default=3, type=int, help="Number of channels.")
 parser.add_argument("--Tobs", default=0.5, type=float,  help="Observation time in years.")
@@ -13,7 +16,9 @@ opts=parser.parse_args()
 
 print(f"Argument parser has the following arguments:\n{vars(opts)}")
 
+###########################################################################################
 # CONSTANTS
+###########################################################################################
 fm     = 3.168753575e-8   # confirm this
 YRSID_SI = 31558149.763545603 # year in seconds
 C_SI = 299792458.      # speed of light (m/s)
@@ -24,8 +29,10 @@ fstar = C_SI/(2*np.pi*Larm)
 
 path_to_file=os.path.dirname(__file__)
 
+###########################################################################################
 # FUNCTIONS
 # These function were taken from LISA.py of LISA sensitivty (https://github.com/eXtremeGravityInstitute/LISA_Sensitivity)
+###########################################################################################
 def Pn(f):
     """
     Caclulate the Strain Power Spectral Density
@@ -104,7 +111,9 @@ def Sn(f, Tobs = 0.5, NC = 3, R_exists=False, interp_func=None):
 
     return Sn
 
-
+###########################################################################################
+# Generate PSD and save it
+###########################################################################################
 NC = opts.NC # number of channels
 Tobs = opts.Tobs*YRSID_SI # years
 
