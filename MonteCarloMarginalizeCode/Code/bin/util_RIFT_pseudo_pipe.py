@@ -641,7 +641,7 @@ if opts.internal_cip_use_lnL:
     cmd += " --internal-cip-use-lnL "
 if opts.internal_ile_data_tukey_window_time:
     cmd += " --data-tukey-window-time {} ".format(opts.internal_ile_data_tukey_window_time)
-if not(opts.internal_ile_psd_uncommon_window_time):
+if not(opts.internal_ile_psd_uncommon_window):
     cmd += " --psd-assume-common-window "
 if not(opts.ile_n_eff is None):
     cmd += " --ile-n-eff {} ".format(opts.ile_n_eff)
