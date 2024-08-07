@@ -1245,7 +1245,7 @@ with open("args_puff.txt",'w') as f:
 #    * if ini file, use it
 #    * PSD files: will need to convert from XML.  Will need wrapper to generate this (not raw pesummary call).. Not now.
 if opts.archive_pesummary_label:
-    os.mkdir("pesummary")
+    os.mkdir("pesummary"+ opts.archive_pesummary_event_label)
     rundir = base_dir+"/"+dirname_run
     if opts.add_extrinsic:
         samplestr = " --samples " + rundir +"/extrinsic_posterior_samples.dat "
