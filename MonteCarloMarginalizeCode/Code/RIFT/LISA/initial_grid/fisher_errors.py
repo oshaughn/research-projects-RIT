@@ -1,0 +1,172 @@
+#!/usr/bin/env python
+
+# The purpose of this code is to give rough estimates of the span of posteriors for Mc, eta, spin and skylocation for initial grid generation.
+
+import numpy as np
+import matplotlib.pyplot as plt
+import sys
+import RIFT.lalsimutils as lsu
+from RIFT.LISA.response.LISA_response import *
+import lal
+from scipy.interpolate import interp1d
+
+psd_path_lisa = "/home/aasim.jan/venv-lisa-o4c/lib/python3.10/site-packages/research-projects-RIT/MonteCarloMarginalizeCode/Code/RIFT/LISA/psd_generation"
+
+
+## Functions for 2-PN waveforms from http://arxiv.org/abs/gr-qc/9502040 ##
+def amplitude_2PN(fvals, Mc):
+    """Returns amplitude in frequency domains for a 2-PN waveform"""
+    print(f"amplitude_2PN: {locals()}")
+    return 1 * Mc**(5/6) * fvals**(-7/6)
+
+def phase_2PN(Mc, eta, fvals, sigma, beta, coa_phase=0, coa_time=0):
+    """Returns phase in frequency domains for a 2-PN waveform"""
+    print(f"phase_2PN: {locals()}")
+    M = Mc/eta**(3/5)
+    fac = np.pi*M*fvals
+    newtonian = 3/128 * (np.pi*Mc*fvals)**(-5/3)
+    one_PN = 20/9 * (743/336 + 11/4* eta)*(fac)**(2/3)
+    one_five_PN = 4 * (4*np.pi - beta)*fac
+    two_PN = 10*(3058673/1016064 + 5429/1008*eta + 617/144*eta**2 - sigma)*(fac)**(4/3)
+    phase_vals = 2*np.pi*fvals*coa_time - coa_phase - np.pi/4 + newtonian * (1 + one_PN  - one_five_PN + two_PN)
+    return phase_vals
+
+def time_2PN( Mc, eta, fvals, sigma=0, beta=0, coa_time=0):
+    """Returns time corresponding to input frequency for a 2-PN waveform"""
+    M = Mc/eta**(3/5)
+    fac = np.pi*M*fvals
+    time_vals = coa_time - 5/256* Mc*(np.pi*Mc*fvals)**(-8/3) * (1 + 4/3 * (743/336 + 11/4 * eta)*(fac)**(2/3) - 8/5 *(4*np.pi - beta)*fac + 2*(3058673/1016064 + 5429/1008 * eta + 617/144*eta**2 - sigma)*(fac)**(4/3))
+    return time_vals
+
+def get_sigma_beta(Mc, eta, a1z, a2z):
+    """Returns sigma and beta parameters that are used in construction of the waveform. These parameters contain information about spin."""
+    alpha = Mc / eta**(3/5)
+    beta = Mc**2 / eta**(1/5)
+    m1 = 0.5 * (alpha + np.sqrt(alpha**2 - 4*beta))
+    m2 = 0.5 * (alpha - np.sqrt(alpha**2 - 4*beta))
+    M = m1 + m2
+    sigma_val = eta/48 * (-247 * a1z*a1z + 721 * a1z*a2z)
+    beta_val = 1/12 * ((113 * (m1/M)**2 + 75 * eta)*a1z + (113 * (m2/M)**2 + 75 * eta)*a2z )
+    return sigma_val, beta_val
+
+def get_derivative(Mc, eta, sigma, beta, fvals, wf):
+    """Derivates of the waveform with respect to coalescence time, coalescence phase, Mc, eta, sigma, beta"""
+    print(f"get_derivative: {locals()}")
+    M = Mc/eta**(3/5)
+    v = (np.pi*M*fvals)**(1/3)
+
+    A4 = 4/3 * (743/336 + 11/4 * eta)
+    B4 = 8/5 * (4*np.pi - beta)
+    C4 = 2 * (3058673/1016064 + 5429/1008 * eta + 617/144 * eta**2 - sigma)
+
+    A5 = 743/168 - 33/4 * eta
+    B5 = 27/5 * (4*np.pi - beta)
+    C5 = 18 * (3058673/1016064 - 5429/4032 * eta - 617/96*eta**2 -  sigma)
+
+    d_tc = 2*np.pi*1j*(fvals) * wf
+    d_phi = -1j * wf
+
+    d_log_mc =   -1j*(5/128 * (np.pi*Mc*fvals)**(-5/3) * (1 + A4*v**2 - B4*v**3 + C4*v**4)) * wf
+    d_log_eta =  -1j*(1/96  * (np.pi*Mc*fvals)**(-5/3) * (    A5*v**2 - B5*v**3 + C5*v**4)) * wf
+
+    d_beta = 1j * 3/32 * eta**(-3/5) * (np.pi*Mc*fvals)**(-2/3) * wf
+    d_sigma = -1j * 15/64 * eta**(-4/5) * (np.pi*Mc*fvals)**(-1/3) * wf
+    return np.array([d_tc, d_phi, d_log_mc, d_log_eta, d_beta, d_sigma])
+
+## Utilities ##
+def load_psd(psd_path, fvals):
+    """Loads in PSD"""
+    # load in psd
+    psd_dict = {}
+    inst = "A"
+    psdf = f"{psd_path}/A-psd.xml.gz"
+    print( "Reading PSD for instrument %s from %s" % (inst, psdf))
+    psd_dict[inst] = lsu.get_psd_series_from_xmldoc(psdf, inst)
+    psd_fvals = psd_dict[inst].f0 + psd_dict[inst].deltaF*np.arange(psd_dict[inst].data.length)
+    interp_func = interp1d(psd_fvals, psd_dict[inst].data.data)
+    return interp_func(fvals)
+
+def get_mass_from_mc_eta(mc, eta):
+    """Returns m1, m2 from mc and eta."""
+    alpha = mc / eta**(3/5)
+    beta = mc**2 / eta**(1/5)
+    m1 = 0.5 * (alpha + np.sqrt(alpha**2 - 4*beta))
+    m2 = 0.5 * (alpha - np.sqrt(alpha**2 - 4*beta)) 
+    return m1, m2
+
+def get_mc_eta_from_mass(m1, m2):
+    """Returns m1, m2 from mc and eta."""
+    mc = (m1*m2)**(3/5) / (m1+m2)**(1/5)
+    eta = (m1*m2) / (m1+m2)**(2)
+    return mc, eta
+
+## Fisher matrix ##
+def get_wf(Mc, eta, sigma, beta, fvals, psd_vals, coa_phase=0, coa_time=0, snr=None, LISA_response=False, skylocation = None):
+    """Generate a 2-PN waveform"""
+    print(f"get_wf: {locals()}" )
+    # convert first
+    phase = phase_2PN(Mc, eta, fvals, sigma, beta, coa_phase, coa_time)
+    amp = amplitude_2PN(fvals, Mc)
+    wf = amp * np.exp(1j*phase)
+    if LISA_response:
+         H = transformed_Hplus_Hcross(skylocation[0], skylocation[1], 0.0, 0.0, 0.0, 2, 2)
+         time = time_2PN(Mc, eta, fvals, sigma, beta, coa_time)
+         A, E, T = Evaluate_Gslr(time, fvals, H, skylocation[0], skylocation[1])
+         wf = wf * A
+    if snr:
+        # bring the source closer or further, depending on SNR
+        deltaF = np.diff(fvals)[0]
+        snr_fiducial = np.sqrt(get_inner_product(wf, wf, psd_vals, deltaF))
+        correction = snr / snr_fiducial
+        wf = correction * wf
+
+    return wf
+
+def get_inner_product(wf1, wf2, psd_vals, deltaF):
+    """Calculate inner product"""
+    assert len(wf1) == len(wf2) == len(psd_vals)
+    weight = 1/psd_vals
+    intgd = np.sum(np.conj(wf1) * wf2 * weight) * deltaF
+    return 4 * np.real(intgd)
+
+def get_fisher_matrix(Mc, eta, sigma, beta, fvals, wf):
+    """Get fisher information matrix"""
+    derivatives = get_derivative(Mc, eta, sigma, beta, fvals, wf)
+    N = 6
+    tau_ij = np.zeros((N,N))
+    for i in np.arange(0, N):
+        for j in np.arange(0, N):
+            tau_ij[i,j] = get_inner_product(derivatives[i], derivatives[j], psd_vals, deltaF)
+    inv_tau_ij = (np.linalg.inv(tau_ij))
+    return tau_ij, inv_tau_ij
+
+# as chirp mass increases, spread of the posterior increase for the same snr. As eta decreases, spread increases for the same SNR
+## Test
+
+#m1, m2 = 1e6, 5e5
+#s1z, s2z = 0.2, 0.4
+#snr = 400
+m1, m2 = 3e6, 1e6
+s1z, s2z = 0.6, -0.25
+snr = 210
+response=True
+mc, eta = get_mc_eta_from_mass(m1, m2)
+deltaF = 0.00001
+print(mc, eta)
+
+# convert to seconds
+Mc = mc * 5 * 10**(-6)
+M = Mc/eta**(3/5)
+sigma, beta = get_sigma_beta(Mc, eta, s1z, s2z)
+fmax = 6**(-3/2) / np.pi/ M
+print(f" Fmax is = {fmax} Hz")
+fvals = np.arange(0.0001, fmax, deltaF)
+psd_vals = load_psd(psd_path_lisa, fvals)
+#psd_vals = load_psd_ligo(psd_path + "/LISA.txt", fvals)
+wf = get_wf(Mc, eta, sigma, beta, fvals, psd_vals, 0,0, snr=snr, LISA_response=response, skylocation=[np.pi/4, np.pi/5])
+print(np.sqrt(get_inner_product(wf,wf,psd_vals, deltaF)))
+tau_ij, fisher = get_fisher_matrix(Mc, eta, sigma, beta, fvals, wf)
+print(np.sqrt(1/tau_ij[0,0]), np.sqrt(1/tau_ij[1,1]), 200*np.sqrt(1/tau_ij[2,2])*mc, 40*(np.sqrt(1/tau_ij[3,3]))*eta, np.sqrt(1/tau_ij[4,4]),  np.sqrt(1/tau_ij[5,5]))
+print(np.sqrt(fisher[0,0]), np.sqrt(fisher[1,1]), np.sqrt(fisher[2,2])*mc, (np.sqrt(fisher[3,3]))*eta, np.sqrt(fisher[4,4]),  np.sqrt(fisher[5,5]))
+
+
