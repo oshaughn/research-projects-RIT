@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+"""This code is meant to check the health of a RIFT run as it progresses and after it has finished. python plot_RIFT.py path/to/rundir/"""
 import numpy as np
 import matplotlib.pyplot as plt
 import glob
@@ -25,19 +26,24 @@ plt.rcParams.update({
 # PE summary
 # plot injection + high lnL waveform
 path = sys.argv[1]
+LISA = True
+use_truths = True
+
 corner_plot_exe = os.popen("which plot_posterior_corner.py").read()[:-1]
 all_net_path = path + "/all.net"
-
 truth_file_path = path + "/../mdc.xml.gz"
-use_truths = False
 if os.path.exists(truth_file_path):
     use_truths = True
     print(f"Using {truth_file_path} for truth values in corner plots!")
 
-#######
+###########################################################################################
+# Functions
+###########################################################################################
 def get_lnL_cut_points(all_net_path, lnL_cut = 15):
     data= np.loadtxt(all_net_path)
     lnL = data[:,9]
+    if LISA:
+        lnL = data[:,11]
     max_lnL=np.max(lnL)
     no_points=len(lnL[lnL>=(max_lnL - lnL_cut)])
     return max_lnL, no_points
@@ -66,6 +72,10 @@ def get_index_for_parameter(parameter):
         parameter_n = 1
     if parameter == "q":
         parameter_n = -1
+    if parameter == "dec":
+        parameter_n = "13"
+    if parameter == "ra":
+        parameter_n = "12"
     return parameter_n
 
 def get_chi_eff_from_mass_and_spins(posterior):
@@ -212,6 +222,8 @@ def plot_corner(sorted_posterior_file_paths, plot_title, iterations = None, para
         plotting_command += f"--parameter {parameter} "
     for iteration in np.arange(len(iterations)):
         plotting_command += f"--posterior-file {sorted_posterior_file_paths[iteration]} --posterior-label {iterations[iteration]} "
+    if LISA:
+        plotting_command += "--LISA "
     os.system(plotting_command)
     os.system(f"mv corner_" + "_".join(parameters) + ".png" + " plots/corner_" + "_".join(parameters) +"_" + plot_title + ".png")
     for i, parameter in enumerate(parameters):
@@ -219,6 +231,9 @@ def plot_corner(sorted_posterior_file_paths, plot_title, iterations = None, para
         os.system(f"mv {parameter}_cum.png plots/{parameter}_cum_{plot_title}.png")
   
 def plot_JS_divergence(posterior_1_path, posterior_2_path, plot_title, parameters = ["mc","eta", "m1", "m2", "s1z", "s2z", "chi_eff"]):
+    if LISA:
+        parameters.append("dec")
+        parameters.append("ra")
     posterior_data1 = np.loadtxt(posterior_1_path)
     posterior_data2 = np.loadtxt(posterior_2_path)
     JSD_array = []
@@ -239,6 +254,9 @@ def plot_JS_divergence(posterior_1_path, posterior_2_path, plot_title, parameter
     ax.errorbar(parameters, JSD_array, np.array(JSD_error).T,  color = "royalblue", ecolor = "red", fmt ='o', markersize = 5)
     fig.savefig(path+f"/plots/JSD_{plot_title}.png", bbox_inches='tight')
 
+###########################################################################################
+# Generate plots
+###########################################################################################
 # create plots folder
 create_plots_folder(path)
 
@@ -257,11 +275,14 @@ plot_histograms(main_posterior_files, plot_title="Main", iterations=main_iterati
 
 # plot corner plots
 plot_corner(main_posterior_files, "Main", iterations = main_iterations, use_truths = use_truths)
+plot_corner(main_posterior_files, "Main", parameters = ["m1", "m2", "a1z", "a2z"], iterations = main_iterations, use_truths = use_truths)
 plot_corner([main_posterior_files[-1]], "Final", use_truths = use_truths)
 plot_corner([main_posterior_files[-1]], "Final", parameters = ["m1", "m2", "a1z", "a2z"], use_truths = use_truths)
-plot_corner([main_posterior_files[-1]], "Final", parameters = ["m1", "m2", "mtot", "mc"], use_truths = use_truths)
 plot_corner([main_posterior_files[-1]], "Final", parameters = ["chi_eff", "a1z", "a2z"], use_truths = use_truths)
 plot_corner([main_posterior_files[-1]], "Final", parameters = ["mtot", "q", "a1z", "a2z"], use_truths = use_truths)
+if LISA:
+    plot_corner([main_posterior_files[-1]], "Final", parameters = ["m1", "m2", "a1z", "a2z", "dec", "ra"], use_truths = use_truths)
+    plot_corner([main_posterior_files[-1]], "Final", parameters = ["mc", "q", "chi_eff", "dec", "ra"], use_truths = use_truths)
 # plot JS test
 plot_JS_divergence(main_posterior_files[-1], main_posterior_files[-2], "Main_iteration") # the last two main iterations
 
