@@ -1,4 +1,4 @@
-## This code is based on http://arxiv.org/abs/1806.10734 and 10.1103/PhysRevD.103.083011, with parts of code being taken from BBHx's C code. The response has been validated again BBHx with mismatch of around 10^(-10). This assumes fixed LISA arm length and is not the best formalism for Stellar mass binaries.
+"""This code is based on http://arxiv.org/abs/1806.10734 and 10.1103/PhysRevD.103.083011, with parts of code being taken from BBHx's C code. The response has been validated again BBHx with mismatch of around 10^(-10). This assumes fixed LISA arm length and is not the best formalism for Stellar mass binaries."""
 
 # TO DO:
 ## Better documentation
