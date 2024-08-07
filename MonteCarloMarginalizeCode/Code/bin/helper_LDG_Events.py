@@ -190,6 +190,7 @@ parser.add_argument("--gracedb-exe",default="gracedb")
 parser.add_argument("--fake-data",action='store_true',help="If this argument is present, the channel names are overridden to FAKE_STRAIN")
 parser.add_argument("--cache",type=str,default=None,help="If this argument is present, the various routines will use the frame files in this cache. The user is responsible for setting this up")
 parser.add_argument("--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.  Required if using --fake-data option")
+parser.add_argument("--psd-assume-common-window", action='store_true', help="Assume window used to generate PSD is the same as the window used to analyze the data - on-source (BW) not off-source")
 parser.add_argument("--assume-fiducial-psd-files", action="store_true", help="Will populate the arguments --psd-file IFO=IFO-psd.xml.gz for all IFOs being used, based on data availability.   Intended for user to specify PSD files later, or for DAG to build BW PSDs. ")
 parser.add_argument("--use-online-psd",action='store_true',help='Use PSD from gracedb, if available')
 parser.add_argument("--assume-matter",action='store_true',help="If present, the code will add options necessary to manage tidal arguments. The proposed fit strategy and initial grid will allow for matter")
@@ -1123,6 +1124,8 @@ if opts.lowlatency_propose_approximant:
         T_window = data_start_time - data_end_time
         window_shape = opts.data_tukey_window_time*2/T_window  # make it clear that this is a one-sided interval
         helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape " + str(window_shape)
+        if opts.psd_assume_common_window:
+            helper_ile_args += " --psd-window-shape {} ".format(window_shape)
 
 if not(internal_dmax is None):
     helper_ile_args +=  " --d-max " + str(int(internal_dmax))
@@ -1160,6 +1163,9 @@ if not ( (opts.data_start_time is None) and (opts.data_end_time is None)):
     data_start_time =opts.data_start_time
     data_end_time =opts.data_end_time
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape " + str(window_shape)
+    if opts.psd_assume_common_window:
+        helper_ile_args += " --psd-window-shape {} ".format(window_shape)
+
 elif opts.data_LI_seglen:
     seglen = opts.data_LI_seglen
     # Use LI-style positioning of trigger relative to 2s before end of buffer
@@ -1168,6 +1174,9 @@ elif opts.data_LI_seglen:
     data_end_time = event_dict["tref"]+2
     data_start_time = event_dict["tref"] +2 - seglen
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0  --window-shape " + str(window_shape)
+    if opts.psd_assume_common_window:
+            helper_ile_args += " --psd-window-shape {} ".format(window_shape)
+
 if opts.assume_eccentric:
     helper_ile_args += " --save-eccentricity "
 if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 10.):
