@@ -137,7 +137,7 @@ def get_inner_product(wf1, wf2, psd_vals, deltaF):
     return 4 * np.real(intgd)
 
 def get_massratio_error(eta, q, eta_error):
-    return eta_error * (1 + q)**2 / (1 - q)
+    return eta_error * (1 + q)**3 / (1 - q)
 
 def get_spin_error(eta, q, a1z, a2z, eta_error, beta_error, sigma_error):
     q_error = get_massratio_error(eta, q, eta_error)
@@ -149,7 +149,7 @@ def get_spin_error(eta, q, a1z, a2z, eta_error, beta_error, sigma_error):
     a1 = eta/48 * 474 * a2z
     b1 = eta/48 * 474 * a1z
     
-    c2 = beta_error - eta_error/12 * ( (113/q + 75)*a1z + (113*q + 75)*a2z) - eta_error/12 * ( (-113/q**2)*a1z*q_error + 113*a2z*q_error)
+    c2 = beta_error - eta_error/12 * ( (113/q + 75)*a1z + (113*q + 75)*a2z) - eta/12 * ( (-113/q**2)*a1z*q_error + 113*a2z*q_error)
     a2 = eta/12 * (113/q + 75)
     b2 = eta/12 * (113*q + 75)
     
@@ -178,6 +178,9 @@ def get_error_bounds(P_inj, snr, psd_path):
 
     mc, eta = get_mc_eta_from_mass(P_inj.m1/lsu.lsu_MSUN, P_inj.m2/lsu.lsu_MSUN)
     q = P_inj.m2/P_inj.m1
+
+    if q == 1:
+        q = 0.9
     
     # convert chirp mass to seconds
     Mc = mc * 5 * 10**(-6)
@@ -198,13 +201,14 @@ def get_error_bounds(P_inj, snr, psd_path):
     tau_ij, inv_tau_ij = get_fisher_matrix(Mc, eta, sigma, beta, fvals, psd_vals, deltaF, wf)
     factor_eta = 12.5
     factor_mc = 50
-    factor_spin = 250
+    factor_spin1 = 60
+    factor_spin2 = 60
     spin_bounds = get_spin_error(eta, q, P_inj.s1z, P_inj.s2z, (np.sqrt(1/tau_ij[3,3]))*eta, np.sqrt(1/tau_ij[4,4]), np.sqrt(1/tau_ij[5,5]))
     
-    print(f"Mc span = {2*factor_mc*np.sqrt(1/tau_ij[2,2])*mc}, eta span = {2*np.sqrt(1/tau_ij[3,3])*eta*factor_eta}, s1z span = {2*factor_spin*spin_bounds[0]}, s2z span = {2*factor_spin*spin_bounds[1]}, beta span = {2*0.036*(400/snr)**2}, lambda span = {2*0.04*(400/snr)**2}")
+    print(f"Mc span = {2*factor_mc*np.sqrt(1/tau_ij[2,2])*mc}, eta span = {2*np.sqrt(1/tau_ij[3,3])*eta*factor_eta}, s1z span = {2*factor_spin1*spin_bounds[0]}, s2z span = {2*factor_spin2*spin_bounds[1]}, beta span = {0.036*(210/snr)**2}, lambda span = {0.044*(210/snr)**2}")
 
 
-    return np.array([ mc - factor_mc*np.sqrt(1/tau_ij[2,2])*mc, mc + factor_mc*np.sqrt(1/tau_ij[2,2])*mc, eta-(np.sqrt(1/tau_ij[3,3]))*eta*factor_eta, eta+(np.sqrt(1/tau_ij[3,3]))*eta*factor_eta, P_inj.s1z - factor_spin*spin_bounds[0], P_inj.s1z + factor_spin*spin_bounds[0], P_inj.s2z - factor_spin*spin_bounds[1],  P_inj.s2z + factor_spin*spin_bounds[1], P_inj.theta - 0.018*(210/snr), P_inj.theta + 0.018*(210/snr),  P_inj.phi - 0.022*(210/snr), P_inj.phi + 0.022*(210/snr)])
+    return np.array([ mc - factor_mc*np.sqrt(1/tau_ij[2,2])*mc, mc + factor_mc*np.sqrt(1/tau_ij[2,2])*mc, eta-(np.sqrt(1/tau_ij[3,3]))*eta*factor_eta, eta+(np.sqrt(1/tau_ij[3,3]))*eta*factor_eta, P_inj.s1z - factor_spin1*spin_bounds[0], P_inj.s1z + factor_spin1*spin_bounds[0], P_inj.s2z - factor_spin2*spin_bounds[1],  P_inj.s2z + factor_spin2*spin_bounds[1], P_inj.theta - 0.018*(210/snr), P_inj.theta + 0.018*(210/snr),  P_inj.phi - 0.022*(210/snr), P_inj.phi + 0.022*(210/snr)])
 
 
 ###########################################################################################
