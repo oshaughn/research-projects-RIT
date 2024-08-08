@@ -1019,9 +1019,9 @@ for indx in np.arange(len(instructions_cip)):
     if 'M-max-cut' in config['engine']:
         opts.M_max_cut = float(config['engine']['M-max-cut'])
     if not(opts.force_s1z_range is None):
-        line +=" --s1z-range {}" + str(opts.force_s1z_range).replace(' ','')
+        line +=" --s1z-range " + str(opts.force_s1z_range).replace(' ','')
     if not(opts.force_s1z_range is None):
-        line +=" --s2z-range {}" + str(opts.force_s2z_range).replace(' ','')
+        line +=" --s2z-range " + str(opts.force_s2z_range).replace(' ','')
     if not(opts.M_max_cut is None):
         line += " --M-max-cut {}".format(opts.M_max_cut) 
     if not(opts.allow_subsolar):
