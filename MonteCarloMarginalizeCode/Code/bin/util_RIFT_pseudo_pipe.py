@@ -169,7 +169,7 @@ parser.add_argument("--internal-ile-request-memory",default=4096,type=int,help="
 parser.add_argument("--internal-ile-n-max",default=None,type=int,help="Set maximum number of evaluations each ILE worker uses. EXPERTS ONLY")
 parser.add_argument("--internal-ile-inv-spec-trunc-time",default=None,type=float,help="Timescale of inverse spectrum truncation time. Default in pipeline is zero. Should be no more than 1/2 the segment length")
 parser.add_argument("--internal-ile-data-tukey-window-time",default=None,type=float,help="Timescale of the tukey window (total, both sides)")
-parser.add_argument("--internal-ile-psd-uncommon-window",action='store_true',help="Default is to assume common window scale (BW-style) for PSD and data. Providing this option means the pipeline will NOT assume a common window. Use manual-ile-args to control psd-window-shape as needed")
+parser.add_argument("--internal-ile-psd-common-window",action='store_true',help="Default is to use the window shape correction on the input PSD (assumed to be scaled), and NOT to try to scale PSD.  Adding this option means we assume the PSD is not being window-corrected on input, so does not need rescaling. ")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help="If present, the code will marginalize over the distance variable. Passed diretly to helper script. Default will be to generate d_marg script *on the fly*")
 parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
@@ -641,7 +641,7 @@ if opts.internal_cip_use_lnL:
     cmd += " --internal-cip-use-lnL "
 if opts.internal_ile_data_tukey_window_time:
     cmd += " --data-tukey-window-time {} ".format(opts.internal_ile_data_tukey_window_time)
-if not(opts.internal_ile_psd_uncommon_window):
+if (opts.internal_ile_psd_common_window):
     cmd += " --psd-assume-common-window "
 if not(opts.ile_n_eff is None):
     cmd += " --ile-n-eff {} ".format(opts.ile_n_eff)
