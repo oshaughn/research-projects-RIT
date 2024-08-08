@@ -1,12 +1,6 @@
 from __future__ import print_function
-#########
 import sys
-#RIFT = "RIFT-LISA-3G-O4c"
-#sys.path.append(f"/Users/aasim/Desktop/Research/Mcodes/{RIFT}/MonteCarloMarginalizeCode/Code")
 from RIFT.LISA.response.LISA_response import *
-
-
-##########
 import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lsu  # problem of relative comprehensive import - dangerous due to package name
@@ -83,10 +77,9 @@ rosDebugMessagesDictionary["DebugMessagesLong"] = False
 
 
 
-#
-# Main driver functions
-#
-# LISA
+###########################################################################################
+# Main functions
+###########################################################################################
 def ComputeIPTimeSeries(IP, hf, data, N_shift, N_window, analyticPSD_Q=False,
         inv_spec_trunc_Q=False, T_spec=0., debug=True):
     r"""
