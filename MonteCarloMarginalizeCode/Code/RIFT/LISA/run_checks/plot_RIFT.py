@@ -46,7 +46,7 @@ def get_lnL_cut_points(all_net_path, lnL_cut = 15):
         lnL = data[:,11]
     max_lnL=np.max(lnL)
     no_points=len(lnL[lnL>=(max_lnL - lnL_cut)])
-    return max_lnL, no_points
+    return np.round(max_lnL,2), no_points
 
 def create_plots_folder(base_dir_path):
     if not(os.path.exists(base_dir_path + "/plots")):
@@ -278,11 +278,10 @@ plot_corner(main_posterior_files, "Main", iterations = main_iterations, use_trut
 plot_corner(main_posterior_files, "Main", parameters = ["m1", "m2", "a1z", "a2z"], iterations = main_iterations, use_truths = use_truths)
 plot_corner([main_posterior_files[-1]], "Final", use_truths = use_truths)
 plot_corner([main_posterior_files[-1]], "Final", parameters = ["m1", "m2", "a1z", "a2z"], use_truths = use_truths)
-plot_corner([main_posterior_files[-1]], "Final", parameters = ["chi_eff", "a1z", "a2z"], use_truths = use_truths)
 plot_corner([main_posterior_files[-1]], "Final", parameters = ["mtot", "q", "a1z", "a2z"], use_truths = use_truths)
 if LISA:
+    plot_corner([main_posterior_files[-1]], "Final", parameters = ["mc", "eta", "chi_eff", "dec", "ra"], use_truths = use_truths)
     plot_corner([main_posterior_files[-1]], "Final", parameters = ["m1", "m2", "a1z", "a2z", "dec", "ra"], use_truths = use_truths)
-    plot_corner([main_posterior_files[-1]], "Final", parameters = ["mc", "q", "chi_eff", "dec", "ra"], use_truths = use_truths)
 # plot JS test
 plot_JS_divergence(main_posterior_files[-1], main_posterior_files[-2], "Main_iteration") # the last two main iterations
 
