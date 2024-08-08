@@ -9,6 +9,7 @@
 DIR_PROCESS=$1
 BASE_OUT=$2
 ECC=$3 # Liz (Capstone): this will only be non-blank in the case where my eccentric PE Makefile has inserted "--eccentricity" into join.sub
+MPA=$4
 
 # join together the .dat files
 echo " Joining data files .... "
@@ -21,9 +22,12 @@ find ${DIR_PROCESS} -name 'CME*.dat' -exec cat {} \; > ${RND}_tmp.dat
 
 # clean them (=join duplicate lines)
 echo " Consolidating multiple instances of the monte carlo  .... "
-if [ "$3" == '--eccentricity' ]
-then
-    util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k11 > $BASE_OUT.composite
+if [ "$3" == '--eccentricity' ]; then
+    if [ "$4" == '--meanPerAno' ]; then
+	util_CleanILE.py ${RND}_tmp.dat $3 $4 | sort -rg -k12 > $BASE_OUT.composite
+    else
+	util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k11 > $BASE_OUT.composite
+    fi
 else
     util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k10 > $BASE_OUT.composite
 fi

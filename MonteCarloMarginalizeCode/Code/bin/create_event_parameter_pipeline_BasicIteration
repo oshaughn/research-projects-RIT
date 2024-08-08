@@ -237,6 +237,7 @@ parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent
 parser.add_argument("--cip-post-exe",default=None,help="filename of script to execute with SCRIPT POST joblist scripname JOBID RETURN worklevel in the dag. This will be run after each CIP completes in the main dag. Objective is to enable larger-scale CIP queues which work efficiently to a target work level (e.g,, n_eff). Note this script is responsible for reading htcondor logs to identify the run directory!")
 parser.add_argument("--cip-exe-G",default=None,help="filename of CIP or equivalent executable, as ALTERNATE CIP used when a 'G' iteration is requested ")
 parser.add_argument("--use-eccentricity",default=False,action='store_true')
+parser.add_argument("--use-meanPerAno",default=False,action='store_true')
 parser.add_argument("--use-tabular-eos-file",default=False,action='store_true')
 parser.add_argument("--test-exe",default=None,help="filename of test code or equivalent executable.  Must have a --test-output <fname> argument.  Used for convergence testing or other termination. NOT ACTIVE; see 'convergence_test_samples.py' for example")
 parser.add_argument("--plot-exe",default=None,help="filename of plot code or equivalent executable.  Will default to `which plot_posterior_corner.py`.  Default is to plot last set of samples")
@@ -825,6 +826,8 @@ if  (opts.last_iteration_extrinsic):
 con_arg_str = ''
 if opts.use_eccentricity:
     con_arg_str += " --eccentricity "
+    if opts.use_meanPerAno:
+        con_arg_str += " --meanPerAno "
 if opts.use_tabular_eos_file:
     con_arg_str += " --tabular-eos-file "
 con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_dir=None,arg_str=con_arg_str,base=opts.working_directory+"/iteration_$(macroiteration)_ile", target=opts.working_directory+'/consolidated_$(macroiteration)',universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
@@ -847,6 +850,8 @@ con_job.write_sub_file()
 unify_arg_str = ''
 if opts.use_eccentricity:
     unify_arg_str += " --eccentricity "
+    if opts.use_meanPerAno:
+        unify_arg_str += " --meanPerAno "
 if opts.use_tabular_eos_file:
     unify_arg_str += " --tabular-eos-file "
 unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str=unify_arg_str, base=opts.working_directory, target=opts.working_directory+'/all.net',universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
@@ -1471,6 +1476,8 @@ for it in np.arange(it_start,opts.n_iterations):
         cmd += " --general-request-disk {} --ile-request-disk {} ".format(opts.general_request_disk,opts.ile_request_disk)
         if opts.use_eccentricity:
             cmd += " --use-eccentricity "
+            if opts.use_meanPerAno:
+                cmd += " --use-meanPerAno "
         if opts.cip_explode_jobs:
             cmd += " --cip-explode-jobs {} ".format(opts.cip_explode_jobs)
         if opts.cip_explode_jobs_dag:   # should be deafult

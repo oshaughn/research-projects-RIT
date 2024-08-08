@@ -199,6 +199,7 @@ parser.add_argument("--assume-matter-eos",type=str,default=None,help="If present
 parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!. NOT YET IMPLEMENTED (initial grids, etc)")
 parser.add_argument("--assume-eccentric",action='store_true',help="If present, the code will add options necessary to manage eccentric arguments. The proposed fit strategy and initial grid will allow for eccentricity")
+parser.add_argument("--use-meanPerAno",action='store_true',help="The proposed fit strategy and initial grid will allow for meanPerAno")
 parser.add_argument("--assume-nospin",action='store_true',help="If present, the code will not add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-precessing-spin",action='store_true',help="If present, the code will add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-volumetric-spin",action='store_true',help="If present, the code will assume a volumetric spin prior in its last iterations. If *not* present, the code will adopt a uniform magnitude spin prior in its last iterations. If not present, generally more iterations are taken.")
@@ -994,6 +995,8 @@ if use_ini:
             eta_max = 0.24999999  # rounding/finite-precision issues may cause nan problems 
     if 'ecc_min' in engine_dict:
         ecc_range_str = "  ["+str(engine_dict['ecc_min'])+","+str(engine_dict['ecc_max'])+"]"
+    if 'meanPerAno_min' in engine_dict:
+        meanPerAno_range_str = "  ["+str(engine_dict['meanPerAno_min'])+","+str(engine_dict['meanPerAno_max'])+"]"
         
 mc_range_str = "  ["+str(mc_min_tight)+","+str(mc_max_tight)+"]"  # Use a tight placement grid for CIP
 if not(opts.manual_mc_min is None):
@@ -1188,6 +1191,8 @@ elif opts.data_LI_seglen:
 
 if opts.assume_eccentric:
     helper_ile_args += " --save-eccentricity "
+    if opts.use_meanPerAno:
+        helper_ile_args += " --save-meanPerAno "
 if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 10.):
     cmd  = "util_AnalyticFisherGrid.py  --inj-file-out  proposed-grid  "
     # Add standard downselects : do not have m1, m2 be less than 1
@@ -1218,6 +1223,8 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
         grid_size =2500
     if opts.assume_eccentric:
         cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
+        if opts.use_meanPerAno:
+            cmd += " --random-parameter meanPerAno --random-parameter-range " + meanPerAno_range_str
     if "SNR" in event_dict:
         grid_size *= np.max([1,event_dict["SNR"]/15])  # more grid points at higher amplitude. Yes, even though we also contract the paramete range
     if not (opts.force_initial_grid_size is None):
@@ -1273,6 +1280,8 @@ elif opts.propose_initial_grid:
             cmd += " --parameter s1x --parameter-range [0.00001,0.00003] "
     if opts.assume_eccentric:
         cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
+        if opts.use_meanPerAno:
+            cmd += " --random-parameter meanPerAno --random-parameter-range " + meanPerAno_range_str
     if opts.internal_tabular_eos_file:
         cmd += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
         grid_size *=2  # larger grids needed for discrete realization scenarios
@@ -1418,6 +1427,8 @@ puff_max_it=0
 helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
 if opts.assume_eccentric:
     helper_puff_args += " --parameter eccentricity "
+    if opts.use_meanPerAno:
+        helper_puff_args += " --parameter meanPerAno "
 
 if event_dict["MChirp"] >25:
     # at high mass, mc/eta correlation weak, don't want to have eta coordinate degeneracy at q=1 to reduce puff proposals  near there
@@ -1739,9 +1750,14 @@ if opts.assume_eccentric:
     with open("helper_convert_args.txt",'w+') as f:
         f.write(" --export-eccentricity ")
 
+if opts.use_meanPerAno:
+    with open("helper_convert_args.txt",'w+') as f:
+        f.write(" --export-meanPerAno ")
+
 if opts.propose_fit_strategy:
     with open("helper_puff_max_it.txt",'w') as f:
         f.write(str(puff_max_it))
+
 if opts.propose_fit_strategy:
     with open("helper_puff_factor.txt",'w') as f:
         f.write(str(puff_factor))
