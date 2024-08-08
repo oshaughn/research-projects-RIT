@@ -368,6 +368,8 @@ parser.add_argument("--supplementary-prior-code",default=None,type=str,help="Imp
 
 # LISA
 parser.add_argument("--LISA", action="store_true", help="Code knows that it is being used for LISA. This allows the code to read all.net in a format that is for LISA.")
+parser.add_argument("--s1z-range", default=None, help="s1z range")
+parser.add_argument("--s2z-range", default=None, help="s2z range")
 opts=  parser.parse_args()
 if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
@@ -927,14 +929,15 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'beta':[0,np.pi/2],
   #'lambda':[0,2*np.pi],
   #'beta':[-np.pi/2,np.pi/2],
-  'cos_beta':[-1,1]
+  #'cos_beta':[-1,1]
+  'cos_beta':[0,1]
 }
 if not (opts.chiz_plus_range is None):
-    print(" Warning: Overriding default chiz_plus range. USE WITH CARE", opts.chiz_plus_range)
+    print(f" Warning: Overriding default chiz_plus range. USE WITH CARE", opts.chiz_plus_range)
     prior_range_map['chiz_plus']=eval(opts.chiz_plus_range)
 
 if not (opts.eta_range is None):
-    print(" Warning: Overriding default eta range. USE WITH CARE")
+    print(f" Warning: Overriding default eta range to {eval(opts.eta_range)}. USE WITH CARE")
     eta_range=prior_range_map['eta'] = eval(opts.eta_range)  # really only useful if eta is a coordinate.  USE WITH CARE
     prior_range_map['delta_mc'] = np.sqrt(1-4*np.array(prior_range_map['eta']))[::-1]  # reverse
 
@@ -942,6 +945,12 @@ if not (opts.eta_range is None):
     norm_factor = unscaled_eta_prior_cdf(eta_range[0]) - unscaled_eta_prior_cdf(eta_range[1])
     prior_map['eta'] = functools.partial(eta_prior, norm_factor=norm_factor)
     prior_map['delta_mc'] = functools.partial(delta_mc_prior, norm_factor=norm_factor)
+if not (opts.s1z_range is None):
+    print(f" Warning: Overriding default s1z range to {eval(opts.s1z_range)}. USE WITH CARE")
+    prior_range_map['s1z']=eval(opts.s1z_range)
+if not (opts.s2z_range is None):
+    print(f" Warning: Overriding default s2z range to {eval(opts.s2z_range)}. USE WITH CARE")
+    prior_range_map['s2z']=eval(opts.s2z_range)
 
 ###
 ### Modify priors, as needed
