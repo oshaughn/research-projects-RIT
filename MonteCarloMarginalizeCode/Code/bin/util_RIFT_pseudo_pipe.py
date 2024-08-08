@@ -288,8 +288,8 @@ parser.add_argument("--puff-search-hypercube", default=False, help="Allow puff t
 parser.add_argument("--downselect-parameter-range", default="[1,1000]", help="m2 downselect parameter range, default being [1,1000] in CIP.") 
 parser.add_argument("--M-max-cut", default=None, help="Mtotal max cut for CIP, by default CIP takes a value of 1e5")
 parser.add_argument("--force-cip", action="store_true", help="Force CIP to neff=nsamples for intermediate iterations")
-parser.add_argument("--s1z-range", default=None, help="s1z range")
-parser.add_argument("--s2z-range", default=None, help="s2z range")
+parser.add_argument("--force-s1z-range", default=None, help="s1z range")
+parser.add_argument("--force-s2z-range", default=None, help="s2z range")
 opts=  parser.parse_args()
 
 
@@ -1018,10 +1018,10 @@ for indx in np.arange(len(instructions_cip)):
         opts.downselect_parameter_range = str(config['engine']['downselect-parameter-range']).replace('"','')
     if 'M-max-cut' in config['engine']:
         opts.M_max_cut = float(config['engine']['M-max-cut'])
-    if not(opts.s1z_range is None):
-        line +=" --s1z-range {}".format(eval(opts.s1z_range))
-    if not(opts.s1z_range is None):
-        line +=" --s2z-range {}".format(eval(opts.s2z_range))
+    if not(opts.force_s1z_range is None):
+        line +=" --s1z-range {}" + str(opts.force_s1z_range).replace(' ','')
+    if not(opts.force_s1z_range is None):
+        line +=" --s2z-range {}" + str(opts.force_s2z_range).replace(' ','')
     if not(opts.M_max_cut is None):
         line += " --M-max-cut {}".format(opts.M_max_cut) 
     if not(opts.allow_subsolar):
