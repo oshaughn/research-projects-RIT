@@ -290,6 +290,8 @@ parser.add_argument("--M-max-cut", default=None, help="Mtotal max cut for CIP, b
 parser.add_argument("--force-cip", action="store_true", help="Force CIP to neff=nsamples for intermediate iterations")
 parser.add_argument("--force-s1z-range", default=None, help="s1z range")
 parser.add_argument("--force-s2z-range", default=None, help="s2z range")
+parser.add_argument("--force-lambda-range", default=None, help="lambda range")
+parser.add_argument("--force-beta-range", default=None, help="beta range")
 opts=  parser.parse_args()
 
 
@@ -1022,6 +1024,10 @@ for indx in np.arange(len(instructions_cip)):
         line +=" --s1z-range " + str(opts.force_s1z_range).replace(' ','')
     if not(opts.force_s1z_range is None):
         line +=" --s2z-range " + str(opts.force_s2z_range).replace(' ','')
+    if not(opts.force_beta_range is None):
+        line +=" --beta-range " + str(opts.force_beta_range).replace(' ','')
+    if not(opts.force_lambda_range is None):
+        line +=" --lambda-range " + str(opts.force_lambda_range).replace(' ','')
     if not(opts.M_max_cut is None):
         line += " --M-max-cut {}".format(opts.M_max_cut) 
     if not(opts.allow_subsolar):
