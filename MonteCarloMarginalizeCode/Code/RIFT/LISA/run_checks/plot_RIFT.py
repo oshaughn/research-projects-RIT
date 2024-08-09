@@ -15,9 +15,6 @@ plt.rcParams.update({
 'legend.fontsize': 14,
 'xtick.labelsize': 18,
 'ytick.labelsize': 18,
-'font.family': 'serif',
-'font.sans-serif': ['Bitstream Vera Sans'],
-'font.serif': ['Times New Roman'],
 'figure.dpi':100
 }
 )
@@ -44,9 +41,10 @@ def get_lnL_cut_points(all_net_path, lnL_cut = 15):
     lnL = data[:,9]
     if LISA:
         lnL = data[:,11]
+    lnL = lnL[~np.isnan(lnL)]
     max_lnL=np.max(lnL)
     no_points=len(lnL[lnL>=(max_lnL - lnL_cut)])
-    return np.round(max_lnL,2), no_points
+    return np.round(max_lnL,3), no_points
 
 def create_plots_folder(base_dir_path):
     if not(os.path.exists(base_dir_path + "/plots")):
@@ -136,15 +134,14 @@ def calculate_JS_divergence(data1, data2):
 
     return calculate_js(data1, data2)
 
-def plot_ESS_data(path_to_main_folder):
+def plot_neff_data(path_to_main_folder):
     cip_iteration_folders= glob.glob(path_to_main_folder + "/iteration*cip*")
-    cip_iteration_folders.sort(key = os.path.getctime)
-    print(cip_iteration_folders)
+    #cip_iteration_folders.sort(key = os.path.getctime)
+    #print(cip_iteration_folders)
     fig, ax = plt.subplots()
     ax.set_xlabel("iteration")
     ax.set_ylabel("neff")
-    iterations=np.arange(len(cip_iteration_folders))
-    n=0 #keep track of which iteration we are plotting for. Added this, with the above line so the iterations are int instead of floats
+    iterations=np.arange(len(cip_iteration_folders)-1) # last folders don't usually have anything
     try:
         neff_requested = os.popen('cat CIP_worker2.sub | grep -Eo "n-eff [+-]?[0-9]+([.][0-9]+)?"').read()[:-1].split(" ")[-1] # could find a better way to do this
         ax.axhline(y = float(neff_requested), linestyle = "--", color = "red", linewidth = 1.0, label = "Final iter neff")
@@ -152,25 +149,37 @@ def plot_ESS_data(path_to_main_folder):
     except Exception as e:
         print(e)
         print("Couldn't plot requested neff.")
-    for i in cip_iteration_folders:
-        os.system(f"rm {i}/ESS_data.txt")
-        cmd=f"for i in {i}/overlap-grid-*-*ESS* ; do cat $i | tail -n 1 >> {i}/ESS_data.txt; done"
+    for n in iterations:
+        i = path_to_main_folder + f"/iteration_{n}_cip"
+        os.system(f"rm {i}/neff_data.txt")
+        cmd=f"for i in {i}/overlap-grid-*-*ESS* ; do cat $i | tail -n 1 >> {i}/neff_data.txt; done"
         os.system(cmd)
-        tmp_ESS_data=np.loadtxt(f"{i}/ESS_data.txt", usecols=[2])
+        tmp_ESS_data=np.loadtxt(f"{i}/neff_data.txt", usecols=[2])
         try:
             low, avg, high = np.percentile(tmp_ESS_data, [2.5,50,97.5])
             low_1_std, avg, high_1_std = np.percentile(tmp_ESS_data, [16,50,84])
             mini, maxi = np.min(tmp_ESS_data), np.max(tmp_ESS_data)
             ax.plot(iterations[n], mini, marker="x", color="black")
             ax.plot(iterations[n], maxi, marker="x", color="black")
-            print(f"ESS detail iteration = {iterations[n]}: Average={avg:0.2f}, low std={low:0.2f}, high std={high:0.2f}")
+            print(f"neff detail iteration = {iterations[n]}: Average={avg:0.2f}, low std={low:0.2f}, high std={high:0.2f}")
             ax.errorbar(iterations[n], avg, yerr=np.array([avg-low,high-avg]).reshape(-1, 1), color = "royalblue", ecolor = "red", fmt ='o')
             ax.errorbar(iterations[n], avg, yerr=np.array([avg-low_1_std,high_1_std-avg]).reshape(-1, 1), color = "royalblue", ecolor = "green", fmt ='.')
         except Exception as e:
             print(e)
-            print(f"Couldn't plot ESS for iteration = {iterations[n]}")
-        n+=1
-    fig.savefig(path+f"/plots/ESS_plot.png", bbox_inches='tight')
+            print(f"Couldn't plot neff for iteration = {iterations[n]}")
+    print(f"READING lnL FILES FROM iteration_{iterations[-1]}_cip")
+    lnL_files_last_iteration = glob.glob(path_to_main_folder + f"/iteration_{iterations[-1]}_cip/*lnL*")
+    collect_lnL = []
+    for j in np.arange(len(lnL_files_last_iteration)):
+        data = np.loadtxt(lnL_files_last_iteration[j])
+        collect_lnL.append(np.max(data))
+    collect_lnL = np.array(collect_lnL)
+    max_lnL, no_points = get_lnL_cut_points(all_net_path)
+    index = np.argwhere(max_lnL - collect_lnL >= 1)
+    print(f"Max lnL  = {max_lnL}, average max lnL from workers = {np.mean(collect_lnL)} with std = {np.std(collect_lnL)}")
+    print(f"Total number of worker in final iteration = {len(lnL_files_last_iteration)}, number of them which didn't capture max_lnL = {len(index)}")
+    ax.set_title(f"{len(index)} / {len(lnL_files_last_iteration)}")
+    fig.savefig(path+f"/plots/neff_plot.png", bbox_inches='tight')
 
 def plot_histograms(sorted_posterior_file_paths, plot_title, iterations = None, plot_legend = True, JSD = True):
     if iterations is None: # when you just want to plot final iterations histograms
@@ -267,8 +276,8 @@ if len(main_posterior_files) > 7:
     main_posterior_files, main_iterations = find_posteriors_in_main(path, limit_iterations=limit_main_iterations)
 subdag_posterior_files, subdag_iterations = find_posteriors_in_sub(path)
 
-# plot ESS
-plot_ESS_data(path)
+# plot neff
+plot_neff_data(path)
 
 # plot histograms
 plot_histograms(main_posterior_files, plot_title="Main", iterations=main_iterations, JSD = False)
