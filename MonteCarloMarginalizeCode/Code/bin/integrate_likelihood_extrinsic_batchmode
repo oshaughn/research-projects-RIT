@@ -252,7 +252,7 @@ optp.add_option("--save-eccentricity", action="store_true")
 # 
 # Add LISA options
 #
-lisa_params = OptionGroup(optp, "LISA parameters")
+lisa_params = OptionGroup(optp, "LISA arguments")
 lisa_params.add_option("--LISA", action="store_true", help = "Let the code know that you are analysing LISA data. For now makes the code use analyze_event_LISA instead of analyze_event.")
 lisa_params.add_option("--h5-frame", action="store_true", help = "LISA injection frames are in h5 format. Data is assumed to be in time domain when this option is used.")
 lisa_params.add_option("--h5-frame-FD", action="store_true", help = "LISA injection frames are in h5 format. Data is assumed to be in frequency domain when this option is used.")
