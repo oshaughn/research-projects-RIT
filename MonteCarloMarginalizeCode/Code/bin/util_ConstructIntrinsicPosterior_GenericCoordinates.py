@@ -370,6 +370,8 @@ parser.add_argument("--supplementary-prior-code",default=None,type=str,help="Imp
 parser.add_argument("--LISA", action="store_true", help="Code knows that it is being used for LISA. This allows the code to read all.net in a format that is for LISA.")
 parser.add_argument("--s1z-range", default=None, help="s1z range")
 parser.add_argument("--s2z-range", default=None, help="s2z range")
+parser.add_argument("--beta-range",default=None, help="beta range" )
+parser.add_argument("--lambda-range",default=None, help="lambda range" )
 opts=  parser.parse_args()
 if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
@@ -932,6 +934,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   #'cos_beta':[-1,1]
   'cos_beta':[0,1]
 }
+print("\n")
 if not (opts.chiz_plus_range is None):
     print(f" Warning: Overriding default chiz_plus range. USE WITH CARE", opts.chiz_plus_range)
     prior_range_map['chiz_plus']=eval(opts.chiz_plus_range)
@@ -951,7 +954,13 @@ if not (opts.s1z_range is None):
 if not (opts.s2z_range is None):
     print(f" Warning: Overriding default s2z range to {eval(opts.s2z_range)}. USE WITH CARE")
     prior_range_map['s2z']=eval(opts.s2z_range)
-
+if not (opts.beta_range is None):
+    print(f" Warning: Overriding default beta range to {eval(opts.beta_range)}. USE WITH CARE")
+    prior_range_map['beta']=eval(opts.beta_range)
+if not (opts.lambda_range is None):
+    print(f" Warning: Overriding default lambda range to {eval(opts.lambda_range)}. USE WITH CARE")
+    prior_range_map['lambda']=eval(opts.lambda_range)
+print("\n")
 ###
 ### Modify priors, as needed
 ###
