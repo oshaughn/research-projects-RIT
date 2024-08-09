@@ -330,7 +330,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','mu1','mu2','eos_table_index']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','mu1','mu2','eos_table_index','meanPerAno']
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -371,6 +371,7 @@ tex_dictionary  = {
   "s1y": "$\chi_{1,y}$",
   "s2y": "$\chi_{2,y}$",
   "eccentricity":"$e$",
+  "meanPerAno":"$l_gw$",
   # tex labels for inherited LI names
  "a1z": r'$\chi_{1,z}$',
  "a2z": r'$\chi_{2,z}$',
@@ -418,7 +419,8 @@ class ChooseWaveformParams:
             theta=0., phi=0., psi=0., tref=0., radec=False, detector="H1",
             deltaF=None, fmax=0., # for use w/ FD approximants
             taper=lsu_TAPER_NONE, # for use w/TD approximants
-            eccentricity=0. # make eccentricity a parameter
+            eccentricity=0., # make eccentricity a parameter
+            meanPerAno=0. # make meanPerAno a parameter
             ):
         self.phiref = phiref
         self.deltaT = deltaT
@@ -447,6 +449,7 @@ class ChooseWaveformParams:
         self.meanPerAno = 0.0  # port 
         self.longAscNodes = self.psi # port to master
         self.eccentricity=eccentricity
+        self.meanPerAno=meanPerAno
         self.tref = tref
         self.radec = radec
         self.detector = "H1"
@@ -884,6 +887,7 @@ class ChooseWaveformParams:
             return mchirp(self.m1,self.m2)
         if p == 'mc_ecc':
             # defined Favata et al 2108.05861  see Eq. 1.1
+            # This is defined at periapstron; check to make sure your e's are defined corretly!
             return mchirp(self.m1,self.m2)/np.power( 1 - 157*self.eccentricity**2/24., 3./5.)
         if p == 'log_mc':
             return np.log10(mchirp(self.m1,self.m2))
@@ -1543,6 +1547,7 @@ class ChooseWaveformParams:
         print( "reference orbital phase =", self.phiref)
         print( "polarization angle =", self.psi)
         print( "eccentricity = ", self.eccentricity)
+        print( "meanPerAno = ", self.meanPerAno)
         print( "time of coalescence =", float(self.tref),  " [GPS sec: ",  int(self.tref), ",  GPS ns ", (self.tref - int(self.tref))*1e9, "]")
         print( "detector is:", self.detector)
         if self.radec==False:
@@ -1727,6 +1732,7 @@ class ChooseWaveformParams:
         self.lambda1 = row.alpha5
         self.lambda2 = row.alpha6
         self.eccentricity=row.alpha4
+        self.meanPerAno=row.alpha
         self.snr = row.alpha3   # lnL info
         # WARNING: alpha1, alpha2 used by ILE for weights!
         if hasattr(row, 'alpha'):
@@ -1789,6 +1795,7 @@ class ChooseWaveformParams:
         row.alpha5 = self.lambda1
         row.alpha6 = self.lambda2
         row.alpha4 = self.eccentricity
+        row.alpha = self.meanPerAno
         if self.eos_table_index:
             row.alpha = self.eos_table_index
         if self.snr:
