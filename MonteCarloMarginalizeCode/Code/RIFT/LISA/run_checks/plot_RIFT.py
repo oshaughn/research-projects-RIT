@@ -13,8 +13,8 @@ plt.rcParams.update({
 'axes.titlesize': 22,
 'font.size': 22,
 'legend.fontsize': 14,
-'xtick.labelsize': 18,
-'ytick.labelsize': 18,
+'xtick.labelsize': 14,
+'ytick.labelsize': 14,
 'figure.dpi':100
 }
 )
@@ -39,8 +39,12 @@ if os.path.exists(truth_file_path):
 def get_lnL_cut_points(all_net_path, lnL_cut = 15):
     data= np.loadtxt(all_net_path)
     lnL = data[:,9]
+    error = data[:,10]
     if LISA:
         lnL = data[:,11]
+        error = data[:,12]
+    index = np.argwhere(error<0.4).flatten()
+    lnL = lnL[index]
     lnL = lnL[~np.isnan(lnL)]
     max_lnL=np.max(lnL)
     no_points=len(lnL[lnL>=(max_lnL - lnL_cut)])
@@ -71,9 +75,9 @@ def get_index_for_parameter(parameter):
     if parameter == "q":
         parameter_n = -1
     if parameter == "dec":
-        parameter_n = "13"
+        parameter_n = 13
     if parameter == "ra":
-        parameter_n = "12"
+        parameter_n = 12
     return parameter_n
 
 def get_chi_eff_from_mass_and_spins(posterior):
@@ -143,12 +147,16 @@ def plot_neff_data(path_to_main_folder):
     ax.set_ylabel("neff")
     iterations=np.arange(len(cip_iteration_folders)-1) # last folders don't usually have anything
     try:
-        neff_requested = os.popen('cat CIP_worker2.sub | grep -Eo "n-eff [+-]?[0-9]+([.][0-9]+)?"').read()[:-1].split(" ")[-1] # could find a better way to do this
-        ax.axhline(y = float(neff_requested), linestyle = "--", color = "red", linewidth = 1.0, label = "Final iter neff")
-        ax.legend(loc="upper left")
+        neff_requested_0 = os.popen('cat CIP_worker0.sub | grep -Eo "n-eff [+-]?[0-9]+([.][0-9]+)?"').read()[:-1].split(" ")[-1]
+        ax.axhline(y = float(neff_requested_0), linestyle = "--", color = "black", alpha = 0.8, linewidth = 1.0, label = "worker 0 neff")
+        neff_requested_1 = os.popen('cat CIP_worker1.sub | grep -Eo "n-eff [+-]?[0-9]+([.][0-9]+)?"').read()[:-1].split(" ")[-1] 
+        ax.axhline(y = float(neff_requested_1), linestyle = "--", color = "blue", alpha = 0.8, linewidth = 1.0, label = "worker 1 neff")
+        neff_requested_2 = os.popen('cat CIP_worker2.sub | grep -Eo "n-eff [+-]?[0-9]+([.][0-9]+)?"').read()[:-1].split(" ")[-1] # could find a better way to do this
+        ax.axhline(y = float(neff_requested_2), linestyle = "--", color = "red", alpha = 0.8, linewidth = 1.0, label = "worker 2 neff")
     except Exception as e:
         print(e)
         print("Couldn't plot requested neff.")
+    ax.legend(loc="upper left")
     for n in iterations:
         i = path_to_main_folder + f"/iteration_{n}_cip"
         os.system(f"rm {i}/neff_data.txt")
@@ -164,11 +172,12 @@ def plot_neff_data(path_to_main_folder):
             print(f"neff detail iteration = {iterations[n]}: Average={avg:0.2f}, low std={low:0.2f}, high std={high:0.2f}")
             ax.errorbar(iterations[n], avg, yerr=np.array([avg-low,high-avg]).reshape(-1, 1), color = "royalblue", ecolor = "red", fmt ='o')
             ax.errorbar(iterations[n], avg, yerr=np.array([avg-low_1_std,high_1_std-avg]).reshape(-1, 1), color = "royalblue", ecolor = "green", fmt ='.')
+            iteration_prog = n
         except Exception as e:
             print(e)
             print(f"Couldn't plot neff for iteration = {iterations[n]}")
-    print(f"READING lnL FILES FROM iteration_{iterations[-1]}_cip")
-    lnL_files_last_iteration = glob.glob(path_to_main_folder + f"/iteration_{iterations[-1]}_cip/*lnL*")
+    print(f"READING lnL FILES FROM iteration_{iterations[iteration_prog]}_cip")
+    lnL_files_last_iteration = glob.glob(path_to_main_folder + f"/iteration_{iterations[iteration_prog]}_cip/*lnL*")
     collect_lnL = []
     for j in np.arange(len(lnL_files_last_iteration)):
         data = np.loadtxt(lnL_files_last_iteration[j])
@@ -188,7 +197,12 @@ def plot_histograms(sorted_posterior_file_paths, plot_title, iterations = None, 
     all_net_data = convert_all_net_to_posterior_format(all_net_path)
     not_nan_lnL = np.argwhere(all_net_data[:,-3]>=np.max(all_net_data[:,-3]) - 15).flatten()#np.argwhere(~np.isnan(all_net_data[:,-3])).flatten()
     all_net_data = np.array(all_net_data[not_nan_lnL])
-    for parameter in ["mc", "q", "eta", "m1", "m2", "s1z", "s2z", "chi_eff"]:
+    parameters =  ["mc", "q", "eta", "m1", "m2", "s1z", "s2z", "chi_eff"]
+    if LISA:
+        parameters.append("dec")
+        parameters.append("ra")
+    for parameter in parameters:
+        print(f"Plotting histogram for {parameter}")
         fig, ax = plt.subplots()
         ax.set_title(plot_title)
         ax.set_xlabel(parameter)
@@ -219,8 +233,8 @@ def plot_histograms(sorted_posterior_file_paths, plot_title, iterations = None, 
 
 def plot_corner(sorted_posterior_file_paths, plot_title, iterations = None, parameters = ["mc", "eta", "xi"], use_truths = False):
     max_lnL, no_points = get_lnL_cut_points(all_net_path)
-    title = f"{plot_title},max_lnL={max_lnL:0.3f},points_cut={no_points}" 
-    plotting_command = f"python {corner_plot_exe} --plot-1d-extra --lnL-cut 15 --use-all-composite-but-grayscale --composite-file {all_net_path} --quantiles None --ci-list [0.9] --use-title {title} --sigma-cut 0.5 "
+    title = f"max_lnL={max_lnL:0.2f},points_cut={no_points}" 
+    plotting_command = f"python {corner_plot_exe} --plot-1d-extra --lnL-cut 15 --use-all-composite-but-grayscale --composite-file {all_net_path} --quantiles None --ci-list [0.9] --use-title {title} --sigma-cut 0.4 "
     if iterations is not None:
         plotting_command += "--use-legend "
     else:
@@ -285,12 +299,16 @@ plot_histograms(main_posterior_files, plot_title="Main", iterations=main_iterati
 # plot corner plots
 plot_corner(main_posterior_files, "Main", iterations = main_iterations, use_truths = use_truths)
 plot_corner(main_posterior_files, "Main", parameters = ["m1", "m2", "a1z", "a2z"], iterations = main_iterations, use_truths = use_truths)
+plot_corner(main_posterior_files, "Main", parameters = ["mtot", "q", "a1z", "a2z"], iterations = main_iterations, use_truths = use_truths)
 plot_corner([main_posterior_files[-1]], "Final", use_truths = use_truths)
 plot_corner([main_posterior_files[-1]], "Final", parameters = ["m1", "m2", "a1z", "a2z"], use_truths = use_truths)
 plot_corner([main_posterior_files[-1]], "Final", parameters = ["mtot", "q", "a1z", "a2z"], use_truths = use_truths)
 if LISA:
+    plot_corner(main_posterior_files, "Main", parameters = ["mc", "eta", "chi_eff", "dec", "ra"], iterations = main_iterations, use_truths = use_truths)
     plot_corner([main_posterior_files[-1]], "Final", parameters = ["mc", "eta", "chi_eff", "dec", "ra"], use_truths = use_truths)
     plot_corner([main_posterior_files[-1]], "Final", parameters = ["m1", "m2", "a1z", "a2z", "dec", "ra"], use_truths = use_truths)
+    plot_corner([main_posterior_files[-1]], "Final", parameters = ["mtot", "q", "a1z", "a2z", "dec", "ra"], use_truths = use_truths)
+
 # plot JS test
 plot_JS_divergence(main_posterior_files[-1], main_posterior_files[-2], "Main_iteration") # the last two main iterations
 
