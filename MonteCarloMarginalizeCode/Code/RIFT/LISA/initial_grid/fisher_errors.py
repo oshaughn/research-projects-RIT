@@ -203,12 +203,14 @@ def get_error_bounds(P_inj, snr, psd_path):
     factor_mc = 50
     factor_spin1 = 60
     factor_spin2 = 60
+    factor_beta = 0.022*(210/snr)
+    factor_lambda =  0.025*(210/snr)
     spin_bounds = get_spin_error(eta, q, P_inj.s1z, P_inj.s2z, (np.sqrt(1/tau_ij[3,3]))*eta, np.sqrt(1/tau_ij[4,4]), np.sqrt(1/tau_ij[5,5]))
     
     print(f"Mc span = {2*factor_mc*np.sqrt(1/tau_ij[2,2])*mc}, eta span = {2*np.sqrt(1/tau_ij[3,3])*eta*factor_eta}, s1z span = {2*factor_spin1*spin_bounds[0]}, s2z span = {2*factor_spin2*spin_bounds[1]}, beta span = {0.036*(210/snr)**2}, lambda span = {0.044*(210/snr)**2}")
 
 
-    return np.array([ mc - factor_mc*np.sqrt(1/tau_ij[2,2])*mc, mc + factor_mc*np.sqrt(1/tau_ij[2,2])*mc, eta-(np.sqrt(1/tau_ij[3,3]))*eta*factor_eta, eta+(np.sqrt(1/tau_ij[3,3]))*eta*factor_eta, P_inj.s1z - factor_spin1*spin_bounds[0], P_inj.s1z + factor_spin1*spin_bounds[0], P_inj.s2z - factor_spin2*spin_bounds[1],  P_inj.s2z + factor_spin2*spin_bounds[1], P_inj.theta - 0.018*(210/snr), P_inj.theta + 0.018*(210/snr),  P_inj.phi - 0.022*(210/snr), P_inj.phi + 0.022*(210/snr)])
+    return np.array([ mc - factor_mc*np.sqrt(1/tau_ij[2,2])*mc, mc + factor_mc*np.sqrt(1/tau_ij[2,2])*mc, eta-(np.sqrt(1/tau_ij[3,3]))*eta*factor_eta, eta+(np.sqrt(1/tau_ij[3,3]))*eta*factor_eta, P_inj.s1z - factor_spin1*spin_bounds[0], P_inj.s1z + factor_spin1*spin_bounds[0], P_inj.s2z - factor_spin2*spin_bounds[1],  P_inj.s2z + factor_spin2*spin_bounds[1], P_inj.theta - factor_beta, P_inj.theta + factor_beta,  P_inj.phi - factor_lambda, P_inj.phi + factor_lambda])
 
 
 ###########################################################################################
