@@ -76,6 +76,20 @@ from RIFT.integrators.statutils import  update,finalize, init_log,update_log,fin
 
 from RIFT.likelihood import vectorized_general_tools
 
+# import matching integrators registered through plutings
+#  https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/
+
+if sys.version_info < (3, 10):
+    from importlib_metadata import entry_points
+else:
+    from importlib.metadata import entry_points
+discovered_plugins = entry_points(group='RIFT.integrator_plugins')
+known_pipelines = {}
+for pipeline in discovered_plugins:
+  print(" Portfolio discovery: loading ", pipeline.name)
+  known_pipelines[pipeline.name] = pipeline.load()
+print('RIFT portfolio plugins:', [ep.name for ep in discovered_plugins])
+
 
 class NanOrInf(Exception):
     def __init__(self, value):
