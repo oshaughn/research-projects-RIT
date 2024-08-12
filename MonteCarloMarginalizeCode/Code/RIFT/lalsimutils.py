@@ -4708,7 +4708,7 @@ def hlmoff_for_LISA(P, Lmax=4, modes=None, fd_standoff_factor=0.964, fd_alignmen
             hlmsdict[mode] = DataFourier(hlms_struct[mode])
         return hlmsdict
 
-    if P.approx == lalIMRPhenomHM:
+    if P.approx == lalIMRPhenomHM or P.approx == lalIMRPhenomXPHM or P.approx == lalIMRPhenomXHM:
         # call lalsimulation function
         hlms_struct = lalsim.SimInspiralChooseFDModes(P.m1, P.m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.deltaF, P.fmin*fd_standoff_factor, fNyq, P.fref, P.phiref, P.dist, P.incl, extra_params, P.approx)
         # convert into dictionary
