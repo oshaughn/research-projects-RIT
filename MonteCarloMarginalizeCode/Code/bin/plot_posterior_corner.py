@@ -248,9 +248,9 @@ if not(opts.matplotlib_block_defaults):
              'font.size': 11,
              'legend.fontsize': legend_font_base,
              'xtick.labelsize': 11,
-             'ytick.labelsize': 11,
+             'ytick.labelsize': 11,}
              #'text.usetex': True,
-             'font.family': 'Times New Roman'}#,
+             #'font.family': 'Times New Roman'}#,
              #'font.sans-serif': ['Bitstream Vera Sans']}#,
     plt.rcParams.update(rc_params)
 if opts.verbose:
