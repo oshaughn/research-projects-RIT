@@ -9,8 +9,8 @@ from scipy.stats import gaussian_kde
 from collections import namedtuple
 import sys
 plt.rcParams.update({
-'axes.labelsize': 22,
-'axes.titlesize': 22,
+'axes.labelsize': 16,
+'axes.titlesize': 16,
 'font.size': 22,
 'legend.fontsize': 14,
 'xtick.labelsize': 14,
@@ -18,21 +18,24 @@ plt.rcParams.update({
 'figure.dpi':100
 }
 )
-
+plt.style.use('seaborn-v0_8-poster')
 # TO DO:
 # PE summary
 # plot injection + high lnL waveform
 path = sys.argv[1]
 LISA = True
-use_truths = True
+
 
 corner_plot_exe = os.popen("which plot_posterior_corner.py").read()[:-1]
 all_net_path = path + "/all.net"
 truth_file_path = path + "/../mdc.xml.gz"
+use_truths = False
 if os.path.exists(truth_file_path):
     use_truths = True
     print(f"Using {truth_file_path} for truth values in corner plots!")
 
+run_diagnostics = {}
+run_diagnostics["JSD"] = {}
 ###########################################################################################
 # Functions
 ###########################################################################################
@@ -43,11 +46,27 @@ def get_lnL_cut_points(all_net_path, lnL_cut = 15):
     if LISA:
         lnL = data[:,11]
         error = data[:,12]
-    index = np.argwhere(error<0.4).flatten()
+    lnL = lnL[~np.isnan(lnL)] # remove nan
+    run_diagnostics["total_lnL_evaluations"] = len(lnL)
+    
+    # find high likelihood points
+    max_lnL=np.max(lnL)
+    index = np.argwhere(lnL>=(max_lnL - lnL_cut)).flatten()
+    high_lnL_points = len(index)
     lnL = lnL[index]
-    lnL = lnL[~np.isnan(lnL)]
+    error = error[index]
+
+    # find high lnL points with low Monte Carlo error
+    index = np.argwhere(error<0.4).flatten() 
+    lnL = lnL[index]
+    error = error[index]
+
     max_lnL=np.max(lnL)
     no_points=len(lnL[lnL>=(max_lnL - lnL_cut)])
+    run_diagnostics["max_lnL"] = np.round(max_lnL,3)
+    run_diagnostics["high_lnL_points"] = no_points
+    run_diagnostics["high_lnL_points_with_large_error"] = high_lnL_points - no_points
+    run_diagnostics["total_high_lnL_points"] = high_lnL_points
     return np.round(max_lnL,3), no_points
 
 def create_plots_folder(base_dir_path):
@@ -140,30 +159,34 @@ def calculate_JS_divergence(data1, data2):
 
 def plot_neff_data(path_to_main_folder):
     cip_iteration_folders= glob.glob(path_to_main_folder + "/iteration*cip*")
-    #cip_iteration_folders.sort(key = os.path.getctime)
-    #print(cip_iteration_folders)
+    
     fig, ax = plt.subplots()
     ax.set_xlabel("iteration")
     ax.set_ylabel("neff")
     iterations=np.arange(len(cip_iteration_folders)-1) # last folders don't usually have anything
     try:
-        neff_requested_0 = os.popen('cat CIP_worker0.sub | grep -Eo "n-eff [+-]?[0-9]+([.][0-9]+)?"').read()[:-1].split(" ")[-1]
+        run_diagnostics["CIP_neff"] = {}
+        neff_requested_0 = os.popen('cat CIP_worker0.sub | grep -Eo "\-\-n-eff [+-]?[0-9]+([.][0-9]+)?"').read()[:-1].split(" ")[-1]
         ax.axhline(y = float(neff_requested_0), linestyle = "--", color = "black", alpha = 0.8, linewidth = 1.0, label = "worker 0 neff")
-        neff_requested_1 = os.popen('cat CIP_worker1.sub | grep -Eo "n-eff [+-]?[0-9]+([.][0-9]+)?"').read()[:-1].split(" ")[-1] 
+        run_diagnostics["CIP_neff"]["CIP_worker0"] = float(neff_requested_0)
+        neff_requested_1 = os.popen('cat CIP_worker1.sub | grep -Eo "\-\-n-eff [+-]?[0-9]+([.][0-9]+)?"').read()[:-1].split(" ")[-1]
         ax.axhline(y = float(neff_requested_1), linestyle = "--", color = "blue", alpha = 0.8, linewidth = 1.0, label = "worker 1 neff")
-        neff_requested_2 = os.popen('cat CIP_worker2.sub | grep -Eo "n-eff [+-]?[0-9]+([.][0-9]+)?"').read()[:-1].split(" ")[-1] # could find a better way to do this
+        run_diagnostics["CIP_neff"]["CIP_worker1"] = float(neff_requested_1)
+        neff_requested_2 = os.popen('cat CIP_worker2.sub | grep -Eo "\-\-n-eff [+-]?[0-9]+([.][0-9]+)?"').read()[:-1].split(" ")[-1] # could find a better way to do this
         ax.axhline(y = float(neff_requested_2), linestyle = "--", color = "red", alpha = 0.8, linewidth = 1.0, label = "worker 2 neff")
+        run_diagnostics["CIP_neff"]["CIP_worker2"] = float(neff_requested_2)
     except Exception as e:
         print(e)
         print("Couldn't plot requested neff.")
     ax.legend(loc="upper left")
+    run_diagnostics["CIP_neff_achieved"] = {}
     for n in iterations:
         i = path_to_main_folder + f"/iteration_{n}_cip"
-        os.system(f"rm {i}/neff_data.txt")
-        cmd=f"for i in {i}/overlap-grid-*-*ESS* ; do cat $i | tail -n 1 >> {i}/neff_data.txt; done"
-        os.system(cmd)
-        tmp_ESS_data=np.loadtxt(f"{i}/neff_data.txt", usecols=[2])
+        os.system(f"rm {i}/neff_data.txt 2> /dev/null")
+        cmd=f"for i in {i}/overlap-grid-*-*ESS* ; do cat $i | tail -n 1 >> {i}/neff_data.txt; done 2> /dev/null"
+        os.system(cmd) 
         try:
+            tmp_ESS_data=np.loadtxt(f"{i}/neff_data.txt", usecols=[2])
             low, avg, high = np.percentile(tmp_ESS_data, [2.5,50,97.5])
             low_1_std, avg, high_1_std = np.percentile(tmp_ESS_data, [16,50,84])
             mini, maxi = np.min(tmp_ESS_data), np.max(tmp_ESS_data)
@@ -172,12 +195,14 @@ def plot_neff_data(path_to_main_folder):
             print(f"neff detail iteration = {iterations[n]}: Average={avg:0.2f}, low std={low:0.2f}, high std={high:0.2f}")
             ax.errorbar(iterations[n], avg, yerr=np.array([avg-low,high-avg]).reshape(-1, 1), color = "royalblue", ecolor = "red", fmt ='o')
             ax.errorbar(iterations[n], avg, yerr=np.array([avg-low_1_std,high_1_std-avg]).reshape(-1, 1), color = "royalblue", ecolor = "green", fmt ='.')
+            run_diagnostics["CIP_neff_achieved"][f"iteration_{n}_neff"] = avg
             iteration_prog = n
         except Exception as e:
-            print(e)
+            #print(e)
             print(f"Couldn't plot neff for iteration = {iterations[n]}")
     print(f"READING lnL FILES FROM iteration_{iterations[iteration_prog]}_cip")
     lnL_files_last_iteration = glob.glob(path_to_main_folder + f"/iteration_{iterations[iteration_prog]}_cip/*lnL*")
+    run_diagnostics["latest_grid"] = f"overlap-grid-{iteration_prog+1}.xml.gz"
     collect_lnL = []
     for j in np.arange(len(lnL_files_last_iteration)):
         data = np.loadtxt(lnL_files_last_iteration[j])
@@ -261,6 +286,7 @@ def plot_JS_divergence(posterior_1_path, posterior_2_path, plot_title, parameter
     posterior_data2 = np.loadtxt(posterior_2_path)
     JSD_array = []
     JSD_error = []
+    run_diagnostics["JSD"][plot_title] = {}
     for parameter in parameters:
         if parameter == "chi_eff":
             data1, data2 = get_chi_eff_from_mass_and_spins(posterior_data1), get_chi_eff_from_mass_and_spins(posterior_data2)
@@ -270,12 +296,59 @@ def plot_JS_divergence(posterior_1_path, posterior_2_path, plot_title, parameter
             JSD = calculate_JS_divergence(posterior_data1[:, parameter_n], posterior_data2[:, parameter_n])
         JSD_array.append(JSD.median)
         JSD_error.append([JSD.minus, JSD.plus])
+        run_diagnostics["JSD"][plot_title][parameter] = JSD.median
     fig, ax = plt.subplots()
     ax.set_title(plot_title)
     ax.set_ylabel("JSD")
     ax.axhline( y =0.05, linewidth = 1.0, linestyle = "--", color = "red")
     ax.errorbar(parameters, JSD_array, np.array(JSD_error).T,  color = "royalblue", ecolor = "red", fmt ='o', markersize = 5)
     fig.savefig(path+f"/plots/JSD_{plot_title}.png", bbox_inches='tight')
+
+def evaluate_run(run_diagnostics):
+    # evalute all.net (no of high lnL points, number with large error)
+    f = open(path+f"/plots/Diagnostics.txt", "w")
+    f.write("###########################################################################################\n")
+    f.write("# ILE diagnostics\n")
+    f.write("###########################################################################################\n")
+    f.write(f"Total number of lnL evaluations = {run_diagnostics['total_lnL_evaluations']}\n")
+    f.write(f"Total number of high lnL points = {run_diagnostics['total_high_lnL_points']}\n")
+    f.write(f"Total number of high lnL points used = {run_diagnostics['high_lnL_points']}\n")
+    f.write(f"Total number of high lnL points not used due to large error = {run_diagnostics['high_lnL_points_with_large_error']}\n")
+    ILE_is_good = True
+    f.write("\n")
+    if run_diagnostics['high_lnL_points_with_large_error']/run_diagnostics['total_high_lnL_points'] > 0.5:
+        f.write(f"\t--> Large number of points have a high Monte Carlo error (sigma = 0.4). Consider reducing d-max, increasing n-max and/or changing the sampler.\n")
+        ILE_is_good = False
+    if run_diagnostics['high_lnL_points'] <= 500:
+        f.write(f"\t--> Number of high likelihood points is less than 500, which could be caused due to initial grid not having sufficient resolution. Considering reducing the parameter space and/or increasing the number of points on the grid.\n")
+        ILE_is_good = False
+    if 500 < run_diagnostics['high_lnL_points'] < 5000:
+        f.write(f"\t--> Number of high likelihood points is less than 5000, considering rerunning with {run_diagnostics['latest_grid']} as your starting grid and copying this run's all.net as bonus.composite in your new run directory.\n")
+        ILE_is_good = False
+    if ILE_is_good:
+        f.write("\t--> ILE status: GOOD!\n")
+    if not(ILE_is_good):
+        f.write("\t--> ILE status: BAD!\n")
+    f.write("\n\n")
+    f.write("###########################################################################################\n")
+    f.write("# CIP diagnostics\n")
+    f.write("###########################################################################################\n")
+    f.write(f"CIP neff requested = {run_diagnostics['CIP_neff']}]\n")
+    f.write(f"CIP neff achieved = {run_diagnostics['CIP_neff_achieved']}\n")
+    CIP_is_good = True
+    last_iter_neff = run_diagnostics['CIP_neff'][list(run_diagnostics['CIP_neff'].keys())[-1]]
+    last_iter_neff_achieved = run_diagnostics['CIP_neff_achieved'][list(run_diagnostics['CIP_neff_achieved'].keys())[-1]]
+    if last_iter_neff > last_iter_neff_achieved:
+        f.write(f"\t--> neff has not been achieved, the posterior might be broader and/or irregular in shape. If that is the case, consider reducing the parameter space and/or changing the sampler. You could also reduce the neff per CIP job, while increasing the number of CIP submissions per iteration.\n")
+        CIP_is_good = False
+    f.write(f"\nCIP Jensen-Shannon divergence: {run_diagnostics['JSD']}\n")
+    f.write(f"WARNING: If JSD for any parameter between last and second last iteration is > 0.05, then the run is not yet converged. Consider rerunning with {run_diagnostics['latest_grid']} as your starting grid and copying this run's all.net as bonus.composite in your new run directory.\n")
+    f.write("\n")
+    if CIP_is_good:
+        f.write("\t--> CIP status: GOOD!\n")
+    if not(CIP_is_good):
+        f.write("\t--> CIP status: BAD!\n")
+    f.close()
 
 ###########################################################################################
 # Generate plots
@@ -329,3 +402,6 @@ if analyse_subdag:
     plot_JS_divergence(subdag_posterior_files[-1], subdag_posterior_files[-2], "Subdag") # the last two subdag iterations
     plot_JS_divergence(main_posterior_files[-1], subdag_posterior_files[-1], "Main") # the last main and subdag iteration
 
+# run diagnostics
+print(run_diagnostics)
+evaluate_run(run_diagnostics)
