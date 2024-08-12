@@ -31,11 +31,11 @@ print(f"Saving frames in {opts.save_path}")
 
 P = lalsimutils.ChooseWaveformParams()
 
-P.m1 = 1e6 * lal.MSUN_SI
-P.m2 = 1e6 * lal.MSUN_SI
-P.s1z = 0.6
-P.s2z = 0.6
-P.dist = 320e3  * lal.PC_SI * 1e6 
+P.m1 = 3e6 * lal.MSUN_SI
+P.m2 = 1.5e6 * lal.MSUN_SI
+P.s1z = 0.4
+P.s2z = -0.3
+P.dist = 4729.976  * lal.PC_SI * 1e6 
 P.fmin = 8*10**(-5)
 P.fmax = 0.125
 P.deltaF = 1/(32*32768)
@@ -49,14 +49,15 @@ P.tref = 0.0
 
 lmax = 4
 modes = [(2,2),(2,1),(3,3),(3,2),(3,1),(4,4),(4,3),(4,2)]
-beta  = np.pi/6
+beta  = np.pi/4
 lamda = np.pi/5
-psi = np.pi/4
-phi_ref = np.pi/3
-inclination = np.pi/2
+psi = np.pi/7
+phi_ref = np.pi/5
+inclination = np.pi/4
 fref = None
 P.approx = lalsimulation.GetApproximantFromString("NRHybSur3dq8")
-path_to_NR_hdf5="/home/aasim.jan/NR-manager/Sequence-MAYA-Generic/nr-errors/D12_q1.00_a0.60_m200.h5"
+path_to_NR_hdf5=None
+#path_to_NR_hdf5="/home/aasim.jan/NR-manager/Sequence-MAYA-Generic/nr-errors/D12_q1.00_a0.60_m200.h5"
 
 snr_fmin = 10**(-4)
 snr_fmax = 0.125
