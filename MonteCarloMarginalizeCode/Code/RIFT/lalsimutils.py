@@ -4614,17 +4614,22 @@ def hlmoft_from_NRhdf5(path_to_hdf5, P, lmax= None, only_mode=None, taper_percen
 
     #Which modes to get
     modes = []
-    if only_mode == None and lmax == None:
-        lmax = data_1.attrs["Lmax"]
-    if only_mode==None:
+    if only_mode is None:
         for l in range(2,lmax+1):
             for m in range(-l,0):
                 modes.append((l,m))
             for m in range(1,l+1):
                 modes.append((l,m))
-    if only_mode is not None:
+    elif only_mode is not None:
         for j in only_mode:
             modes.append(j)
+    else:
+        lmax = data_1.attrs["Lmax"]
+        for l in range(2,lmax+1):
+            for m in range(-l,0):
+                modes.append((l,m))
+            for m in range(1,l+1):
+                modes.append((l,m))
     print(f"modes used = {modes}")
 
     #interpolating using romspline
