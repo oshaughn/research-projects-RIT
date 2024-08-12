@@ -979,7 +979,7 @@ if use_ini:
         q_min = float(engine_dict['q-min'])
         eta_min = q_min/(1.+q_min)**2
     if 'ecc_min' in engine_dict:
-        ecc_range_str = "  ["+str(engine_dict['force_ecc_min'])+","+str(engine_dict['force_ecc_max'])+"]"
+        ecc_range_str = "  ["+str(engine_dict['ecc_min'])+","+str(engine_dict['ecc_max'])+"]"
     if 'meanPerAno_min' in engine_dict:
         meanPerAno_range_str = "  ["+str(engine_dict['meanPerAno_min'])+","+str(engine_dict['meanPerAno_max'])+"]"
         
