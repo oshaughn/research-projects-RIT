@@ -12,18 +12,29 @@ from RIFT.LISA.response.LISA_response import *
 import lal
 import lalsimulation
 import matplotlib.pyplot as plt
-
 from argparse import ArgumentParser
+
+############################################################################################
+# Arguments
+###########################################################################################
 parser = ArgumentParser()
 parser.add_argument("--save-path", default=None, help="Path where you want to save the h5 files")
-# parser.add_argument("--inj", default=None, help="Inspiral XML file containing injection information.")
+parser.add_argument("--inj", default=None, help="Inspiral XML file containing injection information.")
 # parser.add_argument("--calculate-snr", default=False, help="Calculate SNR of the fake signal.")
 parser.add_argument("--psd-path", default=None, help="Path to a xml.gz PSD needed to calculate SNR.")
 # parser.add_argument("--event", default=0, help="Event ID of injection XML to use.")
+parser.add_argument("--deltaF", default=1/(64*32768), help="DeltaF of the injectons")
+parser.add_argument("--modes", default= "[(2,2),(2,1),(3,3),(3,2),(3,1),(4,4),(4,3),(4,2)]", help="list of modes")
+parser.add_argument("--path-to-NR-hdf5", default=None, help="path to NRhdf5 is using NR hdf5 for injection")
+parser.add_argument("--snr-fmin", default=0.0001, help="fmin while calculating SNR")
+parser.add_argument("--fmax", default=0.125, help="fmax for generating waveforms")
 opts = parser.parse_args()
-# P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))
 
-#############################################
+###########################################################################################
+# Injection parameters
+###########################################################################################
+P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.inj))
+P_inj = P_list[0]
 if not(opts.save_path):
     print("Save path not provided")
     opts.save_path = os.getcwd()
@@ -31,38 +42,53 @@ print(f"Saving frames in {opts.save_path}")
 
 P = lalsimutils.ChooseWaveformParams()
 
-P.m1 = 3e6 * lal.MSUN_SI
-P.m2 = 1.5e6 * lal.MSUN_SI
-P.s1z = 0.4
-P.s2z = -0.3
-P.dist = 4729.976  * lal.PC_SI * 1e6 
-P.fmin = 8*10**(-5)
-P.fmax = 0.125
-P.deltaF = 1/(32*32768)
-P.deltaT = 0.5/P.fmax
+P.m1 = P_inj.m1 
+P.m2 = P_inj.m2
+P.s1z = P_inj.s1z
+P.s2z = P_inj.s2z
+P.dist = P_inj.dist
+P.fmin = P_inj.fmin
+P.fmax = float(opts.fmax)
+P.deltaF = float(opts.deltaF)
 
+P.deltaT = 0.5/P.fmax
 P.phiref = 0.0   # add phiref later (confirm with ROS)!
 P.inclination = 0.0 # add inclination later (confirm with ROS)!
 P.psi = 0.0 # is not used when generating a waveform
-P.fref = 8*10**(-5) # what happens?
+P.fref = P_inj.fref # what happens?
 P.tref = 0.0
 
-lmax = 4
-modes = [(2,2),(2,1),(3,3),(3,2),(3,1),(4,4),(4,3),(4,2)]
-beta  = np.pi/4
-lamda = np.pi/5
-psi = np.pi/7
-phi_ref = np.pi/5
-inclination = np.pi/4
-fref = None
-P.approx = lalsimulation.GetApproximantFromString("NRHybSur3dq8")
-path_to_NR_hdf5=None
-#path_to_NR_hdf5="/home/aasim.jan/NR-manager/Sequence-MAYA-Generic/nr-errors/D12_q1.00_a0.60_m200.h5"
 
-snr_fmin = 10**(-4)
+modes = np.array(eval(opts.modes))
+lmax  = np.max(modes[:,0])
+beta  = P_inj.theta
+lamda = P_inj.phi
+psi = P_inj.psi
+phi_ref = P_inj.phiref
+inclination = P_inj.incl
+tref = float(P_inj.tref)
+fref = None
+P.approx = P_inj.approx
+#path_to_NR_hdf5=None
+#path_to_NR_hdf5="/home/aasim.jan/NR-manager/Sequence-MAYA-Generic/nr-errors/D12_q1.00_a0.60_m200.h5"
+path_to_NR_hdf5=opts.path_to_NR_hdf5
+
+snr_fmin = 1.9*10**(-4)
 snr_fmax = 0.125
-##############################################
-# Functions
+if 1/P.deltaF/60/60/24 >0.5:
+    print(f"Data length = {1/P.deltaF/60/60/24} days.")
+else:
+    print(f"Data length = {1/P.deltaF/60/60} hrs.")
+
+
+print(f"\nWaveform is being generated with m1 = {P.m1/lalsimutils.lsu_MSUN}, m2 = {P.m2/lalsimutils.lsu_MSUN}, s1z = {P.s1z}, s2z = {P.s2z}")
+print(f"deltaF = {opts.deltaF}, fmin  = {P.fmin}, fmax = {P.fmax}, deltaT = {P.deltaT}, modes = {list(modes)}, lmax = {lmax}, tref = {tref}")
+print(f"phiref = {phi_ref}, psi = {psi}, inclination = {inclination}, beta ={beta}, lambda = {lamda}")
+print(f"path_to_NR_hdf5 = {path_to_NR_hdf5}, approx = {lalsimulation.GetStringFromApproximant(P.approx)}\n")
+
+###########################################################################################
+# Functions to calculate SNR and plot 
+###########################################################################################
 def calculate_snr(data_dict, fmin, fmax, fNyq, psd):
     """This function calculates zero-noise snr of a LISA signal."""
     assert data_dict["A"].deltaF == data_dict["E"].deltaF == data_dict["T"].deltaF
@@ -100,17 +126,16 @@ def create_PSD_injection_figure(data_dict, psd, injection_save_path, snr):
     plt.grid(alpha = 0.5)
     # save
     plt.savefig(injection_save_path + "/injection-psd.png", bbox_inches = "tight")
-##############################################
 
+###########################################################################################
+# Generatin injection
+###########################################################################################
 # generate modes
-print("\n################")
-P.print_params_lisa()
-print("################\n")
 hlmf = lalsimutils.hlmoff_for_LISA(P, Lmax=lmax, modes=modes, path_to_NR_hdf5=path_to_NR_hdf5) 
 modes = list(hlmf.keys())
 
 # create injections
-data_dict = create_lisa_injections(hlmf, P.fmax, fref, beta, lamda, psi, inclination, phi_ref, P.tref) 
+data_dict = create_lisa_injections(hlmf, P.fmax, fref, beta, lamda, psi, inclination, phi_ref, tref) 
 
 # save them in h5 format
 A_h5_file = h5py.File(f'{opts.save_path}/A-fake_strain-1000000-10000.h5', 'w')
