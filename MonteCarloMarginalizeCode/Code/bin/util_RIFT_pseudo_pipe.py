@@ -292,6 +292,7 @@ parser.add_argument("--force-s1z-range", default=None, help="s1z range")
 parser.add_argument("--force-s2z-range", default=None, help="s2z range")
 parser.add_argument("--force-lambda-range", default=None, help="lambda range")
 parser.add_argument("--force-beta-range", default=None, help="beta range")
+parser.add_argument("--force-cip-neff", default=None, help="Force neff for intermediate steps, for really high SNRs you should request a high neff while asking for low number of samples (20 neff and 2 samples) per job")
 opts=  parser.parse_args()
 
 
@@ -995,7 +996,7 @@ for indx in np.arange(len(instructions_cip)):
     n_workers = 1
     if opts.cip_explode_jobs:
         n_workers = opts.cip_explode_jobs
-    n_workers_last =n_workers
+    n_workern_eff_cip_heres_last =n_workers
     if opts.cip_explode_jobs_last:
         n_workers_last = opts.cip_explode_jobs_last
     n_eff_cip_last = int(n_sample_target/n_workers_last)
@@ -1005,6 +1006,9 @@ for indx in np.arange(len(instructions_cip)):
         # LISA
         if opts.force_cip:
             n_eff_cip_here = int(n_sample_target/n_workers)
+        # LISA high SNR, you want to request high neff knowing the CIP will not achieve it and corresponginly requesting lower number of samples per job (2 samples and 20 neff)
+        if opts.force_cip_neff:
+            n_eff_cip_here = int(force_cip_neff)
     else:
         n_eff_cip_here = n_eff_cip_last
     n_sample_min_per_worker = int(n_eff_cip_here/100)+2  # need at least 2 samples, and don't have any worker fall down on the job too much compared to the target
