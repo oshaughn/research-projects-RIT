@@ -401,7 +401,6 @@ if opts.alternate_start:
         pass
     else:
         cmd += ' --first-iteration-jumpstart '
-
     
 os.system(cmd)   
           
