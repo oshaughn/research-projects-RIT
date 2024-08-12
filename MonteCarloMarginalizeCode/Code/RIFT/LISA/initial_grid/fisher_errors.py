@@ -6,21 +6,7 @@ import RIFT.lalsimutils as lsu
 from RIFT.LISA.response.LISA_response import *
 from argparse import ArgumentParser
 from scipy.interpolate import interp1d
-
-###########################################################################################
-parser=ArgumentParser()
-parser.add_argument("--inj", help="Full path to mdc.xml.gz")
-parser.add_argument("--psd-path", help="Full path to A-psd.xm.gz")
-parser.add_argument("--snr", help="SNR of the signal")
-opts = parser.parse_args()
-
-print(f"Loading file:\n {opts.inj}")
-P_inj_list = lsu.xml_to_ChooseWaveformParams_array(opts.inj)
-P_inj = P_inj_list[0]
-print("######")
-print(f"m1 = {P_inj.m1/lsu.lsu_MSUN}, m2 = {P_inj.m2/lsu.lsu_MSUN}, s1z = {P_inj.s1z}, s2z = {P_inj.s2z}, beta = {P_inj.theta}, lambda = {P_inj.phi}") 
-print("######")
-
+import os
 ###########################################################################################
 # Functions to generate 2-PN waveforms as per http://arxiv.org/abs/gr-qc/9502040.
 ###########################################################################################
@@ -91,7 +77,7 @@ def get_wf(fvals, Mc, eta, sigma, beta, psd_vals, coa_phase=0, coa_time=0, snr=N
     if LISA_response:
          H = transformed_Hplus_Hcross(skylocation[0], skylocation[1], 0.0, 0.0, 0.0, 2, 2)
          time = time_2PN(fvals, Mc, eta, sigma, beta, coa_time)
-         A, E, T = Evaluate_Gslr(time, fvals, H, skylocation[0], skylocation[1])
+         A, E, T = Evaluate_Gslr(time + coa_time, fvals, H, skylocation[0], skylocation[1])
          wf = wf * A
     if snr:
         # bring the source closer or further, depending on SNR
@@ -127,6 +113,8 @@ def get_mc_eta_from_mass(m1, m2):
     """Returns m1, m2 from mc and eta."""
     mc = (m1*m2)**(3/5) / (m1+m2)**(1/5)
     eta = (m1*m2) / (m1+m2)**(2)
+    if eta==0.25:
+        eta=0.24999
     return mc, eta
 
 def get_inner_product(wf1, wf2, psd_vals, deltaF):
@@ -175,7 +163,6 @@ def get_fisher_matrix(Mc, eta, sigma, beta, fvals, psd_vals, deltaF, wf):
 def get_error_bounds(P_inj, snr, psd_path):
     response=True # use LISA response
     deltaF = 0.00001 # hardcoded deltaF 
-
     mc, eta = get_mc_eta_from_mass(P_inj.m1/lsu.lsu_MSUN, P_inj.m2/lsu.lsu_MSUN)
     q = P_inj.m2/P_inj.m1
 
@@ -188,13 +175,13 @@ def get_error_bounds(P_inj, snr, psd_path):
     sigma, beta = get_sigma_beta(Mc, eta, P_inj.s1z, P_inj.s2z)
     fmax = 6**(-3/2) / np.pi/ M
     print(f"Fmax is = {fmax} Hz")
-    fvals = np.arange(0.0001, fmax, deltaF)
+    fvals = np.arange(float(opts.snr_fmin), fmax, deltaF)
 
     # Load psd
     psd_vals = load_psd(opts.psd_path, fvals)
 
     # generate waveform
-    wf = get_wf(fvals, Mc, eta, sigma, beta, psd_vals, 0,0, snr=float(opts.snr), LISA_response=response, skylocation=[P_inj.theta, P_inj.phi])
+    wf = get_wf(fvals, Mc, eta, sigma, beta, psd_vals, 0, float(P_inj.tref), snr=float(opts.snr), LISA_response=response, skylocation=[P_inj.theta, P_inj.phi])
     print(f"SNR of generated waveform is = {np.sqrt(get_inner_product(wf,wf,psd_vals, deltaF))}")
 
     # Calculate fisher matrix
@@ -203,19 +190,30 @@ def get_error_bounds(P_inj, snr, psd_path):
     factor_mc = 50
     factor_spin1 = 60
     factor_spin2 = 60
-    factor_beta = 0.022*(210/snr)
-    factor_lambda =  0.025*(210/snr)
     spin_bounds = get_spin_error(eta, q, P_inj.s1z, P_inj.s2z, (np.sqrt(1/tau_ij[3,3]))*eta, np.sqrt(1/tau_ij[4,4]), np.sqrt(1/tau_ij[5,5]))
     
     print(f"Mc span = {2*factor_mc*np.sqrt(1/tau_ij[2,2])*mc}, eta span = {2*np.sqrt(1/tau_ij[3,3])*eta*factor_eta}, s1z span = {2*factor_spin1*spin_bounds[0]}, s2z span = {2*factor_spin2*spin_bounds[1]}, beta span = {0.036*(210/snr)**2}, lambda span = {0.044*(210/snr)**2}")
 
 
-    return np.array([ mc - factor_mc*np.sqrt(1/tau_ij[2,2])*mc, mc + factor_mc*np.sqrt(1/tau_ij[2,2])*mc, eta-(np.sqrt(1/tau_ij[3,3]))*eta*factor_eta, eta+(np.sqrt(1/tau_ij[3,3]))*eta*factor_eta, P_inj.s1z - factor_spin1*spin_bounds[0], P_inj.s1z + factor_spin1*spin_bounds[0], P_inj.s2z - factor_spin2*spin_bounds[1],  P_inj.s2z + factor_spin2*spin_bounds[1], P_inj.theta - factor_beta, P_inj.theta + factor_beta,  P_inj.phi - factor_lambda, P_inj.phi + factor_lambda])
+    return np.array([ mc - factor_mc*np.sqrt(1/tau_ij[2,2])*mc, mc + factor_mc*np.sqrt(1/tau_ij[2,2])*mc, eta-(np.sqrt(1/tau_ij[3,3]))*eta*factor_eta, eta+(np.sqrt(1/tau_ij[3,3]))*eta*factor_eta, P_inj.s1z - factor_spin1*spin_bounds[0], P_inj.s1z + factor_spin1*spin_bounds[0], P_inj.s2z - factor_spin2*spin_bounds[1],  P_inj.s2z + factor_spin2*spin_bounds[1], P_inj.theta - 0.018*(210/snr), P_inj.theta + 0.018*(210/snr),  P_inj.phi - 0.022*(210/snr), P_inj.phi + 0.022*(210/snr)])
 
 
 ###########################################################################################
 
 if __name__ =='__main__':
+    ###########################################################################################
+    parser=ArgumentParser()
+    parser.add_argument("--inj", help="Full path to mdc.xml.gz")
+    parser.add_argument("--psd-path", help="Full path to A-psd.xm.gz")
+    parser.add_argument("--snr", help="SNR of the signal")
+    parser.add_argument("--snr-fmin", help="fmin used in snr calculations", default=0.0001)
+    opts = parser.parse_args()
+    print(f"Loading file:\n {opts.inj}")
+    P_inj_list = lsu.xml_to_ChooseWaveformParams_array(opts.inj)
+    P_inj = P_inj_list[0]
+    print("######")
+    print(f"m1 = {P_inj.m1/lsu.lsu_MSUN}, m2 = {P_inj.m2/lsu.lsu_MSUN}, s1z = {P_inj.s1z}, s2z = {P_inj.s2z}, beta = {P_inj.theta}, lambda = {P_inj.phi}, tref = {P_inj.tref} s")
+    print("######")
     error_bounds = get_error_bounds(P_inj, float(opts.snr), opts.psd_path)
     print(f"Mc bounds = [{error_bounds[0]:0.2f}, {error_bounds[1]:0.2f}]")
     print(f"eta bounds = [{error_bounds[2]:0.8f}, {error_bounds[3]:0.8f}]")
