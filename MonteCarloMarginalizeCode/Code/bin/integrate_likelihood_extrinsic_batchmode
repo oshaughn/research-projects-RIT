@@ -10,11 +10,6 @@
 Integrate the extrinsic parameters of the prefactored likelihood function.
 """
 ####################### Import ###################################
-### import statements for local testing
-import sys
-RIFT = "RIFT-LISA-3G-O4c"
-sys.path.append(f"/Users/aasim/Desktop/Research/Mcodes/{RIFT}/MonteCarloMarginalizeCode/Code")
-###
 import functools
 from optparse import OptionParser, OptionGroup
 
@@ -333,7 +328,6 @@ optp.add_option_group(intrinsic_int_params)
 
 #
 # Add the pinnable parameters
-# LISA check for beta and lambda pin
 pinnable = OptionGroup(optp, "Pinnable Parameters", "Specifying these command line options will pin the value of that parameter to the specified value with a probability of unity.")
 for pin_param in LIKELIHOOD_PINNABLE_PARAMS:
     option = "--" + pin_param.replace("_", "-")
@@ -530,7 +524,7 @@ if opts.sim_xml:
         if opts.LISA:
            #P.fref = opts.lisa_reference_frequency
            P.fref = opts.reference_freq # we are distinguishing between tempalte fref and lisa_fref
-           P.tref = opts.lisa_reference_time
+           P.tref = 0.0 
            P.dist = factored_likelihood_LISA.distGpcRef * 1.e9 * lal.PC_SI 
         else:
           P.fref = opts.reference_freq
@@ -1081,7 +1075,7 @@ if opts.skymap_file:
 # Determine pinned and non-pinned parameters
 #
 
-# For LISA, right now we cannot vary over skylocation here. So we either fix it to true value or to zero, depending on whether we are fitting for skylocation.
+# LISA
 # I am calling ecliptic latitude (beta) as declination and ecliptic longitude (lambda) as right-ascension.
 
 pinned_params = get_pinned_params(opts)
