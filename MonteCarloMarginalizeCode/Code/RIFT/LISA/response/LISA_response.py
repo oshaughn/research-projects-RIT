@@ -301,10 +301,15 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=False):#teste
         # time = np.gradient(-dphi, 2*np.pi*deltaF)
 
         # only focusing on f bins where data exists
-        nzidx = np.nonzero(abs(hlm_tmp.data.data))[0]
-        kmin, kmax = nzidx[0], nzidx[-2]
-        time[:kmin] = time[kmin]
-        time[kmax:] = time[kmax]
+        # I had to introduce this statement since sometimes a mode doesn't have data (looking at you PhenomHM and PhenomXHM)
+        try:
+            nzidx = np.nonzero(abs(hlm_tmp.data.data))[0]
+            kmin, kmax = nzidx[0], nzidx[-2]
+            time[:kmin] = time[kmin]
+            time[kmax:] = time[kmax]
+        except:
+            print(f"No data for {mode}")
+            pass
 
         # saving data
         tf_dict[mode] = time 
