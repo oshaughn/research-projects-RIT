@@ -186,7 +186,10 @@ def get_error_bounds(P_inj, snr, psd_path):
 
     # Calculate fisher matrix
     tau_ij, inv_tau_ij = get_fisher_matrix(Mc, eta, sigma, beta, fvals, psd_vals, deltaF, wf)
-    factor_eta = 12.5
+    if eta < 0.24:
+        factor_eta = 12.5
+    if eta >=0.24: # the errors estimates seem to be large for q~1 case.
+        factor_eta = 1.0
     factor_mc = 50
     factor_spin1 = 60
     factor_spin2 = 60
