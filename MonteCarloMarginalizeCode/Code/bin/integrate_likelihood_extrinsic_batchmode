@@ -1399,6 +1399,9 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
     if not(opts.lisa_fixed_sky):
         lisa_sky_beta = P.theta
         lisa_sky_lamda = P.phi
+    if opts.lisa_fixed_sky:
+        lisa_sky_lamda = float(opts.ecliptic_longitude)
+        lisa_sky_beta = float(opts.ecliptic_latitude)
 
     # Precompute
     # fNyq is the max resolvable frequency for a waveform. It is 0.5/deltaT. RIFT needs deltaT, deltaF for waveform generation (information present in P) and for integration it needs fmax (fmax <= fNyq)
