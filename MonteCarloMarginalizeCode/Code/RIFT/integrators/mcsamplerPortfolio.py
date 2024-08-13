@@ -195,13 +195,16 @@ class MCSampler(object):
 
     def setup(self,  **kwargs):
         self.extra_args =kwargs  # may need to pass/use during the 'update' step
-        if not('portfolio_breakpoints') in kwargs:
+        if 'oracle_realizations' in kwargs:
+          if kwargs['oracle_realizations']: 
+            self.oracle_realizations = kwargs['oracle_realizations']  # might not have been initialized earlier
+        if (not('portfolio_breakpoints') in kwargs) or not(self.portfolio_breakpoints):
           self.portfolio_breakpoints = np.zeros(len(self.portfolio)) # always use all of them
-        else:
-          self.portfolio_breakpoints = kwargs['portfolio_breakpoints']     
-          if self.portfolio_breakpoints is None:
-            self.portfolio_breakpoints = np.zeros(len(self.portfolio)) # always use all of them
-          assert len(self.portfolio_breakpoints) == len(self.portfolio_realizations)  # must match
+        if 'portfolio_breakpoints' in kwargs:
+            if kwargs['portfolio_breakpoints']:
+              self.portfolio_breakpoints =np.array( kwargs['portfolio_breakpoints']     )
+        assert len(self.portfolio_breakpoints) == len(self.portfolio_realizations)  # must match
+
 
         portfolio_extra_args = [{} for x in self.portfolio_realizations] # empty list
         if 'portfolio_args' in kwargs:
@@ -224,6 +227,7 @@ class MCSampler(object):
               args_here.update(kwargs)
               args_here.update(portfolio_extra_args[indx])
               member.setup(**args_here)
+              member.params_ordered = list(self.params_ordered)  # enforce parameters for oracle being sane
 
     def draw(self,n_samples, *args, **kwargs):
         """
@@ -377,7 +381,7 @@ class MCSampler(object):
 
 
         n_zero_prior =0
-        it_max_oracle = 3
+        it_max_oracle = 7
         it_now  =0
         if 'integrand' in self._rvs:
           # remove conflict
@@ -543,7 +547,11 @@ class MCSampler(object):
             for indx, member in enumerate(self.portfolio_realizations):
                 # update sampling prior, using ALL past data
                 # Don't update samples which are not being drawn
-                if self.portfolio_weights[indx] > self.portfolio_freeze_wt and self.portfolio_draw_iteration > self.portfolio_breakpoints[indx]:  
+                # always update if we have an oracle  - don't freeze out out oracle, UNLESS we have explicitly frozen it with a breakpoint
+                if self.portfolio_draw_iteration < self.portfolio_breakpoints[indx]:
+                  print("  - before activation breakpoint for member {} ".format( indx))
+                  pass
+                elif (len(self.oracle_realizations) > 0 and it_now <it_max_oracle) or (   self.portfolio_weights[indx] > self.portfolio_freeze_wt):
                   if not(hasattr(member, 'is_varaha')):
                     member.update_sampling_prior(log_weights, n_history,external_rvs=rvs_train,log_scale_weights=True, **update_dict)
                   else:
