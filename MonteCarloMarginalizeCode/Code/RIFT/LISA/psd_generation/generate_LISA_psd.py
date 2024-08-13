@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 import os
 from scipy import interpolate
 from argparse import ArgumentParser
-
+###########################################################################################
+# Arguments
 ###########################################################################################
 parser = ArgumentParser()
 parser.add_argument("--NC", default=3, type=int, help="Number of channels.")
