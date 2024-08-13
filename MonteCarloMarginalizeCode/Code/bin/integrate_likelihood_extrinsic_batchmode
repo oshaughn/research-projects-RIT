@@ -12,7 +12,7 @@ Integrate the extrinsic parameters of the prefactored likelihood function.
 ####################### Import ###################################
 import functools
 from optparse import OptionParser, OptionGroup
-
+import sys
 import numpy
 import numpy as np
 import os
