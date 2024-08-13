@@ -13,21 +13,21 @@ import lal
 import lalsimulation
 import matplotlib.pyplot as plt
 from argparse import ArgumentParser
-
+import os
 ############################################################################################
 # Arguments
 ###########################################################################################
 parser = ArgumentParser()
-parser.add_argument("--save-path", default=None, help="Path where you want to save the h5 files")
-parser.add_argument("--inj", default=None, help="Inspiral XML file containing injection information.")
-# parser.add_argument("--calculate-snr", default=False, help="Calculate SNR of the fake signal.")
+parser.add_argument("--save-path", default=os.getcwd(), help="Path where you want to save the h5 files")
 parser.add_argument("--psd-path", default=None, help="Path to a xml.gz PSD needed to calculate SNR.")
-# parser.add_argument("--event", default=0, help="Event ID of injection XML to use.")
-parser.add_argument("--deltaF", default=1/(64*32768), help="DeltaF of the injectons")
-parser.add_argument("--modes", default= "[(2,2),(2,1),(3,3),(3,2),(3,1),(4,4),(4,3),(4,2)]", help="list of modes")
-parser.add_argument("--path-to-NR-hdf5", default=None, help="path to NRhdf5 is using NR hdf5 for injection")
-parser.add_argument("--snr-fmin", default=0.0001, help="fmin while calculating SNR")
+parser.add_argument("--inj", default=None, help="Inspiral XML file containing injection information.")
 parser.add_argument("--fmax", default=0.125, help="fmax for generating waveforms")
+parser.add_argument("--deltaF", default=1/(64*32768), help="DeltaF of the injectons")
+parser.add_argument("--modes", default= "[(2,2),(2,1),(3,3),(3,2),(3,1),(4,4),(4,3),(4,2)]", help="list of modes to use in injection.")
+parser.add_argument("--path-to-NR-hdf5", default=None, help="path to NRhdf5 (LVK format) if using NR hdf5 for injection.")
+parser.add_argument("--snr-fmin", default=0.0001, help="fmin while calculating SNR")
+# parser.add_argument("--calculate-snr", default=False, help="Calculate SNR of the fake signal.")
+# parser.add_argument("--event", default=0, help="Event ID of injection XML to use.")
 opts = parser.parse_args()
 
 ###########################################################################################
@@ -67,14 +67,14 @@ psi = P_inj.psi
 phi_ref = P_inj.phiref
 inclination = P_inj.incl
 tref = float(P_inj.tref)
+
 fref = None
 P.approx = P_inj.approx
-#path_to_NR_hdf5=None
-#path_to_NR_hdf5="/home/aasim.jan/NR-manager/Sequence-MAYA-Generic/nr-errors/D12_q1.00_a0.60_m200.h5"
 path_to_NR_hdf5=opts.path_to_NR_hdf5
 
-snr_fmin = 1.9*10**(-4)
-snr_fmax = 0.125
+snr_fmin = float(opts.snr_fmin)
+snr_fmax = float(opts.fmax)
+print("###############")
 if 1/P.deltaF/60/60/24 >0.5:
     print(f"Data length = {1/P.deltaF/60/60/24} days.")
 else:
@@ -82,9 +82,10 @@ else:
 
 
 print(f"\nWaveform is being generated with m1 = {P.m1/lalsimutils.lsu_MSUN}, m2 = {P.m2/lalsimutils.lsu_MSUN}, s1z = {P.s1z}, s2z = {P.s2z}")
-print(f"deltaF = {opts.deltaF}, fmin  = {P.fmin}, fmax = {P.fmax}, deltaT = {P.deltaT}, modes = {list(modes)}, lmax = {lmax}, tref = {tref}")
+print(f"deltaF = {P.deltaF}, fmin  = {P.fmin}, fmax = {P.fmax}, deltaT = {P.deltaT}, modes = {list(modes)}, lmax = {lmax}, tref = {tref}")
 print(f"phiref = {phi_ref}, psi = {psi}, inclination = {inclination}, beta ={beta}, lambda = {lamda}")
 print(f"path_to_NR_hdf5 = {path_to_NR_hdf5}, approx = {lalsimulation.GetStringFromApproximant(P.approx)}\n")
+print("###############")
 
 ###########################################################################################
 # Functions to calculate SNR and plot 
@@ -128,7 +129,7 @@ def create_PSD_injection_figure(data_dict, psd, injection_save_path, snr):
     plt.savefig(injection_save_path + "/injection-psd.png", bbox_inches = "tight")
 
 ###########################################################################################
-# Generatin injection
+# Generating injection
 ###########################################################################################
 # generate modes
 hlmf = lalsimutils.hlmoff_for_LISA(P, Lmax=lmax, modes=modes, path_to_NR_hdf5=path_to_NR_hdf5) 
