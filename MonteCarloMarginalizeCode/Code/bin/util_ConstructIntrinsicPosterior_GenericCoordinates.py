@@ -2613,6 +2613,11 @@ if hasattr(sampler, 'setup'):
     extra_args_here['lnL']  = fn_passed   # pass it to oracle specifically
     if use_portfolio:
         print(" PORTFOLIO : setup")
+        our_breakpoints = None
+        if opts.sampler_portfolio_breakpoints:
+          print(opts.sampler_portfolio_breakpoints)
+          our_breakpoints = eval(opts.sampler_portfolio_breakpoints)
+          print(" Portfolio breakpoints ", our_breakpoints)
         if opts.sampler_portfolio_args:
           print(" PRE_EVAL", opts.sampler_portfolio_args)
           #opts.sampler_portfolio_args = list(map(lambda x: eval(' "{}" '.format(x)), opts.sampler_portfolio_args))
@@ -2622,7 +2627,7 @@ if hasattr(sampler, 'setup'):
             if not(isinstance(opts.sampler_portfolio_args[indx], dict)):
                 print(indx,opts.sampler_portfolio_args[indx]) 
           print(" ARGS ", opts.sampler_portfolio_args)
-    sampler.setup(portolio_args=opts.sampler_portfolio_args,**extra_args_here)
+    sampler.setup(portolio_args=opts.sampler_portfolio_args,portfolio_breakpoints=our_breakpoints,**extra_args_here)
 
 # Call oracle if provided, to initialize sampler 
 if sampler_oracle:  # NON-PORTFOLIO SCENARIO TARGET 
