@@ -342,6 +342,7 @@ parser.add_argument("--eos-param-values", default=None, help="Specific parameter
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu|portfolio")
 parser.add_argument("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
 parser.add_argument("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionary to be passed to that sampler_')
+parser.add_argument("--sampler-portfolio-breakpoints",default=None,  type=str, help='string representing list')
 parser.add_argument("--sampler-oracle",default=None, action='append', type=str, help='names of oracles to be used')
 parser.add_argument("--sampler-oracle-args",default=None, action='append', type=str, help='eval-able dictionary to be passed to that oracle')
 parser.add_argument("--oracle-reference-sample-file",default=None,  type=str, help='filename of reference sample file to be used as oracle for seeding sampler')
@@ -937,7 +938,7 @@ if not (opts.chiz_plus_range is None):
     prior_range_map['chiz_plus']=eval(opts.chiz_plus_range)
 
 if not (opts.eta_range is None):
-    print(" Warning: Overriding default eta range. USE WITH CARE")
+    print(f" Warning: Overriding default eta range to {eval(opts.eta_range)}. USE WITH CARE")
     eta_range=prior_range_map['eta'] = eval(opts.eta_range)  # really only useful if eta is a coordinate.  USE WITH CARE
     prior_range_map['delta_mc'] = np.sqrt(1-4*np.array(prior_range_map['eta']))[::-1]  # reverse
 
@@ -1381,12 +1382,12 @@ def fit_nn(x,y,y_errors=None,fname_export='nn_fit',adaptive=True):
 
 
 
-def fit_rf(x,y,y_errors=None,fname_export='nn_fit'):
+def fit_rf(x,y,y_errors=None,fname_export='nn_fit',verbose=False):
 #    from sklearn.ensemble import RandomForestRegressor
     from sklearn.ensemble import ExtraTreesRegressor
     # Instantiate model. Usually not that many structures to find, don't overcomplicate
     #   - should scale like number of samples
-    rf = ExtraTreesRegressor(n_estimators=100, verbose=True,n_jobs=-1) # no more than 5% of samples in a leaf
+    rf = ExtraTreesRegressor(n_estimators=100, verbose=verbose,n_jobs=-1) # no more than 5% of samples in a leaf
     if y_errors is None:
         rf.fit(x,y)
     else:
@@ -2544,7 +2545,7 @@ print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.
 
 
 extra_args={}
-if opts.sampler_method == "GMM":
+if opts.sampler_method == "GMM" or (opts.sampler_method == 'portfolio' and 'GMM' in opts.sampler_portfolio):
     n_max_blocks = ((1.0*int(opts.n_max))/n_step) 
     n_comp = opts.internal_n_comp # default
     def parse_corr_params(my_str):
@@ -2609,6 +2610,7 @@ if hasattr(sampler, 'setup'):
     extra_args_here = {}
     extra_args_here.update(extra_args)
     extra_args_here['oracle_realizations'] = oracle_realizations
+    extra_args_here['lnL']  = fn_passed   # pass it to oracle specifically
     if use_portfolio:
         print(" PORTFOLIO : setup")
         if opts.sampler_portfolio_args:
