@@ -4731,6 +4731,7 @@ def hlmoff_for_LISA(P, Lmax=4, modes=None, fd_standoff_factor=0.964, fd_alignmen
         hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct, Lmax, modes)
         # Resize it such that deltaF = 1/TDlen
         for mode in hlmsdict:
+            print("WARNING: RESIZING IN FD DOMAIN, THIS SHOULD NOT BE HAPPENING")
             hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
         return hlmsdict
 
