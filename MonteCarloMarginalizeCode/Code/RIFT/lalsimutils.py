@@ -3660,6 +3660,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         if not (P.deltaF is None):  # lalsim.SimInspiralImplementedFDApproximants(P.approx)==1 and 
             TDlen = int(1./P.deltaF * 1./P.deltaT)
             if TDlen < hlm_dict[mode].data.length:  # we have generated too long a signal!...truncate from LEFT. Danger!
+                    print(f"WARNING (mode = {mode}): Due to the requested length ({1/P.deltaF}s) being shorther than the generated waveform ({hlm_dict[mode].data.length*hlm_dict[mode].deltaT}s)\
+                          some of the inspiral is being truncated.")
                     hlm_dict[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm_dict[mode],hlm_dict[mode].data.length-TDlen,TDlen)
 
     # Tapering: applies to cases without direct return, like TDmodesFromPolarizations and ChooseTDModes
