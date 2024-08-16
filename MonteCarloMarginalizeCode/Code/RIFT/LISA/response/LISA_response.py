@@ -15,7 +15,6 @@
 import numpy as np
 import lal
 import RIFT.lalsimutils as lsu
-
 ###########################################################################################
 # Constants
 ###########################################################################################
@@ -279,23 +278,26 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=True):#tested
     amp_dict = {}
     phase_dict = {}
     print("Computing time frequency correspondence for mode")
-    for mode in np.array(list(hlm.keys())):
+    modes = np.array(list(hlm.keys()))
+    #freq = -lsu.evaluate_fvals(hlm[tuple(modes[0])]) # THIS CONSUMES MOST TIME
+    freq = -hlm[tuple(modes[0])].deltaF*np.arange(hlm[tuple(modes[0])].data.length//2, -hlm[tuple(modes[0])].data.length//2, -1) # this matches evaluate_fvals without using for loops
+    for mode in modes:
         print(f"\n\tMode = {mode}")
         mode = tuple(mode)
         # get frequency and mode data
         # freq, hlm_tmp = np.arange(-fmax, fmax, hlm[mode].deltaF), hlm[mode] # need to add deltaF if I just use lalsim as it is, I am padding to TDlen in hlmoff to don't need to anymore
-        freq, hlm_tmp = -lsu.evaluate_fvals(hlm[mode]), hlm[mode] #lsu's is negative of what we want
-
+        #freq, hlm_tmp = -lsu.evaluate_fvals(hlm[mode]), hlm[mode] #lsu's is negative of what we want
+        #hlm_tmp = hlm[mode]
         # get amplitude and phase
         amp, phase = get_amplitude_phase(hlm[mode])
         # compute tf = -1/(2pi) * d(phase)/df
         dphi = np.unwrap(np.diff(phase)) 
-        time = np.divide(-dphi, (2.*np.pi*np.diff(freq)))
+        time = np.divide(-dphi, (2.*np.pi*hlm[mode].deltaF))
         # diff reduces len by 1 so artifically increasing it by adding an extra zero at the end
         tmp = np.zeros(len(time)+1)
         tmp[:-1] = time
         time = tmp
-
+        
         # this didn't work
         # deltaF = freq[1]-freq[0]
         # time = np.gradient(-dphi, 2*np.pi*deltaF)
@@ -303,14 +305,13 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=True):#tested
         # only focusing on f bins where data exists
         # I had to introduce this statement since sometimes a mode doesn't have data (odd m modes are not excited for q=1, so the mode content is all zero.)
         try:
-            nzidx = np.nonzero(abs(hlm_tmp.data.data))[0]
+            nzidx = np.nonzero(abs(hlm[mode].data.data))[0]
             kmin, kmax = nzidx[0], nzidx[-2]
             time[:kmin] = time[kmin]
             time[kmax:] = time[kmax]
         except:
             print(f"No data for {mode}")
             pass
-
         # saving data
         tf_dict[mode] = time 
         freq_dict[mode] = freq[::-1]
@@ -318,6 +319,8 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=True):#tested
         phase_dict[mode] = phase
     
     if shift:
+        print(f"Shifting of time and phase with fref = {fref}.")
+        assert (2,2) in modes, "(2,2) mode needs to be present."
         # phase and tf shifts
         if not fref:
                 # if fref not provided, set it to  frequency at max (f^2 * A_{2,2}(f)) (BBHx)
@@ -326,16 +329,21 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=True):#tested
         index_at_fref = get_closest_index(freq_dict[2,2], fref)
         tf_22_current = tf_dict[2,2][index_at_fref]
         phase_22_current = phase_dict[2,2][index_at_fref]
+        # for loop needs to start with (2,2) mode
+        modes = modes.remove((2,2))
+        modes.insert(0, (2,2)) 
         if debug:
             print(f"tf[2,2] at fref ({freq_dict[2,2][index_at_fref]} Hz) before shift is {tf_22_current}s (phase[2,2] = {phase_22_current}).")
         # subtract that from all modes. tf for (2,2) needs to be zero at fref, I will add t_ref to all modes later (create_lisa_injections for injections and precompute for recovery), making tf=t_ref at fref.
         for mode in (list(hlm.keys())):
+            if debug:
+                print(f"\tShifting {mode}")
             tf_dict[mode] = tf_dict[mode]  - tf_22_current  # confirmed that I don't need to set all modes tf as 0. Conceptually, for the same time the other modes will be at a different frequency.
             phase_dict[mode] = phase_dict[mode] - 2*np.pi*tf_22_current*freq_dict[mode]
             #phase_dict[mode] = phase_dict[mode] - phase_dict[mode][index_at_fref] # subtracting so the phase is 0 for each mode. Then each mode will have m*phi when multiplied by phi in Ylm. This was stupid
             phase_dict[mode] = phase_dict[mode] - mode[1]/2 * phase_dict[2,2][index_at_fref] # phiref is being defined as 0 (for 2,2 mode).
         if debug:
-            print(f"tf[2,2] at fref ({fref} Hz) after shift {tf_dict[2,2][index_at_fref]} (phase[2,2] = {phase_dict[2,2][index_at_fref]}).")
+            print(f"tf[2,2] at fref ({fref} Hz) after shift is {tf_dict[2,2][index_at_fref]} (phase[2,2] = {phase_dict[2,2][index_at_fref]}).")
 
     return tf_dict, freq_dict, amp_dict, phase_dict
 
