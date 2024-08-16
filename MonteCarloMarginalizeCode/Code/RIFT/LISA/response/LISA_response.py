@@ -301,7 +301,7 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=False):#teste
         # time = np.gradient(-dphi, 2*np.pi*deltaF)
 
         # only focusing on f bins where data exists
-        # I had to introduce this statement since sometimes a mode doesn't have data (looking at you PhenomHM and PhenomXHM)
+        # I had to introduce this statement since sometimes a mode doesn't have data (odd m modes are not excited for q=1, so the mode content is all zero.)
         try:
             nzidx = np.nonzero(abs(hlm_tmp.data.data))[0]
             kmin, kmax = nzidx[0], nzidx[-2]
@@ -332,7 +332,8 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=False):#teste
         for mode in (list(hlm.keys())):
             tf_dict[mode] = tf_dict[mode]  - tf_22_current  # confirmed that I don't need to set all modes tf as 0. Conceptually, for the same time the other modes will be at a different frequency.
             phase_dict[mode] = phase_dict[mode] - 2*np.pi*tf_22_current*freq_dict[mode]
-            #phase_dict[mode] = phase_dict[mode] - phase_dict[mode][index_at_fref] # subtracting so the phase is 0 for each mode. Then each mode will have m*phi when multiplied by phi in Ylm.
+            #phase_dict[mode] = phase_dict[mode] - phase_dict[mode][index_at_fref] # subtracting so the phase is 0 for each mode. Then each mode will have m*phi when multiplied by phi in Ylm. This was stupid
+            phase_dict[mode] = phase_dict[mode] - modes[1]/2 * phase_22_current # phiref is being defined as 0 (for 2,2 mode).
         if debug:
             print(f"tf[2,2] at fref ({fref} Hz) after shift {tf_dict[2,2][index_at_fref]} (phase[2,2] = {phase_dict[2,2][index_at_fref]}).")
 
