@@ -319,6 +319,7 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=True):#tested
         phase_dict[mode] = phase
     
     if shift:
+        modes = list(hlm.keys())
         print(f"Shifting of time and phase with fref = {fref}.")
         assert (2,2) in modes, "(2,2) mode needs to be present."
         # phase and tf shifts
@@ -330,7 +331,7 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=True):#tested
         tf_22_current = tf_dict[2,2][index_at_fref]
         phase_22_current = phase_dict[2,2][index_at_fref]
         # for loop needs to start with (2,2) mode
-        modes = modes.remove((2,2))
+        modes.remove((2,2))
         modes.insert(0, (2,2)) 
         if debug:
             print(f"tf[2,2] at fref ({freq_dict[2,2][index_at_fref]} Hz) before shift is {tf_22_current}s (phase[2,2] = {phase_22_current}).")
