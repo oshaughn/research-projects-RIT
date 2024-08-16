@@ -173,6 +173,7 @@ parser.add_argument("--internal-ile-psd-common-window",action='store_true',help=
 parser.add_argument("--internal-marginalize-distance",action='store_true',help="If present, the code will marginalize over the distance variable. Passed diretly to helper script. Default will be to generate d_marg script *on the fly*")
 parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
+parser.add_argument("--internal-ile-check-good-enough",action='store_true', help=" IN PROGRESS: force creation of 'ile_good_enough' files in all ILE run directories, and adding to transfer_file_list")
 parser.add_argument("--internal-correlate-default",action='store_true',help='Force joint sampling in mc,delta_mc, s1z and possibly s2z')
 parser.add_argument("--internal-force-iterations",type=int,default=None,help="If inteeger provided, overrides internal guidance on number of iterations, attempts to force prolonged run. By default puts convergence tests on")
 parser.add_argument("--internal-test-convergence-threshold",type=float,default=None,help="The value of the threshold. 0.02 has been default. If not specified, left out of helper command line (where default is maintained) ")
@@ -873,9 +874,16 @@ with open('args_ile.txt','w') as f:
 
 # ILE transfer file list
 #  if arguments provided, append (usually empty file/nonexistent)
-if opts.ile_additional_files_to_transfer:
-    print(" Supplementary transfer request ",opts.ile_additional_files_to_transfer) 
-    my_files = list(map(lambda x: x.split(),opts.ile_additional_files_to_transfer.split(','))) # split on , remove whitespace
+if opts.ile_additional_files_to_transfer or opts.internal_ile_check_good_enough:
+    extra_files = ''
+    if opts.ile_additional_files_to_transfer:
+        extra_files = opts.ile_additional_files_to_transfer
+        if opts.internal_check_ile_good_enough:
+            extra_files += ','
+    if opts.internal_ile_check_good_enough:
+        extra_files += 'ile_check_good_enough'
+    print(" Supplementary transfer request ",extra_files) 
+    my_files = list(map(lambda x: x.split(),extra_files.split(','))) # split on , remove whitespace
     my_files = sum(my_files, []) # flatten the list
     my_files = [x for x in my_files if x]  # remove empty elements
     print("  File transfer request resolves to ", my_files)
@@ -1378,6 +1386,11 @@ if opts.calibration_reweighting:
 #    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
 print(cmd)
 os.system(cmd)
+
+if opts.internal_ile_check_good_enough:
+    # Populate 'ile_check_good_enough' through all subdirectories
+    cmd_enough = r"find . -name 'iter*ile' -type d -exec touch {}/ile_good_enough \; "
+    os.system(cmd)
 
 if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
     if opts.fake_data_cache:
