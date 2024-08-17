@@ -710,20 +710,27 @@ P=event_dict["P"]
 #P.m1= event_dict['m1']*lal.MSUN_SI;  P.m2= event_dict['m2']*lal.MSUN_SI; 
 if (event_dict["epoch"]) is None:
    event_dict["epoch"]=0  # protect against insanity that should never happen
-t_duration  = np.max([ event_dict["epoch"], lalsimutils.estimateWaveformDuration(P)])
-t_before = np.max([4,t_duration])*1.1+8+2  # buffer for inverse spectrum truncation
-data_start_time_orig = data_start_time = t_event - int(t_before)
-data_end_time = t_event + int(t_before) # for inverse spectrum truncation. Overkill
+if (opts.data_start_time is None) or (opts.data_end_time is None):
+    # onlyu calculate waveform duration (for data retrieval) if we are NOT provided a duration
+    # important: sometimes we pass P.fmin == 0 (e.g., NRSur), and estimateWaveofmrDuration will FAIL.
+    t_duration  = np.max([ event_dict["epoch"], lalsimutils.estimateWaveformDuration(P)])
+    t_before = np.max([4,t_duration])*1.1+8+2  # buffer for inverse spectrum truncation
+    data_start_time_orig = data_start_time = t_event - int(t_before)
+    data_end_time = t_event + int(t_before) # for inverse spectrum truncation. Overkill
 
-# Estimate data needed for PSD
-#   - need at least 8 times the duration of the signal!
-#   - important to get very accurate PSD estimation for long signals
-t_psd_window_size = np.max([1024, int(8*t_duration)])
-psd_data_start_time = t_event - 32-t_psd_window_size - t_before
-psd_data_end_time = t_event - 32 - t_before
-# set the start time to be the time needed for the PSD, if we are generating a PSD
-if (opts.psd_file is None) and  use_gracedb_event and not opts.use_online_psd:
-    data_start_time = psd_data_start_time
+    # Estimate data needed for PSD
+    #   - need at least 8 times the duration of the signal!
+    #   - important to get very accurate PSD estimation for long signals
+    t_psd_window_size = np.max([1024, int(8*t_duration)])
+    psd_data_start_time = t_event - 32-t_psd_window_size - t_before
+    psd_data_end_time = t_event - 32 - t_before
+    # set the start time to be the time needed for the PSD, if we are generating a PSD
+    if (opts.psd_file is None) and  use_gracedb_event and not opts.use_online_psd:
+        data_start_time = psd_data_start_time
+else:
+    # arguments override any attempt to calculate duration. 
+    data_start_time_orig  = opts.data_start_time
+    data_end_time = opts.data_end_time
 
 # reset IFO list if needed. Do NOT do with online_psd
 #
