@@ -743,8 +743,7 @@ if opts.internal_rotate_phase:
 #
 # Parameter integral sampling strategy
 #
-print("\n")
-print("## Initiating integrator ##")
+print("\n###########################################################################################\nInitiating integrator\n###########################################################################################\n")
 # Oracle for portfolio if needed
 
 
@@ -1370,8 +1369,7 @@ def resample_samples(my_samples,
 #
 
 def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
-    print("\n")
-    print("## Precomputing ##")
+    print("\n###########################################################################################\nPrecomputing\nn###########################################################################################")
     nEvals=0
     P = P_list[indx_event]
     # if pin-distance-to-sim, change the distance prior accordingly
