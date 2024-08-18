@@ -164,6 +164,7 @@ parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="F
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--ile-distance-prior",default=None,help="If present, passed through to the distance prior option.   If provided, BLOCKS distance marginalization")
+parser.add_argument("--internal-ile-buffer-after-trigger",default=2,type=float,help="Provided to allow user to change time after trigger. NOT FULLY IMPLEMENTED")
 parser.add_argument("--internal-ile-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
 parser.add_argument("--internal-ile-request-memory",default=4096,type=int,help="ILE memory request in Mb. Only experts should change this.")
 parser.add_argument("--internal-ile-n-max",default=None,type=int,help="Set maximum number of evaluations each ILE worker uses. EXPERTS ONLY")
@@ -672,6 +673,11 @@ if not(opts.gracedb_id is None): #  and (opts.use_ini is None):
         cmd+= " --use-legacy-gracedb "
 elif  not(opts.event_time is None):
     cmd += " --event-time " + format_gps_time(opts.event_time)
+    if opts.use_ini:
+        seglen = float(config['engine']['seglen'])
+        data_start_time = opts.event_time - (seglen - 2)
+        data_end_time = opts.event_time + 2
+        cmd += " --data-start-time {}  --data-end-time {} ".format(data_start_time, data_end_time)
 if opts.online:
         cmd += " --online "
 if opts.playground_data:
@@ -878,7 +884,7 @@ if opts.ile_additional_files_to_transfer or opts.internal_ile_check_good_enough:
     extra_files = ''
     if opts.ile_additional_files_to_transfer:
         extra_files = opts.ile_additional_files_to_transfer
-        if opts.internal_check_ile_good_enough:
+        if opts.internal_ile_check_good_enough:
             extra_files += ','
     if opts.internal_ile_check_good_enough:
         extra_files += 'ile_check_good_enough'
