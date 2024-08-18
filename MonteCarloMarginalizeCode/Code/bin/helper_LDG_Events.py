@@ -178,8 +178,8 @@ parser.add_argument("--force-lambda-max",default=None,type=float,help="Provde th
 parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provde this value to override the value of lambda-small-max provided")
 parser.add_argument("--fmin-template",default=20,type=float,help="Minimum frequency for template. Used to estimate signal duration. If fmin not specified, also the minimum frequency for integration")
 parser.add_argument("--fmax",default=None,type=float,help="fmax. Use this ONLY if you want to override the default settings, which are set based on the PSD used")
-parser.add_argument("--data-start-time",default=None)
-parser.add_argument("--data-end-time",default=None,help="If both data-start-time and data-end-time are provided, this interval will be used.")
+parser.add_argument("--data-start-time",default=None,type=float)
+parser.add_argument("--data-end-time",default=None,type=float,help="If both data-start-time and data-end-time are provided, this interval will be used.")
 parser.add_argument("--data-LI-seglen",default=None,type=float,help="If provided, use a buffer this long, placing the signal 2s after this, and try to use 0.4s tukey windowing on each side, to be consistent with LI.  Note next argument to change windowing")
 parser.add_argument("--data-tukey-window-time",default=0.4,type=float,help="The default amount of time (in seconds) during the turn-on phase of the tukey window. Note that for massive signals, the amount of unfiltered data is (seglen - 2s  - window_time), and can be as short as 1.6 s by default")
 parser.add_argument("--no-enforce-duration-bound",action='store_true',help="Allow user to perform LI-style behavior and reequest signals longer than the seglen. Argh, by request.")
@@ -707,7 +707,8 @@ if fit_method =='quadratic' or fit_method =='polynomial' or opts.use_quadratic_e
 t_event = event_dict["tref"]
 P=event_dict["P"]
 #lalsimutils.ChooseWaveformParams()
-#P.m1= event_dict['m1']*lal.MSUN_SI;  P.m2= event_dict['m2']*lal.MSUN_SI; 
+#P.m1= event_dict['m1']*lal.MSUN_SI;  P.m2= event_dict['m2']*lal.MSUN_SI;
+data_start_time = opts.data_start_time
 if (event_dict["epoch"]) is None:
    event_dict["epoch"]=0  # protect against insanity that should never happen
 if (opts.data_start_time is None) or (opts.data_end_time is None):
@@ -728,9 +729,10 @@ if (opts.data_start_time is None) or (opts.data_end_time is None):
     if (opts.psd_file is None) and  use_gracedb_event and not opts.use_online_psd:
         data_start_time = psd_data_start_time
 else:
-    # arguments override any attempt to calculate duration. 
+    # arguments override any attempt to calculate duration.  Note these time intervals are used for retrieval, so we can add safety!
     data_start_time_orig  = opts.data_start_time
-    data_end_time = opts.data_end_time
+    data_start_time = int(data_start_time_orig -2)
+    data_end_time = int(opts.data_end_time +1)
 
 # reset IFO list if needed. Do NOT do with online_psd
 #
