@@ -1369,7 +1369,7 @@ def resample_samples(my_samples,
 #
 
 def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
-    print("\n###########################################################################################\nPrecomputing\nn###########################################################################################")
+    print("\n###########################################################################################\nPrecomputing\n###########################################################################################")
     nEvals=0
     P = P_list[indx_event]
     # if pin-distance-to-sim, change the distance prior accordingly
@@ -1450,8 +1450,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
       single_incl = sampler_param_tuple(sampler, ['inclination'])
       if (opts.distance_marginalization) and single_incl in gmm_dict:
         gmm_dict[single_incl] = None # reset inclination sampling
-
-
+    print("\n###########################################################################################\nIntegrating\n###########################################################################################")
     # Integrate
     args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
     print( " --------> Arguments ", args)
