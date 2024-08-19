@@ -326,23 +326,35 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=True):#tested
         if not fref:
                 # if fref not provided, set it to  frequency at max (f^2 * A_{2,2}(f)) (BBHx)
                 fref = freq_dict[2,2][np.argmax(freq_dict[2,2]**2 * amp_dict[2,2])] # frequency at max (f^2 * A_{2,2}(f))
+        
         # find tf at fref
         index_at_fref = get_closest_index(freq_dict[2,2], fref)
         tf_22_current = tf_dict[2,2][index_at_fref]
         phase_22_current = phase_dict[2,2][index_at_fref]
+        
+        #time_shift = round(tf_22_current*fmax*2) * 1/fmax/2
+        time_shift = tf_22_current
+        #reference_phase = 950043.1153986537
+        reference_phase = 0.0
+        
         # for loop needs to start with (2,2) mode
         modes.remove((2,2))
         modes.insert(0, (2,2)) 
         if debug:
             print(f"tf[2,2] at fref ({freq_dict[2,2][index_at_fref]} Hz) before shift is {tf_22_current}s (phase[2,2] = {phase_22_current}).")
+            #print(f"Based on deltaT = {1/fmax/2}, the shift will be {time_shift}s, instead of {tf_22_current}s.")
+
         # subtract that from all modes. tf for (2,2) needs to be zero at fref, I will add t_ref to all modes later (create_lisa_injections for injections and precompute for recovery), making tf=t_ref at fref.
-        for mode in (list(hlm.keys())):
+        for mode in modes:
             if debug:
                 print(f"\tShifting {mode}")
-            tf_dict[mode] = tf_dict[mode]  - tf_22_current  # confirmed that I don't need to set all modes tf as 0. Conceptually, for the same time the other modes will be at a different frequency.
-            phase_dict[mode] = phase_dict[mode] - 2*np.pi*tf_22_current*freq_dict[mode]
-            #phase_dict[mode] = phase_dict[mode] - phase_dict[mode][index_at_fref] # subtracting so the phase is 0 for each mode. Then each mode will have m*phi when multiplied by phi in Ylm. This was stupid
-            phase_dict[mode] = phase_dict[mode] - mode[1]/2 * phase_dict[2,2][index_at_fref] # phiref is being defined as 0 (for 2,2 mode).
+            tf_dict[mode] = tf_dict[mode]  - time_shift  # confirmed that I don't need to set all modes tf as 0. Conceptually, for the same time the other modes will be at a different frequency.
+            phase_dict[mode] = phase_dict[mode] - 2*np.pi*time_shift*freq_dict[mode]
+            if mode == (2,2):
+                phase_22_current = phase_dict[2,2][index_at_fref]
+                difference = reference_phase - phase_22_current
+            phase_dict[mode] = phase_dict[mode] + mode[1]/2 * difference
+            print(f"{mode}, phase = {phase_dict[mode][index_at_fref]}")
         if debug:
             print(f"tf[2,2] at fref ({fref} Hz) after shift is {tf_dict[2,2][index_at_fref]} (phase[2,2] = {phase_dict[2,2][index_at_fref]}).")
 
