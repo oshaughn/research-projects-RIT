@@ -181,11 +181,18 @@ def PrecomputeAlignedSpinLISA(tref, fref, t_window, hlms, hlms_conj, data_dict, 
         collect_mode_terms["T"][mode][4] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[4]) 
         collect_mode_terms["T"][mode][5] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[5])  
     # calculate <d|h_lm>
-    IP_time_series= lsu.ComplexOverlap(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["A"], analyticPSD_Q, inv_spec_trunc_Q, T_spec, full_output =True)  # Incase the three arms have different PSDs. Assume all arms have same PSD for now and 2,2 mode is present
+    IP_time_series_A= lsu.ComplexOverlap(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["A"], analyticPSD_Q, inv_spec_trunc_Q, T_spec, full_output =True)  # Incase the three arms have different PSDs. Assume all arms have same PSD for now and 2,2 mode is present
+    IP_time_series_E= lsu.ComplexOverlap(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["E"], analyticPSD_Q, inv_spec_trunc_Q, T_spec, full_output =True)
+    IP_time_series_T= lsu.ComplexOverlap(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["T"], analyticPSD_Q, inv_spec_trunc_Q, T_spec, full_output =True)
 
     Q_lm = {}
     for channel in ["A", "E", "T"]:
-        inner_product= IP_time_series
+        if channel == "A":
+            inner_product= IP_time_series_A
+        if channel == "E":
+            inner_product= IP_time_series_E
+        if channel == "T":
+            inner_product= IP_time_series_T
         for mode in hlms.keys():
             l, m = mode[0], mode[1]
         
@@ -198,13 +205,20 @@ def PrecomputeAlignedSpinLISA(tref, fref, t_window, hlms, hlms_conj, data_dict, 
 
     # calculate <h_lm|h_pq>
     U_lm_pq = {}
-    IP = lsu.ComplexIP(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["A"], analyticPSD_Q, inv_spec_trunc_Q, T_spec) # Incase the three arms have different PSDs. Assume all arms have same PSD for now and 2,2 mode is present
+    IP_A = lsu.ComplexIP(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["A"], analyticPSD_Q, inv_spec_trunc_Q, T_spec) # Incase the three arms have different PSDs. Assume all arms have same PSD for now and 2,2 mode is present
+    IP_E = lsu.ComplexIP(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["E"], analyticPSD_Q, inv_spec_trunc_Q, T_spec)
+    IP_T = lsu.ComplexIP(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["T"], analyticPSD_Q, inv_spec_trunc_Q, T_spec)
     for i in np.arange(len(modes)):
         for j in np.arange(len(modes))[i:]:
             # print(modes[i], modes[j])
             l, m, p, q = modes[i][0], modes[i][1], modes[j][0], modes[j][1]
             for channel in  ["A", "E", "T"]:
-                inner_product= IP
+                if channel == "A":
+                    inner_product= IP_A
+                if channel == "E":
+                    inner_product= IP_E
+                if channel == "T":
+                    inner_product= IP_T
                 U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_xx"] = inner_product.ip(collect_mode_terms[channel][modes[i]][0], collect_mode_terms[channel][modes[j]][0])
                 U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_xy"] = inner_product.ip(collect_mode_terms[channel][modes[i]][0], collect_mode_terms[channel][modes[j]][1])
                 U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_xz"] = inner_product.ip(collect_mode_terms[channel][modes[i]][0], collect_mode_terms[channel][modes[j]][2])
