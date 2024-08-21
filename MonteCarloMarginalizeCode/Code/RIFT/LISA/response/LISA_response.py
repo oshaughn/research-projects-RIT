@@ -284,10 +284,6 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=True):#tested
     for mode in modes:
         print(f"\n\tMode = {mode}")
         mode = tuple(mode)
-        # get frequency and mode data
-        # freq, hlm_tmp = np.arange(-fmax, fmax, hlm[mode].deltaF), hlm[mode] # need to add deltaF if I just use lalsim as it is, I am padding to TDlen in hlmoff to don't need to anymore
-        #freq, hlm_tmp = -lsu.evaluate_fvals(hlm[mode]), hlm[mode] #lsu's is negative of what we want
-        #hlm_tmp = hlm[mode]
         # get amplitude and phase
         amp, phase = get_amplitude_phase(hlm[mode])
         # compute tf = -1/(2pi) * d(phase)/df
@@ -298,10 +294,6 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=True):#tested
         tmp[:-1] = time
         time = tmp
         
-        # this didn't work
-        # deltaF = freq[1]-freq[0]
-        # time = np.gradient(-dphi, 2*np.pi*deltaF)
-
         # only focusing on f bins where data exists
         # I had to introduce this statement since sometimes a mode doesn't have data (odd m modes are not excited for q=1, so the mode content is all zero.)
         try:
@@ -332,9 +324,7 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=True):#tested
         tf_22_current = tf_dict[2,2][index_at_fref]
         phase_22_current = phase_dict[2,2][index_at_fref]
         
-        #time_shift = round(tf_22_current*fmax*2) * 1/fmax/2
         time_shift = tf_22_current
-        #reference_phase = 950043.1153986537
         reference_phase = 0.0
         
         # for loop needs to start with (2,2) mode
@@ -342,8 +332,7 @@ def get_tf_from_phase_dict(hlm, fmax, fref=None, debug=True, shift=True):#tested
         modes.insert(0, (2,2)) 
         if debug:
             print(f"tf[2,2] at fref ({freq_dict[2,2][index_at_fref]} Hz) before shift is {tf_22_current}s (phase[2,2] = {phase_22_current}).")
-            #print(f"Based on deltaT = {1/fmax/2}, the shift will be {time_shift}s, instead of {tf_22_current}s.")
-
+            
         # subtract that from all modes. tf for (2,2) needs to be zero at fref, I will add t_ref to all modes later (create_lisa_injections for injections and precompute for recovery), making tf=t_ref at fref.
         for mode in modes:
             if debug:
