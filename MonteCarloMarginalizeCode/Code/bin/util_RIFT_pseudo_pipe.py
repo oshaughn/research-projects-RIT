@@ -851,7 +851,7 @@ if opts.LISA:
     if opts.modes: 
         line += "--modes {} ".format(opts.modes)
     # Hacky solution
-    line +=" --channel-name E=FAKE-STRAIN  --channel-name T=FAKE-STRAIN "
+    # line +=" --channel-name E=FAKE-STRAIN  --channel-name T=FAKE-STRAIN "
     if opts.lisa_fixed_sky:
         line +=" --ecliptic-latitude {} --ecliptic-longitude {} ".format(opts.ecliptic_latitude, opts.ecliptic_longitude)
         
