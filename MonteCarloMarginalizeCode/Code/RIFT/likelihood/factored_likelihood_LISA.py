@@ -104,6 +104,7 @@ def ComputeIPTimeSeries(IP, hf, data, N_shift, N_window, analyticPSD_Q=False,
     tmp= lsu.DataRollBins(rhoTS, N_shift)  # restore functionality for bidirectional shifts: waveform need not start at t=0
     rho_time_series =lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
     if debug:
+        print(IP.ip(hf,hf), IP.ip(data,data))
         print(f"Max in the original series = {np.max(rhoTS.data.data)}, max in the truncated series = {np.max(rho_time_series.data.data)}, max index in the original series = {np.argmax(rhoTS.data.data) + N_shift}.")
     return rho_time_series
 
@@ -147,7 +148,7 @@ def PrecomputeAlignedSpinLISA(tref, fref, t_window, hlms, hlms_conj, data_dict, 
             phase_22_current = shifted_phase[index_at_fref]
             difference = reference_phase - phase_22_current
         shifted_phase = shifted_phase + mode[1]/2 * difference
-        print(f"Precompute: {mode}, phase = {shifted_phase[index_at_fref]}, time = tf_dict[mode][index_at_fref]+tref")
+        print(f"Precompute: {mode}, phase = {shifted_phase[index_at_fref]}, time = {tf_dict[mode][index_at_fref]+tref}")
         
         tmp_mode_data = (amp * np.exp(1j*shifted_phase)).reshape(1, -1) #take care of convention
 
