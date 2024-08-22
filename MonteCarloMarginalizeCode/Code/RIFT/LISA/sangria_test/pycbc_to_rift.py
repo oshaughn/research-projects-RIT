@@ -11,17 +11,32 @@ sys.path.append(f"/Users/aasim/Desktop/Research/Mcodes/{RIFT}/MonteCarloMarginal
 import RIFT.lalsimutils as lsu
 from RIFT.LISA.response.LISA_response import *
 print(lsu.__file__)
+from scipy.interpolate import interp1d
 
 ###########################################################################################
 # Functions
 ###########################################################################################
-def create_lal_REAL8TimeSeries(pycbc_tseries):
-    ht_lal = lal.CreateREAL8TimeSeries("ht_lal", pycbc_tseries._epoch, 0, pycbc_tseries.delta_t, lal.DimensionlessUnit, len(pycbc_tseries.data))
-    ht_lal.data.data = pycbc_tseries.data
+def create_lal_COMPLEX16TimeSeries(pycbc_tseries):
+    #ht_lal_real = lal.CreateREAL8TimeSeries("ht_lal", pycbc_tseries._epoch, 0, pycbc_tseries.delta_t, lal.DimensionlessUnit, len(pycbc_tseries.data))
+    #ht_lal_real.data.data = pycbc_tseries.data
+    # Resample
+    # lal.ResampleREAL8TimeSeries(ht_lal_real, 10)
+    #ht_lal = lal.CreateCOMPLEX16TimeSeries("ht_lal", ht_lal_real.epoch, 0, ht_lal_real.delta_t, lal.DimensionlessUnit, len(ht_lal_real.data))
+    # Resize to 242 days, a power of 2 in seconds
+    #ht_lal = lal.ResizeCOMPLEX16TimeSeries(ht_lal, 0, 4194304)
+    old_tvals = np.arange(0, pycbc_tseries.delta_t*len(pycbc_tseries.data), pycbc_tseries.delta_t)
+    new_tvals = np.arange(0, 31536000, 8)
+    func = interp1d(old_tvals, pycbc_tseries.data)
+    new_data = func(new_tvals)
+
+    ht_lal = lal.CreateCOMPLEX16TimeSeries("ht_lal", pycbc_tseries._epoch, 0, 8, lal.DimensionlessUnit, len(new_data))    
+    ht_lal.data.data = new_data + 0j
+    ht_lal = lal.ResizeCOMPLEX16TimeSeries(ht_lal, 0, 4194304)
+    print(f" Delta T = {ht_lal.deltaT} s, size = {ht_lal.data.length}, time = {ht_lal.data.length*ht_lal.deltaT/3600/24:2f} days") 
     return ht_lal
 
 def create_injection_from_pycbc(pycbc_tseries, save_path):
-    htA_lal, htE_lal, htT_lal =  create_lal_REAL8TimeSeries(pycbc_tseries["A"]), create_lal_REAL8TimeSeries(pycbc_tseries["E"]), create_lal_REAL8TimeSeries(pycbc_tseries["T"])
+    htA_lal, htE_lal, htT_lal =  create_lal_COMPLEX16TimeSeries(pycbc_tseries["A"]), create_lal_COMPLEX16TimeSeries(pycbc_tseries["E"]), create_lal_COMPLEX16TimeSeries(pycbc_tseries["T"])
     
     tvals = np.arange(0, htA_lal.data.length * htA_lal.deltaT, htA_lal.deltaT)
 
@@ -41,7 +56,7 @@ def create_injection_from_pycbc(pycbc_tseries, save_path):
     plt.cla()
 
     data_dict = {}
-    data_dict["A"], data_dict["E"], data_dict["T"] =  lsu.DataFourierREAL8(htA_lal), lsu.DataFourierREAL8(htE_lal), lsu.DataFourierREAL8(htT_lal)
+    data_dict["A"], data_dict["E"], data_dict["T"] =  lsu.DataFourier(htA_lal), lsu.DataFourier(htE_lal), lsu.DataFourier(htT_lal)
 
     fvals = -data_dict["A"].deltaF*np.arange(data_dict["A"].data.length//2, -data_dict["A"].data.length//2, -1)
 
