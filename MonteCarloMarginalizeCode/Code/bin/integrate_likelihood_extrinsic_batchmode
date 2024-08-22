@@ -9,13 +9,15 @@
 """
 Integrate the extrinsic parameters of the prefactored likelihood function.
 """
-####################### Import ###################################
 import functools
 from optparse import OptionParser, OptionGroup
 import sys
 import numpy
 import numpy as np
 import os
+print("###########################################################################################")
+print("# Loading packages and samplers")
+print("###########################################################################################")
 try:
   import cupy
   xpy_default=cupy
@@ -82,8 +84,7 @@ except:
 import RIFT.likelihood.priors_utils as priors_utils
 import RIFT.misc.xmlutils as xmlutils
 
-###################################################################
-
+###########################################################################################
 class EvenBivariateLinearInterpolator:
     def __init__(self, x0, dx, y0, dy, f):
         self._x0 = x0
@@ -503,11 +504,15 @@ else:
 # Template descriptors
 #
 
+
+print("###########################################################################################")
+print("# Reading grid, data and psd")
+print("###########################################################################################")
 # Struct to hold template parameters, P.deltaF comes from data (data.deltaF)
 P_list = None
 P=None # force allocation so I can use the preferred event later
 if opts.sim_xml:
-    print( "====Loading injection XML:", opts.sim_xml, opts.event, " =======")
+    print(f"====Loading injection XML: {opts.sim_xml}, reading from event {opts.event} to event {opts.event+opts.n_events_to_analyze} =======")
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
     if  len(P_list) < opts.event: 
 #+opts.n_events_to_analyze:
@@ -652,10 +657,7 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
 
     deltaF = data_dict[inst].deltaF
     psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
-    if opts.LISA:
-       print( "PSD deltaF after interpolation %e" % psd_dict[inst].deltaF)
-    else:
-      print( "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF)
+    print( "PSD deltaF after interpolation %e" % psd_dict[inst].deltaF)
 
     # Implement PSD window rescaling: see T1900249
     if opts.psd_window_shape > 0 or opts.window_shape > 0:
@@ -693,7 +695,7 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
         fmax = opts.fmax # fmax is now the upper freq. of IP integral
 
 # Ensure data and PSDs keyed to same detectors
-# For LISA we only provde one PSD, so this check is not necessary.
+# For LISA we may only provde one PSD, so this check is not necessary.
 if sorted(psd_dict.keys()) != sorted(data_dict.keys()) and not(opts.LISA):
     print >>sys.stderr, "Got a different set of instruments based on data and PSDs provided."
 
@@ -710,7 +712,6 @@ P.deltaF = deltaF
 for Psig in P_list:
   Psig.deltaT = P.deltaT
   Psig.deltaf = P.deltaF
-
 
 
 #
@@ -1385,7 +1386,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
     # Generate modes
     if opts.modes:
       modes=np.array(eval(opts.modes))
-      print(f"modes = \n{modes}")
+      print(f"modes = \n{list(modes)}")
     P.deltaF=deltaF # why do we need this? why is it becoming None? 
     hlms_FD = lalsimutils.hlmoff_for_LISA(P, opts.l_max, modes)
     fNyq = 0.5/P.deltaT
@@ -1404,7 +1405,8 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
     # Precompute
     # fNyq is the max resolvable frequency for a waveform. It is 0.5/deltaT. RIFT needs deltaT, deltaF for waveform generation (information present in P) and for integration it needs fmax (fmax <= fNyq)
     print(f"Sky location lambda = {lisa_sky_lamda}, sky location beta = {lisa_sky_beta}")
-    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest = factored_likelihood_LISA.PrecomputeAlignedSpinLISA(opts.lisa_reference_time, opts.lisa_reference_frequency, opts.data_integration_window_half, hlms_FD, None, data_dict, psd_dict, flow_ifo_dict["A"], fmax, fNyq, P.deltaT, lisa_sky_beta, lisa_sky_lamda, analyticPSD_Q=False, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec)
+
+    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest = factored_likelihood_LISA.PrecomputeAlignedSpinLISA(opts.lisa_reference_time, opts.lisa_reference_frequency, opts.data_integration_window_half, hlms_FD, None, data_dict, psd_dict, flow_ifo_dict["A"], fmax, fNyq, P.deltaT, lisa_sky_beta, lisa_sky_lamda, analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0.0)
     
     # reset to default.  Should not be needed, but weird python scoping error
     manual_avoid_overflow_logarithm = manual_avoid_overflow_logarithm_default 
