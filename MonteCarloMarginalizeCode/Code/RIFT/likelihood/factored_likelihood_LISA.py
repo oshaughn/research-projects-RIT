@@ -147,7 +147,7 @@ def PrecomputeAlignedSpinLISA(tref, fref, t_window, hlms, hlms_conj, data_dict, 
             phase_22_current = shifted_phase[index_at_fref]
             difference = reference_phase - phase_22_current
         shifted_phase = shifted_phase + mode[1]/2 * difference
-        print(f"Precompute: {mode}, phase = {shifted_phase[index_at_fref]}")
+        print(f"Precompute: {mode}, phase = {shifted_phase[index_at_fref]}, time = tf_dict[mode][index_at_fref]+tref")
         
         tmp_mode_data = (amp * np.exp(1j*shifted_phase)).reshape(1, -1) #take care of convention
 
