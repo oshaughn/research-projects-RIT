@@ -921,7 +921,7 @@ if not opts.distance_marginalization:
 # 
 # Rotate sky coordinates
 #
-if opts.internal_sky_network_coordinates:
+if opts.internal_sky_network_coordinates and not(opts.LISA):
   ifo_list = list(psd_dict)
   if not(opts.internal_sky_network_coordinates_raw):
     # remove V and K : the sky ring is almost always only HL
