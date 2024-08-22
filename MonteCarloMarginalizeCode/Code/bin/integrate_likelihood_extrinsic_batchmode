@@ -922,7 +922,7 @@ if not opts.distance_marginalization:
 # 
 # Rotate sky coordinates
 #
-if opts.internal_sky_network_coordinates and not(opts.LISA):
+if opts.internal_sky_network_coordinates:
   ifo_list = list(psd_dict)
   if not(opts.internal_sky_network_coordinates_raw):
     # remove V and K : the sky ring is almost always only HL
@@ -931,7 +931,7 @@ if opts.internal_sky_network_coordinates and not(opts.LISA):
     if 'V1' in ifo_list:
       ifo_list.remove('V1')
   # problem: ordering of psd_dict is rarely rational; almost always we want an HL network, rarely V
-  if len(ifo_list) <2:
+  if len(ifo_list) <2 or opts.LISA:
     opts.internal_sky_network_coordinates = False # stop using this code
   else:
     sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
