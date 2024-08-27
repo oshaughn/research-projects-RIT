@@ -1090,7 +1090,9 @@ for indx in np.arange(len(instructions_cip)):
             if not(opts.use_mtot_coords):
                 line = line.replace('parameter mc', 'parameter mc --parameter E0 --parameter p_phi0 --use-hyperbolic')
             else:
-                line = line.replace('parameter mc', 'parameter mtot --parameter E0 --parameter p_phi0 --use-hyperbolic')
+                #line = line.replace('parameter mc', 'parameter mtot --parameter E0 --parameter p_phi0 --use-hyperbolic')
+                line = line.replace('parameter mc', 'parameter-implied mc --parameter-nofit mtot --parameter-nofit q --parameter E0 --parameter p_phi0 --use-hyperbolic')
+                line = line.replace('parameter delta_mc', 'parameter-implied delta_mc')
         else:
             line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter E0 --parameter p_phi0 --use-hyperbolic')
         if not(opts.force_E0_max is None):
@@ -1168,15 +1170,16 @@ if opts.assume_matter:
 if opts.assume_eccentric:
         puff_params += " --parameter eccentricity --downselect-parameter eccentricity --downselect-parameter-range '[{},{}]' ".format(ecc_min,ecc_max)  
 if opts.assume_hyperbolic:
-        puff_params += " --parameter E0 --downselect-parameter E0 --downselect-parameter-range '[1.0,1.060]' --parameter E0 --downselect-parameter p_phi0 --downselect-parameter-range '[3.8,5.4]' "
+        puff_params += " --parameter E0 "
         if not(opts.force_E0_max is None and opts.force_E0_min is None):
             E0_max = opts.force_E0_max
             E0_min = opts.force_E0_min
-            puff_params.replace("--parameter E0 --downselect-parameter E0 --downselect-parameter-range '[1.0,1.060]'", f"--parameter E0 --downselect-parameter E0 --downselect-parameter-range '[{E0_min},{E0_max}]'")
+            puff_params += f" --downselect-parameter E0 --downselect-parameter-range [{E0_min},{E0_max}] "
+        puff_params += " --parameter p_phi0 "
         if not(opts.force_pphi0_max is None and opts.force_pphi0_min is None):
             pphi0_max = opts.force_pphi0_max
             pphi0_min = opts.force_pphi0_min
-            puff_params.replace("--parameter pphi0 --downselect-parameter pphi0 --downselect-parameter-range '[3.8,5.4]'", f"--parameter pphi0 --downselect-parameter pphi0 --downselect-parameter-range '[{pphi0_min},{pphi0_max}]'")
+            puff_params += f" --downselect-parameter p_phi0 --downselect-parameter-range [{pphi0_min},{pphi0_max}]"
 if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
     puff_max_it +=3

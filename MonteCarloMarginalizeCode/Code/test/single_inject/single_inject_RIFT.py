@@ -357,12 +357,12 @@ else:
 
 os.chdir(working_dir_full)
 
-
-# write coinc file
-cmd = "util_SimInspiralToCoinc.py --sim-xml mdc.xml.gz --event {}".format(indx)
-for ifo in ifos:
-    cmd += "  --ifo {} ".format(ifo)
-os.system(cmd)
+if not(bypass_frames):
+    # write coinc file
+    cmd = "util_SimInspiralToCoinc.py --sim-xml mdc.xml.gz --event {}".format(indx)
+    for ifo in ifos:
+        cmd += "  --ifo {} ".format(ifo)
+    os.system(cmd)
 
 # Designate rundir 
 rundir = config.get('init','rundir')
@@ -577,15 +577,20 @@ if opts.use_hyperbolic and opts.use_osg:
         #current_singularity_image = 'rift_o4b_jl-chadhenshaw-teobresums_eccentric-2024-05-14_12-02-56.sif'
         #sif_path = 'osdf:///igwn/cit/staging/james.clark/' + current_singularity_image
         
-        current_singularity_image = 'rift_o4b_jl-2024-07-16_12-21-57.sif'
-        sif_path = 'osdf:///igwn/cit/staging/chad.henshaw/' + current_singularity_image
+        #current_singularity_image = 'rift_o4b_jl-2024-07-16_12-21-57.sif'
+       # sif_path = 'osdf:///igwn/cit/staging/chad.henshaw/' + current_singularity_image
+    
+        current_singularity_image = '/cvmfs/singularity.opensciencegrid.org/james-clark/research-projects-rit/containers-rift_o4b_jl-chadhenshaw-teobresums_eccentric:latest'
         
         with open(input_file, 'r') as file:
             lines = file.readlines()
     
-        lines_to_remove = ['getenv', '+SingularityBindCVMFS', '+SingularityImage']
-        lines_to_add = [f'MY.SingularityImage = "{current_singularity_image}"', 'use_oauth_services = scitokens']
-        modifications = {'request_disk': 'request_disk = 3G', 'requirements': 'requirements = (HAS_SINGULARITY=?=TRUE)&&(IS_GLIDEIN=?=TRUE)', 'transfer_input_files': None}
+        #lines_to_remove = ['getenv', '+SingularityBindCVMFS', '+SingularityImage']
+        lines_to_remove = ['getenv']
+        #lines_to_add = [f'MY.SingularityImage = "{current_singularity_image}"', 'use_oauth_services = scitokens']
+        lines_to_add = []
+        #modifications = {'request_disk': 'request_disk = 3G', 'requirements': 'requirements = (HAS_SINGULARITY=?=TRUE)&&(IS_GLIDEIN=?=TRUE)', 'transfer_input_files': None}
+        modifications = {'request_disk': 'request_disk = 50M', 'requirements': 'requirements = (HAS_SINGULARITY=?=TRUE)&&(IS_GLIDEIN=?=TRUE)&&(TARGET.Machine =!= "deepclean.ldas.cit")'}
 
         modified_lines = []
         queue_line = None
@@ -602,7 +607,8 @@ if opts.use_hyperbolic and opts.use_osg:
             for key, new_value in modifications.items():
                 if stripped_line.startswith(key):
                     if key == 'transfer_input_files':
-                        line = stripped_line + ',' + sif_path + '\n'
+                        #line = stripped_line + ',' + sif_path + '\n'
+                        print('skipping this for cvfms')
                     else:
                         line = new_value + '\n'
                     modified_lines.append(line)
