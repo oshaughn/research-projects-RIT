@@ -3525,7 +3525,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         # Create a taper, matching exactly what is used in hoft
         hp = lal.CreateREAL8TimeSeries('junk',
                     lal.LIGOTimeGPS(0.), 1., P.deltaT,
-                    lsu_DimensionlessUnit, len(hlm[(2,2)]) )
+                    lsu_DimensionlessUnit, len(hlm[(2,2)].data.data ) )
         hp.data.data = np.ones(len(hp.data.data))
         lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
         # apply taper to all modes
@@ -3760,6 +3760,7 @@ def hlmoft_IMRPv2_dict(P,sgn=-1):
     # Now generate solutions at these values
     P_copy = P.manual_copy()
     P_copy.tref =0  # we do not need or want this offset when constructing hlm
+    P_copy.psi = 0 # we want to force a certain polarization
     # Force rouding of tiny transverse spins, to avoid numerical problems associated with the way the PhenomP code defines orientations
     P_copy.s1x = int(P.s1x*1e4)/1.e4
     P_copy.s2x = int(P.s2x*1e4)/1.e4
