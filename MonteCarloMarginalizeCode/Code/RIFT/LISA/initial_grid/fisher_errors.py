@@ -210,6 +210,8 @@ if __name__ =='__main__':
     parser.add_argument("--psd-path", help="Full path to A-psd.xm.gz")
     parser.add_argument("--snr", help="SNR of the signal")
     parser.add_argument("--snr-fmin", help="fmin used in snr calculations", default=0.0001)
+    parser.add_argument("--generate-grid", help="Use the fisherbounds to generate grid", default=True)
+    parser.add_argument("--points", help="number of points in the grid", default=25000)
     opts = parser.parse_args()
     print(f"Loading file:\n {opts.inj}")
     P_inj_list = lsu.xml_to_ChooseWaveformParams_array(opts.inj)
@@ -224,6 +226,19 @@ if __name__ =='__main__':
     print(f"s2z bounds = [{error_bounds[6]:0.6f}, {error_bounds[7]:0.6f}]")
     print(f"beta bounds = [{error_bounds[8]:0.6f}, {error_bounds[9]:0.6f}]")
     print(f"lambda bounds = [{error_bounds[10]:0.6f}, {error_bounds[11]:0.6f}]")
+    if opts.generate_grid:
+        import os
+        cmd = f"util_ManualOverlapGrid.py --inj {opts.inj} "
+        cmd += f"--parameter mc --parameter-range '[{error_bounds[0]:0.2f}, {error_bounds[1]:0.2f}]'"
+        cmd += f"--parameter eta --parameter-range '[{error_bounds[2]:0.5f}, {error_bounds[3]:0.5f}]'"
+        cmd += f"--random-parameter s1z --random-parameter-range '[{error_bounds[4]:0.6f}, {error_bounds[5]:0.6f}]'"
+        cmd += f"--random-parameter s2z --random-parameter-range '[{error_bounds[6]:0.6f}, {error_bounds[7]:0.6f}]'"
+        cmd += f"--random-parameter beta --random-parameter-range '[{error_bounds[8]:0.6f}, {error_bounds[9]:0.6f}]'"
+        cmd += f"--random-parameter lambda --random-parameter-range '[{error_bounds[10]:0.6f}, {error_bounds[11]:0.6f}]'"
+        cmd += f"--mirror-beta --verbose --grid-cartesian-npts int({opts.points}) --skip-overlap"
+        print(f"\t Generating grid\n{cmd}")
+        os.system(cmd)
+
 
 
 
