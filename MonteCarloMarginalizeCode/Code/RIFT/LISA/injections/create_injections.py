@@ -21,7 +21,7 @@ parser = ArgumentParser()
 parser.add_argument("--save-path", default=os.getcwd(), help="Path where you want to save the h5 files")
 parser.add_argument("--psd-path", default=None, help="Path to a xml.gz PSD needed to calculate SNR.")
 parser.add_argument("--inj", default=None, help="Inspiral XML file containing injection information.")
-parser.add_argument("--fmax", default=0.125, help="fmax for generating waveforms")
+parser.add_argument("--fNyq", default=0.125, help="fNyq for generating waveforms")
 parser.add_argument("--deltaF", default=1/(64*32768), help="DeltaF of the injectons")
 parser.add_argument("--modes", default= "[(2,2),(2,1),(3,3),(3,2),(3,1),(4,4),(4,3),(4,2)]", help="list of modes to use in injection.")
 parser.add_argument("--path-to-NR-hdf5", default=None, help="path to NRhdf5 (LVK format) if using NR hdf5 for injection.")
@@ -48,7 +48,7 @@ P.s1z = P_inj.s1z
 P.s2z = P_inj.s2z
 P.dist = P_inj.dist
 P.fmin = P_inj.fmin
-P.fmax = float(opts.fmax)
+P.fmax = float(opts.fNyq)
 P.deltaF = float(opts.deltaF)
 
 P.deltaT = 0.5/P.fmax
@@ -73,7 +73,7 @@ P.approx = P_inj.approx
 path_to_NR_hdf5=opts.path_to_NR_hdf5
 
 snr_fmin = float(opts.snr_fmin)
-snr_fmax = float(opts.fmax)
+snr_fmax = float(opts.fNyq)
 print("###############")
 if 1/P.deltaF/60/60/24 >0.5:
     print(f"Data length = {1/P.deltaF/60/60/24} days.")
