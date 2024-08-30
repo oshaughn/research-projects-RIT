@@ -229,13 +229,13 @@ if __name__ =='__main__':
     if opts.generate_grid:
         import os
         cmd = f"util_ManualOverlapGrid.py --inj {opts.inj} "
-        cmd += f"--parameter mc --parameter-range '[{error_bounds[0]:0.2f}, {error_bounds[1]:0.2f}]'"
-        cmd += f"--parameter eta --parameter-range '[{error_bounds[2]:0.5f}, {error_bounds[3]:0.5f}]'"
-        cmd += f"--random-parameter s1z --random-parameter-range '[{error_bounds[4]:0.6f}, {error_bounds[5]:0.6f}]'"
-        cmd += f"--random-parameter s2z --random-parameter-range '[{error_bounds[6]:0.6f}, {error_bounds[7]:0.6f}]'"
-        cmd += f"--random-parameter beta --random-parameter-range '[{error_bounds[8]:0.6f}, {error_bounds[9]:0.6f}]'"
-        cmd += f"--random-parameter lambda --random-parameter-range '[{error_bounds[10]:0.6f}, {error_bounds[11]:0.6f}]'"
-        cmd += f"--mirror-beta --verbose --grid-cartesian-npts int({opts.points}) --skip-overlap"
+        cmd += f"--parameter mc --parameter-range '[{error_bounds[0]:0.2f}, {error_bounds[1]:0.2f}]' "
+        cmd += f"--parameter eta --parameter-range '[{error_bounds[2]:0.5f}, {error_bounds[3]:0.5f}]' "
+        cmd += f"--random-parameter s1z --random-parameter-range '[{error_bounds[4]:0.6f}, {error_bounds[5]:0.6f}]' "
+        cmd += f"--random-parameter s2z --random-parameter-range '[{error_bounds[6]:0.6f}, {error_bounds[7]:0.6f}]' "
+        cmd += f"--random-parameter theta --random-parameter-range '[{error_bounds[8]:0.6f}, {error_bounds[9]:0.6f}]' "
+        cmd += f"--random-parameter phi --random-parameter-range '[{error_bounds[10]:0.6f}, {error_bounds[11]:0.6f}]' "
+        cmd += f"--mirror-beta --verbose --grid-cartesian-npts {int(opts.points)} --skip-overlap"
         print(f"\t Generating grid\n{cmd}")
         os.system(cmd)
 
