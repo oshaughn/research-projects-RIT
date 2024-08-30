@@ -239,6 +239,7 @@ parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
 parser.add_argument("--cip-explode-jobs-last",type=int,default=None,help="Number of jobs to use in last stage.  Hopefully in future auto-set")
 parser.add_argument("--cip-explode-jobs-auto",action='store_true',help="Auto-select --cip-explode-jobs based on SNR. Changes both cip-explode-jobs and cip-explode-jobs-last")
+parser.add_argument("--cip-explode-jobs-auto-scale",type=float,default=None,help="Scales up number of jobs requested by cip-explode-jobs-auto")
 parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--cip-sigma-cut",default=None,type=float,help="sigma-cut is an error threshold for CIP.  Passthrough")
 parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the final iteration")
@@ -928,6 +929,9 @@ if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     if opts.assume_matter:   # more workers for matter physics jobs
         n_jobs_normal_actual *=2
         n_jobs_final_actual *=2
+    if opts.cip_explode_jobs_auto_scale:
+        n_jobs_normal_actual *= opts.cip_explode_jobs_auto_scale
+        n_jobs_final_actual *=  opts.cip_explode_jobs_auto_scale
     print("  AUTO-EXPLODE GUESS {} {} {} ", n_jobs_normal_guess, n_jobs_normal_actual,n_jobs_final_actual)
     opts.cip_explode_jobs = n_jobs_normal_actual
     opts.cip_explode_jobs_last = n_jobs_final_actual
