@@ -197,6 +197,8 @@ parser.add_argument("--fix-bns-sky",action='store_true')
 parser.add_argument("--ile-sampler-method",type=str,default=None)
 parser.add_argument("--ile-n-eff",type=int,default=None,help="ILE n_eff passed to helper/downstream. Default internally is 50; lower is faster but less accurate, going much below 10 could be dangerous ")
 parser.add_argument("--cip-sampler-method",type=str,default=None)
+parser.add_argument("--cip-sampler-portfolio-list",type=str,default=None,help="if sampler-method==portfolio, string-separated list of options. Goes into --sampler-portfolio array in CIP argument list ")
+parser.add_argument("--cip-sampler-oracle-list",type=str,default=None,help="if sampler-method==portfolio, string-separated list of options from [RS,Climb]. Goes into --sampller-oracle array in CIP argument list. Note if you have supplementary arguments like --sampler-oracle-args, -oracle-reference-sample-file, --oracle-reference-sample-params, you need to pass these with manual-extra-cip-args ")
 parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--cip-internal-use-eta-in-sampler",action='store_true', help="Use 'eta' as a sampling parameter. Designed to make GMM sampling behave particularly nicely for objects which could be equal mass")
 parser.add_argument("--ile-jobs-per-worker",type=int,default=None,help="Default will be 20 per worker usually for moderate-speed approximants, and more for very fast configurations")
@@ -959,6 +961,17 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('--fit-method gp ', '--fit-method ' + opts.cip_fit_method)  # should not be called, see --force-fit-method argument to helper
     if not (opts.cip_sampler_method is None):
         line += " --sampler-method "+opts.cip_sampler_method
+        if  (opts.cip_sampler_method == 'portfolio'):
+            if opts.cip_sampler_portfolio_list is None:
+                print(" FAILURE: portfolio requires options. No default!")
+                sys.exit(1)
+            port_names = opts.cip_sampler_portfolio_list.split(',')
+            for name in port_names:
+                line += " --sampler-portfolio {} ".format(name.strip())
+            if opts.cip_sampler_oracle_list:
+                oracle_names = opts.cip_sampler_oracle_list.split(',')
+                for name in oracle_names:
+                    line += " --sampler-oracle {} ".format(name.strip())                
     if opts.internal_cip_temper_log:
         line += " --internal-temper-log "
     if opts.internal_cip_tripwire:
