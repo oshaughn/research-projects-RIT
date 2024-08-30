@@ -266,9 +266,15 @@ class Rift(Pipeline):
 
         # lmax = self.production.meta['priors']['amp order']
 
+        my_env = config.get("pipelines", "environment")
+        try:
+            new_env = config.get("rift","environment")
+        except:
+            new_env = my_env
+        my_env = new_env
         command = [
             os.path.join(
-                config.get("pipelines", "environment"),
+                my_env,
                 "bin",
                 "util_RIFT_pseudo_pipe.py",
             ),

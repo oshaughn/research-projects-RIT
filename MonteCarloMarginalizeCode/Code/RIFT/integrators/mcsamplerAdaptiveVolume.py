@@ -641,7 +641,7 @@ class MCSampler(object):
         for indx in np.arange(len(self.params_ordered)):
             self._rvs[self.params_ordered[indx]] = allx[:,indx]  # pull out variable
         # write out log integrand
-        self._rvs['log_integrand']  = allloglkl - allp
+        self._rvs['log_integrand']  = allloglkl - allp  # remember 'allloglkl' really is Lp -- despite the misleading name! --  so we are *undoing* that
         self._rvs['log_joint_prior'] = allp
         self._rvs['log_joint_s_prior'] = xpy_here.ones(len(allloglkl))*(np.log(1/V) - np.sum(np.log(self.dx0)))  # effective uniform sampling on this volume
 

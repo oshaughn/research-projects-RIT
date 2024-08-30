@@ -164,14 +164,17 @@ parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="F
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--ile-distance-prior",default=None,help="If present, passed through to the distance prior option.   If provided, BLOCKS distance marginalization")
+parser.add_argument("--internal-ile-buffer-after-trigger",default=2,type=float,help="Provided to allow user to change time after trigger. NOT FULLY IMPLEMENTED")
 parser.add_argument("--internal-ile-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
 parser.add_argument("--internal-ile-request-memory",default=4096,type=int,help="ILE memory request in Mb. Only experts should change this.")
 parser.add_argument("--internal-ile-n-max",default=None,type=int,help="Set maximum number of evaluations each ILE worker uses. EXPERTS ONLY")
 parser.add_argument("--internal-ile-inv-spec-trunc-time",default=None,type=float,help="Timescale of inverse spectrum truncation time. Default in pipeline is zero. Should be no more than 1/2 the segment length")
 parser.add_argument("--internal-ile-data-tukey-window-time",default=None,type=float,help="Timescale of the tukey window (total, both sides)")
+parser.add_argument("--internal-ile-psd-common-window",action='store_true',help="Default is to use the window shape correction on the input PSD (assumed to be scaled), and NOT to try to scale PSD.  Adding this option means we assume the PSD is not being window-corrected on input, so does not need rescaling. ")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help="If present, the code will marginalize over the distance variable. Passed diretly to helper script. Default will be to generate d_marg script *on the fly*")
 parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
+parser.add_argument("--internal-ile-check-good-enough",action='store_true', help=" IN PROGRESS: force creation of 'ile_good_enough' files in all ILE run directories, and adding to transfer_file_list")
 parser.add_argument("--internal-correlate-default",action='store_true',help='Force joint sampling in mc,delta_mc, s1z and possibly s2z')
 parser.add_argument("--internal-force-iterations",type=int,default=None,help="If inteeger provided, overrides internal guidance on number of iterations, attempts to force prolonged run. By default puts convergence tests on")
 parser.add_argument("--internal-test-convergence-threshold",type=float,default=None,help="The value of the threshold. 0.02 has been default. If not specified, left out of helper command line (where default is maintained) ")
@@ -642,6 +645,8 @@ if opts.internal_cip_use_lnL:
     cmd += " --internal-cip-use-lnL "
 if opts.internal_ile_data_tukey_window_time:
     cmd += " --data-tukey-window-time {} ".format(opts.internal_ile_data_tukey_window_time)
+if (opts.internal_ile_psd_common_window):
+    cmd += " --psd-assume-common-window "
 if not(opts.ile_n_eff is None):
     cmd += " --ile-n-eff {} ".format(opts.ile_n_eff)
 if opts.limit_mc_range:
@@ -670,6 +675,11 @@ if not(opts.gracedb_id is None): #  and (opts.use_ini is None):
         cmd+= " --use-legacy-gracedb "
 elif  not(opts.event_time is None):
     cmd += " --event-time " + format_gps_time(opts.event_time)
+    if opts.use_ini:
+        seglen = float(config['engine']['seglen'])
+        data_start_time = opts.event_time - (seglen - 2)
+        data_end_time = opts.event_time + 2
+        cmd += " --data-start-time {}  --data-end-time {} ".format(data_start_time, data_end_time)
 if opts.online:
         cmd += " --online "
 if opts.playground_data:
@@ -872,9 +882,16 @@ with open('args_ile.txt','w') as f:
 
 # ILE transfer file list
 #  if arguments provided, append (usually empty file/nonexistent)
-if opts.ile_additional_files_to_transfer:
-    print(" Supplementary transfer request ",opts.ile_additional_files_to_transfer) 
-    my_files = list(map(lambda x: x.split(),opts.ile_additional_files_to_transfer.split(','))) # split on , remove whitespace
+if opts.ile_additional_files_to_transfer or opts.internal_ile_check_good_enough:
+    extra_files = ''
+    if opts.ile_additional_files_to_transfer:
+        extra_files = opts.ile_additional_files_to_transfer
+        if opts.internal_ile_check_good_enough:
+            extra_files += ','
+    if opts.internal_ile_check_good_enough:
+        extra_files += 'ile_check_good_enough'
+    print(" Supplementary transfer request ",extra_files) 
+    my_files = list(map(lambda x: x.split(),extra_files.split(','))) # split on , remove whitespace
     my_files = sum(my_files, []) # flatten the list
     my_files = [x for x in my_files if x]  # remove empty elements
     print("  File transfer request resolves to ", my_files)
@@ -1388,6 +1405,11 @@ if opts.calibration_reweighting:
 #    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
 print(cmd)
 os.system(cmd)
+
+if opts.internal_ile_check_good_enough:
+    # Populate 'ile_check_good_enough' through all subdirectories
+    cmd_enough = r"find . -name 'iter*ile' -type d -exec touch {}/ile_good_enough \; "
+    os.system(cmd)
 
 if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
     if opts.fake_data_cache:

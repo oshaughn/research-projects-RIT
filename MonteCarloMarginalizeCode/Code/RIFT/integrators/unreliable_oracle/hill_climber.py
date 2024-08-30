@@ -38,6 +38,8 @@ class ClimbingOracle(MCSamplerGeneric):
 
 
     def update_sampling_prior(self,ln_weights, n_history,lnw_cut = -10, external_rvs=None,verbose=False,**kwargs):
+        if verbose:
+            print(" ---- ORACLE UPDATE - CLIMB --- ")
         # Allow updates provided from outside sources, assuming weights provided
         rvs_here = self._rvs
         if external_rvs:
@@ -65,7 +67,13 @@ class ClimbingOracle(MCSamplerGeneric):
 
         # Climb 
         rv_out = []
-        fn_here = lambda x : - self.lnL(x)
+        def fn_here(x):
+            xp = x.reshape(1,-1).T
+            # lnL takes a *x as arguments, each an array. fn_here takes a single vector-valued argument of scalars
+            try: 
+                return - self.lnL(*xp)
+            except:
+                return -np.inf
         
         args_minimize = kwargs['minimize_args'] if 'minimize_args' in kwargs else {'tol':0.1, 'options': {'maxiter':5}}
         for indx in range(self.n_climbers):
@@ -76,6 +84,7 @@ class ClimbingOracle(MCSamplerGeneric):
         self.reference_samples = np.array(rv_out)
 
     def draw_simplified(self, n_samples, *args, **kwargs):
+        print(" ---- ORACLE DRAW --- ")
         rv_out = np.empty( (n_samples, len(self.params_ordered)))
 
         drawn_indx = np.random.choice(range(len(self.reference_samples)), size=n_samples) # random samples

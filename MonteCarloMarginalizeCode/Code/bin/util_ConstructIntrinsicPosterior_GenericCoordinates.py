@@ -231,6 +231,7 @@ def extract_combination_from_LI(samples_LI, p):
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--check-good-enough", action='store_true', help="If active, tests if a file 'cip_good_enough' in the current directory exists and has content of nonzero length. Terminates with 'success' if the file exists and has nonzero length ")
 parser.add_argument("--fname",help="filename of *.dat file [standard ILE output]")
 parser.add_argument("--input-tides",action='store_true',help="Use input format with tidal fields included.")
 parser.add_argument("--input-eos-index",action='store_true',help="Use input format with eos index fields included")
@@ -341,6 +342,7 @@ parser.add_argument("--eos-param-values", default=None, help="Specific parameter
 parser.add_argument("--sampler-method",default="adaptive_cartesian",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu|portfolio")
 parser.add_argument("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
 parser.add_argument("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionary to be passed to that sampler_')
+parser.add_argument("--sampler-portfolio-breakpoints",default=None,  type=str, help='string representing list')
 parser.add_argument("--sampler-oracle",default=None, action='append', type=str, help='names of oracles to be used')
 parser.add_argument("--sampler-oracle-args",default=None, action='append', type=str, help='eval-able dictionary to be passed to that oracle')
 parser.add_argument("--oracle-reference-sample-file",default=None,  type=str, help='filename of reference sample file to be used as oracle for seeding sampler')
@@ -367,6 +369,20 @@ parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=s
 parser.add_argument("--supplementary-prior-code",default=None,type=str,help="Import external priors, assumed in scope as extra_prior.prior_dict_pdf, extra_prior.prior_range.  Currentlyonly supports seperable external priors")
 
 opts=  parser.parse_args()
+
+# good enough file: terminate always with success if present, don't try any more work
+if opts.check_good_enough:
+  fname = 'cip_good_enough'
+  import os
+  if os.path.isfile(fname):
+#    dat = np.loadtxt(fname,dtype=str)
+    if os.path.getsize(fname) > 0:
+      print(" Good enough file valid: terminating CIP")
+      sys.exit(0)
+    else:
+      print(" Good enough file ZERO LENGTH, continuing")
+
+
 if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
 ECC_MAX = opts.ecc_max
@@ -718,7 +734,7 @@ def s2z_prior(x):
 def mc_prior(x):
     return 2*x/(mc_max**2-mc_min**2)
 def unscaled_eta_prior_cdf(eta_min):
-    """
+    r"""
     cumulative for integration of x^(-6/5)(1-4x)^(-1/2) from eta_min to 1/4.
     Used to normalize the eta prior
     Derivation in mathematica:
@@ -922,7 +938,7 @@ if not (opts.chiz_plus_range is None):
     prior_range_map['chiz_plus']=eval(opts.chiz_plus_range)
 
 if not (opts.eta_range is None):
-    print(" Warning: Overriding default eta range. USE WITH CARE")
+    print(f" Warning: Overriding default eta range to {eval(opts.eta_range)}. USE WITH CARE")
     eta_range=prior_range_map['eta'] = eval(opts.eta_range)  # really only useful if eta is a coordinate.  USE WITH CARE
     prior_range_map['delta_mc'] = np.sqrt(1-4*np.array(prior_range_map['eta']))[::-1]  # reverse
 
@@ -1366,12 +1382,12 @@ def fit_nn(x,y,y_errors=None,fname_export='nn_fit',adaptive=True):
 
 
 
-def fit_rf(x,y,y_errors=None,fname_export='nn_fit'):
+def fit_rf(x,y,y_errors=None,fname_export='nn_fit',verbose=False):
 #    from sklearn.ensemble import RandomForestRegressor
     from sklearn.ensemble import ExtraTreesRegressor
     # Instantiate model. Usually not that many structures to find, don't overcomplicate
     #   - should scale like number of samples
-    rf = ExtraTreesRegressor(n_estimators=100, verbose=True,n_jobs=-1) # no more than 5% of samples in a leaf
+    rf = ExtraTreesRegressor(n_estimators=100, verbose=verbose,n_jobs=-1) # no more than 5% of samples in a leaf
     if y_errors is None:
         rf.fit(x,y)
     else:
@@ -2529,7 +2545,7 @@ print(" Weight exponent ", my_exp, " and peak contrast (exp)*lnL = ", my_exp*np.
 
 
 extra_args={}
-if opts.sampler_method == "GMM":
+if opts.sampler_method == "GMM" or (opts.sampler_method == 'portfolio' and 'GMM' in opts.sampler_portfolio):
     n_max_blocks = ((1.0*int(opts.n_max))/n_step) 
     n_comp = opts.internal_n_comp # default
     def parse_corr_params(my_str):
@@ -2594,8 +2610,14 @@ if hasattr(sampler, 'setup'):
     extra_args_here = {}
     extra_args_here.update(extra_args)
     extra_args_here['oracle_realizations'] = oracle_realizations
+    extra_args_here['lnL']  = fn_passed   # pass it to oracle specifically
     if use_portfolio:
         print(" PORTFOLIO : setup")
+        our_breakpoints = None
+        if opts.sampler_portfolio_breakpoints:
+          print(opts.sampler_portfolio_breakpoints)
+          our_breakpoints = eval(opts.sampler_portfolio_breakpoints)
+          print(" Portfolio breakpoints ", our_breakpoints)
         if opts.sampler_portfolio_args:
           print(" PRE_EVAL", opts.sampler_portfolio_args)
           #opts.sampler_portfolio_args = list(map(lambda x: eval(' "{}" '.format(x)), opts.sampler_portfolio_args))
@@ -2605,7 +2627,7 @@ if hasattr(sampler, 'setup'):
             if not(isinstance(opts.sampler_portfolio_args[indx], dict)):
                 print(indx,opts.sampler_portfolio_args[indx]) 
           print(" ARGS ", opts.sampler_portfolio_args)
-    sampler.setup(portolio_args=opts.sampler_portfolio_args,**extra_args_here)
+    sampler.setup(portolio_args=opts.sampler_portfolio_args,portfolio_breakpoints=our_breakpoints,**extra_args_here)
 
 # Call oracle if provided, to initialize sampler 
 if sampler_oracle:  # NON-PORTFOLIO SCENARIO TARGET 
