@@ -548,14 +548,14 @@ os.chdir(dirname_run)
 
 
 if not(opts.use_ini is None):
-    if opts.use_coinc is None and not(opts.LISA):
+    P=lalsimutils.ChooseWaveformParams()
+    if opts.use_coinc is None:
         print( " coinc required for ini file operation at present ")
         sys.exit(1)
     # Load in event dictionary
     if not(opts.use_coinc is None):
         event_dict = retrieve_event_from_coinc(opts.use_coinc)
         # Create relevant sim_xml file to hold parameters (does not parse coinc)
-        P=lalsimutils.ChooseWaveformParams()
         P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
     # Load in ini file to select relevant fmin, fref [latter usually unused]
 #    config = ConfigParser.ConfigParser()
@@ -570,7 +570,7 @@ if not(opts.use_ini is None):
     print( "IFO list from ini ", ifo_list)
     P.fmin = fmin_fiducial
     P.fref = unsafe_config_get(config,['engine','fref'])
-    # default value for eccentricity is 0 for 'P'!  Only change this value from default if eccentricity is present, do NOT want to fill it with None in particular
+    # default value for eccentricity is 0 for 'P'!  Only change this value from default if eccentricity is present, do NOT want to fill it with None in particular 
     if not(event_dict['eccentricity'] is None):   
         P.eccentricity = event_dict["eccentricity"]
     # Write 'target_params.xml.gz' file
@@ -619,8 +619,8 @@ npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options  --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
 if not(opts.h5_frame is False):# or "h5-frame" in config_dict:
     cmd += " --h5-frame"
-if not(opts.data_integration_window_half is None): 
-    cmd += " --data-integration-window-half {}".format(opts.data_integration_window_half)
+#if not(opts.data_integration_window_half is None): 
+#    cmd += " --data-integration-window-half {}".format(opts.data_integration_window_half)
 if opts.internal_use_gracedb_bayestar:
     cmd += " --internal-use-gracedb-bayestar "
 if opts.internal_use_amr:
