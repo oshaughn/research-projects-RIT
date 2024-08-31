@@ -929,8 +929,8 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'mu1':[0.0001,1e3],    # suboptimal, but something  
   'mu2':[-300,1e3],
   # LISA skylocation
-  'lambda':[0,np.pi/2],
-  'beta':[0,np.pi/2],
+  'lambda':[0,2*np.pi],
+  'beta':[-np.pi/2,np.pi/2],
   #'lambda':[0,2*np.pi],
   #'beta':[-np.pi/2,np.pi/2],
   #'cos_beta':[-1,1]
