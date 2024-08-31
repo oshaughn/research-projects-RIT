@@ -548,14 +548,15 @@ os.chdir(dirname_run)
 
 
 if not(opts.use_ini is None):
-    if opts.use_coinc is None:
+    if opts.use_coinc is None and not(opts.LISA):
         print( " coinc required for ini file operation at present ")
         sys.exit(1)
     # Load in event dictionary
-    event_dict = retrieve_event_from_coinc(opts.use_coinc)
-    # Create relevant sim_xml file to hold parameters (does not parse coinc)
-    P=lalsimutils.ChooseWaveformParams()
-    P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
+    if not(opts.use_coinc is None):
+        event_dict = retrieve_event_from_coinc(opts.use_coinc)
+        # Create relevant sim_xml file to hold parameters (does not parse coinc)
+        P=lalsimutils.ChooseWaveformParams()
+        P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
     # Load in ini file to select relevant fmin, fref [latter usually unused]
 #    config = ConfigParser.ConfigParser()
 #    config.read(opts.use_ini)
