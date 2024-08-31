@@ -578,13 +578,15 @@ def Evaluate_Gslr_test_2(tf, f, beta, lamda):
 ###########################################################################################
 # FOR INJECTIONS
 ###########################################################################################
-def create_lisa_injections(hlmf, fmax, fref, beta, lamda, psi, inclination, phi_ref, tref):
+def create_lisa_injections(hlmf, fmax, fref, beta, lamda, psi, inclination, phi_ref, tref, return_response = False):
     print(f"create_lisa_injections function has been called with following arguments:\n{locals()}")
     tf_dict, f_dict, amp_dict, phase_dict = get_tf_from_phase_dict(hlmf, fmax, fref)
     A = 0.0
     E = 0.0
     T = 0.0
     modes = list(hlmf.keys())
+    response = {}
+    mode_TDI = {}
     for mode in modes:
         H_0 = transformed_Hplus_Hcross(beta, lamda, psi, inclination, -phi_ref, mode[0], mode[1]) 
         L1, L2, L3 = Evaluate_Gslr(tf_dict[mode] + tref, f_dict[mode], H_0, beta, lamda)
@@ -594,9 +596,46 @@ def create_lisa_injections(hlmf, fmax, fref, beta, lamda, psi, inclination, phi_
         A += np.conj(tmp_data * L1)
         E += np.conj(tmp_data * L2)
         T += np.conj(tmp_data * L3)
+        response[mode]["L1"], response[mode]["L2"], response[mode]["L3"] = np.conj(L1), np.conj(L2), np.conj(L3)
+        mode_TDI[mode]["L1"], mode_TDI[mode]["L2"], mode_TDI[mode]["L3"] = np.conj(tmp_data*L1), np.conj(tmp_data*L2), np.conj(tmp_data*L3)
     A_lal, E_lal, T_lal = create_lal_frequency_series(f_dict[modes[0]], A), create_lal_frequency_series(f_dict[modes[0]], E), create_lal_frequency_series(f_dict[modes[0]], T)
     data_dict = {}
     data_dict["A"], data_dict["E"], data_dict["T"] = A_lal, E_lal, T_lal
-    return data_dict
+    if return_response:
+        return data_dict, response, mode_TDI
+    else:
+        return data_dict
+
+def generate_lisa_TDI(P_inj, lmax=4, modes=None, tref=0.0, fref=None, return_response=False, path_to_NR_hdf5=None):
+    print(f"generate_lisa_TDI function has been called with following arguments:\n{locals()}")
+    P = lalsimutils.ChooseWaveformParams()
+
+    P.m1 = P_inj.m1
+    P.m2 = P_inj.m2
+    P.s1z = P_inj.s1z
+    P.s2z = P_inj.s2z
+    P.dist = P_inj.dist
+    P.fmin = P_inj.fmin
+    P.fmax = 0.5/P_inj.deltaT
+    P.deltaF = P_inj.deltaF
+
+
+    P.phiref = 0.0  
+    P.inclination = 0.0 
+    P.psi = 0.0 
+    P.fref = P_inj.fref 
+    P.tref = 0.0
+
+    P.approx = P_inj.approx
+    hlmf = lalsimutils.hlmoff_for_LISA(P, Lmax=lmax, modes=modes, path_to_NR_hdf5=path_to_NR_hdf5)
+    modes = list(hlmf.keys())
+
+    # create TDI
+    output = create_lisa_injections(hlmf, P.fmax, fref, P.theta, P.phi, P.psi, P.inclination, P.phiref, tref, return_response)
+
+    if return_response:
+        return output[0], output[1], output[2]
+    else:
+        return output
 
 
