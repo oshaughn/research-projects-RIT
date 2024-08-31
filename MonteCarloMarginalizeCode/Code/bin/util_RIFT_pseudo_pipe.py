@@ -341,7 +341,8 @@ if (opts.approx in ['IMRPhenomXPHM' or 'IMRPhenomXO4']) and opts.assume_precessi
 
 if opts.internal_loud_signal_mitigation_suite:
     opts.internal_ile_freezeadapt=False  # make sure to adapt every iteration, and adapt in distance if present
-    opts.internal_ile_sky_network_coordinates=True # skymap is better
+    if not(opts.LISA):
+        opts.internal_ile_sky_network_coordinates=True # skymap is better
     opts.internal_ile_rotate_phase = True  # phase coordinates can be sharper
 
 # Default prior for aligned analysis should be z prior !
