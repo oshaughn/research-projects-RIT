@@ -927,11 +927,11 @@ if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     n_jobs_normal_actual = np.min([n_jobs_normal_guess,n_max_jobs])
     n_jobs_final_actual = np.min([2*n_jobs_normal_guess,n_max_jobs])
     if opts.assume_matter:   # more workers for matter physics jobs
-        n_jobs_normal_actual *=2
+        n_jobs_normal_actual *=2; 
         n_jobs_final_actual *=2
     if opts.cip_explode_jobs_auto_scale:
-        n_jobs_normal_actual *= opts.cip_explode_jobs_auto_scale
-        n_jobs_final_actual *=  opts.cip_explode_jobs_auto_scale
+        n_jobs_normal_actual *= opts.cip_explode_jobs_auto_scale; n_jobs_normal_actual = int(n_jobs_normal_actual)
+        n_jobs_final_actual *=  opts.cip_explode_jobs_auto_scale; n_jobs_final_actual =int(n_jobs_final_actual )
     print("  AUTO-EXPLODE GUESS {} {} {} ", n_jobs_normal_guess, n_jobs_normal_actual,n_jobs_final_actual)
     opts.cip_explode_jobs = n_jobs_normal_actual
     opts.cip_explode_jobs_last = n_jobs_final_actual
