@@ -18,4 +18,4 @@ precession
 ligo.skymap
 gwpy
 natsort
-scipy<=1.12
+scipy
