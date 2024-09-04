@@ -2885,7 +2885,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                 'q'                  : M1/M2,
                 'H_hyp'              : P.E0, # energy at initial separation
                 'j_hyp'              : P.p_phi0, # angular momentum at initial separation
-                'r_hyp'              : 6000.0,
+                'r_hyp'              : 12000.0,
                 'LambdaAl2'            : P.lambda1,
                 'LambdaBl2'            : P.lambda2,
                 'chi1'              : P.s1z, #note that there are no transverse spins
@@ -2902,7 +2902,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                 'use_geometric_units': 0,
                 'interp_uniform_grid': 1,
                 'initial_frequency'  : P.fmin,
-                'ode_tmax'           : 3e4,
+                'ode_tmax'           : 4.05e4,
                 'distance'           : P.dist/(lal.PC_SI*1e6),
                 'inclination'        : P.incl,
                 'output_hpc'         : 0 # output plus and cross polarizations, 0=no
@@ -2946,7 +2946,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
             amp_max_ind = np.argmax(amp)        
             amp_norm = amp / amp[amp_max_ind] # normalize amplitude for peak finding                
             # peak finding to determine system type
-            peaks, props = signal.find_peaks(amp_norm, height = 0.25)    
+            peaks, props = signal.find_peaks(amp_norm, height = 0.25, prominence = 0.1)    
             peak_heights = props['peak_heights']
             # filtering out peaks so we only keep the local maxima
             indices_to_keep = set()
@@ -3048,7 +3048,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                 if count == 0:
                     continue
                 if np.abs(value-ht.data.data[0]) > 0.01 * np.abs(ht.data.data[0]):
-                    n_samp=int(count/2)
+                    n_samp=int(count/16)
                     break
             vectaper= 0.5 + 0.5*np.cos(np.pi* (1-np.arange(n_samp)/(1.*n_samp)))
             nmax = np.argmax(ht.data.data)
@@ -3057,11 +3057,13 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
             # If Capture waveform, no end taper
             
             # peak finding to determine system type
-            peaks, props = signal.find_peaks(ht.data.data, height = 0.25*np.abs(np.amax(ht.data.data)))
+            height_thresh = 0.25*np.abs(np.amax(ht.data.data))
+            prom_thresh = 0.1*np.abs(np.amax(ht.data.data))
+            peaks, props = signal.find_peaks(ht.data.data, height = height_thresh, prominence = prom_thresh)
             peak_heights = props['peak_heights']
             indices_to_keep = set()
             sorted_indices = np.argsort(peak_heights)[::-1]
-            tol = 300 # hardcoded peak spacing tolerance. if spacing is less than tol, discard the peak
+            tol = int(pars['srate_interp'] / 13.65) # 300 samples at srate of 4096 - minimum distance between peaks.
             for i in sorted_indices:
                 peak = peaks[i]                
                 keep = True
