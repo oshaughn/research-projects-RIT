@@ -631,7 +631,7 @@ def generate_lisa_TDI(P_inj, lmax=4, modes=None, tref=0.0, fref=None, return_res
     modes = list(hlmf.keys())
 
     # create TDI
-    output = create_lisa_injections(hlmf, P.fmax, fref, P.theta, P.phi, P.psi, P.inclination, P.phiref, tref, return_response)
+    output = create_lisa_injections(hlmf, P.fmax, fref, P_inj.theta, P_inj.phi, P_inj.psi, P_inj.inclination, P_inj.phiref, tref, return_response)
 
     if return_response:
         return output[0], output[1], output[2]
