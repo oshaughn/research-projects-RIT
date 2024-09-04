@@ -596,6 +596,7 @@ def create_lisa_injections(hlmf, fmax, fref, beta, lamda, psi, inclination, phi_
         A += np.conj(tmp_data * L1)
         E += np.conj(tmp_data * L2)
         T += np.conj(tmp_data * L3)
+        response[mode], mode_TDI[mode] = {}, {}
         response[mode]["L1"], response[mode]["L2"], response[mode]["L3"] = np.conj(L1), np.conj(L2), np.conj(L3)
         mode_TDI[mode]["L1"], mode_TDI[mode]["L2"], mode_TDI[mode]["L3"] = np.conj(tmp_data*L1), np.conj(tmp_data*L2), np.conj(tmp_data*L3)
     A_lal, E_lal, T_lal = create_lal_frequency_series(f_dict[modes[0]], A), create_lal_frequency_series(f_dict[modes[0]], E), create_lal_frequency_series(f_dict[modes[0]], T)
@@ -608,7 +609,7 @@ def create_lisa_injections(hlmf, fmax, fref, beta, lamda, psi, inclination, phi_
 
 def generate_lisa_TDI(P_inj, lmax=4, modes=None, tref=0.0, fref=None, return_response=False, path_to_NR_hdf5=None):
     print(f"generate_lisa_TDI function has been called with following arguments:\n{locals()}")
-    P = lalsimutils.ChooseWaveformParams()
+    P = lsu.ChooseWaveformParams()
 
     P.m1 = P_inj.m1
     P.m2 = P_inj.m2
@@ -618,20 +619,21 @@ def generate_lisa_TDI(P_inj, lmax=4, modes=None, tref=0.0, fref=None, return_res
     P.fmin = P_inj.fmin
     P.fmax = 0.5/P_inj.deltaT
     P.deltaF = P_inj.deltaF
+    P.deltaT = P_inj.deltaT
 
 
     P.phiref = 0.0  
-    P.inclination = 0.0 
+    P.incl = 0.0 
     P.psi = 0.0 
     P.fref = P_inj.fref 
     P.tref = 0.0
 
     P.approx = P_inj.approx
-    hlmf = lalsimutils.hlmoff_for_LISA(P, Lmax=lmax, modes=modes, path_to_NR_hdf5=path_to_NR_hdf5)
+    hlmf = lsu.hlmoff_for_LISA(P, Lmax=lmax, modes=modes, path_to_NR_hdf5=path_to_NR_hdf5)
     modes = list(hlmf.keys())
 
     # create TDI
-    output = create_lisa_injections(hlmf, P.fmax, fref, P_inj.theta, P_inj.phi, P_inj.psi, P_inj.inclination, P_inj.phiref, tref, return_response)
+    output = create_lisa_injections(hlmf, P.fmax, fref, P_inj.theta, P_inj.phi, P_inj.psi, P_inj.incl, P_inj.phiref, tref, return_response)
 
     if return_response:
         return output[0], output[1], output[2]
