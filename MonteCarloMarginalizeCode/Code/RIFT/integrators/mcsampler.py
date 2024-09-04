@@ -170,7 +170,7 @@ class MCSampler(object):
         def dP_cdf(p, x):
             if x > self.rlim[param] or x < self.llim[param]:
                 return 0
-            return self.pdf[param](x)
+            return numpy.float64(self.pdf[param](x))
         x_i = numpy.linspace(self.llim[param], self.rlim[param], 1000,dtype=numpy.float64)
         # Integrator needs to have a step size which doesn't step over the
         # probability mass
