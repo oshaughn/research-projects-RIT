@@ -3591,9 +3591,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
     # Tapering: applies to cases without direct return, like TDmodesFromPolarizations and ChooseTDModes
     if not(no_condition):
+        # at this point we know the waveform length!
+        TDlen_here = hlm_dict[mode].data.length
         # Base taper, based on 1% of waveform length
-        ntaper = int(0.01*TDlen)  # fixed 1% of waveform length, at start
-        ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
+        ntaper = int(0.01*TDlen_here)  # fixed 1% of waveform length, at start
+        ntaper = np.max([ntaper, TDlen_here])  # require at least one waveform cycle of tapering; should never happen
         vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
         # Taper at the start of the segment
         for mode in hlm_dict:
