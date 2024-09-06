@@ -39,6 +39,10 @@ if 'RIFT_RESUM_POLARIZATIONS' in os.environ:
     info_use_resum_polarizations=True  # fallback to ChooseTDModesFromPolarizations for TEOBResumS (since ChooseTDModes is not available at present)
 from six.moves import range
 
+log_loud = False
+if 'RIFT_LOUD' in os.environ:
+    log_loud = True
+
 import numpy as np
 from numpy import sin, cos
 from scipy import interpolate
@@ -80,9 +84,10 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 rosDebugMessagesContainer = [False]
 rosDebugMessagesLongContainer = [False]
-print( "[Loading lalsimutils.py : MonteCarloMarginalization version]",file=sys.stderr)
-print( "  scipy : ", scipy.__version__, file=sys.stderr)
-print("  numpy : ", np.__version__,file=sys.stderr)
+if log_loud:
+    print( "[Loading lalsimutils.py : MonteCarloMarginalization version]",file=sys.stderr)
+    print( "  scipy : ", scipy.__version__, file=sys.stderr)
+    print("  numpy : ", np.__version__,file=sys.stderr)
 
 TOL_DF = 1.e-6 # Tolerence for two deltaF's to agree
 
@@ -4045,7 +4050,8 @@ def complex_hoft(P, sgn=-1,**kwargs):
         lalsim.SimInspiralREAL8WaveTaper(hc.data, P.taper)
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
-        print(TDlen,hp.data.length)
+        if log_loud:
+            print(TDlen,hp.data.length)
         assert TDlen >= hp.data.length
         hp = lal.ResizeREAL8TimeSeries(hp, 0, TDlen)
         hc = lal.ResizeREAL8TimeSeries(hc, 0, TDlen)
