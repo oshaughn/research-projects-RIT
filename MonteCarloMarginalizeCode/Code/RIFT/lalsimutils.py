@@ -4042,7 +4042,7 @@ def complex_hoft(P, sgn=-1,**kwargs):
     hp, hc = lalsim.SimInspiralChooseTDWaveform( P.m1, P.m2, 
             P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,
             P.dist, P.incl, P.phiref,  \
-            P.psi, P.eccentricity, P.meanPerAno, \
+            0 , P.eccentricity, P.meanPerAno, \
             P.deltaT, P.fmin, P.fref, \
             extra_params, P.approx)
     if P.taper != lsu_TAPER_NONE: # Taper if requested
@@ -4060,6 +4060,8 @@ def complex_hoft(P, sgn=-1,**kwargs):
             hp.deltaT, lsu_DimensionlessUnit, hp.data.length)
     ht.epoch = ht.epoch + P.tref
     ht.data.data = hp.data.data + 1j * sgn * hc.data.data
+    # impose polarization directly, using precisely the conventions we demand
+    ht.data.data*= np.exp(2j*sgn*P.psi)
     return ht
 
 def complex_hoft_IMRPv2(P_copy,sgn=-1):
