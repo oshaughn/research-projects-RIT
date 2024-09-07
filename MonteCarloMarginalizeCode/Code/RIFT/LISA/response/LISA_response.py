@@ -15,6 +15,8 @@
 import numpy as np
 import lal
 import RIFT.lalsimutils as lsu
+import sys
+import h5py
 ###########################################################################################
 # Constants
 ###########################################################################################
@@ -29,18 +31,71 @@ YRSID_SI = 31558149.763545603
 # FUNCTIONS
 ###########################################################################################
 def create_lal_frequency_series(frequency_values, frequency_series, epoch = 950000000, f0 = 0.0):
-    """A helper function to create lal COMPLEX16FrequencySeries. Might move to lalsimutils later.
+    """A helper function to create lal COMPLEX16FrequencySeries.
         Args:
             frequency_values (numpy.array): Frequency values at which the series is defined.
             frequency_series (numpy.array): Corresponding strain in frequency domain.
-            epoch (float): Needed to create CreateCOMPLEX16FrequencySeries, by default it is 950000000.
-            f0 (float): Needed to create CreateCOMPLEX16FrequencySeries, by default it is 0.0 . 
+            epoch (float): Needed to create COMPLEX16FrequencySeries, by default it is 950000000.
+            f0 (float): Needed to create COMPLEX16FrequencySeries, by default it is 0.0 . 
         Output:
             lal.COMPLEX16FrequencySeries object"""
     assert len(frequency_values) == len(frequency_series), "frequency_values and frequency_series don't have the same length."
     hf_lal = lal.CreateCOMPLEX16FrequencySeries("hf", epoch, f0,  np.abs(np.diff(frequency_values)[0]), lal.HertzUnit, len(frequency_values))
     hf_lal.data.data = frequency_series
     return hf_lal
+
+def create_lal_COMPLEX16TimeSeries(deltaT, time_series,  epoch = 950000000, f0 = 0.0, data_is_real = True):
+    """A helper function to create lal COMPLEX16TimeSeries.
+        Args:
+            deltaT (float): time step (1/sampling rate).
+            time_series (numpy.array): strain in time domain.
+            epoch (float): Needed to create COMPLEX16TimeSeries, by default it is 950000000.
+            f0 (float): Needed to create COMPLEX16TimeSeries, by default it is 0.0 . 
+        Output:
+            lal.COMPLEX16TimeSeries object"""
+    ht_lal = lal.CreateCOMPLEX16TimeSeries("ht_lal", epoch, f0, deltaT, lal.DimensionlessUnit, len(time_series))
+    if data_is_real:
+        ht_lal.data.data = time_series + 0j
+    else:
+        ht_lal.data.data = time_series
+    return ht_lal
+
+
+def convert_double_sided_to_single_sided(frequency_values, frequency_series, data_defined="negative"):
+    assert len(frequency_values) == len(frequency_series), "frequency_values and frequency_series don't have the same length."
+    if data_defined == "negative":
+        print("Negative")
+        index = np.argwhere(frequency_values<=0).flatten()
+        hf_onesided = create_lal_frequency_series(frequency_values[index], np.conj(frequency_series[index][::-1])) # do I need to conjugate?
+        assert len(frequency_series)//2 + 1 == hf_onesided.data.length
+        return hf_onesided
+    elif data_defined == "positive":
+        print("Positve")
+        index = np.argwhere(frequency_values>=0).flatten()
+        hf_onesided = create_lal_frequency_series(frequency_values[index], frequency_series[index])
+        assert len(frequency_series)//2 + 1 == hf_onesided.data.length
+        return hf_onesided
+    else:
+        print("Need to define how the frequency series is packed (either defined on negative or positive frequencies).")
+        sys.exit(1)
+
+def frequency_series_double_sided(frequency_values, frequency_series, data_defined = "negative"):
+    hf_small = convert_double_sided_to_single_sided(frequency_values, frequency_series, data_defined)
+    tmp = np.zeros(len(frequency_series), dtype=complex)
+    tmp[:len(hf_small.data.data)] = np.conj(hf_small.data.data[::-1])
+    tmp[len(hf_small.data.data)-1:] =  (hf_small.data.data[:-1])
+    hf = create_lal_frequency_series(frequency_values, tmp)
+    return hf
+
+def get_fvals(frequency_series):
+    """A function to evaulate frequency values of a COMPLEX16FrequencySeries. Goes from [-fNyq, fNyq - deltaF].
+        Args:
+            frequency_series (COMPLEX16FrequencySeries): 
+        Output:
+            frequency array (numpy.array)"""
+    fvals = -frequency_series.deltaF*np.arange(frequency_series.data.length//2, -frequency_series.data.length//2, -1)
+    return fvals
+
 
 
 def get_Ylm(inclination, phiref, l ,m, s = -2):
@@ -641,3 +696,26 @@ def generate_lisa_TDI(P_inj, lmax=4, modes=None, tref=0.0, fref=None, return_res
         return output
 
 
+def create_h5_files_from_data_dict(data_dict, save_path):
+    """This function takes in data dictionary and creates h5 files from them. Assumes the data is stores as COMPLEX16FrequencySeries.
+        Args:
+            data_dict (dictonary): contains data for A, E, T channels,
+            save_path (string): path to where you want to save the h5 files.
+        Output:
+            None"""
+    A_h5_file = h5py.File(f'{save_path}/A-fake_strain-1000000-10000.h5', 'w')
+    A_h5_file.create_dataset('data', data=data_dict["A"].data.data)
+    A_h5_file.attrs["deltaF"], A_h5_file.attrs["epoch"], A_h5_file.attrs["length"], A_h5_file.attrs["f0"] = data_dict["A"].deltaF, float(data_dict["A"].epoch), data_dict["A"].data.length, data_dict["A"].f0 
+    A_h5_file.close()
+
+    E_h5_file = h5py.File(f'{save_path}/E-fake_strain-1000000-10000.h5', 'w')
+    E_h5_file.create_dataset('data', data=data_dict["E"].data.data)
+    E_h5_file.attrs["deltaF"], E_h5_file.attrs["epoch"], E_h5_file.attrs["length"], E_h5_file.attrs["f0"] =  data_dict["E"].deltaF, float(data_dict["E"].epoch), data_dict["E"].data.length, data_dict["E"].f0
+    E_h5_file.close()
+
+    T_h5_file = h5py.File(f'{save_path}/T-fake_strain-1000000-10000.h5', 'w')
+    T_h5_file.create_dataset('data', data=data_dict["T"].data.data)
+    T_h5_file.attrs["deltaF"], T_h5_file.attrs["epoch"], T_h5_file.attrs["length"], T_h5_file.attrs["f0"] = data_dict["T"].deltaF, float(data_dict["T"].epoch), data_dict["T"].data.length, data_dict["T"].f0
+    T_h5_file.close()
+
+    return None
