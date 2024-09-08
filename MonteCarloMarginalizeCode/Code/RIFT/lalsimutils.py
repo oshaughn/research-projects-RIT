@@ -271,6 +271,7 @@ try:
    lalSEOBNRv4HM_ROM = lalsim.SEOBNRv4HM_ROM
    lalIMRPhenomXP = lalsim.IMRPhenomXP
    lalIMRPhenomXPHM = lalsim.IMRPhenomXPHM
+   lalIMRPhenomXO4a = lalsim.IMRPhenomXO4a
    
 except:
    lalIMRPhenomXP = -11
