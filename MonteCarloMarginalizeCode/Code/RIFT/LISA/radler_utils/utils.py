@@ -16,6 +16,13 @@ from scipy.interpolate import interp1d
 # Functions
 ###########################################################################################
 def create_resampled_lal_COMPLEX16TimeSeries(tvals, new_tvals, data_dict):
+    """A helper function to create lal COMPLEX16TimeSeries.
+        Args:
+            tvals (numpy.array)    : time values over which the data is defined,
+            new_tvals (numpy.array): time values over which you want the data to be defined (resampling),
+            data_dict (dictionary) : dictionary containing data stored in numpy array.
+        Output:
+            data_dict              : dictionary containing resampled data stored as lal.COMPLEX16TimeSeries object"""
     data_dict_new = {}
     new_deltaT = np.diff(new_tvals)[0]
     for channel in data_dict.keys():
@@ -31,7 +38,19 @@ def create_resampled_lal_COMPLEX16TimeSeries(tvals, new_tvals, data_dict):
 
 
 def get_ldc_psds(save_path=None, fvals=None, channels = ["A", "E", "T"], model = "SciRDv1"):
-    import ldc.lisa.noise as noise
+    """This function generated LISA psds based from lisa data challenge code base.
+        Args:
+            save_path (string)     : path where to save the psds as txt files,
+            fvals (boolean)        : frequency values on which you want to evaluate the PSD, if None then it will generate frequency valuee,
+            channel (list)         : list of channels ["A", "E", "T", "X", "XY"],
+            model (string)         : "Proposal", "SciRDv1", "SciRDdeg1", "MRDv1","MRD_MFR","mldc", "newdrs", "LCESAcall", "redbook".
+        Returns:
+            psd_dictionary"""
+    try:
+        import ldc.lisa.noise as noise
+    except:
+        print("ldc is not installed.")
+        sys.exit()
     if fvals is None:
         fmin = 0.0
         deltaT = 8
@@ -49,7 +68,7 @@ def get_ldc_psds(save_path=None, fvals=None, channels = ["A", "E", "T"], model =
              np.savetxt(f"{save_path}/{channel}_psd.txt", np.vstack([Sn["fvals"], Sn[channel]]).T)       
     return Sn
 
-def generate_data_from_radler(h5_path, output_as_AET = False, new_tvals =  None, output_as_FD=False):
+def generate_data_from_radler(h5_path, output_as_AET = False, new_tvals =  None, output_as_FD = False):
     """This function takes in a radler h5 file and outputs a data dictionary.
         Args:
             h5_path (string)       : path to radler h5 file,
