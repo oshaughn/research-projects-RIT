@@ -3233,6 +3233,21 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        hlmsT = {}
        hlms = {}
        hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct,Lmax)
+
+       # FD conditioning using fd_standoff_factor, HIGH PASS FILTER to eliminate LOW FREQUENCIES
+       # Note this conditioning is based on the L=2 mode start frequency -- we should use different conditioning for each coprecessing mode
+       # but that is very difficult to do because modes of different 'm' and thus typical frequency generally mix
+       # Note also that unless the segment length is large, this is often surprisingly few frequency bins for tapering
+       if not(no_condition):
+           our_fvals = evaluate_fvals(hlmsdict[(2,2)])
+           vectaper_symmetric  = np.ones(len(our_fvals))
+           indx_below = np.logical_and(np.abs(np.abs(our_fvals)<P.fmin), np.abs(our_fvals)>=P.fmin*fd_standoff_factor)
+           vectaper_symmetric[indx_below] = 0.5 + 0.5*np.cos(np.pi* (np.abs(our_fvals[indx_below])/P.fmin - 1)/(1-fd_standoff_factor))
+           indx_within = np.abs(our_fvals)< P.fmin*fd_standoff_factor
+           for mode in hlmsdict:
+               hlmsdict[mode].data.data*=vectaper_symmetric
+               hlmsdict[mode].data.data[indx_within]=0
+       
        # Base taper, based on 1% of waveform length
        ntaper = int(0.01*TDlen)  # fixed 1% of waveform length, at start
        ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
