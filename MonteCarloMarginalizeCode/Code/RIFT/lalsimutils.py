@@ -3199,6 +3199,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
     # Check that masses are not nan!
     assert (not np.isnan(P.m1)) and (not np.isnan(P.m2)), " masses are NaN "
+    phiref_shift_convention =0
+
 
     # includes the 'release' version
     extra_waveform_args = {}
@@ -3368,6 +3370,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 test = lalsim.EOBCheckNyquistFrequency(P.m1/lal.MSUN_SI,P.m2/lal.MSUN_SI, np.array([P.s1x,P.s1y, P.s1z]), np.array([P.s2x,P.s2y, P.s2z]), Lmax,P.approx, P.deltaT)
             except Exception as e:
                 raise NameError(" Nyquist frequency error for v4P/v4PHM, check srate")
+        # extra phase factor of pi/2 added to fix consistency issue with our reconstruction code and other convention; easily demonstrated with precessing binaries, and also in docs
+        phiref_shift_convention =np.pi/2
         hlms = lalsim.SimInspiralChooseTDModes(P.phiref, P.deltaT, P.m1, P.m2, \
 	    P.s1x, P.s1y, P.s1z, \
 	    P.s2x, P.s2y, P.s2z, \
@@ -3606,6 +3610,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
     for mode in hlm_dict:
         hlm_dict[mode].data.data *= sign_factor
+        if phiref_shift_convention:
+            hlm_dict[mode].data.data *= np.exp(1j*mode[1]*phiref_shift_convention)*sign_factor # double-count
 
         # Force waveform duration to fit inside target time!  (SimInspiralTD adds a lot of padding)
         if not (P.deltaF is None):  # lalsim.SimInspiralImplementedFDApproximants(P.approx)==1 and 
