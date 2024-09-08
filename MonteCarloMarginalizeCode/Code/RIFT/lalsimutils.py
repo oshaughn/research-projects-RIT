@@ -4725,7 +4725,7 @@ def hlmoff_for_LISA(P, Lmax=4, modes=None, fd_standoff_factor=0.964, fd_alignmen
             hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
         return hlmsdict
 
-    if P.approx == lalNRHybSur3dq8: # will resize such that deltaF = 1/TDlen
+    if P.approx == lalNRHybSur3dq8 or P.approx == lalIMRPhenomD: # will resize such that deltaF = 1/TDlen
         hlms_struct = hlmoff(P, Lmax=Lmax)
         hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct, Lmax, modes)
         # Resize it such that deltaF = 1/TDlen
