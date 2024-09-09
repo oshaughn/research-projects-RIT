@@ -24,9 +24,13 @@ Requires python SWIG bindings of the LIGO Algorithms Library (LAL)
 
 from __future__ import print_function
 
+log_loud = False
+
+
 import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lsu  # problem of relative comprehensive import - dangerous due to package name
+log_loud = lsu.log_loud
 import numpy as np
 try:
   import cupy
@@ -74,19 +78,22 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  try:
         import NRWaveformCatalogManager3 as nrwf
         useNR =True
-        print(" factored_likelihood.py : NRWaveformCatalogManager3 available ")
+        if log_loud:
+          print(" factored_likelihood.py : NRWaveformCatalogManager3 available ")
  except ImportError:
         useNR=False
 
 
  try:
         import RIFT.physics.ROMWaveformManager as romwf
-        print(" factored_likelihood.py: ROMWaveformManager as romwf")
+        if log_loud:
+          print(" factored_likelihood.py: ROMWaveformManager as romwf")
         useROM=True
         rom_basis_scale = 1.0*1e-21   # Fundamental problem: Inner products with ROM basis vectors/Sh are tiny. Need to rescale to avoid overflow/underflow and simplify comparisons
  except ImportError:
         useROM=False
-        print(" factored_likelihood.py: - no ROM - ")
+        if log_loud:
+          print(" factored_likelihood.py: - no ROM - ")
         rom_basis_scale =1
 
  try:
@@ -95,7 +102,8 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  #    import EOBTidalExternal as eobwf
  except:
     hasEOB=False
-    print(" factored_likelihood: no EOB ")
+    if log_loud:
+      print(" factored_likelihood: no EOB ")
 else:
   hasEOB=False
   useROM=False; rom_basis_scale=1
