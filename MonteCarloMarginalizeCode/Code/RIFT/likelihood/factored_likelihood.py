@@ -2064,7 +2064,8 @@ if not('RIFT_LOWLATENCY' in os.environ):
         import numba
         from numba import vectorize, complex128, float64, int64
         numba_on = True
-        print(" Numba on ")
+        if log_loud:
+          print(" Numba on ")
 
         # Very inefficient : decorating
         # Problem - lately, compiler not correctly identifying return value of code
@@ -2095,7 +2096,8 @@ if not('RIFT_LOWLATENCY' in os.environ):
 
 if fallback or ('RIFT_LOWLATENCY' in os.environ): 
         numba_on = False
-        print(" Numba off ")
+        if log_loud:
+          print(" Numba off ")
         # Very inefficient
         def lalylm(th,ph,s,l,m):
                 return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
