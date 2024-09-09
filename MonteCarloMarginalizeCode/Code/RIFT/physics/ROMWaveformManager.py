@@ -724,7 +724,6 @@ class WaveformModeCatalog:
                 hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
            
         if 'NRSur7dq4' in self.param:
-            print(self.sur)
             params_here = self.parameter_convert[(2,2)](P)
             tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
             indx_ok = np.logical_and(tvals_dimensionless  > self.ToverMmin , tvals_dimensionless < self.ToverMmax)
@@ -733,13 +732,16 @@ class WaveformModeCatalog:
             if rom_taper_end:
                 taper_end_duration =40.0
                 print(params_here[0],params_here[1],params_here[2])
+            fac = 1
             if P.fref >0 and use_reference_spins:
-                time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0], params_here[1],params_here[2],f_ref=P.fref, MTot=(P.m1+P.m2)/lal.MSUN_SI, times=tvals_dimensionless[indx_ok]*m_total_s,f_low=0,taper_end_duration=taper_end_duration) #,f_low=0)
+                print(" warning NRSur7dq4 interface change if fref used ")
+                fac = m_total_s/distance_s
+                time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0], params_here[1],params_here[2],f_ref=P.fref, M=(P.m1+P.m2)/lal.MSUN_SI, dist_mpc=P.dist/(1e6*lal.PC_SI), times=tvals_dimensionless[indx_ok]*m_total_s,f_low=0,taper_end_duration=taper_end_duration,units='mks') #,f_low=0)
             else:
                 time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0],params_here[1],params_here[2],times=tvals_dimensionless[indx_ok],f_low=0,taper_end_duration=taper_end_duration)
             for mode in self.modes_available:
                 hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
-                hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
+                hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]/fac  # undo scaling if needed
         # Option 1: Use NRHybXXX approach (i.e., generate an hlmoft dictionary...but with its OWN time grid and scaling...very annoying)
         if 'NRHyb' in self.param:
             params_here = self.parameter_convert[(2,2)](P)
