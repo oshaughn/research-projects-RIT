@@ -3307,6 +3307,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 #             print(alpha0, thetaJN, np.pi - phiJL,psiJ)
              hlmsT_alt = rotate_hlm_static(hlmsT, -gamma, -beta,-alpha ,extra_polarization=psiJ)  
              hlmsT = hlmsT_alt
+        # phase shift ChooseFDModes
+       for mode in hlmsT:
+           hlmsT[mode].data.data *= np.exp(-1j*mode[1]*np.pi/2) # phase correction factor, empirically to match phase convention for precession for example. Note this should always be done
 
        if P.deltaF is not None:
           if not silent:
