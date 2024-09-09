@@ -3207,6 +3207,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
     # includes the 'release' version
     extra_waveform_args = {}
+    fmin_backstop = 10 # artificial P.fmin to use for setting tapering scales and other things, so P.fmin can be reserved for passing as '0' when requested in crazy ways for NRSur, etc
+    if 'fmin_backstop' in kwargs:
+        fmin_backstop = kwargs['fmin_backstop']
     if 'extra_waveform_args' in kwargs:
         extra_waveform_args.update(kwargs['extra_waveform_args'])
     extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
@@ -3627,6 +3630,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
     # Tapering: applies to cases without direct return, like TDmodesFromPolarizations and ChooseTDModes
     if not(no_condition):
+        fmin_effective = P.fmin
+        if not(fmin_effective):
+            fmin_effective  = fmin_backstop
         # at this point we know the waveform length!
         TDlen_here = hlm_dict[mode].data.length
         # Base taper, based on 1% of waveform length
