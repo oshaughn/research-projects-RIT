@@ -3189,8 +3189,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
     fd_standoff_factor: for ChooseFDWaveform, reduce starting frequency P.fmin by this factor internally when generating.
           FD waveform calculation implicitly assumes fmin is in the inspiral regime (if not you are making bad life choices).
-          Default value of 0.964 is based on changing inspiral duration by 10% (1.1^(3/8) ~ 1.036). Any constant factor will change
+          Normal default value of 0.964 is based on changing inspiral duration by 10% (1.1^(3/8) ~ 1.036). Any constant factor will change
           the inspiral duration by a factor (1./fd_standoff_factor)^(8/3) or so.
+
+          WARNING: internal_hlm_generator will CHANGE this factor to 0.9, to better match complex_hoft.  I'm keeping the default of this function here to match the nominal documentaiton of SimInspiralTD, while internal_hlm_generator has a different factor, chosen to match its actual output.
+    
 
     no_condition: disable conditioning (for ChooseFDModes specifically). For diagnostic plots on impact of/need for conditioning.
     fd_L_frame: rotate hlmoft to L frame from J frame for return values from ChooseFDModes (XO4/XPHM). 
