@@ -20,8 +20,8 @@ def create_resampled_lal_COMPLEX16TimeSeries(tvals, new_tvals, data_dict):
             tvals (numpy.array)    : time values over which the data is defined,
             new_tvals (numpy.array): time values over which you want the data to be defined (resampling),
             data_dict (dictionary) : dictionary containing data stored in numpy array.
-        Output:
-            data_dict              : dictionary containing resampled data stored as lal.COMPLEX16TimeSeries object"""
+        Returns:
+            data_dict              : dictionary containing resampled data stored as lal.COMPLEX16TimeSeries objects."""
     data_dict_new = {}
     new_deltaT = np.diff(new_tvals)[0]
     for channel in data_dict.keys():
