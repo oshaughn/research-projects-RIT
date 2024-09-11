@@ -24,25 +24,26 @@ def create_resampled_lal_COMPLEX16TimeSeries(tvals, data_dict, new_tvals=None):
         Returns:
             data_dict              : dictionary containing resampled data stored as lal.COMPLEX16TimeSeries objects."""
     data_dict_new = {}
-    new_deltaT = np.diff(new_tvals)[0]
     for channel in data_dict.keys():
         print(f"Reading channel {channel}")
         if not(new_tvals is None):
         	# new_tvals passed as arguments, check if interpolation is needed.
-        	equal_length = np.equal(len(tvals), len(new_tvals))
-        	old_deltaT, new_deltaT = np.diff(tvals)[0], np.diff(new_tvals)[0]
-        	equal_deltaT = np.equal(old_deltaT, new_deltaT)
+            equal_length = np.equal(len(tvals), len(new_tvals))
+            old_deltaT, new_deltaT = np.diff(tvals)[0], np.diff(new_tvals)[0]
+            equal_deltaT = np.equal(old_deltaT, new_deltaT)
         else:
         	# new_tvals not passed as argument, set these to True to bypass interpolation.
-        	equal_length=True
-        	equal_deltaT=True
+            equal_length=True
+            equal_deltaT=True
         if equal_length and equal_deltaT:
-        	print("Resampling not requested.")
-        	new_data = data_dict[channel]
+            new_deltaT = np.diff(tvals)[0]
+            print("Resampling not requested.")
+            new_data = data_dict[channel]
         else:
-        	print(f"Resampling from {old_deltaT} s to {new_deltaT} s")
-        	func = interp1d(tvals, data_dict[channel], fill_value=tuple([0,0]), bounds_error=False)
-        	new_data = func(new_tvals)
+            new_deltaT = np.diff(new_tvals)[0]
+            print(f"Resampling from {old_deltaT} s to {new_deltaT} s")
+            func = interp1d(tvals, data_dict[channel], fill_value=tuple([0,0]), bounds_error=False)
+            new_data = func(new_tvals)
 
         ht_lal = lal.CreateCOMPLEX16TimeSeries("ht_lal", 0.0, 0, new_deltaT, lal.DimensionlessUnit, len(new_data))    
         ht_lal.data.data = new_data + 0j
@@ -116,7 +117,10 @@ def generate_data_from_radler(h5_path, output_as_AET = False, new_tvals =  None,
     data_dict = create_resampled_lal_COMPLEX16TimeSeries(old_tvals, data_dict, new_tvals)
     # Convert into FD if requested
     if output_as_FD:
-        power = np.log2(len(new_tvals))
+        if new_tvals is None:
+            power = np.log2(len(old_tvals))
+        else:
+            power = np.log2(len(new_tvals))
         assert power == np.ceil(power), "The data bins need to be power of 2 for lal FFT routines, make sure len(new_tvals) is a power of 2."
         tmp_dict = data_dict
         data_dict = {}
