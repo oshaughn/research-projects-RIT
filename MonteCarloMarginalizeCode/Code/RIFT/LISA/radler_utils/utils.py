@@ -26,8 +26,16 @@ def create_resampled_lal_COMPLEX16TimeSeries(tvals, new_tvals, data_dict):
     new_deltaT = np.diff(new_tvals)[0]
     for channel in data_dict.keys():
         print(f"Reading channel {channel}")
-        func = interp1d(tvals, data_dict[channel], fill_value=tuple([0,0]), bounds_error=False)
-        new_data = func(new_tvals)
+        equal_length = np.equal(len(tvals), len(new_tvals))
+        old_deltaT, new_deltaT = np.diff(tvals)[0], np.diff(new_tvals)[0]
+        equal_deltaT = np.equal(old_deltaT, new_deltaT)
+        if equal_length and equal_deltaT:
+        	print("Resampling not requested.")
+        	new_data = data_dict[channel]
+        else:
+        	print(f"Resampling from {old_deltaT} s to {new_deltaT} s")
+        	func = interp1d(tvals, data_dict[channel], fill_value=tuple([0,0]), bounds_error=False)
+        	new_data = func(new_tvals)
 
         ht_lal = lal.CreateCOMPLEX16TimeSeries("ht_lal", 0.0, 0, new_deltaT, lal.DimensionlessUnit, len(new_data))    
         ht_lal.data.data = new_data + 0j
