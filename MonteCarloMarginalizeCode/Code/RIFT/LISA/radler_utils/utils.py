@@ -15,7 +15,7 @@ __author__ = "A. Jan"
 ###########################################################################################
 # Functions
 ###########################################################################################
-def create_resampled_lal_COMPLEX16TimeSeries(tvals, new_tvals, data_dict):
+def create_resampled_lal_COMPLEX16TimeSeries(tvals, data_dict, new_tvals=None):
     """A helper function to create lal COMPLEX16TimeSeries.
         Args:
             tvals (numpy.array)    : time values over which the data is defined,
@@ -27,9 +27,15 @@ def create_resampled_lal_COMPLEX16TimeSeries(tvals, new_tvals, data_dict):
     new_deltaT = np.diff(new_tvals)[0]
     for channel in data_dict.keys():
         print(f"Reading channel {channel}")
-        equal_length = np.equal(len(tvals), len(new_tvals))
-        old_deltaT, new_deltaT = np.diff(tvals)[0], np.diff(new_tvals)[0]
-        equal_deltaT = np.equal(old_deltaT, new_deltaT)
+        if not(new_tvals is None):
+        	# new_tvals passed as arguments, check if interpolation is needed.
+        	equal_length = np.equal(len(tvals), len(new_tvals))
+        	old_deltaT, new_deltaT = np.diff(tvals)[0], np.diff(new_tvals)[0]
+        	equal_deltaT = np.equal(old_deltaT, new_deltaT)
+        else:
+        	# new_tvals not passed as argument, set these to True to bypass interpolation.
+        	equal_length=True
+        	equal_deltaT=True
         if equal_length and equal_deltaT:
         	print("Resampling not requested.")
         	new_data = data_dict[channel]
@@ -105,9 +111,9 @@ def generate_data_from_radler(h5_path, output_as_AET = False, new_tvals =  None,
         data_dict["E"] = 1/np.sqrt(6) * (tmp_dict["X"] - 2*tmp_dict["Y"] + tmp_dict["Z"])
         data_dict["T"] = 1/np.sqrt(3) * (tmp_dict["X"]+ tmp_dict["Y"] + tmp_dict["Z"])
     # if new_tvals is not provided, use old ones so no interpolation but still convert into COMPLEX16TimeSeries
-    if new_tvals is None:
-        new_tvals = old_tvals
-    data_dict = create_resampled_lal_COMPLEX16TimeSeries(old_tvals, new_tvals, data_dict)
+    # if new_tvals is None:
+    #    new_tvals = old_tvals
+    data_dict = create_resampled_lal_COMPLEX16TimeSeries(old_tvals, data_dict, new_tvals)
     # Convert into FD if requested
     if output_as_FD:
         power = np.log2(len(new_tvals))
