@@ -1406,7 +1406,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
     # fNyq is the max resolvable frequency for a waveform. It is 0.5/deltaT. RIFT needs deltaT, deltaF for waveform generation (information present in P) and for integration it needs fmax (fmax <= fNyq)
     print(f"Sky location lambda = {lisa_sky_lamda}, sky location beta = {lisa_sky_beta}")
 
-    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest = factored_likelihood_LISA.PrecomputeAlignedSpinLISA(opts.lisa_reference_time, opts.lisa_reference_frequency, opts.data_integration_window_half, hlms_FD, None, data_dict, psd_dict, flow_ifo_dict["A"], fmax, fNyq, P.deltaT, lisa_sky_beta, lisa_sky_lamda, analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0.0)
+    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest = factored_likelihood_LISA.PrecomputeAlignedSpinLISA(opts.lisa_reference_time, opts.lisa_reference_frequency, opts.data_integration_window_half, hlms_FD, None, data_dict, psd_dict, flow_ifo_dict["A"], fNyq, fmax, P.deltaT, lisa_sky_beta, lisa_sky_lamda, analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0.0)
     
     # reset to default.  Should not be needed, but weird python scoping error
     manual_avoid_overflow_logarithm = manual_avoid_overflow_logarithm_default 
