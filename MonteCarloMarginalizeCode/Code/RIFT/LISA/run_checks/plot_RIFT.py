@@ -19,6 +19,7 @@ plt.rcParams.update({
 }
 )
 plt.style.use('seaborn-v0_8-poster')
+__author__ = "A. Jan"
 # TO DO:
 # PE summary
 # plot injection + high lnL waveform

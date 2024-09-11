@@ -14,6 +14,8 @@ import lalsimulation
 import matplotlib.pyplot as plt
 from argparse import ArgumentParser
 import os
+
+__author__ = "A. Jan"
 ############################################################################################
 # Arguments
 ###########################################################################################

@@ -11,6 +11,7 @@ sys.path.append(f"/Users/aasim/Desktop/Research/Mcodes/{RIFT}/MonteCarloMarginal
 import RIFT.lalsimutils as lsu
 from RIFT.LISA.response.LISA_response import *
 
+__author__ = "A. Jan"
 ###########################################################################################
 # Functions
 ###########################################################################################

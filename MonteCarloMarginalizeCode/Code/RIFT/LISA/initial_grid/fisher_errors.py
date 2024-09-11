@@ -7,6 +7,8 @@ from RIFT.LISA.response.LISA_response import *
 from argparse import ArgumentParser
 from scipy.interpolate import interp1d
 import os
+
+__author__ = "A. Jan"
 ###########################################################################################
 # Functions to generate 2-PN waveforms as per http://arxiv.org/abs/gr-qc/9502040.
 ###########################################################################################
