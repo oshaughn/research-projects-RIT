@@ -5,6 +5,9 @@ import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lsu  # problem of relative comprehensive import - dangerous due to package name
 import numpy as np
+
+__author__ = "A. Jan"
+
 try:
   import cupy
   from . import optimized_gpu_tools
