@@ -96,7 +96,7 @@ def ComputeIPTimeSeries(IP, hf, data, N_shift, N_window, analyticPSD_Q=False,
     for discrete values of the reference time tref.  The epoch of the
     SphHarmTimeSeries object is set to account for the transformation
     """
-    assert data.deltaF == hf.deltaF
+    assert np.isclose(data.deltaF, hf.deltaF), f"DeltaF of template is{data.deltaF}, deltaF of data is{hf.delta}. They should be the same, this could potentionally be caused by numerical precision."
     assert data.data.length == hf.data.length
 
     rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hf, data)
