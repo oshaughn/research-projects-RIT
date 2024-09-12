@@ -1204,12 +1204,13 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
     if opts.assume_nospin:
         grid_size = 1000   # 500 was too small with noise
     else:
-        chieff_range = str([chieff_min,chieff_max]).replace(' ', '')   # assumes all chieff are possible
+        chieff_range = "[{},{}".format(chieff_min, chieff_max)
+        chieff_range= chieff_range.replace(' ', '')   # assumes all chieff are possible
         if opts.propose_fit_strategy:
             # If we don't have a fit plan, use the NS spin maximum as the default
             if (P.extract_param('mc')/lal.MSUN_SI < 2.6):   # assume a maximum NS mass of 3 Msun
                 chi_max = 0.1   # propose a maximum NS spin
-                chi_range = str([-chi_max,chi_max]).replace(' ','')
+                chi_range = "[{},{}]".format(-chi_max,chi_max).replace(' ','')
                 chieff_range = chi_range  # force to be smaller
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
 
