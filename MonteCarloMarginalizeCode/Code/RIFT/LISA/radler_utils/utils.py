@@ -19,8 +19,8 @@ def create_resampled_lal_COMPLEX16TimeSeries(tvals, data_dict, new_tvals=None):
     """A helper function to create lal COMPLEX16TimeSeries.
         Args:
             tvals (numpy.array)    : time values over which the data is defined,
-            new_tvals (numpy.array): time values over which you want the data to be defined (resampling),
-            data_dict (dictionary) : dictionary containing data stored in numpy array.
+            data_dict (dictionary) : dictionary containing data stored in numpy array,
+            new_tvals (numpy.array): resampled time values. (set to None if resampling is not needed).      
         Returns:
             data_dict              : dictionary containing resampled data stored as lal.COMPLEX16TimeSeries objects."""
     data_dict_new = {}
@@ -49,11 +49,12 @@ def create_resampled_lal_COMPLEX16TimeSeries(tvals, data_dict, new_tvals=None):
         ht_lal.data.data = new_data + 0j
         print(f" Delta T = {ht_lal.deltaT} s, size = {ht_lal.data.length}, time = {ht_lal.data.length*ht_lal.deltaT/3600/24:2f} days") 
         data_dict_new[channel] = ht_lal
+        
     return data_dict_new
 
 
 def get_ldc_psds(save_path=None, fvals=None, channels = ["A", "E", "T"], model = "SciRDv1"):
-    """This function generated LISA psds based from lisa data challenge code base.
+    """This function generates LISA psds using the lisa data challenge package.
         Args:
             save_path (string)     : path where to save the psds as txt files,
             fvals (boolean)        : frequency values on which you want to evaluate the PSD, if None then it will generate frequency valuee,
@@ -80,10 +81,11 @@ def get_ldc_psds(save_path=None, fvals=None, channels = ["A", "E", "T"], model =
         print(f"Channel = {channel}")
         Sn[channel] = noise_model.psd(fvals, channel)
         if save_path:
-             np.savetxt(f"{save_path}/{channel}_psd.txt", np.vstack([Sn["fvals"], Sn[channel]]).T)       
+             np.savetxt(f"{save_path}/{channel}_psd.txt", np.vstack([Sn["fvals"], Sn[channel]]).T)
+                    
     return Sn
 
-def generate_data_from_radler(h5_path, output_as_AET = False, new_tvals =  None, output_as_FD = False):
+def generate_data_from_radler(h5_path, output_as_AET = False, new_tvals =  None, output_as_FD = False, condition=True):
     """This function takes in a radler h5 file and outputs a data dictionary.
         Args:
             h5_path (string)       : path to radler h5 file,
@@ -108,13 +110,28 @@ def generate_data_from_radler(h5_path, output_as_AET = False, new_tvals =  None,
     if output_as_AET:
         tmp_dict = data_dict
         data_dict = {}
-        data_dict["A"] = 1/np.sqrt(2) * (tmp_dict["Z"]- tmp_dict["X"])
+        data_dict["A"] = 1/np.sqrt(2) * (tmp_dict["Z"] - tmp_dict["X"])
         data_dict["E"] = 1/np.sqrt(6) * (tmp_dict["X"] - 2*tmp_dict["Y"] + tmp_dict["Z"])
-        data_dict["T"] = 1/np.sqrt(3) * (tmp_dict["X"]+ tmp_dict["Y"] + tmp_dict["Z"])
-    # if new_tvals is not provided, use old ones so no interpolation but still convert into COMPLEX16TimeSeries
-    # if new_tvals is None:
-    #    new_tvals = old_tvals
+        data_dict["T"] = 1/np.sqrt(3) * (tmp_dict["X"] + tmp_dict["Y"] + tmp_dict["Z"])
+
+    # new_tvals are none by default, so if they are not provided no interpolatin will occur and this function will just create lal tseries.
     data_dict = create_resampled_lal_COMPLEX16TimeSeries(old_tvals, data_dict, new_tvals)
+    
+    # Condition if requested
+    if condition:
+        print("\tTapering requested")
+        for channel in data_dict:
+            TDlen = (data_dict[channel].data.length)
+            ntaper = int(0.01*TDlen) 
+            # taper start of the time series
+            vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+            print(f"\t\t Tapering from index 0 ({vectaper[0]}) to {ntaper}.")
+            data_dict[channel].data.data[:ntaper] *= vectaper # 0 at 0 and slowly peak 
+            # taper end of the time series
+            index_front = TDlen-ntaper
+            print(f"\t\t Tapering from index {index_front} ({vectaper[::-1][0]}) to {TDlen-1}.")
+            data_dict[channel].data.data[index_front:] *= vectaper[::-1]  # slowly drop and then 0 at -1
+    
     # Convert into FD if requested
     if output_as_FD:
         if new_tvals is None:
@@ -126,6 +143,7 @@ def generate_data_from_radler(h5_path, output_as_AET = False, new_tvals =  None,
         data_dict = {}
         for channel in tmp_dict:
             data_dict[channel] = lsu.DataFourier(tmp_dict[channel])
+
     return data_dict
 
 
