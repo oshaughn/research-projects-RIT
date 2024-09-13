@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """This code is meant to check the health of a RIFT run as it progresses and after it has finished. python plot_RIFT.py path/to/rundir/"""
 ###########################################################################################
-# Imports and Configuration
+# Import
 ###########################################################################################
 import numpy as np
 import matplotlib.pyplot as plt
@@ -52,18 +52,19 @@ run_diagnostics = {
 ###########################################################################################
 # Functions
 ###########################################################################################
-def get_lnL_cut_points(all_net_path, lnL_cut=15, error_threshold=0.4):
+def get_lnL_cut_points(all_net_path, lnL_cut=15, error_threshold=0.4, composite=False):
     """
     Analyzes the lnL values from an all.net file to find high likelihood points
     and assess their Monte Carlo error.
 
-    Parameters:
-    - all_net_path (str): Path to the all.net file.
-    - lnL_cut (float): Cutoff for determining high likelihood points.
-    - error_threshold (float): Maximum allowed error for high likelihood points.
+    Args:
+        all_net_path (str): Path to the all.net file.
+        lnL_cut (float): Cutoff for determining high likelihood points.
+        error_threshold (float): Maximum allowed error for high likelihood points.
+        composite (bool): is the file a composite file or an all.net file.
 
     Returns:
-    - tuple: Maximum lnL value (rounded) and the number of high likelihood points with low error.
+        tuple: Maximum lnL value (rounded) and the number of high likelihood points with low error.
     """
     # Load data from all.net file
     data = np.loadtxt(all_net_path)
@@ -78,10 +79,14 @@ def get_lnL_cut_points(all_net_path, lnL_cut=15, error_threshold=0.4):
         error = data[:, 12]
     
     # Remove NaN values from lnL
+    total_points = len(lnL)
     lnL = lnL[~np.isnan(lnL)]
 
     # Find high likelihood points based on lnL_cut
     max_lnL = np.max(lnL)
+    if composite:
+        max_lnL_composite = max_lnL
+        max_lnL = run_diagnostics["max_lnL"]
     high_lnL_indices = np.argwhere(lnL >= (max_lnL - lnL_cut)).flatten()
     high_lnL_points = len(high_lnL_indices)
     lnL = lnL[high_lnL_indices]
@@ -95,25 +100,58 @@ def get_lnL_cut_points(all_net_path, lnL_cut=15, error_threshold=0.4):
     # Update diagnostics with results
     max_lnL = np.max(lnL)
     no_points = len(lnL[lnL >= (max_lnL - lnL_cut)])
-    
-    run_diagnostics.update({
-        "total_lnL_evaluations": len(lnL),
-        "max_lnL": np.round(max_lnL, 3),
-        "high_lnL_points": no_points,
-        "high_lnL_points_with_large_error": high_lnL_points - no_points,
-        "total_high_lnL_points": high_lnL_points
-    })
+    if composite:
+        max_lnL_composite = max_lnL
+        max_lnL = run_diagnostics["max_lnL"]
+        return np.round(max_lnL, 3), no_points, np.round(max_lnL_composite, 2), total_points
+    if not(composite):
+        run_diagnostics.update({
+            "total_lnL_evaluations":total_points,
+            "max_lnL": np.round(max_lnL, 3),
+            "high_lnL_points": no_points,
+            "high_lnL_points_with_large_error": high_lnL_points - no_points,
+            "total_high_lnL_points": high_lnL_points
+        })
 
-    return np.round(max_lnL, 3), no_points
+        return np.round(max_lnL, 3), no_points
 
 def create_plots_folder(base_dir_path):
+    """
+    Creates a 'plots' folder in the specified base directory if it does not already exist.
+
+    Args:
+        base_dir_path (str): Path to the base directory where the 'plots' folder will be created.
+    """
     if not(os.path.exists(base_dir_path + "/plots")):
         os.mkdir(base_dir_path + "/plots")
 
 def get_chirpmass_massratio_eta_totalmass_from_componentmasses(m1, m2):
+    """
+    Computes chirp mass, mass ratio, symmetric mass ratio, and total mass from component masses.
+
+    Args:
+        m1 (array): Array of primary masses.
+        m2 (array): Array of secondary masses.
+
+    Returns:
+        tuple: A tuple containing:
+            - Chirp mass (array)
+            - Mass ratio (array)
+            - Symmetric mass ratio (array)
+            - Total mass (array)
+    """
     return np.array((m1*m2)**(3/5) / (m1+m2)**(1/5)).reshape(-1,1), np.array(m2/m1).reshape(-1,1), np.array((m1*m2) / (m1+m2)**(2)).reshape(-1,1), np.array(m1+m2).reshape(-1,1)
 
 def get_index_for_parameter(parameter):
+    """
+    Retrieves the index corresponding to a given parameter name.
+
+    Args:
+        parameter (str): The name of the parameter.
+
+    Returns:
+        int or None: The index of the parameter if found, otherwise None.
+    """
     parameter_indices = {
         "mc": 8,
         "mtot": -2,
@@ -132,6 +170,15 @@ def get_index_for_parameter(parameter):
     return parameter_indices.get(parameter, None)  # Return None if parameter is not found
 
 def get_chi_eff_from_mass_and_spins(posterior):
+    """
+    Computes the effective spin parameter (χ_eff) from the posterior data.
+
+    Args:
+        posterior (numpy.ndarray): Array where each row represents a set of parameters. 
+
+    Returns:
+        numpy.ndarray: Array of χ_eff values computed from the posterior data.
+    """
     parameter_m1, parameter_m2 = get_index_for_parameter("m1"), get_index_for_parameter("m2")
     parameter_s1z, parameter_s2z = get_index_for_parameter("s1z"), get_index_for_parameter("s2z")
     return (posterior[:,parameter_m1]*posterior[:,parameter_s1z] + posterior[:,parameter_m2]*posterior[:,parameter_s2z]) / (posterior[:,parameter_m1] + posterior[:,parameter_m2])
@@ -149,13 +196,13 @@ def find_posteriors_in_main(path_to_main_folder, limit_iterations=None):
     """
     Finds and sorts posterior sample files in the main folder.
 
-    Parameters:
-    - path_to_main_folder (str): Path to the main folder containing posterior sample files.
-    - limit_iterations (int, optional): Number of files to limit the results to.
+    Args:
+        path_to_main_folder (str): Path to the main folder containing posterior sample files.
+        limit_iterations (int, optional): Number of files to limit the results to.
 
     Returns:
-    - posteriors (list of str): Sorted list of paths to posterior sample files.
-    - indices (numpy array): Indices of the selected files.
+        posteriors (list of str): Sorted list of paths to posterior sample files.
+        indices (numpy array): Indices of the selected files.
     """
     posteriors_in_main = glob.glob(path_to_main_folder + "/posterior_samples*")
     posteriors_in_main.sort(key = os.path.getctime) # sort them according to creation time
@@ -169,13 +216,13 @@ def find_posteriors_in_sub(path_to_main_folder, limit_iterations = None):
     """
     Finds posterior sample files in the sub-directory specified by the path.
 
-    Parameters:
-    - path_to_main_folder (str): Path to the main folder containing sub-directory with posterior files.
-    - limit_iterations (int, optional): Number of files to limit the results to.
+    Args:
+        path_to_main_folder (str): Path to the main folder containing sub-directory with posterior files.
+        limit_iterations (int, optional): Number of files to limit the results to.
 
     Returns:
-    - posteriors (list of str): List of paths to posterior sample files in the sub-directory.
-    - indices (numpy array): Indices of the selected files.
+        posteriors (list of str): List of paths to posterior sample files in the sub-directory.
+        indices (numpy array): Indices of the selected files.
     """
     posteriors_in_subdag, iterations = find_posteriors_in_main(path_to_main_folder + "/iteration*cip*")
     if limit_iterations:
@@ -189,12 +236,12 @@ def calculate_JS_divergence(data1, data2):
     """
     Calculates the Jensen-Shannon Divergence between two datasets.
 
-    Parameters:
-    - data1 (array-like): First dataset.
-    - data2 (array-like): Second dataset.
+    Args:
+        data1 (array-like): First dataset.
+        data2 (array-like): Second dataset.
 
     Returns:
-    - summary (namedtuple): Summary containing median, lower, and upper quantiles of the divergence.
+        summary (namedtuple): Summary containing median, lower, and upper quantiles of the divergence.
     """
     def calculate_js(data1, data2, ntests=10, xsteps=100):
         js_array = np.zeros(ntests)
@@ -221,11 +268,46 @@ def calculate_JS_divergence(data1, data2):
 
     return calculate_js(data1, data2)
 
+def plot_high_likelihood_expoloration(path_to_main_folder):
+    """
+    Plots high likelihood points over iterations.
+
+    Args:
+        path_to_main_folder (str): Path to the main folder containing the composite files.
+    """
+    run_diagnostics["composite_information"] = {}
+    fig, ax = plt.subplots()
+    ax.set_xlabel("iteration")
+    ax.set_ylabel("high lnL points")
+    ax.set_title(f"Total high lnL points = {run_diagnostics['high_lnL_points']}")
+    collect_data = []
+    for iteration in np.arange(0, run_diagnostics["latest_iteration"]+1, 1):
+        run_diagnostics["composite_information"][iteration] = {}
+        try:
+            max_lnL, no_points, max_lnL_composite, total_points = get_lnL_cut_points(f"{path_to_main_folder}/consolidated_{iteration}.composite", composite=True)
+        except Exception as e:
+            print(f"Error loading file {path_to_main_folder}/consolidated_{iteration}.composite: {e}")
+            continue
+        print(iteration, max_lnL, no_points, max_lnL_composite, total_points)
+        percent_high_lnL_points =  np.round(no_points/total_points, 2)
+        collect_data.append(no_points)
+        ax.scatter(iteration, no_points, label = f"{max_lnL_composite} ({percent_high_lnL_points})", s=15, color="red")
+        run_diagnostics["composite_information"][iteration].update({
+                "max_lnL":max_lnL_composite,
+                "high_lnL_points":no_points,
+                "percent_high_lnL_points": percent_high_lnL_points})
+    ax.grid(alpha=0.4)
+    ax.plot(collect_data, color = "black", linestyle = "--", linewidth = 1.5, alpha = 0.5)
+    ax.set_xticks(np.arange(0, run_diagnostics["latest_iteration"]+1, 1))
+    ax.legend(loc="upper left")
+    fig.savefig(path+f"/plots/Likelihood_exploration_plot.png", bbox_inches='tight')
+    plt.close(fig)
+
 def plot_neff_data(path_to_main_folder):
     """
-    Plot effective sample size (neff) data from CIP iterations and save the plot.
-    Parameters:
-    - path_to_main_folder (str): Path to the main folder containing CIP iteration subfolders.
+    Plot effective number of samples (neff) data from CIP iterations.
+    Args:
+        path_to_main_folder (str): Path to the main folder containing CIP iteration subfolders.
     """
     # find CIP folders
     cip_iteration_folders= glob.glob(path_to_main_folder + "/iteration*cip*")
@@ -292,18 +374,19 @@ def plot_neff_data(path_to_main_folder):
     run_diagnostics["cip_average_max_lnL_sampled"] = np.round(np.mean(collect_lnL), 2)
     run_diagnostics["cip_std_max_lnL_sampled"] = np.round(np.std(collect_lnL), 3)
     ax.set_title(f"{len(index)} / {len(lnL_files_last_iteration)}")
+    ax.set_xticks(np.arange(0, run_diagnostics["latest_iteration"]+1, 1))
     fig.savefig(path+f"/plots/Neff_plot.png", bbox_inches='tight')
 
 def plot_histograms(sorted_posterior_file_paths, plot_title, iterations = None, plot_legend = True, JSD = True):
     """
     Plots histograms for specified parameters across different posterior samples.
 
-    Parameters:
-    - sorted_posterior_file_paths (list of str): List of file paths to sorted posterior samples.
-    - plot_title (str): Title for the plots and filenames.
-    - iterations (list of int or None): Iteration numbers for labeling histograms. Defaults to None, in which case only the final iteration is plotted.
-    - plot_legend (bool): Whether to include a legend in the histograms. Defaults to True.
-    - JSD (bool): Whether to calculate and display Jensen-Shannon Divergence between iterations. Defaults to True.
+    Args:
+        sorted_posterior_file_paths (list of str): List of file paths to sorted posterior samples.
+        plot_title (str): Title for the plots and filenames.
+        iterations (list of int or None): Iteration numbers for labeling histograms. Defaults to None, in which case only the final iteration is plotted.
+        plot_legend (bool): Whether to include a legend in the histograms. Defaults to True.
+        JSD (bool): Whether to calculate and display Jensen-Shannon Divergence between iterations. Defaults to True.
     """
     # when you just want to plot final iterations histograms
     if iterations is None: 
@@ -352,12 +435,12 @@ def plot_corner(sorted_posterior_file_paths, plot_title, iterations = None, para
     """
     Generates corner plots for posterior samples using a specified plotting executable.
 
-    Parameters:
-    - sorted_posterior_file_paths (list of str): List of file paths to sorted posterior samples.
-    - plot_title (str): Title for the plot, used in filenames.
-    - iterations (list of int, optional): List of iteration numbers to include in the plot. Defaults to [0] if None.
-    - parameters (list of str): List of parameters to include in the plot. Defaults to ["mc", "eta", "xi"].
-    - use_truths (bool): Whether to include truth values in the plot. Defaults to False.
+    Args:
+        sorted_posterior_file_paths (list of str): List of file paths to sorted posterior samples.
+        plot_title (str): Title for the plot, used in filenames.
+        iterations (list of int, optional): List of iteration numbers to include in the plot. Defaults to [0] if None.
+        parameters (list of str): List of parameters to include in the plot. Defaults to ["mc", "eta", "xi"].
+        use_truths (bool): Whether to include truth values in the plot. Defaults to False.
     """
     max_lnL, no_points = run_diagnostics["max_lnL"], run_diagnostics["high_lnL_points"]  
     title = f"max_lnL={max_lnL:0.2f},points_cut={no_points}" 
@@ -401,11 +484,11 @@ def plot_JS_divergence(posterior_1_path, posterior_2_path, plot_title, parameter
     """
     Plots Jensen-Shannon Divergence (JSD) between two posterior datasets for specified parameters.
 
-    Parameters:
-    - posterior_1_path (str): File path to the first posterior dataset.
-    - posterior_2_path (str): File path to the second posterior dataset.
-    - plot_title (str): Title for the plot and filename.
-    - parameters (list of str): List of parameters to calculate and plot JSD for.
+    Args:
+        posterior_1_path (str): File path to the first posterior dataset.
+        posterior_2_path (str): File path to the second posterior dataset.
+        plot_title (str): Title for the plot and filename.
+        parameters (list of str): List of parameters to calculate and plot JSD for.
     """
     if LISA:
         parameters.append("dec")
@@ -433,6 +516,12 @@ def plot_JS_divergence(posterior_1_path, posterior_2_path, plot_title, parameter
     fig.savefig(path+f"/plots/JSD_{plot_title}.png", bbox_inches='tight')
 
 def evaluate_run(run_diagnostics):
+    """
+    Evaluates and writes diagnostics information to a file.
+
+    Args:
+        run_diagnostics (dict): Dictionary containing diagnostics data.
+    """
     f = open(path+f"/plots/Diagnostics.txt", "w")
     # ILE
     f.write("###########################################################################################\n")
@@ -443,6 +532,7 @@ def evaluate_run(run_diagnostics):
     f.write(f"Total number of high lnL points = {run_diagnostics['total_high_lnL_points']}\n")
     f.write(f"Total number of high lnL points used = {run_diagnostics['high_lnL_points']}\n")
     f.write(f"Total number of high lnL points not used due to large error = {run_diagnostics['high_lnL_points_with_large_error']}\n")
+    f.write(f"\nLikelihood exploration data per iteration: \n{run_diagnostics[composite_information]}\n")
     ILE_is_good = True
     f.write("\n")
     if run_diagnostics['high_lnL_points_with_large_error']/run_diagnostics['total_high_lnL_points'] > 0.5:
@@ -517,6 +607,9 @@ subdag_posterior_files, subdag_iterations = find_posteriors_in_sub(path)
 
 # plot neff
 plot_neff_data(path)
+
+# plot likelihood exploration
+plot_high_likelihood_expoloration(path)
 
 # plot histograms
 plot_histograms(main_posterior_files, plot_title="Main", iterations=main_iterations, JSD = False)

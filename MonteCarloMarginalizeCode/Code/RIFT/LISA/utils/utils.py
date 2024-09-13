@@ -56,10 +56,10 @@ def create_resampled_lal_COMPLEX16TimeSeries(tvals, data_dict, new_tvals=None):
 def get_ldc_psds(save_path=None, fvals=None, channels = ["A", "E", "T"], model = "SciRDv1"):
     """This function generates LISA psds using the lisa data challenge package.
         Args:
-            save_path (string)     : path where to save the psds as txt files,
-            fvals (boolean)        : frequency values on which you want to evaluate the PSD, if None then it will generate frequency valuee,
-            channel (list)         : list of channels ["A", "E", "T", "X", "XY"],
-            model (string)         : "Proposal", "SciRDv1", "SciRDdeg1", "MRDv1","MRD_MFR","mldc", "newdrs", "LCESAcall", "redbook".
+            save_path (string): path where to save the psds as txt files,
+            fvals (boolean)   : frequency values on which you want to evaluate the PSD, if None then it will generate frequency valuee,
+            channel (list)    : list of channels ["A", "E", "T", "X", "XY"],
+            model (string)    : "Proposal", "SciRDv1", "SciRDdeg1", "MRDv1","MRD_MFR","mldc", "newdrs", "LCESAcall", "redbook".
         Returns:
             psd_dictionary"""
     try:
@@ -150,7 +150,7 @@ def generate_data_from_radler(h5_path, output_as_AET = False, new_tvals =  None,
 def get_radler_mbhb_params(h5_path):
     """This function takes in a radler h5 file and outputs the parameter of the MBHB injection as a dictionary.
         Args:
-            h5_path (string)       : path to radler h5 file,
+            h5_path (string): path to radler h5 file,
         Returns:
             parameter dictionary"""
     # Load data

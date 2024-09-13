@@ -163,6 +163,7 @@ def get_fisher_matrix(Mc, eta, sigma, beta, fvals, psd_vals, deltaF, wf):
     return tau_ij, inv_tau_ij
 
 def get_error_bounds(P_inj, snr, psd_path):
+    """Get error bounds on parameters using fisher information matrix."""
     response=True # use LISA response
     deltaF = 0.00001 # hardcoded deltaF 
     mc, eta = get_mc_eta_from_mass(P_inj.m1/lsu.lsu_MSUN, P_inj.m2/lsu.lsu_MSUN)
