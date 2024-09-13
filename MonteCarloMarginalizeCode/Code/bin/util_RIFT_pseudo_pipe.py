@@ -617,7 +617,7 @@ if not(opts.skip_reproducibility): # not(assume_lowlatency):
 # Run helper command
 npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options  --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
-if LISA:
+if opts.LISA:
     cmd += " --LISA"
 if not(opts.h5_frame is False):# or "h5-frame" in config_dict:
     cmd += " --h5-frame"
@@ -854,10 +854,9 @@ if opts.LISA:
     line += "--data-integration-window-half {} ".format(opts.data_integration_window_half) 
     if opts.modes: 
         line += "--modes {} ".format(opts.modes)
-    # Hacky solution
-    # line +=" --channel-name E=FAKE-STRAIN  --channel-name T=FAKE-STRAIN "
     if opts.lisa_fixed_sky:
         line +=" --ecliptic-latitude {} --ecliptic-longitude {} ".format(opts.ecliptic_latitude, opts.ecliptic_longitude)
+    line = line.replace('--declination-cosine-sampler', '')
         
 if 'data-start-time' in line and 's1z' in event_dict and not(opts.LISA):  # only call this if we have (a) fixed time interval and (b) CBC parameters for event
     # Print warnings based on duration and fmin
@@ -1209,7 +1208,7 @@ if opts.assume_eccentric:
 if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
     puff_max_it +=3
-if LISA:
+if opts.LISA:
     puff_max_it +=5 # need to be able to resolve tails well
 with open("args_puff.txt",'w') as f:
         puff_args =''  # note used below
@@ -1249,8 +1248,8 @@ with open("args_puff.txt",'w') as f:
                 puff_args+= " --enforce-duration-bound " +str(opts.data_LI_seglen)
         if opts.internal_use_force_away:
             puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away')," --force-away {} ".format(str(opts.internal_use_force_away)))
-        if LISA:
-            puff_args += " --parameter chiMinus"
+        if opts.LISA:
+            puff_args += " --parameter s2z"
         if not(opts.lisa_fixed_sky):
             tmp_line = "--parameter lambda --parameter beta "
             if not(opts.manual_extra_puff_args is None):
