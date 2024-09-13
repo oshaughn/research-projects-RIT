@@ -617,6 +617,8 @@ if not(opts.skip_reproducibility): # not(assume_lowlatency):
 # Run helper command
 npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options  --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
+if LISA:
+    cmd += " --LISA"
 if not(opts.h5_frame is False):# or "h5-frame" in config_dict:
     cmd += " --h5-frame"
 #if not(opts.data_integration_window_half is None): 
