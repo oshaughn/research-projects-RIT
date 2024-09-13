@@ -1209,6 +1209,8 @@ if opts.assume_eccentric:
 if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
     puff_max_it +=3
+if LISA:
+    puff_max_it +=5 # need to be able to resolve tails well
 with open("args_puff.txt",'w') as f:
         puff_args =''  # note used below
         if opts.force_chi_max and not(opts.force_chi_small_max):
@@ -1247,6 +1249,8 @@ with open("args_puff.txt",'w') as f:
                 puff_args+= " --enforce-duration-bound " +str(opts.data_LI_seglen)
         if opts.internal_use_force_away:
             puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away')," --force-away {} ".format(str(opts.internal_use_force_away)))
+        if LISA:
+            puff_args += " --parameter chiMinus"
         if not(opts.lisa_fixed_sky):
             tmp_line = "--parameter lambda --parameter beta "
             if not(opts.manual_extra_puff_args is None):
