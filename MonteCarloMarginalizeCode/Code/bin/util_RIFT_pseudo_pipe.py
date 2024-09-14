@@ -855,7 +855,7 @@ if opts.LISA:
     if opts.modes: 
         line += "--modes {} ".format(opts.modes)
     if opts.lisa_fixed_sky:
-        line +=" --ecliptic-latitude {} --ecliptic-longitude {} ".format(opts.ecliptic_latitude, opts.ecliptic_longitude)
+        line +=" --lisa-fixed-sky True --ecliptic-latitude {} --ecliptic-longitude {} ".format(opts.ecliptic_latitude, opts.ecliptic_longitude)
     line = line.replace('--declination-cosine-sampler', '')
         
 if 'data-start-time' in line and 's1z' in event_dict and not(opts.LISA):  # only call this if we have (a) fixed time interval and (b) CBC parameters for event
@@ -1032,9 +1032,9 @@ for indx in np.arange(len(instructions_cip)):
         line +=" --s1z-range " + str(opts.force_s1z_range).replace(' ','')
     if not(opts.force_s1z_range is None):
         line +=" --s2z-range " + str(opts.force_s2z_range).replace(' ','')
-    if not(opts.force_beta_range is None):
+    if not(opts.force_beta_range is None) and opts.lisa_fixed_sky is False:
         line +=" --beta-range " + str(opts.force_beta_range).replace(' ','')
-    if not(opts.force_lambda_range is None):
+    if not(opts.force_lambda_range is None) and opts.lisa_fixed_sky is False:
         line +=" --lambda-range " + str(opts.force_lambda_range).replace(' ','')
     if not(opts.M_max_cut is None):
         line += " --M-max-cut {}".format(opts.M_max_cut) 
