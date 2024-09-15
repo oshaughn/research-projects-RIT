@@ -1095,6 +1095,8 @@ for indx in np.arange(len(instructions_cip)):
                     addme = addme.replace("mc,s1z'", "mc,s1z_bar'")
             if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
                 addme = addme.replace(',s1z' ',chi1,cos_theta1')
+        if opts.LISA and opts.lisa_fixed_sky is False:
+            addme += " --internal-correlate-parameters 'beta,lambda' "
         line += addme
 
     if opts.cip_sigma_cut:
