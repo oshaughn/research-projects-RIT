@@ -44,7 +44,6 @@ def create_resampled_lal_COMPLEX16TimeSeries(tvals, data_dict, new_tvals=None):
             print(f"Resampling from {old_deltaT} s to {new_deltaT} s")
             func = interp1d(tvals, data_dict[channel], fill_value=tuple([0,0]), bounds_error=False)
             new_data = func(new_tvals)
-
         ht_lal = lal.CreateCOMPLEX16TimeSeries("ht_lal", 0.0, 0, new_deltaT, lal.DimensionlessUnit, len(new_data))    
         ht_lal.data.data = new_data + 0j
         print(f" Delta T = {ht_lal.deltaT} s, size = {ht_lal.data.length}, time = {ht_lal.data.length*ht_lal.deltaT/3600/24:2f} days") 
@@ -147,7 +146,80 @@ def generate_data_from_radler(h5_path, output_as_AET = False, new_tvals =  None,
     return data_dict
 
 
-def get_radler_mbhb_params(h5_path):
+def generate_data_from_sangria(h5_path, output_as_AET = False, new_tvals = None, output_as_FD = False, condition=True, resize = False, add_noise = False):
+    """This function takes in a sangria h5 file and outputs a data dictionary.
+        Args:
+            h5_path (string)       : path to radler h5 file,
+            output_as_AET (boolean): set to True if you want the data as A, E, T,
+            new_tvals (numpy array): pass the new tvals to truncate and/or resample the data,
+            output_as_FD (boolean) : set to True if you want the data in frequency domain,
+        Returns:
+            data_dictionary"""
+    # Load data
+    data = h5py.File(h5_path)
+    # Extract X, Y, Z data for mbhb
+    XYZ_data_mbhb = data['sky']['mbhb']['tdi']
+    # Save as dictionary
+    data_dict_mbhb =  {}
+    data_dict_mbhb.update({'X':np.array(XYZ_data_mbhb['X']).squeeze(1),
+                           'Y':np.array(XYZ_data_mbhb['Y']).squeeze(1),
+                           'Z':np.array(XYZ_data_mbhb['Z']).squeeze(1)})
+    old_tvals = np.array(XYZ_data_mbhb['t']).squeeze(1)
+
+    data_dict = data_dict_mbhb
+    # noise goes here
+
+    # Convert into AET if requested
+    if output_as_AET:
+        tmp_dict = data_dict
+        data_dict = {}
+        data_dict["A"] = 1/np.sqrt(2) * (tmp_dict["Z"] - tmp_dict["X"])
+        data_dict["E"] = 1/np.sqrt(6) * (tmp_dict["X"] - 2*tmp_dict["Y"] + tmp_dict["Z"])
+        data_dict["T"] = 1/np.sqrt(3) * (tmp_dict["X"] + tmp_dict["Y"] + tmp_dict["Z"])
+
+    # Condition if requested
+    if condition:
+        print("\tTapering requested")
+        for channel in data_dict:
+            TDlen = len(data_dict[channel])
+            ntaper = int(0.01*TDlen) 
+            # taper start of the time series
+            vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+            print(f"\t\t Tapering from index 0 ({vectaper[0]}) to {ntaper}.")
+            data_dict[channel][:ntaper] *= vectaper # 0 at 0 and slowly peak 
+            # taper end of the time series
+            index_front = TDlen-ntaper
+            print(f"\t\t Tapering from index {index_front} ({vectaper[::-1][0]}) to {TDlen-1}.")
+            data_dict[channel][index_front:] *= vectaper[::-1]  # slowly drop and then 0 at -1
+
+    # Resizing
+    if resize:
+        old_power = np.log2(len(old_tvals))
+        new_power = np.ceil(old_power)
+        print(f"Resizing from {2**old_power*5/3600/24} to {2**new_power*5/3600/24}.")
+        for channel in data_dict:
+            tmp = np.zeros(int(2**new_power))
+            tmp[:len(old_tvals)] = data_dict[channel]
+            data_dict[channel] = tmp
+        old_tvals = np.arange(0, len(data_dict[channel]), 1) * 5
+    # new_tvals are none by default, so if they are not provided no interpolatin will occur and this function will just create lal tseries.
+    data_dict = create_resampled_lal_COMPLEX16TimeSeries(old_tvals, data_dict, new_tvals)
+
+    # Convert into FD if requested
+    if output_as_FD:
+        if new_tvals is None:
+            power = np.log2(len(old_tvals))
+        else:
+            power = np.log2(len(new_tvals))
+        assert power == np.ceil(power), "The data bins need to be power of 2 for lal FFT routines, make sure len(new_tvals) is a power of 2."
+        tmp_dict = data_dict
+        data_dict = {}
+        for channel in tmp_dict:
+            data_dict[channel] = lsu.DataFourier(tmp_dict[channel])
+
+    return data_dict
+
+def get_radler_mbhb_params(h5_path, dataset = "radler", sangria_signal=0):
     """This function takes in a radler h5 file and outputs the parameter of the MBHB injection as a dictionary.
         Args:
             h5_path (string): path to radler h5 file,
@@ -155,32 +227,63 @@ def get_radler_mbhb_params(h5_path):
             parameter dictionary"""
     # Load data
     data = h5py.File(h5_path)
-    # Extract params
-    pGW = data["H5LISA"]["GWSources"]['MBHB-0']
-    params = {}
-    params["m1"] = np.array(pGW.get('Mass1'))
-    params["m2"] = np.array(pGW.get('Mass2'))
-    params["chi1"] = np.array(pGW.get('Spin1')*np.cos(pGW.get('PolarAngleOfSpin1')))
-    params["chi2"] = np.array(pGW.get('Spin2')*np.cos(pGW.get('PolarAngleOfSpin2')))
+    if dataset == 'radler':
+        pGW = data["H5LISA"]["GWSources"]['MBHB-0']
+        # Extract params
+        params = {}
+        params["m1"] = np.array(pGW.get('Mass1'))
+        params["m2"] = np.array(pGW.get('Mass2'))
+        params["chi1"] = np.array(pGW.get('Spin1')*np.cos(pGW.get('PolarAngleOfSpin1')))
+        params["chi2"] = np.array(pGW.get('Spin2')*np.cos(pGW.get('PolarAngleOfSpin2')))
 
-    theL = np.array(pGW.get('InitialPolarAngleL'))
-    phiL = np.array(pGW.get('InitialAzimuthalAngleL'))
-    longt = np.array(pGW.get('EclipticLongitude'))
-    lat = np.array(pGW.get('EclipticLatitude'))
+        theL = np.array(pGW.get('InitialPolarAngleL'))
+        phiL = np.array(pGW.get('InitialAzimuthalAngleL'))
+        longt = np.array(pGW.get('EclipticLongitude'))
+        lat = np.array(pGW.get('EclipticLatitude'))
 
-    params["tc"] = np.array(pGW.get('CoalescenceTime'))
-    params["phi0"] = np.array(pGW.get('PhaseAtCoalescence'))
-    params["DL"]  = np.array(pGW.get('Distance'))
+        params["tc"] = np.array(pGW.get('CoalescenceTime'))
+        params["phi0"] = np.array(pGW.get('PhaseAtCoalescence'))
+        params["DL"]  = np.array(pGW.get('Distance'))
 
-    dist  = params["DL"]  * 1.e6 * lal.PC_SI
-    # print ("DL = ", DL*1.e-3, "Gpc")
-    params["beta"] = np.array(lat)
-    params["lambda"] = np.array(longt)
-    params["incl"] = np.array(np.arccos( np.cos(theL)*np.sin(lat) + np.cos(lat)*np.sin(theL)*np.cos(longt-phiL)))
+        dist  = params["DL"]  * 1.e6 * lal.PC_SI
+        # print ("DL = ", DL*1.e-3, "Gpc")
+        params["beta"] = np.array(lat)
+        params["lambda"] = np.array(longt)
+        params["incl"] = np.array(np.arccos( np.cos(theL)*np.sin(lat) + np.cos(lat)*np.sin(theL)*np.cos(longt-phiL)))
 
-    up_psi = np.array(np.sin(params["beta"])*np.sin(theL)*np.cos(params["lambda"] - phiL) - np.cos(theL)*np.cos(params["beta"]))
-    down_psi = np.array(np.sin(theL)*np.sin(params["lambda"] - phiL))
-    params["psi"] = np.array(np.arctan2(up_psi, down_psi))
-    params["z"] = np.array(pGW.get("Redshift"))
+        up_psi = np.array(np.sin(params["beta"])*np.sin(theL)*np.cos(params["lambda"] - phiL) - np.cos(theL)*np.cos(params["beta"]))
+        down_psi = np.array(np.sin(theL)*np.sin(params["lambda"] - phiL))
+        params["psi"] = np.array(np.arctan2(up_psi, down_psi))
+        params["z"] = np.array(pGW.get("Redshift"))
+    if dataset == 'sangria':
+        pGW = data['sky']['mbhb']['cat'][sangria_signal]
+        # Extract params
+        params = {}
+        params["m1"] = np.array(pGW['Mass1'])
+        params["m2"] = np.array(pGW['Mass2'])
+        params["chi1"] = np.array(pGW['Spin1']*np.cos(pGW['PolarAngleOfSpin1']))
+        params["chi2"] = np.array(pGW['Spin2']*np.cos(pGW['PolarAngleOfSpin2']))
+
+        theL = np.array(pGW['InitialPolarAngleL'])
+        phiL = np.array(pGW['InitialAzimuthalAngleL'])
+        longt = np.array(pGW['EclipticLongitude'])
+        lat = np.array(pGW['EclipticLatitude'])
+
+        params["tc"] = np.array(pGW['CoalescenceTime'])
+        params["phi0"] = np.array(pGW['PhaseAtCoalescence'])
+        params["DL"]  = np.array(pGW['Distance'])
+
+        dist  = params["DL"]  * 1.e6 * lal.PC_SI
+        # print ("DL = ", DL*1.e-3, "Gpc")
+        params["beta"] = np.array(lat)
+        params["lambda"] = np.array(longt)
+        params["incl"] = np.array(np.arccos( np.cos(theL)*np.sin(lat) + np.cos(lat)*np.sin(theL)*np.cos(longt-phiL)))
+
+        up_psi = np.array(np.sin(params["beta"])*np.sin(theL)*np.cos(params["lambda"] - phiL) - np.cos(theL)*np.cos(params["beta"]))
+        down_psi = np.array(np.sin(theL)*np.sin(params["lambda"] - phiL))
+        params["psi"] = np.array(np.arctan2(up_psi, down_psi))
+        params["z"] = np.array(pGW["Redshift"])
+    
+
 
     return params
