@@ -284,6 +284,7 @@ parser.add_argument("--lisa-fixed-sky", default=False, help="Set true if you wan
 parser.add_argument("--ecliptic-longitude", default=None)
 parser.add_argument("--ecliptic-latitude", default=None)
 parser.add_argument("--ile-memory", default=4096, help="ILE memory")
+parser.add_argument("--puff-iterations", default=5, help="Number of iterations that will be puffed.")
 # LISA CIP
 parser.add_argument("--downselect-parameter-range", default="[1,1000]", help="m2 downselect parameter range, default being [1,1000] in CIP.") 
 parser.add_argument("--M-max-cut", default=None, help="Mtotal max cut for CIP, by default CIP takes a value of 1e5")
@@ -1192,7 +1193,7 @@ with open("args_cip_list.txt",'w') as f:
 
 # Write puff file
 #puff_params = " --parameter mc --parameter delta_mc --parameter chieff_aligned "
-puff_max_it =4
+puff_max_it = int(opts.puff_iterations)
 #  Read puff args from file, if present
 try:
     with open("helper_puff_max_it.txt",'r') as f:
@@ -1210,17 +1211,17 @@ if opts.assume_eccentric:
 if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
     puff_max_it +=3
-if opts.LISA:
-    puff_max_it +=5 # need to be able to resolve tails well
+#if opts.LISA:
+#    puff_max_it +=5 # need to be able to resolve tails well
 with open("args_puff.txt",'w') as f:
         puff_args =''  # note used below
-        if opts.force_chi_max and not(opts.force_chi_small_max):
+        if opts.force_chi_max and not(opts.force_chi_small_max) and not(opts.LISA):
             puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}]  ".format(opts.force_chi_max)
-        elif not(opts.force_chi_max) and (opts.force_chi_small_max):
+        elif not(opts.force_chi_max) and (opts.force_chi_small_max) and not(opts.LISA):
             puff_args = puff_params + " --downselect-parameter chi2 --downselect-parameter-range [0,{}]  ".format(opts.force_chi_small_max)
-        elif opts.force_chi_max and opts.force_chi_small_max:
+        elif opts.force_chi_max and opts.force_chi_small_max and not(opts.LISA):
             puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] ".format(opts.force_chi_max, opts.force_chi_small_max)
-        elif not(opts.force_chi_max) and not(opts.force_chi_small_max):  # nothing set, default, forcce downselect on both spins
+        elif not(opts.force_chi_max) and not(opts.force_chi_small_max) and not(opts.LISA):  # nothing set, default, forcce downselect on both spins
             puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,1] --downselect-parameter chi2 --downselect-parameter-range [0,1] "
         else:
             puff_args = puff_params # passthrough case, should not happen ...
@@ -1251,9 +1252,10 @@ with open("args_puff.txt",'w') as f:
         if opts.internal_use_force_away:
             puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away')," --force-away {} ".format(str(opts.internal_use_force_away)))
         if opts.LISA:
-            puff_args += " --parameter s2z"
+            puff_args = puff_args.replace('chieff_aligned', 's1z')
+            puff_args += f" --downselect-parameter mc --downselect-parameter-range {str(opts.force_mc_range).replace(' ','')} --parameter s2z --downselect-parameter s1z --downselect-parameter-range {str(opts.force_s1z_range).replace(' ','')} --downselect-parameter s2z --downselect-parameter-range {str(opts.force_s2z_range).replace(' ','')} "
         if not(opts.lisa_fixed_sky):
-            tmp_line = "--parameter lambda --parameter beta "
+            tmp_line = f" --parameter lambda --downselect-parameter lambda --downselect-parameter-range {str(opts.force_lambda_range).replace(' ','')} --parameter beta --downselect-parameter beta --downselect-parameter-range {str(opts.force_beta_range).replace(' ','')} "
             if not(opts.manual_extra_puff_args is None):
                 opts.manual_extra_puff_args += tmp_line
             else:
