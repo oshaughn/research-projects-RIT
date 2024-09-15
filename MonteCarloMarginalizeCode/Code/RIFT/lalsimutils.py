@@ -18,9 +18,7 @@
 A collection of useful data analysis routines
 built from the SWIG wrappings of LAL and LALSimulation.
 """
-# LISA
 import h5py
-#
 import sys
 import copy
 import types
