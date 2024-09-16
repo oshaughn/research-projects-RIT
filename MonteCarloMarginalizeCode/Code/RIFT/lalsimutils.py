@@ -2923,7 +2923,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                                        P.s1x, P.s1y, P.s1z, \
                                        P.s2x, P.s2y, P.s2z, \
                                        P.dist, P.incl, P.phiref,  \
-                                       P.psi, P.eccentricity, P.meanPerAno, \
+                                       0 , P.eccentricity, P.meanPerAno, \
                                        P.deltaT, P.fmin, P.fref, \
                                        extra_params, P.approx)
         
