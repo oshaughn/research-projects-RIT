@@ -60,7 +60,7 @@ def render_coord(x,logscale=False):
         mystr= lalsimutils.tex_dictionary[x]
         if logscale:
             mystr=mystr.lstrip('$')
-            mystr = "$\log_{10}"+mystr
+            mystr = r"$\log_{10}"+mystr
             return mystr
         else:
             return mystr
