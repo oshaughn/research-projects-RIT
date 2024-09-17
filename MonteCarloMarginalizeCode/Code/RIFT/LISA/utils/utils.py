@@ -146,7 +146,7 @@ def generate_data_from_radler(h5_path, output_as_AET = False, new_tvals =  None,
     return data_dict
 
 
-def generate_data_from_sangria(h5_path, output_as_AET = False, new_tvals = None, output_as_FD = False, condition=True, resize = False, add_noise = False):
+def generate_data_from_sangria(h5_path, output_as_AET = False, new_tvals = None, output_as_FD = False, condition=True, resize = False, add_noise = False, taper_percent=0.0001):
     """This function takes in a sangria h5 file and outputs a data dictionary.
         Args:
             h5_path (string)       : path to radler h5 file,
@@ -166,8 +166,38 @@ def generate_data_from_sangria(h5_path, output_as_AET = False, new_tvals = None,
                            'Z':np.array(XYZ_data_mbhb['Z']).squeeze(1)})
     old_tvals = np.array(XYZ_data_mbhb['t']).squeeze(1)
 
+    # data_dict is our return dictionary, save as no-noise right now, add noise based on user input.
     data_dict = data_dict_mbhb
+
     # noise goes here
+    # full data with noise and gbs
+    if not(add_noise is False):
+        print(f"Adding noise {add_noise}")
+        full_data_dict = {}
+        XYZ_data_full = data['obs']['tdi']
+        full_data_dict.update({"X":np.array(XYZ_data_full['X']).squeeze(1),
+                        "Y":np.array(XYZ_data_full['Y']).squeeze(1),
+                        "Z":np.array(XYZ_data_full['Z']).squeeze(1)})
+        if add_noise=='with_gbs':
+            data_dict = full_data_dict
+        elif add_noise=='without_gbs':
+            # subtract mbhb signals
+            noise_with_gb = {}
+            for channel in ["X", "Y", "Z"]:
+                noise_with_gb[channel] = full_data_dict[channel] - data_dict_mbhb[channel]
+            # collect gbs
+            noise_just_gb = {}
+            noise_just_gb.update({"X":0, "Y":0, "Z":0})
+            for i in ['v','d','i']:
+                print(i)
+                XYZ_data_gb = data['sky'][f'{i}gb']["tdi"]
+                for channel in ["X", "Y", "Z"]:
+                    noise_just_gb[channel] += np.array(XYZ_data_gb[channel]).squeeze(1)
+            # just get noise
+            noise_without_gb = {}
+            for channel in ["X", "Y", "Z"]:
+                noise_without_gb[channel] =  noise_with_gb[channel] - noise_just_gb[channel]
+                data_dict[channel] = data_dict_mbhb[channel] + noise_without_gb[channel]
 
     # Convert into AET if requested
     if output_as_AET:
@@ -182,7 +212,7 @@ def generate_data_from_sangria(h5_path, output_as_AET = False, new_tvals = None,
         print("\tTapering requested")
         for channel in data_dict:
             TDlen = len(data_dict[channel])
-            ntaper = int(0.01*TDlen) 
+            ntaper = int(taper_percent*TDlen) 
             # taper start of the time series
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             print(f"\t\t Tapering from index 0 ({vectaper[0]}) to {ntaper}.")
