@@ -75,7 +75,10 @@ def _empty_row(obj):
         elif entry == 'simulation_id':
             row.simulation_id = ilwd_base("sim_inspiral:simulation_id:0")
         elif entry == 'event_id':
-            row.event_id = ilwd_base("sngl_inspiral:event_id:0")
+            try:
+                row.event_id = ilwd_base("sngl_inspiral:event_id:0")
+            except:
+                row.event_id = ilwd_base() # format change
         else:
             raise ValueError("Column %s not recognized." %(entry) )
 
