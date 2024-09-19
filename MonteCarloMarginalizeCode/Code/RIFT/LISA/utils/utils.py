@@ -11,6 +11,11 @@ sys.path.append(f"/Users/aasim/Desktop/Research/Mcodes/{RIFT}/MonteCarloMarginal
 import RIFT.lalsimutils as lsu
 from RIFT.LISA.response.LISA_response import *
 
+YRSID_SI = 31558149.763545603
+C_SI = lal.C_SI
+ConstOmega = 1.99098659277e-7
+OrbitR =149597870700.0
+
 __author__ = "A. Jan"
 ###########################################################################################
 # Functions
@@ -317,3 +322,237 @@ def get_radler_mbhb_params(h5_path, dataset = "radler", sangria_signal=0):
 
 
     return params
+
+
+def modpi(phase):
+    """Modulus with pi as the period
+
+    Originally from Sylvain Marsat.
+
+    Args:
+        phase (scalar or np.ndarray): Phase angle.
+
+    Returns:
+        scalar or np.ndarray: Phase angle modulus by pi.
+
+    """
+    # from sylvain
+    return phase - np.floor(phase / np.pi) * np.pi
+
+def tSSBfromLframe(tL, lambdaSSB, betaSSB, t0=0.0):
+    """Get time in SSB frame from time in LISA-frame.
+
+    Compute Solar System Barycenter time ``tSSB`` from retarded time at the center
+    of the LISA constellation ``tL``. **NOTE**: depends on the sky position
+    given in solar system barycenter (SSB) frame.
+
+    Originally from Sylvain Marsat. For more information and citation, see
+    `arXiv:2003.00357 <https://arxiv.org/abs/2003.00357>`_.
+
+    Args:
+        tL (scalar or np.ndarray): Time in LISA constellation reference frame.
+        lambdaSSB (scalar or np.ndarray): Ecliptic longitude in
+            SSB reference frame.
+        betaSSB (scalar or np.ndarray): Ecliptic latitude in SSB reference frame.
+        t0 (double, optional): Initial start time point away from zero.
+            (Default: ``0.0``)
+
+    Returns:
+        scalar or np.ndarray: Time in the SSB frame.
+
+    """
+    ConstPhi0 = ConstOmega * t0
+    phase = ConstOmega * tL + ConstPhi0 - lambdaSSB
+    RoC = OrbitR / C_SI
+    return (
+        tL
+        + RoC * np.cos(betaSSB) * np.cos(phase)
+        - 1.0 / 2 * ConstOmega * pow(RoC * np.cos(betaSSB), 2) * np.sin(2.0 * phase)
+    )
+
+
+# Compute retarded time at the center of the LISA constellation tL from Solar System Barycenter time tSSB */
+def tLfromSSBframe(tSSB, lambdaSSB, betaSSB, t0=0.0):
+    """Get time in LISA frame from time in SSB-frame.
+
+    Compute retarded time at the center of the LISA constellation frame ``tL`` from
+    the time in the SSB frame ``tSSB``. **NOTE**: depends on the sky position
+    given in solar system barycenter (SSB) frame.
+
+    Originally from Sylvain Marsat. For more information and citation, see
+    `arXiv:2003.00357 <https://arxiv.org/abs/2003.00357>`_.
+
+    Args:
+        tSSB (scalar or np.ndarray): Time in LISA constellation reference frame.
+        lambdaSSB (scalar or np.ndarray): Ecliptic longitude in
+            SSB reference frame.
+        betaSSB (scalar or np.ndarray): Time in LISA constellation reference frame.
+        t0 (double, optional): Initial start time point away from zero.
+            (Default: ``0.0``)
+
+    Returns:
+        scalar or np.ndarray: Time in the LISA frame.
+
+    """
+    ConstPhi0 = ConstOmega * t0
+    phase = ConstOmega * tSSB + ConstPhi0 - lambdaSSB
+    RoC = OrbitR / C_SI
+    return tSSB - RoC * np.cos(betaSSB) * np.cos(phase)
+
+def LISA_to_SSB(tL, lambdaL, betaL, psiL, t0=0.0):
+    """Convert sky/orientation from LISA frame to SSB frame.
+
+    Convert the sky and orientation parameters from the center of the LISA
+    constellation reference to the SSB reference frame.
+
+    The parameters that are converted are the reference time, ecliptic latitude,
+    ecliptic longitude, and polarization angle.
+
+    Originally from Sylvain Marsat. For more information and citation, see
+    `arXiv:2003.00357 <https://arxiv.org/abs/2003.00357>`_.
+
+    Args:
+        tL (scalar or np.ndarray): Time in LISA constellation reference frame.
+        lambdaL (scalar or np.ndarray): Ecliptic longitude in
+            LISA reference frame.
+        betaL (scalar or np.ndarray): Ecliptic latitude in LISA reference frame.
+        psiL (scalar or np.ndarray): Polarization angle in LISA reference frame.
+        t0 (double, optional): Initial start time point away from zero.
+            (Default: ``0.0``)
+
+    Returns:
+        Tuple: (``tSSB``, ``lambdaSSB``, ``betaSSB``, ``psiSSB``)
+
+
+    """
+
+    t0 = t0 * YRSID_SI
+
+    ConstPhi0 = ConstOmega * t0
+    coszeta = np.cos(np.pi / 3.0)
+    sinzeta = np.sin(np.pi / 3.0)
+    coslambdaL = np.cos(lambdaL)
+    sinlambdaL = np.sin(lambdaL)
+    cosbetaL = np.cos(betaL)
+    sinbetaL = np.sin(betaL)
+    cospsiL = np.cos(psiL)
+    sinpsiL = np.sin(psiL)
+    lambdaSSB_approx = 0.0
+    betaSSB_approx = 0.0
+    # Initially, approximate alpha using tL instead of tSSB - then iterate */
+    tSSB_approx = tL
+    for k in range(3):
+        alpha = ConstOmega * tSSB_approx + ConstPhi0
+        cosalpha = np.cos(alpha)
+        sinalpha = np.sin(alpha)
+        lambdaSSB_approx = np.arctan2(
+            cosalpha * cosalpha * cosbetaL * sinlambdaL
+            - sinalpha * sinbetaL * sinzeta
+            + cosbetaL * coszeta * sinalpha * sinalpha * sinlambdaL
+            - cosalpha * cosbetaL * coslambdaL * sinalpha
+            + cosalpha * cosbetaL * coszeta * coslambdaL * sinalpha,
+            cosbetaL * coslambdaL * sinalpha * sinalpha
+            - cosalpha * sinbetaL * sinzeta
+            + cosalpha * cosalpha * cosbetaL * coszeta * coslambdaL
+            - cosalpha * cosbetaL * sinalpha * sinlambdaL
+            + cosalpha * cosbetaL * coszeta * sinalpha * sinlambdaL,
+        )
+        betaSSB_approx = np.arcsin(
+            coszeta * sinbetaL
+            + cosalpha * cosbetaL * coslambdaL * sinzeta
+            + cosbetaL * sinalpha * sinzeta * sinlambdaL
+        )
+        tSSB_approx = tSSBfromLframe(tL, lambdaSSB_approx, betaSSB_approx, t0)
+
+    lambdaSSB_approx = lambdaSSB_approx % (2 * np.pi)
+    #  /* Polarization */
+    psiSSB = modpi(
+        psiL
+        + np.arctan2(
+            cosalpha * sinzeta * sinlambdaL - coslambdaL * sinalpha * sinzeta,
+            cosbetaL * coszeta
+            - cosalpha * coslambdaL * sinbetaL * sinzeta
+            - sinalpha * sinbetaL * sinzeta * sinlambdaL,
+        )
+    )
+
+    return (tSSB_approx, lambdaSSB_approx, betaSSB_approx, psiSSB)
+
+def SSB_to_LISA(tSSB, lambdaSSB, betaSSB, psiSSB, t0=0.0):
+    """Convert sky/orientation from SSB frame to LISA frame.
+
+    Convert the sky and orientation parameters from the SSB reference frame to the center of the LISA
+    constellation reference frame.
+
+    The parameters that are converted are the reference time, ecliptic latitude,
+    ecliptic longitude, and polarization angle.
+
+    Originally from Sylvain Marsat. For more information and citation, see
+    `arXiv:2003.00357 <https://arxiv.org/abs/2003.00357>`_.
+    **Note**: no transformation of the phase -- approximant-dependence.
+
+    Args:
+        tSSB (scalar or np.ndarray): Time in SSB reference frame.
+        lambdaSSB (scalar or np.ndarray): Ecliptic longitude in
+            SSB reference frame.
+        betaSSB (scalar or np.ndarray): Ecliptic latitude in SSB reference frame.
+        psiSSB (scalar or np.ndarray): Polarization angle in SSB reference frame.
+        t0 (double, optional): Initial start time point away from zero in years.
+            (Default: ``0.0``)
+
+    Returns:
+        Tuple: (``tL``, ``lambdaL``, ``betaL``, ``psiL``)
+
+    """
+    t0 = t0 * YRSID_SI
+
+    ConstPhi0 = ConstOmega * t0
+    alpha = 0.0
+    cosalpha = 0
+    sinalpha = 0.0
+    coslambda = 0
+    sinlambda = 0.0
+    cosbeta = 0.0
+    sinbeta = 0.0
+    cospsi = 0.0
+    sinpsi = 0.0
+    coszeta = np.cos(np.pi / 3.0)
+    sinzeta = np.sin(np.pi / 3.0)
+    coslambda = np.cos(lambdaSSB)
+    sinlambda = np.sin(lambdaSSB)
+    cosbeta = np.cos(betaSSB)
+    sinbeta = np.sin(betaSSB)
+    cospsi = np.cos(psiSSB)
+    sinpsi = np.sin(psiSSB)
+    alpha = ConstOmega * tSSB + ConstPhi0
+    cosalpha = np.cos(alpha)
+    sinalpha = np.sin(alpha)
+    tL = tLfromSSBframe(tSSB, lambdaSSB, betaSSB, t0)
+    lambdaL = np.arctan2(
+        cosalpha * cosalpha * cosbeta * sinlambda
+        + sinalpha * sinbeta * sinzeta
+        + cosbeta * coszeta * sinalpha * sinalpha * sinlambda
+        - cosalpha * cosbeta * coslambda * sinalpha
+        + cosalpha * cosbeta * coszeta * coslambda * sinalpha,
+        cosalpha * sinbeta * sinzeta
+        + cosbeta * coslambda * sinalpha * sinalpha
+        + cosalpha * cosalpha * cosbeta * coszeta * coslambda
+        - cosalpha * cosbeta * sinalpha * sinlambda
+        + cosalpha * cosbeta * coszeta * sinalpha * sinlambda,
+    )
+    betaL = np.arcsin(
+        coszeta * sinbeta
+        - cosalpha * cosbeta * coslambda * sinzeta
+        - cosbeta * sinalpha * sinzeta * sinlambda
+    )
+    psiL = modpi(
+        psiSSB
+        + np.arctan2(
+            coslambda * sinalpha * sinzeta - cosalpha * sinzeta * sinlambda,
+            cosbeta * coszeta
+            + cosalpha * coslambda * sinbeta * sinzeta
+            + sinalpha * sinbeta * sinzeta * sinlambda,
+        )
+    )
+
+    return np.vstack([tL, lambdaL, betaL, psiL]).T
