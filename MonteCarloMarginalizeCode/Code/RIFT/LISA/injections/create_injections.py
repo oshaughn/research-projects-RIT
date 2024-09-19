@@ -25,7 +25,7 @@ parser.add_argument("--psd-path", default=None, help="Path to a xml.gz PSD neede
 parser.add_argument("--inj", default=None, help="Inspiral XML file containing injection information.")
 parser.add_argument("--fNyq", default=0.125, help="fNyq for generating waveforms")
 parser.add_argument("--deltaF", default=1/(64*32768), help="DeltaF of the injectons")
-parser.add_argument("--modes", default= "[(2,2),(2,1),(3,3),(3,2),(3,1),(4,4),(4,3),(4,2)]", help="list of modes to use in injection.")
+parser.add_argument("--modes", default= "[(2,2),(2,1),(3,3),(3,2),(3,1),(4,4),(4,3),(4,2),(5,5)]", help="list of modes to use in injection.")
 parser.add_argument("--path-to-NR-hdf5", default=None, help="path to NRhdf5 (LVK format) if using NR hdf5 for injection.")
 parser.add_argument("--snr-fmin", default=0.0001, help="fmin while calculating SNR")
 # parser.add_argument("--calculate-snr", default=False, help="Calculate SNR of the fake signal.")
@@ -97,9 +97,12 @@ def calculate_snr(data_dict, fmin, fmax, fNyq, psd):
     assert data_dict["A"].deltaF == data_dict["E"].deltaF == data_dict["T"].deltaF
     print(f"Integrating from {fmin} to {fmax} Hz.")
     # create instance of inner product
-    IP = lalsimutils.ComplexIP(fmin, fmax, fNyq, data_dict["A"].deltaF, psd, False, False, 0.0,)
+    IP_A = lalsimutils.ComplexIP(fmin, fmax, fNyq, data_dict["A"].deltaF, psd["A"], False, False, 0.0,)
+    IP_E = lalsimutils.ComplexIP(fmin, fmax, fNyq, data_dict["A"].deltaF, psd["E"], False, False, 0.0,)
+    IP_T = lalsimutils.ComplexIP(fmin, fmax, fNyq, data_dict["A"].deltaF, psd["T"], False, False, 0.0,)
+    
     # calculate SNR of each channel 
-    A_snr, E_snr, T_snr = np.sqrt(IP.ip(data_dict["A"], data_dict["A"])), np.sqrt(IP.ip(data_dict["E"], data_dict["E"])), np.sqrt(IP.ip(data_dict["T"], data_dict["T"]))
+    A_snr, E_snr, T_snr = np.sqrt(IP_A.ip(data_dict["A"], data_dict["A"])), np.sqrt(IP_E.ip(data_dict["E"], data_dict["E"])), np.sqrt(IP_T.ip(data_dict["T"], data_dict["T"]))
     # combine SNR
     snr = np.real(np.sqrt(A_snr**2 + E_snr**2 + T_snr**2)) # SNR (zero noise) = sqrt(<h|h>)
     print(f"A-channel snr = {A_snr.real:0.3f}, E-channel snr = {E_snr.real:0.3f}, T-channel snr = {T_snr.real:0.3f},\n\tTotal SNR = {snr:0.3f}.")
@@ -158,10 +161,21 @@ T_h5_file.close()
 
 # calculate SNR
 print(f"Reading PSD to calculate SNR for LISA instrument from {opts.psd_path}.")
-psd = lalsimutils.get_psd_series_from_xmldoc(opts.psd_path, "A")
-psd = lalsimutils.resample_psd_series(psd, P.deltaF)
-psd_fvals = psd.f0 + P.deltaF*np.arange(psd.data.length)
-psd.data.data[ psd_fvals < snr_fmin] = 0 
+psd = {}
+psd["A"] = lalsimutils.get_psd_series_from_xmldoc(opts.psd_path + "/A-psd.xml.gz", "A")
+psd["A"] = lalsimutils.resample_psd_series(psd["A"], P.deltaF)
+psd_fvals = psd["A"].f0 + P.deltaF*np.arange(psd["A"].data.length)
+psd["A"].data.data[ psd_fvals < snr_fmin] = 0 
+
+psd["E"] = lalsimutils.get_psd_series_from_xmldoc(opts.psd_path + "/E-psd.xml.gz", "E")
+psd["E"] = lalsimutils.resample_psd_series(psd["E"], P.deltaF)
+psd_fvals = psd["E"].f0 + P.deltaF*np.arange(psd["E"].data.length)
+psd["E"].data.data[ psd_fvals < snr_fmin] = 0
+
+psd["T"] = lalsimutils.get_psd_series_from_xmldoc(opts.psd_path + "/T-psd.xml.gz", "T")
+psd["T"] = lalsimutils.resample_psd_series(psd["T"], P.deltaF)
+psd_fvals = psd["T"].f0 + P.deltaF*np.arange(psd["T"].data.length)
+psd["T"].data.data[ psd_fvals < snr_fmin] = 0
 snr = calculate_snr(data_dict, snr_fmin, snr_fmax, 0.5/P.deltaT, psd)
 
 # plot figure
