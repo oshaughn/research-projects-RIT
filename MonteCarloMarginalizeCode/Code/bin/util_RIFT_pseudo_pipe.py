@@ -1193,14 +1193,14 @@ with open("args_cip_list.txt",'w') as f:
 
 # Write puff file
 #puff_params = " --parameter mc --parameter delta_mc --parameter chieff_aligned "
-puff_max_it = int(opts.puff_iterations)
+#puff_max_it = int(opts.puff_iterations)
 #  Read puff args from file, if present
 try:
     with open("helper_puff_max_it.txt",'r') as f:
         puff_max_it = int(f.readline())
 except:
     print( " No puff file ")
-
+puff_max_it = int(opts.puff_iterations)
 instructions_puff = np.loadtxt("helper_puff_args.txt", dtype=str)  # should be one line
 puff_params = ' '.join(instructions_puff)
 if opts.assume_matter:
