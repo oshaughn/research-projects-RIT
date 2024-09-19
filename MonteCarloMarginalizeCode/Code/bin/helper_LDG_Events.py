@@ -1251,7 +1251,8 @@ elif opts.propose_initial_grid:
     if opts.assume_nospin:
         grid_size = 1000   # 500 was too small with zero noise
     else:
-        chieff_range = str([chieff_min,chieff_max]).replace(' ', '')   # assumes all chieff are possible
+        chieff_range = "[{},{}]".format( float(chieff_min), float(chieff_max))
+        chieff_range= chieff_range.replace(' ', '')   # assumes all chieff are possible
         if opts.propose_fit_strategy:
             # If we don't have a fit plan, use the NS spin maximum as the default
             if (P.extract_param('mc')/lal.MSUN_SI < 2.6):   # assume a maximum NS mass of 3 Msun
