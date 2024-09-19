@@ -899,6 +899,7 @@ else:
 # Distance - luminosity distance to source in parsecs
 # sampler: uniform distance over [dmin, dmax), adaptive sampling
 #
+print(f" Using {opts.d_prior} prior in distance.")
 if not opts.distance_marginalization:
   dist_sampler = mcsampler.ret_uniform_samp_vector_alt( param_limits["distance"][0], param_limits["distance"][1])
   dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])

@@ -285,6 +285,7 @@ parser.add_argument("--ecliptic-longitude", default=None)
 parser.add_argument("--ecliptic-latitude", default=None)
 parser.add_argument("--ile-memory", default=4096, help="ILE memory")
 parser.add_argument("--puff-iterations", default=5, help="Number of iterations that will be puffed.")
+parser.add_argument("--psd-directory", default=os.getcwd(), help="Path where all the psds are located, they should be named as ifo-psd.xml.gz, where for LISA ifo is A, E, and T")
 # LISA CIP
 parser.add_argument("--downselect-parameter-range", default="[1,1000]", help="m2 downselect parameter range, default being [1,1000] in CIP.") 
 parser.add_argument("--M-max-cut", default=None, help="Mtotal max cut for CIP, by default CIP takes a value of 1e5")
@@ -750,7 +751,12 @@ if opts.use_online_psd_file:
     for ifo in ifo_list:
         psd_dir=os.getcwd()
         cmd+= " --psd-file {}=".format(ifo) + psd_dir + "/../{}-{}".format(ifo,opts.use_online_psd_file)
-
+if opts.psd_directory is not None:
+    ifo_list = eval(config.get('analysis','ifos'))
+    # Create command line arguments for those IFOs, so helper can correctly pass then downward
+    psd_name = "psd.xml.gz"
+    for ifo in ifo_list:
+        cmd+= " --psd-file {}=".format(ifo) + opts.psd_directory + "/{}-{}".format(ifo,psd_name)
 #if opts.use_online_psd_file:
     # Get IFO list from ini file
 ##    import ConfigParser
