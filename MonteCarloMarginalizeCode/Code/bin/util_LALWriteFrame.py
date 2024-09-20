@@ -86,6 +86,7 @@ if T_est < opts.seglen:
 
 # Generate signal
 hoft = lalsimutils.hoft(P)   # include translation of source, but NOT interpolation onto regular time grid
+epoch_orig = hoft.epoch
 # zero pad to be opts.seglen long, if necessary
 if opts.seglen/hoft.deltaT > hoft.data.length:
     TDlenGoal = int(opts.seglen/hoft.deltaT)
@@ -158,5 +159,7 @@ if opts.verbose:
     tvals = (float(hoft.epoch) - float(P.tref)) +  np.arange(hoft.data.length)*hoft.deltaT
     plt.plot(tvals2,hoft2.data.data,label='Fr')
     plt.plot(tvals,hoft.data.data,label='orig')
+    plt.xlim(float(epoch_orig)- float(P.tref), 0.2)
+    plt.xlabel('t - tref')
     plt.legend(); #plt.show()
     plt.savefig("injected-data_"+opts.instrument +".png")
