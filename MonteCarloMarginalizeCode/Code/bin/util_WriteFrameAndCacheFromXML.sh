@@ -86,6 +86,10 @@ DUR_REVISED=`python -c "print( int(${STOP}-${START}))"`
 
 echo " Duration estimates :"  ${START} ${STOP}  ${DUR_EST} ${DUR} ${DUR_REVISED}
 
+# Allow for other arguments -- eg, passthrough arguments like  --verbose
+shift 4
+REST=$@
+
 function make_cache(){
   local ifo=$1;
   local base=$2;
@@ -95,7 +99,7 @@ function make_cache(){
   local EVENT=$6;
   local MIN_DUR=$7;
   mkdir ${base}_mdc;
-  (cd ${base}_mdc;  ${LWF} --start ${START} --stop ${STOP} --inj ${INJ_XML} --event ${EVENT} --single-ifo --instrument ${ifo}1  --approx ${APPROX})
+  (cd ${base}_mdc;  ${LWF} --start ${START} --stop ${STOP} --inj ${INJ_XML} --event ${EVENT} --single-ifo --instrument ${ifo}1  --approx ${APPROX}  ${REST}) 
 #  find ${base}_mdc/ -name  ${ifo}"-*.gwf" | lalapps_path2cache > ${ifo}.cache
 }
 
