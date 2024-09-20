@@ -323,11 +323,10 @@ def get_radler_mbhb_params(h5_path, dataset = "radler", sangria_signal=0):
 
     return params
 
-
 def modpi(phase):
     """Modulus with pi as the period
 
-    Originally from Sylvain Marsat.
+    This function was originally in BBHx. 
 
     Args:
         phase (scalar or np.ndarray): Phase angle.
@@ -346,8 +345,7 @@ def tSSBfromLframe(tL, lambdaSSB, betaSSB, t0=0.0):
     of the LISA constellation ``tL``. **NOTE**: depends on the sky position
     given in solar system barycenter (SSB) frame.
 
-    Originally from Sylvain Marsat. For more information and citation, see
-    `arXiv:2003.00357 <https://arxiv.org/abs/2003.00357>`_.
+    This function was originally in BBHx. 
 
     Args:
         tL (scalar or np.ndarray): Time in LISA constellation reference frame.
@@ -379,8 +377,7 @@ def tLfromSSBframe(tSSB, lambdaSSB, betaSSB, t0=0.0):
     the time in the SSB frame ``tSSB``. **NOTE**: depends on the sky position
     given in solar system barycenter (SSB) frame.
 
-    Originally from Sylvain Marsat. For more information and citation, see
-    `arXiv:2003.00357 <https://arxiv.org/abs/2003.00357>`_.
+    This function was originally in BBHx. 
 
     Args:
         tSSB (scalar or np.ndarray): Time in LISA constellation reference frame.
@@ -408,8 +405,7 @@ def LISA_to_SSB(tL, lambdaL, betaL, psiL, t0=0.0):
     The parameters that are converted are the reference time, ecliptic latitude,
     ecliptic longitude, and polarization angle.
 
-    Originally from Sylvain Marsat. For more information and citation, see
-    `arXiv:2003.00357 <https://arxiv.org/abs/2003.00357>`_.
+    This function was originally in BBHx. 
 
     Args:
         tL (scalar or np.ndarray): Time in LISA constellation reference frame.
@@ -435,8 +431,7 @@ def LISA_to_SSB(tL, lambdaL, betaL, psiL, t0=0.0):
     sinlambdaL = np.sin(lambdaL)
     cosbetaL = np.cos(betaL)
     sinbetaL = np.sin(betaL)
-    cospsiL = np.cos(psiL)
-    sinpsiL = np.sin(psiL)
+
     lambdaSSB_approx = 0.0
     betaSSB_approx = 0.0
     # Initially, approximate alpha using tL instead of tSSB - then iterate */
@@ -487,9 +482,7 @@ def SSB_to_LISA(tSSB, lambdaSSB, betaSSB, psiSSB, t0=0.0):
     The parameters that are converted are the reference time, ecliptic latitude,
     ecliptic longitude, and polarization angle.
 
-    Originally from Sylvain Marsat. For more information and citation, see
-    `arXiv:2003.00357 <https://arxiv.org/abs/2003.00357>`_.
-    **Note**: no transformation of the phase -- approximant-dependence.
+    This function was originally in BBHx. 
 
     Args:
         tSSB (scalar or np.ndarray): Time in SSB reference frame.
@@ -514,16 +507,14 @@ def SSB_to_LISA(tSSB, lambdaSSB, betaSSB, psiSSB, t0=0.0):
     sinlambda = 0.0
     cosbeta = 0.0
     sinbeta = 0.0
-    cospsi = 0.0
-    sinpsi = 0.0
+
     coszeta = np.cos(np.pi / 3.0)
     sinzeta = np.sin(np.pi / 3.0)
     coslambda = np.cos(lambdaSSB)
     sinlambda = np.sin(lambdaSSB)
     cosbeta = np.cos(betaSSB)
     sinbeta = np.sin(betaSSB)
-    cospsi = np.cos(psiSSB)
-    sinpsi = np.sin(psiSSB)
+
     alpha = ConstOmega * tSSB + ConstPhi0
     cosalpha = np.cos(alpha)
     sinalpha = np.sin(alpha)
