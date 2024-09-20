@@ -671,7 +671,7 @@ if  (opts.last_iteration_extrinsic):
     n_points_per_ILE = opts.last_iteration_extrinsic_samples_per_ile
     # ILE job with modified output format
     #  - note we *double* the memory request, because we need space to save samples
-    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(np.min([2*n_points_per_ILE,4]))  # modify convergence criteria so output of reasonable size
+    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +  str(40)  #tr(np.min([2*n_points_per_ILE,4]))  # modify convergence criteria so output of reasonable size
     #  - note we *disable* --no-adapt-after-first (if present), so each point is independent (e.g., in sky location)
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
     if opts.last_iteration_extrinsic_time_resampling:
