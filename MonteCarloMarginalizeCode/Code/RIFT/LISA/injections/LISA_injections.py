@@ -10,7 +10,7 @@ __author__ = "A. Jan"
 
 
 def load_psd(param_dict):
-   """
+    """
     Load Power Spectral Density (PSD) data for the LISA instrument. 
 
     Parameters:
@@ -20,7 +20,6 @@ def load_psd(param_dict):
     Returns:
     dict: A dictionary containing PSD for A, E, and T channels.
     """
-
     print(f"Reading PSD to calculate SNR for LISA instrument from {param_dict["psd_path"]}.")
     psd = {}
     psd["A"] = lsu.get_psd_series_from_xmldoc(param_dict["psd_path"] + "/A-psd.xml.gz", "A")
