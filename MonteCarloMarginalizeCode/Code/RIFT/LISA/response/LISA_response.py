@@ -680,7 +680,7 @@ def generate_lisa_TDI(P_inj, lmax=4, modes=None, tref=0.0, fref=None, return_res
 
 
     P.phiref = 0.0  
-    P.incl = 0.0 
+    P.inclination = 0.0 
     P.psi = 0.0 
     P.fref = P_inj.fref 
     P.tref = 0.0
