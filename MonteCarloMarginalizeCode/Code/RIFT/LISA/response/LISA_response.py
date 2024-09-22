@@ -32,7 +32,7 @@ YRSID_SI = 31558149.763545603
 ###########################################################################################
 # FUNCTIONS
 ###########################################################################################
-def create_lal_frequency_series(frequency_values, frequency_series, epoch = 950000000, f0 = 0.0):
+def create_lal_frequency_series(frequency_values, frequency_series, deltaF, epoch = 950000000, f0 = 0.0):
     """A helper function to create lal COMPLEX16FrequencySeries.
         Args:
             frequency_values (numpy.array): Frequency values at which the series is defined.
@@ -42,7 +42,8 @@ def create_lal_frequency_series(frequency_values, frequency_series, epoch = 9500
         Output:
             lal.COMPLEX16FrequencySeries object"""
     assert len(frequency_values) == len(frequency_series), "frequency_values and frequency_series don't have the same length."
-    hf_lal = lal.CreateCOMPLEX16FrequencySeries("hf", epoch, f0,  np.abs(np.diff(frequency_values)[0]), lal.HertzUnit, len(frequency_values))
+    print(f"DeltaF = {deltaF}")
+    hf_lal = lal.CreateCOMPLEX16FrequencySeries("hf", epoch, f0,  deltaF, lal.HertzUnit, len(frequency_values))
     hf_lal.data.data = frequency_series
     return hf_lal
 
@@ -656,7 +657,7 @@ def create_lisa_injections(hlmf, fmax, fref, beta, lamda, psi, inclination, phi_
         response[mode], mode_TDI[mode] = {}, {}
         response[mode]["L1"], response[mode]["L2"], response[mode]["L3"] = np.conj(L1), np.conj(L2), np.conj(L3)
         mode_TDI[mode]["L1"], mode_TDI[mode]["L2"], mode_TDI[mode]["L3"] = np.conj(tmp_data*L1), np.conj(tmp_data*L2), np.conj(tmp_data*L3)
-    A_lal, E_lal, T_lal = create_lal_frequency_series(f_dict[modes[0]], A), create_lal_frequency_series(f_dict[modes[0]], E), create_lal_frequency_series(f_dict[modes[0]], T)
+    A_lal, E_lal, T_lal = create_lal_frequency_series(f_dict[modes[0]], A, hlmf[modes[0]].deltaF), create_lal_frequency_series(f_dict[modes[0]], E, hlmf[modes[0]].deltaF), create_lal_frequency_series(f_dict[modes[0]], T, hlmf[modes[0]].deltaF)
     data_dict = {}
     data_dict["A"], data_dict["E"], data_dict["T"] = A_lal, E_lal, T_lal
     if return_response:

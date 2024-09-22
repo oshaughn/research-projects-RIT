@@ -157,32 +157,32 @@ def PrecomputeAlignedSpinLISA(tref, fref, t_window, hlms, hlms_conj, data_dict, 
         # tmp_mode_data = hlms[mode].data.data
         collect_mode_terms["A"][mode] = {}
         tmp_mode_here = np.conj(A_terms * tmp_mode_data)
-        collect_mode_terms["A"][mode][0] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[0])  # A_term (6,n), hlm (n,1)
-        collect_mode_terms["A"][mode][1] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[1]) 
-        collect_mode_terms["A"][mode][2] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[2]) 
-        collect_mode_terms["A"][mode][3] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[3]) 
-        collect_mode_terms["A"][mode][4] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[4]) 
-        collect_mode_terms["A"][mode][5] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[5])
+        collect_mode_terms["A"][mode][0] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[0], hlms[mode].deltaF)  # A_term (6,n), hlm (n,1)
+        collect_mode_terms["A"][mode][1] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[1], hlms[mode].deltaF) 
+        collect_mode_terms["A"][mode][2] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[2], hlms[mode].deltaF) 
+        collect_mode_terms["A"][mode][3] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[3], hlms[mode].deltaF) 
+        collect_mode_terms["A"][mode][4] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[4], hlms[mode].deltaF) 
+        collect_mode_terms["A"][mode][5] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[5], hlms[mode].deltaF)
 
         
         collect_mode_terms["E"][mode] = {}
         tmp_mode_here = np.conj(E_terms * tmp_mode_data)
-        collect_mode_terms["E"][mode][0] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[0])  # A_term (6,n), hlm (n,1)
-        collect_mode_terms["E"][mode][1] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[1]) 
-        collect_mode_terms["E"][mode][2] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[2]) 
-        collect_mode_terms["E"][mode][3] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[3]) 
-        collect_mode_terms["E"][mode][4] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[4]) 
-        collect_mode_terms["E"][mode][5] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[5]) 
+        collect_mode_terms["E"][mode][0] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[0], hlms[mode].deltaF)  # A_term (6,n), hlm (n,1)
+        collect_mode_terms["E"][mode][1] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[1], hlms[mode].deltaF) 
+        collect_mode_terms["E"][mode][2] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[2], hlms[mode].deltaF) 
+        collect_mode_terms["E"][mode][3] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[3], hlms[mode].deltaF) 
+        collect_mode_terms["E"][mode][4] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[4], hlms[mode].deltaF) 
+        collect_mode_terms["E"][mode][5] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[5], hlms[mode].deltaF) 
 
         
         collect_mode_terms["T"][mode] = {}
         tmp_mode_here = np.conj(T_terms * tmp_mode_data)
-        collect_mode_terms["T"][mode][0] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[0])  # A_term (6,n), hlm (n,1)
-        collect_mode_terms["T"][mode][1] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[1]) 
-        collect_mode_terms["T"][mode][2] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[2]) 
-        collect_mode_terms["T"][mode][3] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[3]) 
-        collect_mode_terms["T"][mode][4] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[4]) 
-        collect_mode_terms["T"][mode][5] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[5])  
+        collect_mode_terms["T"][mode][0] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[0], hlms[mode].deltaF)  # A_term (6,n), hlm (n,1)
+        collect_mode_terms["T"][mode][1] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[1], hlms[mode].deltaF) 
+        collect_mode_terms["T"][mode][2] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[2], hlms[mode].deltaF) 
+        collect_mode_terms["T"][mode][3] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[3], hlms[mode].deltaF) 
+        collect_mode_terms["T"][mode][4] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[4], hlms[mode].deltaF) 
+        collect_mode_terms["T"][mode][5] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[5], hlms[mode].deltaF)  
     # calculate <d|h_lm>
     IP_time_series_A= lsu.ComplexOverlap(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["A"], analyticPSD_Q, inv_spec_trunc_Q, T_spec, full_output =True)  # Incase the three arms have different PSDs. Assume all arms have same PSD for now and 2,2 mode is present
     IP_time_series_E= lsu.ComplexOverlap(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["E"], analyticPSD_Q, inv_spec_trunc_Q, T_spec, full_output =True)
