@@ -172,6 +172,7 @@ def generate_lisa_injections(data_dict, param_dict, get_snr = True):
     os.system(cmd)
     os.system(f"mv mdc.xml.gz {param_dict['save_path']}/mdc.xml.gz")
     os.system(f"ls {param_dict['save_path']}/*h5 | lal_path2cache > {param_dict['save_path']}/local.cache")
+    os.system(f" util_SimInspiralToCoinc.py --sim-xml {param_dict['save_path']}/mdc.xml.gz --event 0 --ifo A --ifo E --ifo T ; mv coinc.xml {param_dict['save_path']}/coinc.xml")
     if get_snr and 'psd_path' in param_dict:
         psd = load_psd(param_dict)
         snr = calculate_snr(data_dict, param_dict['snr_fmin'], param_dict['snr_fmax'], 0.5/param_dict['deltaT'], psd)
