@@ -42,7 +42,6 @@ def create_lal_frequency_series(frequency_values, frequency_series, deltaF, epoc
         Output:
             lal.COMPLEX16FrequencySeries object"""
     assert len(frequency_values) == len(frequency_series), "frequency_values and frequency_series don't have the same length."
-    print(f"DeltaF = {deltaF}")
     hf_lal = lal.CreateCOMPLEX16FrequencySeries("hf", epoch, f0,  deltaF, lal.HertzUnit, len(frequency_values))
     hf_lal.data.data = frequency_series
     return hf_lal
