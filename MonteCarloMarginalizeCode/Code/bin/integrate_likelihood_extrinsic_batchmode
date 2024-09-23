@@ -632,7 +632,7 @@ if opts.h5_frame_FD:
     for inst, chan in map(lambda c: c.split("="), opts.channel_name):
       print("Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
       data_dict[inst] = lalsimutils.frame_h5_to_hoff(opts.cache_file,inst)
-      print("Frequency binning: %e, length %d" % (data_dict[inst].deltaF, data_dict[inst].data.length) )
+      print("Frequency binning: %e (1/deltaF = %f), length %d" % (data_dict[inst].deltaF, 1/data_dict[inst].deltaF,  data_dict[inst].data.length) )
 
 # this can handle both LIGO and LISA TD data
 else:  
