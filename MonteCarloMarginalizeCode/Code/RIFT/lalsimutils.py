@@ -4729,7 +4729,7 @@ def hlmoff_for_LISA(P, Lmax=4, modes=None, fd_standoff_factor=0.964, fd_alignmen
         # Resize it such that deltaF = 1/TDlen
         for mode in hlmsdict:
             if not(1/hlmsdict[mode].deltaF == P.deltaT*TDlen):
-                print("WARNING: RESIZING IN FD DOMAIN (1/deltaF = {1/hlmsdict[mode].deltaF}, deltaT*TDlen = {P.deltaT*TDlen}), THIS SHOULD NOT BE HAPPENING.")
+                print(f"WARNING: RESIZING IN FD DOMAIN (1/deltaF = {1/hlmsdict[mode].deltaF}, deltaT*TDlen = {P.deltaT*TDlen}), THIS SHOULD NOT BE HAPPENING.")
             hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
         return hlmsdict
 
