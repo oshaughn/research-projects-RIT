@@ -2885,7 +2885,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                 'q'                  : M1/M2,
                 'H_hyp'              : P.E0, # energy at initial separation
                 'j_hyp'              : P.p_phi0, # angular momentum at initial separation
-                'r_hyp'              : 12000.0,
+                'r_hyp'              : 6000.0,
                 'LambdaAl2'            : P.lambda1,
                 'LambdaBl2'            : P.lambda2,
                 'chi1'              : P.s1z, #note that there are no transverse spins
@@ -2902,7 +2902,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                 'use_geometric_units': 0,
                 'interp_uniform_grid': 1,
                 'initial_frequency'  : P.fmin,
-                'ode_tmax'           : 4.05e4,
+                'ode_tmax'           : 3e4,
                 'distance'           : P.dist/(lal.PC_SI*1e6),
                 'inclination'        : P.incl,
                 'output_hpc'         : 0 # output plus and cross polarizations, 0=no
@@ -3050,7 +3050,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                 if count == 0:
                     continue
                 if np.abs(value-ht.data.data[0]) > 0.01 * np.abs(ht.data.data[0]):
-                    n_samp=int(count/16)
+                    n_samp=int(count/2)
                     break
             vectaper= 0.5 + 0.5*np.cos(np.pi* (1-np.arange(n_samp)/(1.*n_samp)))
             nmax = np.argmax(ht.data.data)
@@ -3697,7 +3697,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                     modes_used_new.append((4,0))
                     hlmtmp2[(4,0)]=np.array(hlmtmp[k])
             modes_used=modes_used_new
-            print(modes_used,hlmtmp,hlmtmp2)
+            if not(hyp_wav):
+                print(modes_used,hlmtmp,hlmtmp2)
 #        for count,mode in enumerate(modes_used):
 #            hlmtmp2[mode]=np.array(hlmtmp[str(count)])
         for mode in modes_used:
