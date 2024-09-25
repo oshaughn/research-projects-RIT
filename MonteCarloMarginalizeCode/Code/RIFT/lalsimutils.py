@@ -2852,6 +2852,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
         M1=P.m1/lal.MSUN_SI
         M2=P.m2/lal.MSUN_SI
         nu=M1*M2/((M1+M2)**2)
+        hyp_wav = False
         print(P.eccentricity, P.E0)
         if (P.eccentricity == 0.0 and P.E0 == 0.0):
             print("Using ResumS master; not eccentric")
