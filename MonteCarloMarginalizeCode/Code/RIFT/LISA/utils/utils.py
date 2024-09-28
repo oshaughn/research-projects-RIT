@@ -89,7 +89,7 @@ def get_ldc_psds(save_path=None, fvals=None, channels = ["A", "E", "T"], model =
                     
     return Sn
 
-def generate_data_from_radler(h5_path, output_as_AET = False, new_tvals =  None, output_as_FD = False, condition=True):
+def generate_data_from_radler(h5_path, output_as_AET = False, new_tvals =  None, output_as_FD = False, condition=True, taper_percent=0.0001):
     """This function takes in a radler h5 file and outputs a data dictionary.
         Args:
             h5_path (string)       : path to radler h5 file,
@@ -126,7 +126,7 @@ def generate_data_from_radler(h5_path, output_as_AET = False, new_tvals =  None,
         print("\tTapering requested")
         for channel in data_dict:
             TDlen = (data_dict[channel].data.length)
-            ntaper = int(0.01*TDlen) 
+            ntaper = int(taper_percent*TDlen) 
             # taper start of the time series
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             print(f"\t\t Tapering from index 0 ({vectaper[0]}) to {ntaper}.")
