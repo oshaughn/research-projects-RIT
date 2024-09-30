@@ -38,7 +38,7 @@ def load_psd(param_dict):
     psd["T"].data.data[ psd_fvals < param_dict['snr_fmin']] = 0
     return psd
 
-def calculate_snr(data_dict, fmin, fmax, fNyq, psd):
+def calculate_snr(data_dict, fmin, fmax, fNyq, psd, only_positive_modes=True):
     """
     Calculate the zero-noise Signal-to-Noise Ratio (SNR) for LISA signals.
 
@@ -60,9 +60,13 @@ def calculate_snr(data_dict, fmin, fmax, fNyq, psd):
     IP_A = lsu.ComplexIP(fmin, fmax, fNyq, psd["A"].deltaF, psd["A"], False, False, 0.0,)
     IP_E = lsu.ComplexIP(fmin, fmax, fNyq, psd["A"].deltaF, psd["E"], False, False, 0.0,)
     IP_T = lsu.ComplexIP(fmin, fmax, fNyq, psd["A"].deltaF, psd["T"], False, False, 0.0,)
+    
+    IP_factor = 1
+    if only_positive_modes:
+        IP_factor = 2
 
-    # calculate SNR of each channel  (injections created are one sided f-series, but they should be two sided, so extra factor of 2) 
-    A_snr, E_snr, T_snr = np.sqrt(2*IP_A.ip(data_dict["A"], data_dict["A"])), np.sqrt(2*IP_E.ip(data_dict["E"], data_dict["E"])), np.sqrt(2*IP_T.ip(data_dict["T"], data_dict["T"]))
+    # calculate SNR of each channel 
+    A_snr, E_snr, T_snr = np.sqrt(IP_factor*IP_A.ip(data_dict["A"], data_dict["A"])), np.sqrt(IP_factor*IP_E.ip(data_dict["E"], data_dict["E"])), np.sqrt(IP_factor*IP_T.ip(data_dict["T"], data_dict["T"]))
     
     # combine SNR
     snr = np.real(np.sqrt(A_snr**2 + E_snr**2 + T_snr**2)) # SNR (zero noise) = sqrt(<h|h>)
