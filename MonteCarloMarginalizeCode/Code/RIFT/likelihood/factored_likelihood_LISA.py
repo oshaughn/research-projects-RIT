@@ -316,7 +316,7 @@ def PrecomputeAlignedSpinLISA(tref, fref, t_window, hlms, hlms_conj, data_dict, 
     return rholms_intp, U_lm_pq, V_lm_pq, Q_lm, guess_snr, rest
 
 
-def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclination, phi_ref, distance, modes, reference_distance, return_lnLt=False):
+def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclination, phi_ref, distance, modes, reference_distance, return_lnLt=False, only_positive_modes=True):
     # Calculated marginalized likelihood, marginalized over time, psi, inlincation, phiref and distance.
     # call psi terms
     plus_terms = get_beta_lamda_psi_terms_Hp(beta, lam, psi)
@@ -415,6 +415,9 @@ def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclinat
     total_lnL = 0
     for channel in ["A", "E", "T"]:
         total_lnL += np.real(reference_distance/distance * Qlm[channel] - ((reference_distance/distance)**2)*0.5*Ulmpq[channel])
+    # if not including -m modes, then the innerproduct is 4*integral, but all innerproducts evaluated so far are 2*integral
+    if only_positive_modes:
+        total_lnL *= 2
     # for time sampling, return likelihood time series.
     if return_lnLt:
         return total_lnL
