@@ -1306,7 +1306,7 @@ def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, decl
   indx_list = np.arange(len(interp_tvals))
   # Loop over each extrinsic sample
   for indx in np.arange(n_samples):
-    interp = scipy.interpolate.interp1d(tvals, lnLt[indx] - lnLt_norm[indx])
+    interp = scipy.interpolate.interp1d(tvals, lnLt[indx] - lnLt_norm[indx], kind='cubic')
     # interpolating
     interp_lnLt = interp(interp_tvals)
     # weighted resampling
