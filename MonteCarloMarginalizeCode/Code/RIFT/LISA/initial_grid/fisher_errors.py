@@ -247,7 +247,8 @@ if __name__ =='__main__':
         os.system(cmd)
         os.system('mv overlap-grid.xml.gz overlap-grid-primary.xml.gz')
 
-        t_sec, lambda_sec, beta_sec = get_secondary_mode_for_skylocation(P_inj.tref, P_inj.phi, P_inj.theta)
+        secondary_peak = get_secondary_mode_for_skylocation(float(P_inj.tref), P_inj.phi, P_inj.theta)
+        beta_sec, lambda_sec = secondary_peak[0,2], secondary_peak[0,1]
         print(f"Secondary peak: lambda {lambda_sec}, beta {beta_sec}")
         cmd = f"util_ManualOverlapGrid.py --inj {opts.inj} "
         cmd += f"--parameter mc --parameter-range '[{error_bounds[0]:0.2f}, {error_bounds[1]:0.2f}]' "
@@ -257,9 +258,9 @@ if __name__ =='__main__':
         cmd += f"--random-parameter theta --random-parameter-range '[{beta_sec-0.5*beta_span}, {beta_sec+0.5*beta_span}]' "
         cmd += f"--random-parameter phi --random-parameter-range '[{lambda_sec-0.5*lambda_span}, {lambda_sec+0.5*lambda_span}]' "
         cmd += f"--grid-cartesian-npts {int(opts.points)} --skip-overlap"
-        os.system('mv overlap-grid.xml.gz overlap-grid-secondary.xml.gz')
         print(f"\t Generating grid\n{cmd}")
         os.system(cmd)
+        os.system('mv overlap-grid.xml.gz overlap-grid-secondary.xml.gz')
         os.system('ligolw_add overlap-grid-primary.xml.gz overlap-grid-secondary.xml.gz -o overlap-grid.xml.gz')
 
 
