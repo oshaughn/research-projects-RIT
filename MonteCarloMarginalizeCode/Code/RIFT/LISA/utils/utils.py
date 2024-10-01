@@ -471,7 +471,7 @@ def LISA_to_SSB(tL, lambdaL, betaL, psiL, t0=0.0):
         )
     )
 
-    return (tSSB_approx, lambdaSSB_approx, betaSSB_approx, psiSSB)
+    return np.vstack([tSSB_approx, lambdaSSB_approx, betaSSB_approx, psiSSB]).T 
 
 def SSB_to_LISA(tSSB, lambdaSSB, betaSSB, psiSSB, t0=0.0):
     """Convert sky/orientation from SSB frame to LISA frame.
