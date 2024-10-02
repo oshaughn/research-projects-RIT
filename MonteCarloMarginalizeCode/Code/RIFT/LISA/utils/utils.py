@@ -254,7 +254,7 @@ def generate_data_from_sangria(h5_path, output_as_AET = False, new_tvals = None,
 
     return data_dict
 
-def get_radler_mbhb_params(h5_path, dataset = "radler", sangria_signal=0):
+def get_ldc_mbhb_params(h5_path, dataset = "radler", sangria_signal=0):
     """This function takes in a radler h5 file and outputs the parameter of the MBHB injection as a dictionary.
         Args:
             h5_path (string): path to radler h5 file,
