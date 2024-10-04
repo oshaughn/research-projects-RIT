@@ -203,6 +203,7 @@ remap_LI_to_ILE = samples_utils.remap_LI_to_ILE
 parser = argparse.ArgumentParser()
 parser.add_argument("--posterior-file",action='append',help="filename of *.dat file [standard LI output]")
 parser.add_argument("--truth-file",type=str, help="file containing the true parameters")
+parser.add_argument("--truth-file-manual",type=str, help="file containing the true parameters. Use labelled columns")
 parser.add_argument("--posterior-distance-factor",action='append',help="Sequence of factors used to correct the distances")
 parser.add_argument("--truth-event",type=int, default=0,help="file containing the true parameters")
 parser.add_argument("--composite-file",action='append',help="filename of *.dat file [standard ILE intermediate]")
@@ -264,11 +265,14 @@ if opts.pdf:
 
 truth_P_list = None
 P_ref = None
+truth_dat = None
 if opts.truth_file:
     print(" Loading true parameters from  ", opts.truth_file)
     truth_P_list  =lalsimutils.xml_to_ChooseWaveformParams_array(opts.truth_file)
     P_ref = truth_P_list[opts.truth_event]
 #    P_ref.print_params()
+elif opts.truth_file_manual:
+    truth_dat = np.genfromtxt(opts.truth_file_manual,names=True)
 
 if opts.change_parameter_label:
   for name, new_str in map( lambda c: c.split("="),opts.change_parameter_label):
@@ -644,7 +648,7 @@ for pIndex in np.arange(len(posterior_list)):
     plot_range_list = []
     smooth_list =[]
     truths_here= None
-    if opts.truth_file:
+    if opts.truth_file or opts.truth_file_manual:
         truths_here = np.zeros(len(opts.parameter))
     for indx in np.arange(len(opts.parameter)):
         param = opts.parameter[indx]
@@ -679,6 +683,8 @@ for pIndex in np.arange(len(posterior_list)):
         smooth_list.append(np.std(dat_here)/np.power(len(dat_here), 1./3))
         
         # truths
+        if opts.truth_file_manual:
+            truths_here[indx] = truth_dat[param]
         if opts.truth_file:
             param_to_extract = param
             if param in remap_LI_to_ILE.keys():
