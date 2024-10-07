@@ -583,6 +583,8 @@ def Evaluate_Gslr_test_2(tf, f, beta, lamda):
     z = np.exp(1j*2.*x)
 
     factor_convention = 2
+    #factor_convention = 2/np.sqrt(2) # for radler dataset
+
     factorAE = 1j*np.sqrt(2)*np.sin(2.*x)*z
     factorT = 2.*np.sqrt(2)*np.sin(2.*x)*np.sin(x)*np.exp(1j*3.*x)
 
