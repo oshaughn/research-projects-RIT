@@ -41,12 +41,17 @@ def create_resampled_lal_COMPLEX16TimeSeries(tvals, data_dict, new_tvals=None):
             equal_length=True
             equal_deltaT=True
         if equal_length and equal_deltaT:
-            new_deltaT = np.diff(tvals)[0]
             print("Resampling not requested.")
+            new_deltaT = np.diff(tvals)[0]
             new_data = data_dict[channel]
+        elif not(equal_length) and equal_deltaT:
+            print("Resampling not requested, but resizing requested.")
+            tmp = np.zeros(len(new_tvals))
+            tmp[:len(tvals)] = data_dict[channel]
+            new_data = tmp
         else:
             new_deltaT = np.diff(new_tvals)[0]
-            print(f"Resampling from {old_deltaT} s to {new_deltaT} s")
+            print(f"Resampling from {old_deltaT} s to {new_deltaT} s.")
             func = interp1d(tvals, data_dict[channel], fill_value=tuple([0,0]), bounds_error=False)
             new_data = func(new_tvals)
         ht_lal = lal.CreateCOMPLEX16TimeSeries("ht_lal", 0.0, 0, new_deltaT, lal.DimensionlessUnit, len(new_data))    
