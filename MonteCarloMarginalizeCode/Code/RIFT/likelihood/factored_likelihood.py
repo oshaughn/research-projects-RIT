@@ -52,6 +52,12 @@ from .SphericalHarmonics_gpu import SphericalHarmonicsVectorized
 
 
 from scipy import interpolate, integrate
+my_simps = None
+if hasattr(integrate, 'simpson'):
+  my_simps = integrate.simpson
+else:
+  my_simps = integrate.simps  # old name
+
 from scipy import special
 from itertools import product, combinations
 import math
@@ -680,7 +686,7 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
         lnL += SingleDetectorLogLikelihood(det_rholms, CT, CTV, Ylms, F, dist)
 
     maxlnL = np.max(lnL)
-    return maxlnL + np.log(integrate.simps(np.exp(lnL - maxlnL), dx=tvals[1]-tvals[0]))
+    return maxlnL + np.log(my_simps(np.exp(lnL - maxlnL), dx=tvals[1]-tvals[0]))
 
 
 #
@@ -1582,7 +1588,7 @@ def  DiscreteFactoredLogLikelihoodViaArray(tvals, P, lookupNKDict, rholmsArrayDi
         return lnL
     else:  # return the marginalized lnL in time
         lnLmax = np.max(lnL)
-        lnLmargT = np.log(integrate.simps(np.exp(lnL-lnLmax), dx=deltaT)) + lnLmax
+        lnLmargT = np.log(my_simps(np.exp(lnL-lnLmax), dx=deltaT)) + lnLmax
         return lnLmargT
 
 def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=xpy_default):
@@ -1668,7 +1674,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
             lnL = term1+term2
             lnL_array[indx_ex] += lnL  #  copy into array.  Add, because we will get terms from other IFOs
             maxlnL = np.max(lnL)
-            lnLmargOut[indx_ex] = maxlnL + np.log(integrate.simps(np.exp(lnL_array[indx_ex] - maxlnL), dx=deltaT))  # integrate term by term, minmize overflows
+            lnLmargOut[indx_ex] = maxlnL + np.log(my_simps(np.exp(lnL_array[indx_ex] - maxlnL), dx=deltaT))  # integrate term by term, minmize overflows
 
     return lnLmargOut
 
@@ -1779,7 +1785,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopOrig(tvals, P_vec, lookupN
         
     # Integrate out the time dimension.  We now have an array of shape
     # (npts_extrinsic,)
-    L = integrate.simps(L_t, dx=deltaT, axis=-1)
+    L = my_simps(L_t, dx=deltaT, axis=-1)
     # Compute log likelihood in-place.
     lnL = lnLmax+ np.log(L, out=L)
 
@@ -1846,7 +1852,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     rho_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
 
     if (xpy is np) or (optimized_gpu_tools is None):
-        simps = integrate.simps
+        simps = my_simps
     elif not (xpy is np):
         simps = optimized_gpu_tools.simps
     else:
