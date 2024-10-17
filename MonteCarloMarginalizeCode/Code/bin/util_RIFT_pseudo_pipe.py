@@ -283,7 +283,9 @@ parser.add_argument("--data-integration-window-half", default=None, help="For lo
 parser.add_argument("--lisa-fixed-sky", default=False, help="Set true if you want to fix the skylocation")
 parser.add_argument("--ecliptic-longitude", default=None)
 parser.add_argument("--ecliptic-latitude", default=None)
-parser.add_argument("--puff-search-hypercube", default=False, help="Allow puff to search uniform in a hypercube of lnLcut 15")
+parser.add_argument("--ile-memory", default=4096, help="ILE memory")
+parser.add_argument("--puff-iterations", default=5, help="Number of iterations that will be puffed.")
+parser.add_argument("--psd-directory", default=os.getcwd(), help="Path where all the psds are located, they should be named as ifo-psd.xml.gz, where for LISA ifo is A, E, and T")
 # LISA CIP
 parser.add_argument("--downselect-parameter-range", default="[1,1000]", help="m2 downselect parameter range, default being [1,1000] in CIP.") 
 parser.add_argument("--M-max-cut", default=None, help="Mtotal max cut for CIP, by default CIP takes a value of 1e5")
@@ -293,6 +295,7 @@ parser.add_argument("--force-s2z-range", default=None, help="s2z range")
 parser.add_argument("--force-lambda-range", default=None, help="lambda range")
 parser.add_argument("--force-beta-range", default=None, help="beta range")
 parser.add_argument("--force-cip-neff", default=None, help="Force neff for intermediate steps, for really high SNRs you should request a high neff while asking for low number of samples (20 neff and 2 samples) per job")
+parser.add_argument("--cip-request-disk", default="10M", help="Request disk for CIP, will need around 20M for when all.net had  >10^5 points")
 opts=  parser.parse_args()
 
 
@@ -340,7 +343,8 @@ if (opts.approx in ['IMRPhenomXPHM' or 'IMRPhenomXO4']) and opts.assume_precessi
 
 if opts.internal_loud_signal_mitigation_suite:
     opts.internal_ile_freezeadapt=False  # make sure to adapt every iteration, and adapt in distance if present
-    opts.internal_ile_sky_network_coordinates=True # skymap is better
+    if not(opts.LISA):
+        opts.internal_ile_sky_network_coordinates=True # skymap is better
     opts.internal_ile_rotate_phase = True  # phase coordinates can be sharper
 
 # Default prior for aligned analysis should be z prior !
@@ -547,14 +551,15 @@ os.chdir(dirname_run)
 
 
 if not(opts.use_ini is None):
+    P=lalsimutils.ChooseWaveformParams()
     if opts.use_coinc is None:
         print( " coinc required for ini file operation at present ")
         sys.exit(1)
     # Load in event dictionary
-    event_dict = retrieve_event_from_coinc(opts.use_coinc)
-    # Create relevant sim_xml file to hold parameters (does not parse coinc)
-    P=lalsimutils.ChooseWaveformParams()
-    P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
+    if not(opts.use_coinc is None):
+        event_dict = retrieve_event_from_coinc(opts.use_coinc)
+        # Create relevant sim_xml file to hold parameters (does not parse coinc)
+        P.m1 = event_dict["m1"]*lal.MSUN_SI; P.m2=event_dict["m2"]*lal.MSUN_SI; P.s1z = event_dict["s1z"]; P.s2z = event_dict["s2z"]
     # Load in ini file to select relevant fmin, fref [latter usually unused]
 #    config = ConfigParser.ConfigParser()
 #    config.read(opts.use_ini)
@@ -568,7 +573,7 @@ if not(opts.use_ini is None):
     print( "IFO list from ini ", ifo_list)
     P.fmin = fmin_fiducial
     P.fref = unsafe_config_get(config,['engine','fref'])
-    # default value for eccentricity is 0 for 'P'!  Only change this value from default if eccentricity is present, do NOT want to fill it with None in particular
+    # default value for eccentricity is 0 for 'P'!  Only change this value from default if eccentricity is present, do NOT want to fill it with None in particular 
     if not(event_dict['eccentricity'] is None):   
         P.eccentricity = event_dict["eccentricity"]
     # Write 'target_params.xml.gz' file
@@ -615,10 +620,12 @@ if not(opts.skip_reproducibility): # not(assume_lowlatency):
 # Run helper command
 npts_it = 500
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options  --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
+if opts.LISA:
+    cmd += " --LISA"
 if not(opts.h5_frame is False):# or "h5-frame" in config_dict:
     cmd += " --h5-frame"
-if not(opts.data_integration_window_half is None): 
-    cmd += " --data-integration-window-half {}".format(opts.data_integration_window_half)
+#if not(opts.data_integration_window_half is None): 
+#    cmd += " --data-integration-window-half {}".format(opts.data_integration_window_half)
 if opts.internal_use_gracedb_bayestar:
     cmd += " --internal-use-gracedb-bayestar "
 if opts.internal_use_amr:
@@ -745,7 +752,12 @@ if opts.use_online_psd_file:
     for ifo in ifo_list:
         psd_dir=os.getcwd()
         cmd+= " --psd-file {}=".format(ifo) + psd_dir + "/../{}-{}".format(ifo,opts.use_online_psd_file)
-
+if opts.psd_directory is not None:
+    ifo_list = eval(config.get('analysis','ifos'))
+    # Create command line arguments for those IFOs, so helper can correctly pass then downward
+    psd_name = "psd.xml.gz"
+    for ifo in ifo_list:
+        cmd+= " --psd-file {}=".format(ifo) + opts.psd_directory + "/{}-{}".format(ifo,psd_name)
 #if opts.use_online_psd_file:
     # Get IFO list from ini file
 ##    import ConfigParser
@@ -841,7 +853,8 @@ line += " --l-max " + str(opts.l_max)
 if opts.LISA:
     line += " --LISA "
     line += "--lisa-reference-time {} ".format(opts.lisa_reference_time)
-    line += "--lisa-reference-frequency {} ".format(opts.lisa_reference_frequency)
+    if opts.lisa_reference_frequency:
+        line += "--lisa-reference-frequency {} ".format(opts.lisa_reference_frequency)
     if opts.h5_frame_FD:
         line += "--h5-frame-FD "
     if opts.h5_frame:
@@ -849,10 +862,9 @@ if opts.LISA:
     line += "--data-integration-window-half {} ".format(opts.data_integration_window_half) 
     if opts.modes: 
         line += "--modes {} ".format(opts.modes)
-    # Hacky solution
-    line +=" --channel-name E=FAKE-STRAIN  --channel-name T=FAKE-STRAIN "
     if opts.lisa_fixed_sky:
-        line +=" --ecliptic-latitude {} --ecliptic-longitude {} ".format(opts.ecliptic_latitude, opts.ecliptic_longitude)
+        line +=" --lisa-fixed-sky True --ecliptic-latitude {} --ecliptic-longitude {} ".format(opts.ecliptic_latitude, opts.ecliptic_longitude)
+    line = line.replace('--declination-cosine-sampler', '')
         
 if 'data-start-time' in line and 's1z' in event_dict and not(opts.LISA):  # only call this if we have (a) fixed time interval and (b) CBC parameters for event
     # Print warnings based on duration and fmin
@@ -1028,9 +1040,9 @@ for indx in np.arange(len(instructions_cip)):
         line +=" --s1z-range " + str(opts.force_s1z_range).replace(' ','')
     if not(opts.force_s1z_range is None):
         line +=" --s2z-range " + str(opts.force_s2z_range).replace(' ','')
-    if not(opts.force_beta_range is None):
+    if not(opts.force_beta_range is None) and opts.lisa_fixed_sky is False:
         line +=" --beta-range " + str(opts.force_beta_range).replace(' ','')
-    if not(opts.force_lambda_range is None):
+    if not(opts.force_lambda_range is None) and opts.lisa_fixed_sky is False:
         line +=" --lambda-range " + str(opts.force_lambda_range).replace(' ','')
     if not(opts.M_max_cut is None):
         line += " --M-max-cut {}".format(opts.M_max_cut) 
@@ -1091,6 +1103,8 @@ for indx in np.arange(len(instructions_cip)):
                     addme = addme.replace("mc,s1z'", "mc,s1z_bar'")
             if opts.assume_precessing and ('cos_theta1' in line): # if we are in a polar coordinates step, change the correlated parameters. This is suboptimal.
                 addme = addme.replace(',s1z' ',chi1,cos_theta1')
+        if opts.LISA and opts.lisa_fixed_sky is False:
+            addme += " --internal-correlate-parameters 'beta,lambda' "
         line += addme
 
     if opts.cip_sigma_cut:
@@ -1186,14 +1200,14 @@ with open("args_cip_list.txt",'w') as f:
 
 # Write puff file
 #puff_params = " --parameter mc --parameter delta_mc --parameter chieff_aligned "
-puff_max_it =4
+#puff_max_it = int(opts.puff_iterations)
 #  Read puff args from file, if present
 try:
     with open("helper_puff_max_it.txt",'r') as f:
         puff_max_it = int(f.readline())
 except:
     print( " No puff file ")
-
+puff_max_it = int(opts.puff_iterations)
 instructions_puff = np.loadtxt("helper_puff_args.txt", dtype=str)  # should be one line
 puff_params = ' '.join(instructions_puff)
 if opts.assume_matter:
@@ -1204,15 +1218,17 @@ if opts.assume_eccentric:
 if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
     puff_max_it +=3
+#if opts.LISA:
+#    puff_max_it +=5 # need to be able to resolve tails well
 with open("args_puff.txt",'w') as f:
         puff_args =''  # note used below
-        if opts.force_chi_max and not(opts.force_chi_small_max):
+        if opts.force_chi_max and not(opts.force_chi_small_max) and not(opts.LISA):
             puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}]  ".format(opts.force_chi_max)
-        elif not(opts.force_chi_max) and (opts.force_chi_small_max):
+        elif not(opts.force_chi_max) and (opts.force_chi_small_max) and not(opts.LISA):
             puff_args = puff_params + " --downselect-parameter chi2 --downselect-parameter-range [0,{}]  ".format(opts.force_chi_small_max)
-        elif opts.force_chi_max and opts.force_chi_small_max:
+        elif opts.force_chi_max and opts.force_chi_small_max and not(opts.LISA):
             puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}] --downselect-parameter chi2 --downselect-parameter-range [0,{}] ".format(opts.force_chi_max, opts.force_chi_small_max)
-        elif not(opts.force_chi_max) and not(opts.force_chi_small_max):  # nothing set, default, forcce downselect on both spins
+        elif not(opts.force_chi_max) and not(opts.force_chi_small_max) and not(opts.LISA):  # nothing set, default, forcce downselect on both spins
             puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,1] --downselect-parameter chi2 --downselect-parameter-range [0,1] "
         else:
             puff_args = puff_params # passthrough case, should not happen ...
@@ -1242,11 +1258,11 @@ with open("args_puff.txt",'w') as f:
                 puff_args+= " --enforce-duration-bound " +str(opts.data_LI_seglen)
         if opts.internal_use_force_away:
             puff_args = puff_args.replace(unsafe_parse_arg_string(puff_args,'force-away')," --force-away {} ".format(str(opts.internal_use_force_away)))
+        if opts.LISA:
+            puff_args = puff_args.replace('chieff_aligned', 's1z')
+            puff_args += f" --downselect-parameter mc --downselect-parameter-range {str(opts.force_mc_range).replace(' ','')} --parameter s2z --downselect-parameter s1z --downselect-parameter-range {str(opts.force_s1z_range).replace(' ','')} --downselect-parameter s2z --downselect-parameter-range {str(opts.force_s2z_range).replace(' ','')} "
         if not(opts.lisa_fixed_sky):
-            print(opts.puff_search_hypercube)
-            tmp_line = "--parameter lambda --parameter beta "
-            if opts.puff_search_hypercube:
-                tmp_line += f"--composite-file {os.getcwd()}/all.net --search-hypercube True "
+            tmp_line = f" --parameter lambda --downselect-parameter lambda --downselect-parameter-range {str(opts.force_lambda_range).replace(' ','')} --parameter beta --downselect-parameter beta --downselect-parameter-range {str(opts.force_beta_range).replace(' ','')} "
             if not(opts.manual_extra_puff_args is None):
                 opts.manual_extra_puff_args += tmp_line
             else:
@@ -1299,7 +1315,7 @@ if opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # m
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --request-memory-ILE " + str(opts.ile_memory) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries) + " --cip-request-disk " + str(opts.cip_request_disk)
 if opts.assume_matter or opts.assume_eccentric:
     cmd +=  " --convert-args `pwd`/helper_convert_args.txt "
 if not(opts.ile_runtime_max_minutes is None):

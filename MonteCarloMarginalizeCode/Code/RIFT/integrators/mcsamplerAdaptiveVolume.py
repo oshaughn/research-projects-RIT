@@ -629,7 +629,7 @@ class MCSampler(object):
             if super_verbose:
               print(ntotal_true,eff_samp, np.round(neff_varaha), np.round(np.max(allloglkl), 1), len(allloglkl), np.mean(self.nbins), V,  len(self.binunique),  np.round(loglkl_thr, 1), trunc_p)
             else:
-              print(ntotal_true,eff_samp, np.sqrt(2*xpy_here.max(allloglkl - allp)), '-', np.log(V), np.sqrt(xpy_here.var(w/xpy_here.mean(w))/len(w) ))
+              print(ntotal_true,eff_samp, np.sqrt(2*xpy_here.max(allloglkl)), '-', np.log(V), np.sqrt(xpy_here.var(w/xpy_here.mean(w))/len(w) ))
 
             cycle += 1
             if cycle > 1000:

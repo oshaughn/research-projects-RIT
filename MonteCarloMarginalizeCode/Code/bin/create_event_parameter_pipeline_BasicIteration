@@ -205,6 +205,7 @@ parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry att
 parser.add_argument("--general-retries",default=0,type=int,help="Number of retry attempts for internal jobs (convert, CIP, ...). (These can fail, albeit more rarely, usually due to filesystem problems)")
 parser.add_argument("--general-request-disk",default="10M",type=str,help="Request disk passed to condor. Must be done for all jobs now")
 parser.add_argument("--ile-request-disk",default="10M",type=str,help="Request disk passed to condor for ILE. Must be done for all jobs now")
+parser.add_argument("--cip-request-disk",default="10M",type=str,help="Request disk passed to condor for CIP. Must be done for all jobs now")
 parser.add_argument("--cal-request-disk",default="8G",type=str,help="Request disk passed to condor for ILE. Must be done for all jobs now")
 parser.add_argument("--ile-n-events-to-analyze",default=1,type=int,help="If >1, you are using ILE_batchmode.  Structures the DAG correctly to account for batch cadence")
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
@@ -490,6 +491,7 @@ os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 cmdname="%s/command-single.sh" % opts.working_directory
 cmd = open(cmdname, 'w')
 arg_list = ile_args
+arg_list = arg_list.replace("$(macrongroup)", "5")
 exe = dag_utils.which("integrate_likelihood_extrinsic")
 if opts.ile_n_events_to_analyze:
     exe = dag_utils.which("integrate_likelihood_extrinsic_batchmode")
@@ -670,7 +672,7 @@ if  (opts.last_iteration_extrinsic):
     n_points_per_ILE = opts.last_iteration_extrinsic_samples_per_ile
     # ILE job with modified output format
     #  - note we *double* the memory request, because we need space to save samples
-    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(np.min([2*n_points_per_ILE,4]))  # modify convergence criteria so output of reasonable size
+    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +  str(40)  #tr(np.min([2*n_points_per_ILE,4]))  # modify convergence criteria so output of reasonable size
     #  - note we *disable* --no-adapt-after-first (if present), so each point is independent (e.g., in sky location)
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
     if opts.last_iteration_extrinsic_time_resampling:
@@ -847,7 +849,7 @@ cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroit
 cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
 cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
 cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
-cip_job.add_condor_cmd('request_disk',opts.general_request_disk)
+cip_job.add_condor_cmd('request_disk',opts.cip_request_disk)
 if opts.cip_explode_jobs:
     cip_job.add_arg('--not-worker')  # prevent anything that causes failure, reduce writing of output
 if opts.use_full_submit_paths:
@@ -873,7 +875,7 @@ if opts.cip_explode_jobs:
     cip_job_worker.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
     cip_job_worker.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
     cip_job_worker.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
-    cip_job_worker.add_condor_cmd('request_disk',opts.general_request_disk)
+    cip_job_worker.add_condor_cmd('request_disk',opts.cip_request_disk)
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+cip_job_worker.get_sub_file()
         cip_job_worker.set_sub_file(fname)
@@ -966,7 +968,7 @@ else:
         cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).log")
         cip_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).err")
         cip_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cip-$(cluster)-$(process).out")
-        cip_job.add_condor_cmd('request_disk',opts.general_request_disk)
+        cip_job.add_condor_cmd('request_disk',opts.cip_request_disk)
         if opts.cip_explode_jobs:
             cip_job.add_arg("--not-worker")
         if opts.use_full_submit_paths:
@@ -998,7 +1000,7 @@ else:
            cip_job_worker.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cipworker-$(cluster)-$(process).log")
            cip_job_worker.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cipworker-$(cluster)-$(process).err")
            cip_job_worker.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/cipworker-$(cluster)-$(process).out")
-           cip_job_worker.add_condor_cmd('request_disk',opts.general_request_disk)
+           cip_job_worker.add_condor_cmd('request_disk',opts.cip_request_disk)
            if opts.use_full_submit_paths:
                fname = opts.working_directory+"/"+cip_job_worker.get_sub_file()
                cip_job_worker.set_sub_file(fname)

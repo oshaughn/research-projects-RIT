@@ -245,9 +245,10 @@ parser.add_argument("--use-osg",action='store_true',help="If true, use pathnames
 parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, require LIGO frames are present (usually via CVMFS). User is responsible for generating cache file compatible with it.  This option insures that the cache file is properly transferred (because you have generated it)")
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
 parser.add_argument("--verbose",action='store_true')
+# LISA
+parser.add_argument("--LISA", default=False, action="store_true", help="Let the code know that a LISA signal is being analysed so 1) all spins are fitted in earlier iterations")
 parser.add_argument("--h5-frame", default=None, action="store_true", help="Let the code know that the frames are in h5 format and not in gwf, the information is passed down to ILE scripts")
 parser.add_argument("--data-integration-window-half", default=None, help="For longer signal srate might be such the integration range is smaller than deltaT, so need to redefine it. By default it takes a value of 300 ms")
-
 opts=  parser.parse_args()
 
 if opts.assume_matter_but_primary_bh:
@@ -1021,8 +1022,8 @@ if not opts.assume_nospin:
     helper_test_args += " --parameter xi "  # require chi_eff distribution to be stable
 if not opts.test_convergence:
     helper_test_args+= " --always-succeed "
-
-helper_ile_args += " --save-P 0.1 "   # truncate internal data structures (should do better memory management/avoid need for this if --save-samples is not on)
+if not(opts.LISA):
+    helper_ile_args += " --save-P 0.1 "   # truncate internal data structures (should do better memory management/avoid need for this if --save-samples is not on)
 if not (opts.fmax is None):
     helper_ile_args += " --fmax " + str(opts.fmax)  # pass actual fmax
 else:
@@ -1062,7 +1063,8 @@ if not opts.use_osg:
         helper_ile_args += " --cache " + opts.working_directory+ "/" + opts.cache
 else:
     helper_ile_args += " --cache local.cache "
-helper_ile_args += " --event-time " + str(event_dict["tref"])
+if not(opts.LISA):
+    helper_ile_args += " --event-time " + str(event_dict["tref"])
 for ifo in ifos:
     helper_ile_args += " --channel-name "+ifo+"="+channel_names[ifo]
     helper_ile_args += " --psd-file "+ifo+"="+psd_names[ifo]
@@ -1374,7 +1376,8 @@ if opts.propose_ile_convergence_options:
     # Modify someday to use the SNR to adjust some settings
     # Proposed option will use GPUs
     # Note that number of events to analyze is controlled by a different part of the workflow !
-    helper_ile_args += " --vectorized --gpu   --srate {} ".format(srate)
+    if not(opts.LISA):
+        helper_ile_args += " --vectorized --gpu   --srate {} ".format(srate)
     if opts.internal_propose_ile_convergence_freezeadapt:
         helper_ile_args += "  --no-adapt-after-first --no-adapt-distance  "
                     
@@ -1478,14 +1481,20 @@ if opts.propose_fit_strategy:
             # aligned spin branch
             if opts.internal_use_aligned_phase_coordinates:
                 # mu1,mu2,q,s2z are coordinates, with mu1,mu2,delta_mc already implemented
-                helper_cip_args += ' --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools                
-                helper_cip_arg_list[0] += " --parameter-nofit s1z --parameter-nofit s2z  "
+                helper_cip_args += ' --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools               
+                if opts.LISA:
+                    helper_cip_arg_list[0] += " --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z  "
+                else:
+                    helper_cip_arg_list[0] += " --parameter-nofit s1z --parameter-nofit s2z  "
                 for indx in np.arange(1,len(helper_cip_arg_list)): # allow for variable numbers of subsequent steps, with different settings
                     helper_cip_arg_list[indx] += ' --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z '
             elif not opts.assume_highq:
                 # normal aligned spin
                 helper_cip_args += ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' # --parameter-implied chiMinus  # keep chiMinus out, until we add flexible tools
-                helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z ' 
+                if opts.LISA:
+                    helper_cip_arg_list[0] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z '
+                else:
+                    helper_cip_arg_list[0] +=  ' --parameter-implied xi  --parameter-nofit s1z --parameter-nofit s2z '
                 for indx in np.arange(1,len(helper_cip_arg_list)): # allow for variable numbers of subsequent steps, with different settings
                     helper_cip_arg_list[indx] += ' --parameter-implied xi  --parameter-implied chiMinus --parameter-nofit s1z --parameter-nofit s2z '
             else: # highq

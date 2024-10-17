@@ -18,9 +18,7 @@
 A collection of useful data analysis routines
 built from the SWIG wrappings of LAL and LALSimulation.
 """
-# LISA
 import h5py
-#
 import sys
 import copy
 import types
@@ -3660,6 +3658,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         if not (P.deltaF is None):  # lalsim.SimInspiralImplementedFDApproximants(P.approx)==1 and 
             TDlen = int(1./P.deltaF * 1./P.deltaT)
             if TDlen < hlm_dict[mode].data.length:  # we have generated too long a signal!...truncate from LEFT. Danger!
+                    print(f"WARNING (mode = {mode}): Due to the requested length ({1/P.deltaF}s) being shorter than the generated waveform ({hlm_dict[mode].data.length*hlm_dict[mode].deltaT}s) some of the inspiral is being truncated.")
                     hlm_dict[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm_dict[mode],hlm_dict[mode].data.length-TDlen,TDlen)
 
     # Tapering: applies to cases without direct return, like TDmodesFromPolarizations and ChooseTDModes
@@ -4719,15 +4718,18 @@ def hlmoff_for_LISA(P, Lmax=4, modes=None, fd_standoff_factor=0.964, fd_alignmen
         # convert into dictionary
         hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct, Lmax, modes)
         # Resize it such that deltaF = 1/TDlen
+	# Commenting this out because this chages fmax without changing P.fmax; tf_dict doesn't use fmax any more but this function add zeros to the end, but evaluate fvals expects the data to be centered around zero.
         for mode in hlmsdict:
             hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
         return hlmsdict
 
-    if P.approx == lalNRHybSur3dq8: # will resize such that deltaF = 1/TDlen
+    if P.approx == lalNRHybSur3dq8 or P.approx == lalIMRPhenomD: # will resize such that deltaF = 1/TDlen
         hlms_struct = hlmoff(P, Lmax=Lmax)
         hlmsdict = SphHarmFrequencySeries_to_dict(hlms_struct, Lmax, modes)
         # Resize it such that deltaF = 1/TDlen
         for mode in hlmsdict:
+            if not(1/hlmsdict[mode].deltaF == P.deltaT*TDlen):
+                print(f"WARNING: RESIZING IN FD DOMAIN (1/deltaF = {1/hlmsdict[mode].deltaF}, deltaT*TDlen = {P.deltaT*TDlen}), THIS SHOULD NOT BE HAPPENING.")
             hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
         return hlmsdict
 

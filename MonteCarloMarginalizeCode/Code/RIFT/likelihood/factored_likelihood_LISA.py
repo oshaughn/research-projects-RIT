@@ -5,6 +5,9 @@ import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lsu  # problem of relative comprehensive import - dangerous due to package name
 import numpy as np
+
+__author__ = "A. Jan"
+
 try:
   import cupy
   from . import optimized_gpu_tools
@@ -96,7 +99,7 @@ def ComputeIPTimeSeries(IP, hf, data, N_shift, N_window, analyticPSD_Q=False,
     for discrete values of the reference time tref.  The epoch of the
     SphHarmTimeSeries object is set to account for the transformation
     """
-    assert data.deltaF == hf.deltaF
+    assert data.deltaF == hf.deltaF, f"DeltaF of template is{data.deltaF}, deltaF of data is{hf.delta}. They should be the same, this could potentionally be caused by numerical precision."
     assert data.data.length == hf.data.length
 
     rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hf, data)
@@ -104,7 +107,7 @@ def ComputeIPTimeSeries(IP, hf, data, N_shift, N_window, analyticPSD_Q=False,
     tmp= lsu.DataRollBins(rhoTS, N_shift)  # restore functionality for bidirectional shifts: waveform need not start at t=0
     rho_time_series =lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
     if debug:
-        print(f"Max in the original series = {np.max(rhoTS.data.data)}, max in the truncated series = {np.max(rho_time_series.data.data)}, max index in the original series = {np.argmax(rhoTS.data.data) + N_shift}.")
+        print(f"Max in the original series = {np.max(rhoTS.data.data)}, max in the truncated series = {np.max(rho_time_series.data.data)}, max index in the original series = {np.argmax(rhoTS.data.data) + N_shift}, max occurs at time shift of {rhoIdx * rhoTS.deltaT}s")
     return rho_time_series
 
 def PrecomputeAlignedSpinLISA(tref, fref, t_window, hlms, hlms_conj, data_dict, psd_dict, flow, fNyq, fhigh, deltaT,  beta, lamda, analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0.):
@@ -126,8 +129,14 @@ def PrecomputeAlignedSpinLISA(tref, fref, t_window, hlms, hlms_conj, data_dict, 
     
     # first get 6 terms per mode, and multiply with detector response
     tf_dict, f_dict, amp_dict, phase_dict = get_tf_from_phase_dict(hlms, fNyq, fref)  #here we need fmax, but RIFT has fhigh
+    index_at_fref = get_closest_index(f_dict[2,2], fref)
+    
     collect_mode_terms = {}
     modes = list(hlms.keys())
+
+    reference_phase = 0.0
+    modes.remove((2,2))
+    modes.insert(0, (2,2))
 
     collect_mode_terms["A"] = {}
     collect_mode_terms["E"] = {}
@@ -137,43 +146,56 @@ def PrecomputeAlignedSpinLISA(tref, fref, t_window, hlms, hlms_conj, data_dict, 
         
         amp, phase = amp_dict[mode], phase_dict[mode]
         shifted_phase = (phase + 2*np.pi*f_dict[mode]*tref) #take care of convention
+        #if mode == (2,2):
+        #    phase_22_current = shifted_phase[index_at_fref]
+        #    difference = reference_phase - phase_22_current
+        #shifted_phase = shifted_phase + mode[1]/2 * difference
+        #print(f"Precompute: {mode}, phase = {shifted_phase[index_at_fref]}, time = {tf_dict[mode][index_at_fref]+tref}")
+        
         tmp_mode_data = (amp * np.exp(1j*shifted_phase)).reshape(1, -1) #take care of convention
 
         # tmp_mode_data = hlms[mode].data.data
         collect_mode_terms["A"][mode] = {}
         tmp_mode_here = np.conj(A_terms * tmp_mode_data)
-        collect_mode_terms["A"][mode][0] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[0])  # A_term (6,n), hlm (n,1)
-        collect_mode_terms["A"][mode][1] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[1]) 
-        collect_mode_terms["A"][mode][2] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[2]) 
-        collect_mode_terms["A"][mode][3] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[3]) 
-        collect_mode_terms["A"][mode][4] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[4]) 
-        collect_mode_terms["A"][mode][5] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[5])
+        collect_mode_terms["A"][mode][0] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[0], hlms[mode].deltaF)  # A_term (6,n), hlm (n,1)
+        collect_mode_terms["A"][mode][1] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[1], hlms[mode].deltaF) 
+        collect_mode_terms["A"][mode][2] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[2], hlms[mode].deltaF) 
+        collect_mode_terms["A"][mode][3] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[3], hlms[mode].deltaF) 
+        collect_mode_terms["A"][mode][4] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[4], hlms[mode].deltaF) 
+        collect_mode_terms["A"][mode][5] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[5], hlms[mode].deltaF)
 
         
         collect_mode_terms["E"][mode] = {}
         tmp_mode_here = np.conj(E_terms * tmp_mode_data)
-        collect_mode_terms["E"][mode][0] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[0])  # A_term (6,n), hlm (n,1)
-        collect_mode_terms["E"][mode][1] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[1]) 
-        collect_mode_terms["E"][mode][2] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[2]) 
-        collect_mode_terms["E"][mode][3] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[3]) 
-        collect_mode_terms["E"][mode][4] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[4]) 
-        collect_mode_terms["E"][mode][5] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[5]) 
+        collect_mode_terms["E"][mode][0] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[0], hlms[mode].deltaF)  # A_term (6,n), hlm (n,1)
+        collect_mode_terms["E"][mode][1] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[1], hlms[mode].deltaF) 
+        collect_mode_terms["E"][mode][2] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[2], hlms[mode].deltaF) 
+        collect_mode_terms["E"][mode][3] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[3], hlms[mode].deltaF) 
+        collect_mode_terms["E"][mode][4] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[4], hlms[mode].deltaF) 
+        collect_mode_terms["E"][mode][5] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[5], hlms[mode].deltaF) 
 
         
         collect_mode_terms["T"][mode] = {}
         tmp_mode_here = np.conj(T_terms * tmp_mode_data)
-        collect_mode_terms["T"][mode][0] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[0])  # A_term (6,n), hlm (n,1)
-        collect_mode_terms["T"][mode][1] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[1]) 
-        collect_mode_terms["T"][mode][2] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[2]) 
-        collect_mode_terms["T"][mode][3] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[3]) 
-        collect_mode_terms["T"][mode][4] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[4]) 
-        collect_mode_terms["T"][mode][5] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[5])  
+        collect_mode_terms["T"][mode][0] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[0], hlms[mode].deltaF)  # A_term (6,n), hlm (n,1)
+        collect_mode_terms["T"][mode][1] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[1], hlms[mode].deltaF) 
+        collect_mode_terms["T"][mode][2] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[2], hlms[mode].deltaF) 
+        collect_mode_terms["T"][mode][3] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[3], hlms[mode].deltaF) 
+        collect_mode_terms["T"][mode][4] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[4], hlms[mode].deltaF) 
+        collect_mode_terms["T"][mode][5] = create_lal_frequency_series(f_dict[mode], tmp_mode_here[5], hlms[mode].deltaF)  
     # calculate <d|h_lm>
-    IP_time_series= lsu.ComplexOverlap(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["A"], analyticPSD_Q, inv_spec_trunc_Q, T_spec, full_output =True)  # Incase the three arms have different PSDs. Assume all arms have same PSD for now and 2,2 mode is present
+    IP_time_series_A= lsu.ComplexOverlap(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["A"], analyticPSD_Q, inv_spec_trunc_Q, T_spec, full_output =True)  # Incase the three arms have different PSDs. Assume all arms have same PSD for now and 2,2 mode is present
+    IP_time_series_E= lsu.ComplexOverlap(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["E"], analyticPSD_Q, inv_spec_trunc_Q, T_spec, full_output =True)
+    IP_time_series_T= lsu.ComplexOverlap(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["T"], analyticPSD_Q, inv_spec_trunc_Q, T_spec, full_output =True)
 
     Q_lm = {}
     for channel in ["A", "E", "T"]:
-        inner_product= IP_time_series
+        if channel == "A":
+            inner_product= IP_time_series_A
+        if channel == "E":
+            inner_product= IP_time_series_E
+        if channel == "T":
+            inner_product= IP_time_series_T
         for mode in hlms.keys():
             l, m = mode[0], mode[1]
         
@@ -186,13 +208,20 @@ def PrecomputeAlignedSpinLISA(tref, fref, t_window, hlms, hlms_conj, data_dict, 
 
     # calculate <h_lm|h_pq>
     U_lm_pq = {}
-    IP = lsu.ComplexIP(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["A"], analyticPSD_Q, inv_spec_trunc_Q, T_spec) # Incase the three arms have different PSDs. Assume all arms have same PSD for now and 2,2 mode is present
+    IP_A = lsu.ComplexIP(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["A"], analyticPSD_Q, inv_spec_trunc_Q, T_spec) # Incase the three arms have different PSDs. Assume all arms have same PSD for now and 2,2 mode is present
+    IP_E = lsu.ComplexIP(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["E"], analyticPSD_Q, inv_spec_trunc_Q, T_spec)
+    IP_T = lsu.ComplexIP(flow, fhigh, fNyq, hlms[2,2].deltaF, psd_dict["T"], analyticPSD_Q, inv_spec_trunc_Q, T_spec)
     for i in np.arange(len(modes)):
         for j in np.arange(len(modes))[i:]:
             # print(modes[i], modes[j])
             l, m, p, q = modes[i][0], modes[i][1], modes[j][0], modes[j][1]
             for channel in  ["A", "E", "T"]:
-                inner_product= IP
+                if channel == "A":
+                    inner_product= IP_A
+                if channel == "E":
+                    inner_product= IP_E
+                if channel == "T":
+                    inner_product= IP_T
                 U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_xx"] = inner_product.ip(collect_mode_terms[channel][modes[i]][0], collect_mode_terms[channel][modes[j]][0])
                 U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_xy"] = inner_product.ip(collect_mode_terms[channel][modes[i]][0], collect_mode_terms[channel][modes[j]][1])
                 U_lm_pq[f"{channel}_{l}_{m}_xx_{p}_{q}_xz"] = inner_product.ip(collect_mode_terms[channel][modes[i]][0], collect_mode_terms[channel][modes[j]][2])
@@ -287,7 +316,7 @@ def PrecomputeAlignedSpinLISA(tref, fref, t_window, hlms, hlms_conj, data_dict, 
     return rholms_intp, U_lm_pq, V_lm_pq, Q_lm, guess_snr, rest
 
 
-def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclination, phi_ref, distance, modes, reference_distance, return_lnLt=False):
+def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclination, phi_ref, distance, modes, reference_distance, return_lnLt=False, only_positive_modes=True):
     # Calculated marginalized likelihood, marginalized over time, psi, inlincation, phiref and distance.
     # call psi terms
     plus_terms = get_beta_lamda_psi_terms_Hp(beta, lam, psi)
@@ -386,6 +415,9 @@ def FactoredLogLikelihoodAlignedSpinLISA(Q_lm, U_lm_pq, beta, lam, psi, inclinat
     total_lnL = 0
     for channel in ["A", "E", "T"]:
         total_lnL += np.real(reference_distance/distance * Qlm[channel] - ((reference_distance/distance)**2)*0.5*Ulmpq[channel])
+    # if not including -m modes, then the innerproduct is 4*integral, but all innerproducts evaluated so far are 2*integral
+    if only_positive_modes:
+        total_lnL *= 2
     # for time sampling, return likelihood time series.
     if return_lnLt:
         return total_lnL

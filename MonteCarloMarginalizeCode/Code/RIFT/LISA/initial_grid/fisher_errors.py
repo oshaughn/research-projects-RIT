@@ -7,6 +7,8 @@ from RIFT.LISA.response.LISA_response import *
 from argparse import ArgumentParser
 from scipy.interpolate import interp1d
 import os
+
+__author__ = "A. Jan"
 ###########################################################################################
 # Functions to generate 2-PN waveforms as per http://arxiv.org/abs/gr-qc/9502040.
 ###########################################################################################
@@ -161,6 +163,7 @@ def get_fisher_matrix(Mc, eta, sigma, beta, fvals, psd_vals, deltaF, wf):
     return tau_ij, inv_tau_ij
 
 def get_error_bounds(P_inj, snr, psd_path):
+    """Get error bounds on parameters using fisher information matrix."""
     response=True # use LISA response
     deltaF = 0.00001 # hardcoded deltaF 
     mc, eta = get_mc_eta_from_mass(P_inj.m1/lsu.lsu_MSUN, P_inj.m2/lsu.lsu_MSUN)
@@ -210,6 +213,8 @@ if __name__ =='__main__':
     parser.add_argument("--psd-path", help="Full path to A-psd.xm.gz")
     parser.add_argument("--snr", help="SNR of the signal")
     parser.add_argument("--snr-fmin", help="fmin used in snr calculations", default=0.0001)
+    parser.add_argument("--generate-grid", help="Use the fisherbounds to generate grid", default=True)
+    parser.add_argument("--points", help="number of points in the grid", default=25000)
     opts = parser.parse_args()
     print(f"Loading file:\n {opts.inj}")
     P_inj_list = lsu.xml_to_ChooseWaveformParams_array(opts.inj)
@@ -224,6 +229,40 @@ if __name__ =='__main__':
     print(f"s2z bounds = [{error_bounds[6]:0.6f}, {error_bounds[7]:0.6f}]")
     print(f"beta bounds = [{error_bounds[8]:0.6f}, {error_bounds[9]:0.6f}]")
     print(f"lambda bounds = [{error_bounds[10]:0.6f}, {error_bounds[11]:0.6f}]")
+    mc_span, eta_span = (error_bounds[1] - error_bounds[0]), (error_bounds[3] - error_bounds[2])
+    s1z_span, s2z_span =  (error_bounds[5] - error_bounds[4]), (error_bounds[7] - error_bounds[6])
+    beta_span, lambda_span =  (error_bounds[9] - error_bounds[8]), (error_bounds[11] - error_bounds[10])
+    if opts.generate_grid:
+        import os
+        from RIFT.LISA.utils.utils import *
+        cmd = f"util_ManualOverlapGrid.py --inj {opts.inj} "
+        cmd += f"--parameter mc --parameter-range '[{error_bounds[0]:0.2f}, {error_bounds[1]:0.2f}]' "
+        cmd += f"--parameter eta --parameter-range '[{error_bounds[2]:0.5f}, {error_bounds[3]:0.5f}]' "
+        cmd += f"--random-parameter s1z --random-parameter-range '[{error_bounds[4]:0.6f}, {error_bounds[5]:0.6f}]' "
+        cmd += f"--random-parameter s2z --random-parameter-range '[{error_bounds[6]:0.6f}, {error_bounds[7]:0.6f}]' "
+        cmd += f"--random-parameter theta --random-parameter-range '[{error_bounds[8]:0.6f}, {error_bounds[9]:0.6f}]' "
+        cmd += f"--random-parameter phi --random-parameter-range '[{error_bounds[10]:0.6f}, {error_bounds[11]:0.6f}]' "
+        cmd += f"--grid-cartesian-npts {int(opts.points)} --skip-overlap"
+        print(f"\t Generating grid\n{cmd}")
+        os.system(cmd)
+        os.system('mv overlap-grid.xml.gz overlap-grid-primary.xml.gz')
+
+        secondary_peak = get_secondary_mode_for_skylocation(float(P_inj.tref), P_inj.phi, P_inj.theta)
+        beta_sec, lambda_sec = secondary_peak[0,2], secondary_peak[0,1]
+        print(f"Secondary peak: lambda {lambda_sec}, beta {beta_sec}")
+        cmd = f"util_ManualOverlapGrid.py --inj {opts.inj} "
+        cmd += f"--parameter mc --parameter-range '[{error_bounds[0]:0.2f}, {error_bounds[1]:0.2f}]' "
+        cmd += f"--parameter eta --parameter-range '[{error_bounds[2]:0.5f}, {error_bounds[3]:0.5f}]' "
+        cmd += f"--random-parameter s1z --random-parameter-range '[{error_bounds[4]:0.6f}, {error_bounds[5]:0.6f}]' "
+        cmd += f"--random-parameter s2z --random-parameter-range '[{error_bounds[6]:0.6f}, {error_bounds[7]:0.6f}]' "
+        cmd += f"--random-parameter theta --random-parameter-range '[{beta_sec-0.5*beta_span}, {beta_sec+0.5*beta_span}]' "
+        cmd += f"--random-parameter phi --random-parameter-range '[{lambda_sec-0.5*lambda_span}, {lambda_sec+0.5*lambda_span}]' "
+        cmd += f"--grid-cartesian-npts {int(opts.points)} --skip-overlap"
+        print(f"\t Generating grid\n{cmd}")
+        os.system(cmd)
+        os.system('mv overlap-grid.xml.gz overlap-grid-secondary.xml.gz')
+        os.system('ligolw_add overlap-grid-primary.xml.gz overlap-grid-secondary.xml.gz -o overlap-grid.xml.gz')
+
 
 
 

@@ -9,13 +9,15 @@
 """
 Integrate the extrinsic parameters of the prefactored likelihood function.
 """
-####################### Import ###################################
 import functools
 from optparse import OptionParser, OptionGroup
 import sys
 import numpy
 import numpy as np
 import os
+print("###########################################################################################")
+print("# Loading packages and samplers")
+print("###########################################################################################")
 try:
   import cupy
   xpy_default=cupy
@@ -82,8 +84,7 @@ except:
 import RIFT.likelihood.priors_utils as priors_utils
 import RIFT.misc.xmlutils as xmlutils
 
-###################################################################
-
+###########################################################################################
 class EvenBivariateLinearInterpolator:
     def __init__(self, x0, dx, y0, dy, f):
         self._x0 = x0
@@ -280,7 +281,7 @@ integration_params.add_option("--adapt-floor-level", type=float, default=0.1, he
 integration_params.add_option("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
 integration_params.add_option("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
 integration_params.add_option("--interpolate-time", default=False,help="If using time marginalization, compute using a continuously-interpolated array. (Default=false)")
-integration_params.add_option("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean) and 'pseudo_cosmo'  .")
+integration_params.add_option("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean), uniform and 'pseudo_cosmo'  .")
 integration_params.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--d-min", default=1,type=float,help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
@@ -503,11 +504,15 @@ else:
 # Template descriptors
 #
 
+
+print("###########################################################################################")
+print("# Reading grid, data and psd")
+print("###########################################################################################")
 # Struct to hold template parameters, P.deltaF comes from data (data.deltaF)
 P_list = None
 P=None # force allocation so I can use the preferred event later
 if opts.sim_xml:
-    print( "====Loading injection XML:", opts.sim_xml, opts.event, " =======")
+    print(f"====Loading injection XML: {opts.sim_xml}, reading from event {opts.event} to event {opts.event+opts.n_events_to_analyze} =======")
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
     if  len(P_list) < opts.event: 
 #+opts.n_events_to_analyze:
@@ -627,7 +632,7 @@ if opts.h5_frame_FD:
     for inst, chan in map(lambda c: c.split("="), opts.channel_name):
       print("Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
       data_dict[inst] = lalsimutils.frame_h5_to_hoff(opts.cache_file,inst)
-      print("Frequency binning: %e, length %d" % (data_dict[inst].deltaF, data_dict[inst].data.length) )
+      print("Frequency binning: %e (1/deltaF = %f), length %d" % (data_dict[inst].deltaF, 1/data_dict[inst].deltaF,  data_dict[inst].data.length) )
 
 # this can handle both LIGO and LISA TD data
 else:  
@@ -652,10 +657,7 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
 
     deltaF = data_dict[inst].deltaF
     psd_dict[inst] = lalsimutils.resample_psd_series(psd_dict[inst], deltaF)
-    if opts.LISA:
-       print( "PSD deltaF after interpolation %e" % psd_dict[inst].deltaF)
-    else:
-      print( "PSD deltaF after interpolation %f" % psd_dict[inst].deltaF)
+    print( "PSD deltaF after interpolation %e" % psd_dict[inst].deltaF)
 
     # Implement PSD window rescaling: see T1900249
     if opts.psd_window_shape > 0 or opts.window_shape > 0:
@@ -693,7 +695,7 @@ for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
         fmax = opts.fmax # fmax is now the upper freq. of IP integral
 
 # Ensure data and PSDs keyed to same detectors
-# For LISA we only provde one PSD, so this check is not necessary.
+# For LISA we may only provde one PSD, so this check is not necessary.
 if sorted(psd_dict.keys()) != sorted(data_dict.keys()) and not(opts.LISA):
     print >>sys.stderr, "Got a different set of instruments based on data and PSDs provided."
 
@@ -710,7 +712,6 @@ P.deltaF = deltaF
 for Psig in P_list:
   Psig.deltaT = P.deltaT
   Psig.deltaf = P.deltaF
-
 
 
 #
@@ -743,8 +744,7 @@ if opts.internal_rotate_phase:
 #
 # Parameter integral sampling strategy
 #
-print("\n")
-print("## Initiating integrator ##")
+print("\n###########################################################################################\nInitiating integrator\n###########################################################################################\n")
 # Oracle for portfolio if needed
 
 
@@ -899,6 +899,7 @@ else:
 # Distance - luminosity distance to source in parsecs
 # sampler: uniform distance over [dmin, dmax), adaptive sampling
 #
+print(f" Using {opts.d_prior} prior in distance.")
 if not opts.distance_marginalization:
   dist_sampler = mcsampler.ret_uniform_samp_vector_alt( param_limits["distance"][0], param_limits["distance"][1])
   dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])
@@ -907,6 +908,8 @@ if not opts.distance_marginalization:
   if opts.d_prior == 'pseudo_cosmo':
     nm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(param_limits["distance"][0],param_limits["distance"][1])
     dist_prior_pdf =functools.partial( priors_utils.dist_prior_pseudo_cosmo, nm=nm,xpy=xpy_default)
+  elif opts.d_prior == 'uniform':
+      dist_prior_pdf = dist_sampler
   elif opts.d_prior != 'Euclidean':
     print(" ==== WARNING UNKNOWN DISTANCE PRIOR === ")
     raise Exception('distance prior')
@@ -931,7 +934,7 @@ if opts.internal_sky_network_coordinates:
     if 'V1' in ifo_list:
       ifo_list.remove('V1')
   # problem: ordering of psd_dict is rarely rational; almost always we want an HL network, rarely V
-  if len(ifo_list) <2:
+  if len(ifo_list) <2 or opts.LISA:
     opts.internal_sky_network_coordinates = False # stop using this code
   else:
     sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
@@ -1258,12 +1261,11 @@ def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, decl
   print(" Time resampling size : {} ".format(n_samples))
 
   # Hardcoded time sampling limits, should change it in future
-  low_t_lim, high_t_lim, delta_t = -2, 2, 0.0001
+  low_t_lim, high_t_lim, delta_t = -5, 5, 0.001
   
   # t_ref_wind is defined as data_window_integration_half
-  print(f" Sampling for time from {low_t_lim} to  {high_t_lim} with deltaT {delta_t}") 
 
-  # This is the time series over which we interpolate.
+  # This is the time series over which the lnL series is defined.
   tvals = xpy_default.linspace(-t_ref_wind, t_ref_wind - P.deltaT,int(t_ref_wind*2/P.deltaT))  # the array should have P.deltaT as deltaT between entries and for that you need to subtract P.deltaT from the final point.
   
   # Generating likelihood time series for these samples
@@ -1294,12 +1296,17 @@ def resample_samples_LISA(my_samples, rholms, cross_terms, right_ascension, decl
   # Loop over and resample in time, picking index according to weights
   t_out = np.zeros(n_samples)
   lnL_out = np.zeros(n_samples)
+  # identifiy max lnL(t) point, and then interpolate around that point to avoid Nan weights.
+  index_max_lnLt = np.argmax(lnLt[0]).flatten()
+  tval_at_max = tvals[index_max_lnLt]
+  print(f"Identified max lnL(t) as {tval_at_max}s. Interpolating around that point.  Sampling for time from {tval_at_max + low_t_lim}s to {tval_at_max + high_t_lim}s with deltaT {delta_t}s.")
+  
   # tvals over which we will resample
-  interp_tvals  = xpy_default.arange(low_t_lim, high_t_lim, delta_t)
+  interp_tvals  = xpy_default.arange(low_t_lim + tval_at_max, high_t_lim + tval_at_max, delta_t)
   indx_list = np.arange(len(interp_tvals))
   # Loop over each extrinsic sample
   for indx in np.arange(n_samples):
-    interp = scipy.interpolate.interp1d(tvals, lnLt[indx] - lnLt_norm[indx])
+    interp = scipy.interpolate.interp1d(tvals, lnLt[indx] - lnLt_norm[indx], kind='cubic')
     # interpolating
     interp_lnLt = interp(interp_tvals)
     # weighted resampling
@@ -1370,8 +1377,7 @@ def resample_samples(my_samples,
 #
 
 def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
-    print("\n")
-    print("## Precomputing ##")
+    print("\n###########################################################################################\nPrecomputing\n###########################################################################################")
     nEvals=0
     P = P_list[indx_event]
     # if pin-distance-to-sim, change the distance prior accordingly
@@ -1387,7 +1393,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
     # Generate modes
     if opts.modes:
       modes=np.array(eval(opts.modes))
-      print(f"modes = \n{modes}")
+      print(f"modes = \n{list(modes)}")
     P.deltaF=deltaF # why do we need this? why is it becoming None? 
     hlms_FD = lalsimutils.hlmoff_for_LISA(P, opts.l_max, modes)
     fNyq = 0.5/P.deltaT
@@ -1406,7 +1412,8 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
     # Precompute
     # fNyq is the max resolvable frequency for a waveform. It is 0.5/deltaT. RIFT needs deltaT, deltaF for waveform generation (information present in P) and for integration it needs fmax (fmax <= fNyq)
     print(f"Sky location lambda = {lisa_sky_lamda}, sky location beta = {lisa_sky_beta}")
-    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest = factored_likelihood_LISA.PrecomputeAlignedSpinLISA(opts.lisa_reference_time, opts.lisa_reference_frequency, opts.data_integration_window_half, hlms_FD, None, data_dict, psd_dict, flow_ifo_dict["A"], fmax, fNyq, P.deltaT, lisa_sky_beta, lisa_sky_lamda, analyticPSD_Q=False, inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec)
+
+    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest = factored_likelihood_LISA.PrecomputeAlignedSpinLISA(opts.lisa_reference_time, opts.lisa_reference_frequency, opts.data_integration_window_half, hlms_FD, None, data_dict, psd_dict, flow_ifo_dict["A"], fNyq, fmax, P.deltaT, lisa_sky_beta, lisa_sky_lamda, analyticPSD_Q=False, inv_spec_trunc_Q=False, T_spec=0.0)
     
     # reset to default.  Should not be needed, but weird python scoping error
     manual_avoid_overflow_logarithm = manual_avoid_overflow_logarithm_default 
@@ -1452,8 +1459,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
       single_incl = sampler_param_tuple(sampler, ['inclination'])
       if (opts.distance_marginalization) and single_incl in gmm_dict:
         gmm_dict[single_incl] = None # reset inclination sampling
-
-
+    print("\n###########################################################################################\nIntegrating\n###########################################################################################")
     # Integrate
     args = likelihood_function.__code__.co_varnames[:likelihood_function.__code__.co_argcount]
     print( " --------> Arguments ", args)

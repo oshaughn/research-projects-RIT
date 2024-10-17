@@ -45,7 +45,9 @@ no_plots = True
 internal_dtype = np.float32  # only use 32 bit storage! Factor of 2 memory savings for GP code in high dimensions
 
 C_CGS=2.997925*10**10 # Argh, Monica!
- 
+print("###########################################################################################")
+print("# Loading packages and samplers")
+print("###########################################################################################")
 try:
     import matplotlib
     matplotlib.use('agg')  # prevent requests for DISPLAY
@@ -927,8 +929,8 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'mu1':[0.0001,1e3],    # suboptimal, but something  
   'mu2':[-300,1e3],
   # LISA skylocation
-  'lambda':[0,np.pi/2],
-  'beta':[0,np.pi/2],
+  'lambda':[0,2*np.pi],
+  'beta':[-np.pi/2,np.pi/2],
   #'lambda':[0,2*np.pi],
   #'beta':[-np.pi/2,np.pi/2],
   #'cos_beta':[-1,1]
@@ -1106,7 +1108,9 @@ if opts.prior_lambda_linear:
 ###
 ### Linear fits. Resampling a quadratic. (Export me)
 ###
-
+print("###########################################################################################")
+print("# Fitting ")
+print("###########################################################################################")
 def fit_quadratic_stored(fname_h5,loc,L_offset=200):
     import h5py
     with h5py.File(fname_h5,'r') as F:
@@ -1594,7 +1598,7 @@ else:
 
 
 
-
+print(f"Loading marginalized likelihood file: {opts.fname}")
 # initialize
 dat_mass  = [] 
 weights = []
@@ -2268,6 +2272,9 @@ elif opts.sampler_method == "portfolio":
 ##
 ## Loop over param names
 ##
+print("###########################################################################################")
+print("# Sampling")
+print("###########################################################################################")
 print(" Preparing sampling ", low_level_coord_names)
 for p in low_level_coord_names:
     if not(opts.parameter_implied is None):

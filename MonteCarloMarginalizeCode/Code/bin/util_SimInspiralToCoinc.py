@@ -6,7 +6,7 @@ import argparse
 import json
 
 
-def ilwd_base():
+def ilwd_base(a):
     return 0
 try:
     from  glue.ligolw import ilwd

@@ -245,6 +245,8 @@ parser.add_argument("--inj-file-out", default=None, help="For compatibility with
 parser.add_argument("--verbose", action="store_true",default=False, help="Extra warnings")
 parser.add_argument("--extra-verbose", action="store_true",default=False, help="Lots of messages")
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
+# LISA options
+parser.add_argument("--mirror-beta", action="store_true", help="produce mirror points for beta (mirrored around 0) due to beta being symmetric, beta  and -beta.")
 opts=  parser.parse_args()
 if opts.inj_file_out:
     opts.fname = opts.inj_file_out.replace(".xml.gz","")
@@ -766,6 +768,15 @@ if not (opts.random_parameter is None) and not(opts.parameter is None):
             p_here = opts.random_parameter_exponent[indx]
             print("  :   {}:  Nonuniform randomizing, assuming CDF powerlaw with exponent {} ".format(opts.random_parameter[indx],opts.random_parameter_exponent[indx]))
             grid_extra[:,indx] = range_here[0] + (range_here[1]-range_here[0])*np.power(np.random.uniform(size=len(grid)), 1./p_here)
+        # mirror points for beta parameter for LISA, symmetric beta and -beta
+        if opts.mirror_beta and param_names[indx_base+indx] in ['dec','theta']:
+            print("Mirroring beta")
+            random_numbers = np.random.uniform(0, 1, size=len(grid))
+            index_minus = np.argwhere(random_numbers < 0.5).flatten()
+            factor_dec = np.ones(len(grid))
+            factor_dec[index_minus] = -1 * factor_dec[index_minus]
+            grid_extra[:,indx] = factor_dec * grid_extra[:,indx]
+
 
     grid = np.hstack((grid,grid_extra))
 
