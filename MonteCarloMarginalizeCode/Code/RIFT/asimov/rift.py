@@ -232,7 +232,14 @@ class Rift(Pipeline):
             if len(val)>0:
                 val = val[:-2] # remove last two and
             os.environ['RIFT_REQUIRE_GPUS'] = val
-
+        if 'extra condor require true' in self.production.meta['scheduler']:
+            val =""
+            for name in self.production.meta['scheduler']['extra condor require true']:
+                val += "{},".format(name)
+            if len(val)>0:
+                val = val[:-1] # remove last comma
+            os.environ['RIFT_BOOLEAN_LIST'] = val
+            
         if "singularity image" in self.production.meta["scheduler"]:
             # Collect the correct information for the singularity image
             os.environ[
