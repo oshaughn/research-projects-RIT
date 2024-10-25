@@ -12,7 +12,7 @@ The underlying algorithm for this code is a two stage iterative, in the first st
 
 Both steps are highly parallelizable, enabling this code to use large datasets and costly models for analysis. The main executables are:
 
-likelihood evaluation (first stage, called ILE): `integrate_likelihood_extrinsic_batchmode`
+likelihood evaluation (first stage, called ILE): `integrate_likelihood_extrinsic_batchmode`<br>
 interpolation and posterior construction (second stage, called CIP): `util_ConstructIntrinsicPosterior_GenericCoordinates.py`
 
 The entire pipeline is created using `util_RIFT_pseudo_pipe.py` with a template ini file for MBHB analysis in `RIFT/LISA/template_ini`
