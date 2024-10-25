@@ -20,7 +20,7 @@ The entire pipeline is created using `util_RIFT_pseudo_pipe.py` with a template 
 ## Structure of this code:
 Ingredients to setup a run. 
 1) Data: You can use either model waveforms or numerical relativity waveforms as injections. The injections are stored as h5 files. You can use `RIFT/LISA/injections/generate_injections.py` to generate injections.
-2) PSDs: The noise curves for each of the three A, E, T channels. The should be in .xml.gz format. `bin/convert_psd_ascii2xml` can be used to convert a PSD in .txt format to .xml.gz format. This will output figures too for sanity checks.
+2) PSDs: The noise curves for each of the three A, E, T channels. They should be in .xml.gz format. `bin/convert_psd_ascii2xml` can be used to convert a PSD in .txt format to .xml.gz format. This will output figures too for sanity checks.
 3) ini file: This file contains the options for your run, including priors, template fmin, modes, number of iterations etc.
 4) initial grid: The initial grid over mass, spin, and sky location parameters. `bin/util_ManualOverlapGrid.py` can be used to generate this grid, the output will be a .xml.gz file.  You could also use `RIFT/LISA/initial_grid/fisher_errors.py` to generate the initial grid using information from Fisher errors.
 
