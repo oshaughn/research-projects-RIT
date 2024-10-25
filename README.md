@@ -5,7 +5,7 @@ LISA-RIFT: A modified version of RIFT for LISA sources. In its current state, it
 Original RIFT paper: [Rapid and accurate parameter inference for coalescing, precessing compact binaries](http://arxiv.org/abs/1805.10457) ([git repo](https://github.com/oshaughn/research-projects-RIT/ )
 
 ## Structure of this repo:
-All codes reside in `MonteCarloMarginalizeCode/Code` with all main RIFT executables in the `bin` directory and modifications in `RIFT/LISA` directory.
+All codes reside in `MonteCarloMarginalizeCode/Code` with all main RIFT executables in the `bin` directory and modifications in the `RIFT/LISA` directory. The samplers reside in `RIFT/integrators` directory. The workhorse for `LISA-RIFT` is the AdaptiveVolume (AV) sampler, based on the [Varaha]((10.1103/PhysRevD.108.023001)) sampler. 
 
 ## Structure of this code:
 The underlying algorithm is a two-stage iterative process, in the first stage marginalized likelihood is evaluated for points on a grid and in the second stage the marginalized likelihood values are used to generate posteriors. 
