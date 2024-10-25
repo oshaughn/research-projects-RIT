@@ -8,7 +8,7 @@ Original RIFT paper: [Rapid and accurate parameter inference for coalescing, pre
 All codes reside in `MonteCarloMarginalizeCode/Code` with all main RIFT executables in the `bin` directory and modifications in `RIFT/LISA` directory.
 
 ## Structure of this code:
-The underlying algorithm for this code is a two stage iterative, in the first stage marginalized likelihood is evaluated for points on a grid and in the second stage the marginalized likelihood values are used to generate posteriors. 
+The underlying algorithm is a two-stage iterative process, in the first stage marginalized likelihood is evaluated for points on a grid and in the second stage the marginalized likelihood values are used to generate posteriors. 
 
 Both steps are highly parallelizable, enabling this code to use large datasets and costly models for analysis. The main executables are:
 
