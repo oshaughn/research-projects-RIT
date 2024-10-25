@@ -12,12 +12,10 @@ The samplers reside in `RIFT/integrators` directory. The workhorse for LISA-RIFT
 The FFT routines and waveforms calls are in `RIFT/lalsimutils`. The marginalized likelihood codes are in `RIFT/likelihood` with the LISA specific code being `factored_likelihood_LISA.py`.
 
 ## Structure of this code:
-The underlying algorithm is a two-stage iterative process, in the first stage marginalized likelihood is evaluated for points on a grid and in the second stage the marginalized likelihood values are used to generate posteriors. 
+The underlying algorithm is a two-stage iterative process, in the first stage marginalized likelihood is evaluated for points on a grid and in the second stage the marginalized likelihood values are used to generate posteriors. Both steps are highly parallelizable, enabling this code to use large datasets and costly models for analysis. The main executables are:
 
-Both steps are highly parallelizable, enabling this code to use large datasets and costly models for analysis. The main executables are:
-
-likelihood evaluation (first stage, called ILE): `integrate_likelihood_extrinsic_batchmode`<br>
-interpolation and posterior construction (second stage, called CIP): `util_ConstructIntrinsicPosterior_GenericCoordinates.py`
+First stage: likelihood evaluation (called ILE) `integrate_likelihood_extrinsic_batchmode`<br>
+Second stage: interpolation and posterior construction (called CIP) `util_ConstructIntrinsicPosterior_GenericCoordinates.py`
 
 The entire pipeline is created using `util_RIFT_pseudo_pipe.py` with a template ini file for MBHB analysis in `RIFT/LISA/template_ini`
 
