@@ -16,7 +16,18 @@ pre-release, only available in source tree for rift_O4c
      gwsignal. Tabular EOS fixes. Calmarg fix so weight_files present, and use alt_reweight to avoid prior problems.
      Expose tukey window length to allow top-level user to change it. 
      **important** factored_likelihood change to ComputeModeCrossTermIP to speed up by x2.  (rc0)
-
+  - TEOBResumS external interface bugfixes (m>=0 modes only by accident if aligned; pass phiref too; bugfix data.data missing); asimov interface
+    updates in rift.ini/rift.py (approx; cache file collection; q-max; roll off time; rift/environment backend;
+    RIFT_BOOLEAN_LIST; 'extra eccentric arguments');  factored_likelihood/internal_hlm_generator now
+    requests tapering;  backend issues (e.g., try/except around GetApproximantFromString; lalsimutils/puffball support
+    vectorized; mcsamplerPortfolio uses entrypoints; minor scoping issues; code updates to match scipy changes to
+    mvnun/integrate.simps; HyperCombine handles empty data; add --internal-XXX-request-memory; r strings to avoid
+    warnings; don't call estimateWaveformDuration if not needed to avoid barf if fmin==0; float128/float64; disable
+    default printing of long comment/logging messages; str conversion chIeff range fix; upstream change to event_id in coinc.xml). Transverse puffball. cip-explode-jobs-auto-scale.
+    **Updates to using NR simulations** from KW. Oracle hill climber improvements.  **Bugfix hoft** : psi not passed
+    correctly (only for injections), now have waveform matching; add test/check_waveform_random .  **hlmoft ChooseFDModes**: add
+    conditioning to return from ChooseFDModes, work on phase factors/geometry so now excellent matching, including
+    fd_centering_factor.  calmarg code clean up  (rc1)
 
 0.0.16.0
 -----------
