@@ -2969,6 +2969,11 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
             if len(filtered_peaks) == 1:
                 # scatter case OR plunge case, we can set the epoch normally
                 hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+            elif len(filtered_peaks) == 0:
+                # meaningless waveform, essentially a non-interacting case. Set the epoch normally
+                # These points should return very low likelihood and not interfere with the analysis
+                print('WARNING: no peak detected; non-interacting hyperbolic case')
+                hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
             else:
                 # capture case, we need to force the epoch to be the last peak
                 hpepoch = -P.deltaT*filtered_peaks[-1]
@@ -3623,6 +3628,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             if len(filtered_peaks) == 1:
                 # scatter case OR plunge case, we can set the epoch normally
                 hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+            elif len(filtered_peaks) == 0:
+                # meaningless waveform, essentially a non-interacting case. Set the epoch normally
+                # These points should return very low likelihood and not interfere with the analysis
+                print('WARNING: no peak detected; non-interacting hyperbolic case')
+                hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)                
             else:
                 # capture case, we need to force the epoch to be the last peak
                 hpepoch = -P.deltaT*filtered_peaks[-1]
