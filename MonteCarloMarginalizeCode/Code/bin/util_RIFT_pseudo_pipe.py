@@ -276,8 +276,9 @@ parser.add_argument("--use-osg-file-transfer",action='store_true',help="Restruct
 parser.add_argument("--internal-truncate-files-for-osg-file-transfer",action='store_true',help="If use-osg-file-transfer, will use FrCopy plus the start/end time to build the frame directory.")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
 parser.add_argument("--condor-local-nonworker-igwn-prefix",action='store_true', help="Adds some prefix text to start up cvmfs igwn environment, so local jobs have access to standard RIFT operators. Required for public OSG.")
-parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="NOW STANDARD, auto-set if you pass use-osg   Causes flock_local for 'internal' jobs")
+parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="NOW STANDARD, auto-set if you pass use-osg   Causes flock_local for 'internal' jobs, UNLESS using --use-osg-public")
 parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
+parser.add_argument("--use-osg-public",action='store_true',help="Activate public osg settings. Enforces use-osg, condor-local-nonworker, and condor_local+nonworker_igwn_prefix")
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
@@ -318,6 +319,16 @@ if (opts.use_ini):
                     config_dict[item_renamed] = True
         print(config_dict)
 
+
+if opts.use_osg:
+    opts.condor_nogrid_nonworker = True  # note we ALSO have to check this if we set use_osg in the ini file! Moved statement so flagged
+
+if opts.use_osg_public:
+    opts.use_osg=True
+    opts.condor_local_nonworker=True
+    opts.condor_local_nonworker_igwn_prefix=False
+    opts.condor_nogrid_nonworker=False
+
 if opts.ile_copies <=0:
     raise Exception(" Must have 1 or more ILE instances per intrinsic point")
 
@@ -335,8 +346,6 @@ if opts.internal_loud_signal_mitigation_suite:
 if opts.assume_nonprecessing or opts.approx == "IMRPhenomD":
     prior_args_lookup["default"] = prior_args_lookup["zprior_aligned"]
 
-if opts.use_osg:
-    opts.condor_nogrid_nonworker = True  # note we ALSO have to check this if we set use_osg in the ini file! Moved statement so flagged
 
 if opts.ile_xpu:
     opts.ile_force_gpu = False
