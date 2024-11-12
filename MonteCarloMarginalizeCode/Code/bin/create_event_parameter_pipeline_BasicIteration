@@ -790,7 +790,7 @@ if opts.use_eccentricity:
     con_arg_str += " --eccentricity "
 if opts.use_tabular_eos_file:
     con_arg_str += " --tabular-eos-file "
-con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_dir=None,arg_str=con_arg_str,base=opts.working_directory+"/iteration_$(macroiteration)_ile", target=opts.working_directory+'/consolidated_$(macroiteration)',universe=local_worker_universe,no_grid=no_worker_grid)
+con_job, con_job_name = dag_utils.write_consolidate_sub_simple(tag='join',log_dir=None,arg_str=con_arg_str,base=opts.working_directory+"/iteration_$(macroiteration)_ile", target=opts.working_directory+'/consolidated_$(macroiteration)',universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
 # Modify: set 'initialdir' : should run in top-level direcory
 #con_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_con")
 # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -810,7 +810,7 @@ if opts.use_eccentricity:
     unify_arg_str += " --eccentricity "
 if opts.use_tabular_eos_file:
     unify_arg_str += " --tabular-eos-file "
-unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str=unify_arg_str, base=opts.working_directory, target=opts.working_directory+'/all.net',universe=local_worker_universe,no_grid=no_worker_grid)
+unify_job, unify_job_name = dag_utils.write_unify_sub_simple(tag='unify',log_dir='',arg_str=unify_arg_str, base=opts.working_directory, target=opts.working_directory+'/all.net',universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
 unify_job.add_condor_cmd("initialdir",opts.working_directory)
 unify_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).log")
 unify_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(cluster)-$(process).err")
@@ -895,7 +895,7 @@ if opts.cip_explode_jobs:
 
 ##   puffball job: default case
 if puff_args and puff_cadence:
-    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_ILE,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',output=opts.working_directory+'/puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_ILE,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',output=opts.working_directory+'/puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe,universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
     # Modify: set 'initialdir' to CIP WORKING DIR 
     puff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -911,7 +911,7 @@ if puff_args and puff_cadence:
 
 ##   fetch job.  Fetch is before CURRENT iteration, so it is just-in-time and can be used at iteration 0
 if fetch_args:
-    fetch_job, fetch_job_name = dag_utils.write_puff_sub(tag='FETCH',log_dir=None,arg_str=fetch_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/fetch-$(macroiteration).xml.gz',out_dir=opts.working_directory,exe=opts.fetch_ext_grid_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+    fetch_job, fetch_job_name = dag_utils.write_puff_sub(tag='FETCH',log_dir=None,arg_str=fetch_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/fetch-$(macroiteration).xml.gz',out_dir=opts.working_directory,exe=opts.fetch_ext_grid_exe,universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
     # Modify: set 'initialdir' to CIP WORKING DIR 
     fetch_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -1422,6 +1422,8 @@ for it in np.arange(it_start,opts.n_iterations):
                 cmd +=  " --use-osg-simple-requirements "
             if opts.condor_local_nonworker:
                 cmd += " --condor-local-nonworker "
+            if opts.condor_local_nonworker_igwn_prefix:
+                cmd += " --condor-local-nonworker-igwn-prefix "
             if opts.condor_nogrid_nonworker:
                 cmd += " --condor-nogrid-nonworker "
             if opts.transfer_file_list:
