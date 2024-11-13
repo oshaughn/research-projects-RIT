@@ -621,7 +621,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     return ile_job, ile_sub_name
 
 
-def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, no_grid=False,**kwargs):
+def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, no_grid=False,extra_text='',**kwargs):
     """
     Perform puffball calculation 
     Inputs:
@@ -630,6 +630,27 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
     """
 
     exe = exe or which("util_ParameterPuffball.py")
+    # Create executable if needed  (using extra_text as flag for now)
+    if len(extra_text) > 0:
+        if not (base is None):
+            base_str = ' ' + base +"/"
+
+        cmdname = "puff_sub.sh"
+        
+        with open(cmdname,'w') as f:        
+            f.write("#! /usr/bin/env bash\n")
+            f.write(extra_text+"\n")
+            extra_args = ''
+            f.write( exe +  " $@  \n")
+
+        st = os.stat(cmdname)
+        import stat
+        os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
+
+        exe = base_str + "puff_sub.sh"
+
+
+    
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
     requirements=[]
     if universe=='local':
@@ -1017,7 +1038,7 @@ echo Starting ...
 
 
 
-def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=120,**kwargs):
+def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=120,extra_text='',**kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -1027,6 +1048,27 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     """
 
     exe = exe or which("util_ILEdagPostprocess.sh")
+
+    # Create executable if needed  (using extra_text as flag for now)
+    if len(extra_text) > 0:
+        if not (base is None):
+            base_str = ' ' + base +"/"
+
+        cmdname = "con_sub.sh"
+        
+        with open(cmdname,'w') as f:        
+            f.write("#! /usr/bin/env bash\n")
+            f.write(extra_text+"\n")
+            extra_args = ''
+            f.write( exe +  " $@  \n")
+
+        st = os.stat(cmdname)
+        import stat
+        os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
+
+        exe = base_str + "con_sub.sh"
+
+    
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
@@ -1117,7 +1159,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
 
 
 
-def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=60,**kwargs):
+def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=60,extra_text='',**kwargs):
     """
     Write a submit file for launching a consolidation job
        util_ILEdagPostprocess.sh   # suitable for ILE consolidation.  
@@ -1137,6 +1179,8 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
         base_str = ' ' + base +"/"
     with open(cmdname,'w') as f:        
         f.write("#! /usr/bin/env bash\n")
+        if len(extra_text) > 0:
+            f.write(extra_text+"\n")
         f.write( "ls " + base_str+"*.composite  1>&2 \n")  # write filenames being concatenated to stderr
         # Sometimes we need to pass --eccentricity or --tabular-eos-file etc to util_CleanILE.py
         extra_args = ''
