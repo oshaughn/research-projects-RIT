@@ -248,6 +248,7 @@ parser.add_argument("--use-osg",action='store_true',help="Attempts to set up an 
 parser.add_argument("--use-osg-cip",action='store_true',help="If use-osg, attempts to run CIP on OSG as well.  Default is to run OSG on local machines")
 parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Uses an aggressive simplified requirements string for worker jobs")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Uses local universe for non-worker condor jobs. Important to run in non-NFS location, as other jobs don't have file transfer set up.  Required for public OSG")
+parser.add_argument("--condor-containerize-nonworker",action='store_true',help="Provides SingularityImage.  Note the intent is still to use on a *shared* filesystem, not to set up file transfer for the 'nonworker' intermediate glue jobs. Note the default is NOT to use SingularityBindCVMFS right now -- intended for workflows wanting to use a fixed container for all  components")
 parser.add_argument("--condor-local-nonworker-igwn-prefix",action='store_true', help="Adds some prefix text to start up cvmfs igwn environment, so local jobs have access to standard RIFT operators. Required for public OSG.")
 parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="Uses local flocking for non-worker condor jobs. Important to run in non-NFS location, as other jobs don't have file transfer set up.")
 parser.add_argument("--frames-dir",default=None,help="If you are using synthetic dat")
@@ -803,6 +804,8 @@ con_job.add_condor_cmd('request_disk',opts.general_request_disk)
 if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+con_job.get_sub_file()
     con_job.set_sub_file(fname)
+if opts.condor_containerize_nonworker and singularity_image:
+    con_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
 con_job.write_sub_file()
 
 ##   Unify job
@@ -821,6 +824,8 @@ unify_job.add_condor_cmd('request_disk',opts.general_request_disk)
 if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+unify_job.get_sub_file()
     unify_job.set_sub_file(fname)
+if opts.condor_containerize_nonworker and singularity_image:
+    unify_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
 unify_job.write_sub_file()
 
 
@@ -893,6 +898,8 @@ if opts.cip_explode_jobs:
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+join_cip_job.get_sub_file()
         join_cip_job.set_sub_file(fname)
+    if opts.condor_containerize_nonworker and singularity_image:
+        join_cip_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
     join_cip_job.write_sub_file()
 
 ##   puffball job: default case
@@ -908,6 +915,8 @@ if puff_args and puff_cadence:
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+puff_job.get_sub_file()
         puff_job.set_sub_file(fname)
+    if opts.condor_containerize_nonworker and singularity_image:
+        puff_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
     puff_job.write_sub_file()
 
 
@@ -924,6 +933,8 @@ if fetch_args:
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+fetch_job.get_sub_file()
         fetch_job.set_sub_file(fname)
+    if opts.condor_containerize_nonworker and singularity_image:
+        fetch_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
     fetch_job.write_sub_file()
 
 
@@ -1034,6 +1045,8 @@ if opts.test_args:
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+convert_job.get_sub_file()
         convert_job.set_sub_file(fname)
+    if opts.condor_containerize_nonworker and singularity_image:
+        convert_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
     convert_job.write_sub_file()
 
 
@@ -1048,6 +1061,8 @@ if opts.test_args:
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+test_job.get_sub_file()
         test_job.set_sub_file(fname)
+    if opts.condor_containerize_nonworker and singularity_image:
+        test_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
     test_job.write_sub_file()
 
 
