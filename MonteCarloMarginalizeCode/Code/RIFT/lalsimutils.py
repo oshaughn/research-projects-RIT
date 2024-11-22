@@ -3608,7 +3608,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             amp_max_ind = np.argmax(amp)        
             amp_norm = amp / amp[amp_max_ind] # normalize amplitude for peak finding                
             # peak finding to determine system type
-            peaks, props = signal.find_peaks(amp_norm, height = 0.25)    
+            height_thresh = 0.25*np.abs(amp_norm)
+            prom_thresh = 0.1*np.abs(amp_norm)
+            peaks, props = signal.find_peaks(amp_norm, height = height_thresh, prominence = prom_thresh)    
             peak_heights = props['peak_heights']
             # filtering out peaks so we only keep the local maxima
             indices_to_keep = set()
