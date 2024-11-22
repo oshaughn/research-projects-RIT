@@ -827,6 +827,7 @@ if opts.ile_distance_prior:
     line += " --d-prior {} ".format(opts.ile_distance_prior)
 if opts.fix_bns_sky:
     line +=" --declination " + str(opts.declination) + " --right-ascension " + str(opts.right_ascension)
+    line = line.replace('--declination-cosine-sampler', '') # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.
 if opts.ile_force_gpu:
     line +=" --force-gpu-only "
 sur_location_prefix = "my_surrogates/nr_surrogates/"
