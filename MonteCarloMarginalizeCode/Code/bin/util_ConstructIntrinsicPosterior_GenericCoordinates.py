@@ -362,10 +362,12 @@ if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
 ECC_MAX = opts.ecc_max
 ECC_MIN = opts.ecc_min
+
 E0_MAX = opts.E0_max
 E0_MIN = opts.E0_min
 PPHI0_MAX = opts.pphi0_max
-PPHI0_Min = opts.pphi0_min
+PPHI0_MIN = opts.pphi0_min
+
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
@@ -826,6 +828,12 @@ def eccentricity_prior(x):
 def precession_prior(x):
     return 0.5*np.ones(x.shape) # uniform over the interval [0.0, 2.0]
 
+def initial_energy_prior(x):
+    return np.ones(x.shape) / (E0_MAX-E0_MIN) # uniform over the interval [E0_MIN, E0_MAX]
+
+def initial_angmom_prior(x):
+    return np.ones(x.shape) / (PPHI0_MAX-PPHI0_MIN) # uniform over the interval [PPHI0_MIN, PPHI0_MAX]
+
 def unnormalized_uniform_prior(x):
     return np.ones(x.shape)
 def unnormalized_log_prior(x):
@@ -873,6 +881,8 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     # Other priors
     'eccentricity':eccentricity_prior,
     'chi_pavg':precession_prior,
+    'E0':initial_energy_prior,
+    'p_phi0':initial_angmom_prior,
     'mu1': unnormalized_log_prior,
     'mu2': unnormalized_uniform_prior
 }
@@ -890,7 +900,9 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'lambda_plus':[0.01,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   'eccentricity':[ECC_MIN, ECC_MAX],
-  'chi_pavg':[0.0,2.0],  
+  'chi_pavg':[0.0,2.0],
+  'E0':[E0_MIN,E0_MAX],
+  'p_phi0':[PPHI0_MIN,PPHI0_MAX],
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
   'DeltaLambdaTilde':[-500,500],

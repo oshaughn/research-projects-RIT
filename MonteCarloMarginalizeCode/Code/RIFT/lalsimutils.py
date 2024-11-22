@@ -33,6 +33,7 @@ else:
     import EOBRun_module
     has_external_teobresum=True
  except:
+    #print('Failed to import EOBRun_module')
     has_external_teobresum=False
     True; # print(" - no EOBRun (TEOBResumS) - ")
 info_use_resum_polarizations = False
@@ -2851,6 +2852,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
         M1=P.m1/lal.MSUN_SI
         M2=P.m2/lal.MSUN_SI
         nu=M1*M2/((M1+M2)**2)
+        hyp_wav = False
         print(P.eccentricity, P.E0)
         if (P.eccentricity == 0.0 and P.E0 == 0.0):
             print("Using ResumS master; not eccentric")
@@ -2878,6 +2880,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
             }
         elif (P.eccentricity == 0.0):
             print("Using hyperbolic call RIFT O4b branch")
+            hyp_wav = True # convenient way to know if the waveform is hyperbolic
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
@@ -2932,7 +2935,49 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
         print("Starting EOBRun_module")
         t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
         print("EOBRun_module done")
-        hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+        
+        if not(hyp_wav):
+            ## Set the epoch for non-hyperbolic cases ##
+            hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)            
+        else:
+            ## custom epoch for the hyperbolic case ##            
+            # wf amplitude
+            amp = np.abs(hptmp)**2+np.abs(hctmp)**2
+            amp_times = P.deltaT*np.arange(len(amp))
+            amp_max_ind = np.argmax(amp)        
+            amp_norm = amp / amp[amp_max_ind] # normalize amplitude for peak finding                
+            # peak finding to determine system type
+            height_thresh = 0.25*np.abs(amp_norm)
+            prom_thresh = 0.1*np.abs(amp_norm)
+            peaks, props = signal.find_peaks(amp_norm, height = height_thresh, prominence = prom_thresh)    
+            peak_heights = props['peak_heights']
+            # filtering out peaks so we only keep the local maxima
+            indices_to_keep = set()
+            sorted_indices = np.argsort(peak_heights)[::-1]
+            tol = int(pars['srate_interp'] / 13.65) # 300 samples at srate of 4096 - minimum distance between peaks.
+            for i in sorted_indices:
+                peak = peaks[i]                
+                keep = True
+                for kept_index in indices_to_keep:
+                    if abs(peaks[kept_index] - peak) <= tol:
+                        keep = False
+                        break                
+                if keep:
+                    indices_to_keep.add(i)                    
+            filtered_peaks = peaks[list(indices_to_keep)]
+            # parsing number of peaks after filtering against distance tolerance
+            if len(filtered_peaks) == 1:
+                # scatter case OR plunge case, we can set the epoch normally
+                hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+            elif len(filtered_peaks) == 0:
+                # meaningless waveform, essentially a non-interacting case. Set the epoch normally
+                # These points should return very low likelihood and not interfere with the analysis
+                print('WARNING: no peak detected; non-interacting hyperbolic case')
+                hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+            else:
+                # capture case, we need to force the epoch to be the last peak
+                hpepoch = -P.deltaT*filtered_peaks[-1]
+                
         hplen = len(hptmp)
         hp = {}
         hc = {}
@@ -3018,10 +3063,32 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
             ht.data.data[0:n_samp] *= vectaper
             # If Scattering waveform, tapers same amount as early taper
             # If Capture waveform, no end taper
-            if np.abs(ht.data.length-nmax) > 3e3:
-                n_samp2=n_samp
-                vectaper2= 0.5 - 0.5*np.cos(np.pi* (1-np.arange(n_samp2+1)/(1.*n_samp2)))
-                ht.data.data[-(n_samp2+1):] *= vectaper2
+            
+            # peak finding to determine system type
+            height_thresh = 0.25*np.abs(np.amax(ht.data.data))
+            prom_thresh = 0.1*np.abs(np.amax(ht.data.data))
+            peaks, props = signal.find_peaks(ht.data.data, height = height_thresh, prominence = prom_thresh)
+            peak_heights = props['peak_heights']
+            indices_to_keep = set()
+            sorted_indices = np.argsort(peak_heights)[::-1]
+            tol = int(pars['srate_interp'] / 13.65) # 300 samples at srate of 4096 - minimum distance between peaks.
+            for i in sorted_indices:
+                peak = peaks[i]                
+                keep = True
+                for kept_index in indices_to_keep:
+                    if abs(peaks[kept_index] - peak) <= tol:
+                        keep = False
+                        break                
+                if keep:
+                    indices_to_keep.add(i)                    
+            filtered_peaks = peaks[list(indices_to_keep)]
+            
+            if len(filtered_peaks) == 1:
+                # check if a scatter or a plunge            
+                if np.abs(ht.data.length-nmax) > 3e3:
+                    n_samp2=n_samp
+                    vectaper2= 0.5 - 0.5*np.cos(np.pi* (1-np.arange(n_samp2+1)/(1.*n_samp2)))
+                    ht.data.data[-(n_samp2+1):] *= vectaper2
                 
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
@@ -3438,6 +3505,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         M1=P.m1/lal.MSUN_SI
         M2=P.m2/lal.MSUN_SI
         nu=M1*M2/((M1+M2)**2)
+        hyp_wav = False
         if (P.eccentricity == 0.0 and P.E0 ==0.0):
             print("Using ResumS master; not eccentric")
             pars = {
@@ -3467,6 +3535,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             
         elif (P.eccentricity == 0.0):
             print("Using hyperbolic call RIFT O4b branch")
+            hyp_wav = True # convenient way to know if the waveform is hyperbolic
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
@@ -3527,7 +3596,49 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         t, hptmp, hctmp, hlmtmp, dym = EOBRun_module.EOBRunPy(pars)
         print("EOBRun_module done")
         k_list_orig = hlmtmp.keys()
-        hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+        
+        if not(hyp_wav):
+            ## Set the epoch for non-hyperbolic cases ##
+            hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)            
+        else:
+            ## custom epoch for the hyperbolic case ##            
+            # wf amplitude
+            amp = np.abs(hptmp)**2+np.abs(hctmp)**2
+            amp_times = P.deltaT*np.arange(len(amp))
+            amp_max_ind = np.argmax(amp)        
+            amp_norm = amp / amp[amp_max_ind] # normalize amplitude for peak finding                
+            # peak finding to determine system type
+            height_thresh = 0.25*np.abs(amp_norm)
+            prom_thresh = 0.1*np.abs(amp_norm)
+            peaks, props = signal.find_peaks(amp_norm, height = height_thresh, prominence = prom_thresh)    
+            peak_heights = props['peak_heights']
+            # filtering out peaks so we only keep the local maxima
+            indices_to_keep = set()
+            sorted_indices = np.argsort(peak_heights)[::-1]
+            tol = int(pars['srate_interp'] / 13.65) # 300 samples at srate of 4096 - minimum distance between peaks.
+            for i in sorted_indices:
+                peak = peaks[i]                
+                keep = True
+                for kept_index in indices_to_keep:
+                    if abs(peaks[kept_index] - peak) <= tol:
+                        keep = False
+                        break                
+                if keep:
+                    indices_to_keep.add(i)                    
+            filtered_peaks = peaks[list(indices_to_keep)]
+            # parsing number of peaks after filtering against distance tolerance
+            if len(filtered_peaks) == 1:
+                # scatter case OR plunge case, we can set the epoch normally
+                hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+            elif len(filtered_peaks) == 0:
+                # meaningless waveform, essentially a non-interacting case. Set the epoch normally
+                # These points should return very low likelihood and not interfere with the analysis
+                print('WARNING: no peak detected; non-interacting hyperbolic case')
+                hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)                
+            else:
+                # capture case, we need to force the epoch to be the last peak
+                hpepoch = -P.deltaT*filtered_peaks[-1]
+                
         hlmlen = len(hptmp)
         hlm = {}
         hlmtmp2 = {}
@@ -3599,7 +3710,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                     modes_used_new.append((4,0))
                     hlmtmp2[(4,0)]=np.array(hlmtmp[k])
             modes_used=modes_used_new
-            print(modes_used,hlmtmp,hlmtmp2)
+            if not(hyp_wav):
+                print(modes_used,hlmtmp,hlmtmp2)
 #        for count,mode in enumerate(modes_used):
 #            hlmtmp2[mode]=np.array(hlmtmp[str(count)])
         for mode in modes_used:
@@ -3652,11 +3764,30 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 hlm[mode].data.data[0:n_samp] *= vectaper
             # If Capture waveform, no end taper
             # If Scattering waveform, tapers end same amount as early taper
-            if np.abs(hlm[(2,2)].data.length-nmax) > 3e3:
-                n_samp2=n_samp
-                vectaper2= 0.5 - 0.5*np.cos(np.pi* (1-np.arange(n_samp2+1)/(1.*n_samp2)))
-                for mode in modes_used_new2:
-                    hlm[mode].data.data[-(n_samp2+1):] *= vectaper2
+            # peak finding to determine system type
+            peaks, props = signal.find_peaks(hlm[(2,2)].data.data, height = 0.25*np.amax(hlm[(2,2)].data.data))
+            peak_heights = props['peak_heights']
+            indices_to_keep = set()
+            sorted_indices = np.argsort(peak_heights)[::-1]
+            tol = 300 # hardcoded tolerance
+            for i in sorted_indices:
+                peak = peaks[i]                
+                keep = True
+                for kept_index in indices_to_keep:
+                    if abs(peaks[kept_index] - peak) <= tol:
+                        keep = False
+                        break                
+                if keep:
+                    indices_to_keep.add(i)                    
+            filtered_peaks = peaks[list(indices_to_keep)]
+            
+            if len(filtered_peaks) == 1:
+                #check for scatter waveform            
+                if np.abs(hlm[(2,2)].data.length-nmax) > 3e3:
+                    n_samp2=n_samp
+                    vectaper2= 0.5 - 0.5*np.cos(np.pi* (1-np.arange(n_samp2+1)/(1.*n_samp2)))
+                    for mode in modes_used_new2:
+                        hlm[mode].data.data[-(n_samp2+1):] *= vectaper2
         for mode in modes_used_new2:
             if not (P.deltaF is None):
                 TDlen = int(1./P.deltaF * 1./P.deltaT)
