@@ -202,6 +202,7 @@ parser.add_argument("--last-iteration-extrinsic-time-resampling",action='store_t
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
+parser.add_argument("--ile-post-exe",default=None,help="filename of script to execute with SCRIPT POST joblist scripname JOBID RETURN worklevel in the dag. This will be run after each ILE completes in the main dag. Objective is to enable larger-scale CIP queues which work efficiently to a target work level (e.g,, n_eff). Note this script is responsible for reading htcondor logs to identify the run directory!")
 parser.add_argument("--general-retries",default=0,type=int,help="Number of retry attempts for internal jobs (convert, CIP, ...). (These can fail, albeit more rarely, usually due to filesystem problems)")
 parser.add_argument("--general-request-disk",default="10M",type=str,help="Request disk passed to condor. Must be done for all jobs now")
 parser.add_argument("--ile-request-disk",default="10M",type=str,help="Request disk passed to condor for ILE. Must be done for all jobs now")
@@ -209,6 +210,7 @@ parser.add_argument("--cal-request-disk",default="8G",type=str,help="Request dis
 parser.add_argument("--ile-n-events-to-analyze",default=1,type=int,help="If >1, you are using ILE_batchmode.  Structures the DAG correctly to account for batch cadence")
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
+parser.add_argument("--cip-post-exe",default=None,help="filename of script to execute with SCRIPT POST joblist scripname JOBID RETURN worklevel in the dag. This will be run after each CIP completes in the main dag. Objective is to enable larger-scale CIP queues which work efficiently to a target work level (e.g,, n_eff). Note this script is responsible for reading htcondor logs to identify the run directory!")
 parser.add_argument("--cip-exe-G",default=None,help="filename of CIP or equivalent executable, as ALTERNATE CIP used when a 'G' iteration is requested ")
 parser.add_argument("--use-eccentricity",default=False,action='store_true')
 parser.add_argument("--use-tabular-eos-file",default=False,action='store_true')
@@ -259,6 +261,7 @@ parser.add_argument('--n-iterations',default=3,type=int,help="Number of iteratio
 parser.add_argument('--n-iterations-subdag-max',default=10,type=int,help="Number of iterations to perform in subdag, maximum ")
 parser.add_argument("--start-iteration",default=0,type=int,help="starting iteration. If >0, does not copy over --input-grid. DOES rewrite sub files.  This allows you to change the arguments provided (e.g., use more iterations or settings at late times). Note this overwrites the .sub files ")
 parser.add_argument('--n-samples-per-job',default=2000,type=int,help="Number of samples generated each iteration; also, number of ILE jobs run each iteration. Should increase with dimension of problem")
+parser.add_argument('--n-samples-per-job-threshold',default=None,type=int,help="If we get this many ILE evaluations, then we have done well enough and can move on; only used with auto-terminating framework.  Note this is applied everywhere")
 parser.add_argument('--neff-threshold',default=800,type=int,help="Number of samples generated each iteration")
 parser.add_argument("--workflow",default='single',help="[single|fit+posterior|full] describes workflow layout used.  'Single' is a single node, running the fit and posterior for each iteration; 'full' produces many followup jobs to produce a reliable posterior")
 parser.add_argument("--n-post-jobs",default=1,type=int,help="Number of posterior jobs. Used in posterior and fit+posterior workflows")
@@ -1297,11 +1300,13 @@ if opts.use_bw_psd:
 n_group = opts.ile_n_events_to_analyze
 
 unify_node_list = []
+ile_node_list_per_iteration={}
+ile_target_worklevel_per_iteration={}
 for it in np.arange(it_start,opts.n_iterations):
+    ile_node_list_per_iteration[it] = []
     print(it, opts.n_iterations)
     consolidate_now = None
     fit_node_now = None
-    ile_nodes_now =[]
     # Create consolidate job
     con_node = pipeline.CondorDAGNode(con_job)
     con_node.add_macro("macroiteration",it)
@@ -1337,6 +1342,7 @@ for it in np.arange(it_start,opts.n_iterations):
                 ile_node.add_parent(node)
         con_node.add_parent(ile_node) # consolidate depends on all of the individual jobs
         dag.add_node(ile_node)
+        ile_node_list_per_iteration[it].append(ile_node)
 
     if puff_args and puff_cadence:
      if it>it_start and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
@@ -1351,7 +1357,8 @@ for it in np.arange(it_start,opts.n_iterations):
                 ile_node.add_parent(parent_fit_node)
             con_node.add_parent(ile_node) # consolidate depends on all of the individual jobs
             dag.add_node(ile_node)
-
+            ile_node_list_per_iteration[it].append(ile_node)
+        
     if fetch_args:
       if not(it==it_start and opts.first_iteration_jumpstart):   # if on first iteration ,don't do this for jumpstart 
         print(" Fetching active for iteration ", it)  # must fetch before we can do the job
@@ -1374,7 +1381,8 @@ for it in np.arange(it_start,opts.n_iterations):
                 ile_node.add_parent(parent_fit_node)
             con_node.add_parent(ile_node) # consolidate depends on all of the individual jobs
             dag.add_node(ile_node)
-
+            ile_node_list_per_iteration[it].append(ile_node)
+            
     # add con job
     dag.add_node(con_node)
     dag.add_node(unify_node)
@@ -1646,6 +1654,7 @@ if opts.last_iteration_extrinsic:
         if not(parent_fit_node is None):
             ile_node.add_parent(parent_fit_node)
         dag.add_node(ile_node)
+        ile_node_list_per_iteration[it].append(ile_node)
 
         # Add convert and resample task *for each output file*
         if opts.last_iteration_extrinsic_time_resampling:
@@ -1781,5 +1790,19 @@ with open(dag_name+".dag",'a') as f:
         f.write("SCRIPT POST "+ name + " {}/confirm_exist.sh {}/consolidated_{}.composite \n".format(opts.working_directory,opts.working_directory,indx))
         indx+=1
     # add dot file, for dag visualization
-    f.write('DOT my_dag_vis.dot')
+    f.write('DOT my_dag_vis.dot \n')
 
+
+# ILE adaptive batch size per iteration: If ile_post_exe exists, write the necessary items
+# WARNING: currently framed as a post script that is run after EVERY job
+if opts.ile_post_exe:
+    with open(dag_name+".dag",'a') as f:
+        for it in ile_node_list_per_iteration:
+            for node in ile_node_list_per_iteration[it]:
+                # write the script post line. Add in the worklevel target
+                n_target = n_initial
+                if opts.n_samples_per_job_threshold:
+                    n_target = opts.n_samples_per_job_threshold
+                f.write("SCRIPT POST " + node._CondorDAGNode__md5name + " $(JOBID) $(RETURN) " + str(it) + " " + str(n_target) + "\n")
+            
+        
