@@ -1187,6 +1187,14 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
         if arg_str:
             extra_args = arg_str
         f.write( exe + extra_args+ base_str+ "*.composite \n")
+        # Backstop code for untify.sh
+        f.write("""ret_value=$?
+if [ $ret_value -eq 0 ]; then
+  exit 0
+else
+  cat {}
+fi
+""".format(base_str+"*.composite"))
     st = os.stat(cmdname)
     import stat
     os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
