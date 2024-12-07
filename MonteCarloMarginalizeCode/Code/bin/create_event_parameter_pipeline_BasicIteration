@@ -188,6 +188,7 @@ parser.add_argument("--cip-args-list",default=None,help="filename of args_cip_li
 parser.add_argument("--cip-explode-jobs",default=None,type=int,help="Number of CIP jobs to use to use in parallel to produce posterior samples for each iteration. Code will generate a fit first, save it, use this number of workers in parallel to generate samples, and then consolidates the samples together. Note that --n-output-samples and --n-eff are NOT adjusted ... if the user wants to adaptively fix the resolution, that needs to be controlled at a higher level")
 parser.add_argument("--cip-explode-jobs-last",default=None,type=int,help="Like cip_explode_jobs, but ONLY for last batch. Only applies if using --cip-args-list. Note does NOT adjust control settinggs like n-eff, n-max, so you will need to do this in outside control tools")
 parser.add_argument("--cip-explode-jobs-dag",action='store_true',help="If using a worker, that worker has its own node, not a 'queue N' statement on one node. Helps for stability with many workers with high failure probability")
+parser.add_argument("--cip-explode-jobs-subdag",action='store_true',help="If using a worker, create a subdag that iterates until the target number of samples are produced, using a POST script on a subdag to repeat effort. Imposes cip_explode_jobs_dag. Note that the actual number used for cip_explode_jobs MAY NOT BE IMPLEMENTED or may be a cap (in progress)")
 parser.add_argument("--cip-explode-jobs-flat",action='store_true',help="Pass to use the same arguments for all worker jobs. The main job will be /bin/true.")
 parser.add_argument("--puff-exe",default=None,help="util_ParameterPuffball.py")
 parser.add_argument("--puff-args",default=None,help="util_ParameterPuffball arguments.  If not specified, puffball will not be performed  ")
@@ -279,6 +280,10 @@ if opts.condor_local_nonworker:
 if opts.condor_nogrid_nonworker:
     no_worker_grid=True
 
+if opts.cip_explode_jobs_subdag:
+    opts.cip_explode_jobs_dag =True
+    opts.cip_explode_jobs = 2 # nominal
+    
 extra_text = ''
 if opts.condor_local_nonworker_igwn_prefix:
     extra_text += "source /cvmfs/software.igwn.org/conda/etc/profile.d/conda.sh \n"
@@ -585,6 +590,8 @@ if opts.use_bw_psd:
 
 
 # Make directories for all iterations
+subdag_dir = opts.working_directory+"/various_subdags"
+mkdir(subdag_dir)
 for indx in np.arange(it_start,opts.n_iterations+1):
     ile_dir = opts.working_directory+"/iteration_"+str(indx)+"_ile"
     cip_dir = opts.working_directory+"/iteration_"+str(indx)+"_cip"
@@ -1302,6 +1309,8 @@ n_group = opts.ile_n_events_to_analyze
 unify_node_list = []
 ile_node_list_per_iteration={}
 ile_target_worklevel_per_iteration={}
+cip_subdag_nodes = {}
+cip_subdag_work_targets = {} 
 for it in np.arange(it_start,opts.n_iterations):
     ile_node_list_per_iteration[it] = []
     print(it, opts.n_iterations)
@@ -1421,6 +1430,8 @@ for it in np.arange(it_start,opts.n_iterations):
             cmd += " --cip-explode-jobs {} ".format(opts.cip_explode_jobs)
         if opts.cip_explode_jobs_dag:   # should be deafult
             cmd += " --cip-explode-jobs-dag "  
+        if opts.cip_explode_jobs_subdag:   # should be deafult
+            cmd += " --cip-explode-jobs-subdag "  
         if opts.request_gpu_ILE:
             cmd += " --request-gpu-ILE "  # DAG writer needs to make appropririate requests
         if opts.request_xpu_ILE:
@@ -1556,6 +1567,23 @@ for it in np.arange(it_start,opts.n_iterations):
             worker_node.set_retry(opts.general_retries)
             join_node.add_parent(worker_node)  # make sure to add worker node as parent
             dag.add_node(worker_node)
+        elif opts.cip_explode_jobs_dag:
+            # write appropriate subdag
+            subdag_name = dag_utils.write_CIP_single_iteration_subdag(cip_worker_job, it, str(it), subdag_dir)
+            print(" Subdag plan ", subdag_name)
+            # Create node
+            main_subdag =  pipeline.CondorDAGManJob(subdag_name)
+            main_analysis_node = main_subdag.create_node()
+            main_analysis_node.set_category("cip_subdag")
+            main_analysis_node.set_retry(1000) # some enormous number, should be user specified
+            # add links
+            main_analysis_node.add_parent(parent_fit_node)
+            join_node.add_parent(main_analysis_node)
+            # register subdag, so we can add SCRIPT POST at the end
+            cip_subdag_nodes[it] = main_analysis_node
+            cip_subdag_work_targets[it] = opts.n_samples_per_job
+            # add to DAG
+            dag.add_node(main_analysis_node)
         else:
             n_explode = opts.cip_explode_jobs
             # if we are on the last iteration and we want to use more exploded jobs now, explode more jobs
@@ -1792,6 +1820,24 @@ with open(dag_name+".dag",'a') as f:
     # add dot file, for dag visualization
     f.write('DOT my_dag_vis.dot \n')
 
+    
+
+# CIP adaptive batch size per iteration.  BACKSTOP with 'default' script to check work by lilne-counting (dangerous!)
+if opts.cip_explode_jobs_subdag:
+    if opts.cip_post_exe is None:
+    # script to count lines in overlap-grid files. Note this does NOT check n_eff directly ... should count n_eff instead based on +annotation.dat files
+        with open("cip_check_work.sh", 'w') as f:
+            f.write("""#! /bin/bash
+LINES=`ligolw_print -c mass1 $1/overlap-grid*.xml.gz | wc -l `
+[ ${LINES} -ge $2 ]
+""")
+        st=os.stat("cip_check_work.sh"); os.chmod("cip_check_work.sh", st.st_mode | stat.S_IEXEC)
+        opts.cip_post_exe = opts.working_directory + "/cip_check_work.sh"
+    # add POST SCRIPT to subdag. Note it will USUALLY FAIL and get retried A LARGE NUMBER OF TIMES, until we complete work!
+    with open(dag_name+".dag",'a') as f:
+        for it in cip_subdag_nodes:
+            node = cip_subdag_nodes[it]
+            f.write("SCRIPT POST " + node._CondorDAGNode__md5name +  " {} iteration_{}_cip {} \n".format(opts.cip_post_exe, it, cip_subdag_work_targets[it])) 
 
 # ILE adaptive batch size per iteration: If ile_post_exe exists, write the necessary items
 # WARNING: currently framed as a post script that is run after EVERY job
