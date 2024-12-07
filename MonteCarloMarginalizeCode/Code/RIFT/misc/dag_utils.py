@@ -420,6 +420,21 @@ def write_1dpos_plot_sub(tag='1d_post_plot', exe=None, log_dir=None, output_dir=
     return plot_job, plot_sub_name
 
 
+def write_CIP_single_iteration_subdag(cip_worker_job,it,unique_postfix,subdag_dir,n_retries=3):
+    # Assume subdag_dir exists, we will append onto filename
+    dag = pipeline.CondorDAG(log=os.getcwd())
+    worker_node =pipeline.CondorDAGNode(cip_worker_job)
+    worker_node.add_macro("macroiteration", it)
+    worker_node.add_macro("macroiterationnext", it+1)
+    worker_node.set_category("CIP_worker")
+    worker_node.set_retry(n_retries)
+    dag.add_node(worker_node)
+    dag_name=subdag_dir+"/subdag_CIP_{}".format(unique_postfix)
+    dag.set_dag_file(dag_name)
+    dag.write_concrete_dag()
+    return dag_name + ".dag"
+
+
 
 def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,request_memory_flex=False, arg_vals=None, no_grid=False,request_disk=False, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,max_runtime_minutes=None,condor_commands=None,**kwargs):
     """
