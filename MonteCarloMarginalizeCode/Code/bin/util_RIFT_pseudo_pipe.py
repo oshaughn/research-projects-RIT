@@ -240,6 +240,7 @@ parser.add_argument("--cip-explode-jobs",type=int,default=None)
 parser.add_argument("--cip-explode-jobs-last",type=int,default=None,help="Number of jobs to use in last stage.  Hopefully in future auto-set")
 parser.add_argument("--cip-explode-jobs-auto",action='store_true',help="Auto-select --cip-explode-jobs based on SNR. Changes both cip-explode-jobs and cip-explode-jobs-last")
 parser.add_argument("--cip-explode-jobs-auto-scale",type=float,default=None,help="Scales up number of jobs requested by cip-explode-jobs-auto")
+parser.add_argument("--cip-explode-jobs-dag",type=float,default=None,help="Uses subdag for CIP, with many retries - adaptively will terminate at target work level")
 parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--cip-sigma-cut",default=None,type=float,help="sigma-cut is an error threshold for CIP.  Passthrough")
 parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the final iteration")
@@ -1361,6 +1362,8 @@ if opts.batch_extrinsic:
     cmd += " --last-iteration-extrinsic-batched-convert "
 if opts.internal_ile_request_disk:
     cmd += " --ile-request-disk {} ".format(opts.internal_ile_request_disk)
+if opts.cip_explode_jobs_subdag:
+    cmd += " --cip-explode-jobs-subdag --cip-exploce-jobs-dag --sub-explode-jobs 2 "  
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
    if opts.cip_fit_method and not(opts.cip_fit_method == 'gp'):
