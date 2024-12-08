@@ -1707,7 +1707,7 @@ if opts.last_iteration_extrinsic:
         if not(parent_fit_node is None):
             ile_node.add_parent(parent_fit_node)
         dag.add_node(ile_node)
-        ile_node_list_per_iteration[it].append(ile_node)
+#        ile_node_list_per_iteration[it].append(ile_node)
 
         # Add convert and resample task *for each output file*
         if opts.last_iteration_extrinsic_time_resampling:
