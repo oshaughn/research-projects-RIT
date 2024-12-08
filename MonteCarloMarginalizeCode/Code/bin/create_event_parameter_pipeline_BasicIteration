@@ -1448,6 +1448,8 @@ for it in np.arange(it_start,opts.n_iterations):
             cmd += " --cache-file {} ".format(opts.cache_file)
         if opts.frames_dir:
             cmd += " --frames-dir {} ".format(opts.frames_dir)
+        if opts.ile_runtime_max_minutes:
+            cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
         if opts.use_osg:
             cmd += " --use-osg "
             if opts.use_osg_cip:
