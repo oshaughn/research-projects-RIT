@@ -1362,7 +1362,7 @@ if opts.batch_extrinsic:
     cmd += " --last-iteration-extrinsic-batched-convert "
 if opts.internal_ile_request_disk:
     cmd += " --ile-request-disk {} ".format(opts.internal_ile_request_disk)
-if opts.cip_explode_jobs_subdag:
+if opts.cip_explode_jobs_dag:  # note name does not match name used in next level below ! Beware!
     cmd += " --cip-explode-jobs-subdag --cip-exploce-jobs-dag --sub-explode-jobs 2 "  
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
