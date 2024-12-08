@@ -90,7 +90,8 @@ def add_batch_ILE_nodes_to_dag(my_dag,my_ile_job,my_parent_node, my_child_node, 
         my_dag.add_node(ile_node)
         # global vraiable edit
         if node_list_dict:
-            node_list_dict[it].append(ile_node)
+            if it in node_list_dict:
+                node_list_dict[it].append(ile_node)
 
 
 def parse_ile_args_for_bw(my_arg_str):
