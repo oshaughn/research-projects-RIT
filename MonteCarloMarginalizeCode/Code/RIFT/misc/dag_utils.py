@@ -420,15 +420,16 @@ def write_1dpos_plot_sub(tag='1d_post_plot', exe=None, log_dir=None, output_dir=
     return plot_job, plot_sub_name
 
 
-def write_CIP_single_iteration_subdag(cip_worker_job,it,unique_postfix,subdag_dir,n_retries=3):
+def write_CIP_single_iteration_subdag(cip_worker_job,it,unique_postfix,subdag_dir,n_retries=3,n_explode=1):
     # Assume subdag_dir exists, we will append onto filename
     dag = pipeline.CondorDAG(log=os.getcwd())
-    worker_node =pipeline.CondorDAGNode(cip_worker_job)
-    worker_node.add_macro("macroiteration", it)
-    worker_node.add_macro("macroiterationnext", it+1)
-    worker_node.set_category("CIP_worker")
-    worker_node.set_retry(n_retries)
-    dag.add_node(worker_node)
+    for indx in range(n_explode):
+        worker_node =pipeline.CondorDAGNode(cip_worker_job)
+        worker_node.add_macro("macroiteration", it)
+        worker_node.add_macro("macroiterationnext", it+1)
+        worker_node.set_category("CIP_worker")
+        worker_node.set_retry(n_retries)
+        dag.add_node(worker_node)
     dag_name=subdag_dir+"/subdag_CIP_{}".format(unique_postfix)
     dag.set_dag_file(dag_name)
     dag.write_concrete_dag()
