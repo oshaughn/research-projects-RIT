@@ -179,6 +179,7 @@ optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS fil
 optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
 optp.add_option("-I", "--sim-xml", help="XML file containing mass grid to be evaluated")
 optp.add_option("-E", "--event", default=0,type=int, help="Event number used for this run")
+optp.add_option( "--random-event", action='store_true', help="Pick a RANDOM event from the file. Dangerous - watch out for oversampling fast events")
 optp.add_option("--n-events-to-analyze", default=1,type=int, help="Number of events to analyze from this XML")
 optp.add_option("--soft-fail-event-range",action='store_true',help='Soft failure (exit 0) if event ID is out of range. This happens in pipelines, if we have pre-built a DAG attempting to analyze more points than we really have')
 optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
@@ -508,12 +509,15 @@ P=None # force allocation so I can use the preferred event later
 if opts.sim_xml:
     print( "====Loading injection XML:", opts.sim_xml, opts.event, " =======")
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
-    if  len(P_list) < opts.event: 
-#+opts.n_events_to_analyze:
+    if not(opts.random_event):
+      if  len(P_list) < opts.event: 
+        #+opts.n_events_to_analyze:
         print( " Event list of range; soft exit")
         sys.exit(0)
-    n_event_max= np.min([len(P_list), opts.event+opts.n_events_to_analyze])
-    P_list = P_list[opts.event:n_event_max]
+      n_event_max= np.min([len(P_list), opts.event+opts.n_events_to_analyze])
+      P_list = P_list[opts.event:n_event_max]
+    else:
+      P_list = P_list[np.random.choice( np.range(len(P_list)), size=n_events_to_analyze, replace=False) ]
     if len(P_list) ==0:
       print(" No events to analyze, terminating with success ")
       sys.exit(0)
