@@ -86,7 +86,8 @@ def add_batch_ILE_nodes_to_dag(my_dag,my_ile_job,my_parent_node, my_child_node, 
         if it == it_start:
             for node in convert_psd_node_list:  # for every PSD conversion job, make sure PSD is present before we run the first iteration!
                 ile_node.add_parent(node)
-        my_child_node.add_parent(ile_node) # consolidate depends on all of the individual jobs
+        if my_child_node:
+            my_child_node.add_parent(ile_node) # consolidate depends on all of the individual jobs
         my_dag.add_node(ile_node)
         # global vraiable edit
         if node_list_dict:
@@ -223,6 +224,8 @@ parser.add_argument("--last-iteration-extrinsic-time-resampling",action='store_t
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
+parser.add_argument("--ile-group-subdag",action='store_true',help="If true, ILE jobs are grouped in a subdag. Useful mainly to create iterative DAGs with random ILE jobs/etc")
+parser.add_argument("--ile-group-subdag-check-work",action='store_true',help="If true, provides a check for work for each subdag type.")
 parser.add_argument("--ile-post-exe",default=None,help="filename of script to execute with SCRIPT POST joblist scripname JOBID RETURN worklevel in the dag. This will be run after each ILE completes in the main dag. Objective is to enable larger-scale CIP queues which work efficiently to a target work level (e.g,, n_eff). Note this script is responsible for reading htcondor logs to identify the run directory!")
 parser.add_argument("--general-retries",default=0,type=int,help="Number of retry attempts for internal jobs (convert, CIP, ...). (These can fail, albeit more rarely, usually due to filesystem problems)")
 parser.add_argument("--general-request-disk",default="10M",type=str,help="Request disk passed to condor. Must be done for all jobs now")
@@ -1356,7 +1359,25 @@ for it in np.arange(it_start,opts.n_iterations):
     if indx_max*n_jobs_this_time < n_group:
         indx_max+=1
     if not(it==it_start and opts.first_iteration_jumpstart):   # if on first iteration ,don't do this for jumpstart
-        add_batch_ILE_nodes_to_dag(dag, ile_job, parent_fit_node, con_node, indx_max, n_group, it, n_retries=opts.ile_retries,it_start=it_start,convert_psd_node_list=convert_psd_node_list,node_list_dict=ile_node_list_per_iteration)
+        if opts.ile_group_subdag:
+            # Write the subdag
+            my_ile_subdag_name = subdag_dir + "/subdag_ILE_{}".format(it)
+            my_ile_subdag = pipeline.CondorDAG(log=os.getcwd())
+            add_batch_ILE_nodes_to_dag(my_ile_subdag, ile_job, None, None, indx_max, n_group, it, n_retries=opts.ile_retries,it_start=-1)
+            my_ile_subdag.set_dag_file(my_ile_subdag_name)
+            my_ile_subdag.write_concrete_dag()
+            my_ile_subdag_name += ".dag"
+            print(" ILE subdag plan ", my_ile_subdag_name)
+            # Create a high-level node for the subdag in this dag
+            main_subdag =  pipeline.CondorDAGManJob(my_ile_subdag_name)
+            main_analysis_node = main_subdag.create_node()
+            main_analysis_node.set_retry(0)  # currently low-level RETRY takes care of things ... beware RETRY will re do all nodes!
+            if parent_fit_node:
+                main_analysis_node.add_parent(parent_fit_node)
+            con_node.add_parent(main_analysis_node)
+            dag.add_node(main_analysis_node)
+        else:
+            add_batch_ILE_nodes_to_dag(dag, ile_job, parent_fit_node, con_node, indx_max, n_group, it, n_retries=opts.ile_retries,it_start=it_start,convert_psd_node_list=convert_psd_node_list,node_list_dict=ile_node_list_per_iteration)
 #       for event in np.arange(indx_max): #np.arange(n_jobs_this_time):
 #         # Add task per ILE operation
 #         ile_node = pipeline.CondorDAGNode(ile_job)
