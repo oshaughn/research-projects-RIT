@@ -83,6 +83,15 @@ def render_coordinates(coord_names,logparams=[]):
     return list(map(lambda x: render_coord(x,logscale=(x in logparams)), coord_names))
 
 
+### Plotting to fixed size: see https://github.com/duetosymmetry/latex-mpl-fig-tips/blob/main/figs/make-figs.ipynb
+
+pt = 1./72.27 # Hundreds of years of history... 72.27 points to an inch.
+jour_sizes = {"PRD": {"onecol": 246.*pt, "twocol": 510.*pt},
+              "CQG": {"onecol": 374.*pt}, # CQG is only one column
+              # Add more journals below. Can add more properties to each journal
+             }
+my_width = jour_sizes["PRD"]["onecol"] # default
+golden = (1 + 5 ** 0.5) / 2
 
 
 remap_ILE_2_LI = samples_utils.remap_ILE_2_LI
@@ -222,6 +231,7 @@ parser.add_argument("--use-title",default=None,type=str)
 parser.add_argument("--use-smooth-1d",action='store_true')
 parser.add_argument("--plot-1d-extra",action='store_true')
 parser.add_argument("--pdf",action='store_true',help="Export PDF plots")
+parser.add_argument("--publication",action='store_true',help="Use special figure sizes")
 #option deprecated by bind-param and param-bound
 #parser.add_argument("--mc-range",default=None,help='List for mc range. Default is None')
 parser.add_argument("--bind-param",default=None,action="append",help="a parameter to impose a bound on, with corresponding --param-bound arg in respective order")
@@ -252,6 +262,12 @@ if not(opts.matplotlib_block_defaults):
              #'text.usetex': True,
              'font.family': 'Times New Roman'}#,
              #'font.sans-serif': ['Bitstream Vera Sans']}#,
+    if opts.publication:
+        rc_params.update( {'savefig.bbox':'tight',
+                           'font.family':'serif',
+#                           'text.latex.preamble': '\usepackage{amsmath}\usepackage{amssymb}',
+                           'figure.figsize': (my_width,my_width/golden)
+                  })
     plt.rcParams.update(rc_params)
 if opts.verbose:
     print(plt.rcParams)
