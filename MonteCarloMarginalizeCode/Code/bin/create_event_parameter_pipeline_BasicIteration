@@ -675,9 +675,9 @@ if not (opts.puff_args is None):
     # Yes, it would logically be simpler to make overlap-grid.xml.gz larger ... but I want to keep 'real samples' and 'puffed samples' seperate.
     ilePuff_job, ilePuff_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_puff',log_dir=None,arg_str=ile_args_forpuff,output_file="CME_puff_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names_puff,request_memory=opts.request_memory_ILE,request_disk=request_disk,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,max_runtime_minutes=opts.ile_runtime_max_minutes)
     ilePuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
-    ilePuff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).log")
-    ilePuff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).err")
-    ilePuff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).out")
+    ilePuff_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE_puff-$(macroevent)-$(cluster)-$(process).log")
+    ilePuff_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE_puff-$(macroevent)-$(cluster)-$(process).err")
+    ilePuff_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE_puff-$(macroevent)-$(cluster)-$(process).out")
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+ilePuff_job.get_sub_file()
         ilePuff_job.set_sub_file(fname)
@@ -690,9 +690,9 @@ if not (fetch_args is None):
     # Yes, it would logically be simpler to make overlap-grid.xml.gz larger ... but I want to keep 'real samples' and 'puffed samples' seperate.
     ileFetch_job, ileFetch_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_fetch',log_dir=None,arg_str=ile_args_forfetch,output_file="CME_fetch_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names_fetch,request_memory=opts.request_memory_ILE,request_disk=request_disk,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,max_runtime_minutes=opts.ile_runtime_max_minutes)
     ileFetch_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_ile")
-    ileFetch_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).log")
-    ileFetch_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).err")
-    ileFetch_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE-$(macroevent)-$(cluster)-$(process).out")
+    ileFetch_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE_fetch-$(macroevent)-$(cluster)-$(process).log")
+    ileFetch_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE_fetch-$(macroevent)-$(cluster)-$(process).err")
+    ileFetch_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile/logs/ILE_fetch-$(macroevent)-$(cluster)-$(process).out")
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+ileFetch_job.get_sub_file()
         ileFetch_job.set_sub_file(fname)
