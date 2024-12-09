@@ -123,7 +123,8 @@ def unsafe_parse_arg_string_dict(my_argstr):
 parser = argparse.ArgumentParser()
 parser.add_argument("--skip-reproducibility",action='store_true')
 parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
-parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration")
+parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration. Note this writes an adaptively-sized DAG each iteration, but doesn't otherwise optimize yet.")
+parser.add_argument("--use-ile-subdags",action='store_true',help="Use ILE subdag system (new)")
 parser.add_argument("--bilby-ini-file",default=None,type=str,help="Pass ini file for parsing. Intended to use for calibration reweighting. Full path recommended")
 parser.add_argument("--bilby-pickle-file",default=None,type=str,help="Bilby Pickle file with event settings. Intended to use for calibration reweighting. Full path recommended")
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
@@ -1362,6 +1363,8 @@ if opts.batch_extrinsic:
     cmd += " --last-iteration-extrinsic-batched-convert "
 if opts.internal_ile_request_disk:
     cmd += " --ile-request-disk {} ".format(opts.internal_ile_request_disk)
+if opts.use_ile_subdags:
+    cmd += " --ile-group-subdag "
 if opts.cip_explode_jobs_dag:  # note name does not match name used in next level below ! Beware!
     cmd += " --cip-explode-jobs-subdag --cip-explode-jobs-dag --cip-explode-jobs 2 "  
 if opts.cip_explode_jobs:
