@@ -76,7 +76,7 @@ from RIFT.misc.dag_utils import which
 
 def add_batch_ILE_nodes_to_dag(my_dag,my_ile_job,my_parent_node, my_child_node, n_max, n_group, it, n_retries=3,it_start=0,convert_psd_node_list=[],node_list_dict={}):
     for event in np.arange(n_max): 
-        ile_node = pipeline.CondorDAGNode(ile_job)
+        ile_node = pipeline.CondorDAGNode(my_ile_job)
         ile_node.set_retry(n_retries)
         ile_node.add_macro("macroevent", event*n_group)
         ile_node.add_macro("macrongroup", n_group)
