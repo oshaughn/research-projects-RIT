@@ -1,3 +1,6 @@
+0.0.17.1
+------------
+
 0.0.17.0
 -----------
 pre-release, only available in source tree for rift_O4c
@@ -47,12 +50,15 @@ Since last release
    - asimov integration (as in rift_O4a/0.0.15.12 rc0); documentation update for hyperpipe, etc; CIP --n-events-to-analyze for hyperpipe; 
      expanded asimov integration (from rift_O4c branch) - calmarg, improved rift.py/rift.ini handoff of args
 
+No release intended (modulo LVK requirements), folded into 0.0.17
+     
 0.0.15.12
 -------------
 Since last release
    - gracedb get file psd.xml.gz fix for online; ILE hard fail if CUDA/JIT compilation error; bugfix (-1)^m->(-1)^l
      reflection for aligned TEOBResumS external call; asimov integration
 
+No release intended (modulo LVK requirements), folded into above.
 
 0.0.15.11
 -----------
