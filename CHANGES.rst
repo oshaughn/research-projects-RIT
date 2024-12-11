@@ -31,6 +31,9 @@ pre-release, only available in source tree for rift_O4c
   - public OSG settings (--use-osg-public); basic CIP/ILE subdag system with while loop as option (cip-explode-jobs-subdag) ; minor bugfixes
     (ile-runtime-max-minutes to convergence subdag; remove simple_unique ILE_puff/ILE_fetch argument); minor refactoring
     of ILE nodes in dag writing (internal) in prep for improved subdag system (rc2)
+
+ release is rc2
+
     
 0.0.16.0
 -----------
