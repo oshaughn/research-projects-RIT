@@ -63,7 +63,7 @@ for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
         continue
    fi
    # skip tests that require condor environment
-   if [[ ${EXE} == "check_CIP_complete_work.py" ]]; then
+   if [[ ${EXE} == *"check_CIP_complete_work.py" ]]; then
          continue
    fi
    if  [[ ${EXE} == *"util_CompareWaveformsInDetectors.py"* ]]; then
