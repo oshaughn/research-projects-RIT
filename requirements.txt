@@ -19,3 +19,4 @@ ligo.skymap
 gwpy
 natsort
 scipy
+htcondor
