@@ -5,7 +5,8 @@
 #if  command -v apt ; then
   #apt install lalsuite=7.22   # problem with 7.23 and newer lalapps_path2cache, workaround
 #fi
-pip install lalsuite==7.22 --break-system-packges
+#pip install lalsuite==7.22 --break-system-packges
+python -m pip install --upgrade lalsuite==7.22 --break-system-packages
 
 git  clone https://github.com/oshaughn/ILE-GPU-Paper.git
 cd ILE-GPU-Paper/demos/
