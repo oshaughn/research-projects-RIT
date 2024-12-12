@@ -2,6 +2,8 @@
 
 # GETTING_STARTED.md example
 
+pip install lalsuite==7.22   # problem with 7.23 and newer lalapps_path2cache, workaround
+
 git  clone https://github.com/oshaughn/ILE-GPU-Paper.git
 cd ILE-GPU-Paper/demos/
 make test_workflow_batch_gpu_lowlatency
