@@ -2,9 +2,10 @@
 
 # GETTING_STARTED.md example
 
-if  command -v apt ; then
-  apt install lalsuite=7.22   # problem with 7.23 and newer lalapps_path2cache, workaround
-fi 
+#if  command -v apt ; then
+  #apt install lalsuite=7.22   # problem with 7.23 and newer lalapps_path2cache, workaround
+#fi
+pip install lalsuite==7.22 --break-system-packges
 
 git  clone https://github.com/oshaughn/ILE-GPU-Paper.git
 cd ILE-GPU-Paper/demos/
