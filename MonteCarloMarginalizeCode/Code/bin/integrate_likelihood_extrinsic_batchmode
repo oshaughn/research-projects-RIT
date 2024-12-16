@@ -322,6 +322,17 @@ optp.add_option_group(pinnable)
 
 opts, args = optp.parse_args()
 
+# cosmo d prior tools for interpolation:  not used normally, but set if needed
+final_scipy_interpolate=None
+if 'cosmo' in opts.d_prior:
+  if not(cupy_success):
+    import scipy.interpolate
+    final_scipy_interpolate = scipy.interpolate
+  else:
+    import cupyx.scipy.interpolate
+    final_scipy_interpolate = cupyx.scipy.interpolate
+    
+
 
 # good enough file: terminate always with success if present, don't try any more work
 if opts.check_good_enough:
@@ -908,7 +919,8 @@ if (opts.d_prior == 'cosmo' or opts.d_prior == 'cosmo_sourceframe') and not opts
     def dLofz(z):
       return my_cosmo.luminosity_distance(z).value
     if not(opts.d_prior_redshift):
-      pdf_dL, cdf_dL, cdf_inv_dL = priors_utils.norm_and_inverse_via_grid_interp( dVdz, [zmin,zmax],vectorized=True,y_of_x=dLofz)
+      pdf_dL, cdf_dL, cdf_inv_dL = priors_utils.norm_and_inverse_via_grid_interp( dVdz, [zmin,zmax],vectorized=True,y_of_x=dLofz,\
+                                                                                  to_gpu_needed=cupy_success,final_scipy_interpolate=final_scipy_interpolate,final_np=xpy_default,to_gpu=identity_convert_togpu)
       dist_sampler = mcsampler.ret_uniform_samp_vector_alt( param_limits["distance"][0], param_limits["distance"][1])
       dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])
       sampler.add_parameter("distance",   
@@ -920,7 +932,8 @@ if (opts.d_prior == 'cosmo' or opts.d_prior == 'cosmo_sourceframe') and not opts
                           adaptive_sampling = (adapt_extra_extrinsic and not (opts.no_adapt or opts.no_adapt_distance)) or opts.force_adapt_all)
     else:
       redshift_to_distance = dLofz
-      pdf_z, cdf_z, cdf_inv_z = priors_utils.norm_and_inverse_via_grid_interp( dVdz, [zmin,zmax],vectorized=True)
+      pdf_z, cdf_z, cdf_inv_z = priors_utils.norm_and_inverse_via_grid_interp( dVdz, [zmin,zmax],vectorized=True,\
+                                                                                  to_gpu_needed=cupy_success,final_scipy_interpolate=final_scipy_interpolate,final_np=xpy_default,to_gpu=identity_convert_togpu)
       sampler.add_parameter("distance",   # really REDSHIFT, but changing names causes problems
                           pdf = pdf_z,   # will be immediately replaced if adaptive. Note usually better to sample UNIFORMLY - change?
                           cdf_inv = cdf_inv_z,  # ditto
