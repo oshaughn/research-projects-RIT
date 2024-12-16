@@ -100,7 +100,7 @@ def norm_and_inverse_via_grid_interp(dPdx, xlim=[1e-5,1], y_of_x=None, loglog=Fa
    # convert to GPU if needed
    if to_gpu_needed:
     x_vals = to_gpu(x_vals)
-    dp_vals = to_gpu(p_vals)
+    dp_vals = to_gpu(dp_vals)
     P_vals = to_gpu(P_vals)
    if not(loglog):
       # interpolation with default method
