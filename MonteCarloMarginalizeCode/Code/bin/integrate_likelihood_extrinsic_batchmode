@@ -264,7 +264,7 @@ integration_params.add_option("--adapt-floor-level", type=float, default=0.1, he
 integration_params.add_option("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
 integration_params.add_option("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
 integration_params.add_option("--interpolate-time", default=False,help="If using time marginalization, compute using a continuously-interpolated array. (Default=false)")
-integration_params.add_option("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean), 'pseudo_cosmo', and 'cosmo'  .")
+integration_params.add_option("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean), 'pseudo_cosmo', and 'cosmo'  and 'cosmo_sourceframe' .")
 integration_params.add_option("--d-prior-redshift", action='store_true', help="If true, distance prior is computed in redshift. This option MAY be enforced for 'cosmo' sampling")
 integration_params.add_option("--d-max", default=10000,type=float,help="Maximum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--d-min", default=1,type=float,help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
@@ -881,7 +881,7 @@ else:
 # sampler: uniform distance over [dmin, dmax), adaptive sampling
 #
 redshift_to_distance = lambda x: x
-if opts.d_prior == 'cosmo' and not opts.distance_marginalization:
+if (opts.d_prior == 'cosmo' or opts.d_prior == 'cosmo_sourceframe') and not opts.distance_marginalization:
     from astropy.cosmology import z_at_value
     from astropy import units as u
     from astropy.cosmology import FlatLambdaCDM
@@ -897,9 +897,14 @@ if opts.d_prior == 'cosmo' and not opts.distance_marginalization:
 #    omega = lal.CreateDefaultCosmologicalParameters() # matching the lal options. Only needed if we have it
     zmin  = z_at_value(my_cosmo.luminosity_distance, dmin*u.Mpc).value
     zmax = z_at_value(my_cosmo.luminosity_distance, dmax*u.Mpc).value # use astropy estimate for zmax
-    def dVdz(z):
-#      return lal.ComovingVolumeElement(z,omega)
-      return my_cosmo.differential_comoving_volume(z).value # units irrelevant, just need scale
+    if opts.d_prior == 'cosmo':
+      def dVdz(z):
+        #      return lal.ComovingVolumeElement(z,omega)
+        return my_cosmo.differential_comoving_volume(z).value # units irrelevant, just need scale
+    else:
+      def dVdz(z):
+        # uniform in dVc/dz/(1+z), allowing for redshifted time for detections
+        return my_cosmo.differential_comoving_volume(z).value/(1+z) # units irrelevant, just need scale
     def dLofz(z):
       return my_cosmo.luminosity_distance(z).value
     if not(opts.d_prior_redshift):
