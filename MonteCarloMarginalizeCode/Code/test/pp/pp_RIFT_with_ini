@@ -414,7 +414,7 @@ config['rift-pseudo-pipe']['fmin-template'] = str(fmin_template)
 # ILE stuff
 config['rift-pseudo-pipe']['ile-n-eff'] = '10'
 config['rift-pseudo-pipe']['ile-sampler-method'] = '"{}"'.format(str(ile_sampler))
-config['rift-pseudo-pipe']['internal-ile-freezeadapt'] = 'True'
+config['rift-pseudo-pipe']['internal-ile-freezeadapt'] = 'False'
 config['rift-pseudo-pipe']['ile-runtime-max-minutes'] = '700'
 config['rift-pseudo-pipe']['ile-jobs-per-worker'] = '20'
 config['rift-pseudo-pipe']['internal-ile-auto-logarithm-offset'] = 'False'
@@ -451,9 +451,12 @@ if precessing_spin:
     config['rift-pseudo-pipe']['assume-precessing'] = 'True'
     config['rift-pseudo-pipe']['internal-use-aligned-phase-coordinates'] = 'True'
     config['rift-pseudo-pipe']['internal-correlate-default'] = 'True'
+    # for now set to false:
+    config['rift-pseudo-pipe']['internal-use-rescaled-transverse-spin-coordinates']= 'False'
+    # ability to turn transverse puff on/off - after testing will default to true?
+    config['rift-pseudo-pipe']['internal-puff-transverse'] = 'False'
 # something about volmetric prior?
 else:
-    config['rift-pseudo-pipe']['assume-precessing'] = 'False'
     config['rift-pseudo-pipe']['assume-precessing'] = 'False'
 
 # eccentricity
@@ -476,9 +479,10 @@ else:
     config['rift-pseudo-pipe']['use_osg_cip'] =	'False'
 
 # extrinsic - add eventually
-#config['rift-pseudo-pipe']['add-extrinsic'] = 'True'
-#config['rift-pseudo-pipe']['batch-extrinsic'] = 'True'
-#config['rift-pseudo-pipe']['add-extrinsic-time-resampling'] = 'True'
+if opts.add_extrinsic:
+    config['rift-pseudo-pipe']['add-extrinsic'] = 'True'
+    config['rift-pseudo-pipe']['batch-extrinsic'] = 'True'
+    config['rift-pseudo-pipe']['add-extrinsic-time-resampling'] = 'True'
 
 # parameter ranges - may be modified by localize_ini.py
 # for grid making but be limiting/redundant?
@@ -522,6 +526,8 @@ for indx in np.arange(n_events):
         use_ini = 'pseudo_ini.ini'
     cmd = 'util_RIFT_pseudo_pipe.py --use-coinc `pwd`/coinc.xml --use-ini `pwd`/{} --use-rundir `pwd`/rundir --fake-data-cache `pwd`/local.cache --ile-no-gpu '.format(use_ini)
     cmd += " --manual-extra-ile-args '--d-min {} --d-max {} '".format(d_min, d_max)
+    if opts.use_gwsignal:
+        cmd += " --use-gwsignal "
     if fix_sky_location:
         cmd += "' --declination {} --right-ascension {} '".format(fiducial_dec, fiducial_ra)
     if cip_sampler == 'AV':
