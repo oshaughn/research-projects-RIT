@@ -3,7 +3,7 @@
 development tree is rift_O4c
   - true cosmological distance priors for ILE. Fix --cip-explode-jobs-subdag in cepp_basic to only operate when
     requested.  Update requirements. Note lalsuite==7.23,7.24 releases don't work (and have never worked) due to broken
-    executable installs (lal_path2cache): never use those two versions.
+    executable installs (lal_path2cache): never use those two versions. (rc0)
 
 0.0.17.0
 -----------
