@@ -1,9 +1,13 @@
 0.0.17.1
 ------------
+development tree is rift_O4c
+  - true cosmological distance priors for ILE. Fix --cip-explode-jobs-subdag in cepp_basic to only operate when
+    requested.  Update requirements. Note lalsuite==7.23,7.24 releases don't work (and have never worked) due to broken
+    executable installs (lal_path2cache): never use those two versions.
 
 0.0.17.0
 -----------
-pre-release, only available in source tree for rift_O4c
+development tree is  rift_O4c
    - start roughly 0.0.16.0rc2. asimov integation, documentation, CIP --n-events-to-analyze; mcsamplerNFlow;
      mcsamplerPortfolio; unreliable_oracles including reference samples; implement mcsamplerPortfolio and some oracles
      in ILE and CIP; hyperpipe dag writer integer events; pp_RIFT_with_ini merge; hyperpipe EOS_POST other integrators;
