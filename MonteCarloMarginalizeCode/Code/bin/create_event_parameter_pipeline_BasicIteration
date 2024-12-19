@@ -1613,7 +1613,7 @@ for it in np.arange(it_start,opts.n_iterations):
             worker_node.set_retry(opts.general_retries)
             join_node.add_parent(worker_node)  # make sure to add worker node as parent
             dag.add_node(worker_node)
-        elif opts.cip_explode_jobs_dag:
+        elif opts.cip_explode_jobs_subdag:
             n_explode= int(opts.cip_explode_jobs)
             # write appropriate subdag
             subdag_name = dag_utils.write_CIP_single_iteration_subdag(cip_worker_job, it, str(it), subdag_dir,n_explode=n_explode)
