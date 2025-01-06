@@ -189,6 +189,8 @@ username = config.get('make_workflow','username')
 group = config.get('make_workflow','accounting_group')
 cip_sampler = config.get('make_workflow', 'cip_sampler_method')
 ile_sampler = config.get('make_workflow', 'ile_sampler_method')
+use_gpu = config.get('make_workflow', 'use_gpu')
+use_distance_marginalization = config.get('make_workflow','use_distance_marginalization')
 ## "default" incompatible with --force-reset-all inn ILE
 if ile_sampler == "default":
     ile_sampler = 'adaptive_cartesian_gpu'
@@ -308,7 +310,7 @@ for indx in np.arange(n_events):
     # Loop over instruments, write files
     for ifo in ifos:
         if opts.use_gwsignal:
-            cmd = "util_GWSignalWriteFrame.py --approx {} --inj ".format(approx_str) + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {} --lmax {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str, l_max)
+            cmd = "util_GWSignalWriteFrame.py  --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --approx {}".format(indx, t_start, t_stop, ifo, seglen_analysis, approx_str)
         elif 'NRHybSur' in approx_str:
             cmd = "util_ROMWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {} --lmax {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str, l_max)
         else:
@@ -421,6 +423,10 @@ config['rift-pseudo-pipe']['internal-ile-auto-logarithm-offset'] = 'False'
 config['rift-pseudo-pipe']['internal-ile-use-lnL'] = 'False'
 config['rift-pseudo-pipe']['internal-ile-reset-adapt'] = 'True'
 config['rift-pseudo-pipe']['internal-ile-request-disk']='"10M"'
+if use_gpu:
+    config['rift-pseudo-pipe']['ile-force-gpu'] = 'True'
+else:
+    config['rift-pseudo-pipe']['ile-no-gpu'] = 'True'
 
 # CIP stuff
 #  * Fit method can be 'rf', 'gp'
@@ -478,6 +484,11 @@ else:
     config['rift-pseudo-pipe']['use_osg_file_transfer'] = 'False'
     config['rift-pseudo-pipe']['use_osg_cip'] =	'False'
 
+if use_distance_marginalization:
+    config['rift-pseudo-pipe']['internal-marginalize-distance']='True'
+    config['rift-pseudo-pipe']['ile-distance-prior']='"pseudo_cosmo"'
+    config['rift-pseudo-pipe']['internal-distance-max'] = str(d_max)
+
 # extrinsic - add eventually
 if opts.add_extrinsic:
     config['rift-pseudo-pipe']['add-extrinsic'] = 'True'
@@ -486,8 +497,8 @@ if opts.add_extrinsic:
 
 # parameter ranges - may be modified by localize_ini.py
 # for grid making but be limiting/redundant?
-#config['rift-pseudo-pipe']['force-mc-range'] = '[{},{}]'.format(mc_min,mc_max)
-#config['rift-pseudo-pipe']['force-eta-range'] = '"[0.0453514739,0.24999999999]"'
+config['rift-pseudo-pipe']['force-mc-range'] = '[{},{}]'.format(mc_min,mc_max)
+config['rift-pseudo-pipe']['force-eta-range'] = '[{},{}]'.format(eta_min,eta_max)
 #config['rift-pseudo-pipe']['force-hint-snr'] = snr_dict['Network']
 
 ## Write pseudo-pipe ini file with standard defaults
@@ -524,14 +535,15 @@ for indx in np.arange(n_events):
         use_ini = 'localize.ini'
     else:
         use_ini = 'pseudo_ini.ini'
-    cmd = 'util_RIFT_pseudo_pipe.py --use-coinc `pwd`/coinc.xml --use-ini `pwd`/{} --use-rundir `pwd`/rundir --fake-data-cache `pwd`/local.cache --ile-no-gpu '.format(use_ini)
-    cmd += " --manual-extra-ile-args '--d-min {} --d-max {} '".format(d_min, d_max)
-    if opts.use_gwsignal:
-        cmd += " --use-gwsignal "
+    cmd = 'util_RIFT_pseudo_pipe.py --use-coinc `pwd`/coinc.xml --use-ini `pwd`/{} --use-rundir `pwd`/rundir --fake-data-cache `pwd`/local.cache '.format(use_ini)
+    if not config['rift-pseudo-pipe']['internal-marginalize-distance']:
+        cmd += " --manual-extra-ile-args '--d-min {} --d-max {} '".format(d_min, d_max)
     if fix_sky_location:
         cmd += "' --declination {} --right-ascension {} '".format(fiducial_dec, fiducial_ra)
     if cip_sampler == 'AV':
         cmd += " --manual-extra-cip-args '--downselect-parameter mc --downselect-parameter-range '[{},{}]''".format(mc_min, mc_max)
+    if opts.use_gwsignal:
+        cmd += " --use-gwsignal "
     print(cmd)
     os.system(cmd)
     os.chdir("rundir")
