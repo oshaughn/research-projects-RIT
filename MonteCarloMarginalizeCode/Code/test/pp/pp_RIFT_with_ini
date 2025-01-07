@@ -48,6 +48,27 @@ def add_frames(channel,input_frame, noise_frame,combined_frame):
     if not opts.test:
         os.system(cmd)
 
+def m1m2(mc, eta):
+    # Step 1: Calculate total mass (M = m1 + m2) using mc and eta
+    M = mc / (eta**(3/5))  # Based on the chirp mass equation: mc = (m1*m2)^(3/5) / (m1+m2)^(1/5)
+    
+    # Step 2: Solve for m1 and m2 using the quadratic formula
+    # We know: eta = (m1 * m2) / (m1 + m2)^2 => m1*m2 = eta * M^2
+    m1m2_product = eta * M**2
+    
+    # Quadratic equation: x^2 - M*x + m1m2_product = 0, where x is m1
+    # Discriminant for the quadratic equation:
+    discriminant = M**2 - 4 * m1m2_product
+    
+    if discriminant < 0:
+        raise ValueError("Discriminant is negative. No real solution for m1 and m2.")
+    
+    # Step 3: Solve for m1 and m2 (roots of the quadratic equation)
+    m1 = (M + np.sqrt(discriminant)) / 2
+    m2 = (M - np.sqrt(discriminant)) / 2
+    
+    return m1, m2
+
 
 # def dmax_seglen_ladder(mc):
 #     """
@@ -125,6 +146,11 @@ eta_range = [eta_min,eta_max]
 d_min = float(config.get('priors','d_min'))
 d_max = float(config.get('priors','d_max'))
 chi_max = float(config.get('priors','chi_max'))
+
+m1a,m2a = m1m2(mc_range[0], eta_range[0])
+m1b,m2b = m1m2(mc_range[0], eta_range[1])
+m1c,m2c = m1m2(mc_range[1], eta_range[0])
+m1d,m2d = m1m2(mc_range[1], eta_range[1])
 
 # use matter?
 lambda_max=0
@@ -252,14 +278,17 @@ else:
         P.approx=lalsim.GetApproximantFromString(approx_str)
 
     # Uniform in m1 and m2: 
-    m1 = np.random.uniform(mc_range[0],mc_range[1]*2)
-    m2 = np.random.uniform(m_min,mc_range[1]*1.5)
-    m1,m2 = [np.maximum(m1,m2), np.minimum(m1,m2)]
+    #m1 = np.random.uniform(mc_range[0],mc_range[1]*2)
+    #m2 = np.random.uniform(m_min,mc_range[1]*1.5)
+    #m1,m2 = [np.maximum(m1,m2), np.minimum(m1,m2)]
+    m1 = np.random.uniform (np.min([m1a,m1b,m1c,m1d]),np.max([m1a,m1b,m1c,m1d]))
+    m2 = np.random.uniform (np.min([m2a,m2b,m2c,m2d]),np.max([m2a,m2b,m2c,m2d]))
     P.m1 = m1*lal.MSUN_SI
     P.m2 = m2*lal.MSUN_SI
     # ...but downselect in mchirp, eta
-    mc_val = P.extract_param('mc')/lal.MSUN_SI
-    eta_val = P.extract_param('eta')
+    #mc_val = P.extract_param('mc')/lal.MSUN_SI
+    #eta_val = P.extract_param('eta')
+    mc_val , eta_val = lalsimutils.Mceta(m1,m2)
     if mc_val < mc_range[0] or mc_val > mc_range[1]:
         continue
     if eta_val < eta_range[0] or eta_val > eta_range[1]:
