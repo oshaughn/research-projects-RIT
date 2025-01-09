@@ -25,26 +25,26 @@
     ln -s /usr/bin/python3.10 /usr/local/bin/python3
     ln -s /usr/bin/python3 /usr/local/bin/python
 
-    # Set up RIFT installation
+    # Set up RIFT installation, using MAIN SOURCE. Modify if you want a release version, or a different branch!
     cd /opt
     mkdir installed_RIFT
     cd installed_RIFT
     git clone https://github.com/oshaughn/research-projects-RIT.git
     cd research-projects-RIT
-    git checkout rift_O4c
+    #git checkout rift_O4c
     pip3 install -e .
 
     # Install additional Python packages
-    pip3 install asimov==0.5.6 \
-                 asimov-gwdata==0.4.0 \
+    pip3 install asimov>=0.5.6 \
+                 asimov-gwdata>=0.4.0 \
 		 cupy-cuda11x \
                  gwdatafind==1.2.0 \
-                 gwosc==0.7.1 \
-                 lalsuite==7.22 \
-                 numpy==1.24.4 \
+                 gwosc>=0.7.1 \
+                 lalsuite>=7.26 \
+                 numpy>=1.24.4 \
                  natsort \
                  pybind11>=2.12 \
-                 scipy==1.9.3 
+                 scipy>=1.9.3 
  %environment
     # Set environment variables
     alias python=python3
