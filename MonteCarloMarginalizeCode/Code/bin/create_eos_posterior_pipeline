@@ -243,9 +243,11 @@ for indx in np.arange(it_start,opts.n_iterations+1):
         mkdir(test_dir); mkdir(test_dir+'/logs')
 
 
+transfer_file_names_puff = list(transfer_file_names)  # allocate a copy. Actually fine if the same thing, just a little redundant.
 if opts.use_singularity or opts.use_osg:
     transfer_file_names_post.append("../grid-$(macroiteration).dat")
     transfer_file_names.append(opts.working_directory+"/grid-$(macroiteration).dat")
+    transfer_file_names_puff.append(opts.working_directory+"/grid_puff-$(macroiteration).dat")
 
 
 # ++++
@@ -272,7 +274,7 @@ if opts.marg_event_args:
     cip_job.write_sub_file()
 
     # PUFF variant
-    cipPuff_job, cipPuff_job_name = dag_utils.write_CIP_sub(tag='MARG_PUFF',log_dir=None,arg_str=marg_event_args,using_eos='file:'+working_dir_inside+"/grid_puff-$(macroiteration).dat",using_eos_index='$(macroevent)',request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG_puff-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,exe=marg_exe_master,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../../event-$(macroid).net','../../grid_puff-$(macroiteration).dat']+transfer_file_names)
+    cipPuff_job, cipPuff_job_name = dag_utils.write_CIP_sub(tag='MARG_PUFF',log_dir=None,arg_str=marg_event_args,using_eos='file:'+working_dir_inside+"/grid_puff-$(macroiteration).dat",using_eos_index='$(macroevent)',request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG_puff-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,exe=marg_exe_master,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../../event-$(macroid).net']+transfer_file_names_puff)
     # Modify: set 'initialdir'
     cipPuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg/event_$(macroid)")
     # Modify output argument: change logs and working directory to be subdirectory for the run

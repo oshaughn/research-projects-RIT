@@ -571,7 +571,8 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     if use_osg:
            # avoid black-holing jobs to specific machines that consistently fail. Uses history attribute for ad
-           ile_job.add_condor_cmd('periodic_release','(HoldReasonCode == 45) && (HoldReasonSubCode == 0)')
+           #    https://htcondor.readthedocs.io/en/latest/classad-attributes/job-classad-attributes.html
+           ile_job.add_condor_cmd('periodic_release','((HoldReasonCode == 45) && (HoldReasonSubCode == 0)) || (HoldReasonCode == 13)')
            ile_job.add_condor_cmd('job_machine_attrs','Machine')
            ile_job.add_condor_cmd('job_machine_attrs_history_length','4')
 #           for indx in [1,2,3,4]:
