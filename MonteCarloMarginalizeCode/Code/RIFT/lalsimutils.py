@@ -332,7 +332,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','mu1','mu2','eos_table_index', 'E0', 'p_phi0']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','mu1','mu2','eos_table_index', 'E0', 'p_phi0', 'hypclass']
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -886,6 +886,105 @@ class ChooseWaveformParams:
             return (self.m2+self.m1)
         if p == 'q':
             return self.m2/self.m1
+        
+        ####################################
+        # EXPERIMENTING WITH HYPCLASS HERE #
+        
+        if p == 'hypclass':
+            
+            
+            # check if valid
+            if self.E0 == 0.0:
+                print('Invalid use of hypclass: non-hyperbolic configuration')
+                return None
+            
+            # run the classifier
+            pars = {
+                'M'                  : (self.m1+self.m2)/lal.MSUN_SI,
+                'q'                  : self.m1/self.m2,
+                'H_hyp'              : self.E0, # energy at initial separation
+                'j_hyp'              : self.p_phi0, # angular momentum at initial separation
+                'r_hyp'              : 6000.0,
+                'LambdaAl2'            : self.lambda1,
+                'LambdaBl2'            : self.lambda2,
+                'chi1'              : self.s1z, #note that there are no transverse spins
+                'chi2'              : self.s2z,
+                'dt'                : self.deltaT,
+                'domain'             : 0, # 0 sets time domain
+                'arg_out'            : 1, # Request multipoles and dynamics as output of the function call - 1=yes
+                'nqc'                : 2, # sets the NQCs, 2=no
+                'nqc_coefs_hlm'      : 0, # Option for the NQC model used in the waveform. 0=none
+                'nqc_coefs_flx'      : 0, # Option for the NQC model used in the flux. 0=none
+                'use_mode_lm'        : [1,-1], # 2\pm 2 modes
+                'output_lm'          : [1,-1],
+                'srate_interp'       : 1./self.deltaT,
+                'use_geometric_units': 0,
+                'interp_uniform_grid': 1,
+                'initial_frequency'  : self.fmin,
+                'ode_tmax'           : 3e4,
+                'distance'           : self.dist/(lal.PC_SI*1e6),
+                'inclination'        : self.incl,
+                'output_hpc'         : 0 # output plus and cross polarizations, 0=no
+            }
+            
+            #print('Classifying hyperbolic waveform...')
+            #print(pars)
+            
+            t, hptmp, hctmp, hlmtmp, dym = EOBRun_module.EOBRunPy(pars)
+            
+            # peak finding to classifiy
+            
+            # wf amplitude
+            amp = np.sqrt(np.abs(hptmp)**2+np.abs(hctmp)**2)
+            amp_norm = amp / np.amax(amp) # normalize amplitude for peak finding                
+            # peak finding to determine system type
+            height_thresh = 0.25
+            prom_thresh = 0.1
+            peaks, props = signal.find_peaks(amp_norm, height = height_thresh, prominence = prom_thresh)    
+            peak_heights = props['peak_heights']
+            # filtering out peaks so we only keep the local maxima
+            indices_to_keep = set()
+            sorted_indices = np.argsort(peak_heights)[::-1]
+            tol = int(pars['srate_interp'] / 13.65) # 300 samples at srate of 4096 - minimum distance between peaks.
+            for i in sorted_indices:
+                peak = peaks[i]                
+                keep = True
+                for kept_index in indices_to_keep:
+                    if abs(peaks[kept_index] - peak) <= tol:
+                        keep = False
+                        break                
+                if keep:
+                    indices_to_keep.add(i)                    
+            filtered_peaks = peaks[list(indices_to_keep)]
+            
+            # parsing number of peaks after filtering against distance tolerance
+            if len(filtered_peaks) == 1:
+                # scatter case OR plunge case
+                
+                if np.abs(len(hptmp) - np.argmax(hptmp)) > pars['srate_interp']/5.46133: #3000 samples at 16384 [Hz]
+                    # scatter waveform
+                    print('Scatter')
+                    return 'scatter'
+                
+                else:
+                    # plunge waveform
+                    print('Plunge')
+                    return 'plunge'
+                
+            elif len(filtered_peaks) == 0:
+                # meaningless waveform
+                print('MEANINGLESS')
+                return None
+            
+            else:
+                # zoom whirl waveform
+                print('Zoom Whirl')
+                return 'zoomwhirl'                
+        
+        
+        ####################################
+        
+        
         if p == 'delta' or p=='delta_mc':  # Same access routine
             return (self.m1-self.m2)/(self.m1+self.m2)
         if p == 'mc':
