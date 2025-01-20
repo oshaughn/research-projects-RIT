@@ -252,7 +252,12 @@ parser.add_argument("--use-osg",action='store_true',help="If true, use pathnames
 parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, require LIGO frames are present (usually via CVMFS). User is responsible for generating cache file compatible with it.  This option insures that the cache file is properly transferred (because you have generated it)")
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
 parser.add_argument("--verbose",action='store_true')
+parser.add_argument("--force-scatter-grids",action='store_true',help="Eliminates all non-scatter intrinsic points from hyperbolic grids throughout the workflow.")
 opts=  parser.parse_args()
+
+# need --assume-hyperbolic when using --force-scatter-grids
+if opts.force_scatter_grids and not opts.assume_hyperbolic:
+    parser.error("--force-scatter-grids requires --assume-hyperbolic!")
 
 if opts.use_mtot_coords:
     if opts.force_mtot_range is None:
@@ -1272,6 +1277,8 @@ elif opts.propose_initial_grid:
         cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
     if opts.assume_hyperbolic:
         cmd += f" --random-parameter E0 --random-parameter-range [{opts.E0_min},{opts.E0_max}] --random-parameter p_phi0 --random-parameter-range [{opts.pphi0_min},{opts.pphi0_max}] "
+        if opts.force_scatter_grids:
+            cmd += " --force-scatter "
     if opts.internal_tabular_eos_file:
         cmd += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
         grid_size *=2  # larger grids needed for discrete realization scenarios
@@ -1422,6 +1429,8 @@ if opts.assume_eccentric:
     helper_puff_args += " --parameter eccentricity "
 if opts.assume_hyperbolic:
     helper_puff_args += " --parameter E0 --parameter p_phi0 "
+    if opts.force_scatter_grids:
+        helper_puff_args += " --force-scatter "
 
 if event_dict["MChirp"] >25:
     # at high mass, mc/eta correlation weak, don't want to have eta coordinate degeneracy at q=1 to reduce puff proposals  near there
