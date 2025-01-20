@@ -963,22 +963,18 @@ class ChooseWaveformParams:
                 
                 if np.abs(len(hptmp) - np.argmax(hptmp)) > pars['srate_interp']/5.46133: #3000 samples at 16384 [Hz]
                     # scatter waveform
-                    print('Scatter')
                     return 'scatter'
                 
                 else:
                     # plunge waveform
-                    print('Plunge')
                     return 'plunge'
                 
             elif len(filtered_peaks) == 0:
                 # meaningless waveform
-                print('MEANINGLESS')
                 return None
             
             else:
                 # zoom whirl waveform
-                print('Zoom Whirl')
                 return 'zoomwhirl'                
         
         
