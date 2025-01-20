@@ -290,7 +290,12 @@ parser.add_argument("--archive-pesummary-event-label",default="this_event",help=
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
 parser.add_argument("--first-iteration-jumpstart",action='store_true',help="No ILE jobs the first iteration.  Assumes you already have .composite files and want to get going. Particularly helpful for subdag systems")
 parser.add_argument("--use-mtot-coords",action='store_true',help="Passed to the helper to configure CIP and PUFF for mtot instead of mc.")
+parser.add_argument("--force-scatter-grids",action='store_true',help="Eliminates all non-scatter intrinsic points from hyperbolic grids throughout the workflow.") 
 opts=  parser.parse_args()
+
+# need --assume-hyperbolic when using --force-scatter-grids
+if opts.force_scatter_grids and not opts.assume_hyperbolic:
+    parser.error("--force-scatter-grids requires --assume-hyperbolic!")
 
 
 if (opts.use_ini):
@@ -658,6 +663,9 @@ if is_analysis_hyperbolic:
     if not(opts.force_pphi0_min is None):
         pphi0_min = opts.force_pphi0_min
         cmd += " --pphi0-min {}  ".format(pphi0_min)
+        
+    if opts.force_scatter_grids:
+        cmd += " --force-scatter-grids "
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
@@ -1107,6 +1115,11 @@ for indx in np.arange(len(instructions_cip)):
         if not(opts.force_pphi0_min is None):
             pphi0_min = opts.force_pphi0_min
             line += " --pphi0-min {}  ".format(pphi0_min)
+            
+        if opts.force_scatter_grids:
+            line += " --force-scatter "
+        
+        
     if not(opts.manual_extra_cip_args is None):
         line += " {} ".format(opts.manual_extra_cip_args)  # embed with space on each side, avoid collisions
     line += "\n"
@@ -1180,6 +1193,10 @@ if opts.assume_hyperbolic:
             pphi0_max = opts.force_pphi0_max
             pphi0_min = opts.force_pphi0_min
             puff_params += f" --downselect-parameter p_phi0 --downselect-parameter-range [{pphi0_min},{pphi0_max}]"
+            
+        if opts.force_scatter_grids:
+            puff_params += ' --force-scatter '
+            
 if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
     puff_max_it +=3
