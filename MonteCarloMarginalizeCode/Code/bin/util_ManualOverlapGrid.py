@@ -369,12 +369,16 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
                 include_item =False
                 
         if opts.force_scatter:
-            # removes non-scatter points from the hyperbolic grid
-            hypclass = Pgrid.extract_param('hypclass')
-            if hypclass == 'scatter':
-                include_item = True
-            else:
-                include_item = False
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:                
+                # removes non-scatter points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'scatter':
+                    include_item = True
+                else:
+                    include_item = False
                 
         if include_item:
          grid_revised.append(line)
