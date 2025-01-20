@@ -54,6 +54,7 @@ parser.add_argument("--downselect-parameter",action='append', help='Name of para
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--enforce-duration-bound",default=None,type=float,help="If present, enforce a duration bound. Used to prevent grid placement for obscenely long signals, when the window size is prescribed")
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
+parser.add_argument('--force-scatter',default=False,action='store_true',help='For hyperbolic analyses forces only scatter grid points.')
 opts=  parser.parse_args()
 
 if opts.random_parameter is None:
@@ -261,6 +262,19 @@ for indx_P in np.arange(len(P_list)):
             val = val/ lal.MSUN_SI
         if val < downselect_dict[param][0] or val > downselect_dict[param][1]:
             include_item =False
+            
+    if opts.force_scatter:
+        if include_item==False:
+            # no need to evaluate if the point is already downselected out
+            pass            
+        else:        
+            # removes non-scatter points from the hyperbolic grid
+            hypclass = P.extract_param('hypclass')
+            if hypclass == 'scatter':
+                    include_item = True
+            else:
+                include_item = False
+    
     if include_item:
         P_out.append(P)
 
