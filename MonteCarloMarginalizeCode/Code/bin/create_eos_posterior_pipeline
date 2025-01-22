@@ -137,8 +137,10 @@ elif opts.marg_event_args_list_file:
     with open(opts.marg_event_exe_list_file) as f:
         marg_event_exe_list = f.readlines()
     marg_event_nchunk_list = np.ones(len(marg_event_exe_list)) # default: one point per evaluation
-    if opts.marg_event_nchunk_list_file and os.path.isfile(opts.marg_event_nchunk_list_file):
+    if opts.marg_event_nchunk_list_file and os.path.isfile(opts.marg_event_nchunk_list_file):        
         marg_event_nchunk_list = np.loadtxt(opts.marg_event_nchunk_list_file,dtype=int) # load in 1d array
+        if len(marg_event_exe_list) ==1 or not(isinstance(marg_event_nchunk_list, np.ndarray)):
+            marg_event_nchunk_list = [marg_event_nchunk_list] # we have a single element
         assert len(marg_event_nchunk_list) == len(marg_event_exe_list)
         
     assert len(marg_event_exe_list) == len(marg_event_args_list)  # fail if not true: not matching MARG args to exe
