@@ -198,7 +198,11 @@ if True: # not (opts.eos_post_args is None):
 eospost_exe = which('util_ConstructEOSPosterior.py')
 if opts.eos_post_exe:
     eospost_exe = "{}".format(opts.eos_post_exe) # force clpy, so NOT BY REFERENCE
-
+if opts.use_osg:
+    # Correctly use EOS_POST in container location
+    path_split = eospost_exe.split("/")
+    singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
+    eospost_exe =singularity_base_exe_path + path_split[-1]
 
 
 # Copy seed grid into place as grid-0.dat
