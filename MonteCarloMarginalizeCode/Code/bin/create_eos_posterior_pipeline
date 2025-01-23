@@ -441,7 +441,7 @@ eospost_marg_job.write_sub_file()
 with open("join_post.sh",'w') as f:
     f.write("""#! /bin/bash
 head -n 1 grid-0.dat > $2
-cat $1/output*.dat  | sort -r | uniq >> $2
+cat $1/output*.dat  | sort -r | uniq | shuf >> $2
 """)
     os.system("chmod a+x join_post.sh")
 join_post_job, join_post_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/join_post.sh",tag='JOIN_POST',log_dir=None,arg_str='',file_input=opts.working_directory+"/iteration_$(macroiteration)_post/    "+opts.working_directory+"/grid-$(macroiterationnext).dat", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
