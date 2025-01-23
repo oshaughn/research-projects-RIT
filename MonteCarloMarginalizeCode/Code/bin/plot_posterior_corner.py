@@ -221,6 +221,7 @@ parser.add_argument("--use-all-composite-but-grayscale",action='store_true',help
 parser.add_argument("--flag-tides-in-composite",action='store_true',help='Required, if you want to parse files with tidal parameters')
 parser.add_argument("--flag-eos-index-in-composite",action='store_true',help='Required, if you want to parse files with EOS index in composite (and tides)')
 parser.add_argument("--posterior-label",action='append',help="label for posterior file")
+parser.add_argument("--external-exact-marginals",type=str,help="Provide this routne for EXACT marginals")
 parser.add_argument("--posterior-color",action='append',help="color and linestyle for posterior. PREPENDED onto default list, so defaults exist")
 parser.add_argument("--posterior-linestyle",action='append',help="color and linestyle for posterior. PREPENDED onto default list, so defaults exist")
 parser.add_argument("--parameter", action='append',help="parameter name (ILE). Note source-frame masses are only natively supported for LI")
@@ -761,7 +762,7 @@ for pIndex in np.arange(len(posterior_list)):
 #    if opts.use_smooth_1d:
 #        smooth1d=smooth_list
 #        print smooth1d
-    fig_base = corner.corner(dat_mass,smooth1d=smooth1d, range=range_list,weights=weights, labels=labels_tex, quantiles=quantiles_1d, plot_datapoints=False, plot_density=False, no_fill_contours=True, contours=True, levels=CIs,fig=fig_base,color=my_cmap_values ,hist_kwargs={'linestyle': linestyle_list[pIndex]}, linestyle=linestyle_list[pIndex],contour_kwargs={'linestyles':linestyle_list[pIndex]},truths=truths_here)
+    fig_base = corner.corner(dat_mass,smooth1d=smooth1d, range=range_list,weights=weights, labels=labels_tex, quantiles=quantiles_1d, plot_datapoints=False, plot_density=False, no_fill_contours=True, contours=True, levels=CIs,fig=fig_base,color=my_cmap_values ,hist_kwargs={'linestyle': linestyle_list[pIndex], 'density': True}, linestyle=linestyle_list[pIndex],contour_kwargs={'linestyles':linestyle_list[pIndex]},truths=truths_here)
 
 
 if opts.plot_1d_extra:
@@ -854,6 +855,30 @@ if composite_list:
     # Create colorbar mappable
 #    ax=plt.figure().gca()
 #    ax.contourf(lnL, cm)
+
+# Plot exact marginals
+if opts.external_exact_marginals:
+    import sys
+    __import__(opts.external_exact_marginals)
+    external_plot_module = sys.modules[opts.external_exact_marginals]
+    # these are PLOTTING routines, directly passed an axes module - we are NOT giving them grids etc. So we can directly plot ellipses if we want for gaussians, etc
+    supplemental_pdf_1d_plot = getattr(external_plot_module,'supplemental_pdf_1d_plot')
+    supplemental_pdf_2d_plot = getattr(external_plot_module,'supplemental_pdf_2d_plot')
+    ndim = len(param_list)
+    axes = np.array(fig_base.axes).reshape((ndim,ndim))
+    for d1 in range(ndim):
+        # diagonal plots
+        ax = axes[d1,d1]
+        supplemental_pdf_1d_plot(ax, d1, color='lightblue', label='exact')
+        ax.figure.savefig("subfig_{}.png".format(d1))   # debugging, make sure these figures are generated
+        # interior plots
+        for d2 in range(d1):
+            ax  = axes[d1,d2]
+            v = np.array([d2,d1])
+            # 2d plot
+            supplemental_pdf_2d_plot(ax, v, color='lightblue', label='exact')
+
+
 
 if opts.use_legend and opts.posterior_label:
     plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)
