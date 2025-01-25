@@ -22,6 +22,7 @@ import lal
 import RIFT
 import RIFT.lalsimutils as lalsimutils
 import RIFT.likelihood.factored_likelihood as factored_likelihood  # direct hoft call
+import RIFT.physics.GWSignal as rift_gws
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--approximant",type=str,default="IMRPhenomPv2")
@@ -111,8 +112,7 @@ if opts.verbose:
 if not(opts.use_gwsignal):
   hTc_2  = lalsimutils.complex_hoft(P,extra_waveform_args=extra_waveform_args)
 else:
-  import RIFT.physics.GWSignal as rift_gws
-  hT = rift_gws.complex_hoft(P, extra_waveform_args=extra-waveform_args)
+  hTc_2 = rift_gws.complex_hoft(P, approx_string=opts.approximant, extra_waveform_args=extra_waveform_args)
   # import astropy.units as u
   # python_dict = {'mass1' : P.m1/lal.MSUN_SI * u.solMass,
   #             'mass2' : P.m2/lal.MSUN_SI * u.solMass,
@@ -141,7 +141,10 @@ if opts.verbose:
 #    NOT THE SAME PSI DEPENDENCE AS WE ASSUME ELSEWHERE
 psi_ref = float(P.psi)
 P.psi = 0
-hTc_3 = lalsimutils.complex_hoft(P); P.psi = psi_ref
+if opts.use_gwsignal:
+   hTc_3 = rift_gws.complex_hoft(P,approx_string=opts.approximant); P.psi = psi_ref
+else:
+   hTc_3 = lalsimutils.complex_hoft(P); P.psi = psi_ref
 hTc_3.data.data *= np.exp(-2j*P.psi)
 
 if opts.verbose:
