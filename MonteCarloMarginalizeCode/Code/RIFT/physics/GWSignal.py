@@ -124,16 +124,16 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
             TDlen = int(1./P.deltaF * 1./P.deltaT)
             if TDlen < h.data.length:   # Truncate the series to the desired length, removing data at the *start* (left)
                 h = lal.ResizeCOMPLEX16TimeSeries(h,h.data.length-TDlen,TDlen)
-                # WARNING: This data is now not tapered, so re-taper by hand
-                if taper:
-                    ntaper = int(0.01*TDlen)
-                    if P.fmin > 0: # avoid failure if waveform start frequency 0 is nominally specified
-                        ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))]) 
-                    vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
-                    # Taper at the start of the segment
-                    h.data.data[:ntaper]*=vectaper
             elif TDlen > h.data.length:   # Zero pad, extend at end
                 h = lal.ResizeCOMPLEX16TimeSeries(h,0,TDlen)
+        # WARNING:  realistically, the GWSignal mode output was NEVER tapered, oddly -- so do it by hand, following lalsimutils choices
+        if taper:
+            ntaper = int(0.01*TDlen)
+            if P.fmin > 0: # avoid failure if waveform start frequency 0 is nominally specified
+                ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))]) 
+            vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+            # Taper at the start of the segment
+            h.data.data[:ntaper]*=vectaper
         # Add to structure
         hlmT[mode] = h
 
@@ -320,7 +320,7 @@ def complex_hoft(P, Fp=None, Fc=None,approx_string=None,sgn=-1, **kwargs):
 
 
     ht = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
-                                       hp.deltaT, lsu_DimensionlessUnit, hp.data.length)
+                                       hp.deltaT, lalsimutils.lsu_DimensionlessUnit, hp.data.length)
     ht.epoch = ht.epoch + P.tref
     ht.data.data = hp.data.data + 1j * sgn * hc.data.data
     # impose polarization directly, using precisely the conventions we demand
