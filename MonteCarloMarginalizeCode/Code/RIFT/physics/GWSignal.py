@@ -81,7 +81,7 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
               'eccentricity' : P.eccentricity*u.dimensionless_unscaled,
               'longAscNodes' : P.psi*u.rad,
               'meanPerAno' : P.meanPerAno*u.rad,
-              'condition' : taper}
+              'condition' : taper     }
     if 'lmax_nyquist' in kwargs:
         python_dict['lmax_nyquist'] = kwargs['lmax_nyquist']
 
@@ -124,6 +124,14 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
             TDlen = int(1./P.deltaF * 1./P.deltaT)
             if TDlen < h.data.length:   # Truncate the series to the desired length, removing data at the *start* (left)
                 h = lal.ResizeCOMPLEX16TimeSeries(h,h.data.length-TDlen,TDlen)
+                # WARNING: This data is now not tapered, so re-taper by hand
+                if taper:
+                    ntaper = int(0.01*TDlen)
+                    if P.fmin > 0: # avoid failure if waveform start frequency 0 is nominally specified
+                        ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))]) 
+                    vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
+                    # Taper at the start of the segment
+                    h.data.data[:ntaper]*=vectaper
             elif TDlen > h.data.length:   # Zero pad, extend at end
                 h = lal.ResizeCOMPLEX16TimeSeries(h,0,TDlen)
         # Add to structure
@@ -239,4 +247,82 @@ def hoft(P, Fp=None, Fc=None,approx_string=None, **kwargs):
         TDlen = int(1./P.deltaF * 1./P.deltaT)
         assert TDlen >= ht.data.length
         ht = lal.ResizeREAL8TimeSeries(ht, 0, TDlen)
+    return ht
+
+
+def complex_hoft(P, Fp=None, Fc=None,approx_string=None,sgn=-1, **kwargs):
+    """
+    Similarly. 
+    """
+
+    # special sauce for EOB, because it is so finicky regarding
+    if P.approx == lalsim.EOBNRv2HM and P.m1 == P.m2:
+#        print " Using ridiculous tweak for equal-mass line EOB"
+        P.m2 = P.m1*(1-1e-6)
+    extra_params = P.to_lal_dict()
+
+
+    assert (not np.isnan(P.m1)) and (not np.isnan(P.m2)), " masses are NaN "
+    taper=0
+    if P.taper != lalsim.SIM_INSPIRAL_TAPER_NONE:
+        taper = 1
+    python_dict = {'mass1' : P.m1/lal.MSUN_SI * u.solMass,
+              'mass2' : P.m2/lal.MSUN_SI * u.solMass,
+              'spin1x' : P.s1x*u.dimensionless_unscaled,
+              'spin1y' : P.s1y*u.dimensionless_unscaled,
+              'spin1z' : P.s1z*u.dimensionless_unscaled,
+              'spin2x' : P.s2x*u.dimensionless_unscaled,
+              'spin2y' : P.s2y*u.dimensionless_unscaled,
+              'spin2z' : P.s2z*u.dimensionless_unscaled,
+              'deltaT' : P.deltaT*u.s,
+              'f22_start' : P.fmin*u.Hz,
+              'f22_ref': P.fref*u.Hz,
+              'phi_ref' : P.phiref*u.rad,
+              'distance' : P.dist/(1e6*lal.PC_SI)*u.Mpc,
+              'inclination' : P.incl*u.rad,
+              'eccentricity' : P.eccentricity*u.dimensionless_unscaled,
+              'longAscNodes' : P.psi*u.rad,
+              'meanPerAno' : P.meanPerAno*u.rad,
+              'condition' : taper}
+    if 'lmax_nyquist' in kwargs:
+        python_dict['lmax_nyquist'] = kwargs['lmax_nyquist']
+
+    # if needed
+#    lal_dict = gws.core.utils.to_lal_dict(python_dict)
+
+    approx_string_here = approx_string
+    if not(approx_string):
+        approx_string_here = lalsim.GetStringFromApproximant(P.approx)
+
+    # Fork on calling different generators
+    gen = gws.models.gwsignal_get_waveform_generator(approx_string_here)
+
+    # gwsignal return values are sometimes gwsignal objects
+    hp, hc = gws.core.waveform.GenerateTDWaveform(python_dict, gen)
+    if not isinstance(hp, lal.REAL8TimeSeries):
+        # gwpy.timeseries.timeseries.TimeSeries object
+        hp_lal = lal.CreateREAL8TimeSeries("hp",
+                lal.LIGOTimeGPS(0.), 0., P.deltaT, lal.DimensionlessUnit,
+                len(hp.times))
+        hc_lal = lal.CreateREAL8TimeSeries("hp",
+                lal.LIGOTimeGPS(0.), 0., P.deltaT, lal.DimensionlessUnit,
+                len(hc.times))
+        hp_lal.data.data =hp.value
+        hc_lal.data.data = hc.value
+        if isinstance(hp.epoch, Time):
+            dT = hp.epoch.to_value('gps','long')  # pull out the time
+        else:
+            dT = float(hp.epoch) # old-style
+        hp_lal.epoch = dT
+        hc_lal.epoch = dT
+        hp = hp_lal
+        hc = hc_lal
+
+
+    ht = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hp.epoch, hp.f0, 
+                                       hp.deltaT, lsu_DimensionlessUnit, hp.data.length)
+    ht.epoch = ht.epoch + P.tref
+    ht.data.data = hp.data.data + 1j * sgn * hc.data.data
+    # impose polarization directly, using precisely the conventions we demand
+    ht.data.data*= np.exp(2j*sgn*P.psi)
     return ht
