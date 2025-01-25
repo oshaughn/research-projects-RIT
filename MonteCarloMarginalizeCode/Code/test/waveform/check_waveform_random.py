@@ -28,7 +28,7 @@ parser.add_argument("--approximant",type=str,default="IMRPhenomPv2")
 parser.add_argument("--fiducial",action='store_true')
 parser.add_argument("--mtot",default=40,type=float)
 parser.add_argument("--fmin",default=20,type=float)
-parser.add_argument("--use_gwsignal",action='store_true')
+parser.add_argument("--use-gwsignal",action='store_true')
 parser.add_argument("--use-extra-fd-args",action='store_true')
 parser.add_argument("--use-xphm-spintaylor",action='store_true') # see https://git.ligo.org/asimov/data/-/blob/main/analyses/bilby-bbh/analysis_bilby_IMRPhenomXPHM-SpinTaylor.yaml?ref_type=heads
 parser.add_argument("--use-same-fref",action='store_true')
@@ -111,26 +111,28 @@ if opts.verbose:
 if not(opts.use_gwsignal):
   hTc_2  = lalsimutils.complex_hoft(P,extra_waveform_args=extra_waveform_args)
 else:
-  import astropy.units as u
-  python_dict = {'mass1' : P.m1,
-              'mass2' : P.m2,
-              'spin1x' : P.s1x,
-              'spin1y' : P.s1y,
-              'spin1z' : P.s1z,
-              'spin2x' : P.s2x,
-              'spin2y' : P.s2y,
-              'spin2z' : P.s2z,
-              'deltaT' : P.deltaT,
-              'f22_start' : P.fmin,
-              'f22_ref': P.fref,
-              'phi_ref' : P.phiRef,
-              'distance' : P.distance,
-              'inclination' : inclination,
-              'eccentricity' : eccentricity,
-              'longAscNodes' : longAscNodes,
-              'meanPerAno' : meanPerAno,
-              'condition' : condition}
-  hp, hc = wfm.GenerateTDWaveform(python_dict, gen)
+  import RIFT.physics.GWSignal as rift_gws
+  hT = rift_gws.complex_hoft(P, extra_waveform_args=extra-waveform_args)
+  # import astropy.units as u
+  # python_dict = {'mass1' : P.m1/lal.MSUN_SI * u.solMass,
+  #             'mass2' : P.m2/lal.MSUN_SI * u.solMass,
+  #             'spin1x' : P.s1x*u.dimensionless_unscaled,
+  #             'spin1y' : P.s1y*u.dimensionless_unscaled,
+  #             'spin1z' : P.s1z*u.dimensionless_unscaled,
+  #             'spin2x' : P.s2x*u.dimensionless_unscaled,
+  #             'spin2y' : P.s2y*u.dimensionless_unscaled,
+  #             'spin2z' : P.s2z*u.dimensionless_unscaled,
+  #             'deltaT' : P.deltaT*u.s,
+  #             'f22_start' : P.fmin*u.Hz,
+  #             'f22_ref': P.fref*u.Hz,
+  #             'phi_ref' : P.phiref*u.rad,
+  #             'distance' : P.dist/(1e6*lal.PC_SI)*u.Mpc,
+  #             'inclination' : P.incl*u.rad,
+  #             'eccentricity' : P.eccentricity*u.dimensionless_unscaled,
+  #             'longAscNodes' : P.psi*u.rad,
+  #             'meanPerAno' : P.meanPerAno*u.rad,
+  #             'condition' : 1}
+  # hp, hc = gws.core.waveform.GenerateTDWaveform(python_dict, gen)
   #hTc_2 = 
 if opts.verbose:
   print('net2 ', np.max(np.abs(hTc_2.data.data)))
