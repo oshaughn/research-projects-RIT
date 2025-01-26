@@ -33,7 +33,7 @@ eos_base_dir = os.environ['LALSIMULATION_DATADIR']
 
 # Demo 1: Tabular i/o
 #    - key point 1: does not fill in data at lower density: finite range
-#    - key point 2: data format follows lalsuite standard, in geometric units 
+#    - key point 2: data format follows lalsuite standard, in geometric units
 eos_names =  ['LALSimNeutronStarEOS_AP4.dat',
               'LALSimNeutronStarEOS_WFF1.dat']
 for name in eos_names:
@@ -50,4 +50,14 @@ plt.savefig("fig_demo_EOSFromTabular.pdf"); plt.clf()
 #   - key point: LALSimulation interface does NOT paste on low density EOS model
 my_eos = EOSManager.EOSLALSimulation('SLy')
 render_eos(my_eos.eos,'energy_density', 'pressure')
-plt.savefig('fig_demo_EOSLALSimulation.pdf')
+plt.savefig('fig_demo_EOSLALSimulation.pdf'); plt.clf()
+
+# Demo 3: MR and M/Lambda calculations, for the same fixed EOS
+m_r_L_data = EOSManager.make_mr_lambda_lal(my_eos.eos, n_bins=200)
+plt.plot(m_r_L_data[:,1], m_r_L_data[:,0])
+plt.xlabel('R (km)'); plt.ylabel('M (Msun)');
+plt.savefig("fig_demo_MR.pdf"); plt.clf()
+plt.plot(m_r_L_data[:,0], m_r_L_data[:,2])
+plt.yscale('log')
+plt.xlabel('M'); plt.ylabel('Lambda')
+plt.savefig("fig_demo_MLambda.pdf")
