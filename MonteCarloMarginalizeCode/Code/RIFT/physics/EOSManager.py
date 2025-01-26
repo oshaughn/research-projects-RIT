@@ -1470,6 +1470,26 @@ class EOSSequenceLandry:
 
         return eos_tables_interp
 
+    def extract_one_eos_object(self, indx=None,name_eos=None,**kwargs):
+        """
+        Extract EOS using either the EOS *index* or the  EOS *name*. Requires the EOS is available
+        """
+        if indx is None and name_eos is None:
+            raise Exception(" Must provide EOS to extract ")
+        if not(self.eos_tables_units == 'cgs'):
+            raise Exception(" Extraction only configured currently for internally-stored cgs-units tables")
+        name_to_use=name_eos
+        if name_to_use is None:
+            name_to_use = self.eos_names[indx]
+        # ASSUMES CGS UNITS
+        dat0 = self.eos_tables[name_to_use]  # record array, raw data
+        dat_copy = {}
+        if self.eos_tables_units == 'cgs':
+            dat_copy['baryon_density'] = dat0['baryon_density']  # not really used
+            dat_copy['pressure'] = dat0['pressure']
+            dat_copy['energy_density'] = dat0['energy_density']/(C_CGS**2)  # g/cm^3 ! 
+        my_eos  = EOSFromTabularData(name=name_to_use, eos_data=dat_copy)  # tabular data inputs need to be cgs and in correct units
+        return my_eos
 
 ####
 #### General lalsimulation interfacing
