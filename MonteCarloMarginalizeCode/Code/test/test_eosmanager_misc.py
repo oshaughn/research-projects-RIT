@@ -61,3 +61,13 @@ plt.plot(m_r_L_data[:,0], m_r_L_data[:,2])
 plt.yscale('log')
 plt.xlabel('M'); plt.ylabel('Lambda')
 plt.savefig("fig_demo_MLambda.pdf")
+
+
+# Demo 4: EOS from tabular information access
+fname_tabular_test = "LCEHL_EOS_posterior_samples_PSR.h5"
+if os.path.exists(fname_tabular_test):
+    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=fname_tabular_test,load_ns=False,load_eos=True,verbose=True,eos_tables_units='cgs')
+    for indx in range(5):
+        my_single_eos = my_eos_sequence.extract_one_eos_object(indx=indx)
+        plot_render = render_eos(eos=my_single_eos.eos, xvar='energy_density', yvar='sound_speed_over_c')  # could be anything
+    plt.savefig("fig_demo_TabularSoundSpeed.pdf")
