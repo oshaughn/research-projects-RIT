@@ -90,7 +90,7 @@ class EOSConcrete:
         return dimensionless_lam
 
     def estimate_baryon_mass_from_mg(self,m):
-        """
+        r"""
         Estimate m_b = m_g + m_g^2/(R_{1.4}/km) based on https://arxiv.org/pdf/1905.03784.pdf Eq. (6)
         Note baryon mass can be computed exactly with a TOV solution integral (e.g., Eq. 6.21 of Haensel's book)
              N_b = 4\pi (1+z_{surf}) \int_0^R e^{Phi} (rho + P/c^2)/m_b sqrt(1-2 G m(r)/r c^2)
@@ -246,7 +246,7 @@ except:
 
 
 class EOSFromTabularData(EOSConcrete):
-    """ 
+    r""" 
     Input: 
        * Tabular data (baryon_density = n , pressure = p, energy density = \rho)
        * method for primitives: this information is partially redundant, in that \ln n_b/n_ref = \int   c^2 [d rho] / (P(rho) + rho c^2), etc
