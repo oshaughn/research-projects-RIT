@@ -543,7 +543,7 @@ class EOSLindblomSpectral(EOSConcrete):
         return None
 
     def test_bounded_adiabatic_index(self,bounds=[0.6,4.5]):
-        """
+        r"""
         Gamma(p) \in bounds
         Uses xmax and other parameters from spectral result
         """
