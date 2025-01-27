@@ -9,6 +9,7 @@ development tree is rift_O4c
     exact) marginals, hyperpipe randomize grid*.dat when joining to fix sort issue, hyperpipe
     SINGULARITY_BASE_EXE_DIR_HYPERPIPE, ILE/dmarg tables new cosmo/cosmo_sourceframe priors, pp_RIFT_with_ini boundary
     range fix ported, hyperpipe fix file transfer issues for PUFF outputs (rc1)
+release is rc1
 
 0.0.17.0
 -----------
