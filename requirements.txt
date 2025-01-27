@@ -1,6 +1,7 @@
 #setuptools 
 #pip 
-#cupy  
+#cupy
+natsort
 numpy
 h5py 
 numba>=0.56
