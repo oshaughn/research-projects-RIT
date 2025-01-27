@@ -4,6 +4,11 @@ development tree is rift_O4c
   - true cosmological distance priors for ILE. Fix --cip-explode-jobs-subdag in cepp_basic to only operate when
     requested.  Update requirements. Note lalsuite==7.23,7.24 releases don't work (and have never worked) due to broken
     executable installs (lal_path2cache): never use those two versions. (rc0)
+  - natsort in requirements, EOSManager tabular can extract one EOS realization, puff adds --fail-if-empty option,
+    GWSignal/gwsignal interface forcing hlm tapering, plot_posterior_corner access external code to plot other (e.g.,
+    exact) marginals, hyperpipe randomize grid*.dat when joining to fix sort issue, hyperpipe
+    SINGULARITY_BASE_EXE_DIR_HYPERPIPE, ILE/dmarg tables new cosmo/cosmo_sourceframe priors, pp_RIFT_with_ini boundary
+    range fix ported, hyperpipe fix file transfer issues for PUFF outputs (rc1)
 
 0.0.17.0
 -----------
