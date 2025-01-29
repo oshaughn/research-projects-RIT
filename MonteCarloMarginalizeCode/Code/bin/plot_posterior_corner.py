@@ -821,6 +821,13 @@ if composite_list:
             print(" Trying alternative access for ", param)
             dat_mass[:,indx] = extract_combination_from_LI(samples, param)
             dat_mass_orig[:,indx] = extract_combination_from_LI(samples_orig, param)
+        # logscale composite info
+        if param in opts.parameter_log_scale:
+            indx_ok = dat_mass[:,indx] > 0
+            dat_mass[indx_ok,indx]= np.log10(dat_mass[indx_ok,indx])
+            indx_ok = dat_mass_orig[:,indx] > 0
+            dat_mass_orig[indx_ok,indx]= np.log10(dat_mass_orig[indx_ok,indx])
+
         # truths
         if opts.truth_file:
             param_to_extract = param
