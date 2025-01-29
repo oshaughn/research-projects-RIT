@@ -1487,9 +1487,10 @@ class EOSSequenceLandry:
         dat0 = self.eos_tables[name_to_use]  # record array, raw data
         dat_copy = {}
         if self.eos_tables_units == 'cgs':
-            dat_copy['baryon_density'] = dat0['baryon_density']  # not really used
-            dat_copy['pressure'] = dat0['pressure']
-            dat_copy['energy_density'] = dat0['energy_density']/(C_CGS**2)  # g/cm^3 !
+            # make sure we use COPIES, to avoid side effects on data structure
+            dat_copy['baryon_density'] = np.copy(dat0['baryon_density'])  # not really used
+            dat_copy['pressure'] = np.copy(dat0['pressure'])
+            dat_copy['energy_density'] = np.copy(dat0['energy_density']/(C_CGS**2))  # g/cm^3 !
         if not(fail_if is None):
             fail_if(dat_copy)
         my_eos  = EOSFromTabularData(name=name_to_use, eos_data=dat_copy,**kwargs)  # tabular data inputs need to be cgs and in correct units
