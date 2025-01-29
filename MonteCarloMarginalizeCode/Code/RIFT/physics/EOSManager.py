@@ -259,7 +259,7 @@ class EOSFromTabularData(EOSConcrete):
         * Currently generates intermediate data file by writing to disk
     """
     
-    def __init__(self,name=None,eos_data=None,eos_units=None,reject_phase_transitions=False,debug=False, add_low_density=False):
+    def __init__(self,name=None,eos_data=None,eos_units=None,reject_phase_transitions=False,debug=False, add_low_density=False,skip_family=False):
         if eos_data is None:
             raise Exception("EOS data required to use EOSFromTabularData")
         if not(name):
@@ -323,7 +323,9 @@ class EOSFromTabularData(EOSConcrete):
         np.savetxt(eos_fname, np.transpose((self.press, self.edens)), delimiter='\t', header='pressure \t energy_density ')
         
         self.eos = lalsim.SimNeutronStarEOSFromFile(eos_fname)
-        self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
+        self.eos_fam = None
+        if not(skip_family):
+            self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
         return None
 
 
@@ -1470,7 +1472,7 @@ class EOSSequenceLandry:
 
         return eos_tables_interp
 
-    def extract_one_eos_object(self, indx=None,name_eos=None,**kwargs):
+    def extract_one_eos_object(self, indx=None,name_eos=None,fail_if=None,**kwargs):
         """
         Extract EOS using either the EOS *index* or the  EOS *name*. Requires the EOS is available
         """
@@ -1487,8 +1489,10 @@ class EOSSequenceLandry:
         if self.eos_tables_units == 'cgs':
             dat_copy['baryon_density'] = dat0['baryon_density']  # not really used
             dat_copy['pressure'] = dat0['pressure']
-            dat_copy['energy_density'] = dat0['energy_density']/(C_CGS**2)  # g/cm^3 ! 
-        my_eos  = EOSFromTabularData(name=name_to_use, eos_data=dat_copy)  # tabular data inputs need to be cgs and in correct units
+            dat_copy['energy_density'] = dat0['energy_density']/(C_CGS**2)  # g/cm^3 !
+        if not(fail_if is None):
+            fail_if(dat_copy)
+        my_eos  = EOSFromTabularData(name=name_to_use, eos_data=dat_copy,**kwargs)  # tabular data inputs need to be cgs and in correct units
         return my_eos
 
 ####
