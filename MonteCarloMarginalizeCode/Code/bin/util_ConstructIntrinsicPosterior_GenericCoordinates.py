@@ -629,7 +629,7 @@ chi_max = opts.chi_max
 chi_small_max = chi_max
 if not opts.chi_small_max is None:
     chi_small_max = opts.chi_small_max
-lambda_min-opts.lambda_min
+lambda_min=opts.lambda_min
 lambda_max=opts.lambda_max
 lambda_small_max  = lambda_max
 if not  (opts.lambda_small_max is None):
