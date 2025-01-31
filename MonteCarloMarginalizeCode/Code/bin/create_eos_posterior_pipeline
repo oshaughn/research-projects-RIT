@@ -47,6 +47,7 @@ parser.add_argument("--eos-post-retries",default=0,type=int,help="Number of retr
 parser.add_argument("--eos-post-explode-jobs",default=2,type=int,help="Number of MARG jobs to use in posterior generation.")
 parser.add_argument("--eos-post-explode-jobs-last",default=2,type=int,help="Number of MARG jobs to use in posterior generation on the final stage (if desired).")
 parser.add_argument("--test-args",default=None,help="filename of args_test.txt, which holds test arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments")
+parser.add_argument("--test-exe",default='convergence_test_samples',help="convergence test samples")
 parser.add_argument("--general-retries",default=0,type=int,help="Number of retry attempts for internal jobs (convert, CIP, ...). (These can fail, albeit more rarely, usually due to filesystem problems)")
 parser.add_argument("--general-request-disk",default="10M",type=str,help="Request disk passed to condor. Must be done for all jobs now")
 parser.add_argument("--transfer-file-list",default=None,help="File containing list of *input* filenames to transfer, one name per file. Copied into transfer_files for condor directly.  If provided, also enables attempts to deduce files that need to be transferred for the pipeline to operate, as needed for OSG, etc")
@@ -181,6 +182,21 @@ if opts.puff_args:
     print("PUFF CADENCE", puff_cadence)
 
 
+test_args=None
+test_node_list = []
+if opts.test_args:
+    # Load args.txt. Remove first item.  Store
+    with open(opts.test_args) as f:
+        test_args_list = f.readlines()
+    test_args = ' '.join( [x.replace('\\','') for x in test_args_list] )
+    test_args = ' '.join(test_args.split(' ')[1:])
+# Some argument protection for later
+    test_args = test_args.replace('[', ' \'[')
+    test_args = test_args.replace(']', ']\'')
+    test_args=test_args.rstrip()
+    print("CONVERGE", test_args)
+
+    
 # Load args.txt. Remove first item.  Store
 if True: # not (opts.eos_post_args is None):
     with open(opts.eos_post_args) as f:
@@ -393,7 +409,7 @@ if opts.use_singularity_local:
 con_prod_job.write_sub_file()
         
 
-if opts.text_args:
+if opts.test_args:
     test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[ opts.working_directory+'/grid-$(macroiteration).dat', opts.working_directory+'/grid-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
     # Modify: set 'initialdir'
     test_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_test")
