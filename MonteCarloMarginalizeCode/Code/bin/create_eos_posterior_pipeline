@@ -393,6 +393,23 @@ if opts.use_singularity_local:
 con_prod_job.write_sub_file()
         
 
+if opts.text_args:
+    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[ opts.working_directory+'/grid-$(macroiteration).dat', opts.working_directory+'/grid-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+    # Modify: set 'initialdir'
+    test_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_test")
+    # Modify output argument: change logs and working directory to be subdirectory for the run
+    test_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).log")
+    test_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).err")
+    test_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).out")
+    test_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+test_job.get_sub_file()
+        test_job.set_sub_file(fname)
+#    if opts.condor_containerize_nonworker and singularity_image:
+#        test_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    test_job.write_sub_file()
+
+
 ##   unify job
 #  - joins together all files into one
 with open("unify.sh",'w') as f:
@@ -612,6 +629,19 @@ for it in np.arange(it_start,opts.n_iterations):
                 dag.add_node(worker_node)
     dag.add_node(join_node)
     parent_fit_node=join_node
+
+    # add test here, using output of this most recent iteration
+    if opts.test_args and it>0:
+        # Cannot run test on first iteration
+        test_node = pipeline.CondorDAGNode(test_job)
+        test_node.add_macro("macroiteration", it+1)   # test the NEWLY-PRODUCED iteration against the old
+        test_node.add_macro("macroiterationlast", it)
+        test_node.add_parent(parent_fit_node)
+        test_node.set_category("CONVERGE")
+        dag.add_node(test_node)
+        test_node_list.append(test_node)
+
+        parent_fit_node=test_node
 
 
     # Check if puffball being created, and if so create it *immediately* after the above join  creates the final 'grid-X.dat' file
