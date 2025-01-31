@@ -3870,12 +3870,22 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             for mode in modes_used_new2:
                 hlm[mode].data.data[0:n_samp] *= vectaper
         else:
+            # determine location of start taper
             if not 'n_samp' in locals():
                 for count,value in enumerate(hlm[(2,2)].data.data):
                     if count ==0:
                         continue
                     if np.abs(np.real(value)-np.real(hlm[(2,2)].data.data[0])) > 0.01 * np.abs(np.real(hlm[(2,2)].data.data[0])):
                         n_samp=int(count/2)
+                        break
+            
+            # determine location of end taper
+            if not 'n_samp2' in locals():
+                for count, value in enumerate(reversed(hlm[(2,2)].data.data)):  # Scan backwards
+                    if count == 0:
+                        continue
+                    if np.abs(np.real(value) - np.real(hlm[(2,2)].data.data[-1])) > 0.01 * np.abs(np.real(hlm[(2,2)].data.data[-1])):
+                        n_samp2 = int(count / 2)
                         break
                         
             # peak finding to determine system type based on 22 mode
@@ -3908,9 +3918,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             
             if len(filtered_peaks) == 1:
                 #check if scatter or plunge            
-                if np.abs(hlm[(2,2)].data.length-nmax) > 3e3:
+                if np.abs(hlm[(2,2)].data.length-nmax) > 3e3:# NOTE - NEED TO FIX THIS!!!
                     print('Scatter waveform, tapering both ends')
-                    n_samp2=n_samp
                     vectaper2= 0.5 + 0.5 * np.cos(np.pi * np.arange(n_samp2 + 1) / (1. * n_samp2))
                     for mode in modes_used_new2:
                         hlm[mode].data.data[-(n_samp2+1):] *= vectaper2
@@ -3919,7 +3928,6 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                     
             elif len(filtered_peaks) ==0:
                 print('Non-interactive hyperbolic waveform, tapering both ends')
-                n_samp2=n_samp
                 vectaper2 = 0.5 + 0.5 * np.cos(np.pi * np.arange(n_samp2 + 1) / (1. * n_samp2))
                 for mode in modes_used_new2:
                         hlm[mode].data.data[-(n_samp2+1):] *= vectaper2
