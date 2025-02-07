@@ -961,7 +961,8 @@ class ChooseWaveformParams:
             if len(filtered_peaks) == 1:
                 # scatter case OR plunge case
                 
-                if np.abs(len(hptmp) - np.argmax(hptmp)) > pars['srate_interp']/5.46133: #3000 samples at 16384 [Hz]
+                #if np.abs(len(hptmp) - np.argmax(hptmp)) > pars['srate_interp']/5.46133: #3000 samples at 16384 [Hz]
+                if np.abs(hptmp)[-1] > 1e-26:
                     # scatter waveform
                     return 'scatter'
                 
@@ -3918,7 +3919,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             
             if len(filtered_peaks) == 1:
                 #check if scatter or plunge            
-                if np.abs(hlm[(2,2)].data.length-nmax) > 3e3:# NOTE - NEED TO FIX THIS!!!
+                #if np.abs(hlm[(2,2)].data.length-nmax) > 3e3:# NOTE - NEED TO FIX THIS!!!
+                if np.abs(hlm[(2,2)].data.data)[-1] > 1e-26:
                     print('Scatter waveform, tapering both ends')
                     vectaper2= 0.5 + 0.5 * np.cos(np.pi * np.arange(n_samp2 + 1) / (1. * n_samp2))
                     for mode in modes_used_new2:
