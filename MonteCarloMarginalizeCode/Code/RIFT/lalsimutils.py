@@ -867,6 +867,8 @@ class ChooseWaveformParams:
             return self
         if p == 'chi1z_mu':
             raise("Not implemented yet")
+        if p == 'eccentricity_squared':
+            self.eccentricity = np.sqrt(val)  # value is eccentricity squared
         # assign an attribute
         if hasattr(self,p):
             setattr(self,p,val)
@@ -1292,6 +1294,8 @@ class ChooseWaveformParams:
         if p == 'DeltaLambdaTilde':
             Lt, dLt   = tidal_lambda_tilde(self.m1, self.m2, self.lambda1, self.lambda2)
             return dLt
+        if p == 'eccentricity_squared':
+            return self.eccentricity**2
         if 'product(' in p:
             # Drop first and last characters
             a=p.replace(' ', '') # drop spaces
