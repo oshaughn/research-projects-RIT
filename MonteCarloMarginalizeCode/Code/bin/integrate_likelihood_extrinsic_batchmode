@@ -215,6 +215,7 @@ optp.add_option("--l-max", type=int, default=2, help="Include all (l,m) modes wi
 optp.add_option("-s", "--data-start-time", type=float, default=None, help="GPS start time of data segment. If given, must also give --data-end-time. If not given, sane start and end time will automatically be chosen.")
 optp.add_option("-e", "--data-end-time", type=float, default=None, help="GPS end time of data segment. If given, must also give --data-start-time. If not given, sane start and end time will automatically be chosen.")
 optp.add_option("--data-integration-window-half",default=75*1e-3,type=float,help="Only change this window size if you are an expert. The window for time integration is -/+ this quantity around the event time")
+optp.add_option("--internal-data-storage-window-half",default=0.15,type=float,help="Only change this window size if you are an expert. This is the haf-size of the window used to store data internally during the precompute step")
 optp.add_option("-F", "--fmax", type=float, help="Upper frequency of signal integration. Default is use PSD's maximum frequency.")
 optp.add_option("--srate",default=16384,type=int,help="Sampling rate. Change ONLY IF YOU ARE ABSOLUTELY SURE YOU KNOW WHAT YOU ARE DOING.")
 optp.add_option("-t", "--event-time", type=float, help="GPS time of the event --- probably the end time. Required if --coinc-xml not given.")
@@ -1356,7 +1357,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       print(" Waveform interface: extra args passed ", extra_args_dict)
       extra_waveform_kwargs['extra_waveform_args'] = extra_args_dict
     # Precompute
-    t_window = 0.15
+    t_window = opts.internal_data_storage_window_half
     rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest=factored_likelihood.PrecomputeLikelihoodTerms(
             fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
             False, inv_spec_trunc_Q, T_spec,
