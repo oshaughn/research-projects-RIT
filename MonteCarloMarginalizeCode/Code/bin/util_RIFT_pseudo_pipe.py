@@ -275,6 +275,7 @@ parser.add_argument("--use-cov-early",action='store_true',help="If provided, use
 parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
 parser.add_argument("--use-osg-cip",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
 parser.add_argument("--use-osg-file-transfer",action='store_true',help="Restructuring for ILE on OSG. The code will NOT use CVMFS, and instead will try to transfer the frame files.")
+parser.add_argument("--internal-use-oauth-files",default=None,type=str,help="Option for low level pipeline writer to use scitokens. Useful if files on osdf need to be transferred, like containers ")
 parser.add_argument("--internal-truncate-files-for-osg-file-transfer",action='store_true',help="If use-osg-file-transfer, will use FrCopy plus the start/end time to build the frame directory.")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
 parser.add_argument("--condor-local-nonworker-igwn-prefix",action='store_true', help="Adds some prefix text to start up cvmfs igwn environment, so local jobs have access to standard RIFT operators. Required for public OSG.")
@@ -1398,6 +1399,8 @@ if opts.use_osg:
 elif opts.ile_additional_files_to_transfer:
     # also transfer files if we request by hand!
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
+if opts.internal_use_oauth_files:
+    cmd += " --use-oauth-files {} ".format(opts.internal_use_oauth_files)
 if opts.condor_local_nonworker:
     cmd += " --condor-local-nonworker "
 if opts.condor_nogrid_nonworker:
