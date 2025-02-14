@@ -52,7 +52,7 @@ def hlmoff(P, Lmax=2,approx_string=None,**kwargs):
     return hlmsF
 
 
-def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
+def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,**kwargs):
     """
     gwsignal.  Note the call will use approx_string, NOT a lalsimulation mode ID.  If approx_string is none, use P.approx but convert to string
     """
@@ -137,6 +137,17 @@ def hlmoft(P, Lmax=2,approx_string=None,**kwargs):
         # Add to structure
         hlmT[mode] = h
 
+    # if no_trust_peak_method, we will change the epoch.  Standard option is 'peak', to find the peak value of |h|^2, summed over modes
+    # Note there is *no interpolation* between samples, so the sampling rate will introduce some jitter.
+    if no_trust_align_method == 'peak':
+        rhosq = np.zeros(TDlen)
+        for mode in hlmT:
+            rhosq += np.abs(hlmT.data.data)**2
+        indx_max =np.argmax(rhosq)
+        new_epoch = - indx_max*P.deltaT
+        for mode in hlmT:
+            hlmT.epoch = new_epoch
+        
     return hlmT
 
 
