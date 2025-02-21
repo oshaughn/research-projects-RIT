@@ -3681,8 +3681,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         elif (P.eccentricity == 0.0):
             print("Using hyperbolic call RIFT O4b branch")
             hyp_wav = True # convenient way to know if the waveform is hyperbolic
-            #print('NOTE! Forcing just the 22 mode!')
-            #k = [1] # forcing just the 22 mode
+            if kwargs.get('force_22_mode', False):
+                print('Forcing ONLY the 22 modes')
+                k = [1]
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
@@ -4014,6 +4015,9 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         # apply taper to all modes
 #        for mode in hlm:
 #            hlm[mode].data.data*= hp.data.data
+
+        print('Actual modes used:')
+        print(hlm.keys())
 
         return hlm
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 

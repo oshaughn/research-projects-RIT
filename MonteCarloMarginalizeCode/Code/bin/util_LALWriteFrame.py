@@ -42,6 +42,7 @@ parser.add_argument("--verbose", action="store_true",default=False)
 parser.add_argument("--l-max",default=4,type=float,help='Lmax number of modes')
 parser.add_argument('--gen-hlmoft', action='store_true', help='Creates hoft from hlmoft')
 parser.add_argument('--hyperbolic', action='store_true', help='skips tapering for hyperbolic waveforms')
+parser.add_argument('--force-hyperbolic-22', action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
 opts=  parser.parse_args()
 
 
@@ -92,7 +93,10 @@ if T_est < opts.seglen:
 
 # Generate signal
 if opts.gen_hlmoft:
-    hlmT = lalsimutils.hlmoft(P, Lmax=opts.l_max)
+    if opts.hyperbolic and opts.force_hyperbolic_22:
+        hlmT = lalsimutils.hlmoft(P, Lmax=opts.l_max, force_22_mode=True)
+    else:
+        hlmT = lalsimutils.hlmoft(P, Lmax=opts.l_max)
     hoft = lalsimutils.hoft_from_hlm(hlmT, P, return_complex=False)
 else:
     hoft = lalsimutils.hoft(P,Lmax=opts.l_max)   # include translation of source, but NOT interpolation onto regular time grid
