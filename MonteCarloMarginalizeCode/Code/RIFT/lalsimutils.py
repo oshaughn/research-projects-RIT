@@ -3982,7 +3982,6 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 # Taper for scatter
                 vectaper2= 0.5 + 0.5 * np.cos(np.pi * np.arange(n_samp2 + 1) / (1. * n_samp2))
                 for mode in modes_used_new2:
-                    print(f'n_samp2 is {n_samp2} for mode {mode}')
                     hlm[mode].data.data[-(n_samp2+1):] *= vectaper2
             elif hypclass == 'plunge':
                 # taper for plunge
