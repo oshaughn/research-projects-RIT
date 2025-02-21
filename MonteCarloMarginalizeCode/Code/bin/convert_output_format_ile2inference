@@ -39,7 +39,7 @@ optp.add_option("--export-eos",action='store_true',help="Include EOS index param
 optp.add_option("--export-cosmology",action='store_true',help="Include source frame masses and redshift")
 optp.add_option("--export-weights",action='store_true',help="Include a field 'weights' equal to L p/ps")
 optp.add_option("--export-eccentricity", action="store_true", help="Include eccentricity")
-optp.add_option("--export-hyperbolic", action="store_true", help="Include eccentricity")
+optp.add_option("--export-hyperbolic", action="store_true", help="Include E0 and p_phi0")
 optp.add_option("--with-cosmology",default="Planck15",help="Specific cosmology to use")
 optp.add_option("--use-interpolated-cosmology",action='store_true',help="Specific cosmology to use")
 optp.add_option("--convention",default="RIFT",help="RIFT|LI")
@@ -99,10 +99,11 @@ if opts.convention == 'LI':
 
     if opts.export_eccentricity:
         ecc = [row.alpha4 for row in points]
+
     if opts.export_hyperbolic:
         p_phi0 = [row.beta for row in points]
         E0 = [row.psi3 for row in points]
-        
+
     
     wt = np.exp(like)*p/ps
     neff_here = np.sum(wt)/np.max(wt)  # neff for this file.  Assumes NOT mixed samples: dangerous
