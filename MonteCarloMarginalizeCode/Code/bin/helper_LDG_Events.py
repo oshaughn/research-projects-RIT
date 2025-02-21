@@ -1175,11 +1175,17 @@ if not ( (opts.data_start_time is None) and (opts.data_end_time is None)):
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape " + str(window_shape)
 elif opts.data_LI_seglen:
     seglen = opts.data_LI_seglen
-    # Use LI-style positioning of trigger relative to 2s before end of buffer
-    # Use LI-style tukey windowing
-    window_shape = 0.4*2/seglen
-    data_end_time = event_dict["tref"]+2
-    data_start_time = event_dict["tref"] +2 - seglen
+    if opts.assume_hyperbolic:
+        window_shape = 0.0 # DO NOT window at all
+        # split seglen across the event time
+        data_start_time = event_dict["tref"] - seglen/2
+        data_end_time = event_dict["tref"] + seglen/2
+    else:
+        # Use LI-style positioning of trigger relative to 2s before end of buffer
+        # Use LI-style tukey windowing
+        window_shape = 0.4*2/seglen
+        data_end_time = event_dict["tref"]+2
+        data_start_time = event_dict["tref"] +2 - seglen
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0  --window-shape " + str(window_shape)
 if opts.assume_eccentric:
     helper_ile_args += " --save-eccentricity "
