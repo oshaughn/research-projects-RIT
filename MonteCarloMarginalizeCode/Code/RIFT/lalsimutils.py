@@ -928,6 +928,11 @@ class ChooseWaveformParams:
             
             # wf amplitude - 22 mode only
             tmp_22 = np.array(hlmtmp['1'])
+            distance_s = self.dist/lal.C_SI
+            m_total_s = MsunInSec*(self.m1+self.m2)/lal.MSUN_SI
+            M1=self.m1/lal.MSUN_SI
+            M2=self.m2/lal.MSUN_SI
+            nu=M1*M2/((M1+M2)**2)
             tmp_22[0] *= (m_total_s/distance_s)*nu
             amp = np.abs(tmp_22[0] * np.exp(-1j*(2*(np.pi/2.)+tmp_22[1])))
             amp_norm = amp / np.amax(amp) # normalize amplitude for peak finding
