@@ -15,6 +15,7 @@ parser.add_argument("-p", "--psd-file", action="append", help="instrument=psd-fi
 parser.add_argument("--fmin-snr",  type=float, default=20)
 parser.add_argument("--fmax-snr", type=float, default=1500)
 parser.add_argument("--plot-sanity",action='store_true')
+parser.add_argument("--verbose", default=False, action='store_true')
 opts=  parser.parse_args()
 
 fminSNR = opts.fmin_snr
@@ -48,7 +49,7 @@ for ifo in ifo_list:
     else:
         analyticPSD_Q=False
         print("Reading PSD for instrument %s from %s" % (ifo, psd_name[ifo]))
-        psd_dict[ifo] = lalsimutils.load_resample_and_clean_psd(psd_name[ifo], ifo, df)
+        psd_dict[ifo] = lalsimutils.load_resample_and_clean_psd(psd_name[ifo], ifo, df, verbose=opts.verbose)
     IP = lalsimutils.ComplexIP(fLow=fminSNR, fNyq=fSample/2,deltaF=df,psd=psd_dict[ifo],fMax=fmaxSNR,analyticPSD_Q=analyticPSD_Q)
     rhoDet = rho_dict[ifo] = IP.norm(data_dict[ifo])
     print(ifo, rho_dict[ifo])
