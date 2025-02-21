@@ -253,12 +253,19 @@ parser.add_argument("--use-cvmfs-frames",action='store_true',help="If true, requ
 parser.add_argument("--use-ini",default=None,type=str,help="Attempt to parse LI ini file to set corresponding options. WARNING: MAY OVERRIDE SOME OTHER COMMAND-LINE OPTIONS")
 parser.add_argument("--verbose",action='store_true')
 parser.add_argument("--force-scatter-grids",action='store_true',help="Eliminates all non-scatter intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-plunge-grids",action='store_true',help="Eliminates all non-plunge intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-zoomwhirl-grids",action='store_true',help="Eliminates all non-zoomwhirl intrinsic points from hyperbolic grids throughout the workflow.")
 parser.add_argument('--force-hyperbolic-22', action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
 opts=  parser.parse_args()
 
-# need --assume-hyperbolic when using --force-scatter-grids
-if opts.force_scatter_grids and not opts.assume_hyperbolic:
-    parser.error("--force-scatter-grids requires --assume-hyperbolic!")
+# Ensure --assume-hyperbolic is set when using any --force-X-grids option
+# Ensure only ONE of the --force-X-grids options is set
+force_grids = [opts.force_scatter_grids, opts.force_plunge_grids, opts.force_zoomwhirl_grids]
+if any(force_grids) and not opts.assume_hyperbolic:
+    parser.error("Using --force-scatter-grids, --force-plunge-grids, or --force-zoomwhirl-grids requires --assume-hyperbolic!")
+
+if sum(bool(x) for x in force_grids) > 1:
+    parser.error("CANNOT use multiple --force-X-grids options at the same time!")
 
 if opts.use_mtot_coords:
     if opts.force_mtot_range is None:
@@ -1288,6 +1295,10 @@ elif opts.propose_initial_grid:
         cmd += f" --random-parameter E0 --random-parameter-range [{opts.E0_min},{opts.E0_max}] --random-parameter p_phi0 --random-parameter-range [{opts.pphi0_min},{opts.pphi0_max}] "
         if opts.force_scatter_grids:
             cmd += " --force-scatter "
+        if opts.force_plunge_grids:
+            cmd += " --force-plunge "
+        if opts.force_zoomwhirl_grids:
+            cmd += " --force-zoomwhirl "
     if opts.internal_tabular_eos_file:
         cmd += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
         grid_size *=2  # larger grids needed for discrete realization scenarios
@@ -1440,6 +1451,10 @@ if opts.assume_hyperbolic:
     helper_puff_args += " --parameter E0 --parameter p_phi0 "
     if opts.force_scatter_grids:
         helper_puff_args += " --force-scatter "
+    if opts.force_plunge_grids:
+        helper_puff_args += " --force-plunge "
+    if opts.force_zoomwhirl_grids:
+        helper_puff_args += " --force-zoomwhirl "
 
 if event_dict["MChirp"] >25:
     # at high mass, mc/eta correlation weak, don't want to have eta coordinate degeneracy at q=1 to reduce puff proposals  near there

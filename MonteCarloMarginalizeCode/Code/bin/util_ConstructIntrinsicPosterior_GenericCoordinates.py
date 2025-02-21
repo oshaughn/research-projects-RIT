@@ -344,6 +344,8 @@ parser.add_argument("--assume-eos-but-primary-bh",action='store_true',help="Spec
 parser.add_argument("--use-eccentricity", action="store_true")
 parser.add_argument("--use-hyperbolic", action="store_true")
 parser.add_argument("--force-scatter",default=False,action='store_true', help='For hyperbolic analyses forces only scatter grid points')
+parser.add_argument("--force-plunge",default=False,action='store_true', help='For hyperbolic analyses forces only plunge grid points')
+parser.add_argument("--force-zoomwhirl",default=False,action='store_true', help='For hyperbolic analyses forces only zoomwhirl grid points')
 parser.add_argument("--tripwire-fraction",default=0.05,type=float,help="Fraction of nmax of iterations after which n_eff needs to be greater than 1+epsilon for a small number epsilon")
 
 # FIXME hacky options added by me (Liz) to try to get my capstone project to work.
@@ -3020,6 +3022,30 @@ for indx_here in indx_list:
                 # removes non-scatter points from the hyperbolic grid
                 hypclass = Pgrid.extract_param('hypclass')
                 if hypclass == 'scatter':
+                    include_item = True
+                else:
+                    include_item = False
+
+        if opts.force_plunge:
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:
+                # removes non-plunge points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'plunge':
+                    include_item = True
+                else:
+                    include_item = False
+
+        if opts.force_zoomwhirl:
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:
+                # removes non-zoomwhirl points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'zoomwhirl':
                     include_item = True
                 else:
                     include_item = False

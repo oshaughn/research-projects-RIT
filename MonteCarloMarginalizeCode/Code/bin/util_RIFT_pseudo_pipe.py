@@ -291,12 +291,19 @@ parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_f
 parser.add_argument("--first-iteration-jumpstart",action='store_true',help="No ILE jobs the first iteration.  Assumes you already have .composite files and want to get going. Particularly helpful for subdag systems")
 parser.add_argument("--use-mtot-coords",action='store_true',help="Passed to the helper to configure CIP and PUFF for mtot instead of mc.")
 parser.add_argument("--force-scatter-grids",action='store_true',help="Eliminates all non-scatter intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-plunge-grids",action='store_true',help="Eliminates all non-plunge intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-zoomwhirl-grids",action='store_true',help="Eliminates all non-zoomwhirl intrinsic points from hyperbolic grids throughout the workflow.")
 parser.add_argument("--force-hyperbolic-22", action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
 opts=  parser.parse_args()
 
-# need --assume-hyperbolic when using --force-scatter-grids
-if opts.force_scatter_grids and not opts.assume_hyperbolic:
-    parser.error("--force-scatter-grids requires --assume-hyperbolic!")
+# Ensure --assume-hyperbolic is set when using any --force-X-grids option
+# Ensure only ONE of the --force-X-grids options is set
+force_grids = [opts.force_scatter_grids, opts.force_plunge_grids, opts.force_zoomwhirl_grids]
+if any(force_grids) and not opts.assume_hyperbolic:
+    parser.error("Using --force-scatter-grids, --force-plunge-grids, or --force-zoomwhirl-grids requires --assume-hyperbolic!")
+
+if sum(bool(x) for x in force_grids) > 1:
+    parser.error("CANNOT use multiple --force-X-grids options at the same time!")
 
 
 if (opts.use_ini):
@@ -667,6 +674,12 @@ if is_analysis_hyperbolic:
         
     if opts.force_scatter_grids:
         cmd += " --force-scatter-grids "
+        
+    if opts.force_plunge_grids:
+        cmd += " --force-plunge-grids "
+        
+    if opts.force_zoomwhirl_grids:
+        cmd += " --force-zoomwhirl-grids "
         
     if opts.force_hyperbolic_22:
         cmd += " --force-hyperbolic-22 "
@@ -1122,6 +1135,12 @@ for indx in np.arange(len(instructions_cip)):
             
         if opts.force_scatter_grids:
             line += " --force-scatter "
+            
+        if opts.force_plunge_grids:
+            line += " --force-plunge "
+            
+        if opts.force_zoomwhirl_grids:
+            line += " --force-zoomwhirl "
         
         
     if not(opts.manual_extra_cip_args is None):
@@ -1200,6 +1219,12 @@ if opts.assume_hyperbolic:
             
         if opts.force_scatter_grids:
             puff_params += ' --force-scatter '
+            
+        if opts.force_plunge_grids:
+            puff_params += ' --force-plunge '
+            
+        if opts.force_zoomwhirl_grids:
+            puff_params += ' --force-zoomwhirl '
             
 if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
