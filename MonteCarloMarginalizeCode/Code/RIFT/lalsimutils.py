@@ -885,20 +885,15 @@ class ChooseWaveformParams:
         if p == 'mtot':
             return (self.m2+self.m1)
         if p == 'q':
-            return self.m2/self.m1
-        
-        ####################################
-        # EXPERIMENTING WITH HYPCLASS HERE #
-        
+            return self.m2/self.m1        
         if p == 'hypclass':
-            
-            
+            # Checks type of hyperbolic waveform: scatter, plunge, zoomwhirl, or meaningless
             # check if valid
             if self.E0 == 0.0:
                 print('Invalid use of hypclass: non-hyperbolic configuration')
                 return None
             
-            # run the classifier
+            # Generate waveform
             pars = {
                 'M'                  : (self.m1+self.m2)/lal.MSUN_SI,
                 'q'                  : self.m1/self.m2,
@@ -915,8 +910,8 @@ class ChooseWaveformParams:
                 'nqc'                : 2, # sets the NQCs, 2=no
                 'nqc_coefs_hlm'      : 0, # Option for the NQC model used in the waveform. 0=none
                 'nqc_coefs_flx'      : 0, # Option for the NQC model used in the flux. 0=none
-                'use_mode_lm'        : [1,-1], # 2\pm 2 modes
-                'output_lm'          : [1,-1],
+                'use_mode_lm'        : [1], # 22 mode
+                'output_lm'          : [1],
                 'srate_interp'       : 1./self.deltaT,
                 'use_geometric_units': 0,
                 'interp_uniform_grid': 1,
@@ -927,16 +922,22 @@ class ChooseWaveformParams:
                 'output_hpc'         : 0 # output plus and cross polarizations, 0=no
             }
             
-            #print('Classifying hyperbolic waveform...')
-            #print(pars)
-            
             t, hptmp, hctmp, hlmtmp, dym = EOBRun_module.EOBRunPy(pars)
             
             # peak finding to classifiy
             
-            # wf amplitude
-            amp = np.sqrt(np.abs(hptmp)**2+np.abs(hctmp)**2)
-            amp_norm = amp / np.amax(amp) # normalize amplitude for peak finding                
+            # wf amplitude - 22 mode only
+            tmp_22 = np.array(hlmtmp['1'])
+            tmp_22[0] *= (m_total_s/distance_s)*nu
+            amp = np.abs(tmp_22[0] * np.exp(-1j*(2*(np.pi/2.)+tmp_22[1])))
+            amp_norm = amp / np.amax(amp) # normalize amplitude for peak finding
+            
+            # Check for cases where the amplitude is max at the start or end
+            if np.argmax(amp_norm) == 0 or np.argmax(amp_norm) == len(amp_norm) - 1:
+                reclassify = True
+            else:
+                reclassify = False
+            
             # peak finding to determine system type
             height_thresh = 0.25
             prom_thresh = 0.1
@@ -959,29 +960,47 @@ class ChooseWaveformParams:
             
             # parsing number of peaks after filtering against distance tolerance
             if len(filtered_peaks) == 1:
-                # scatter case OR plunge case
-                
-                #if np.abs(len(hptmp) - np.argmax(hptmp)) > pars['srate_interp']/5.46133: #3000 samples at 16384 [Hz]
-                if np.abs(hptmp)[-1] > 1e-26:
+                if np.abs(amp)[-1] > 1e-26:
                     # scatter waveform
-                    return 'scatter'
-                
+                    return 'scatter'                
                 else:
                     # plunge waveform
                     return 'plunge'
                 
             elif len(filtered_peaks) == 0:
                 # meaningless waveform
-                return None
+                reclassify = True
             
             else:
                 # zoom whirl waveform
-                return 'zoomwhirl'                
-        
-        
-        ####################################
-        
-        
+                return 'zoomwhirl'
+            
+            if reclassify:
+                print('Running re-classification')
+                # run minimal threshold peak finder
+                all_peaks, all_props = signal.find_peaks(amp_norm, height=0.0001, prominence=0.0001)
+                
+                # checking for minima if no peaks found                
+                if len(all_peaks) == 0:
+                    print("No peaks found, checking for minima instead...")
+                    all_peaks, all_props = signal.find_peaks((-1*amp_norm + 1.0), height=0.0001, prominence=0.0001)
+                
+                if len(all_props['prominences']) > 3:
+                    print('MANY peaks detected on reclassification, evaluating...')
+                    # these can be scatter or plunge
+                    if np.abs(amp)[-1] < 1e-26:
+                        print('Reclassifying to Plunge')
+                        return 'plunge'
+                    else:
+                        print('Reclassifying to Scatter')
+                        return 'scatter'
+                elif len(all_props['prominences']) == 3 or len(all_props['prominences']) == 2 or len(all_props['prominences']) == 1:
+                    # these are always scaters
+                    print('Reclassifying to Scatter')
+                    return 'scatter'
+                else:
+                    print('No peaks detected after reclassifcation')
+                    return 'meaningless'
         if p == 'delta' or p=='delta_mc':  # Same access routine
             return (self.m1-self.m2)/(self.m1+self.m2)
         if p == 'mc':
@@ -3657,6 +3676,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         elif (P.eccentricity == 0.0):
             print("Using hyperbolic call RIFT O4b branch")
             hyp_wav = True # convenient way to know if the waveform is hyperbolic
+            #print('NOTE! Forcing just the 22 mode!')
+            #k = [1] # forcing just the 22 mode
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
@@ -3722,12 +3743,21 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             ## Set the epoch for non-hyperbolic cases ##
             hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)            
         else:
-            ## custom epoch for the hyperbolic case ##            
-            # wf amplitude
-            amp = np.sqrt(np.abs(hptmp)**2+np.abs(hctmp)**2)
+            ## custom epoch for the hyperbolic case ##
+                        
+            # wf amplitude - 22 mode only
+            tmp_22 = np.array(hlmtmp['1'])
+            tmp_22[0] *= (m_total_s/distance_s)*nu
+            amp = np.abs(tmp_22[0] * np.exp(-1j*(2*(np.pi/2.)+tmp_22[1])))
             amp_norm = amp / np.amax(amp) # normalize amplitude for peak finding
             
-            # peak finding to determine system type
+            # Check for cases where the amplitude is max at the start or end
+            if np.argmax(amp_norm) == 0 or np.argmax(amp_norm) == len(amp_norm) - 1:
+                reclassify = True
+            else:
+                reclassify = False
+            
+            # initial peak finding to determine system type
             height_thresh = 0.25
             prom_thresh = 0.1
             peaks, props = signal.find_peaks(amp_norm, height = height_thresh, prominence = prom_thresh) 
@@ -3749,15 +3779,60 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             # parsing number of peaks after filtering against distance tolerance
             if len(filtered_peaks) == 1:
                 # scatter case OR plunge case, we can set the epoch normally
-                hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+                hpepoch = -P.deltaT*np.argmax(amp)
+                
+                if np.abs(amp)[-1] > 1e-26:
+                    hypclass = 'scatter' # maybe should do through assign_param?
+                else:
+                    hypclass = 'plunge'
+                
+                
             elif len(filtered_peaks) == 0:
-                # meaningless waveform, essentially a non-interacting case. Set the epoch normally
-                # These points should return very low likelihood and not interfere with the analysis
-                print('WARNING: no peak detected; non-interacting hyperbolic case')
-                hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)                
+                hypclass = 'meaningless'
+                hpepoch = -P.deltaT*np.argmax(amp)
+                reclassify = True
+                
             else:
                 # capture case, we need to force the epoch to be the last peak
+                hypclass = 'zoomwhirl'
                 hpepoch = -P.deltaT*filtered_peaks[-1]
+                
+            if reclassify:
+                print('Running re-classification')
+                # run minimal threshold peak finder
+                all_peaks, all_props = signal.find_peaks(amp_norm, height=0.000001, prominence=0.000001)
+                
+                # checking for minima if no peaks found
+                
+                if len(all_peaks) == 0:
+                    print("No peaks found, checking for minima instead...")
+                    all_peaks, all_props = signal.find_peaks((-1*amp_norm + 1.0), height=0.000001, prominence=0.000001)
+                
+                if len(all_props['prominences']) > 3:
+                    print('MANY peaks detected on reclassification, evaluating...')
+                    
+                    if np.abs(amp)[-1] < 1e-26:
+                        print('Reclassifying to Plunge')
+                        hpepoch = -P.deltaT*np.argmax(amp)
+                        hypclass = 'plunge' 
+                    else:
+                        print('Reclassifying to Scatter')
+                        max_peak_index = all_peaks[np.argmax(all_props['peak_heights'])]
+                        print(f"Largest peak is at index {max_peak_index} with height {amp_norm[max_peak_index]}")
+                        # setting the epoch to the largest amplitude peak
+                        hpepoch = -P.deltaT*max_peak_index
+                elif len(all_props['prominences']) == 3 or len(all_props['prominences']) == 2 or len(all_props['prominences']) == 1:
+                    print('Reclassifying to Scatter')
+                    hypclass = 'scatter'
+                    
+                    max_peak_index = all_peaks[np.argmax(all_props['peak_heights'])]
+                    print(f"Largest peak is at index {max_peak_index} with height {amp_norm[max_peak_index]}")
+                    
+                    # setting the epoch to the largest amplitude peak
+                    hpepoch = -P.deltaT*max_peak_index
+                else:
+                    print('No peaks detected after reclassifcation')
+                    hypclass='meaningless'
                 
         hlmlen = len(hptmp)
         hlm = {}
@@ -3886,56 +3961,35 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                     if count == 0:
                         continue
                     if np.abs(np.real(value) - np.real(hlm[(2,2)].data.data[-1])) > 0.01 * np.abs(np.real(hlm[(2,2)].data.data[-1])):
-                        n_samp2 = int(count / 2)
+                        n_samp2 = int(count / 2) 
                         break
-                        
-            # peak finding to determine system type based on 22 mode
-            wf_22 = hlm[(2,2)].data.data
-            wf_22_norm = wf_22 / np.amax(wf_22)
-            height_thresh = 0.25
-            prom_thresh = 0.1
-            peaks, props = signal.find_peaks(wf_22_norm, height = height_thresh, prominence = prom_thresh)
-            peak_heights = props['peak_heights']
-            indices_to_keep = set()
-            sorted_indices = np.argsort(peak_heights)[::-1]
-            tol = int(pars['srate_interp'] / 13.65) # 300 samples at srate of 4096 - minimum distance between peaks.
-            for i in sorted_indices:
-                peak = peaks[i]                
-                keep = True
-                for kept_index in indices_to_keep:
-                    if abs(peaks[kept_index] - peak) <= tol:
-                        keep = False
-                        break                
-                if keep:
-                    indices_to_keep.add(i)                    
-            filtered_peaks = peaks[list(indices_to_keep)]
             
             # Always taper the start
             
             vectaper= 0.5 + 0.5*np.cos(np.pi* (1-np.arange(n_samp)/(1.*n_samp)))
             nmax = np.argmax(hlm[(2,2)].data.data)
             for mode in modes_used_new2:
+                #pass
                 hlm[mode].data.data[0:n_samp] *= vectaper
-            
-            if len(filtered_peaks) == 1:
-                #check if scatter or plunge            
-                #if np.abs(hlm[(2,2)].data.length-nmax) > 3e3:# NOTE - NEED TO FIX THIS!!!
-                if np.abs(hlm[(2,2)].data.data)[-1] > 1e-26:
-                    print('Scatter waveform, tapering both ends')
-                    vectaper2= 0.5 + 0.5 * np.cos(np.pi * np.arange(n_samp2 + 1) / (1. * n_samp2))
-                    for mode in modes_used_new2:
-                        hlm[mode].data.data[-(n_samp2+1):] *= vectaper2
-                else:
-                    print('Plunge waveform, only start taper')
-                    
-            elif len(filtered_peaks) ==0:
-                print('Non-interactive hyperbolic waveform, tapering both ends')
-                vectaper2 = 0.5 + 0.5 * np.cos(np.pi * np.arange(n_samp2 + 1) / (1. * n_samp2))
+                
+            if hypclass == 'scatter':
+                # Taper for scatter
+                vectaper2= 0.5 + 0.5 * np.cos(np.pi * np.arange(n_samp2 + 1) / (1. * n_samp2))
                 for mode in modes_used_new2:
-                        hlm[mode].data.data[-(n_samp2+1):] *= vectaper2
-                        
-            else:
-                print('Zoom-whirl waveform, only start taper')                        
+                    print(f'n_samp2 is {n_samp2} for mode {mode}')
+                    hlm[mode].data.data[-(n_samp2+1):] *= vectaper2
+            elif hypclass == 'plunge':
+                # taper for plunge
+                print('Plunge waveform, only start taper')
+            elif hypclass == 'zoomwhirl':
+                # taper for ZW
+                print('Zoom-whirl waveform, only start taper')
+            elif hypclass =='meaningless':
+                # zero out meaningless
+                for mode in modes_used_new2:
+                    hlm[mode].data.data *= 0.0
+                    
+        # end off custom hyperbolic stuff
             
         for mode in modes_used_new2:
             if not (P.deltaF is None):
