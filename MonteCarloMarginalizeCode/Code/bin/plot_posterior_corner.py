@@ -366,8 +366,11 @@ if opts.posterior_file:
  for fname in opts.posterior_file:
     samples = np.genfromtxt(fname,names=True,replace_space=None)  # don't replace underscores in names
     samples = standard_expand_samples(samples)
-    if not(opts.no_mod_psi) and 'psi' in samples.dtype.names:
-        samples['psi'] = np.mod(samples['psi'],np.pi)
+#    if not(opts.no_mod_psi) and 'psi' in samples.dtype.names:
+#        samples['psi'] = np.mod(samples['psi'],np.pi)
+    for name in samples:
+        if name in lalsimutils.periodic_params:
+            samples[name] = np.mod(samples[name], lalsimutils.periodic_params[name])
     # if not 'mtotal' in samples.dtype.names and 'mc' in samples.dtype.names:  # raw LI samples use 
     #     q_here = samples['q']
     #     eta_here = q_here/(1+q_here)
@@ -500,6 +503,10 @@ if opts.composite_file:
     else:
         samples = np.genfromtxt(fname,names=True)
         samples = rfn.rename_fields(samples, {'sigmalnL': 'sigmaOverL', 'sigma_lnL': 'sigmaOverL'})   # standardize names, some drift in labels
+    # enforce periodicity
+    for name in samples:
+        if name in lalsimutils.periodic_params:
+            samples[name] = np.mod(samples[name], lalsimutils.periodic_params[name])
     if 'lnL' in samples.dtype.names:
         samples = samples[ ~np.isnan(samples["lnL"])] # remove nan likelihoods -- they can creep in with poor settings/overflows
     name_ref = samples.dtype.names[0]
