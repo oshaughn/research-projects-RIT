@@ -355,6 +355,7 @@ parser.add_argument("--internal-n-comp",default=1,type=int,help="number of compo
 parser.add_argument("--internal-gmm-memory-chisquared-factor",default=None,type=float,help="Multiple of the number of degrees of freedom to save. 5 is a part in 10^6, 4 is 10^{-4}, and None keeps all up to lnL_offset.  Note that low-weight points can contribute notably to n_eff, and it can be dangerous to assume a simple chisquared likelihood!  Provided in case we need very long runs")
 parser.add_argument("--assume-eos-but-primary-bh",action='store_true',help="Special case of known EOS, but primary is a BH")
 parser.add_argument("--use-eccentricity", action="store_true")
+parser.add_argument("--use-meanPerAno", action="store_true")
 parser.add_argument("--tripwire-fraction",default=0.05,type=float,help="Fraction of nmax of iterations after which n_eff needs to be greater than 1+epsilon for a small number epsilon")
 
 # FIXME hacky options added by me (Liz) to try to get my capstone project to work.
@@ -1605,9 +1606,18 @@ n_params = -1
 ###
 #  id m1 m2  lnL sigma/L  neff
 col_lnL = 9
+col_eccentricity = None
+col_meanPerAno = None
+col_lambda1 = None
+col_distance = None
+if opts.input_distance:
+    print(" Distance input")
+    col_lnL +=1
+    col_distance = col_lnL -1
 if opts.input_tides:
     print(" Tides input")
     col_lnL +=2
+    col_lambda1 = col_lnL -2
     if opts.input_eos_index:
         print(" EOS Tides input")
         col_lnL +=1
@@ -1617,15 +1627,21 @@ if opts.input_tides:
             low_level_coord_names += ['ordering'] 
         print(" Revised fit coord names (for lookup) : ", coord_names) # 'eos_table_index' will be overwritten here
         print(" Revised sampling coord names  : ", low_level_coord_names)
-
 elif opts.use_eccentricity:
     print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
-    col_lnL += 1
-if opts.input_distance:
-    print(" Distance input")
-    col_lnL +=1
+    if opts.use_meanPerAno:
+        print("  Also using meanPerAno ")
+        # perform modulus on desired row
+        col_lnL+=2
+        col_meanPerAno = col_lnL -1
+        col_eccentricity = col_lnL -2
+    else:
+        col_lnL += 1
+        col_eccentricity = col_lnL -1
 dat_orig = dat = np.loadtxt(opts.fname)
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
+if col_meanPerAno:
+    dat_orig[:,col_meanPerAno] = np.mod(dat_orig[:,col_meanPerAno], lalsimutils.periodic_params['meanPerAno'] ) # 2 *np.pi
 print(" Original data size = ", len(dat), dat.shape)
 
 # Rescale lnL data, if requested.  Note requires user have sensible understanding of zero points of likelihood, etc  Appl
@@ -1708,14 +1724,16 @@ for line in dat:
     P.s2z = line[8]
 
     if opts.input_tides:
-        P.lambda1 = line[9]
-        P.lambda2 = line[10]
+        P.lambda1 = line[col_lambda1]
+        P.lambda2 = line[col_lambda1+1]
     if opts.input_eos_index:
-        P.eos_table_index = line[11]
+        P.eos_table_index = line[col_lambda1+2]
     if opts.use_eccentricity:
-        P.eccentricity = line[9]
+        P.eccentricity = line[col_eccentricity]  # 9
+        if opts.use_meanPerAno:
+            P.meanPerAno = line[col_meanPerAno] #10
     if opts.input_distance:
-        P.dist = lal.PC_SI*1e6*line[9]  # Incompatible with tides, note!
+        P.dist = lal.PC_SI*1e6*line[col_distance]  # 9. Previously incompatible with tides when hardcoded
     
     if opts.contingency_unevolved_neff == "quadpuff":
         P_copy = P.manual_copy()  # prevent duplication
