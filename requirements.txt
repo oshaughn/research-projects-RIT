@@ -12,8 +12,9 @@ scikit-learn
 matplotlib 
 lalsuite
 gwdatafind 
-ligo-segments 
-python-ligo-lw 
+#ligo-segments 
+#python-ligo-lw
+igwn_ligolw
 six
 precession
 ligo.skymap

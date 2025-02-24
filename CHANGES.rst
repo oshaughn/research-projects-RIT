@@ -1,3 +1,12 @@
+0.0.17.2
+------------
+development tree is rift_O4c
+   - lalsimutils.periodic_params for plot_posterior_corner and puff; pipeline transverse puff better z coordinates **noteworthy**,
+     ligo.lw->igwn_ligoow update, backend changes to CIP column order parsing to be more flexible, CIP lambda_min;
+     ILE --internal-waveform-extra-kwargs for gwsignal, changing t_window;  pipeline --internal-use-oauthfiles;
+     hyperpipe convergence test nodes
+   
+
 0.0.17.1
 ------------
 development tree is rift_O4c
