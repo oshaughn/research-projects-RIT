@@ -504,7 +504,7 @@ if opts.composite_file:
         samples = np.genfromtxt(fname,names=True)
         samples = rfn.rename_fields(samples, {'sigmalnL': 'sigmaOverL', 'sigma_lnL': 'sigmaOverL'})   # standardize names, some drift in labels
     # enforce periodicity
-    for name in samples:
+    for name in samples.dtype.names:
         if name in lalsimutils.periodic_params:
             samples[name] = np.mod(samples[name], lalsimutils.periodic_params[name])
     if 'lnL' in samples.dtype.names:
