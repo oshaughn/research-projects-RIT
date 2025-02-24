@@ -5102,6 +5102,10 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         elif ('eta' in low_level_coord_names):
                 indx_eta = low_level_coord_names.index('eta')
                 eta_vals = x_in[:,indx_eta]
+        if 'eta' in coord_names_reduced:
+            indx_p_out = coord_names.index('eta')
+            x_out[:,indx_p_out] = eta_vals
+            coord_names_reduced.remove('eta')
         if 'm1' in coord_names_reduced:
             m1_vals =np.zeros(len(x_in))  
             m2_vals =np.zeros(len(x_in))  
