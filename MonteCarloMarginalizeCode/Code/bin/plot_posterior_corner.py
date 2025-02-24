@@ -368,7 +368,7 @@ if opts.posterior_file:
     samples = standard_expand_samples(samples)
 #    if not(opts.no_mod_psi) and 'psi' in samples.dtype.names:
 #        samples['psi'] = np.mod(samples['psi'],np.pi)
-    for name in samples:
+    for name in samples.dtype.names:
         if name in lalsimutils.periodic_params:
             samples[name] = np.mod(samples[name], lalsimutils.periodic_params[name])
     # if not 'mtotal' in samples.dtype.names and 'mc' in samples.dtype.names:  # raw LI samples use 
