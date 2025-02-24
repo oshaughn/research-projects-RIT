@@ -26,8 +26,8 @@ except:
 
 
 import lal
-from ligo.lw import utils, lsctables, table, ligolw
-from ligo.lw.utils import process
+from igwn_ligolw import utils, lsctables, table, ligolw
+from igwn_ligolw.utils import process
 import glue.lal
 #import pylal
 

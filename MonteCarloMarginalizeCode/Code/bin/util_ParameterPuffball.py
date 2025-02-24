@@ -30,7 +30,7 @@ import functools
 import itertools
 
 
-from ligo.lw import lsctables, utils, ligolw
+from igwn_ligolw import lsctables, utils, ligolw
 lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 

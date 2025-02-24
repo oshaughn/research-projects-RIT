@@ -14,7 +14,7 @@
 import numpy as np
 import lal
 import RIFT.lalsimutils as lalsimutils
-from ligo.lw import utils, table, lsctables, ligolw
+from igwn_ligolw import utils, table, lsctables, ligolw
 
 import bisect
 

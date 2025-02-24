@@ -7,7 +7,7 @@ from functools import reduce
 import numpy
 
 from glue.lal import LIGOTimeGPS
-from ligo.lw import ligolw, lsctables, table #, ilwd
+from igwn_ligolw import ligolw, lsctables, table #, ilwd
 #from glue.ligolw.utils import process
 
 def assign_id(row, i):
@@ -239,5 +239,5 @@ if __file__ == sys.argv[0]:
     for m1i, m2i, loglikelihood in zip(m1, m2, loglikes):
         append_likelihood_result_to_xmldoc(xmldoc, loglikelihood, **{"mass1": m1i, "mass2": m2i})
 
-    from ligo.lw import utils
+    from igwn_ligolw import utils
     utils.write_filename(xmldoc, "iotest.xml.gz", gz=True)

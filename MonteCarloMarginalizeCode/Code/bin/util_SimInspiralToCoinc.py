@@ -13,13 +13,13 @@ try:
     def ilwd_base(a):
         return ilwd.ilwdchar(a)
 except:
-    from ligo.lw.utils import ilwd
+    from igwn_ligolw.utils import ilwd
 
 
-from ligo.lw import ligolw   # old style deprecated
-from ligo.lw import lsctables
-from ligo.lw import table
-from ligo.lw import utils
+from igwn_ligolw import ligolw   # old style deprecated
+from igwn_ligolw import lsctables
+from igwn_ligolw import table
+from igwn_ligolw import utils
 
 import RIFT.lalsimutils as lalsimutils
 import lal

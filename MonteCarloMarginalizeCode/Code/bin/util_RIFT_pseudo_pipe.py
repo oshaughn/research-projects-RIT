@@ -70,7 +70,7 @@ def format_gps_time(tval):
     return str_out
 
 def retrieve_event_from_coinc(fname_coinc):
-    from ligo.lw import lsctables, table, utils
+    from igwn_ligolw import lsctables, table, utils
     from RIFT import lalsimutils
     event_dict ={}
     samples = lsctables.SnglInspiralTable.get_table(utils.load_filename(fname_coinc,contenthandler=lalsimutils.cthdler))

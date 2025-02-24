@@ -10,7 +10,7 @@ import sys
 import os
 import RIFT.misc.xmlutils as xmutils
 from optparse import OptionParser
-from ligo.lw import lsctables, table, utils
+from igwn_ligolw import lsctables, table, utils
 
 # optp= OptionParser()
 # opts, args = optp.parse_args()

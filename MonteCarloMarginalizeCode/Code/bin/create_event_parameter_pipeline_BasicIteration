@@ -726,7 +726,7 @@ if  (opts.last_iteration_extrinsic):
     
     # Convert task 
     if opts.last_iteration_extrinsic_time_resampling:
-        # very simple: ligo_lw add on all final output, then a single convert
+        # very simple: igwn_ligolw add on all final output, then a single convert
         convert_args_extr =  " --convention LI  --export-cosmology --use-interpolated-cosmology " 
         if not (convert_args is None):
             convert_args_extr += convert_args

@@ -59,7 +59,7 @@ def safe_int(mystr):
         return None
 sci_ver = list(map(safe_int, scipy.version.version.split('.')))  # scipy version number as int list.
 
-from ligo.lw import lsctables, utils, ligolw #, table, ,ilwd # check all are needed
+from igwn_ligolw import lsctables, utils, ligolw #, table, ,ilwd # check all are needed
 from glue.lal import Cache
 
 lalmetaio_old_style=True
@@ -103,9 +103,9 @@ def strip_ilwdchar(_ContentHandler):
     Leo Singer (GPL-3.0-or-later).
     This is taken directly from https://github.com/gwpy/gwpy/blob/master/gwpy/io/ligolw.py#L92
     """
-    from ligo.lw.lsctables import TableByName
-    from ligo.lw.table import (Column, TableStream)
-    from ligo.lw.types import (FromPyType, ToPyType)
+    from igwn_ligolw.lsctables import TableByName
+    from igwn_ligolw.table import (Column, TableStream)
+    from igwn_ligolw.types import (FromPyType, ToPyType)
 
     class IlwdMapContentHandler(_ContentHandler):
 
@@ -1789,7 +1789,7 @@ class ChooseWaveformParams:
         row.inclination = self.incl
         row.polarization = self.psi
         row.coa_phase = self.phiref
-        # New code for managing times in output: see https://git.ligo.org/kipp.cannon/python-ligo-lw/-/blob/master/ligo/lw/lsctables.py
+        # New code for managing times in output: see https://git.ligo.org/kipp.cannon/python-igwn_ligolw/-/blob/master/igwn_ligolw/lsctables.py
         if 'time_geocent' in dir(row):
             row.time_geocent = float(self.tref)
         # http://stackoverflow.com/questions/6032781/pythonnumpy-why-does-numpy-log-throw-an-attribute-error-if-its-operand-is-too

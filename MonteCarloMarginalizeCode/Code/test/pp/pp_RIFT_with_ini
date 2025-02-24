@@ -22,7 +22,7 @@ import RIFT.lalsimutils as lalsimutils
 import lal
 import lalsimulation as lalsim
 
-from ligo.lw import lsctables, table, utils
+from igwn_ligolw import lsctables, table, utils
 
 # Backward compatibility
 from RIFT.misc.dag_utils import which

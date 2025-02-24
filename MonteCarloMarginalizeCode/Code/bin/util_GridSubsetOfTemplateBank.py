@@ -100,7 +100,7 @@ output_event_directory= opts.output_path #kwargs["output_event_ID"] #the output 
 # as in MOG
 P=lalsimutils.ChooseWaveformParams()
 if opts.inj:
-    from ligo.lw import lsctables, table, utils # check all are needed
+    from igwn_ligolw import lsctables, table, utils # check all are needed
     filename = opts.inj
     event = opts.event_id
     xmldoc = utils.load_filename(filename, verbose = True,contenthandler =lalsimutils.cthdler)

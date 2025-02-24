@@ -20,7 +20,7 @@ import lal
 import RIFT.lalsimutils as lalsimutils
 import lalsimulation as lalsim
 
-from ligo.lw import lsctables, table, utils
+from igwn_ligolw import lsctables, table, utils
 from glue.lal import CacheEntry
 
 import configparser as ConfigParser
