@@ -1358,7 +1358,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       print(" Waveform interface: extra args passed ", extra_args_dict)
       extra_waveform_kwargs['extra_waveform_args'] = extra_args_dict
     if opts.internal_waveform_extra_kwargs:
-      extra_args_dict = eval(opts.internal_waveform_extra_lalsuite_args)  # should only do this once and for all, not in loop!
+      extra_args_dict = eval(opts.internal_waveform_extra_kwargs)  # pass arguments at high level (eg, gwsignal), not to lalsuite wrapper
+      print(" Waveform high-level extra args passed ", extra_args_dict)
       extra_waveform_kwargs.update(extra_args_dict)
     # Precompute
     t_window = opts.internal_data_storage_window_half
