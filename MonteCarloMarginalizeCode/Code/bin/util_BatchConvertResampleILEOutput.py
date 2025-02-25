@@ -39,6 +39,7 @@ parser.add_option("--export-tides",action='store_true',help="Include tidal param
 parser.add_option("--export-cosmology",action='store_true',help="Include source frame masses and redshift")
 parser.add_option("--export-weights",action='store_true',help="Include a field 'weights' equal to L p/ps")
 parser.add_option("--export-eccentricity", action="store_true", help="Include eccentricity")
+parser.add_option("--export-meanPerAno", action="store_true", help="Include meanPerAno")
 parser.add_option("--with-cosmology",default="Planck15",help="Specific cosmology to use")
 parser.add_option("--use-interpolated-cosmology",action='store_true',help="Specific cosmology to use")
 parser.add_option("--convention",default="RIFT",help="RIFT|LI")
@@ -79,6 +80,8 @@ if True: #opts.convention == 'LI':
       print( " weights", )
   if opts.export_eccentricity:
       print( " eccentricity", )
+  if opts.export_meanPerAno:
+      print( " meanPerAno", )
   print('')
 
 
@@ -93,6 +96,8 @@ for fname in args:
 
     if opts.export_eccentricity:
         ecc = [row.alpha4 for row in points]
+        if opts.export_meanPerAno:
+            meanPerAno = [row.alpha for row in points]
         
     lnLmax = np.max(lnL)
     weights = np.exp(lnL - lnLmax) * (p/ps)
@@ -125,6 +130,8 @@ for fname in args:
         P.fmin=opts.fref
         if opts.export_eccentricity:
             P.eccentricity = ecc
+            if opts.export_meanPerAno:
+                P.meanPerAno = meanPerAno
         try:
             P.fmin = pt.f_lower  # should use this first
         except:
@@ -168,6 +175,8 @@ for fname in args:
             print(wt[indx],end=' ')
         if opts.export_eccentricity:
             print(ecc[indx])
+            if opts.export_meanPerAno:
+                print(meanPerAno[indx])
         print('')
 
 

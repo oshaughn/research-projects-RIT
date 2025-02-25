@@ -236,6 +236,7 @@ optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
 optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0.1, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
+optp.add_option("--e-freq", type=int,default=1, help="Used specifically for TEOBResumS to define when eccentricity either at periapstron (0), average (1), o\r apastron (2) initial frequency")
 optp.add_option("--internal-hard-fail-on-error",action='store_true',help='If true, fails with exit code 1 if any point is unsuccessful')
 optp.add_option("--internal-soft-fail-on-cuda-error",action='store_true',help='If true, returns with exit code 0 on any CUDA error. Use with care (e.g., if many jobs failing)')
 optp.add_option("--internal-make-empty-file-on-error",action='store_true',help='If true, failed points generate empty output file. Protects against OSG workflow problems')
@@ -245,6 +246,7 @@ optp.add_option("--internal-waveform-extra-lalsuite-args",type=str,default=None)
 optp.add_option("--internal-waveform-extra-kwargs",type=str,default=None)
 optp.add_option("--verbose",action='store_true')
 optp.add_option("--save-eccentricity", action="store_true")
+optp.add_option("--save-meanPerAno", action="store_true")
 #
 # Add the integration options
 #
@@ -1353,6 +1355,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       extra_waveform_kwargs['rom_taper_start'] = True  # really for NRHyb3dq8 given discussion with Aasim for high-SNR sources, but valuable generally
     if opts.use_gwsignal_lmax_nyquist:
       extra_waveform_kwargs['lmax_nyquist'] = int(opts.use_gwsignal_lmax_nyquist)
+    extra_waveform_kwargs['e_freq'] = int(opts.e_freq)
     if opts.internal_waveform_extra_lalsuite_args:
       extra_args_dict = eval(opts.internal_waveform_extra_lalsuite_args)  # should only do this once and for all, not in loop!
       print(" Waveform interface: extra args passed ", extra_args_dict)
@@ -1842,7 +1845,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         if opts.event == None:
             event_id = -1
         if opts.save_eccentricity:
-            # output format when eccentricity is being used
+          if opts.save_meanPerAno:
+            # output format when eccentricity & meanPerAno are being used                                                                                   
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, P.meanPerAno,  log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+          else:  
+            # output format when only eccentricity is being used
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
         elif not (P.lambda1>0 or P.lambda2>0):
           # output format when lambda is NOT used
@@ -1922,6 +1929,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["spin2y"] =numpy.ones(samples["psi"].shape)*P.s2y
             samples["spin2z"] =numpy.ones(samples["psi"].shape)*P.s2z
             samples["alpha4"] =numpy.ones(samples["psi"].shape)*P.eccentricity
+            samples["alpha"] =numpy.ones(samples["psi"].shape)*P.meanPerAno
             samples["alpha5"] =numpy.ones(samples["psi"].shape)*P.lambda1
             samples["alpha6"] =numpy.ones(samples["psi"].shape)*P.lambda2
             # Below exist solely to placate XML export; new issue as of latest lalsuite say 7.15+ or so
@@ -1934,7 +1942,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         # Extra metadata
-      dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
+      dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha": P.meanPerAno, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
 #      if 'distance' in pinned_params:
 #            dict_out['distance'] = pinned_params["distance"]
       converged_result = False

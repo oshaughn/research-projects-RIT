@@ -287,6 +287,8 @@ parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a'
 parser.add_argument("--chi-small-max", default=None,type=float,help="Maximum range of 'a' allowed on the smaller body.  If not specified, defaults to chi_max")
 parser.add_argument("--ecc-max", default=0.9,type=float,help="Maximum range of 'eccentricity' allowed.")
 parser.add_argument("--ecc-min", default=0.0,type=float,help="Minimum range of 'eccentricity' allowed.")
+parser.add_argument("--meanPerAno-max", default=2*np.pi,type=float,help="Maximum range of 'meanPerAno' allowed.")
+parser.add_argument("--meanPerAno-min", default=0.0,type=float,help="Minimum range of 'meanPerAno' allowed.")
 parser.add_argument("--chiz-plus-range", default=None,help="USE WITH CARE: If you are using chiz_minus, chiz_plus for a near-equal-mass system, then setting the chiz-plus-range can improve convergence (e.g., for aligned-spin systems), loosely by setting a chi_eff range that is allowed")
 parser.add_argument("--lambda-min", default=0.01,type=float,help="Minimum value of 'Lambda' allowed.  This is a very small number slightly different than zero by default, but can be required to be larger for targeted investigations")
 parser.add_argument("--lambda-max", default=4000,type=float,help="Maximum value of 'Lambda' allowed.  Minimum value is ZERO, not negative.")
@@ -389,6 +391,8 @@ if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
 ECC_MAX = opts.ecc_max
 ECC_MIN = opts.ecc_min
+MEANPERANO_MAX = 0.0 
+MEANPERANO_MIN = 2*np.pi 
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
@@ -858,6 +862,9 @@ def eccentricity_prior(x):
 def eccentricity_squared_prior(x):  # note this is INCONSISTENT with the prior above -- we are designed to give a CDF = (e/emax)^2 for example here
     return np.ones(x.shape) / (ECC_MAX-ECC_MIN)**2 # uniform over the interval [0.0, ECC_MAX]
 
+def meanPerAno_prior(x):
+    return np.ones(x.shape) / (MEANPERANO_MAX-MEANPERANO_MIN) # uniform over the interval [MEANPERANO_MIN, MEANPERANO_MAX]
+
 def precession_prior(x):
     return 0.5*np.ones(x.shape) # uniform over the interval [0.0, 2.0]
 
@@ -908,6 +915,7 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     # Other priors
     'eccentricity':eccentricity_prior,
     'eccentricity':eccentricity_squared_prior,
+    'meanPerAno':meanPerAno_prior,
     'chi_pavg':precession_prior,
     'mu1': unnormalized_log_prior,
     'mu2': unnormalized_uniform_prior
@@ -927,6 +935,7 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   'eccentricity':[ECC_MIN, ECC_MAX],
   'eccentricity_squared':[ECC_MIN**2, ECC_MAX**2],
+  'meanPerAno':[MEANPERANO_MIN, MEANPERANO_MAX],
   'chi_pavg':[0.0,2.0],  
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
@@ -1638,6 +1647,16 @@ elif opts.use_eccentricity:
     else:
         col_lnL += 1
         col_eccentricity = col_lnL -1
+    if opts.use_meanPerAno:
+        print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
+        print(" MeanPerAno input: [",MEANPERANO_MIN, ", ",MEANPERANO_MAX, "]")
+        col_lnL += 2
+    else:
+        print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
+        col_lnL += 1
+if opts.input_distance:
+    print(" Distance input")
+    col_lnL +=1
 dat_orig = dat = np.loadtxt(opts.fname)
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
 if col_meanPerAno:
@@ -1732,6 +1751,9 @@ for line in dat:
         P.eccentricity = line[col_eccentricity]  # 9
         if opts.use_meanPerAno:
             P.meanPerAno = line[col_meanPerAno] #10
+        P.eccentricity = line[9]
+        if opts.use_meanPerAno:
+            P.meanPerAno = line[10]
     if opts.input_distance:
         P.dist = lal.PC_SI*1e6*line[col_distance]  # 9. Previously incompatible with tides when hardcoded
     

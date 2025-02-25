@@ -96,6 +96,7 @@ def retrieve_event_from_coinc(fname_coinc):
         event_dict["eccentricity"] = row.alpha4
     else:
         event_dict["eccentricity"] = None
+    event_dict["meanPerAno"] = row.alpha
     event_dict["IFOs"] = list(set(ifo_list))
     max_snr_idx = snr_list.index(max(snr_list))
     event_dict['SNR'] = snr_list[max_snr_idx]
@@ -161,6 +162,7 @@ parser.add_argument("--assume-matter-conservatively",action='store_true',help="I
 parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
+parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno options for each part of analysis")
 parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
@@ -218,6 +220,8 @@ parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this 
 parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--force-ecc-max",default=None,type=float,help="Provde this value to override the value of ecc-max provided")
 parser.add_argument("--force-ecc-min",default=None,type=float,help="Provde this value to override the value of ecc-min provided")
+parser.add_argument("--force-meanPerAno-max",default=None,type=float,help="Provde this value to override the value of meanPerAno-max provided")
+parser.add_argument("--force-meanPerAno-min",default=None,type=float,help="Provde this value to override the value of meanPerAno-min provided")
 parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
 parser.add_argument("--limit-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
@@ -519,6 +523,8 @@ if opts.assume_matter:
     dirname_run += "_with_matter"
 if opts.assume_eccentric:
     dirname_run += "_with_eccentricity"
+    if opts.use_meanPerAno:
+        dirname_run += "_with_eccentricity_and_meanPerAno"
 if opts.no_matter:
     dirname_run += "_no_matter"
 if opts.assume_highq:
@@ -567,6 +573,8 @@ if not(opts.use_ini is None):
     # default value for eccentricity is 0 for 'P'!  Only change this value from default if eccentricity is present, do NOT want to fill it with None in particular
     if not(event_dict['eccentricity'] is None):   
         P.eccentricity = event_dict["eccentricity"]
+    if not(event_dict['meanPerAno'] is None):
+        P.meanPerAno = event_dict["meanPerAno"]
     # Write 'target_params.xml.gz' file
     lalsimutils.ChooseWaveformParams_array_to_xml([P], "target_params")
 
@@ -642,6 +650,8 @@ else:
         npts_it = 1500
 if is_analysis_eccentric:
     cmd += " --assume-eccentric "
+    if opts.use_meanPerAno:
+        cmd += " --use-meanPerAno "
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
@@ -1096,16 +1106,28 @@ for indx in np.arange(len(instructions_cip)):
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
     if opts.assume_eccentric:
-        if not(opts.internal_use_aligned_phase_coordinates):
-            line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
+        if opts.use_meanPerAno:
+            if not(opts.internal_use_aligned_phase_coordinates):
+                line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+            else:
+                line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
         else:
-            line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity')
+            if not(opts.internal_use_aligned_phase_coordinates):
+                line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
+            else:
+                line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity')
         if not(opts.force_ecc_max is None):
             ecc_max = opts.force_ecc_max
             line += " --ecc-max {}  ".format(ecc_max)
         if not(opts.force_ecc_min is None):
             ecc_min = opts.force_ecc_min
             line += " --ecc-min {}  ".format(ecc_min)
+        if not(opts.force_meanPerAno_max is None):
+            meanPerAno_max = opts.force_meanPerAno_max
+            line += " --meanPerAno-max {}  ".format(meanPerAno_max)
+        if not(opts.force_meanPerAno_min is None):
+            meanPerAno_min = opts.force_meanPerAno_min
+            line += " --meanPerAno-min {}  ".format(meanPerAno_min)
     if not(opts.manual_extra_cip_args is None):
         line += " {} ".format(opts.manual_extra_cip_args)  # embed with space on each side, avoid collisions
     line += "\n"
@@ -1170,10 +1192,13 @@ if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
 if opts.assume_eccentric:
-        puff_params += " --parameter eccentricity --downselect-parameter eccentricity --downselect-parameter-range '[0,0.9]' "
+        puff_params += " --parameter eccentricity --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
+if opts.use_meanPerAno:
+        puff_params += " --parameter meanPerAno --downselect-parameter meanPerAno --downselect-parameter-range [{},{}] ".format(opts.force_meanPerAno_min,opts.force_meanPerAno_max)
 if opts.assume_highq:
-    puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
-    puff_max_it +=3
+        puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
+        puff_max_it +=3
+                                                                                                                                
 with open("args_puff.txt",'w') as f:
         puff_args =''  # note used below
         if opts.force_chi_max and not(opts.force_chi_small_max):
@@ -1270,6 +1295,8 @@ if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
 if opts.assume_eccentric:
     cmd += " --use-eccentricity "
+    if opts.use_meanPerAno:
+        cmd += " --use-meanPerAno "
 if opts.calibration_reweighting and (not opts.bilby_pickle_file):
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-ini-file {} --bilby-pickle-exe `which bilby_pipe_generation` ".format(str(opts.bilby_ini_file))
     if opts.calibration_reweighting_count:
