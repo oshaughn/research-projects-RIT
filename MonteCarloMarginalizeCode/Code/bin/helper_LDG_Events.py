@@ -766,6 +766,7 @@ srate=4096
 if not(opts.use_ini is None):
     use_ini=True
     config = ConfigParser.ConfigParser()
+    config.optionxform=str
     config.read(opts.use_ini)
 
     # Overwrite general settings
