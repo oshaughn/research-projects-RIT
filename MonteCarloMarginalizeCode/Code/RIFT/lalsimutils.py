@@ -165,8 +165,9 @@ def strip_ilwdchar(_ContentHandler):
     return IlwdMapContentHandler
 
 
+# updated in igwn_ligolw
 cthdler = strip_ilwdchar(ligolw.LIGOLWContentHandler) #defines a content handler to load xml grids
-lsctables.use_in(cthdler)
+#lsctables.use_in(cthdler)
 
 
 waveform_approx_limit_dict = {
