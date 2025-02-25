@@ -1161,7 +1161,7 @@ except:
 instructions_puff = np.loadtxt("helper_puff_args.txt", dtype=str)  # should be one line
 puff_params = ' '.join(instructions_puff)
 if opts.internal_puff_transverse:
-    puff_params.replace('--parameter chieff_aligned', '--parameter s1z_bar --parameter s2z_bar ')
+    puff_params = puff_params.replace('--parameter chieff_aligned', '--parameter s1z_bar --parameter s2z_bar ')
     puff_params +=  ' --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u '
 if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
