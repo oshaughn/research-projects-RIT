@@ -494,7 +494,7 @@ if opts.eccentricity:
     print(" Reading composite file, assuming eccentricity-based format ")
     if opts.meanPerAno:
         print(" Reading composite file, assuming mpa-based format ")
-	field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","eccentricity", "meanPerAno", "lnL", "sigmaOverL", "ntot", "neff")
+        field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","eccentricity", "meanPerAno", "lnL", "sigmaOverL", "ntot", "neff")
     else:
         field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","eccentricity", "lnL", "sigmaOverL", "ntot", "neff")
 field_formats = [np.float32 for x in field_names]
