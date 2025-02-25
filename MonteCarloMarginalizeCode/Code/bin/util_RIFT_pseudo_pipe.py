@@ -317,7 +317,10 @@ if (opts.use_ini):
 #                if not(config_dict[item_renamed]):   # needs to be set to some value. Don't *disable* what is enabled on command line
                 print(" ini file parser (overrides command line, except booleans): ",item, rift_items[item])
                 if val != "":
-                    config_dict[item_renamed] = eval(rift_items[item])
+                    if 'manual_extra' in item_renamed: # manual-extra-ile-args, manual-extra-cip-args, etc. Do not parse, pass through!
+                        config_dict[item_renamed] = val
+                    else:
+                        config_dict[item_renamed] = eval(rift_items[item])
                 else:
                     config_dict[item_renamed] = True
         print(config_dict)
