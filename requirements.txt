@@ -14,7 +14,8 @@ lalsuite
 gwdatafind 
 #ligo-segments 
 #python-ligo-lw
-igwn_ligolw
+igwn-segments
+igwn-ligolw
 six
 precession
 ligo.skymap
