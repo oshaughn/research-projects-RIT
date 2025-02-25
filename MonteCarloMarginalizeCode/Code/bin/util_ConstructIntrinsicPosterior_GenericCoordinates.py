@@ -391,8 +391,8 @@ if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
 ECC_MAX = opts.ecc_max
 ECC_MIN = opts.ecc_min
-MEANPERANO_MAX = opts.meanPerAno_max
-MEANPERANO_MIN = opts.meanPerAno_min
+MEANPERANO_MAX = 0.0 
+MEANPERANO_MIN = 2*np.pi 
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
@@ -914,11 +914,8 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     's2z_bar':normalized_zbar_prior,
     # Other priors
     'eccentricity':eccentricity_prior,
-<<<<<<< HEAD
     'eccentricity':eccentricity_squared_prior,
-=======
     'meanPerAno':meanPerAno_prior,
->>>>>>> 69da9852 (adding mean anomaly changes)
     'chi_pavg':precession_prior,
     'mu1': unnormalized_log_prior,
     'mu2': unnormalized_uniform_prior
@@ -937,11 +934,8 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'lambda_plus':[lambda_min,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   'eccentricity':[ECC_MIN, ECC_MAX],
-<<<<<<< HEAD
   'eccentricity_squared':[ECC_MIN**2, ECC_MAX**2],
-=======
   'meanPerAno':[MEANPERANO_MIN, MEANPERANO_MAX],
->>>>>>> 69da9852 (adding mean anomaly changes)
   'chi_pavg':[0.0,2.0],  
   # strongly recommend you do NOT use these as parameters!  Only to insure backward compatibility with LI results
   'LambdaTilde':[0.01,5000],
@@ -1643,7 +1637,6 @@ if opts.input_tides:
         print(" Revised fit coord names (for lookup) : ", coord_names) # 'eos_table_index' will be overwritten here
         print(" Revised sampling coord names  : ", low_level_coord_names)
 elif opts.use_eccentricity:
-<<<<<<< HEAD
     print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
     if opts.use_meanPerAno:
         print("  Also using meanPerAno ")
@@ -1654,7 +1647,6 @@ elif opts.use_eccentricity:
     else:
         col_lnL += 1
         col_eccentricity = col_lnL -1
-=======
     if opts.use_meanPerAno:
         print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
         print(" MeanPerAno input: [",MEANPERANO_MIN, ", ",MEANPERANO_MAX, "]")
@@ -1665,7 +1657,6 @@ elif opts.use_eccentricity:
 if opts.input_distance:
     print(" Distance input")
     col_lnL +=1
->>>>>>> 69da9852 (adding mean anomaly changes)
 dat_orig = dat = np.loadtxt(opts.fname)
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
 if col_meanPerAno:
@@ -1757,15 +1748,12 @@ for line in dat:
     if opts.input_eos_index:
         P.eos_table_index = line[col_lambda1+2]
     if opts.use_eccentricity:
-<<<<<<< HEAD
         P.eccentricity = line[col_eccentricity]  # 9
         if opts.use_meanPerAno:
             P.meanPerAno = line[col_meanPerAno] #10
-=======
         P.eccentricity = line[9]
         if opts.use_meanPerAno:
             P.meanPerAno = line[10]
->>>>>>> 69da9852 (adding mean anomaly changes)
     if opts.input_distance:
         P.dist = lal.PC_SI*1e6*line[col_distance]  # 9. Previously incompatible with tides when hardcoded
     
