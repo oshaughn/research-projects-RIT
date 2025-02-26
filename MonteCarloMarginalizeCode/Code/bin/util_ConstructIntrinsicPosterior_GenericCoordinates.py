@@ -391,8 +391,8 @@ if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
 ECC_MAX = opts.ecc_max
 ECC_MIN = opts.ecc_min
-MEANPERANO_MAX = 0.0 
-MEANPERANO_MIN = 2*np.pi 
+MEANPERANO_MAX = 2*np.pi
+MEANPERANO_MIN = 0
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
