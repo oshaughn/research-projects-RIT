@@ -1647,13 +1647,6 @@ elif opts.use_eccentricity:
     else:
         col_lnL += 1
         col_eccentricity = col_lnL -1
-    if opts.use_meanPerAno:
-        print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
-        print(" MeanPerAno input: [",MEANPERANO_MIN, ", ",MEANPERANO_MAX, "]")
-        col_lnL += 2
-    else:
-        print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
-        col_lnL += 1
 if opts.input_distance:
     print(" Distance input")
     col_lnL +=1
