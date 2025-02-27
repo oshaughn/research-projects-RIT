@@ -36,6 +36,10 @@ From: nvidia/cuda:11.8.0-runtime-ubuntu22.04
    pip3 install --upgrade setuptools --break-system-packages
    pip3 install -e .
 
+   # pyseobnr
+   apt install gsl-devel -y
+   pip3 install pyseobnr
+
    # Install additional Python packages
    pip3 install asimov>=0.5.6 \
                 asimov-gwdata>=0.4.0 \
