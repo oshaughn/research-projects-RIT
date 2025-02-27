@@ -650,8 +650,10 @@ else:
         npts_it = 1500
 if is_analysis_eccentric:
     cmd += " --assume-eccentric "
+    npts_it = int(npts_it*1.5)
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
+        npts_it = int(npts_it*1.5)
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
