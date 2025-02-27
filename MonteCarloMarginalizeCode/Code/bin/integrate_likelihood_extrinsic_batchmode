@@ -1892,6 +1892,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       xmldoc.appendChild(ligolw.LIGO_LW())
       if opts.save_samples_process_params:
         process.register_to_xmldoc(xmldoc, sys.argv[0], opts.__dict__)
+      else:
+        # process_params is REQUIRED, so put in an empty one
+        process.register_to_xmldoc(xmldoc, sys.argv[0], {})
       if not(opts.resample_time_marginalization): 
         if not opts.time_marginalization:
             samples["t_ref"] += float(fiducial_epoch)
