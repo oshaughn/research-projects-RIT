@@ -32,6 +32,8 @@ From: nvidia/cuda:11.8.0-runtime-ubuntu22.04
    git clone https://github.com/oshaughn/research-projects-RIT.git
    cd research-projects-RIT
    #git checkout rift_O4c
+   pip3 install --upgrade pip
+   pip3 install --upgrade setuptools --break-system-packages
    pip3 install -e .
 
    # Install additional Python packages
