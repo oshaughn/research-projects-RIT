@@ -914,7 +914,7 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     's2z_bar':normalized_zbar_prior,
     # Other priors
     'eccentricity':eccentricity_prior,
-    'eccentricity':eccentricity_squared_prior,
+    'eccentricity_squared':eccentricity_squared_prior,
     'meanPerAno':meanPerAno_prior,
     'chi_pavg':precession_prior,
     'mu1': unnormalized_log_prior,
