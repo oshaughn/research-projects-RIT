@@ -453,6 +453,12 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         print(" FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file ")
         sys.exit(0)
 
+    singularity_image_used = "{}".format(singularity_image) # make copy
+    extra_files = []
+    if singularity_image:
+        if 'osdf:' in singularity_image:
+            singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
+            extra_files += [singularity_image]
 
     exe = exe or which("util_ConstructIntrinsicPosterior_GenericCoordinates.py")
     if use_singularity:
@@ -568,7 +574,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
         ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image_used + '"')
         requirements.append("HAS_SINGULARITY=?=TRUE")
 
     if use_osg:
@@ -610,12 +616,11 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     except:
         print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
         
-    
     if not transfer_files is None:
         if not isinstance(transfer_files, list):
-            fname_str=transfer_files
+            fname_str=transfer_files + ' '.join(extra_files)
         else:
-            fname_str = ','.join(transfer_files)
+            fname_str = ','.join(transfer_files + extra_files)
         fname_str=fname_str.strip()
         ile_job.add_condor_cmd('transfer_input_files', fname_str)
         ile_job.add_condor_cmd('should_transfer_files','YES')
@@ -760,6 +765,14 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         print(" FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file ")
         sys.exit(0)
 
+    singularity_image_used = "{}".format(singularity_image) # make copy
+    extra_files = []
+    if singularity_image:
+        if 'osdf:' in singularity_image:
+            singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
+            extra_files += [singularity_image]
+
+        
     exe = exe or which("integrate_likelihood_extrinsic")
     frames_local = None
     if use_singularity:
@@ -916,7 +929,7 @@ echo Starting ...
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
         ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image_used + '"')
         requirements.append("HAS_SINGULARITY=?=TRUE")
 #               if not(use_simple_osg_requirements):
 #                requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
@@ -1024,9 +1037,9 @@ echo Starting ...
 
     if not transfer_files is None:
         if not isinstance(transfer_files, list):
-            fname_str=transfer_files
+            fname_str=transfer_files + ' '.join(extra_files)
         else:
-            fname_str = ','.join(transfer_files)
+            fname_str = ','.join(transfer_files+extra_files)
         fname_str=fname_str.strip()
         ile_job.add_condor_cmd('transfer_input_files', fname_str)
         ile_job.add_condor_cmd('should_transfer_files','YES')
