@@ -437,7 +437,7 @@ def write_CIP_single_iteration_subdag(cip_worker_job,it,unique_postfix,subdag_di
 
 
 
-def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,request_memory_flex=False, arg_vals=None, no_grid=False,request_disk=False, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_simple_osg_requirements=False,singularity_image=None,max_runtime_minutes=None,condor_commands=None,**kwargs):
+def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-ILE-samples',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=8192,request_memory_flex=False, arg_vals=None, no_grid=False,request_disk=False, transfer_files=None,transfer_output_files=None,use_singularity=False,use_osg=False,use_oauth_files=False,use_simple_osg_requirements=False,singularity_image=None,max_runtime_minutes=None,condor_commands=None,**kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over intrinsic parameters.
 
@@ -577,6 +577,9 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image_used + '"')
         requirements.append("HAS_SINGULARITY=?=TRUE")
 
+    if use_oauth_files:
+        # we are using some authentication to retrieve files from the file transfer list, for example, from distributed hosts, not just submit. eg urls provided
+            ile_job.add_condor_cmd('use_oauth_services',use_oauth_files)
     if use_osg:
            # avoid black-holing jobs to specific machines that consistently fail. Uses history attribute for ad
            #    https://htcondor.readthedocs.io/en/latest/classad-attributes/job-classad-attributes.html
