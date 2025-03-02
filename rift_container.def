@@ -37,7 +37,7 @@ From: nvidia/cuda:11.8.0-runtime-ubuntu22.04
    pip3 install -e .
 
    # pyseobnr
-   apt install gsl-devel -y
+   apt install libgsl-dev -y
    pip3 install pyseobnr
 
    # Install additional Python packages
