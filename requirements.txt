@@ -1,6 +1,7 @@
 #setuptools 
 #pip 
-#cupy  
+#cupy
+natsort
 numpy
 h5py 
 numba>=0.56
@@ -11,9 +12,14 @@ scikit-learn
 matplotlib 
 lalsuite
 gwdatafind 
-ligo-segments 
-python-ligo-lw 
+#ligo-segments 
+#python-ligo-lw
+igwn-segments
+igwn-ligolw
 six
 precession
 ligo.skymap
 gwpy
+natsort
+scipy
+htcondor

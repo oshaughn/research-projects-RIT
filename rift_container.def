@@ -1,0 +1,56 @@
+Bootstrap: docker
+From: nvidia/cuda:11.8.0-runtime-ubuntu22.04
+
+%post
+   # Update the system and install essential libraries
+   apt-get update -y
+   apt-get install -y \
+           build-essential \
+           cmake \
+           g++ \
+           wget \
+           python3.10 \
+           python3.10-venv \
+           python3-pip \
+           curl \
+           bc \
+           locales \
+           git \
+
+   # Configure locale
+   locale-gen en_US.UTF-8
+
+
+   # Ensure Python symlink is in place
+   ln -s /usr/bin/python3.10 /usr/local/bin/python3
+   ln -s /usr/bin/python3 /usr/local/bin/python
+
+   # Set up RIFT installation, using MAIN SOURCE. Modify if you want a release version, or a different branch!
+   cd /opt
+   mkdir installed_RIFT
+   cd installed_RIFT
+   git clone https://github.com/oshaughn/research-projects-RIT.git
+   cd research-projects-RIT
+   #git checkout rift_O4c
+   pip3 install --upgrade pip
+   pip3 install --upgrade setuptools --break-system-packages
+   pip3 install -e .
+
+   # pyseobnr
+   apt install libgsl-dev -y
+   pip3 install pyseobnr
+
+   # Install additional Python packages
+   pip3 install asimov>=0.5.6 \
+                asimov-gwdata>=0.4.0 \
+       	 cupy-cuda11x \
+                gwdatafind==1.2.0 \
+                gwosc>=0.7.1 \
+                lalsuite>=7.26 \
+                numpy>=1.24.4 \
+                natsort \
+                pybind11>=2.12 \
+                scipy>=1.9.3 
+%environment
+   # Set environment variables
+   alias python=python3

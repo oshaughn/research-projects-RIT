@@ -61,7 +61,11 @@ for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
    if  [[ ${EXE} == *"util_"*"NR"* ]]; then
         echo " NR-based code : " ${EXE}
         continue
-    fi
+   fi
+   # skip tests that require condor environment
+   if [[ ${EXE} == *"check_CIP_complete_work.py" ]]; then
+         continue
+   fi
    if  [[ ${EXE} == *"util_CompareWaveformsInDetectors.py"* ]]; then
         continue
     fi

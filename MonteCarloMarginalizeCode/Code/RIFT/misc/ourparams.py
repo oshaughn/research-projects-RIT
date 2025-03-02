@@ -12,7 +12,7 @@ import lalsimulation as lalsim
 import RIFT.lalsimutils as lalsimutils
 import lal
 
-from ligo.lw import utils, lsctables, table
+from igwn_ligolw import utils, lsctables, table
 
 try:
     hasNR=True

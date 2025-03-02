@@ -18,6 +18,7 @@ import numpy as np
 import lal
 import RIFT.lalsimutils as lalsimutils
 from . import weight_simulations
+import functools
 
 rosDebug=False
 
@@ -165,7 +166,7 @@ def Refine(xvals,lnLVals,xmin=None,deltaLogL=default_deltaLogL,npts=10,refinemen
     return 'refined', np.linspace(xmin_here, xmax_here, npts)
 
 
-def ChooseWaveformParams_to_spoke_label(P,digits=4):
+def ChooseWaveformParams_to_spoke_label(P,digits=4,is_eccentric=False):
     m1 = P.m1/lal.MSUN_SI
     m2 = P.m2/lal.MSUN_SI
     s1x = P.s1x
@@ -174,20 +175,33 @@ def ChooseWaveformParams_to_spoke_label(P,digits=4):
     s2x = P.s2x
     s2y = P.s2y
     s2z = P.s2z
-
+    if is_eccentric:
+        eccentricity = P.eccentricity
     line = np.array([m2/m1,s1x,s1y,s1z,s2x,s2y,s2z ])
+    if is_eccentric:
+        line = np.append(line, eccentricity)
     return np.around(line, decimals=digits)
 
-def Line_to_spoke_label(line,digits=4):
-    m1,m2,s1x,s1y, s1z, s2x,s2y,s2z = line[1:9]
-    line = np.array([m2/m1,s1x,s1y,s1z,s2x,s2y,s2z ])
+def Line_to_spoke_label(line,digits=4,is_eccentric=False):
+    if not is_eccentric:
+        m1,m2,s1x,s1y, s1z, s2x,s2y,s2z = line[1:9]
+        line = np.array([m2/m1,s1x,s1y,s1z,s2x,s2y,s2z ])
+    else:
+        m1,m2,s1x,s1y, s1z, s2x,s2y,s2z,eccentricity = line[1:10]
+        line = np.array([m2/m1,s1x,s1y,s1z,s2x,s2y,s2z,eccentricity ])
     return np.around(line, decimals=digits)
     
-def Line_to_spoke_entry(line,digits=4):
-    m1 = line[1]
-    m2 = line[2]
-    lnL = line[9]
-    deltaLogL = line[10]
+def Line_to_spoke_entry(line,digits=4,is_eccentric=False):
+    if not is_eccentric:
+        m1 = line[1]
+        m2 = line[2]
+        lnL = line[9]
+        deltaLogL = line[10]
+    else:
+        m1 = line[1]
+        m2 = line[2]
+        lnL = line[10]
+        deltaLogL = line[11]
     return np.around(np.array([m1+m2,lnL,deltaLogL]), decimals=digits)
 
 def ChooseWaveformParams_to_spoke_mass(P,digits=4):
@@ -196,7 +210,7 @@ def ChooseWaveformParams_to_spoke_mass(P,digits=4):
     return np.around((m1+m2)/lal.MSUN_SI, decimals=4)
 
 
-def LoadSpokeDAT(fname):
+def LoadSpokeDAT(fname, is_eccentric=False):
     # load the *.dat concatenated file 
     dat = np.loadtxt(fname)
 
@@ -204,8 +218,8 @@ def LoadSpokeDAT(fname):
     sdHere = {}
     for line in dat:
 #        spoke_id = str([round(elem, 3) for elem in Line_to_spoke_label(line)])
-        spoke_id = str(Line_to_spoke_label(line))
-        spoke_contents = Line_to_spoke_entry(line)
+        spoke_id = str(Line_to_spoke_label(line,is_eccentric=is_eccentric))
+        spoke_contents = Line_to_spoke_entry(line,is_eccentric=is_eccentric)
         if spoke_id in sdHere:
             sdHere[spoke_id].append(spoke_contents)
         else:
@@ -213,7 +227,7 @@ def LoadSpokeDAT(fname):
     # return 
     return sdHere
 
-def LoadSpokeXML(fname):
+def LoadSpokeXML(fname,is_eccentric=False):
     # load the xml file
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(fname)
 
@@ -221,8 +235,8 @@ def LoadSpokeXML(fname):
     sdHere = {}
     for P in P_list:
 #        spoke_id = str( [round(elem, 3) for elem in ChooseWaveformParams_to_spoke_label(P)])
-        spoke_id = str(ChooseWaveformParams_to_spoke_label(P))
-        if sdHere.has_key(spoke_id):
+        spoke_id = str(ChooseWaveformParams_to_spoke_label(P,is_eccentric=is_eccentric))
+        if spoke_id in sdHere:
             sdHere[spoke_id].append(P)
         else:
             sdHere[spoke_id] = [P]
@@ -239,7 +253,7 @@ def CleanSpokeEntries(spoke_entries,digits=4):
     # Group entries by their total mass (data in spoke: M, lnL, deltalnL
     for line in spoke_entries:
         mtot, lnL, sigmaOverlnL = line
-        if data_at_intrinsic.has_key(mtot):
+        if mtot in data_at_intrinsic:
             data_at_intrinsic[mtot].append( [lnL,sigmaOverlnL])
         else:
             data_at_intrinsic[mtot] = [[lnL,sigmaOverlnL]]

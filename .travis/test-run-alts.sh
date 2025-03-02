@@ -15,7 +15,9 @@ cd test_workflow_batch_gpu_lowlatency
 # force standard code path
 switcheroo '--maximize-only '  ' --force-xpy ' command-single.sh
 # Reduce number of analyses for this worker to 1, to reduce runtime
-switcheroo 'n-events-to-analyze 20' 'n-events-to-analyze 1' command-single.sh
+switcheroo '\$\(macrongroup\)' 1  command-single.sh
+alias macrongroup='echo 1'
+echo 'echo 1' > macrongroup; chmod a+x macrongroup; PATH=${PATH}:`pwd`#
 # Reduce the number of points investigated by x100
 #   ... and save-samples
 switcheroo 'n-max 2000000' 'n-max 50000 --save-samples --output-file my_stuff ' command-single.sh

@@ -90,7 +90,7 @@ class EOSConcrete:
         return dimensionless_lam
 
     def estimate_baryon_mass_from_mg(self,m):
-        """
+        r"""
         Estimate m_b = m_g + m_g^2/(R_{1.4}/km) based on https://arxiv.org/pdf/1905.03784.pdf Eq. (6)
         Note baryon mass can be computed exactly with a TOV solution integral (e.g., Eq. 6.21 of Haensel's book)
              N_b = 4\pi (1+z_{surf}) \int_0^R e^{Phi} (rho + P/c^2)/m_b sqrt(1-2 G m(r)/r c^2)
@@ -246,7 +246,7 @@ except:
 
 
 class EOSFromTabularData(EOSConcrete):
-    """ 
+    r""" 
     Input: 
        * Tabular data (baryon_density = n , pressure = p, energy density = \rho)
        * method for primitives: this information is partially redundant, in that \ln n_b/n_ref = \int   c^2 [d rho] / (P(rho) + rho c^2), etc
@@ -259,7 +259,7 @@ class EOSFromTabularData(EOSConcrete):
         * Currently generates intermediate data file by writing to disk
     """
     
-    def __init__(self,name=None,eos_data=None,eos_units=None,reject_phase_transitions=False,debug=False, add_low_density=False):
+    def __init__(self,name=None,eos_data=None,eos_units=None,reject_phase_transitions=False,debug=False, add_low_density=False,skip_family=False):
         if eos_data is None:
             raise Exception("EOS data required to use EOSFromTabularData")
         if not(name):
@@ -323,7 +323,9 @@ class EOSFromTabularData(EOSConcrete):
         np.savetxt(eos_fname, np.transpose((self.press, self.edens)), delimiter='\t', header='pressure \t energy_density ')
         
         self.eos = lalsim.SimNeutronStarEOSFromFile(eos_fname)
-        self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
+        self.eos_fam = None
+        if not(skip_family):
+            self.eos_fam = lalsim.CreateSimNeutronStarFamily(self.eos)
         return None
 
 
@@ -543,7 +545,7 @@ class EOSLindblomSpectral(EOSConcrete):
         return None
 
     def test_bounded_adiabatic_index(self,bounds=[0.6,4.5]):
-        """
+        r"""
         Gamma(p) \in bounds
         Uses xmax and other parameters from spectral result
         """
@@ -1470,6 +1472,29 @@ class EOSSequenceLandry:
 
         return eos_tables_interp
 
+    def extract_one_eos_object(self, indx=None,name_eos=None,fail_if=None,**kwargs):
+        """
+        Extract EOS using either the EOS *index* or the  EOS *name*. Requires the EOS is available
+        """
+        if indx is None and name_eos is None:
+            raise Exception(" Must provide EOS to extract ")
+        if not(self.eos_tables_units == 'cgs'):
+            raise Exception(" Extraction only configured currently for internally-stored cgs-units tables")
+        name_to_use=name_eos
+        if name_to_use is None:
+            name_to_use = self.eos_names[indx]
+        # ASSUMES CGS UNITS
+        dat0 = self.eos_tables[name_to_use]  # record array, raw data
+        dat_copy = {}
+        if self.eos_tables_units == 'cgs':
+            # make sure we use COPIES, to avoid side effects on data structure
+            dat_copy['baryon_density'] = np.copy(dat0['baryon_density'])  # not really used
+            dat_copy['pressure'] = np.copy(dat0['pressure'])
+            dat_copy['energy_density'] = np.copy(dat0['energy_density']/(C_CGS**2))  # g/cm^3 !
+        if not(fail_if is None):
+            fail_if(dat_copy)
+        my_eos  = EOSFromTabularData(name=name_to_use, eos_data=dat_copy,**kwargs)  # tabular data inputs need to be cgs and in correct units
+        return my_eos
 
 ####
 #### General lalsimulation interfacing

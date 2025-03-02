@@ -70,7 +70,7 @@ def format_gps_time(tval):
     return str_out
 
 def retrieve_event_from_coinc(fname_coinc):
-    from ligo.lw import lsctables, table, utils
+    from igwn_ligolw import lsctables, table, utils
     from RIFT import lalsimutils
     event_dict ={}
     samples = lsctables.SnglInspiralTable.get_table(utils.load_filename(fname_coinc,contenthandler=lalsimutils.cthdler))
@@ -96,6 +96,7 @@ def retrieve_event_from_coinc(fname_coinc):
         event_dict["eccentricity"] = row.alpha4
     else:
         event_dict["eccentricity"] = None
+    event_dict["meanPerAno"] = row.alpha
     event_dict["IFOs"] = list(set(ifo_list))
     max_snr_idx = snr_list.index(max(snr_list))
     event_dict['SNR'] = snr_list[max_snr_idx]
@@ -123,7 +124,8 @@ def unsafe_parse_arg_string_dict(my_argstr):
 parser = argparse.ArgumentParser()
 parser.add_argument("--skip-reproducibility",action='store_true')
 parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
-parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration")
+parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration. Note this writes an adaptively-sized DAG each iteration, but doesn't otherwise optimize yet.")
+parser.add_argument("--use-ile-subdags",action='store_true',help="Use ILE subdag system (new)")
 parser.add_argument("--bilby-ini-file",default=None,type=str,help="Pass ini file for parsing. Intended to use for calibration reweighting. Full path recommended")
 parser.add_argument("--bilby-pickle-file",default=None,type=str,help="Bilby Pickle file with event settings. Intended to use for calibration reweighting. Full path recommended")
 parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for parsing. Intended to reproduce lalinference_pipe functionality. Overrides most other arguments. Full path recommended")
@@ -160,17 +162,23 @@ parser.add_argument("--assume-matter-conservatively",action='store_true',help="I
 parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
+parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno options for each part of analysis")
 parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
 parser.add_argument("--ile-distance-prior",default=None,help="If present, passed through to the distance prior option.   If provided, BLOCKS distance marginalization")
+parser.add_argument("--internal-ile-buffer-after-trigger",default=2,type=float,help="Provided to allow user to change time after trigger. NOT FULLY IMPLEMENTED")
 parser.add_argument("--internal-ile-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
+parser.add_argument("--internal-cip-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
+parser.add_argument("--internal-ile-request-memory",default=4096,type=int,help="ILE memory request in Mb. Only experts should change this.")
 parser.add_argument("--internal-ile-n-max",default=None,type=int,help="Set maximum number of evaluations each ILE worker uses. EXPERTS ONLY")
 parser.add_argument("--internal-ile-inv-spec-trunc-time",default=None,type=float,help="Timescale of inverse spectrum truncation time. Default in pipeline is zero. Should be no more than 1/2 the segment length")
 parser.add_argument("--internal-ile-data-tukey-window-time",default=None,type=float,help="Timescale of the tukey window (total, both sides)")
+parser.add_argument("--internal-ile-psd-common-window",action='store_true',help="Default is to use the window shape correction on the input PSD (assumed to be scaled), and NOT to try to scale PSD.  Adding this option means we assume the PSD is not being window-corrected on input, so does not need rescaling. ")
 parser.add_argument("--internal-marginalize-distance",action='store_true',help="If present, the code will marginalize over the distance variable. Passed diretly to helper script. Default will be to generate d_marg script *on the fly*")
 parser.add_argument("--internal-marginalize-distance-file",help="Filename for marginalization file.  You MUST make sure the max distance is set correctly")
 parser.add_argument("--internal-distance-max",type=float,help="If present, the code will use this as the upper limit on distance (overriding the distance maximum in the ini file, or any other setting). *required* to use internal-marginalize-distance in most circumstances")
+parser.add_argument("--internal-ile-check-good-enough",action='store_true', help=" IN PROGRESS: force creation of 'ile_good_enough' files in all ILE run directories, and adding to transfer_file_list")
 parser.add_argument("--internal-correlate-default",action='store_true',help='Force joint sampling in mc,delta_mc, s1z and possibly s2z')
 parser.add_argument("--internal-force-iterations",type=int,default=None,help="If inteeger provided, overrides internal guidance on number of iterations, attempts to force prolonged run. By default puts convergence tests on")
 parser.add_argument("--internal-test-convergence-threshold",type=float,default=None,help="The value of the threshold. 0.02 has been default. If not specified, left out of helper command line (where default is maintained) ")
@@ -198,6 +206,8 @@ parser.add_argument("--right-ascension",default=0.57,type=float)
 parser.add_argument("--ile-sampler-method",type=str,default=None)
 parser.add_argument("--ile-n-eff",type=int,default=None,help="ILE n_eff passed to helper/downstream. Default internally is 50; lower is faster but less accurate, going much below 10 could be dangerous ")
 parser.add_argument("--cip-sampler-method",type=str,default=None)
+parser.add_argument("--cip-sampler-portfolio-list",type=str,default=None,help="if sampler-method==portfolio, string-separated list of options. Goes into --sampler-portfolio array in CIP argument list ")
+parser.add_argument("--cip-sampler-oracle-list",type=str,default=None,help="if sampler-method==portfolio, string-separated list of options from [RS,Climb]. Goes into --sampller-oracle array in CIP argument list. Note if you have supplementary arguments like --sampler-oracle-args, -oracle-reference-sample-file, --oracle-reference-sample-params, you need to pass these with manual-extra-cip-args ")
 parser.add_argument("--cip-fit-method",type=str,default=None)
 parser.add_argument("--cip-internal-use-eta-in-sampler",action='store_true', help="Use 'eta' as a sampling parameter. Designed to make GMM sampling behave particularly nicely for objects which could be equal mass")
 parser.add_argument("--ile-jobs-per-worker",type=int,default=None,help="Default will be 20 per worker usually for moderate-speed approximants, and more for very fast configurations")
@@ -215,6 +225,8 @@ parser.add_argument("--force-ecc-max",default=None,type=float,help="Provde this 
 parser.add_argument("--force-ecc-min",default=None,type=float,help="Provde this value to override the value of ecc-min provided")
 parser.add_argument("--force-comp-max",default=1000,type=float,help="Provde this value to override the value of the max component mass in CIP provided")
 parser.add_argument("--force-comp-min",default=1,type=float,help="Provde this value to override the value of min component mass in CIP provided")
+parser.add_argument("--force-meanPerAno-max",default=None,type=float,help="Provde this value to override the value of meanPerAno-max provided")
+parser.add_argument("--force-meanPerAno-min",default=None,type=float,help="Provde this value to override the value of meanPerAno-min provided")
 parser.add_argument("--scale-mc-range",type=float,default=None,help="If using the auto-selected mc, scale the ms range proposed by a constant factor. Recommend > 1. . ini file assignment will override this.")
 parser.add_argument("--limit-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
@@ -237,6 +249,8 @@ parser.add_argument("--fit-save-gp",action="store_true",help="If true, pass this
 parser.add_argument("--cip-explode-jobs",type=int,default=None)
 parser.add_argument("--cip-explode-jobs-last",type=int,default=None,help="Number of jobs to use in last stage.  Hopefully in future auto-set")
 parser.add_argument("--cip-explode-jobs-auto",action='store_true',help="Auto-select --cip-explode-jobs based on SNR. Changes both cip-explode-jobs and cip-explode-jobs-last")
+parser.add_argument("--cip-explode-jobs-auto-scale",type=float,default=None,help="Scales up number of jobs requested by cip-explode-jobs-auto")
+parser.add_argument("--cip-explode-jobs-dag",type=float,default=None,help="Uses subdag for CIP, with many retries - adaptively will terminate at target work level")
 parser.add_argument("--cip-quadratic-first",action='store_true')
 parser.add_argument("--cip-sigma-cut",default=None,type=float,help="sigma-cut is an error threshold for CIP.  Passthrough")
 parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the interim iteration")
@@ -245,6 +259,7 @@ parser.add_argument("--internal-last-iteration-extrinsic-samples-per-ile",defaul
 parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
 parser.add_argument('--internal-cip-tripwire',type=float,help="Passed to CIP")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
+parser.add_argument("--internal-cip-request-memory",default=None,type=int,help="ILE memory request in Mb. Only experts should change this.")
 parser.add_argument("--internal-ile-sky-network-coordinates",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-rotate-phase", action='store_true')
 parser.add_argument("--internal-loud-signal-mitigation-suite",action='store_true',help="Enable more aggressive adaptation - make sure we adapt in distance, sky location, etc rather than use uniform sampling, because we are constraining normally subdominant parameters")
@@ -258,6 +273,7 @@ parser.add_argument("--ile-additional-files-to-transfer",default=None,help="Comm
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
+parser.add_argument("--internal-puff-transverse",action='store_true', help=" appends the following arguments: --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u ")
 parser.add_argument("--manual-extra-puff-args",default=None,type=str,help="Avenue to adjoin extra PUFF arguments.  ")
 parser.add_argument("--manual-extra-test-args",default=None,type=str,help="Avenue to adjoin extra TEST arguments.  ")
 parser.add_argument("--manual-extra-cip-args",default=None,type=str,help="Avenue to adjoin extra CIP arguments.  Needed for external priors or likelihoods in CIP stage")
@@ -270,10 +286,13 @@ parser.add_argument("--use-cov-early",action='store_true',help="If provided, use
 parser.add_argument("--use-osg",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
 parser.add_argument("--use-osg-cip",action='store_true',help="Restructuring for ILE on OSG. The code by default will use CVMFS")
 parser.add_argument("--use-osg-file-transfer",action='store_true',help="Restructuring for ILE on OSG. The code will NOT use CVMFS, and instead will try to transfer the frame files.")
+parser.add_argument("--internal-use-oauth-files",default=None,type=str,help="Option for low level pipeline writer to use scitokens. Useful if files on osdf need to be transferred, like containers ")
 parser.add_argument("--internal-truncate-files-for-osg-file-transfer",action='store_true',help="If use-osg-file-transfer, will use FrCopy plus the start/end time to build the frame directory.")
 parser.add_argument("--condor-local-nonworker",action='store_true',help="Provide this option if job will run in non-NFS space. ")
-parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="NOW STANDARD, auto-set if you pass use-osg   Causes flock_local for 'internal' jobs")
+parser.add_argument("--condor-local-nonworker-igwn-prefix",action='store_true', help="Adds some prefix text to start up cvmfs igwn environment, so local jobs have access to standard RIFT operators. Required for public OSG.")
+parser.add_argument("--condor-nogrid-nonworker",action='store_true',help="NOW STANDARD, auto-set if you pass use-osg   Causes flock_local for 'internal' jobs, UNLESS using --use-osg-public")
 parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Provide this option if job should use a more aggressive setting for OSG matching ")
+parser.add_argument("--use-osg-public",action='store_true',help="Activate public osg settings. Enforces use-osg, condor-local-nonworker, and condor_local+nonworker_igwn_prefix")
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
@@ -309,10 +328,23 @@ if (opts.use_ini):
 #                if not(config_dict[item_renamed]):   # needs to be set to some value. Don't *disable* what is enabled on command line
                 print(" ini file parser (overrides command line, except booleans): ",item, rift_items[item])
                 if val != "":
-                    config_dict[item_renamed] = eval(rift_items[item])
+                    if 'manual_extra' in item_renamed: # manual-extra-ile-args, manual-extra-cip-args, etc. Do not parse, pass through!
+                        config_dict[item_renamed] = val
+                    else:
+                        config_dict[item_renamed] = eval(rift_items[item])
                 else:
                     config_dict[item_renamed] = True
         print(config_dict)
+
+
+if opts.use_osg:
+    opts.condor_nogrid_nonworker = True  # note we ALSO have to check this if we set use_osg in the ini file! Moved statement so flagged
+
+if opts.use_osg_public:
+    opts.use_osg=True
+    opts.condor_local_nonworker=True
+    opts.condor_local_nonworker_igwn_prefix=False
+    opts.condor_nogrid_nonworker=False
 
 if opts.ile_copies <=0:
     raise Exception(" Must have 1 or more ILE instances per intrinsic point")
@@ -330,9 +362,8 @@ if opts.internal_loud_signal_mitigation_suite:
 # Default prior for aligned analysis should be z prior !
 if opts.assume_nonprecessing or opts.approx == "IMRPhenomD":
     prior_args_lookup["default"] = prior_args_lookup["zprior_aligned"]
+    opts.internal_puff_transverse=False
 
-if opts.use_osg:
-    opts.condor_nogrid_nonworker = True  # note we ALSO have to check this if we set use_osg in the ini file! Moved statement so flagged
 
 if opts.ile_xpu:
     opts.ile_force_gpu = False
@@ -500,6 +531,8 @@ if opts.assume_matter:
     dirname_run += "_with_matter"
 if opts.assume_eccentric:
     dirname_run += "_with_eccentricity"
+    if opts.use_meanPerAno:
+        dirname_run += "_with_eccentricity_and_meanPerAno"
 if opts.no_matter:
     dirname_run += "_no_matter"
 if opts.assume_highq:
@@ -548,6 +581,8 @@ if not(opts.use_ini is None):
     # default value for eccentricity is 0 for 'P'!  Only change this value from default if eccentricity is present, do NOT want to fill it with None in particular
     if not(event_dict['eccentricity'] is None):   
         P.eccentricity = event_dict["eccentricity"]
+    if not(event_dict['meanPerAno'] is None):
+        P.meanPerAno = event_dict["meanPerAno"]
     # Write 'target_params.xml.gz' file
     lalsimutils.ChooseWaveformParams_array_to_xml([P], "target_params")
 
@@ -623,6 +658,10 @@ else:
         npts_it = 1500
 if is_analysis_eccentric:
     cmd += " --assume-eccentric "
+    npts_it = int(npts_it*1.5)
+    if opts.use_meanPerAno:
+        cmd += " --use-meanPerAno "
+        npts_it = int(npts_it*1.5)
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
@@ -643,6 +682,8 @@ if opts.internal_cip_use_lnL:
     cmd += " --internal-cip-use-lnL "
 if opts.internal_ile_data_tukey_window_time:
     cmd += " --data-tukey-window-time {} ".format(opts.internal_ile_data_tukey_window_time)
+if (opts.internal_ile_psd_common_window):
+    cmd += " --psd-assume-common-window "
 if not(opts.ile_n_eff is None):
     cmd += " --ile-n-eff {} ".format(opts.ile_n_eff)
 if opts.limit_mc_range:
@@ -671,6 +712,11 @@ if not(opts.gracedb_id is None): #  and (opts.use_ini is None):
         cmd+= " --use-legacy-gracedb "
 elif  not(opts.event_time is None):
     cmd += " --event-time " + format_gps_time(opts.event_time)
+    if opts.use_ini:
+        seglen = float(config['engine']['seglen'])
+        data_start_time = opts.event_time - (seglen - 2)
+        data_end_time = opts.event_time + 2
+        cmd += " --data-start-time {}  --data-end-time {} ".format(data_start_time, data_end_time)
 if opts.online:
         cmd += " --online "
 if opts.playground_data:
@@ -876,9 +922,16 @@ with open('args_ile.txt','w') as f:
 
 # ILE transfer file list
 #  if arguments provided, append (usually empty file/nonexistent)
-if opts.ile_additional_files_to_transfer:
-    print(" Supplementary transfer request ",opts.ile_additional_files_to_transfer) 
-    my_files = list(map(lambda x: x.split(),opts.ile_additional_files_to_transfer.split(','))) # split on , remove whitespace
+if opts.ile_additional_files_to_transfer or opts.internal_ile_check_good_enough:
+    extra_files = ''
+    if opts.ile_additional_files_to_transfer:
+        extra_files = opts.ile_additional_files_to_transfer
+        if opts.internal_ile_check_good_enough:
+            extra_files += ','
+    if opts.internal_ile_check_good_enough:
+        extra_files += 'ile_check_good_enough'
+    print(" Supplementary transfer request ",extra_files) 
+    my_files = list(map(lambda x: x.split(),extra_files.split(','))) # split on , remove whitespace
     my_files = sum(my_files, []) # flatten the list
     my_files = [x for x in my_files if x]  # remove empty elements
     print("  File transfer request resolves to ", my_files)
@@ -913,8 +966,11 @@ if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     n_jobs_normal_actual = np.min([n_jobs_normal_guess,n_max_jobs])
     n_jobs_final_actual = np.min([2*n_jobs_normal_guess,n_max_jobs])
     if opts.assume_matter:   # more workers for matter physics jobs
-        n_jobs_normal_actual *=2
+        n_jobs_normal_actual *=2; 
         n_jobs_final_actual *=2
+    if opts.cip_explode_jobs_auto_scale:
+        n_jobs_normal_actual *= opts.cip_explode_jobs_auto_scale; n_jobs_normal_actual = int(n_jobs_normal_actual)
+        n_jobs_final_actual *=  opts.cip_explode_jobs_auto_scale; n_jobs_final_actual =int(n_jobs_final_actual )
     print("  AUTO-EXPLODE GUESS {} {} {} ", n_jobs_normal_guess, n_jobs_normal_actual,n_jobs_final_actual)
     opts.cip_explode_jobs = n_jobs_normal_actual
     opts.cip_explode_jobs_last = n_jobs_final_actual
@@ -965,6 +1021,17 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('--fit-method gp ', '--fit-method ' + opts.cip_fit_method)  # should not be called, see --force-fit-method argument to helper
     if not (opts.cip_sampler_method is None):
         line += " --sampler-method "+opts.cip_sampler_method
+        if  (opts.cip_sampler_method == 'portfolio'):
+            if opts.cip_sampler_portfolio_list is None:
+                print(" FAILURE: portfolio requires options. No default!")
+                sys.exit(1)
+            port_names = opts.cip_sampler_portfolio_list.split(',')
+            for name in port_names:
+                line += " --sampler-portfolio {} ".format(name.strip())
+            if opts.cip_sampler_oracle_list:
+                oracle_names = opts.cip_sampler_oracle_list.split(',')
+                for name in oracle_names:
+                    line += " --sampler-oracle {} ".format(name.strip())                
     if opts.internal_cip_temper_log:
         line += " --internal-temper-log "
     if opts.internal_cip_tripwire:
@@ -1052,16 +1119,28 @@ for indx in np.arange(len(instructions_cip)):
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
     if opts.assume_eccentric:
-        if not(opts.internal_use_aligned_phase_coordinates):
-            line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
+        if opts.use_meanPerAno:
+            if not(opts.internal_use_aligned_phase_coordinates):
+                line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+            else:
+                line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
         else:
-            line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity')
+            if not(opts.internal_use_aligned_phase_coordinates):
+                line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
+            else:
+                line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity')
         if not(opts.force_ecc_max is None):
             ecc_max = opts.force_ecc_max
             line += " --ecc-max {}  ".format(ecc_max)
         if not(opts.force_ecc_min is None):
             ecc_min = opts.force_ecc_min
             line += " --ecc-min {}  ".format(ecc_min)
+        if not(opts.force_meanPerAno_max is None):
+            meanPerAno_max = opts.force_meanPerAno_max
+            line += " --meanPerAno-max {}  ".format(meanPerAno_max)
+        if not(opts.force_meanPerAno_min is None):
+            meanPerAno_min = opts.force_meanPerAno_min
+            line += " --meanPerAno-min {}  ".format(meanPerAno_min)
     if not(opts.manual_extra_cip_args is None):
         line += " {} ".format(opts.manual_extra_cip_args)  # embed with space on each side, avoid collisions
     line += "\n"
@@ -1071,6 +1150,11 @@ if opts.cip_quadratic_first:
     lines[0]=lines[0].replace(' --fit-method gp ', ' --fit-method quadratic ')
     lines[0]=lines[0].replace(' --parameter delta_mc ', ' --parameter eta ')   # almost without fail we are using mc, delta_mc, xi  as zeroth layer
 
+if opts.assume_eccentric:
+    # iteration 0 is eccentricity_squared and nofit meanPerAno
+    lines[0] = lines[0].replace('--parameter eccentricity ','--parameter eccentricity_squared ')
+    if opts.use_meanPerAno:
+        lines[0] = lines[0].replace('--parameter meanPerAno ','--parameter-nofit meanPerAno ')
 
 if opts.internal_use_amr:
     lines =[ ] 
@@ -1119,14 +1203,21 @@ except:
 
 instructions_puff = np.loadtxt("helper_puff_args.txt", dtype=str)  # should be one line
 puff_params = ' '.join(instructions_puff)
+if opts.internal_puff_transverse:
+    puff_params = puff_params.replace('--parameter chieff_aligned', '--parameter s1z_bar --parameter s2z_bar ')
+    puff_params +=  ' --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u '
 if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
 if opts.assume_eccentric:
-        puff_params += " --parameter eccentricity --downselect-parameter eccentricity --downselect-parameter-range '[0,0.9]' "
+        puff_params += " --parameter eccentricity --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
+if opts.use_meanPerAno:
+        # this parameter is enforced periodic at a low level
+        puff_params += " --parameter meanPerAno "
 if opts.assume_highq:
-    puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
-    puff_max_it +=3
+        puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
+        puff_max_it +=3
+                                                                                                                                
 with open("args_puff.txt",'w') as f:
         puff_args =''  # note used below
         if opts.force_chi_max and not(opts.force_chi_small_max):
@@ -1203,15 +1294,18 @@ if opts.internal_n_evaluations_per_iteration:
 
 # Build DAG
 cip_mem  = 30000
+ile_mem = opts.internal_ile_request_memory
 n_jobs_per_worker=opts.ile_jobs_per_worker
 if opts.cip_fit_method == 'rf':
     cip_mem = 15000  # more typical for long-duration single-worker runs
 if opts.cip_fit_method =='quadratic' or opts.cip_fit_method =='polynomial':  # much lower memory requirement
     cip_mem = 4000
+if opts.internal_cip_request_memory:
+    cip_mem = opts.internal_cip_request_memory
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE 4096 --n-samples-per-job ".format(n_jobs_per_worker,cip_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if opts.assume_matter or opts.assume_eccentric:
     cmd +=  " --convert-args `pwd`/helper_convert_args.txt "
 if not(opts.ile_runtime_max_minutes is None):
@@ -1220,6 +1314,8 @@ if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
 if opts.assume_eccentric:
     cmd += " --use-eccentricity "
+    if opts.use_meanPerAno:
+        cmd += " --use-meanPerAno "
 if opts.calibration_reweighting and (not opts.bilby_pickle_file):
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-ini-file {} --bilby-pickle-exe `which bilby_pipe_generation` ".format(str(opts.bilby_ini_file))
     if opts.calibration_reweighting_count:
@@ -1318,6 +1414,12 @@ if opts.batch_extrinsic:
     cmd += " --last-iteration-extrinsic-batched-convert "
 if opts.internal_ile_request_disk:
     cmd += " --ile-request-disk {} ".format(opts.internal_ile_request_disk)
+if opts.internal_cip_request_disk:
+    cmd += " --cip-request-disk {} ".format(opts.internal_ile_request_disk)
+if opts.use_ile_subdags:
+    cmd += " --ile-group-subdag "
+if opts.cip_explode_jobs_dag:  # note name does not match name used in next level below ! Beware!
+    cmd += " --cip-explode-jobs-subdag --cip-explode-jobs-dag --cip-explode-jobs 2 "  
 if opts.cip_explode_jobs:
    cmd+= " --cip-explode-jobs  " + str(opts.cip_explode_jobs) + " --cip-explode-jobs-dag "  # use dag workers
    if opts.cip_fit_method and not(opts.cip_fit_method == 'gp'):
@@ -1349,6 +1451,8 @@ if opts.use_osg:
 elif opts.ile_additional_files_to_transfer:
     # also transfer files if we request by hand!
     cmd+= " --transfer-file-list  "+base_dir+"/"+dirname_run+"/helper_transfer_files.txt"
+if opts.internal_use_oauth_files:
+    cmd += " --use-oauth-files {} ".format(opts.internal_use_oauth_files)
 if opts.condor_local_nonworker:
     cmd += " --condor-local-nonworker "
 if opts.condor_nogrid_nonworker:
@@ -1374,8 +1478,15 @@ if opts.calibration_reweighting:
     cmd +=" --calibration-reweighting-initial-extra-args='  {}' ".format(my_extra_string)
 #if opts.internal_mitigate_fd_J_frame =="L_frame" and opts.use_gwsignal and not(opts.manual_extra_ile_args):
 #    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
+if opts.condor_local_nonworker_igwn_prefix:
+    cmd += " --condor-local-nonworker-igwn-prefix "
 print(cmd)
 os.system(cmd)
+
+if opts.internal_ile_check_good_enough:
+    # Populate 'ile_check_good_enough' through all subdirectories
+    cmd_enough = r"find . -name 'iter*ile' -type d -exec touch {}/ile_good_enough \; "
+    os.system(cmd)
 
 if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
     if opts.fake_data_cache:

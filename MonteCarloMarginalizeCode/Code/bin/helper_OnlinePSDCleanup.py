@@ -13,7 +13,7 @@ import RIFT.lalsimutils as lalsimutils
 import lal
 from optparse import OptionParser
 
-from ligo.lw import utils
+from igwn_ligolw import utils
 
 from lal.series import make_psd_xmldoc
 

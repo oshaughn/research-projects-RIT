@@ -7,7 +7,7 @@ from functools import reduce
 import numpy
 
 from glue.lal import LIGOTimeGPS
-from ligo.lw import ligolw, lsctables, table #, ilwd
+from igwn_ligolw import ligolw, lsctables, table #, ilwd
 #from glue.ligolw.utils import process
 
 def assign_id(row, i):
@@ -30,6 +30,7 @@ CMAP = { "right_ascension": "longitude",
     "mass2": "mass2",
     # SHOEHORN ALERT
     "sample_n": assign_id,
+    "alpha":"alpha",
     "alpha1":"alpha1",
     "alpha2":"alpha2",
     "alpha3":"alpha3",
@@ -52,7 +53,7 @@ CMAP = { "right_ascension": "longitude",
 
 # FIXME: Find way to intersect given cols with valid cols when making table.
 # Otherwise, we'll have to add them manually and ensure they all exist
-sim_valid_cols = ["simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "alpha1", "alpha2", "alpha3", "alpha4", "alpha5", "alpha6", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"]
+sim_valid_cols = ["simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "alpha", "alpha1", "alpha2", "alpha3", "alpha4", "alpha5", "alpha6", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"]
 sngl_valid_cols = [ "event_id", "snr", "tau0", "tau3"]
 multi_valid_cols = ["process_id", "event_id", "snr"]
 
@@ -239,5 +240,5 @@ if __file__ == sys.argv[0]:
     for m1i, m2i, loglikelihood in zip(m1, m2, loglikes):
         append_likelihood_result_to_xmldoc(xmldoc, loglikelihood, **{"mass1": m1i, "mass2": m2i})
 
-    from ligo.lw import utils
+    from igwn_ligolw import utils
     utils.write_filename(xmldoc, "iotest.xml.gz", gz=True)

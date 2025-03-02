@@ -64,6 +64,8 @@ parser.add_argument("--group",default=None)
 parser.add_argument("--param", action='append', help='Explicit list of parameters to use')
 parser.add_argument("--insert-missing-spokes", action='store_true')
 parser.add_argument("--aligned-only",action='store_true')
+parser.add_argument("--nospin-only",action='store_true')
+parser.add_argument("--eccentricity",action='store_true')
 parser.add_argument("--eta-range",default='[0.1,0.25]')
 parser.add_argument("--mass-xi-factor",default=0.0,type=float, help="The mass ranges are assumed to apply at ZERO SPIN. For other values of xi, the mass ranges map to m_{used} = m(1+xi *xi_factor+(1/4-eta)*eta_factor).  Note that to be stable, xi_factor<1. Default value 0.6, based on relevant mass region")
 parser.add_argument("--mass-eta-factor",default=0,type=float, help="The mass ranges are assumed to apply at ZERO SPIN. For other values of xi, the mass ranges map to m_{used} = m(1+xi *xi_factor+(1/4-eta)*eta_factor).  Note that to be stable, xi_factor<1. Default value 0.6, based on relevant mass region")
@@ -162,7 +164,7 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
     #  FIXME: More robust multiprocessing implementation -- very heavy!
 #    p=Pool(n_threads)
     # PROBLEM: Pool code doesn't work in new configuration.
-    grid_out = np.array(map(functools.partial(eval_overlap, grid, P_list,IP), np.arange(len(grid))))
+    grid_out = np.array(list(map(functools.partial(eval_overlap, grid, P_list,IP), np.arange(len(grid)))))
     # Remove mass units at end
     for p in ['mc', 'm1', 'm2', 'mtot']:
         if p in param_names:
@@ -176,6 +178,7 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
         if (opts.skip_overlap) or (grid_out[indx,-1] > opts.match_value):
             grid_out_new.append(grid_out[indx])
             P_list_out_new.append(P_list[indx])
+
     grid_out = np.array(grid_out_new)
     return grid_out, P_list_out_new
 
@@ -201,7 +204,7 @@ else:
 
 P=lalsimutils.ChooseWaveformParams()
 if opts.inj:
-    from ligo.lw import lsctables, table, utils # check all are needed
+    from igwn_ligolw import lsctables, table, utils # check all are needed
     filename = opts.inj
     event = opts.event_id
     xmldoc = utils.load_filename(filename, verbose = True,contenthandler =lalsimutils.cthdler)
@@ -339,7 +342,23 @@ for group in glist:
                 except:
                     omega_list_NR+=[-1]
             elif opts.skip_overlap:
-                if not opts.aligned_only:
+                if opts.nospin_only:
+                    if wfP.P.s1x ==0.0 and wfP.P.s1y==0.0 and wfP.P.s1z==0.0 and wfP.P.s2x==0.0 and wfP.P.s2y == 0.0 and wfP.P.s2z == 0.0 and not opts.eccentricity:
+                        print(" Adding non-spinning simulation ", group, param)
+                        P_list_NR = P_list_NR + [wfP.P]
+                        try:
+                            omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
+                        except:
+                            omega_list_NR+=[-1]
+                    elif wfP.P.s1x ==0.0 and wfP.P.s1y==0.0 and wfP.P.s1z==0.0 and wfP.P.s2x==0.0 and wfP.P.s2y == 0.0 and wfP.P.s2z == 0.0 and opts.eccentricity:
+                        wfP.P.print_params()
+                        if not wfP.P.eccentricity==0:
+                            P_list_NR = P_list_NR + [wfP.P]
+                            try:
+                                omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
+                            except:
+                                omega_list_NR+=[-1]
+                elif not opts.aligned_only:
                     print(" Adding generic sim; for layout only ", group, param)
                     P_list_NR = P_list_NR + [wfP.P]
                     try:
@@ -357,8 +376,6 @@ for group in glist:
                         omega_list_NR += [nrwf.internal_WaveformMetadata[group][param]["Momega0"]]
                     except:
                         omega_list_NR+=[-1]
-
-                    
             else:
                 print(" Skipping non-aligned simulation because overlaps active (=SEOBNRv2 comparison usually)", group, param)
 #                wfP.P.print_params()
@@ -415,13 +432,15 @@ else:
         param_names = ['mc', 'eta', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z']
     else:
         param_names = ['mtot', 'q', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z']
+    if opts.eccentricity:
+        param_names.append('eccentricity')
 
 mass_range =[]
 if opts.mc_range:
     mass_range = np.array(eval(opts.mc_range))*lal.MSUN_SI
 else:
     mass_range = np.array(eval(opts.mtot_range))*lal.MSUN_SI
-mass_grid =np.linspace( mass_range[0],mass_range[1],opts.grid_cartesian_npts)
+mass_grid =np.linspace( mass_range[0],mass_range[1],int(opts.grid_cartesian_npts))
 
 # Loop over simulations and mass grid
 grid = []

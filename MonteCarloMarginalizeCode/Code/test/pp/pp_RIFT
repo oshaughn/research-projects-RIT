@@ -45,7 +45,27 @@ def add_frames(channel,input_frame, noise_frame,combined_frame):
     print(cmd)
     if not opts.test:
         os.system(cmd)
-
+        
+def m1m2(mc, eta):
+    # Step 1: Calculate total mass (M = m1 + m2) using mc and eta
+    M = mc / (eta**(3/5))  # Based on the chirp mass equation: mc = (m1*m2)^(3/5) / (m1+m2)^(1/5)
+    
+    # Step 2: Solve for m1 and m2 using the quadratic formula
+    # We know: eta = (m1 * m2) / (m1 + m2)^2 => m1*m2 = eta * M^2
+    m1m2_product = eta * M**2
+    
+    # Quadratic equation: x^2 - M*x + m1m2_product = 0, where x is m1
+    # Discriminant for the quadratic equation:
+    discriminant = M**2 - 4 * m1m2_product
+    
+    if discriminant < 0:
+        raise ValueError("Discriminant is negative. No real solution for m1 and m2.")
+    
+    # Step 3: Solve for m1 and m2 (roots of the quadratic equation)
+    m1 = (M + np.sqrt(discriminant)) / 2
+    m2 = (M - np.sqrt(discriminant)) / 2
+    
+    return m1, m2
 
 # def dmax_seglen_ladder(mc):
 #     """
@@ -115,6 +135,10 @@ d_min = float(config.get('priors','d_min'))
 d_max = float(config.get('priors','d_max'))
 chi_max = float(config.get('priors','chi_max'))
 
+m1a,m2a = m1m2(mc_range[0], eta_range[0])
+m1b,m2b = m1m2(mc_range[0], eta_range[1])
+m1c,m2c = m1m2(mc_range[1], eta_range[0])
+m1d,m2d = m1m2(mc_range[1], eta_range[1])
 
 # use matter?
 lambda_max=0
@@ -192,19 +216,24 @@ else:
         P.approx=lalsim.GetApproximantFromString(approx_str)
 
     # Uniform in m1 and m2: 
-    m1 = np.random.uniform(mc_range[0],mc_range[1]*2)
-    m2 = np.random.uniform(m_min,mc_range[1]*1.5)
-    m1,m2 = [np.maximum(m1,m2), np.minimum(m1,m2)]
-    P.m1 = m1*lal.MSUN_SI
-    P.m2 = m2*lal.MSUN_SI
+   # m1 = np.random.uniform(mc_range[0],mc_range[1]*2)
+   # m2 = np.random.uniform(m_min,mc_range[1]*1.5)
+   # m1,m2 = [np.maximum(m1,m2), np.minimum(m1,m2)]
+   # P.m1 = m1*lal.MSUN_SI
+   # P.m2 = m2*lal.MSUN_SI
     # ...but downselect in mchirp, eta
-    mc_val = P.extract_param('mc')/lal.MSUN_SI
-    eta_val = P.extract_param('eta')
+   # mc_val = P.extract_param('mc')/lal.MSUN_SI
+   # eta_val = P.extract_param('eta')
+    m1 = np.random.uniform (np.min([m1a,m1b,m1c,m1d]),np.max([m1a,m1b,m1c,m1d]))
+    m2 = np.random.uniform (np.min([m2a,m2b,m2c,m2d]),np.max([m2a,m2b,m2c,m2d]))
+    m1,m2 = [np.maximum(m1,m2), np.minimum(m1,m2)]
+    P.m1 = m1*lal.MSUN_SI                                                                                                                                                                                  
+    P.m2 = m2*lal.MSUN_SI
+    mc_val , eta_val = lalsimutils.Mceta(m1,m2)
     if mc_val < mc_range[0] or mc_val > mc_range[1]:
         continue
     if eta_val < eta_range[0] or eta_val > eta_range[1]:
         continue
-
     # rescale distance of injection based on mc
     # if opts.internal_distance_ladder:
     #     dmax_scale, seglen_scale = dmax_seglen_ladder(mc_val)
@@ -216,7 +245,6 @@ else:
     indx+=1
 
   lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"mdc")
-
 
 # Create data files and cache file
 #   - probably want to create workflow to build these, rather than do it all in one go... very slow!
@@ -306,12 +334,13 @@ try:
 except:
     ile_n_eff = 50  # default will be 50, as in original testsa
 use_mu_coord = unsafe_config_get(config,['make_workflow','use_mu_coord'])
+ile_use_lnL = unsafe_config_get(config,['make_workflow','ile_use_lnL'])
 if use_mu_coord:
     print(" ====> Using SM's phase-based coordinates <====")
 
 n_events_per_worker = int(config.get('make_workflow','n_events_per_worker'))
 n_copies = int(config.get('make_workflow','n_copies'))
-n_iterations = int(config.get('make_workflow','n_iterations'))
+n_iter = int(config.get('make_workflow','n_iterations'))
 puff_cadence = int(config.get('make_workflow','puff_cadence'))
 
 psd_dict = unsafe_config_get(config,["make_psd",'fiducial_psds'])
@@ -388,7 +417,9 @@ for indx in np.arange(n_events):
     if volumetric_spin:
         cmd += " --assume-volumetric-spin "
     if use_matter:
-        cmd += " --assume-matter " 
+        cmd += " --assume-matter "
+    if ile_use_lnL:
+        cmd += " --internal-ile-use-lnL "
 
     print(cmd)
     if not opts.test:
@@ -402,10 +433,10 @@ for indx in np.arange(n_events):
         if opts.use_gwsignal:
             line += " --use-gwsignal "
         if not (use_gpu):
-            line+= " --vectorized "  # make sure to use vectorized code
-            line = line.replace("--gpu","")  # make SURE this option is not set
+            line+= " --vectorized --force-xpy "  # make sure to use vectorized code
+            # line = line.replace("--gpu","")  # make SURE this option is not set
         if (use_gpu):
-            line+= " --vectorized --force-gpu-only "
+            line+= " --vectorized --force-xpy  --force-gpu-only "
             line = line.replace("--gpu","")  # make SURE this option is not set
         if fix_sky_location:
             line = line.replace("--declination-cosine-sampler", "")   # fix, so known sky location is interpreted correctly
@@ -436,6 +467,8 @@ for indx in np.arange(n_events):
             line += " --rom-group surrogate_downloads/  --rom-param NRHybSur3dq8Tidal  "
         elif "NRSur7dq2" in approx_recover_str:
             line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRSur7dq2.h5  "
+        elif "NRSur7dq4" in approx_recover_str:
+            line += " --approx " + approx_recover_str
         elif 'NRHybSur' in approx_recover_str:
             line += " --rom-group my_surrogates/nr_surrogates/ --rom-param NRHybSur3dq8.h5 "
         elif ("SEOBNR" in approx_recover_str) or 'NRTidal' in approx_recover_str: 
@@ -491,7 +524,9 @@ for indx in np.arange(n_events):
                 line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z,s2z' "
             elif (cip_sampler_method!="GMM"):
                 line += " --sampler-method "+cip_sampler_method
-            #line +=" --n-output-samples {}  --n-eff {} ".format(int(n_sample_target/n_workers), n_eff_cip_here) 
+            #line +=" --n-output-samples {}  --n-eff {} ".format(int(n_sample_target/n_workers), n_eff_cip_here)
+#            if aligned_spin:
+#                line += " --aligned-prior alignedspin-zprior "
             line += "\n"
             lines.append(line)
 
@@ -516,7 +551,7 @@ for indx in np.arange(n_events):
 
     # Build workflow
     cmd = "create_event_parameter_pipeline_BasicIteration --input-grid proposed-grid.xml.gz --ile-n-events-to-analyze {} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`  --ile-args {}/args_ile.txt --request-memory-ILE 4096 ".format(n_events_per_worker,dir_target)
-    cmd+= "--cip-args-list {}/args_cip_list.txt  --test-args {}/args_test.txt --request-memory-CIP 30000  --n-samples-per-job 1000 --working-directory `pwd` --n-iterations {} --n-copies {} ".format(dir_target,dir_target,n_iterations, n_copies)
+    cmd+= "--cip-args-list {}/args_cip_list.txt  --test-args {}/args_test.txt --request-memory-CIP 30000  --n-samples-per-job 1000 --working-directory `pwd` --n-iterations {} --n-copies {} ".format(dir_target,dir_target,n_iter, n_copies)
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-max-it 10 --puff-cadence {} --puff-args {}/args_puff.txt".format(puff_cadence,dir_target)
 
     # Use GPUs if we are not

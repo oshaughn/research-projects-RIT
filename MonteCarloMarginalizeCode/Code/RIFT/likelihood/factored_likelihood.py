@@ -24,9 +24,13 @@ Requires python SWIG bindings of the LIGO Algorithms Library (LAL)
 
 from __future__ import print_function
 
+log_loud = False
+
+
 import lal
 import lalsimulation as lalsim
 import RIFT.lalsimutils as lsu  # problem of relative comprehensive import - dangerous due to package name
+log_loud = lsu.log_loud
 import numpy as np
 try:
   import cupy
@@ -48,6 +52,12 @@ from .SphericalHarmonics_gpu import SphericalHarmonicsVectorized
 
 
 from scipy import interpolate, integrate
+my_simps = None
+if hasattr(integrate, 'simpson'):
+  my_simps = integrate.simpson
+else:
+  my_simps = integrate.simps  # old name
+
 from scipy import special
 from itertools import product, combinations
 import math
@@ -74,19 +84,22 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  try:
         import NRWaveformCatalogManager3 as nrwf
         useNR =True
-        print(" factored_likelihood.py : NRWaveformCatalogManager3 available ")
+        if log_loud:
+          print(" factored_likelihood.py : NRWaveformCatalogManager3 available ")
  except ImportError:
         useNR=False
 
 
  try:
         import RIFT.physics.ROMWaveformManager as romwf
-        print(" factored_likelihood.py: ROMWaveformManager as romwf")
+        if log_loud:
+          print(" factored_likelihood.py: ROMWaveformManager as romwf")
         useROM=True
         rom_basis_scale = 1.0*1e-21   # Fundamental problem: Inner products with ROM basis vectors/Sh are tiny. Need to rescale to avoid overflow/underflow and simplify comparisons
  except ImportError:
         useROM=False
-        print(" factored_likelihood.py: - no ROM - ")
+        if log_loud:
+          print(" factored_likelihood.py: - no ROM - ")
         rom_basis_scale =1
 
  try:
@@ -95,7 +108,8 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  #    import EOBTidalExternal as eobwf
  except:
     hasEOB=False
-    print(" factored_likelihood: no EOB ")
+    if log_loud:
+      print(" factored_likelihood: no EOB ")
 else:
   hasEOB=False
   useROM=False; rom_basis_scale=1
@@ -122,6 +136,7 @@ def internal_hlm_generator(P,
     internal_hlm_generator: top-level front end to all waveform generators used.
     Needs to be restructured so it works on a 'hook' basis, so we are not constantly changing the source code
     """
+    P.taper =  lsu.lsu_TAPER_START # use to pass to romwf, rgws/gwsignal. Pass through
     if not( ROM_group is None) and not (ROM_param is None):
        # For ROM, use the ROM basis. Note that hlmoff -> basis_off henceforth
        acatHere= romwf.WaveformModeCatalog(ROM_group,ROM_param,max_nbasis_per_mode=ROM_limit_basis_size,lmax=Lmax)
@@ -216,6 +231,8 @@ def internal_hlm_generator(P,
         #         hlms_conj = lsu.SphHarmFrequencySeries_to_dict(hlms_conj_list, Lmax) # a dictionary
         # else:
         #         hlms_conj = hlms_conj_list
+        if not('fd_standoff_factor' in extra_waveform_kwargs):
+          extra_waveform_kwargs['fd_standoff_factor'] = 0.9  # IMPORTANT to match SimInspiralTD. But allow user to override
         hlms, hlms_conj = lsu.std_and_conj_hlmoff(P,Lmax,**extra_waveform_kwargs)
     elif (nr_lookup or NR_group) and useNR:
 	    # look up simulation
@@ -232,6 +249,8 @@ def internal_hlm_generator(P,
                 compare_dict['s2z'] = P.s2z
                 compare_dict['s2x'] = P.s2x
                 compare_dict['s2y'] = P.s2y
+                if P.eccentricity is not None and P.eccentricity > 0:
+                  compare_dict['eccentricity'] = P.eccentricity
                 print(" Parameter matching condition ", compare_dict)
                 good_sim_list = nrwf.NRSimulationLookup(compare_dict,valid_groups=nr_lookup_valid_groups)
                 if len(good_sim_list)< 1:
@@ -667,7 +686,7 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
         lnL += SingleDetectorLogLikelihood(det_rholms, CT, CTV, Ylms, F, dist)
 
     maxlnL = np.max(lnL)
-    return maxlnL + np.log(integrate.simps(np.exp(lnL - maxlnL), dx=tvals[1]-tvals[0]))
+    return maxlnL + np.log(my_simps(np.exp(lnL - maxlnL), dx=tvals[1]-tvals[0]))
 
 
 #
@@ -1569,7 +1588,7 @@ def  DiscreteFactoredLogLikelihoodViaArray(tvals, P, lookupNKDict, rholmsArrayDi
         return lnL
     else:  # return the marginalized lnL in time
         lnLmax = np.max(lnL)
-        lnLmargT = np.log(integrate.simps(np.exp(lnL-lnLmax), dx=deltaT)) + lnLmax
+        lnLmargT = np.log(my_simps(np.exp(lnL-lnLmax), dx=deltaT)) + lnLmax
         return lnLmargT
 
 def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=xpy_default):
@@ -1655,7 +1674,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
             lnL = term1+term2
             lnL_array[indx_ex] += lnL  #  copy into array.  Add, because we will get terms from other IFOs
             maxlnL = np.max(lnL)
-            lnLmargOut[indx_ex] = maxlnL + np.log(integrate.simps(np.exp(lnL_array[indx_ex] - maxlnL), dx=deltaT))  # integrate term by term, minmize overflows
+            lnLmargOut[indx_ex] = maxlnL + np.log(my_simps(np.exp(lnL_array[indx_ex] - maxlnL), dx=deltaT))  # integrate term by term, minmize overflows
 
     return lnLmargOut
 
@@ -1766,7 +1785,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopOrig(tvals, P_vec, lookupN
         
     # Integrate out the time dimension.  We now have an array of shape
     # (npts_extrinsic,)
-    L = integrate.simps(L_t, dx=deltaT, axis=-1)
+    L = my_simps(L_t, dx=deltaT, axis=-1)
     # Compute log likelihood in-place.
     lnL = lnLmax+ np.log(L, out=L)
 
@@ -1833,7 +1852,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     rho_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
 
     if (xpy is np) or (optimized_gpu_tools is None):
-        simps = integrate.simps
+        simps = my_simps
     elif not (xpy is np):
         simps = optimized_gpu_tools.simps
     else:
@@ -2051,7 +2070,8 @@ if not('RIFT_LOWLATENCY' in os.environ):
         import numba
         from numba import vectorize, complex128, float64, int64
         numba_on = True
-        print(" Numba on ")
+        if log_loud:
+          print(" Numba on ")
 
         # Very inefficient : decorating
         # Problem - lately, compiler not correctly identifying return value of code
@@ -2082,7 +2102,8 @@ if not('RIFT_LOWLATENCY' in os.environ):
 
 if fallback or ('RIFT_LOWLATENCY' in os.environ): 
         numba_on = False
-        print(" Numba off ")
+        if log_loud:
+          print(" Numba off ")
         # Very inefficient
         def lalylm(th,ph,s,l,m):
                 return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)

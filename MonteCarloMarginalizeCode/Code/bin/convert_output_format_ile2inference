@@ -14,7 +14,7 @@ EXAMPLES
 import sys
 from optparse import OptionParser
 import numpy as np
-from ligo.lw import utils, table, lsctables, ligolw
+from igwn_ligolw import utils, table, lsctables, ligolw
 try:
     import h5py
 except:
@@ -39,6 +39,7 @@ optp.add_option("--export-eos",action='store_true',help="Include EOS index param
 optp.add_option("--export-cosmology",action='store_true',help="Include source frame masses and redshift")
 optp.add_option("--export-weights",action='store_true',help="Include a field 'weights' equal to L p/ps")
 optp.add_option("--export-eccentricity", action="store_true", help="Include eccentricity")
+optp.add_option("--export-meanPerAno", action="store_true", help="Include meanPerAno")
 optp.add_option("--with-cosmology",default="Planck15",help="Specific cosmology to use")
 optp.add_option("--use-interpolated-cosmology",action='store_true',help="Specific cosmology to use")
 optp.add_option("--convention",default="RIFT",help="RIFT|LI")
@@ -83,7 +84,10 @@ if opts.convention == 'LI':
   if opts.export_weights:
       print( " weights ", )
   if opts.export_eccentricity:
-      print( "eccentricity ",)
+      if not opts.export_meanPerAno:
+          print( "eccentricity ", )
+      else:
+          print( "eccentricity meanPerAno ", )
   else:
       print('')
   for fname in args:
@@ -95,7 +99,11 @@ if opts.convention == 'LI':
     Nmax = np.max([int(row.simulation_id) for row in points])+1    # Nmax. Assumes NOT mixed samples.
 
     if opts.export_eccentricity:
-        ecc = [row.alpha4 for row in points]
+        if not opts.export_meanPerAno:
+            ecc = [row.alpha4 for row in points]
+        else:
+            ecc = [row.alpha4 for row in points]
+            meanPerAno = [row.alpha for row in points]
     
     wt = np.exp(like)*p/ps
     # remove nan wt - can happen for extrinsic output
@@ -174,7 +182,10 @@ if opts.convention == 'LI':
         if opts.export_weights:
             print(wt[indx],end=' ')
         if opts.export_eccentricity:
-            print(ecc[indx])
+            if not opts.export_meanPerAno:
+                print(ecc[indx])
+            else:
+                print(ecc[indx], meanPerAno[indx])
         else:
             print('')
 
@@ -195,7 +206,10 @@ if opts.export_cosmology:
 if opts.export_weights:
     print( " weights ",end=' ')
 if opts.export_eccentricity:
-    print( "eccentricity ",)
+    if not opts.export_meanPerAno:
+        print( "eccentricity ",)
+    else:
+        print( "eccentricity meanPerAno ",)
 else:
     print('')
 for fname in args:
@@ -236,7 +250,11 @@ for fname in args:
     sim_id = np.array([int(row.simulation_id) for row in points])+1
 
     if opts.export_eccentricity:
-        ecc = [row.alpha4 for row in points]
+        if not opts.export_meanPerAno:
+            ecc = [row.alpha4 for row in points]
+        else:
+            ecc = [row.alpha4 for row in points]
+            meanPerAno = [row.alpha for row in points]
     
     wt = np.exp(like)*p/ps
 
@@ -278,7 +296,10 @@ for fname in args:
         if opts.export_weights:
             print(wt[indx],end=' ')
         if opts.export_eccentricity:
-            print(ecc[indx],)
+            if not opts.export_meanPerAno:
+                print(ecc[indx],)
+            else:
+                print(ecc[indx], meanPerAno[indx],)
         else:
             print('')
 #    print pt.geocent_end_time + 1e-9* pt.geocent_end_time_ns, pt.coa_phase,  pt.inclination, pt.polarization, pt.longitude,pt.latitude, pt.distance, ind like[indx]

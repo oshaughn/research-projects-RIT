@@ -12,8 +12,8 @@ stages:
   - system tests
   - unit tests # TODO: write some
   - docs
-  - docker image
-  - deploy
+#  - docker image
+#  - deploy
 
 .install_docker_dependencies:
   before_script:
@@ -56,14 +56,14 @@ test_run:
     -  bash .travis/test-run-alts.sh
     -  bash .travis/test-build.sh
 
-build:test:
-  image: docker:latest
-  stage: docker image
-  extends: .install_docker_dependencies
-  script:  
-    - suffix=$(echo $CI_COMMIT_BRANCH | cut -d "-" -f 2)
-    - docker build --rm --no-cache -t $RIFT_IMAGE:test --file Dockerfile .
-    - docker push $RIFT_IMAGE:test
+# build:test:
+#   image: docker:latest
+#   stage: docker image
+#   extends: .install_docker_dependencies
+#   script:  
+#     - suffix=$(echo $CI_COMMIT_BRANCH | cut -d "-" -f 2)
+#     - docker build --rm --no-cache -t $RIFT_IMAGE:test --file Dockerfile .
+#     - docker push $RIFT_IMAGE:test
 
 documentation:
   stage: docs

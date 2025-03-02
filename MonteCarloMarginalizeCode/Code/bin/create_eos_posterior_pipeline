@@ -47,6 +47,7 @@ parser.add_argument("--eos-post-retries",default=0,type=int,help="Number of retr
 parser.add_argument("--eos-post-explode-jobs",default=2,type=int,help="Number of MARG jobs to use in posterior generation.")
 parser.add_argument("--eos-post-explode-jobs-last",default=2,type=int,help="Number of MARG jobs to use in posterior generation on the final stage (if desired).")
 parser.add_argument("--test-args",default=None,help="filename of args_test.txt, which holds test arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments")
+parser.add_argument("--test-exe",default='convergence_test_samples',help="convergence test samples")
 parser.add_argument("--general-retries",default=0,type=int,help="Number of retry attempts for internal jobs (convert, CIP, ...). (These can fail, albeit more rarely, usually due to filesystem problems)")
 parser.add_argument("--general-request-disk",default="10M",type=str,help="Request disk passed to condor. Must be done for all jobs now")
 parser.add_argument("--transfer-file-list",default=None,help="File containing list of *input* filenames to transfer, one name per file. Copied into transfer_files for condor directly.  If provided, also enables attempts to deduce files that need to be transferred for the pipeline to operate, as needed for OSG, etc")
@@ -137,8 +138,10 @@ elif opts.marg_event_args_list_file:
     with open(opts.marg_event_exe_list_file) as f:
         marg_event_exe_list = f.readlines()
     marg_event_nchunk_list = np.ones(len(marg_event_exe_list)) # default: one point per evaluation
-    if opts.marg_event_nchunk_list_file and os.path.isfile(opts.marg_event_nchunk_list_file):
+    if opts.marg_event_nchunk_list_file and os.path.isfile(opts.marg_event_nchunk_list_file):        
         marg_event_nchunk_list = np.loadtxt(opts.marg_event_nchunk_list_file,dtype=int) # load in 1d array
+        if len(marg_event_exe_list) ==1 or not(isinstance(marg_event_nchunk_list, np.ndarray)):
+            marg_event_nchunk_list = [marg_event_nchunk_list] # we have a single element
         assert len(marg_event_nchunk_list) == len(marg_event_exe_list)
         
     assert len(marg_event_exe_list) == len(marg_event_args_list)  # fail if not true: not matching MARG args to exe
@@ -179,6 +182,21 @@ if opts.puff_args:
     print("PUFF CADENCE", puff_cadence)
 
 
+test_args=None
+test_node_list = []
+if opts.test_args:
+    # Load args.txt. Remove first item.  Store
+    with open(opts.test_args) as f:
+        test_args_list = f.readlines()
+    test_args = ' '.join( [x.replace('\\','') for x in test_args_list] )
+    test_args = ' '.join(test_args.split(' ')[1:])
+# Some argument protection for later
+    test_args = test_args.replace('[', ' \'[')
+    test_args = test_args.replace(']', ']\'')
+    test_args=test_args.rstrip()
+    print("CONVERGE", test_args)
+
+    
 # Load args.txt. Remove first item.  Store
 if True: # not (opts.eos_post_args is None):
     with open(opts.eos_post_args) as f:
@@ -196,7 +214,11 @@ if True: # not (opts.eos_post_args is None):
 eospost_exe = which('util_ConstructEOSPosterior.py')
 if opts.eos_post_exe:
     eospost_exe = "{}".format(opts.eos_post_exe) # force clpy, so NOT BY REFERENCE
-
+if opts.use_osg:
+    # Correctly use EOS_POST in container location
+    path_split = eospost_exe.split("/")
+    singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
+    eospost_exe =singularity_base_exe_path + path_split[-1]
 
 
 # Copy seed grid into place as grid-0.dat
@@ -243,9 +265,11 @@ for indx in np.arange(it_start,opts.n_iterations+1):
         mkdir(test_dir); mkdir(test_dir+'/logs')
 
 
+transfer_file_names_puff = list(transfer_file_names)  # allocate a copy. Actually fine if the same thing, just a little redundant.
 if opts.use_singularity or opts.use_osg:
     transfer_file_names_post.append("../grid-$(macroiteration).dat")
     transfer_file_names.append(opts.working_directory+"/grid-$(macroiteration).dat")
+    transfer_file_names_puff.append(opts.working_directory+"/grid_puff-$(macroiteration).dat")
 
 
 # ++++
@@ -272,7 +296,7 @@ if opts.marg_event_args:
     cip_job.write_sub_file()
 
     # PUFF variant
-    cipPuff_job, cipPuff_job_name = dag_utils.write_CIP_sub(tag='MARG_PUFF',log_dir=None,arg_str=marg_event_args,using_eos='file:'+working_dir_inside+"/grid_puff-$(macroiteration).dat",using_eos_index='$(macroevent)',request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG_puff-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,exe=marg_exe_master,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../../event-$(macroid).net']+transfer_file_names)
+    cipPuff_job, cipPuff_job_name = dag_utils.write_CIP_sub(tag='MARG_PUFF',log_dir=None,arg_str=marg_event_args,using_eos='file:'+working_dir_inside+"/grid_puff-$(macroiteration).dat",using_eos_index='$(macroevent)',request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG_puff-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,exe=marg_exe_master,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../../event-$(macroid).net']+transfer_file_names_puff)
     # Modify: set 'initialdir'
     cipPuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg/event_$(macroid)")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -303,7 +327,7 @@ else:
         cip_job_list.append(cip_job)
 
         # PUFF variant
-        cipPuff_job, cipPuff_job_name = dag_utils.write_CIP_sub(tag='MARG_PUFF_{}'.format(indx),log_dir=None,exe=marg_event_exe_list[indx],arg_str=marg_event_args_list[indx],using_eos='file:'+working_dir_inside+"/grid_puff-$(macroiteration).dat",using_eos_index='$(macroevent)',n_events_to_analyze=n_chunk_here,request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG_puff-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../../event-$(macroid).net']+transfer_file_names)
+        cipPuff_job, cipPuff_job_name = dag_utils.write_CIP_sub(tag='MARG_PUFF_{}'.format(indx),log_dir=None,exe=marg_event_exe_list[indx],arg_str=marg_event_args_list[indx],using_eos='file:'+working_dir_inside+"/grid_puff-$(macroiteration).dat",using_eos_index='$(macroevent)',n_events_to_analyze=n_chunk_here,request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG_puff-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../../event-$(macroid).net','../../grid_puff-$(macroiteration).dat']+transfer_file_names)
     # Modify: set 'initialdir'
         cipPuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg/event_$(macroid)")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -385,6 +409,23 @@ if opts.use_singularity_local:
 con_prod_job.write_sub_file()
         
 
+if opts.test_args:
+    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[ opts.working_directory+'/grid-$(macroiteration).dat', opts.working_directory+'/grid-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+    # Modify: set 'initialdir'
+    test_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_test")
+    # Modify output argument: change logs and working directory to be subdirectory for the run
+    test_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).log")
+    test_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).err")
+    test_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_test/logs/test-$(cluster)-$(process).out")
+    test_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+test_job.get_sub_file()
+        test_job.set_sub_file(fname)
+#    if opts.condor_containerize_nonworker and singularity_image:
+#        test_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    test_job.write_sub_file()
+
+
 ##   unify job
 #  - joins together all files into one
 with open("unify.sh",'w') as f:
@@ -433,7 +474,7 @@ eospost_marg_job.write_sub_file()
 with open("join_post.sh",'w') as f:
     f.write("""#! /bin/bash
 head -n 1 grid-0.dat > $2
-cat $1/output*.dat  | sort -r | uniq >> $2
+cat $1/output*.dat  | sort -r | uniq | shuf >> $2
 """)
     os.system("chmod a+x join_post.sh")
 join_post_job, join_post_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/join_post.sh",tag='JOIN_POST',log_dir=None,arg_str='',file_input=opts.working_directory+"/iteration_$(macroiteration)_post/    "+opts.working_directory+"/grid-$(macroiterationnext).dat", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
@@ -604,6 +645,19 @@ for it in np.arange(it_start,opts.n_iterations):
                 dag.add_node(worker_node)
     dag.add_node(join_node)
     parent_fit_node=join_node
+
+    # add test here, using output of this most recent iteration
+    if opts.test_args and it>0:
+        # Cannot run test on first iteration
+        test_node = pipeline.CondorDAGNode(test_job)
+        test_node.add_macro("macroiteration", it+1)   # test the NEWLY-PRODUCED iteration against the old
+        test_node.add_macro("macroiterationlast", it)
+        test_node.add_parent(parent_fit_node)
+        test_node.set_category("CONVERGE")
+        dag.add_node(test_node)
+        test_node_list.append(test_node)
+
+        parent_fit_node=test_node
 
 
     # Check if puffball being created, and if so create it *immediately* after the above join  creates the final 'grid-X.dat' file

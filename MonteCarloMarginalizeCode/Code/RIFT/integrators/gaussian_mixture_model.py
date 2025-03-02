@@ -13,7 +13,11 @@ from six.moves import range
 
 import numpy as np
 from scipy.stats import multivariate_normal,norm
-from scipy.stats.mvn import mvnun # integrates multivariate normal distributions in rectangular domains - used for normalization
+try:
+    from scipy.stats._mvn import mvnun # integrates multivariate normal distributions in rectangular domains - used for normalization
+except:
+    from scipy.stats.mvn import mvnun # integrates multivariate normal distributions in rectangular domains - used for normalization
+    #   warning: previously scipy.stats.mvn.
 #from scipy.misc import logsumexp
 from scipy.special import logsumexp
 from . import multivariate_truncnorm as truncnorm

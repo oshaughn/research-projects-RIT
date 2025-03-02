@@ -20,7 +20,7 @@ import lal
 import RIFT.lalsimutils as lalsimutils
 import lalsimulation as lalsim
 
-from ligo.lw import lsctables, table, utils
+from igwn_ligolw import lsctables, table, utils
 from glue.lal import CacheEntry
 
 import configparser as ConfigParser
@@ -178,8 +178,8 @@ parser.add_argument("--force-lambda-max",default=None,type=float,help="Provde th
 parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provde this value to override the value of lambda-small-max provided")
 parser.add_argument("--fmin-template",default=20,type=float,help="Minimum frequency for template. Used to estimate signal duration. If fmin not specified, also the minimum frequency for integration")
 parser.add_argument("--fmax",default=None,type=float,help="fmax. Use this ONLY if you want to override the default settings, which are set based on the PSD used")
-parser.add_argument("--data-start-time",default=None)
-parser.add_argument("--data-end-time",default=None,help="If both data-start-time and data-end-time are provided, this interval will be used.")
+parser.add_argument("--data-start-time",default=None,type=float)
+parser.add_argument("--data-end-time",default=None,type=float,help="If both data-start-time and data-end-time are provided, this interval will be used.")
 parser.add_argument("--data-LI-seglen",default=None,type=float,help="If provided, use a buffer this long, placing the signal 2s after this, and try to use 0.4s tukey windowing on each side, to be consistent with LI.  Note next argument to change windowing")
 parser.add_argument("--data-tukey-window-time",default=0.4,type=float,help="The default amount of time (in seconds) during the turn-on phase of the tukey window. Note that for massive signals, the amount of unfiltered data is (seglen - 2s  - window_time), and can be as short as 1.6 s by default")
 parser.add_argument("--no-enforce-duration-bound",action='store_true',help="Allow user to perform LI-style behavior and reequest signals longer than the seglen. Argh, by request.")
@@ -190,6 +190,7 @@ parser.add_argument("--gracedb-exe",default="gracedb")
 parser.add_argument("--fake-data",action='store_true',help="If this argument is present, the channel names are overridden to FAKE_STRAIN")
 parser.add_argument("--cache",type=str,default=None,help="If this argument is present, the various routines will use the frame files in this cache. The user is responsible for setting this up")
 parser.add_argument("--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.  Required if using --fake-data option")
+parser.add_argument("--psd-assume-common-window", action='store_true', help="Assume window used to generate PSD is the same as the window used to analyze the data - on-source (BW) not off-source")
 parser.add_argument("--assume-fiducial-psd-files", action="store_true", help="Will populate the arguments --psd-file IFO=IFO-psd.xml.gz for all IFOs being used, based on data availability.   Intended for user to specify PSD files later, or for DAG to build BW PSDs. ")
 parser.add_argument("--use-online-psd",action='store_true',help='Use PSD from gracedb, if available')
 parser.add_argument("--assume-matter",action='store_true',help="If present, the code will add options necessary to manage tidal arguments. The proposed fit strategy and initial grid will allow for matter")
@@ -198,6 +199,7 @@ parser.add_argument("--assume-matter-eos",type=str,default=None,help="If present
 parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!. NOT YET IMPLEMENTED (initial grids, etc)")
 parser.add_argument("--assume-eccentric",action='store_true',help="If present, the code will add options necessary to manage eccentric arguments. The proposed fit strategy and initial grid will allow for eccentricity")
+parser.add_argument("--use-meanPerAno",action='store_true',help="The proposed fit strategy and initial grid will allow for meanPerAno")
 parser.add_argument("--assume-nospin",action='store_true',help="If present, the code will not add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-precessing-spin",action='store_true',help="If present, the code will add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-volumetric-spin",action='store_true',help="If present, the code will assume a volumetric spin prior in its last iterations. If *not* present, the code will adopt a uniform magnitude spin prior in its last iterations. If not present, generally more iterations are taken.")
@@ -706,23 +708,32 @@ if fit_method =='quadratic' or fit_method =='polynomial' or opts.use_quadratic_e
 t_event = event_dict["tref"]
 P=event_dict["P"]
 #lalsimutils.ChooseWaveformParams()
-#P.m1= event_dict['m1']*lal.MSUN_SI;  P.m2= event_dict['m2']*lal.MSUN_SI; 
+#P.m1= event_dict['m1']*lal.MSUN_SI;  P.m2= event_dict['m2']*lal.MSUN_SI;
+data_start_time = opts.data_start_time
 if (event_dict["epoch"]) is None:
    event_dict["epoch"]=0  # protect against insanity that should never happen
-t_duration  = np.max([ event_dict["epoch"], lalsimutils.estimateWaveformDuration(P)])
-t_before = np.max([4,t_duration])*1.1+8+2  # buffer for inverse spectrum truncation
-data_start_time_orig = data_start_time = t_event - int(t_before)
-data_end_time = t_event + int(t_before) # for inverse spectrum truncation. Overkill
+if (opts.data_start_time is None) or (opts.data_end_time is None):
+    # onlyu calculate waveform duration (for data retrieval) if we are NOT provided a duration
+    # important: sometimes we pass P.fmin == 0 (e.g., NRSur), and estimateWaveofmrDuration will FAIL.
+    t_duration  = np.max([ event_dict["epoch"], lalsimutils.estimateWaveformDuration(P)])
+    t_before = np.max([4,t_duration])*1.1+8+2  # buffer for inverse spectrum truncation
+    data_start_time_orig = data_start_time = t_event - int(t_before)
+    data_end_time = t_event + int(t_before) # for inverse spectrum truncation. Overkill
 
-# Estimate data needed for PSD
-#   - need at least 8 times the duration of the signal!
-#   - important to get very accurate PSD estimation for long signals
-t_psd_window_size = np.max([1024, int(8*t_duration)])
-psd_data_start_time = t_event - 32-t_psd_window_size - t_before
-psd_data_end_time = t_event - 32 - t_before
-# set the start time to be the time needed for the PSD, if we are generating a PSD
-if (opts.psd_file is None) and  use_gracedb_event and not opts.use_online_psd:
-    data_start_time = psd_data_start_time
+    # Estimate data needed for PSD
+    #   - need at least 8 times the duration of the signal!
+    #   - important to get very accurate PSD estimation for long signals
+    t_psd_window_size = np.max([1024, int(8*t_duration)])
+    psd_data_start_time = t_event - 32-t_psd_window_size - t_before
+    psd_data_end_time = t_event - 32 - t_before
+    # set the start time to be the time needed for the PSD, if we are generating a PSD
+    if (opts.psd_file is None) and  use_gracedb_event and not opts.use_online_psd:
+        data_start_time = psd_data_start_time
+else:
+    # arguments override any attempt to calculate duration.  Note these time intervals are used for retrieval, so we can add safety!
+    data_start_time_orig  = opts.data_start_time
+    data_start_time = int(data_start_time_orig -2)
+    data_end_time = int(opts.data_end_time +1)
 
 # reset IFO list if needed. Do NOT do with online_psd
 #
@@ -755,6 +766,7 @@ srate=4096
 if not(opts.use_ini is None):
     use_ini=True
     config = ConfigParser.ConfigParser()
+    config.optionxform=str
     config.read(opts.use_ini)
 
     # Overwrite general settings
@@ -977,8 +989,15 @@ if use_ini:
     if 'q-min'  in engine_dict:
         q_min = float(engine_dict['q-min'])
         eta_min = q_min/(1.+q_min)**2
+    if 'q-max'  in engine_dict:
+        q_max = float(engine_dict['q-max'])
+        eta_max = q_max/(1.+q_max)**2
+        if eta_max >=0.25:
+            eta_max = 0.24999999  # rounding/finite-precision issues may cause nan problems 
     if 'ecc_min' in engine_dict:
         ecc_range_str = "  ["+str(engine_dict['ecc_min'])+","+str(engine_dict['ecc_max'])+"]"
+#    if 'meanPerAno_min' in engine_dict:
+#        meanPerAno_range_str = "  ["+str(engine_dict['meanPerAno_min'])+","+str(engine_dict['meanPerAno_max'])+"]"
         
 mc_range_str = "  ["+str(mc_min_tight)+","+str(mc_max_tight)+"]"  # Use a tight placement grid for CIP
 if not(opts.manual_mc_min is None):
@@ -1118,6 +1137,8 @@ if opts.lowlatency_propose_approximant:
         T_window = data_start_time - data_end_time
         window_shape = opts.data_tukey_window_time*2/T_window  # make it clear that this is a one-sided interval
         helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape " + str(window_shape)
+        if opts.psd_assume_common_window:
+            helper_ile_args += " --psd-window-shape {} ".format(window_shape)
 
 if not(internal_dmax is None):
     helper_ile_args +=  " --d-max " + str(int(internal_dmax))
@@ -1155,6 +1176,9 @@ if not ( (opts.data_start_time is None) and (opts.data_end_time is None)):
     data_start_time =opts.data_start_time
     data_end_time =opts.data_end_time
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0 --window-shape " + str(window_shape)
+    if opts.psd_assume_common_window:
+        helper_ile_args += " --psd-window-shape {} ".format(window_shape)
+
 elif opts.data_LI_seglen:
     seglen = opts.data_LI_seglen
     # Use LI-style positioning of trigger relative to 2s before end of buffer
@@ -1163,8 +1187,13 @@ elif opts.data_LI_seglen:
     data_end_time = event_dict["tref"]+2
     data_start_time = event_dict["tref"] +2 - seglen
     helper_ile_args += " --data-start-time " + str(data_start_time) + " --data-end-time " + str(data_end_time)  + " --inv-spec-trunc-time 0  --window-shape " + str(window_shape)
+    if opts.psd_assume_common_window:
+            helper_ile_args += " --psd-window-shape {} ".format(window_shape)
+
 if opts.assume_eccentric:
     helper_ile_args += " --save-eccentricity "
+    if opts.use_meanPerAno:
+        helper_ile_args += " --save-meanPerAno "
 if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 10.):
     cmd  = "util_AnalyticFisherGrid.py  --inj-file-out  proposed-grid  "
     # Add standard downselects : do not have m1, m2 be less than 1
@@ -1181,12 +1210,13 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
     if opts.assume_nospin:
         grid_size = 1000   # 500 was too small with noise
     else:
-        chieff_range = str([chieff_min,chieff_max]).replace(' ', '')   # assumes all chieff are possible
+        chieff_range = "[{},{}]".format( float(chieff_min), float(chieff_max))
+        chieff_range= chieff_range.replace(' ', '')   # assumes all chieff are possible
         if opts.propose_fit_strategy:
             # If we don't have a fit plan, use the NS spin maximum as the default
             if (P.extract_param('mc')/lal.MSUN_SI < 2.6):   # assume a maximum NS mass of 3 Msun
                 chi_max = 0.1   # propose a maximum NS spin
-                chi_range = str([-chi_max,chi_max]).replace(' ','')
+                chi_range = "[{},{}]".format(-chi_max,chi_max).replace(' ','')
                 chieff_range = chi_range  # force to be smaller
                 cmd += " --downselect-parameter s1z --downselect-parameter-range " + chi_range + "   --downselect-parameter s2z --downselect-parameter-range " + chi_range 
 
@@ -1194,6 +1224,10 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
         grid_size =2500
     if opts.assume_eccentric:
         cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
+        grid_size = int(grid_size*1.5)
+        if opts.use_meanPerAno:
+            cmd += " --random-parameter meanPerAno --random-parameter-range [0,6.2831]"
+            grid_size = int(grid_size*1.5)
     if "SNR" in event_dict:
         grid_size *= np.max([1,event_dict["SNR"]/15])  # more grid points at higher amplitude. Yes, even though we also contract the paramete range
     if not (opts.force_initial_grid_size is None):
@@ -1227,7 +1261,8 @@ elif opts.propose_initial_grid:
     if opts.assume_nospin:
         grid_size = 1000   # 500 was too small with zero noise
     else:
-        chieff_range = str([chieff_min,chieff_max]).replace(' ', '')   # assumes all chieff are possible
+        chieff_range = "[{},{}]".format( float(chieff_min), float(chieff_max))
+        chieff_range= chieff_range.replace(' ', '')   # assumes all chieff are possible
         if opts.propose_fit_strategy:
             # If we don't have a fit plan, use the NS spin maximum as the default
             if (P.extract_param('mc')/lal.MSUN_SI < 2.6):   # assume a maximum NS mass of 3 Msun
@@ -1248,6 +1283,10 @@ elif opts.propose_initial_grid:
             cmd += " --parameter s1x --parameter-range [0.00001,0.00003] "
     if opts.assume_eccentric:
         cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
+        grid_size = int(grid_size*1.5)
+        if opts.use_meanPerAno:
+            cmd += " --random-parameter meanPerAno --random-parameter-range [0,6.2831]"
+            grid_size = int(grid_size*1.5)
     if opts.internal_tabular_eos_file:
         cmd += " --tabular-eos-file {} ".format(opts.internal_tabular_eos_file)
         grid_size *=2  # larger grids needed for discrete realization scenarios
@@ -1393,6 +1432,8 @@ puff_max_it=0
 helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
 if opts.assume_eccentric:
     helper_puff_args += " --parameter eccentricity "
+    if opts.use_meanPerAno:
+        helper_puff_args += " --parameter meanPerAno "
 
 if event_dict["MChirp"] >25:
     # at high mass, mc/eta correlation weak, don't want to have eta coordinate degeneracy at q=1 to reduce puff proposals  near there
@@ -1711,12 +1752,17 @@ if opts.assume_matter and opts.internal_tabular_eos_file:
         f.write(" --export-eos ")
         
 if opts.assume_eccentric:
-    with open("helper_convert_args.txt",'w+') as f:
+    with open("helper_convert_args.txt",'a') as f:
         f.write(" --export-eccentricity ")
+
+if opts.use_meanPerAno:
+    with open("helper_convert_args.txt",'a') as f:
+        f.write(" --export-meanPerAno ")
 
 if opts.propose_fit_strategy:
     with open("helper_puff_max_it.txt",'w') as f:
         f.write(str(puff_max_it))
+
 if opts.propose_fit_strategy:
     with open("helper_puff_factor.txt",'w') as f:
         f.write(str(puff_factor))

@@ -13,13 +13,13 @@ try:
     def ilwd_base(a):
         return ilwd.ilwdchar(a)
 except:
-    from ligo.lw.utils import ilwd
+    from igwn_ligolw.utils import ilwd
 
 
-from ligo.lw import ligolw   # old style deprecated
-from ligo.lw import lsctables
-from ligo.lw import table
-from ligo.lw import utils
+from igwn_ligolw import ligolw   # old style deprecated
+from igwn_ligolw import lsctables
+from igwn_ligolw import table
+from igwn_ligolw import utils
 
 import RIFT.lalsimutils as lalsimutils
 import lal
@@ -76,7 +76,10 @@ def _empty_row(obj):
         elif entry == 'simulation_id':
             row.simulation_id = ilwd_base("sim_inspiral:simulation_id:0")
         elif entry == 'event_id':
-            row.event_id = ilwd_base("sngl_inspiral:event_id:0")
+            try:
+                row.event_id = ilwd_base("sngl_inspiral:event_id:0")
+            except:
+                row.event_id = ilwd_base() # format change
         else:
             raise ValueError("Column %s not recognized." %(entry) )
 
@@ -121,11 +124,11 @@ for indx in range(len(opts.ifo)):
     sngl.spin2z = P.s2z
     sngl.eff_distance = P.dist/(1e6*lal.PC_SI)
     if opts.injected_snr:
-        sngl.snr = opts.injected_snr  # made up, needed for some algorithms to work
+        sngl.snr = opts.injected_snr  # made up, needed for some algorithms to work                                                                         
     else:
         sngl.snr = 20.  # made up, needed for some algorithms to work
-
     sngl.alpha4 = P.eccentricity
+    #sngl.alpha = P.meanPerAno
     # add to table
     sngl_table.append(sngl)
 

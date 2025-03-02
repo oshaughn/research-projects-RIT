@@ -12,7 +12,7 @@
 import sys
 from optparse import OptionParser
 import numpy as np
-from ligo.lw import utils, table, lsctables, ligolw
+from igwn_ligolw import utils, table, lsctables, ligolw
 try:
     import h5py
 except:

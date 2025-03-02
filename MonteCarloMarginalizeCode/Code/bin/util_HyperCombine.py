@@ -65,6 +65,12 @@ with open(opts.fname[0][0],'r') as f:
 if header_str.startswith('#'):
     print(header_str)  # repeat the header, so we recapture al the syntax
 for key in data_at_intrinsic:
+    if len(key) < 1: 
+        # sometimes we get spaces showing up, which is weird. Skip these. Should not happen
+        continue
+    if len(data_at_intrinsic[key]) < 1:
+        # skip empty rows. This should not happen
+        continue
     if enforce_length:
         if len(data_at_intrinsic[key]) < n_terms:
             print(" Incomplete data for {} ".format(key),file=sys.stderr)

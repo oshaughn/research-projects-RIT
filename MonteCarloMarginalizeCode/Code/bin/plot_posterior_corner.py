@@ -60,7 +60,7 @@ def render_coord(x,logscale=False):
         mystr= lalsimutils.tex_dictionary[x]
         if logscale:
             mystr=mystr.lstrip('$')
-            mystr = "$\log_{10}"+mystr
+            mystr = r"$\log_{10}"+mystr
             return mystr
         else:
             return mystr
@@ -83,6 +83,15 @@ def render_coordinates(coord_names,logparams=[]):
     return list(map(lambda x: render_coord(x,logscale=(x in logparams)), coord_names))
 
 
+### Plotting to fixed size: see https://github.com/duetosymmetry/latex-mpl-fig-tips/blob/main/figs/make-figs.ipynb
+
+pt = 1./72.27 # Hundreds of years of history... 72.27 points to an inch.
+jour_sizes = {"PRD": {"onecol": 246.*pt, "twocol": 510.*pt},
+              "CQG": {"onecol": 374.*pt}, # CQG is only one column
+              # Add more journals below. Can add more properties to each journal
+             }
+my_width = jour_sizes["PRD"]["onecol"] # default
+golden = (1 + 5 ** 0.5) / 2
 
 
 remap_ILE_2_LI = samples_utils.remap_ILE_2_LI
@@ -203,6 +212,7 @@ remap_LI_to_ILE = samples_utils.remap_LI_to_ILE
 parser = argparse.ArgumentParser()
 parser.add_argument("--posterior-file",action='append',help="filename of *.dat file [standard LI output]")
 parser.add_argument("--truth-file",type=str, help="file containing the true parameters")
+parser.add_argument("--truth-file-manual",type=str, help="file containing the true parameters. Use labelled columns")
 parser.add_argument("--posterior-distance-factor",action='append',help="Sequence of factors used to correct the distances")
 parser.add_argument("--truth-event",type=int, default=0,help="file containing the true parameters")
 parser.add_argument("--composite-file",action='append',help="filename of *.dat file [standard ILE intermediate]")
@@ -211,6 +221,7 @@ parser.add_argument("--use-all-composite-but-grayscale",action='store_true',help
 parser.add_argument("--flag-tides-in-composite",action='store_true',help='Required, if you want to parse files with tidal parameters')
 parser.add_argument("--flag-eos-index-in-composite",action='store_true',help='Required, if you want to parse files with EOS index in composite (and tides)')
 parser.add_argument("--posterior-label",action='append',help="label for posterior file")
+parser.add_argument("--external-exact-marginals",type=str,help="Provide this routne for EXACT marginals")
 parser.add_argument("--posterior-color",action='append',help="color and linestyle for posterior. PREPENDED onto default list, so defaults exist")
 parser.add_argument("--posterior-linestyle",action='append',help="color and linestyle for posterior. PREPENDED onto default list, so defaults exist")
 parser.add_argument("--parameter", action='append',help="parameter name (ILE). Note source-frame masses are only natively supported for LI")
@@ -221,6 +232,7 @@ parser.add_argument("--use-title",default=None,type=str)
 parser.add_argument("--use-smooth-1d",action='store_true')
 parser.add_argument("--plot-1d-extra",action='store_true')
 parser.add_argument("--pdf",action='store_true',help="Export PDF plots")
+parser.add_argument("--publication",action='store_true',help="Use special figure sizes")
 #option deprecated by bind-param and param-bound
 #parser.add_argument("--mc-range",default=None,help='List for mc range. Default is None')
 parser.add_argument("--bind-param",default=None,action="append",help="a parameter to impose a bound on, with corresponding --param-bound arg in respective order")
@@ -232,6 +244,7 @@ parser.add_argument("--lambda-plot-max",default=2000,type=float)
 parser.add_argument("--lnL-cut",default=None,type=float)
 parser.add_argument("--sigma-cut",default=0.4,type=float)
 parser.add_argument("--eccentricity", action="store_true", help="Read sample files in format including eccentricity")
+parser.add_argument("--meanPerAno", action="store_true", help="Read sample files in format including meanPerAno - assumes eccentricity also present")
 parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Relies entirely on user to set plot options for plot styles from matplotlibrc")
 parser.add_argument("--no-mod-psi",action="store_true",help="Default is to take psi mod pi. If present, does not do this")
 parser.add_argument("--verbose",action='store_true',help='print matplotlibrc data')
@@ -251,6 +264,12 @@ if not(opts.matplotlib_block_defaults):
              #'text.usetex': True,
              'font.family': 'Times New Roman'}#,
              #'font.sans-serif': ['Bitstream Vera Sans']}#,
+    if opts.publication:
+        rc_params.update( {'savefig.bbox':'tight',
+                           'font.family':'serif',
+#                           'text.latex.preamble': '\usepackage{amsmath}\usepackage{amssymb}',
+                           'figure.figsize': (my_width,my_width/golden)
+                  })
     plt.rcParams.update(rc_params)
 if opts.verbose:
     print(plt.rcParams)
@@ -264,11 +283,14 @@ if opts.pdf:
 
 truth_P_list = None
 P_ref = None
+truth_dat = None
 if opts.truth_file:
     print(" Loading true parameters from  ", opts.truth_file)
     truth_P_list  =lalsimutils.xml_to_ChooseWaveformParams_array(opts.truth_file)
     P_ref = truth_P_list[opts.truth_event]
 #    P_ref.print_params()
+elif opts.truth_file_manual:
+    truth_dat = np.genfromtxt(opts.truth_file_manual,names=True)
 
 if opts.change_parameter_label:
   for name, new_str in map( lambda c: c.split("="),opts.change_parameter_label):
@@ -289,7 +311,8 @@ special_param_ranges = {
   'chi_pavg':[0,2],
   'chi_p':[0,1],
   'lambdat':[0,4000],
-  'eccentricity':[0,1]
+  'eccentricity':[0,1],
+  'meanPerAno':[0,2*np.pi]
 }
 
 #mc_range deprecated by generic bind_param
@@ -345,8 +368,11 @@ if opts.posterior_file:
  for fname in opts.posterior_file:
     samples = np.genfromtxt(fname,names=True,replace_space=None)  # don't replace underscores in names
     samples = standard_expand_samples(samples)
-    if not(opts.no_mod_psi) and 'psi' in samples.dtype.names:
-        samples['psi'] = np.mod(samples['psi'],np.pi)
+#    if not(opts.no_mod_psi) and 'psi' in samples.dtype.names:
+#        samples['psi'] = np.mod(samples['psi'],np.pi)
+    for name in samples.dtype.names:
+        if name in lalsimutils.periodic_params:
+            samples[name] = np.mod(samples[name], lalsimutils.periodic_params[name])
     # if not 'mtotal' in samples.dtype.names and 'mc' in samples.dtype.names:  # raw LI samples use 
     #     q_here = samples['q']
     #     eta_here = q_here/(1+q_here)
@@ -466,7 +492,11 @@ if opts.flag_tides_in_composite:
         field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "lnL", "sigmaOverL", "ntot", "neff")
 if opts.eccentricity:
     print(" Reading composite file, assuming eccentricity-based format ")
-    field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","eccentricity", "lnL", "sigmaOverL", "ntot", "neff")
+    if opts.meanPerAno:
+        print(" Reading composite file, assuming mpa-based format ")
+        field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","eccentricity", "meanPerAno", "lnL", "sigmaOverL", "ntot", "neff")
+    else:
+        field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","eccentricity", "lnL", "sigmaOverL", "ntot", "neff")
 field_formats = [np.float32 for x in field_names]
 composite_dtype = [ (x,float) for x in field_names] #np.dtype(names=field_names ,formats=field_formats)
 # Load posterior files
@@ -479,6 +509,10 @@ if opts.composite_file:
     else:
         samples = np.genfromtxt(fname,names=True)
         samples = rfn.rename_fields(samples, {'sigmalnL': 'sigmaOverL', 'sigma_lnL': 'sigmaOverL'})   # standardize names, some drift in labels
+    # enforce periodicity
+    for name in samples.dtype.names:
+        if name in lalsimutils.periodic_params:
+            samples[name] = np.mod(samples[name], lalsimutils.periodic_params[name])
     if 'lnL' in samples.dtype.names:
         samples = samples[ ~np.isnan(samples["lnL"])] # remove nan likelihoods -- they can creep in with poor settings/overflows
     name_ref = samples.dtype.names[0]
@@ -644,7 +678,7 @@ for pIndex in np.arange(len(posterior_list)):
     plot_range_list = []
     smooth_list =[]
     truths_here= None
-    if opts.truth_file:
+    if opts.truth_file or opts.truth_file_manual:
         truths_here = np.zeros(len(opts.parameter))
     for indx in np.arange(len(opts.parameter)):
         param = opts.parameter[indx]
@@ -679,6 +713,8 @@ for pIndex in np.arange(len(posterior_list)):
         smooth_list.append(np.std(dat_here)/np.power(len(dat_here), 1./3))
         
         # truths
+        if opts.truth_file_manual:
+            truths_here[indx] = truth_dat[param]
         if opts.truth_file:
             param_to_extract = param
             if param in remap_LI_to_ILE.keys():
@@ -739,7 +775,7 @@ for pIndex in np.arange(len(posterior_list)):
 #    if opts.use_smooth_1d:
 #        smooth1d=smooth_list
 #        print smooth1d
-    fig_base = corner.corner(dat_mass,smooth1d=smooth1d, range=range_list,weights=weights, labels=labels_tex, quantiles=quantiles_1d, plot_datapoints=False, plot_density=False, no_fill_contours=True, contours=True, levels=CIs,fig=fig_base,color=my_cmap_values ,hist_kwargs={'linestyle': linestyle_list[pIndex]}, linestyle=linestyle_list[pIndex],contour_kwargs={'linestyles':linestyle_list[pIndex]},truths=truths_here)
+    fig_base = corner.corner(dat_mass,smooth1d=smooth1d, range=range_list,weights=weights, labels=labels_tex, quantiles=quantiles_1d, plot_datapoints=False, plot_density=False, no_fill_contours=True, contours=True, levels=CIs,fig=fig_base,color=my_cmap_values ,hist_kwargs={'linestyle': linestyle_list[pIndex], 'density': True}, linestyle=linestyle_list[pIndex],contour_kwargs={'linestyles':linestyle_list[pIndex]},truths=truths_here)
 
 
 if opts.plot_1d_extra:
@@ -798,6 +834,13 @@ if composite_list:
             print(" Trying alternative access for ", param)
             dat_mass[:,indx] = extract_combination_from_LI(samples, param)
             dat_mass_orig[:,indx] = extract_combination_from_LI(samples_orig, param)
+        # logscale composite info
+        if param in opts.parameter_log_scale:
+            indx_ok = dat_mass[:,indx] > 0
+            dat_mass[indx_ok,indx]= np.log10(dat_mass[indx_ok,indx])
+            indx_ok = dat_mass_orig[:,indx] > 0
+            dat_mass_orig[indx_ok,indx]= np.log10(dat_mass_orig[indx_ok,indx])
+
         # truths
         if opts.truth_file:
             param_to_extract = param
@@ -832,6 +875,30 @@ if composite_list:
     # Create colorbar mappable
 #    ax=plt.figure().gca()
 #    ax.contourf(lnL, cm)
+
+# Plot exact marginals
+if opts.external_exact_marginals:
+    import sys
+    __import__(opts.external_exact_marginals)
+    external_plot_module = sys.modules[opts.external_exact_marginals]
+    # these are PLOTTING routines, directly passed an axes module - we are NOT giving them grids etc. So we can directly plot ellipses if we want for gaussians, etc
+    supplemental_pdf_1d_plot = getattr(external_plot_module,'supplemental_pdf_1d_plot')
+    supplemental_pdf_2d_plot = getattr(external_plot_module,'supplemental_pdf_2d_plot')
+    ndim = len(param_list)
+    axes = np.array(fig_base.axes).reshape((ndim,ndim))
+    for d1 in range(ndim):
+        # diagonal plots
+        ax = axes[d1,d1]
+        supplemental_pdf_1d_plot(ax, d1, color='lightblue', label='exact')
+        ax.figure.savefig("subfig_{}.png".format(d1))   # debugging, make sure these figures are generated
+        # interior plots
+        for d2 in range(d1):
+            ax  = axes[d1,d2]
+            v = np.array([d2,d1])
+            # 2d plot
+            supplemental_pdf_2d_plot(ax, v, color='lightblue', label='exact')
+
+
 
 if opts.use_legend and opts.posterior_label:
     plt.legend(handles=line_handles, bbox_to_anchor=corner_legend_location, prop=corner_legend_prop,loc=4)

@@ -92,8 +92,8 @@ class Rift(Pipeline):
 
             if "caches" in productions[previous_job].pipeline.collect_assets():
                 cache_files = productions[previous_job].pipeline.collect_assets()['caches'].values()
-                for cache_file in cache_files:
-                    os.system(' cat {}  >> {}/local.cache '.format(cache_file, self.production.rundir))
+                cache_files_str = ' '.join(cache_files)
+                os.system(' cat {} | sort | uniq  > {}/local.cache '.format(cache_files_str, self.production.rundir))
 
         pass
 
@@ -232,7 +232,14 @@ class Rift(Pipeline):
             if len(val)>0:
                 val = val[:-2] # remove last two and
             os.environ['RIFT_REQUIRE_GPUS'] = val
-
+        if 'extra condor require true' in self.production.meta['scheduler']:
+            val =""
+            for name in self.production.meta['scheduler']['extra condor require true']:
+                val += "{},".format(name)
+            if len(val)>0:
+                val = val[:-1] # remove last comma
+            os.environ['RIFT_BOOLEAN_LIST'] = val
+            
         if "singularity image" in self.production.meta["scheduler"]:
             # Collect the correct information for the singularity image
             os.environ[
@@ -266,9 +273,15 @@ class Rift(Pipeline):
 
         # lmax = self.production.meta['priors']['amp order']
 
+        my_env = config.get("pipelines", "environment")
+        try:
+            new_env = config.get("rift","environment")
+        except:
+            new_env = my_env
+        my_env = new_env
         command = [
             os.path.join(
-                config.get("pipelines", "environment"),
+                my_env,
                 "bin",
                 "util_RIFT_pseudo_pipe.py",
             ),
@@ -516,7 +529,7 @@ class Rift(Pipeline):
             last_rescue =last_rescue[-1]
             time_mod_rescue = os.path.getmtime(last_rescue)
         else:
-            time_mod_rescue = time_mod_out 100  # no rescues
+            time_mod_rescue = time_mod_out - 100  # no rescues
         if count < 100 and (time_mod_out > time_mod_rescue+30): # some buffer in seconds for file i/o
             print("   ... still going, leaving it alone ")
             return None

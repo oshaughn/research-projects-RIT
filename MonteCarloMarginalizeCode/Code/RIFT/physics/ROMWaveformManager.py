@@ -3,30 +3,36 @@
 debug_output = False
 rosDebug = False
 
+from .. import lalsimutils
+
 
 import numpy as np
 import os, sys
 try:
     import gwtools
     import gwsurrogate as gws
-    print("  gwsurrogate: ",  gws.__file__)
-    print("  gwtools: ",  gwtools.__file__)
+    if lalsimutils.log_loud:
+        print("  gwsurrogate: ",  gws.__file__)
+        print("  gwtools: ",  gwtools.__file__)
 except:
-    print(" - no gwsurrogate - (almost everything from ROMWaveformManager will hard fail if you use it) ")
+    if lalsimutils.log_loud:
+        print(" - no gwsurrogate - (almost everything from ROMWaveformManager will hard fail if you use it) ")
 try:
     import NRSur7dq2
-    print("  NRSur7dq2: ", NRSur7dq2.__version__, NRSur7dq2.__file__)
+    if lalsimutils.log_loud:
+        print("  NRSur7dq2: ", NRSur7dq2.__version__, NRSur7dq2.__file__)
 except:
-    print(" - no NRSur7dq2 - ")
+    if lalsimutils.log_loud:
+        print(" - no NRSur7dq2 - ")
 
 import lalsimulation as lalsim
 import lal
 
-from .. import lalsimutils
 try:
     import LALHybrid
 except:
-    print(" - no hybridization - ")
+    if lalsimutils.log_loud:
+        print(" - no hybridization - ")
 
 from scipy.interpolate import interp1d
 from scipy.linalg import inv
@@ -38,10 +44,12 @@ import h5py
 try:
     dirBaseFiles =os.environ["GW_SURROGATE"] # surrogate base directory
 except:
-    print( " ==> WARNING:  GW_SURROGATE environment variable is not set <== ")
-    print( "    Only surrogates with direct implementation are available (NRSur7dq2) ")
+    if lalsimutils.log_loud:
+        print( " ==> WARNING:  GW_SURROGATE environment variable is not set <== ")
+        print( "    Only surrogates with direct implementation are available (NRSur7dq2) ")
 
-print(" ROMWaveformManager: ILE version")
+if lalsimutils.log_loud:     
+    print(" ROMWaveformManager: ILE version")
 
 #default_interpolation_kind = 'quadratic'  # spline interpolation   # very slow! 
 default_interpolation_kind = 'linear'  # robust, fast
@@ -716,7 +724,6 @@ class WaveformModeCatalog:
                 hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
            
         if 'NRSur7dq4' in self.param:
-            print(self.sur)
             params_here = self.parameter_convert[(2,2)](P)
             tvals_dimensionless= tvals/m_total_s + self.ToverM_peak
             indx_ok = np.logical_and(tvals_dimensionless  > self.ToverMmin , tvals_dimensionless < self.ToverMmax)
@@ -725,13 +732,16 @@ class WaveformModeCatalog:
             if rom_taper_end:
                 taper_end_duration =40.0
                 print(params_here[0],params_here[1],params_here[2])
+            fac = 1
             if P.fref >0 and use_reference_spins:
-                time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0], params_here[1],params_here[2],f_ref=P.fref, MTot=(P.m1+P.m2)/lal.MSUN_SI, times=tvals_dimensionless[indx_ok]*m_total_s,f_low=0,taper_end_duration=taper_end_duration) #,f_low=0)
+                print(" warning NRSur7dq4 interface change if fref used ")
+                fac = m_total_s/distance_s
+                time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0], params_here[1],params_here[2],f_ref=P.fref, M=(P.m1+P.m2)/lal.MSUN_SI, dist_mpc=P.dist/(1e6*lal.PC_SI), times=tvals_dimensionless[indx_ok]*m_total_s,f_low=0,taper_end_duration=taper_end_duration,units='mks') #,f_low=0)
             else:
                 time,hlmT_dimensionless_narrow,dym = self.sur(params_here[0],params_here[1],params_here[2],times=tvals_dimensionless[indx_ok],f_low=0,taper_end_duration=taper_end_duration)
             for mode in self.modes_available:
                 hlmT_dimensionless[mode] = np.zeros(len(tvals_dimensionless),dtype=complex)
-                hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]
+                hlmT_dimensionless[mode][indx_ok] = hlmT_dimensionless_narrow[mode]/fac  # undo scaling if needed
         # Option 1: Use NRHybXXX approach (i.e., generate an hlmoft dictionary...but with its OWN time grid and scaling...very annoying)
         if 'NRHyb' in self.param:
             params_here = self.parameter_convert[(2,2)](P)

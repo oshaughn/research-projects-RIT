@@ -8,6 +8,7 @@ from scipy import integrate
 from scipy.special import erfcinv, erf, erfcx, i0e
 import warnings
 import functools
+cupy_success=False
 
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 
@@ -42,6 +43,17 @@ delta_s = 0.1
 delta_t = 0.1
 
 
+# cosmo d prior tools for interpolation:  not used normally, but set if needed
+final_scipy_interpolate=None
+if 'cosmo' in opts.d_prior:
+  if not(cupy_success):
+    import scipy.interpolate
+    final_scipy_interpolate = scipy.interpolate
+  else:
+    import cupyx.scipy.interpolate
+    final_scipy_interpolate = cupyx.scipy.interpolate
+
+
 def prior(d):
     """Distance prior. Currently, only distance-squared prior is supported."""
     return 3 * d**2 / (dmax**3 - dmin**3)
@@ -54,7 +66,37 @@ if opts.d_prior =='pseudo_cosmo':
 
     # assign
     prior = dist_prior_pdf
-
+elif  (opts.d_prior == 'cosmo' or opts.d_prior == 'cosmo_sourceframe'):
+    # Verbatim from ILE for this approach - ideally port somewhere else to avoid duplicate code
+    redshift_to_distance = lambda x: x
+    from astropy.cosmology import z_at_value
+    from astropy import units as u
+    from astropy.cosmology import FlatLambdaCDM
+    from astropy.units import Hz
+    # ported form https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/bayespputils.py
+    # need way to query lalsuite parameters! See
+    # https://git.ligo.org/cbc/action_items/-/issues/37#note_1158065
+    try:
+      from lal import H0_SI, OMEGA_M
+    except:
+      H0_SI, OMEGA_M = 2.200489137532724e-18, 0.3065
+    my_cosmo = FlatLambdaCDM(H0=H0_SI*Hz, Om0=OMEGA_M)
+#    omega = lal.CreateDefaultCosmologicalParameters() # matching the lal options. Only needed if we have it
+    zmin  = z_at_value(my_cosmo.luminosity_distance, dmin*u.Mpc).value
+    zmax = z_at_value(my_cosmo.luminosity_distance, dmax*u.Mpc).value # use astropy estimate for zmax
+    if opts.d_prior == 'cosmo':
+      def dVdz(z):
+        #      return lal.ComovingVolumeElement(z,omega)
+        return my_cosmo.differential_comoving_volume(z).value # units irrelevant, just need scale
+    else:
+      def dVdz(z):
+        # uniform in dVc/dz/(1+z), allowing for redshifted time for detections
+        return my_cosmo.differential_comoving_volume(z).value/(1+z) # units irrelevant, just need scale
+    def dLofz(z):
+      return my_cosmo.luminosity_distance(z).value
+    pdf_dL, cdf_dL, cdf_inv_dL = priors_utils.norm_and_inverse_via_grid_interp( dVdz, [zmin,zmax],vectorized=True,y_of_x=dLofz,\
+                                                                                  to_gpu_needed=cupy_success,final_scipy_interpolate=final_scipy_interpolate,final_np=xpy_default,to_gpu=identity_convert_togpu)
+    prior = pdf_dL
 
 def effective_prior(x, a):
     """Prior of x=dref/d. The exponentially scaled Bessel function is multiplied if phase marginalization is used."""

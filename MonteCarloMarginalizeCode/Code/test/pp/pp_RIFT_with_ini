@@ -22,7 +22,7 @@ import RIFT.lalsimutils as lalsimutils
 import lal
 import lalsimulation as lalsim
 
-from ligo.lw import lsctables, table, utils
+from igwn_ligolw import lsctables, table, utils
 
 # Backward compatibility
 from RIFT.misc.dag_utils import which
@@ -47,6 +47,27 @@ def add_frames(channel,input_frame, noise_frame,combined_frame):
     print(cmd)
     if not opts.test:
         os.system(cmd)
+
+def m1m2(mc, eta):
+    # Step 1: Calculate total mass (M = m1 + m2) using mc and eta
+    M = mc / (eta**(3/5))  # Based on the chirp mass equation: mc = (m1*m2)^(3/5) / (m1+m2)^(1/5)
+    
+    # Step 2: Solve for m1 and m2 using the quadratic formula
+    # We know: eta = (m1 * m2) / (m1 + m2)^2 => m1*m2 = eta * M^2
+    m1m2_product = eta * M**2
+    
+    # Quadratic equation: x^2 - M*x + m1m2_product = 0, where x is m1
+    # Discriminant for the quadratic equation:
+    discriminant = M**2 - 4 * m1m2_product
+    
+    if discriminant < 0:
+        raise ValueError("Discriminant is negative. No real solution for m1 and m2.")
+    
+    # Step 3: Solve for m1 and m2 (roots of the quadratic equation)
+    m1 = (M + np.sqrt(discriminant)) / 2
+    m2 = (M - np.sqrt(discriminant)) / 2
+    
+    return m1, m2
 
 
 # def dmax_seglen_ladder(mc):
@@ -126,6 +147,11 @@ d_min = float(config.get('priors','d_min'))
 d_max = float(config.get('priors','d_max'))
 chi_max = float(config.get('priors','chi_max'))
 
+m1a,m2a = m1m2(mc_range[0], eta_range[0])
+m1b,m2b = m1m2(mc_range[0], eta_range[1])
+m1c,m2c = m1m2(mc_range[1], eta_range[0])
+m1d,m2d = m1m2(mc_range[1], eta_range[1])
+
 # use matter?
 lambda_max=0
 use_matter=False
@@ -189,6 +215,8 @@ username = config.get('make_workflow','username')
 group = config.get('make_workflow','accounting_group')
 cip_sampler = config.get('make_workflow', 'cip_sampler_method')
 ile_sampler = config.get('make_workflow', 'ile_sampler_method')
+use_gpu = config.get('make_workflow', 'use_gpu')
+use_distance_marginalization = config.get('make_workflow','use_distance_marginalization')
 ## "default" incompatible with --force-reset-all inn ILE
 if ile_sampler == "default":
     ile_sampler = 'adaptive_cartesian_gpu'
@@ -250,14 +278,17 @@ else:
         P.approx=lalsim.GetApproximantFromString(approx_str)
 
     # Uniform in m1 and m2: 
-    m1 = np.random.uniform(mc_range[0],mc_range[1]*2)
-    m2 = np.random.uniform(m_min,mc_range[1]*1.5)
-    m1,m2 = [np.maximum(m1,m2), np.minimum(m1,m2)]
+    #m1 = np.random.uniform(mc_range[0],mc_range[1]*2)
+    #m2 = np.random.uniform(m_min,mc_range[1]*1.5)
+    #m1,m2 = [np.maximum(m1,m2), np.minimum(m1,m2)]
+    m1 = np.random.uniform (np.min([m1a,m1b,m1c,m1d]),np.max([m1a,m1b,m1c,m1d]))
+    m2 = np.random.uniform (np.min([m2a,m2b,m2c,m2d]),np.max([m2a,m2b,m2c,m2d]))
     P.m1 = m1*lal.MSUN_SI
     P.m2 = m2*lal.MSUN_SI
     # ...but downselect in mchirp, eta
-    mc_val = P.extract_param('mc')/lal.MSUN_SI
-    eta_val = P.extract_param('eta')
+    #mc_val = P.extract_param('mc')/lal.MSUN_SI
+    #eta_val = P.extract_param('eta')
+    mc_val , eta_val = lalsimutils.Mceta(m1,m2)
     if mc_val < mc_range[0] or mc_val > mc_range[1]:
         continue
     if eta_val < eta_range[0] or eta_val > eta_range[1]:
@@ -308,7 +339,7 @@ for indx in np.arange(n_events):
     # Loop over instruments, write files
     for ifo in ifos:
         if opts.use_gwsignal:
-            cmd = "util_GWSignalWriteFrame.py --approx {} --inj ".format(approx_str) + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {} --lmax {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str, l_max)
+            cmd = "util_GWSignalWriteFrame.py  --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --approx {}".format(indx, t_start, t_stop, ifo, seglen_analysis, approx_str)
         elif 'NRHybSur' in approx_str:
             cmd = "util_ROMWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {} --lmax {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str, l_max)
         else:
@@ -414,13 +445,17 @@ config['rift-pseudo-pipe']['fmin-template'] = str(fmin_template)
 # ILE stuff
 config['rift-pseudo-pipe']['ile-n-eff'] = '10'
 config['rift-pseudo-pipe']['ile-sampler-method'] = '"{}"'.format(str(ile_sampler))
-config['rift-pseudo-pipe']['internal-ile-freezeadapt'] = 'True'
+config['rift-pseudo-pipe']['internal-ile-freezeadapt'] = 'False'
 config['rift-pseudo-pipe']['ile-runtime-max-minutes'] = '700'
 config['rift-pseudo-pipe']['ile-jobs-per-worker'] = '20'
 config['rift-pseudo-pipe']['internal-ile-auto-logarithm-offset'] = 'False'
 config['rift-pseudo-pipe']['internal-ile-use-lnL'] = 'False'
 config['rift-pseudo-pipe']['internal-ile-reset-adapt'] = 'True'
 config['rift-pseudo-pipe']['internal-ile-request-disk']='"10M"'
+if use_gpu:
+    config['rift-pseudo-pipe']['ile-force-gpu'] = 'True'
+else:
+    config['rift-pseudo-pipe']['ile-no-gpu'] = 'True'
 
 # CIP stuff
 #  * Fit method can be 'rf', 'gp'
@@ -451,9 +486,12 @@ if precessing_spin:
     config['rift-pseudo-pipe']['assume-precessing'] = 'True'
     config['rift-pseudo-pipe']['internal-use-aligned-phase-coordinates'] = 'True'
     config['rift-pseudo-pipe']['internal-correlate-default'] = 'True'
+    # for now set to false:
+    config['rift-pseudo-pipe']['internal-use-rescaled-transverse-spin-coordinates']= 'False'
+    # ability to turn transverse puff on/off - after testing will default to true?
+    config['rift-pseudo-pipe']['internal-puff-transverse'] = 'False'
 # something about volmetric prior?
 else:
-    config['rift-pseudo-pipe']['assume-precessing'] = 'False'
     config['rift-pseudo-pipe']['assume-precessing'] = 'False'
 
 # eccentricity
@@ -475,15 +513,21 @@ else:
     config['rift-pseudo-pipe']['use_osg_file_transfer'] = 'False'
     config['rift-pseudo-pipe']['use_osg_cip'] =	'False'
 
+if use_distance_marginalization:
+    config['rift-pseudo-pipe']['internal-marginalize-distance']='True'
+    config['rift-pseudo-pipe']['ile-distance-prior']='"pseudo_cosmo"'
+    config['rift-pseudo-pipe']['internal-distance-max'] = str(d_max)
+
 # extrinsic - add eventually
-#config['rift-pseudo-pipe']['add-extrinsic'] = 'True'
-#config['rift-pseudo-pipe']['batch-extrinsic'] = 'True'
-#config['rift-pseudo-pipe']['add-extrinsic-time-resampling'] = 'True'
+if opts.add_extrinsic:
+    config['rift-pseudo-pipe']['add-extrinsic'] = 'True'
+    config['rift-pseudo-pipe']['batch-extrinsic'] = 'True'
+    config['rift-pseudo-pipe']['add-extrinsic-time-resampling'] = 'True'
 
 # parameter ranges - may be modified by localize_ini.py
 # for grid making but be limiting/redundant?
-#config['rift-pseudo-pipe']['force-mc-range'] = '[{},{}]'.format(mc_min,mc_max)
-#config['rift-pseudo-pipe']['force-eta-range'] = '"[0.0453514739,0.24999999999]"'
+config['rift-pseudo-pipe']['force-mc-range'] = '[{},{}]'.format(mc_min,mc_max)
+config['rift-pseudo-pipe']['force-eta-range'] = '[{},{}]'.format(eta_min,eta_max)
 #config['rift-pseudo-pipe']['force-hint-snr'] = snr_dict['Network']
 
 ## Write pseudo-pipe ini file with standard defaults
@@ -520,12 +564,15 @@ for indx in np.arange(n_events):
         use_ini = 'localize.ini'
     else:
         use_ini = 'pseudo_ini.ini'
-    cmd = 'util_RIFT_pseudo_pipe.py --use-coinc `pwd`/coinc.xml --use-ini `pwd`/{} --use-rundir `pwd`/rundir --fake-data-cache `pwd`/local.cache --ile-no-gpu '.format(use_ini)
-    cmd += " --manual-extra-ile-args '--d-min {} --d-max {} '".format(d_min, d_max)
+    cmd = 'util_RIFT_pseudo_pipe.py --use-coinc `pwd`/coinc.xml --use-ini `pwd`/{} --use-rundir `pwd`/rundir --fake-data-cache `pwd`/local.cache '.format(use_ini)
+    if not config['rift-pseudo-pipe']['internal-marginalize-distance']:
+        cmd += " --manual-extra-ile-args '--d-min {} --d-max {} '".format(d_min, d_max)
     if fix_sky_location:
         cmd += "' --declination {} --right-ascension {} '".format(fiducial_dec, fiducial_ra)
     if cip_sampler == 'AV':
         cmd += " --manual-extra-cip-args '--downselect-parameter mc --downselect-parameter-range '[{},{}]''".format(mc_min, mc_max)
+    if opts.use_gwsignal:
+        cmd += " --use-gwsignal "
     print(cmd)
     os.system(cmd)
     os.chdir("rundir")

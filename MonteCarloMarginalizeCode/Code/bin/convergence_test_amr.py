@@ -17,9 +17,9 @@ from matplotlib import pyplot as plt
 
 import scipy.stats
 
-from ligo.lw import utils, ligolw, lsctables # , ilwd
+from igwn_ligolw import utils, ligolw, lsctables # , ilwd
 lsctables.use_in(ligolw.LIGOLWContentHandler)
-from ligo.lw.utils import process
+from igwn_ligolw.utils import process
 
 import h5py
 import numpy
