@@ -355,6 +355,7 @@ if opts.internal_loud_signal_mitigation_suite:
 # Default prior for aligned analysis should be z prior !
 if opts.assume_nonprecessing or opts.approx == "IMRPhenomD":
     prior_args_lookup["default"] = prior_args_lookup["zprior_aligned"]
+    opts.internal_puff_transverse=False
 
 
 if opts.ile_xpu:
