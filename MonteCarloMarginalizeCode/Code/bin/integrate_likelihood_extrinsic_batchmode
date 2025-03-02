@@ -777,7 +777,7 @@ elif opts.sampler_method == 'AV':
     sampler = mcsamplerAdaptiveVolume.MCSampler(n_chunk=opts.n_chunk) # note larger is better, but keep GPU mem limits in mind
     sampler.xpy = xpy_default
     sampler.identity_convert=identity_convert
-#    mcsampler  = mcsampler  # force use of routines in that file, for properly configured GPU-accelerated code as needed
+    mcsampler  = mcsamplerAdaptiveVolume  # force use of routines in that file, for properly configured GPU-accelerated code as needed
 
     xpy_asarray_already = lambda x: x  # do nothing because we are already on the board for GPU-generated 
 
@@ -926,6 +926,7 @@ if (opts.d_prior == 'cosmo' or opts.d_prior == 'cosmo_sourceframe') and not opts
     if not(opts.d_prior_redshift):
       pdf_dL, cdf_dL, cdf_inv_dL = priors_utils.norm_and_inverse_via_grid_interp( dVdz, [zmin,zmax],vectorized=True,y_of_x=dLofz,\
                                                                                   to_gpu_needed=cupy_success,final_scipy_interpolate=final_scipy_interpolate,final_np=xpy_default,to_gpu=identity_convert_togpu)
+      # note how these routines are carefully ported over from mcsamplerGPU to AV, etc so we can do this. We will fail otherwise on GPUs
       dist_sampler = mcsampler.ret_uniform_samp_vector_alt( param_limits["distance"][0], param_limits["distance"][1])
       dist_sampler_cdf_inv = functools.partial(mcsampler.uniform_samp_cdf_inv_vector,     param_limits["distance"][0], param_limits["distance"][1])
       sampler.add_parameter("distance",   
