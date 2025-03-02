@@ -479,8 +479,8 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     requirements=[]
     if universe=='local':
@@ -558,7 +558,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     if not(request_memory_flex):
         ile_job.add_condor_cmd('request_memory', str(request_memory)+"M") 
     if request_memory_flex:
-        ile_job.add_condor_cmd("+InitialRequestMemory",str(request_memory))
+        ile_job.add_condor_cmd("MY.InitialRequestMemory",str(request_memory))
         ile_job.add_condor_cmd('periodic_release', "HoldReasonCode =?= 34")
         ile_job.add_condor_cmd('request_memory',  'ifthenelse( LastHoldReasonCode=!=34, InitialRequestMemory, int(1.5 * MemoryUsage) )')
     if not(request_disk is False):
@@ -573,8 +573,8 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
-        ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image_used + '"')
+        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
         requirements.append("HAS_SINGULARITY=?=TRUE")
 
     if use_oauth_files:
@@ -685,8 +685,8 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -931,8 +931,8 @@ echo Starting ...
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
-        ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image_used + '"')
+        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
         requirements.append("HAS_SINGULARITY=?=TRUE")
 #               if not(use_simple_osg_requirements):
 #                requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
@@ -1011,7 +1011,7 @@ echo Starting ...
 
 
 #    if use_osg:
-#        ile_job.add_condor_cmd("+OpenScienceGrid",'True')
+#        ile_job.add_condor_cmd("MY.OpenScienceGrid",'True')
 #    if use_cvmfs_frames:
 #        transfer_files += ["../local.cache"]
     # To change interactively:
@@ -1169,8 +1169,8 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
 
 
@@ -1269,8 +1269,8 @@ fi
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -1302,8 +1302,8 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -1333,8 +1333,8 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -1394,8 +1394,8 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -1577,8 +1577,8 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
 
 
@@ -1934,8 +1934,8 @@ def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=Non
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
 
     try:
@@ -1971,8 +1971,8 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
         requirements.append("IS_GLIDEIN=?=undefined")
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
 
     ile_sub_name = tag + '.sub'
@@ -2026,7 +2026,7 @@ def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,t
 
     if not (target_dir is None):
         # Copy output PSD into place
-        ile_job.add_condor_cmd("+PostCmd", '" cp '+ifo+'-psd.xml.gz ' + target_dir +'"')
+        ile_job.add_condor_cmd("MY.PostCmd", '" cp '+ifo+'-psd.xml.gz ' + target_dir +'"')
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
     try:
@@ -2075,8 +2075,8 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -2094,7 +2094,7 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 #    ile_job.set_stdout_file(fname_out)
 
-#    ile_job.add_condor_cmd("+PostCmd",  ' "' + gzip + ' ' +fname_out + '"')
+#    ile_job.add_condor_cmd("MY.PostCmd",  ' "' + gzip + ' ' +fname_out + '"')
 
     explode_str = ""
     explode_str += " {}/{}.xml.gz ".format(working_dir,output_base)  # base result from fitting job
@@ -2158,7 +2158,7 @@ def write_subdagILE_sub(tag='subdag_ile', full_path_name=True, exe=None, univers
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 #    ile_job.set_stdout_file(fname_out)
 
-#    ile_job.add_condor_cmd("+PostCmd",  ' "' + gzip + ' ' +fname_out + '"')
+#    ile_job.add_condor_cmd("MY.PostCmd",  ' "' + gzip + ' ' +fname_out + '"')
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
     try:
@@ -2258,8 +2258,8 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
@@ -2464,8 +2464,8 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
@@ -2537,8 +2537,8 @@ def write_comov_distance_reweighting_sub(tag='Comov_dist', comov_distance_reweig
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
 
     # Write requirements
@@ -2612,8 +2612,8 @@ def write_convert_ascii_to_h5_sub(tag='Convert_ascii2h5', convert_ascii_to_h5_ex
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
@@ -2663,8 +2663,8 @@ def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='
 
     # no grid
     if no_grid:
-        ile_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
-        ile_job.add_condor_cmd("+flock_local",'true')
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')
 
     requirements=[]
     if universe=='local':
@@ -2737,8 +2737,8 @@ def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
-        ile_job.add_condor_cmd("+SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image + '"')
         requirements.append("HAS_SINGULARITY=?=TRUE")
 
     if use_osg:
