@@ -129,12 +129,12 @@ def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
     
         ndim = xrange.shape[0]
         xlo, xhi = xrange.T[0] + dx * bu, xrange.T[0] + dx * (bu+1)
-        x = np.vstack([np.random.uniform(xlo[kk], xhi[kk], size = (npb, ndim)) for kk, npb in enumerate(ninbin)])
+        x = xpy_default.vstack([xpy_default.random.uniform(xlo[kk], xhi[kk], size = (npb, ndim)) for kk, npb in enumerate(ninbin)])
         # remove points that are out of range.  Due to rounding issues etc, the sampler above can generate points out of range!
         # Note this rejection will bias the integral, because volumes are calculated assuming a regular grid. We *should* fix the grid sizes to integers
         if reject_out_of_range:
           for indx in np.arange(len(xrange)):
-            indx_ok = np.where(np.logical_and(x[:,indx] >= xrange[indx,0], x[:,indx] <= xrange[indx,1], ))
+            indx_ok = xpy_default.where(xpy_default.logical_and(x[:,indx] >= xrange[indx,0], x[:,indx] <= xrange[indx,1], ))
             x = x[indx_ok]
         return x
 
@@ -280,7 +280,7 @@ class MCSampler(object):
         """
         Evaluates prior_pdf(x), multiplying together all factors
         """
-        p_out = np.ones(len(x))
+        p_out = xpy_default.ones(len(x))
         indx = 0
         for param in self.params_ordered:
             p_out *= self.prior_pdf[param](x[:,indx])
@@ -734,3 +734,8 @@ class MCSampler(object):
           self._rvs['integrand'] = self._rvs["log_integrand"]
 
         return log_int_val, log_var, eff_samp, dict_return
+
+
+# PROVIDE CROSS-CODE DEPLOY, without rewrite
+from RIFT.integrators.mcsamplerGPU import  uniform_samp_cdf_inv_vector,     ret_uniform_samp_vector_alt,uniform_samp_phase, cos_samp_vector, cos_samp_cdf_inv_vector,ret_uniform_samp_vector_alt, uniform_samp_theta,uniform_samp_psi
+from RIFT.integrators.mcsamplerGPU import q_samp_vector, M_samp_vector,q_cdf_inv_vector
