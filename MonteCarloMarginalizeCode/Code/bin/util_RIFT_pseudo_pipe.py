@@ -1203,7 +1203,8 @@ if opts.assume_matter:
 if opts.assume_eccentric:
         puff_params += " --parameter eccentricity --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
 if opts.use_meanPerAno:
-        puff_params += " --parameter meanPerAno --downselect-parameter meanPerAno --downselect-parameter-range [{},{}] ".format(opts.force_meanPerAno_min,opts.force_meanPerAno_max)
+        # this parameter is enforced periodic at a low level
+        puff_params += " --parameter meanPerAno "
 if opts.assume_highq:
         puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
         puff_max_it +=3
