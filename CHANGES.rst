@@ -6,8 +6,10 @@ development tree is rift_O4c
      ILE --internal-waveform-extra-kwargs for gwsignal, changing t_window;  pipeline --internal-use-oauthfiles;
      hyperpipe convergence test nodes.  Mean anomaly merge. Disable old ilwdchar-compatible reading to reduce warning
      messages. misc/dag_utils/write_ILE... now quotes, enabling passing arguments. asimov cleanup manual-extra-ile-args
-     and allow waveform/arguments. PUFF bugfix (only applied last). 
-   
+     and allow waveform/arguments. PUFF bugfix (only applied last).  rift_container.def with pyseobnr. asimov with ecc,
+     it0 eccentric arch, AV does cupy-based random numbers, fixing conflict with cosmo_sourceframe. dag_utils and related handle osdf
+     container identification better, also cip-request-disk. mcsamplerGPU np.isfinite fix. ILE less process_params output
+     (rc0)
 
 0.0.17.1
 ------------
