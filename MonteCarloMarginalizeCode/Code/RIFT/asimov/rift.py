@@ -295,6 +295,31 @@ class Rift(Pipeline):
             if self.production.meta["waveform"]["non-spin"]:
                 command += ["--assume-nospin"]
 
+        # Generate initial samples, based on previous PE results
+        if 'bootstrap upstream' in self.production.meta['scheduler']:
+            if 'samples' in  productions[previous_job].pipeline.collect_assets():
+                # get posterior file
+                posterior_file = productions[previous_job].pipeline.collect_assets()['samples']
+                if "dataset" not in self.production.meta:
+                    with h5py.File(posterior_file,'r') as f:
+                        keys = list(f.keys())
+                    keys.remove('version')
+                    keys.remove('history')
+                    self.production.meta['dataset'] = keys[0]
+                # convert posterior samples to temp location
+                bootstrap_file = os.path.join(
+                        self.production.event.repository.directory,
+                        "C01_offline",
+                        f"{self.production.name}_bootstrap.xml.gz",
+                    )
+                import RIFT.misc.samples_utils
+                bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
+                RIFT.misc.samples_utils.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
+                import os
+                os.system("convert_output_format_inference2ile --posterior-samples {} --output {} ".format(bootstrap_file_ascii, bootstrap_file) )
+                self.bootstrap=True
+                
+                
         command += [
             "--calibration",
             f"{calibration}",
