@@ -1125,28 +1125,34 @@ for indx in np.arange(len(instructions_cip)):
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
     if opts.assume_eccentric:
+        if opts.use_MeanPerAno:
+            line += " --parameter meanPerAno --use-meanPerAno "
         if opts.use_eccentricity_squared:
-            if opts.use_meanPerAno:
-                if not(opts.internal_use_aligned_phase_coordinates):
-                    line = line.replace('parameter mc', 'parameter mc --parameter eccentricity_squared --use-eccentricity --parameter meanPerAno --use-meanPerAno')
-                else:
-                    line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity_squared --use-eccentricity --parameter meanPerAno --use-meanPerAno')
-            else:
-                if not(opts.internal_use_aligned_phase_coordinates):
-                    line = line.replace('parameter mc', 'parameter mc --parameter eccentricity_squared --use-eccentricity')
-                else:
-                    line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity_squared --use-eccentricity')
+            line += " --use-eccentricity --parameter eccentricity_squared "
         else:
-            if opts.use_meanPerAno:
-                if not(opts.internal_use_aligned_phase_coordinates):
-                     line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
-                else:
-                     line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
-            else:
-                if not(opts.internal_use_aligned_phase_coordinates):
-                    line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
-                else:
-                    line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity')
+            line += " --use-eccentricity --parameter eccentricity "
+        # if opts.use_eccentricity_squared:
+        #     if opts.use_meanPerAno:
+        #         if not(opts.internal_use_aligned_phase_coordinates):
+        #             line = line.replace('parameter mc', 'parameter mc --parameter eccentricity_squared --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+        #         else:
+        #             line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity_squared --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+        #     else:
+        #         if not(opts.internal_use_aligned_phase_coordinates):
+        #             line = line.replace('parameter mc', 'parameter mc --parameter eccentricity_squared --use-eccentricity')
+        #         else:
+        #             line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity_squared --use-eccentricity')
+        # else:
+        #     if opts.use_meanPerAno:
+        #         if not(opts.internal_use_aligned_phase_coordinates):
+        #              line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+        #         else:
+        #              line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+        #     else:
+        #         if not(opts.internal_use_aligned_phase_coordinates):
+        #             line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
+        #         else:
+        #             line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity')
         if not(opts.force_ecc_max is None):
             ecc_max = opts.force_ecc_max
             line += " --ecc-max {}  ".format(ecc_max)
