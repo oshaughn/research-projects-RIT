@@ -45,8 +45,10 @@ class Rift(Pipeline):
             self.config_template = os.getenv('RIFT_ASIMOV_INI')
         else:
             # FIXME: should use importlib in future!
-            import RIFT.lalsimutils
-            self.config_template = RIFT.lalsimutils.__file__.replace("lalsimutils.py","asimov/rift.ini")
+#            import RIFT.lalsimutils
+#            self.config_template = RIFT.lalsimutils.__file__.replace("lalsimutils.py","asimov/rift.ini")
+            from importlib import resources as impresources
+            self.config_template = str(impresources.files("RIFT"))+"/asimov/rift.ini"
         if not production.pipeline.lower() == "rift":
             raise PipelineException
 
