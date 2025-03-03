@@ -387,7 +387,7 @@ tex_dictionary  = {
   "s1y": r"$\chi_{1,y}$",
   "s2y": r"$\chi_{2,y}$",
   "eccentricity":"$e$",
-  "meanPerAno":"$l_gw$",
+  "meanPerAno":"$l_{gw}$",
   # tex labels for inherited LI names
  "a1z": r'$\chi_{1,z}$',
  "a2z": r'$\chi_{2,z}$',
@@ -1760,9 +1760,11 @@ class ChooseWaveformParams:
         self.snr = row.alpha3   # lnL info
         # WARNING: alpha1, alpha2 used by ILE for weights!
         if hasattr(row, 'alpha'):
-            self.eos_table_index = row.alpha
-            if not(row.alpha):
-                self.eos_table_index = None
+            if not(row.alpha4):
+                self.eos_table_index = row.alpha
+            else:
+                if not(row.alpha):
+                    self.eos_table_index = None
         else:
             self.eos_table_index=None
     
@@ -1820,7 +1822,7 @@ class ChooseWaveformParams:
         row.alpha6 = self.lambda2
         row.alpha4 = self.eccentricity
         row.alpha = self.meanPerAno
-        if self.eos_table_index:
+        if self.eos_table_index and not self.eccentricity:
             row.alpha = self.eos_table_index
         if self.snr:
             row.alpha3 = self.snr

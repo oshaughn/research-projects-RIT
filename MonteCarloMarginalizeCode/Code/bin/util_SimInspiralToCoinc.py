@@ -128,7 +128,7 @@ for indx in range(len(opts.ifo)):
     else:
         sngl.snr = 20.  # made up, needed for some algorithms to work
     sngl.alpha4 = P.eccentricity
-    #sngl.alpha = P.meanPerAno
+    sngl.alpha = P.meanPerAno
     # add to table
     sngl_table.append(sngl)
 

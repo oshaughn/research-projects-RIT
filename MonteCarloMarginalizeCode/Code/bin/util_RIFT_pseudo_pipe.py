@@ -161,6 +161,8 @@ parser.add_argument("--assume-matter-eos",default=None,type=str, help="Force ana
 parser.add_argument("--assume-matter-conservatively",action='store_true',help="If present, the code will use the full prior range for exploration and sampling. [Without this option, the initial grid is limited to a physically plausible range in lambda-i")
 parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="If present, the code will add options necessary to manage tidal arguments for the smaller body ONLY. (Usually pointless)")
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
+parser.add_argument("--sample-eccentricity-squared",action='store_true', help="Option for sampling as well as fitting in eccentricity_squared instead of fitting in eccentricity_squared and sampling in eccentricity (also need option --use-eccentricity-squared")
+parser.add_argument("--use-eccentricity-squared",action='store_true', help="Allows for fitting and sampling in eccentricity_squared instead of eccentricity")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
 parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno options for each part of analysis")
 parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
@@ -261,6 +263,7 @@ parser.add_argument('--internal-cip-tripwire',type=float,help="Passed to CIP")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
 parser.add_argument("--internal-cip-request-memory",default=None,type=int,help="ILE memory request in Mb. Only experts should change this.")
 parser.add_argument("--internal-ile-sky-network-coordinates",action='store_true',help="Passthrough to ILE ")
+parser.add_argument("--internal-ile-sky-network-coordinates-raw",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-rotate-phase", action='store_true')
 parser.add_argument("--internal-loud-signal-mitigation-suite",action='store_true',help="Enable more aggressive adaptation - make sure we adapt in distance, sky location, etc rather than use uniform sampling, because we are constraining normally subdominant parameters")
 parser.add_argument("--internal-ile-freezeadapt",action='store_true',help="Passthrough to ILE ")
@@ -841,7 +844,7 @@ except:
 instructions_ile = np.loadtxt("helper_ile_args.txt", dtype=str)  # should be one line
 line = ' '.join(instructions_ile)
 if opts.internal_ile_n_max:
-    line = line.replace('--n-max 4000000 ', str(opts.internal_ile_n_max)+" ")
+    line = line.replace('--n-max 4000000 ', '--n-max ' + str(opts.internal_ile_n_max)+" ")
 line += " --l-max " + str(opts.l_max) 
 if 'data-start-time' in line and 's1z' in event_dict:  # only call this if we have (a) fixed time interval and (b) CBC parameters for event
     # Print warnings based on duration and fmin
@@ -909,6 +912,8 @@ if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 if opts.internal_ile_sky_network_coordinates:
     line += " --internal-sky-network-coordinates "
+if opts.internal_ile_sky_network_coordinates_raw:
+    line += " --internal-sky-network-coordinates-raw "
 if opts.ile_no_gpu or opts.ile_sampler_method ==  "AV":  # make sure we are using the standard code path if not using GPUs
     line += " --force-xpy " 
 if opts.internal_ile_force_noreset_adapt:
@@ -1119,16 +1124,28 @@ for indx in np.arange(len(instructions_cip)):
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
     if opts.assume_eccentric:
-        if opts.use_meanPerAno:
-            if not(opts.internal_use_aligned_phase_coordinates):
-                line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+        if opts.use_eccentricity_squared:
+            if opts.use_meanPerAno:
+                if not(opts.internal_use_aligned_phase_coordinates):
+                    line = line.replace('parameter mc', 'parameter mc --parameter eccentricity_squared --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+                else:
+                    line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity_squared --use-eccentricity --parameter meanPerAno --use-meanPerAno')
             else:
-                line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+                if not(opts.internal_use_aligned_phase_coordinates):
+                    line = line.replace('parameter mc', 'parameter mc --parameter eccentricity_squared --use-eccentricity')
+                else:
+                    line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity_squared --use-eccentricity')
         else:
-            if not(opts.internal_use_aligned_phase_coordinates):
-                line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
+            if opts.use_meanPerAno:
+                if not(opts.internal_use_aligned_phase_coordinates):
+                     line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
+                else:
+                     line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity --parameter meanPerAno --use-meanPerAno')
             else:
-                line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity')
+                if not(opts.internal_use_aligned_phase_coordinates):
+                    line = line.replace('parameter mc', 'parameter mc --parameter eccentricity --use-eccentricity')
+                else:
+                    line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter eccentricity --use-eccentricity')
         if not(opts.force_ecc_max is None):
             ecc_max = opts.force_ecc_max
             line += " --ecc-max {}  ".format(ecc_max)
@@ -1210,10 +1227,10 @@ if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
 if opts.assume_eccentric:
-        puff_params += " --parameter eccentricity --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
+        puff_params += " --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
 if opts.use_meanPerAno:
         # this parameter is enforced periodic at a low level
-        puff_params += " --parameter meanPerAno "
+        puff_params += " --downselect-parameter meanPerAno --downselect-parameter-range [{},{}] ".format(opts.force_meanPerAno_min,opts.force_meanPerAno_max)
 if opts.assume_highq:
         puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
         puff_max_it +=3
@@ -1314,6 +1331,8 @@ if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
 if opts.assume_eccentric:
     cmd += " --use-eccentricity "
+    if opts.sample_eccentricity_squared:
+        cmd += " --use-eccentricity-squared-sampling "
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
 if opts.calibration_reweighting and (not opts.bilby_pickle_file):
