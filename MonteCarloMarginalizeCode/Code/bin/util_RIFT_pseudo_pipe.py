@@ -165,6 +165,7 @@ parser.add_argument("--sample-eccentricity-squared",action='store_true', help="O
 parser.add_argument("--use-eccentricity-squared",action='store_true', help="Allows for fitting and sampling in eccentricity_squared instead of eccentricity")
 parser.add_argument("--assume-eccentric",action='store_true', help="Add eccentric options for each part of analysis")
 parser.add_argument("--use-meanPerAno",action='store_true', help="Add meanPerAno options for each part of analysis")
+parser.add_argument("--internal-cip-use-periodic-ecc-vars",action='store_true', help="use e cos ell, e sin ell as fitting variables ")
 parser.add_argument("--assume-lowlatency-tradeoffs",action='store_true', help="Force analysis with various low-latency tradeoffs (e.g., drop spin 2, use aligned, etc)")
 parser.add_argument("--assume-highq",action='store_true', help="Force analysis with the high-q strategy, neglecting spin2. Passed to 'helper'")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
@@ -1172,6 +1173,12 @@ if opts.assume_eccentric:
     lines[0] = lines[0].replace('--parameter eccentricity ','--parameter eccentricity_squared ')
     if opts.use_meanPerAno:
         lines[0] = lines[0].replace('--parameter meanPerAno ','--parameter-nofit meanPerAno ')
+        if opts.internal_cip_use_periodic_ecc_vars:
+            extra_line  =lines[0].replace('parameter eccentricity_squared', 'parameter-implied ecc_cos_meanPerAno --parameter-implied ecc_sin_meanPerAno --parameter-nofit eccentricity')
+            lines.insert(extra_line, 1)
+            #for indx in range(2, len(lines)):
+            #lines[indx] = lines[indx].replace('parameter eccentricity ', 'parameter-implied ecc_cos_meanPerAno --parameter-implied ecc_sin_meanPerAno --parameter-nofit eccentricity ')
+            #lines[indx] = lines[indx].replace('parameter meanPerAno' 'parameter-nofit meanPerAno')
 
 if opts.internal_use_amr:
     lines =[ ] 
