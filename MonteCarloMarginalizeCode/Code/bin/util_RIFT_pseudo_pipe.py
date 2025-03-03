@@ -1125,7 +1125,7 @@ for indx in np.arange(len(instructions_cip)):
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
     if opts.assume_eccentric:
-        if opts.use_MeanPerAno:
+        if opts.use_meanPerAno:
             line += " --parameter meanPerAno --use-meanPerAno "
         if opts.use_eccentricity_squared:
             line += " --use-eccentricity --parameter eccentricity_squared "
