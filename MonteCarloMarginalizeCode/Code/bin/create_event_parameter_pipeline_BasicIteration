@@ -239,6 +239,7 @@ parser.add_argument("--cip-post-exe",default=None,help="filename of script to ex
 parser.add_argument("--cip-exe-G",default=None,help="filename of CIP or equivalent executable, as ALTERNATE CIP used when a 'G' iteration is requested ")
 parser.add_argument("--use-eccentricity",default=False,action='store_true')
 parser.add_argument("--use-meanPerAno",default=False,action='store_true')
+parser.add_argument("--use-eccentricity-squared-sampling",default=False,action='store_true')
 parser.add_argument("--use-tabular-eos-file",default=False,action='store_true')
 parser.add_argument("--test-exe",default=None,help="filename of test code or equivalent executable.  Must have a --test-output <fname> argument.  Used for convergence testing or other termination. NOT ACTIVE; see 'convergence_test_samples.py' for example")
 parser.add_argument("--plot-exe",default=None,help="filename of plot code or equivalent executable.  Will default to `which plot_posterior_corner.py`.  Default is to plot last set of samples")
@@ -765,6 +766,8 @@ if  (opts.last_iteration_extrinsic):
     elif opts.last_iteration_extrinsic_batched_convert:
         # Batched conversion: one job for a great many items
         convert_args_extr =  " --convention LI  --export-cosmology --use-interpolated-cosmology " 
+        if opts.last_iteration_extrinsic_samples_per_ile:
+            convert_args_extr += " --n-output-samples-per-file {}".format(opts.last_iteration_extrinsic_samples_per_ile)
         if not (convert_args is None):
             convert_args_extr += convert_args
         relevant_path = dag_utils.which('util_BatchConvertResampleILEOutput.py')
@@ -1050,6 +1053,8 @@ else:
            if indx == len(cip_args_lines) -1 and opts.last_iteration_extrinsic: # on last iteration, doing extrinsic phase
                n_samples_per_job = int(opts.last_iteration_extrinsic_nsamples/(1.0*opts.cip_explode_jobs_last))
                cip_args_extra +=" --n-eff {} --n-output-samples {} ".format(n_samples_per_job,n_samples_per_job)
+               if not (opts.use_eccentricity_squared_sampling):
+                   cip_args_lines[indx] = cip_args_lines[indx].replace(' --parameter eccentricity_squared ',' --parameter-implied eccentricity_squared --parameter-nofit eccentricity ')
            transfer_files_cip=['../all.net']
            if opts.use_osg_cip and 'fit-method gp' in cip_args_base:
                transfer_files_cip += ['my_fit.pkl']  # transfer current working directory fit

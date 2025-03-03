@@ -241,6 +241,10 @@ parser.add_argument("--ci-list",default=None,help='List for credible intervals. 
 parser.add_argument("--quantiles",default=None,help='List for 1d quantiles intervals. Default is 0.95,0.05')
 parser.add_argument("--chi-max",default=1,type=float)
 parser.add_argument("--lambda-plot-max",default=2000,type=float)
+parser.add_argument("--meanPerAno-min",default=0,type=float)
+parser.add_argument("--meanPerAno-max",default=2*np.pi,type=float)
+parser.add_argument("--ecc-min",default=0,type=float)
+parser.add_argument("--ecc-max",default=1,type=float)
 parser.add_argument("--lnL-cut",default=None,type=float)
 parser.add_argument("--sigma-cut",default=0.4,type=float)
 parser.add_argument("--eccentricity", action="store_true", help="Read sample files in format including eccentricity")
@@ -311,8 +315,8 @@ special_param_ranges = {
   'chi_pavg':[0,2],
   'chi_p':[0,1],
   'lambdat':[0,4000],
-  'eccentricity':[0,1],
-  'meanPerAno':[0,2*np.pi]
+  'eccentricity':[opts.ecc_min,opts.ecc_max],
+  'meanPerAno':[opts.meanPerAno_min,opts.meanPerAno_max]
 }
 
 #mc_range deprecated by generic bind_param
@@ -907,7 +911,7 @@ if opts.use_legend and opts.posterior_label:
 # title
 if opts.use_title:
     print(" Addding title ", opts.use_title)
-    plt.title(opts.use_title)
+    plt.suptitle(opts.use_title)
 
 param_postfix = "_".join(opts.parameter)
 res_base = len(opts.parameter)*dpi_base

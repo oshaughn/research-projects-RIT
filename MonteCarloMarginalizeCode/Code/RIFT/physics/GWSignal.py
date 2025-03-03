@@ -16,7 +16,7 @@ import numpy as np
 import astropy.units as u
 from astropy.time import Time
 from gwpy.timeseries import TimeSeries
-
+import astropy.constants as ac
 has_gws= False
 try:
     # Warning: prints stupid messages to stdout
@@ -147,7 +147,21 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,**kwargs):
         new_epoch = - indx_max*P.deltaT
         for mode in hlmT:
             hlmT.epoch = new_epoch
-        
+    if approx_string_here == 'TEOBResumSDALI':
+        nu = P.m1*P.m2/((P.m1+P.m2)**2)
+        distance_rescaling = (
+            (
+                nu
+                * (P.m1 + P.m2)
+                / P.dist
+                * ac.G
+                / ac.c ** 2
+            )
+            .value
+        )
+        for mode in hlmT:
+            hlmT[mode].data.data = distance_rescaling*hlmT[mode].data.data
+            
     return hlmT
 
 
