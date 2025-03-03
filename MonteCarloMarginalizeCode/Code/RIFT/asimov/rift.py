@@ -72,6 +72,30 @@ class Rift(Pipeline):
             for section_arg in required_args[section]:
                 if section_arg not in section_data:
                     section_data[section_arg] = {}
+    def _find_posterior(self):
+        """
+        Find the input posterior samples.
+        """
+        if self.production.dependencies:
+            productions = {}
+            for production in self.production.event.productions:
+                productions[production.name] = production
+            for previous_job in self.production.dependencies:
+                print("assets", productions[previous_job].pipeline.collect_assets())
+                try:
+                    if "samples" in productions[previous_job].pipeline.collect_assets():
+                        posterior_file = productions[previous_job].pipeline.collect_assets()['samples']
+                        if "dataset" not in self.production.meta:
+                            with h5py.File(posterior_file,'r') as f:
+                                keys = list(f.keys())
+                            keys.remove('version')
+                            keys.remove('history')
+                            self.production.meta['dataset'] = keys[0]
+                        return posterior_file
+                except Exception:
+                    pass
+        else:
+            self.logger.error("Could not find an analysis providing posterior samples to analyse.")
 
     def after_completion(self):
 
@@ -297,15 +321,9 @@ class Rift(Pipeline):
 
         # Generate initial samples, based on previous PE results
         if 'bootstrap upstream' in self.production.meta['scheduler']:
-            if 'samples' in  productions[previous_job].pipeline.collect_assets():
-                # get posterior file
-                posterior_file = productions[previous_job].pipeline.collect_assets()['samples']
-                if "dataset" not in self.production.meta:
-                    with h5py.File(posterior_file,'r') as f:
-                        keys = list(f.keys())
-                    keys.remove('version')
-                    keys.remove('history')
-                    self.production.meta['dataset'] = keys[0]
+            # get posterior file
+            posterior_file = self._find_posterior()
+            if posterior_file:
                 # convert posterior samples to temp location
                 bootstrap_file = os.path.join(
                         self.production.event.repository.directory,
@@ -314,8 +332,7 @@ class Rift(Pipeline):
                     )
                 import RIFT.misc.samples_utils
                 bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
-                RIFT.misc.samples_utils.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
-                import os
+                RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
                 os.system("convert_output_format_inference2ile --posterior-samples {} --output {} ".format(bootstrap_file_ascii, bootstrap_file) )
                 self.bootstrap=True
                 
