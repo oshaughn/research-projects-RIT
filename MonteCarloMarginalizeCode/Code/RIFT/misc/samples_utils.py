@@ -27,6 +27,7 @@ remap_ILE_2_LI = {
   "thetaJN":"theta_jn"}
 remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot', "distance":"dist", 'ra':'phi', 'dec':'theta',"phiorb":"phiref"}
 
+import numpy.lib.recfunctions as rfn
 
 def extract_combination_from_LI(samples_LI, p):
     """
@@ -263,3 +264,38 @@ def fchip(sample):
             P.s2z = sample[7]
             chip = P.extract_param('chi_p')
             return chip  
+
+def dump_pesummary_samples_to_file_as_rift(fname_h5,key,fname_out):
+    """
+    >>> import samples_utils
+    >>> samples_utils.dump_pesummary_samples_to_file_as_rift("metafile.h5", "bilby-IMRPhenomXPHM-SpinTaylor-3",'test.dat')
+    $ convert_output_format_inference2ile --posterior-samples test.dat --output-xml my.xml.gz
+    """
+    import h5py
+    BBH = h5py.File(fname_h5, 'r')
+    if not (key in BBH.keys()):
+        raise Exception(" Unknown key in file ", key, fname_h5)
+    post_key = 'posterior'
+    if 'posterior_samples' in BBH[key]:
+        post_key = 'posterior_samples'
+    samples = BBH[key][post_key]
+    if hasattr(BBH[key][post_key], 'dtype'):
+        dtype_us = BBH[key][post_key].dtype #
+    else:
+        dtype_us = np.dtype(list(map( lambda x: (x,float), list(samples.keys() ))))  # old style
+    npts = len(BBH[key][post_key]['mass_1'])
+    # cast to conventional structure so we can call recfunctions
+    samp = np.zeros(npts,dtype=dtype_us)
+    for name in dtype_us.names:
+        if 'snr' in name:
+            continue
+        if 'approximant' in name:
+            continue
+        samp[name] = samples[name]
+    # Rename
+    samp = rfn.rename_fields(samp, {'chirp_mass':'mc', 'mass_1':'m1', 'mass_2':'m2','geocent_time':'time','luminosity_distance':'distance','phase':'phiorb','chi_1_in_plane':'chi1_perp','spin_1x': 'a1x', 'spin_1y':'a1y', 'spin_2x': 'a2x','spin_2y':'a2y', 'spin_1z':'a1z', 'spin_2z':'a2z', 'chi_2_in_plane':'chi2_perp','iota':'incl','lambda_1':'lambda1', 'lambda_2':'lambda2','lambdat':'LambdaTilde'})
+    # Drop
+    ugly_fields = [x for x in samp.dtype.names if 'recalib' in x or 'snr' in x]
+    samp = rfn.drop_fields(samp,ugly_fields)
+
+    np.savetxt(fname_out,samp,header=" ".join(samp.dtype.names) )
