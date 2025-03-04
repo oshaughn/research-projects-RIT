@@ -5110,14 +5110,13 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             x_out[:,indx_p_out] = x_in[:,indx_p_in]
 
     if 'ecc_cos_meanPerAno' in coord_names_reduced and 'eccentricity' in low_level_coord_names and 'meanPerAno' in low_level_coord_names:
-        indx_p_out = coord_names_reduced.index('ecc_cos_meanPerAno')
+        indx_p_out = coord_names.index('ecc_cos_meanPerAno')
         indx_p_ecc = low_level_coord_names.index('eccentricity')
         indx_p_ell = low_level_coord_names.index('meanPerAno')
         x_out[:,indx_p_out] = x_in[:,indx_p_ecc]*np.cos(x_in[:,indx_p_ell])
-        print(coord_names_reduced, indx_p_out)
         coord_names_reduced.remove('ecc_cos_meanPerAno')
         if 'ecc_sin_meanPerAno' in coord_names_reduced:
-            indx_p_out = coord_names_reduced.index('ecc_sin_meanPerAno')
+            indx_p_out = coord_names.index('ecc_sin_meanPerAno')
             x_out[:,indx_p_out] = x_in[:,indx_p_ecc]*np.sin(x_in[:,indx_p_ell])
             coord_names_reduced.remove('ecc_sin_meanPerAno')
             
