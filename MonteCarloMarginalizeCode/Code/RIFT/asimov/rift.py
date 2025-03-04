@@ -86,6 +86,7 @@ class Rift(Pipeline):
                     if "samples" in productions[previous_job].pipeline.collect_assets():
                         posterior_file = productions[previous_job].pipeline.collect_assets()['samples']
                         if "dataset" not in self.production.meta:
+                            import h5py
                             with h5py.File(posterior_file,'r') as f:
                                 keys = list(f.keys())
                             keys.remove('version')
@@ -332,10 +333,12 @@ class Rift(Pipeline):
                         "C01_offline",
                         f"{self.production.name}_bootstrap.xml.gz",
                     )
-                import RIFT.misc.samples_utils
-                bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
-                RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
-                os.system("convert_output_format_inference2ile --posterior-samples {} --output {} ".format(bootstrap_file_ascii, bootstrap_file) )
+                # test if bootstrap file already exists
+                if not(os.path.exists(bootstrap_file):
+                       import RIFT.misc.samples_utils
+                       bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
+                       RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
+                       os.system("convert_output_format_inference2ile --posterior-samples {} --output {} ".format(bootstrap_file_ascii, bootstrap_file) )
                 self.bootstrap=True
                 
                 
