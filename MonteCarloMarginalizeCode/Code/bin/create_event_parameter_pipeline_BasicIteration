@@ -1488,7 +1488,7 @@ for it in np.arange(it_start,opts.n_iterations):
             cmd += "  --convert-args {} ".format(opts.convert_args) # passthrough, important for tides
         cmd += " --n-samples-per-job {} ".format(opts.n_samples_per_job) 
         cmd += " --neff-threshold {} ".format(opts.neff_threshold)
-        cmd += " --general-request-disk {} --ile-request-disk {} ".format(opts.general_request_disk,opts.ile_request_disk)
+        cmd += " --general-request-disk {} --ile-request-disk {} --cip-request-disk {} ".format(opts.general_request_disk,opts.ile_request_disk,opts.cip_request_disk)
         if opts.use_eccentricity:
             cmd += " --use-eccentricity "
             if opts.use_meanPerAno:
