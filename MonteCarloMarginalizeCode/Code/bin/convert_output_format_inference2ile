@@ -52,6 +52,9 @@ optp.add_option("--fref",default=20,type=float,help="Reference frequency. Depend
 optp.add_option("--target-size",default=2000,type=int)
 optp.add_option("--use-extrinsic",action='store_true')
 optp.add_option("--use-no-spin",action='store_true')
+optp.add_option("--use-aligned-spin",action='store_true')
+optp.add_option("--add-eccentricity-params",action='store_true')
+optp.add_option("--ecc-max",type=float,default=0.1)
 opts, args = optp.parse_args()
 opts.output_xml = opts.output_xml.replace('.xml.gz', '') # Strip trailing xml, as it will be added later
 
@@ -171,6 +174,15 @@ for indx in np.arange(opts.target_size):
             P.phi   = samples_in["ra"][fac_reduce*indx]
             P.dist  = samples_in["distance"][fac_reduce*indx]*lal.PC_SI*1e6
 
+    if opts.use_aligned_spin:
+            P.s1y=0
+            P.s1x=0
+            P.s2y=0
+            P.s2x=0
+    if opts.add_eccentric_params:
+            P.meanPerAno = np.random.uniform(0,2*np.pi)
+            P.eccentricity = np.random.uniform(0,opts.ecc_max) # some convervative range
+            
     if ros_debug:
         if 'iota' in samples_in.dtype.names:
                 print( " Target inclination (should be equal) ", P.incl, samples_in["iota"][fac_reduce*indx])  # NOT ALWAYS CONSISTENT
