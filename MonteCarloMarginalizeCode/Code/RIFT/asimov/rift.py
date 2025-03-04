@@ -339,7 +339,7 @@ class Rift(Pipeline):
                        bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
                        RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
                        os.system("convert_output_format_inference2ile --posterior-samples {} --output {} ".format(bootstrap_file_ascii, bootstrap_file) )
-                self.bootstrap=True
+                self.bootstrap="manual"
                 
                 
         command += [
@@ -379,6 +379,8 @@ class Rift(Pipeline):
                         "C01_offline",
                         f"{self.production.name}_bootstrap.xml.gz",
                     )
+                    if bootstrap_file[0] != '/': # need absolute path!
+                        bootstrap_file = os.getcwd() + "/" + bootstrap_file
                 else:
                     bootstrap_file = "{self.production.name}_bootstrap.xml.gz"
             else:
