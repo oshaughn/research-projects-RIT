@@ -179,7 +179,7 @@ for indx in np.arange(opts.target_size):
             P.s1x=0
             P.s2y=0
             P.s2x=0
-    if opts.add_eccentric_params:
+    if opts.add_eccentricity_params:
             P.meanPerAno = np.random.uniform(0,2*np.pi)
             P.eccentricity = np.random.uniform(0,opts.ecc_max) # some convervative range
             
