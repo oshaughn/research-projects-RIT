@@ -1181,7 +1181,8 @@ if opts.assume_eccentric:
         lines[0] = lines[0].replace('--parameter meanPerAno ','--parameter-nofit meanPerAno ')
         if opts.internal_cip_use_periodic_ecc_vars:
             extra_line  =lines[0].replace('parameter eccentricity_squared', 'parameter-implied ecc_cos_meanPerAno --parameter-implied ecc_sin_meanPerAno --parameter-nofit eccentricity')
-            lines.insert(extra_line, 1)
+            lines.insert(1,extra_line)
+            n_iterations +=1 
             #for indx in range(2, len(lines)):
             #lines[indx] = lines[indx].replace('parameter eccentricity ', 'parameter-implied ecc_cos_meanPerAno --parameter-implied ecc_sin_meanPerAno --parameter-nofit eccentricity ')
             #lines[indx] = lines[indx].replace('parameter meanPerAno' 'parameter-nofit meanPerAno')
