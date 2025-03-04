@@ -81,7 +81,7 @@ class Rift(Pipeline):
             for production in self.production.event.productions:
                 productions[production.name] = production
             for previous_job in self.production.dependencies:
-                print("assets", productions[previous_job].pipeline.collect_assets())
+                self.logger.info("RIFT: previous job assets" + str( productions[previous_job].pipeline.collect_assets()))
                 try:
                     if "samples" in productions[previous_job].pipeline.collect_assets():
                         posterior_file = productions[previous_job].pipeline.collect_assets()['samples']
@@ -115,6 +115,7 @@ class Rift(Pipeline):
           # concatenate all cache files into main local.cache directory
           for previous_job in self.production.dependencies:
             print("assets", productions[previous_job].pipeline.collect_assets())
+            self.logger.info(" Assets for RIFT job " + str(productions[previous_job].pipeline.collect_assets() ) )
 
             if "caches" in productions[previous_job].pipeline.collect_assets():
                 cache_files = productions[previous_job].pipeline.collect_assets()['caches'].values()
@@ -323,6 +324,7 @@ class Rift(Pipeline):
         if 'bootstrap upstream' in self.production.meta['scheduler']:
             # get posterior file
             posterior_file = self._find_posterior()
+            self.logger.info("  Bootstrap requested, attempting with file {}".format(posterior_file) )                        
             if posterior_file:
                 # convert posterior samples to temp location
                 bootstrap_file = os.path.join(
