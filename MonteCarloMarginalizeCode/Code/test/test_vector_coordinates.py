@@ -239,3 +239,32 @@ print("Cylinder test 2", np.max(np.abs(x1 - x2)))
 err = np.max(np.abs(x1 - x2))
 if opts.as_test and err > 1e-9:
     raise ValueError(" Large deviation seen ")
+
+
+# Eccentric test
+#   - assign variables
+for P in P_list:
+    P.eccentricity = np.random.uniform(0,0.3)
+    P.meanPerAno = np.random.uniform(0, 2*np.pi)
+
+
+coord_names=['eccentricity', 'meanPerAno', 'ecc_cos_meanPerAno', 'ecc_sin_meanPerAno']
+low_level_coord_names=['eccentricity', 'meanPerAno'] # assume this is the underlying
+
+x1 = np.zeros((npts,len(coord_names)))
+x2 = np.zeros((npts,len(coord_names)))
+y2 = np.zeros((npts,len(low_level_coord_names)))
+
+for indx in np.arange(npts):
+    P = P_list[indx]
+    for indx_name  in np.arange(len(coord_names)):
+        x1[indx,indx_name]  = P.extract_param( coord_names[indx_name])
+    for indx_name2 in np.arange(len(low_level_coord_names)):
+        y2[indx,indx_name2]  = P.extract_param( low_level_coord_names[indx_name2])
+
+x2 = lalsimutils.convert_waveform_coordinates(y2, coord_names=coord_names, low_level_coord_names=low_level_coord_names)
+
+print("Eccentric test ", np.max(np.abs(x1 - x2)))
+err = np.max(np.abs(x1 - x2))
+if opts.as_test and err > 1e-9:
+    raise ValueError(" Large deviation seen ")
