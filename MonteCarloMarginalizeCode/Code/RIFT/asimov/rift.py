@@ -334,7 +334,7 @@ class Rift(Pipeline):
                         f"{self.production.name}_bootstrap.xml.gz",
                     )
                 # test if bootstrap file already exists
-                if not(os.path.exists(bootstrap_file):
+                if not(os.path.exists(bootstrap_file)):
                        import RIFT.misc.samples_utils
                        bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
                        RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
