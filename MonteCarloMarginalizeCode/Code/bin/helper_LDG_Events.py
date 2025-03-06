@@ -1006,7 +1006,14 @@ if not(opts.manual_mc_max is None):
     mc_max = opts.manual_mc_max
 mc_range_str_cip = " --mc-range ["+str(mc_min)+","+str(mc_max)+"]"
 if not(opts.force_mc_range is None):
+    # CIP : force global
     mc_range_str_cip = " --mc-range " + opts.force_mc_range
+    # Initial grid: limited: see logic below
+    line_here = list(map(float,opts.force_mc_range.replace('[','').replace(']','').split(',') ))
+    mc_min_lim,mc_max_lim = line_here
+    mc_min = np.max([mc_min_tight,mc_min_lim])
+    mc_max = np.min([mc_max_tight,mc_max_lim])
+    mc_range_str = " [{},{}] ".format(mc_min,mc_max)  # for grid placement, stay in range.
 elif opts.limit_mc_range:
     line_here = list(map(float,opts.limit_mc_range.replace('[','').replace(']','').split(',') ))
     mc_min_lim,mc_max_lim = line_here
