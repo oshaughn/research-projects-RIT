@@ -340,8 +340,15 @@ class Rift(Pipeline):
                        RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
                        os.system("convert_output_format_inference2ile --posterior-samples {} --output {} ".format(bootstrap_file_ascii, bootstrap_file) )
                 self.bootstrap="manual"
-                
-                
+
+                # bootstrap coinc file !  note the intention will be to OVERWRITE the existing coinc (or to deal with the absence of one for this event)
+                if  'bootstrap coinc' in self.production.meta['scheduler']:
+                    coinc_file = os.path.join(
+                        self.production.event.repository.directory,
+                        "C01_offline",
+                        'coinc.xml')
+                    os.system("util_SimInspiralToCoinc.py --sim-xml {} --output {} ".format(bootstrap_file, coinc_file) )
+                    
         command += [
             "--calibration",
             f"{calibration}",
