@@ -131,6 +131,7 @@ class Rift(Pipeline):
         """
         event = self.production.event
         category = config.get("general", "calibration_directory")
+        # XML PSDs
         self.logger.info("Checking for XML format PSDs")
         if len(self.production.get_psds("xml")) == 0 and "psds" in self.production.meta:
             self.logger.info("Did not find XML format PSDs")
@@ -153,7 +154,23 @@ class Rift(Pipeline):
                         commit_message=f"Added the xml format PSD for {ifo}.",
                     )
                     self.logger.info(f"Saved at {saveloc}")
+        # calmarg: find bilby ini file if needed
+        self.logger.info(" About to check for calmarg ")
+        if 'likelihood' in self.production.meta['sampler']:
+                if 'calibration' in self.production.meta['sampler']['likelihood']:
+                    if 'sample' in self.production.meta['sampler']['likelihood']['calibration'] and not('bilby ini file' in self.production.meta['sampler']['likelihood']['calibration']):
+                        
+                        self.logger.info(" RIFT calmarg: checking for bilby production to provide ini file (assume compatible)")
+                        config_files = self.production.event.repository.find_prods(self.production.name, self.category) # finds location of the config file, in full path, BUT for this thing!
+                        config_file_dir = os.path.split(config_files[0])[0]
+                        import sys, glob
+#                        print(config_files,config_file_dir,file=sys.stderr)
+                        bilby_ini = glob.glob(config_file_dir+"/*bilby*ini")[0]
+#                        print(bilby_ini, file=sys.stderr)
+                        self.logger.info(" RIFT calmarg: found ini file {} ".format(bilby_ini))
+                        self.production.meta['sampler']['likelihood']['calibration']['bilby ini file'] = bilby_ini
 
+                    
     @my_auth_decorator
     def build_dag(self, user=None, dryrun=False):
         """
