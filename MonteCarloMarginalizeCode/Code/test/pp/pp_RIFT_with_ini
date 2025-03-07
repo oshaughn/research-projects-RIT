@@ -430,7 +430,10 @@ if 'TaylorF2Ecc' in approx_str:
     config['engine']['amporder'] = str(amporder)
 else:
     config['engine']['amporder'] = '0'
-config['engine']['seglen'] = '16' # get this from user ini
+if seglen_analysis:
+    config['engine']['seglen'] = seglen_analysis
+else:
+    config['engine']['seglen'] = '16' 
 config['engine']['srate'] = '4096' # get this from user ini
 config['engine']['distance-max'] = '10000'
 
