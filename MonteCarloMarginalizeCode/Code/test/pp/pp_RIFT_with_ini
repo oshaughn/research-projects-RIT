@@ -417,9 +417,14 @@ config['condor']['accounting_group_user'] = username
 ## LALINFERENCE
 if 'lalinference' not in config.sections():
     config.add_section('lalinference')
-config['lalinference']['flow'] = "{'H1': 20, 'L1': 20, 'V1': 20}"
-#config['lalinference']['fhigh'] = "{ 'H1': {}, 'L1': {}, 'V1': {}}".format(str(fmax), str(fmax), str(fmax))
-config['lalinference']['fhigh'] = "{ 'H1': 2000, 'L1': 2000, 'V1': 2000}"
+if flow_dict:
+    config['lalinference']['flow'] = str(flow_dict)
+else:
+    config['lalinference']['flow'] = "{'H1': 20, 'L1': 20, 'V1': 20}"
+if fmax:
+    config['lalinference']['fhigh'] = "{ 'H1': {}, 'L1': {}, 'V1': {}}".format(str(fmax), str(fmax), str(fmax))
+else:
+    config['lalinference']['fhigh'] = "{ 'H1': 2000, 'L1': 2000, 'V1': 2000}"
 
 ## ENGINE
 if 'engine' not in config.sections():
