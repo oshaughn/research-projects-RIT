@@ -399,7 +399,7 @@ else:
     weights_file = f'{outdir}/weights.dat'
 
 reweight_func = alt_reweight
-if args.internal_use_bilby_reweight:
+if args.internal_use_normal_reweight:
     reweight_func = bilby.core.result.reweight
 
 if args.reevaluate_likelihood:
