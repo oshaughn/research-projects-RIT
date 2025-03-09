@@ -610,7 +610,7 @@ class Rift(Pipeline):
             return None
         if "allow ressurect" in self.production.meta:
             count = 0
-        if (count < 90) and (
+        if (count < 900) and (
             len(
                 glob.glob(
                     os.path.join(
