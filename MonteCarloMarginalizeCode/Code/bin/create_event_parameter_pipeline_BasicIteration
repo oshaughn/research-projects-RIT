@@ -1821,6 +1821,7 @@ if opts.calibration_reweighting:
         calibration_node.add_macro("macroiteration",it)
         calibration_node.set_category("CALIBRATION")
         calibration_node.add_parent(last_node)
+        calibration_node.set_retry(opts.general_retries)
         dag.add_node(calibration_node)
     else:
         # Make job to reweight everything, after producing samples
@@ -1835,6 +1836,7 @@ if opts.calibration_reweighting:
             calibration_node.add_macro("macrostartidx",start_indx)
             calibration_node.add_macro("macroendidx",end_indx)
             calibration_node.set_category("CALIBRATION")
+            calibration_node.set_retry(opts.general_retries)
             calibration_node.add_parent(last_node)
             reweight_merge_node.add_parent(calibration_node)
             dag.add_node(calibration_node)
