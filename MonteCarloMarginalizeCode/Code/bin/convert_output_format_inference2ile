@@ -174,12 +174,12 @@ for indx in np.arange(opts.target_size):
             P.phi   = samples_in["ra"][fac_reduce*indx]
             P.dist  = samples_in["distance"][fac_reduce*indx]*lal.PC_SI*1e6
 
-    if opts.use_aligned_spin:
+    if opts.use_aligned_spin:  # redundant, see --force-aligned below
             P.s1y=0
             P.s1x=0
             P.s2y=0
             P.s2x=0
-    if opts.add_eccentricity_params:
+    if opts.add_eccentricity_params and P.eccentricity < 1e-5:
             P.meanPerAno = np.random.uniform(0,2*np.pi)
             P.eccentricity = np.random.uniform(0,opts.ecc_max) # some convervative range
             
