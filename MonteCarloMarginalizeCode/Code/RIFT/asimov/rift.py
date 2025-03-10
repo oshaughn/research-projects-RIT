@@ -355,7 +355,16 @@ class Rift(Pipeline):
                        import RIFT.misc.samples_utils
                        bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
                        RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
-                       os.system("convert_output_format_inference2ile --posterior-samples {} --output {} ".format(bootstrap_file_ascii, bootstrap_file) )
+                       extra_args =''
+                       # bootstrap eccentricity from samples
+                       if 'eccentric' in self.production.meta['likelihood']['assume']:
+                           extra_args += ' --add-eccentricity-params  '
+                           if 'force-ecc-max' in self.production.meta['sampler']:
+                               extra_args+= ' --ecc-max {} '.format(self.production.meta['sampler']['force-ecc-max'])
+                       # zero out transverse spin if needed
+                       if 'nonprecessing' in self.production.meta['likelihood']['assume']:
+                           extra_args += " --use-aligned-spin "
+                       os.system("convert_output_format_inference2ile --posterior-samples {} --output {} {} ".format(bootstrap_file_ascii, bootstrap_file, extra_args) )
                 self.bootstrap="manual"
 
                 # bootstrap coinc file !  note the intention will be to OVERWRITE the existing coinc (or to deal with the absence of one for this event)
