@@ -72,6 +72,59 @@ def generate_job_id():
     return md5(t + r).hexdigest()
 # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
 
+# from https://github.com/dask/dask-jobqueue/blob/main/dask_jobqueue/htcondor.py
+def _double_up_quotes(instr):
+    return instr.replace("'", "''").replace('"', '""')
+def quote_arguments(args):
+    """Quote a string or list of strings using the Condor submit file "new" argument quoting rules.
+
+    Returns
+    -------
+    str
+        The arguments in a quoted form.
+
+    Warnings
+    --------
+    You will need to surround the result in double-quotes before using it in
+    the Arguments attribute.
+
+    Examples
+    --------
+    >>> quote_arguments(["3", "simple", "arguments"])
+    '3 simple arguments'
+    >>> quote_arguments(["one", "two with spaces", "three"])
+    'one \'two with spaces\' three'
+    >>> quote_arguments(["one", "\"two\"", "spacy 'quoted' argument"])
+    'one ""two"" \'spacey \'\'quoted\'\' argument\''
+    """
+    if isinstance(args, str):
+        args_list = [args]
+    else:
+        args_list = args
+
+    quoted_args = []
+    for a in args_list:
+        qa = _double_up_quotes(a)
+        if " " in qa or "'" in qa:
+            qa = "'" + qa + "'"
+        quoted_args.append(qa)
+    return " ".join(quoted_args)
+
+def safely_quote_arg_str(arg_str):
+    """
+    See the document for https://htcondor.readthedocs.io/en/latest/man-pages/condor_submit.html
+    We need to carefully parse the argument string for quoted items (e.g., passing dictionaries) with quoted elements
+    """
+    # step 0: split into quoted arguments using standard "
+    if not ('"' in arg_str):
+        return quote_arguments
+    quote_breaks = arg_str.split('"')  # assume only one block of quotes to deal with
+    if len(quote_breaks) !=  3:
+        raise Exception(" Arg parsing: multiple quoted argument strings provided, not ready to handle ")
+    args0 = quote_arguments(quote_breaks[0].split()) # no quotes, so split on whitespace as usual
+    args2 = quote_arguments(quote_breaks[2].split()) # no quotes, so split on whitespace as usual
+    args1 = quote_arguments('"{}"'.format( quote_breaks[1])) # quote this properly, should be one argument
+    return "{} {} {}".format(args0,args1,args2)
 
 # for resolving environment variables
 def match_expr(my_list, my_expr):
@@ -838,7 +891,8 @@ echo Starting ...
     arg_str = arg_str.lstrip() # remove leading whitespace and minus signs
     arg_str = arg_str.lstrip('-')
     if '"' in arg_str:
-        arg_str = arg_str.replace('"','""') # double quote for condor - weird but true
+        arg_str = safely_quote_arg_str(arg_str)
+        #arg_str = arg_str.replace('"','""') # double quote for condor - weird but true
     ile_job.add_opt(arg_str,'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 #    ile_job.add_opt(arg_str[2:],'')  # because we must be idiotic in how we pass arguments, I strip off the first two elements of the line
 
