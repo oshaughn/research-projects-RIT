@@ -171,11 +171,19 @@ if len(coord_names) >1:
     rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov,allow_singular=True)  # they are just complaining about dynamic range of parameters, usually
     delta_X = rv.rvs(size=len(X))
     X_out = X+delta_X
+    if 'eta' in coord_names:
+        indx_eta = coord_names.index('eta')
+        X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/4- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
+        X_out[:,indx_eta] = np.where(X_out[:,indx_eta] < 0, -X_out[:,indx_eta], X_out[:,indx_eta]) # reflection on other side
 else:
     sigma = np.std(X)
     cov = sigma*sigma
     delta_X =np.random.normal(size=len(coord_names), scale=sigma)
     X_out = X+delta_X
+    if 'eta' in coord_names:
+        indx_eta = coord_names.index('eta')
+        X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/4- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
+        X_out[:,indx_eta] = np.where(X_out[:,indx_eta] < 0, -X_out[:,indx_eta], X_out[:,indx_eta]) # reflection on other side
 
 # Sanity check parameters
 #for indx in np.arange(len(coord_names)):
@@ -192,10 +200,10 @@ names_downselect = list(downselect_dict.keys())
 x_out_down = lalsimutils.convert_waveform_coordinates(X_out, coord_names=names_downselect, low_level_coord_names=coord_names)
 indx_ok = np.ones(len(x_out_down),dtype=bool)
 for indx, name in enumerate(names_downselect):
-    indx_ok = np.logical_and(indx_ok,  np.logical_not(np.isnan(x_out_down[:,indx])))  
+    indx_ok = np.logical_and(indx_ok,  np.logical_not(np.isnan(x_out_down[:,indx])))
     indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]< downselect_dict[name][1] )
     indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]> downselect_dict[name][0] )
-    print('   Increment downselect : {} {} ', name, np.sum(indx_ok) )
+    print('   Increment downselect : {} {} '.format(name, np.sum(indx_ok) ))
 print(" Range downselect : ", np.sum(indx_ok), len(indx_ok))
 X_out = X_out[indx_ok]
 P_list = list(itertools.compress(P_list, indx_ok))  # https://stackoverflow.com/questions/18665873/filtering-a-list-based-on-a-list-of-booleans
