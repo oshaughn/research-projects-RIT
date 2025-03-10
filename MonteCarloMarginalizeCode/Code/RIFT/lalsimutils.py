@@ -5315,20 +5315,25 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             coord_names_reduced.remove('s2y')
             
     # Spin pseudo-cylindrical coordinate names, standard framing
-    if  ('s1z_bar' in low_level_coord_names) and ('phi1' in low_level_coord_names)  and ('s2z_bar' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('delta_mc' in low_level_coord_names):
+    if  ('s1z_bar' in low_level_coord_names) and ('phi1' in low_level_coord_names)  and ('s2z_bar' in low_level_coord_names) and ('phi2' in low_level_coord_names) and ('mc' in low_level_coord_names) and ('eta' in low_level_coord_names or 'delta_mc' in low_level_coord_names):
         indx_mc = low_level_coord_names.index('mc')
-        indx_delta = low_level_coord_names.index('delta_mc')
         indx_s1z = low_level_coord_names.index('s1z_bar')
         indx_s2z = low_level_coord_names.index('s2z_bar')
 
+        eta_vals = np.zeros(len(x_in))  
         s1z= x_in[:,indx_s1z]
         s2z= x_in[:,indx_s2z]
-
+        
         m1_vals =np.zeros(len(x_in))  
         m2_vals =np.zeros(len(x_in))  
-        eta_vals = np.zeros(len(x_in))  
-        eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
+        if ('delta_mc' in low_level_coord_names):
+            indx_delta = low_level_coord_names.index('delta_mc')
+            eta_vals = 0.25*(1- x_in[:,indx_delta]**2)
+        elif 'eta' in low_level_coord_names:
+            indx_eta = low_level_coord_names.index('eta')
+            eta_vals = x_in[:,indx_eta]
         m1_vals,m2_vals = m1m2(x_in[:,indx_mc],eta_vals)
+
         if 'xi' in coord_names_reduced:
             indx_pout_xi = coord_names.index('xi')
             x_out[:,indx_pout_xi] = (m1_vals*s1z + m2_vals*s2z)/(m1_vals+m2_vals)
