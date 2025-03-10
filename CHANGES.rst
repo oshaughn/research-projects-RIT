@@ -10,7 +10,14 @@ development tree is rift_O4c
      it0 eccentric arch, AV does cupy-based random numbers, fixing conflict with cosmo_sourceframe. dag_utils and related handle osdf
      container identification better, also cip-request-disk. mcsamplerGPU np.isfinite fix. ILE less process_params output
      (rc0)
-
+   - FYI coinc.xml files from MBTA/spiir malformed and produce parse errors.  calmarg: fix misnamed arguments in
+     calibration_reweighting causing block, fix handoff from asimov to find bilby ini files; also more RETRY. pp_RIFT_with_ini use
+     provided fmin/fmax/seglen correctly. helper initial grids respect force-mc-range. asimov boostrap from previous
+     samples, including coinc; note samples_utils gets pesummary/h5 snarfing tool.  eccentricity
+     (lalsimutils/pipeline/ILE/CEPP): multiple updates to enable TEOBResumSDali use (pull #104),
+     also --internal-cip-use-periodic-ecc-vars and related support, and minor bugfixes associated with meanPerAno merges
+     (rc1)
+     
 0.0.17.1
 ------------
 development tree is rift_O4c
