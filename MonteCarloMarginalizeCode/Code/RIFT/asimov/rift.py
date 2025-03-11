@@ -181,9 +181,9 @@ class Rift(Pipeline):
         #     # issue: global priors may be overridden by accidental bug/issue with asimov setup
         #     #            import sys
         #     #            print(self.production.event['priors'],file=sys.stderr)
-        #     if 'use global priors' in self.production.meta['scheduler']: # only do override if specifically requiested, so we can correctly make local settings a priority
-        #         self.logger.info(" Updating priors using global event info, likely from peconfigurator - workaround due to weird ledger defaults: {} ".format(self.production.event.priors)
-        #         self.production.meta['priors'] = self.production.event.priors 
+        if 'use global priors' in self.production.meta['scheduler']: # only do override if specifically requiested, so we can correctly make local settings a priority
+                 self.logger.info(" Updating priors using global event info, likely from peconfigurator - workaround due to weird ledger defaults: {} ".format(self.production.event.priors)
+                 self.production.meta['priors'] = self.production.event.meta['priors']  # where peconfigurator puts its crap
 
                     
     @my_auth_decorator
@@ -462,16 +462,16 @@ class Rift(Pipeline):
                 if err:
                     self.production.status = "stuck"
                     if hasattr(self.production.event, "issue_object"):
-                        self.logger.info(out, production=self.production)
-                        self.logger.error(err, production=self.production)
+                        self.logger.info(out) #, production=self.production)
+                        self.logger.error(err) #, production=self.production)
                         raise PipelineException(
                             f"DAG file could not be created.\n{command}\n{out}\n\n{err}",
                             issue=self.production.event.issue_object,
                             production=self.production.name,
                         )
                     else:
-                        self.logger.info(out, production=self.production)
-                        self.logger.error(err, production=self.production)
+                        self.logger.info(out) #, production=self.production)
+                        self.logger.error(err) #, production=self.production)
                         raise PipelineException(
                             f"DAG file could not be created.\n{command}\n{out}\n\n{err}",
                             production=self.production.name,
@@ -557,7 +557,7 @@ class Rift(Pipeline):
                     dagman = subprocess.Popen(
                         command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
                     )
-                    self.logger.info(command, production=self.production)
+                    self.logger.info(command) #, production=self.production)
             except FileNotFoundError as exception:
                 raise PipelineException(
                     "It looks like condor isn't installed on this system.\n"
