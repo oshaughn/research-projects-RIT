@@ -2015,7 +2015,7 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
     cmdname = 'catjob.sh'
     with open(cmdname,'w') as f:
         f.write("#! /bin/bash\n")
-        f.write(exe+"  . -name '"+file_prefix+"*"+file_postfix+"' -exec cat {} \; | sort -r | uniq > "+file_output+";\n")
+        f.write(exe+"  . -name '"+file_prefix+"*"+file_postfix+r"' -exec cat {} \; | sort -r | uniq > "+file_output+";\n")
         f.write(exe_switch + " 'm1 ' '# m1 ' "+file_output)  # add standard prefix
         os.system("chmod a+x "+cmdname)
 
@@ -2307,7 +2307,11 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         else:
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
-    ile_job.add_condor_cmd('getenv', default_getenv_value)
+    getenv_calmarg = 'PATH,PYTHONPATH,LIBRARY_PATH,LD_LIBRARY_PATH,*RIFT*' # local !
+    if not(default_getenv_value == 'True'):
+        ile_job.add_condor_cmd('getenv', default_getenv_value)
+    else:
+        ile_job.add_condor_cmd('getenv', getenv_calmarg)
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M")
 
     # no grid
