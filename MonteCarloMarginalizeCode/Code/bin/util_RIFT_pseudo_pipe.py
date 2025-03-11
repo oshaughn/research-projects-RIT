@@ -1503,6 +1503,9 @@ if opts.calibration_reweighting:
         my_extra_string = ' --use-gwsignal '
     if opts.manual_extra_ile_args:
          my_extra_string += ' ' + opts.manual_extra_ile_args + ' '
+    if opts.use_ini:
+        fref = unsafe_config_get(config,['engine','fref'])
+        my_extra_string += ' --fref {} '.format(fref)
     if (opts.internal_mitigate_fd_J_frame =="L_frame"):
         my_extra_string += ' --internal-waveform-fd-L-frame '
     cmd +=" --calibration-reweighting-initial-extra-args='  {}' ".format(my_extra_string)
