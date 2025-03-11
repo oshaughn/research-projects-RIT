@@ -214,10 +214,12 @@ parser.add("--internal-waveform-fd-no-condition",action='store_true',help='If tr
 parser.add("--use-gwsignal",default=False,action='store_true',help='Use gwsignal. In this case the approx name is passed as a string to the lalsimulation.gwsignal interface')
 parser.add("--use-gwsignal-lmax-nyquist",default=None,type=int,help='Passes lmax_nyquist integer to the gwsignal waveform interface')
 parser.add("--fmin", default=None, type=float)
+parser.add("--fref", default=None, type=float)
 parser.add("--l-max", default=4, type=int)
 parser.add("--start_index", default=None, type=int)
 parser.add("--end_index", default=None, type=int)
 parser.add("--internal-use-normal-reweight", default=None, type=float)
+parser.add("--internal-use-common-cal-draws", action='store_true',help="By default, the code will use a different set of draws for each 'start_index', to avoid collisions accessing the same h5 file")
 args = parser.parse_args()
 
 with open(args.data_dump_file, "rb") as data_file:
@@ -287,8 +289,11 @@ if args.use_gwsignal:
     args.h_method = 'gws_hlmoft' 
 
 # Setting up the waveform generator using the data dump features
+fref = data.meta_data['command_line_args']['reference_frequency']
+if args.fref:
+    fref = args.fref
 waveform_arguments = dict(
-    reference_frequency=data.meta_data['command_line_args']['reference_frequency'],
+    reference_frequency=fref,
     minimum_frequency=args.fmin,
     waveform_approximant=data.meta_data['command_line_args']['waveform_approximant'],
     sampling_frequency=ifos.sampling_frequency,
@@ -362,8 +367,11 @@ if args.phase_marginalization:
 # Setting up the output for the calibration draw files
 calibration_lookup_table = {}
 for ifo in ifos:
+    extra_string='-{}-'.format(start_index)
+    if opts.internal_use_common_cal_draws:
+        extra_string=''
     calibration_lookup_table[ifo.name] =\
-                        f'{outdir}/{ifo.name}_calibration_file.h5'
+                        f'{outdir}/{ifo.name}{extra_string}_calibration_file.h5'
 
 # WARNING: time marginalization is done with *bool*, so actual value of time window  is NOT USED.
 original_likelihood = bilby.gw.GravitationalWaveTransient(
