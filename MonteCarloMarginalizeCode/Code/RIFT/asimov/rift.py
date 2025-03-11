@@ -14,6 +14,8 @@ from asimov.utils import set_directory
 from asimov.pipeline import Pipeline, PipelineException, PipelineLogger
 from asimov.pipeline import PESummaryPipeline
 
+from asimov.utils import update
+
 try: 
     from asimov import auth
     my_auth_decorator = auth.refresh_scitoken
@@ -39,7 +41,9 @@ class Rift(Pipeline):
 
     def __init__(self, production, category=None):
         super(Rift, self).__init__(production, category)
-        self.logger = logger
+        # Logger set by top-level class
+#        self.logger = logger.getChild(
+#            f"analysis.{production.event.name}/{production.name}"
         self.logger.info("Using the RIFT pipeline (rift.py)")
         if 'RIFT_ASIMOV_INI' in os.environ:
             self.config_template = os.getenv('RIFT_ASIMOV_INI')
@@ -127,7 +131,9 @@ class Rift(Pipeline):
 
     def before_config(self, dryrun=False):
         """
-        Convert the text-based PSD to an XML psd if the xml doesn't exist already.
+        - Convert the text-based PSD to an XML psd if the xml doesn't exist already.
+        - Find bilby ini file (needed for calmarg)
+        - Find all-event priors and copy to production, overwriting
         """
         event = self.production.event
         category = config.get("general", "calibration_directory")
@@ -169,6 +175,15 @@ class Rift(Pipeline):
 #                        print(bilby_ini, file=sys.stderr)
                         self.logger.info(" RIFT calmarg: found ini file {} ".format(bilby_ini))
                         self.production.meta['sampler']['likelihood']['calibration']['bilby ini file'] = bilby_ini
+        # general: check for global priors. Note this SHOULD not be needed, but peconfigurator seems to create defaults that override the per-event settings
+        # self.logger.info(" Priors: check global for event ")
+        # if hasattr(self.production.event,'priors'):
+        #     # issue: global priors may be overridden by accidental bug/issue with asimov setup
+        #     #            import sys
+        #     #            print(self.production.event['priors'],file=sys.stderr)
+        #     if 'use global priors' in self.production.meta['scheduler']: # only do override if specifically requiested, so we can correctly make local settings a priority
+        #         self.logger.info(" Updating priors using global event info, likely from peconfigurator - workaround due to weird ledger defaults: {} ".format(self.production.event.priors)
+        #         self.production.meta['priors'] = self.production.event.priors 
 
                     
     @my_auth_decorator
