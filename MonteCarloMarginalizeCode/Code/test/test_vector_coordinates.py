@@ -241,6 +241,29 @@ if opts.as_test and err > 1e-9:
     raise ValueError(" Large deviation seen ")
 
 
+coord_names=['chi1', 'chi2', 'mc', 'eta', 'xi']
+low_level_coord_names=['mc','eta','chi1_perp_u','s1z_bar', 'phi1','chi2_perp_u', 's2z_bar', 'phi2'] # assume this is the underlying
+
+x1 = np.zeros((npts,len(coord_names)))
+x2 = np.zeros((npts,len(coord_names)))
+y2 = np.zeros((npts,len(low_level_coord_names)))
+
+for indx in np.arange(npts):
+    P = P_list[indx]
+    for indx_name  in np.arange(len(coord_names)):
+        x1[indx,indx_name]  = P.extract_param( coord_names[indx_name])
+    for indx_name2 in np.arange(len(low_level_coord_names)):
+        y2[indx,indx_name2]  = P.extract_param( low_level_coord_names[indx_name2])
+
+x2 = lalsimutils.convert_waveform_coordinates(y2, coord_names=coord_names, low_level_coord_names=low_level_coord_names)
+print(x2)
+
+print("Cylinder test 3", np.max(np.abs(x1 - x2)))
+err = np.max(np.abs(x1 - x2))
+if opts.as_test and err > 1e-9:
+    raise ValueError(" Large deviation seen ")
+
+
 # Eccentric test
 #   - assign variables
 for P in P_list:
