@@ -17,6 +17,9 @@ development tree is rift_O4c
      (lalsimutils/pipeline/ILE/CEPP): multiple updates to enable TEOBResumSDali use (pull #104),
      also --internal-cip-use-periodic-ecc-vars and related support, and minor bugfixes associated with meanPerAno merges
      (rc1)
+   - PUFF issue resolved (lalsimutils convert_waveform_coordinates corner case for transverse puff+downselect), plus
+     provide for \eta=0,1/4 reflections to preserve points; asimov/rift.py logger, bootstraping; dag_utils argument
+     quoting to pass waveform dictionaries to ILE; pseudo_pipe/calibration_reweighting take fref, and also make files unique
      
 0.0.17.1
 ------------
