@@ -182,7 +182,7 @@ class Rift(Pipeline):
         #     #            import sys
         #     #            print(self.production.event['priors'],file=sys.stderr)
         if 'use global priors' in self.production.meta['scheduler']: # only do override if specifically requiested, so we can correctly make local settings a priority
-                 self.logger.info(" Updating priors using global event info, likely from peconfigurator - workaround due to weird ledger defaults: {} ".format(self.production.event.priors))
+                 self.logger.info(" Updating priors using global event info, likely from peconfigurator - workaround due to weird ledger defaults: {} ".format(self.production.event.meta['priors']))
                  self.production.meta['priors'] = self.production.event.meta['priors']  # where peconfigurator puts its crap
 
                     
