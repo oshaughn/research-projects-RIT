@@ -368,7 +368,7 @@ if args.phase_marginalization:
 calibration_lookup_table = {}
 for ifo in ifos:
     extra_string='-{}-'.format(start_index)
-    if opts.internal_use_common_cal_draws:
+    if args.internal_use_common_cal_draws:
         extra_string=''
     calibration_lookup_table[ifo.name] =\
                         f'{outdir}/{ifo.name}{extra_string}_calibration_file.h5'
