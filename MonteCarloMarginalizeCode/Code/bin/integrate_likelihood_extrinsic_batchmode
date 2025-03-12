@@ -1936,11 +1936,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["spin2x"] =numpy.ones(samples["psi"].shape)*P.s2x
             samples["spin2y"] =numpy.ones(samples["psi"].shape)*P.s2y
             samples["spin2z"] =numpy.ones(samples["psi"].shape)*P.s2z
-            # only save these parameters if needed : save on i/o and avoid potential compatibility problems
-            if opts.save_eccentricity:
-              samples["alpha4"] =numpy.ones(samples["psi"].shape)*P.eccentricity
-              if opts.save_meanPerAno:
-                samples["alpha"] =numpy.ones(samples["psi"].shape)*P.meanPerAno
+            samples["alpha4"] =numpy.ones(samples["psi"].shape)*P.eccentricity
+            samples["alpha"] =numpy.ones(samples["psi"].shape)*P.meanPerAno
             samples["alpha5"] =numpy.ones(samples["psi"].shape)*P.lambda1
             samples["alpha6"] =numpy.ones(samples["psi"].shape)*P.lambda2
             # Below exist solely to placate XML export; new issue as of latest lalsuite say 7.15+ or so
