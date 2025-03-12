@@ -19,7 +19,10 @@ development tree is rift_O4c
      (rc1)
    - PUFF issue resolved (lalsimutils convert_waveform_coordinates corner case for transverse puff+downselect), plus
      provide for \eta=0,1/4 reflections to preserve points; asimov/rift.py logger, bootstraping; dag_utils argument
-     quoting to pass waveform dictionaries to ILE; pseudo_pipe/calibration_reweighting take fref, and also make files unique
+     quoting to pass waveform dictionaries to ILE; pseudo_pipe/calibration_reweighting take fref, and also make files
+     unique. bugfix blocking change with row.alpha for extrinsic export from recent eccentricity merge
+     above. calibration_reweighting minor typo fix arg name (blocking error).
+     (rc2)
      
 0.0.17.1
 ------------
