@@ -171,7 +171,10 @@ class Rift(Pipeline):
                         config_file_dir = os.path.split(config_files[0])[0]
                         import sys, glob
 #                        print(config_files,config_file_dir,file=sys.stderr)
-                        bilby_ini = glob.glob(config_file_dir+"/*bilby*ini")[0]
+                        bilby_ini_list = glob.glob(config_file_dir+"/*bilby*ini")
+                        if len(bilby_ini_list) ==0:
+                            raise PipelineException(" Cannot find bilby ini file needed to prepare RIFT calmarg postprocessing - try again or fix dependencies ",production=self.production.name)
+                        bilby_ini = bilby_ini_list[0]
 #                        print(bilby_ini, file=sys.stderr)
                         self.logger.info(" RIFT calmarg: found ini file {} ".format(bilby_ini))
                         self.production.meta['sampler']['likelihood']['calibration']['bilby ini file'] = bilby_ini
