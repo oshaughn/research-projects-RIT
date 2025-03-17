@@ -26,7 +26,8 @@ development tree is rift_O4c
    - asimov/rift.py edit to prevent getting stuck identifying job needing rescue, also more useful error message when
      upstream dependency fail (calmarg needs bilby ini file).
      (rc3)
-     
+release is rc3
+   
 0.0.17.1
 ------------
 development tree is rift_O4c
