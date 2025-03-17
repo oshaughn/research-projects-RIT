@@ -23,6 +23,9 @@ development tree is rift_O4c
      unique. bugfix blocking change with row.alpha for extrinsic export from recent eccentricity merge
      above. calibration_reweighting minor typo fix arg name (blocking error).
      (rc2)
+   - asimov/rift.py edit to prevent getting stuck identifying job needing rescue, also more useful error message when
+     upstream dependency fail (calmarg needs bilby ini file).
+     (rc3)
      
 0.0.17.1
 ------------
