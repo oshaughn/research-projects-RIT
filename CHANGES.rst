@@ -1,3 +1,8 @@
+0.0.17.3
+------------
+development tree is rift_O4c
+   - pseudo_pipe backwards compatibility fix for coinc file reading w/o eccentricity
+
 0.0.17.2
 ------------
 development tree is rift_O4c
