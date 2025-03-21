@@ -94,9 +94,13 @@ def retrieve_event_from_coinc(fname_coinc):
     event_dict["s2z"] = row.spin2z
     if hasattr(row, 'alpha4'):
         event_dict["eccentricity"] = row.alpha4
+        if hasattr(row, alpha):
+            event_dict["meanPerAno"] = row.alpha
+        else:
+            event_dict["meanPerAno"] = None
     else:
         event_dict["eccentricity"] = None
-    event_dict["meanPerAno"] = row.alpha
+        event_dict["meanPerAno"] = None
     event_dict["IFOs"] = list(set(ifo_list))
     max_snr_idx = snr_list.index(max(snr_list))
     event_dict['SNR'] = snr_list[max_snr_idx]
