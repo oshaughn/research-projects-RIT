@@ -76,6 +76,7 @@ else:
 print("Approx =",P.approx)
 P.taper = lalsimutils.lsu_TAPER_START  # force taper
 P.detector = opts.instrument
+P.fref = opts.fref
 if opts.approx == "EccentricTD":
     P.phaseO = 3
 #P.print_params()
