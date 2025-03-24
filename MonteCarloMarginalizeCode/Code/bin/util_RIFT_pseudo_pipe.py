@@ -94,7 +94,7 @@ def retrieve_event_from_coinc(fname_coinc):
     event_dict["s2z"] = row.spin2z
     if hasattr(row, 'alpha4'):
         event_dict["eccentricity"] = row.alpha4
-        if hasattr(row, alpha):
+        if hasattr(row, 'alpha'):
             event_dict["meanPerAno"] = row.alpha
         else:
             event_dict["meanPerAno"] = None
