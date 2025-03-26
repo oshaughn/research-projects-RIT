@@ -215,8 +215,11 @@ username = config.get('make_workflow','username')
 group = config.get('make_workflow','accounting_group')
 cip_sampler = config.get('make_workflow', 'cip_sampler_method')
 ile_sampler = config.get('make_workflow', 'ile_sampler_method')
-use_gpu = config.get('make_workflow', 'use_gpu')
+use_gpu = config.getboolean('make_workflow', 'use_gpu')
 use_distance_marginalization = config.get('make_workflow','use_distance_marginalization')
+transverse_puff = config.get('make_workflow','use_transverse_puff')
+
+
 ## "default" incompatible with --force-reset-all inn ILE
 if ile_sampler == "default":
     ile_sampler = 'adaptive_cartesian_gpu'
@@ -393,7 +396,7 @@ print(" === WRITING INI FILES === ")
 os.chdir(working_dir_full)
 config=configparser.ConfigParser()
 config.optionxform = str
-config.read('pseudo_ini.ini')
+#config.read('pseudo_ini.ini')
 
 ## ANALYSIS
 if 'analysis' not in config.sections():
@@ -422,7 +425,7 @@ if flow_dict:
 else:
     config['lalinference']['flow'] = "{'H1': 20, 'L1': 20, 'V1': 20}"
 if fmax:
-    config['lalinference']['fhigh'] = "{ 'H1': {}, 'L1': {}, 'V1': {}}".format(str(fmax), str(fmax), str(fmax))
+    config['lalinference']['fhigh'] = f"{{'H1': {fmax}, 'L1': {fmax}, 'V1': {fmax}}}"
 else:
     config['lalinference']['fhigh'] = "{ 'H1': 2000, 'L1': 2000, 'V1': 2000}"
 
@@ -436,7 +439,7 @@ if 'TaylorF2Ecc' in approx_str:
 else:
     config['engine']['amporder'] = '0'
 if seglen_analysis:
-    config['engine']['seglen'] = seglen_analysis
+    config['engine']['seglen'] = str(seglen_analysis)
 else:
     config['engine']['seglen'] = '16' 
 config['engine']['srate'] = '4096' # get this from user ini
@@ -497,7 +500,7 @@ if precessing_spin:
     # for now set to false:
     config['rift-pseudo-pipe']['internal-use-rescaled-transverse-spin-coordinates']= 'False'
     # ability to turn transverse puff on/off - after testing will default to true?
-    config['rift-pseudo-pipe']['internal-puff-transverse'] = 'False'
+    config['rift-pseudo-pipe']['internal-puff-transverse'] = str(transverse_puff)
 # something about volmetric prior?
 else:
     config['rift-pseudo-pipe']['assume-precessing'] = 'False'
@@ -516,6 +519,7 @@ if opts.use_osg:
     config['rift-pseudo-pipe']['use_osg'] = 'True'
     config['rift-pseudo-pipe']['use_osg_file_transfer'] = 'True'
     config['rift-pseudo-pipe']['use_osg_cip'] = 'True'
+    config['rift-pseudo-pipe']['internal_truncate_files_for_osg_file_transfer'] = 'True'
 else:
     config['rift-pseudo-pipe']['use_osg'] = 'False'
     config['rift-pseudo-pipe']['use_osg_file_transfer'] = 'False'
@@ -576,7 +580,7 @@ for indx in np.arange(n_events):
     if not config['rift-pseudo-pipe']['internal-marginalize-distance']:
         cmd += " --manual-extra-ile-args '--d-min {} --d-max {} '".format(d_min, d_max)
     if fix_sky_location:
-        cmd += "' --declination {} --right-ascension {} '".format(fiducial_dec, fiducial_ra)
+        cmd += " --manual-extra-ile-args ' --declination {} --right-ascension {} '".format(fiducial_dec, fiducial_ra)
     if cip_sampler == 'AV':
         cmd += " --manual-extra-cip-args '--downselect-parameter mc --downselect-parameter-range '[{},{}]''".format(mc_min, mc_max)
     if opts.use_gwsignal:
