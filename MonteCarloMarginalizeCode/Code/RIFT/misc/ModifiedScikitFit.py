@@ -1101,8 +1101,8 @@ class PolynomialFeatures(BaseEstimator, TransformerMixin):
         combinations = self._combinations(self,self.n_input_features_, self.degree,
                                           self.interaction_only,
                                           self.include_bias)
-        return np.vstack(bincount(c, minlength=self.n_input_features_)
-                         for c in combinations)
+        return np.vstack([bincount(c, minlength=self.n_input_features_)
+                          for c in combinations])
 
     def get_feature_names(self, input_features=None):
         """
