@@ -534,6 +534,7 @@ os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 cmdname="%s/command-single.sh" % opts.working_directory
 cmd = open(cmdname, 'w')
 arg_list = ile_args
+arg_list = arg_list.replace('$(macrongroup)','5')
 exe = dag_utils.which("integrate_likelihood_extrinsic")
 if opts.ile_n_events_to_analyze:
     exe = dag_utils.which("integrate_likelihood_extrinsic_batchmode")
