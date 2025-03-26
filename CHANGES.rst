@@ -1,7 +1,8 @@
 0.0.17.3
 ------------
 development tree is rift_O4c
-   - pseudo_pipe backwards compatibility fix for coinc file reading w/o eccentricity
+   - pseudo_pipe backwards compatibility fix for coinc file reading w/o eccentricity. PUFF settings for BNS use both
+     LambdaTilde and DeltaLambdaTilde to avoid loss of points.
 
 0.0.17.2
 ------------
