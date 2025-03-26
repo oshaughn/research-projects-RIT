@@ -16,6 +16,7 @@ From: nvidia/cuda:11.8.0-runtime-ubuntu22.04
            bc \
            locales \
            git \
+           libkrb5-dev
 
    # Configure locale
    locale-gen en_US.UTF-8
