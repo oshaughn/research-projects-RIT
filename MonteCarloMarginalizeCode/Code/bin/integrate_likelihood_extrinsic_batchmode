@@ -245,6 +245,7 @@ optp.add_option("--internal-waveform-fd-L-frame",action='store_true',help='If tr
 optp.add_option("--internal-waveform-fd-no-condition",action='store_true',help='If true, adds extra_waveform_kwargs = {no_condition=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only. Provided to enable controlled tests of conditioning impact on PE')
 optp.add_option("--internal-waveform-extra-lalsuite-args",type=str,default=None)
 optp.add_option("--internal-waveform-extra-kwargs",type=str,default=None)
+optp.add_option("--internal-precompute-ignore-threshold",default=None,type=float)
 optp.add_option("--verbose",action='store_true')
 optp.add_option("--save-eccentricity", action="store_true")
 optp.add_option("--save-meanPerAno", action="store_true")
@@ -1368,9 +1369,14 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       extra_waveform_kwargs.update(extra_args_dict)
     # Precompute
     t_window = opts.internal_data_storage_window_half
+    ignore_threshold=None
+    if opts.internal_precompute_ignore_threshold:
+      print("IGNORE ACTIVE ", ignore_threshold)
+      ignore_threshold=ignore_threshold
     rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest=factored_likelihood.PrecomputeLikelihoodTerms(
             fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
             False, inv_spec_trunc_Q, T_spec,
+            ignore_threshold=ignore_threshold,   # default is None, old default was 1e-4. Use to speed calculation and/or discard 'junky' modes, esp at lower SNR. Dangerous at high SNR
             NR_group=NR_template_group,NR_param=NR_template_param,
             use_gwsignal=opts.use_gwsignal,
             use_gwsignal_approx=opts.approximant,

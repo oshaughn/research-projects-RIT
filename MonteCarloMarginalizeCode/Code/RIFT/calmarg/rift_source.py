@@ -201,7 +201,7 @@ def RIFT_lal_binary_black_hole(
         # gwsignal specific
         P.phiref = 0
         P.incl = 0  # L direction frame
-        hlmF_1, _= factored_likelihood.internal_hlm_generator(P_copy, opts.Lmax, use_gwsignal=opts.use_gwsignal, use_gwsignal_approx=opts.approximant,ROM_group=opts.rom_group,ROM_param=opts.rom_param, extra_waveform_kwargs=extra_waveform_args, **extra_args)
+        hlmF_1, _= internal_hlm_generator(P,  **kwargs)
         hlmT_1  = {}
         for mode in hlmF_1:
             #print(mode,hlmF_1[mode].data.data[0])
@@ -274,6 +274,11 @@ if __name__ == '__main__':
     waveform_polarizations = RIFT_lal_binary_black_hole(
         frequency_array, 60., 55., 400., 0.0, 0.0, 0.1,
         0.0, 0.0, 0.1, iota=np.pi/4, phase=np.pi/2, **waveform_kwargs)
+
+    # secondary code pat, just to make sure code runs... NOT INTENDED FOR USE/as safely checked yet, since this holds non-LVK interfaces and there are many extra arguments that need careful handoff
+    waveform_polarizations_b = RIFT_lal_binary_black_hole(
+        frequency_array, 60., 55., 400., 0.0, 0.0, 0.1,
+        0.0, 0.0, 0.1, iota=np.pi/4, phase=np.pi/2, h_method='internal_hlmoft', **waveform_kwargs)
 
     hf_p2 = waveform_polarizations['plus'][:int(len(waveform_polarizations['plus'])/4)]
     hf_c2 = waveform_polarizations['cross'][:int(len(waveform_polarizations['plus'])/4)]

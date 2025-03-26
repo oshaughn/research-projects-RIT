@@ -1,3 +1,9 @@
+0.0.17.3
+------------
+development tree is rift_O4c
+   - pseudo_pipe backwards compatibility fix for coinc file reading w/o eccentricity. PUFF settings for BNS use both
+     LambdaTilde and DeltaLambdaTilde to avoid loss of points.
+
 0.0.17.2
 ------------
 development tree is rift_O4c
@@ -26,7 +32,8 @@ development tree is rift_O4c
    - asimov/rift.py edit to prevent getting stuck identifying job needing rescue, also more useful error message when
      upstream dependency fail (calmarg needs bilby ini file).
      (rc3)
-     
+release is rc3
+   
 0.0.17.1
 ------------
 development tree is rift_O4c

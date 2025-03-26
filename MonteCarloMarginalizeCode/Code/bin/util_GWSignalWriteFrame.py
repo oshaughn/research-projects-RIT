@@ -76,6 +76,7 @@ else:
 print("Approx =",P.approx)
 P.taper = lalsimutils.lsu_TAPER_START  # force taper
 P.detector = opts.instrument
+P.fref = opts.fref
 if opts.approx == "EccentricTD":
     P.phaseO = 3
 #P.print_params()
@@ -83,12 +84,13 @@ if opts.approx == "EccentricTD":
 
 T_est = lalsimutils.estimateWaveformDuration(P)
 T_est = P.deltaT*lalsimutils.nextPow2(T_est/P.deltaT)
-if T_est < opts.seglen:
-    T_est =opts.seglen
+if T_est > opts.seglen:
+    print(" WARNING: THE SIGNAL WILL LIKELY BE TRUNCATED when writing the frame, which is VERY BAD ")
+T_est =opts.seglen
 P.deltaF = 1./T_est
 print(" Duration ", T_est)
-if T_est < opts.seglen:
-    print(" Buffer length too short, automating retuning forced ")
+#if T_est < opts.seglen:
+#    print(" Buffer length too short, automating retuning forced ")
 
 
 # Generate signal
