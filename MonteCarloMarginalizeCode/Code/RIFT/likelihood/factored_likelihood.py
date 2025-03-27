@@ -354,7 +354,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         psd_dict, Lmax, fMax, analyticPSD_Q=False,
         inv_spec_trunc_Q=False, T_spec=0., verbose=True,quiet=False,
         internal_fast_precompute=True,
-         NR_group=None,NR_param=None,
+        NR_group=None,NR_param=None,
         ignore_threshold=1e-4,   # dangerous for peak lnL of 25^2/2~300 : biases
         extra_waveform_kwargs={},
         use_gwsignal=False,
