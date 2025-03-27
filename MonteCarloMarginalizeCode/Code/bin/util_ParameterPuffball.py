@@ -60,6 +60,9 @@ opts=  parser.parse_args()
 if opts.random_parameter is None:
     opts.random_parameter = []
 
+# these parameters are POSITIVE-DEFINITE, so we should perform puff in their natural log to prevent negative values
+log_coord_names = ['lambda1', 'lambda2', 'LambdaTilde']
+    
 # Extract parameter names
 coord_names = opts.parameter # Used  in fit
 #if opts.parameter_nofit:
@@ -141,6 +144,11 @@ for P in P_list:
 dat_out = np.array(dat_out)
 X =dat_out[:,0:len(coord_names)]
 
+# Perform log transformation on variables
+for indx, name  in enumerate(coord_names):
+    if name in log_coord_names:
+        print(" log transform for ", name)
+        X[:,indx] = np.log(X[:,indx])
 
 # Measure covariance matrix and generate random errors
 if len(coord_names) >1:
@@ -184,6 +192,13 @@ else:
         indx_eta = coord_names.index('eta')
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/4- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] < 0, -X_out[:,indx_eta], X_out[:,indx_eta]) # reflection on other side
+
+# Undo natural logarithm
+for indx, name  in enumerate(coord_names):
+    if name in log_coord_names:
+        print(" undoing log transform for ", name)
+        X_out[:,indx] = np.exp(X_out[:,indx])
+
 
 # Sanity check parameters
 #for indx in np.arange(len(coord_names)):
