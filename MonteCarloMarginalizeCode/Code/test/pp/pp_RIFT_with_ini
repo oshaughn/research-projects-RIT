@@ -527,7 +527,7 @@ else:
 
 if use_distance_marginalization:
     config['rift-pseudo-pipe']['internal-marginalize-distance']='True'
-    config['rift-pseudo-pipe']['ile-distance-prior']='"pseudo_cosmo"'
+#    config['rift-pseudo-pipe']['ile-distance-prior']='"pseudo_cosmo"'
     config['rift-pseudo-pipe']['internal-distance-max'] = str(d_max)
 
 # extrinsic - add eventually
