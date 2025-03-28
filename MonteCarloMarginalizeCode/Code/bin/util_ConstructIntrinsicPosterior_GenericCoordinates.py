@@ -2263,6 +2263,7 @@ elif opts.sampler_method == "NFlow":
     opts.internal_use_lnL= True  # required!
 elif opts.sampler_method == "portfolio":
     use_portfolio=True
+    opts.internal_use_lnL=True  # required, we only implement those scenarios right now
     sampler = None
     sampler_list = []
     sampler_types = opts.sampler_portfolio
