@@ -186,11 +186,11 @@ class MCSampler(object):
         self.params_ordered.append(params)
         for member in self.portfolio_realizations  + self.oracle_realizations:
             member.add_parameter(params, pdf, **kwargs)
-        # update dictionary limits
-        self.llim.update( member.llim)
-        self.rlim.update(member.rlim)
-        # set master list of adaptive parameters 
-        self.adaptive = member.adaptive  # top level list of adaptive coordinates
+            # update dictionary limits, yes this is super-redundant, but we have a scoping issue and this is easier to code
+            self.llim.update( member.llim)
+            self.rlim.update(member.rlim)
+            # set master list of adaptive parameters 
+            self.adaptive = member.adaptive  # top level list of adaptive coordinates
 
 
     def setup(self,  **kwargs):
