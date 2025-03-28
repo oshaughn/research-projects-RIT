@@ -109,7 +109,7 @@ base_dir = os.getcwd() # relative directory, for use if absolute paths not provi
 
 test_convergence=False
 if config.has_option('pp','test_convergence'):
-    test_convergence =unsafe_config_get(config,['pp','test_convergence'])
+    test_convergence =config.getboolean('pp','test_convergence', fallback=False)
 
 # Create, go to working directory
 working_dir = config.get('pp','working_directory')
@@ -164,8 +164,8 @@ if 'NRHybSur' in approx_str:       #for NRSur models
 	group_str = config.get('waveform','group')
 	param_str = config.get('waveform','param')
 
-no_spin =unsafe_config_get(config,['priors','no_spin'])
-aligned_spin =unsafe_config_get(config,['priors','aligned_spin'])
+no_spin =config.getboolean('priors','no_spin', fallback=True)
+aligned_spin =config.getboolean('priors','aligned_spin', fallback=False)
 if aligned_spin:
     print(" === aligned-spin PP ==== ")
 elif no_spin:
@@ -177,9 +177,13 @@ volumetric_spin =unsafe_config_get(config,['priors','volumetric_spin'])
 if volumetric_spin:
     print("  (volumetric spin prior)  ")
 
-fix_sky_location=unsafe_config_get(config,['priors','fix_sky_location'])
-fiducial_ra=float(config.get('priors','fiducial_ra'))
-fiducial_dec=float(config.get('priors','fiducial_dec'))
+fix_sky_location=config.getboolean('priors','fix_sky_location', fallback=True)
+try:
+    fiducial_ra=float(config.get('priors','fiducial_ra'))
+    fiducial_dec=float(config.get('priors','fiducial_dec'))
+except:
+    fiducial_ra = 0
+    fiducial_dec = 0
 fiducial_event_time=float(config.get('priors','fiducial_event_time'))
 
 
@@ -315,7 +319,7 @@ for indx in np.arange(n_events):
 
 
 print(" === Building single-event workflows === ")
-use_gpu = unsafe_config_get(config,['make_workflow','use_gpu'])
+use_gpu = config.getboolean('make_workflow','use_gpu', fallback=False)
 if use_gpu:
     print(" ====> USING GPUS <=== ")
 else:
@@ -333,8 +337,8 @@ try:
     ile_n_eff = int(unsafe_config_get(config, ['make_workflow', 'ile_n_eff']))
 except:
     ile_n_eff = 50  # default will be 50, as in original testsa
-use_mu_coord = unsafe_config_get(config,['make_workflow','use_mu_coord'])
-ile_use_lnL = unsafe_config_get(config,['make_workflow','ile_use_lnL'])
+use_mu_coord = config.getboolean('make_workflow','use_mu_coord', fallback=False)
+ile_use_lnL = config.getboolean('make_workflow','ile_use_lnL', fallback=False)
 if use_mu_coord:
     print(" ====> Using SM's phase-based coordinates <====")
 
