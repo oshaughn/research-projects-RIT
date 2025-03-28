@@ -2272,7 +2272,7 @@ elif opts.sampler_method == "portfolio":
         if name =='GMM':
             sampler = mcsamplerEnsemble.MCSampler()
             opts.sampler_method = 'GMM'  # this will force the creation/parsing of GMM-specific arguments below, so they are properly passed
-        if name == "adaptive_cartesian_gpu":
+        if name == "adaptive_cartesian_gpu" or name =='AC':
             sampler = mcsamplerGPU.MCSampler()
             sampler.xpy = xpy_default
             sampler.identity_convert=identity_convert
