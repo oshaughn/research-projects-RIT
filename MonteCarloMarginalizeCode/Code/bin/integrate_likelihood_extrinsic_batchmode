@@ -828,7 +828,11 @@ elif opts.sampler_method == "portfolio":
     sampler.identity_convert_togpu= my_identity_convert_togpu
     # sampler weights will be CPU-typed, so don't change them
 elif opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from plugins
-  sampler = mcsamplerPortfolio.known_pipelines[name]()
+  sampler = mcsamplerPortfolio.known_pipelines[opts.sampler_method]()
+  # prep xpy, etc
+  my_xpy = xpy_default
+  my_identity_convert=identity_convert
+  my_identity_convert_togpu=identity_convert_togpu
   sampler.xpy = my_xpy
   sampler.identity_convert= my_identity_convert
   sampler.identity_convert_togpu= my_identity_convert_togpu
