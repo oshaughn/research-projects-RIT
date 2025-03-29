@@ -806,13 +806,15 @@ elif opts.sampler_method == "portfolio":
     for name in sampler_types:
         if name =='AV':
             sampler = mcsamplerAdaptiveVolume.MCSampler(n_chunk=opts.n_chunk) # enforce now, so provided for setup phase
-        if name =='GMM':
+        elif name =='GMM':
             sampler = mcsamplerEnsemble.MCSampler()
             # following override means sampler_method is CHANGED, so THIS MUST BE LAST, and can't condition on portfolio
             opts.sampler_method = 'GMM'  # this will force the creation/parsing of GMM-specific arguments below, so they are properly passed
-        if name == "adaptive_cartesian_gpu" or name == 'AC':
+        elif name == "adaptive_cartesian_gpu" or name == 'AC':
             sampler = mcsamplerGPU.MCSampler()
             mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
+        elif name in mcsamplerPortfolio.known_pipelines:  # everything else, including nflow
+            sampler =  mcsamplerPortfolio.known_pipelines[name]()
         print('PORTFOLIO: adding {} '.format(name))
         # enable xpy for low level sampler as needed 
         if hasattr(sampler, 'xpy'):
@@ -825,10 +827,14 @@ elif opts.sampler_method == "portfolio":
     sampler.identity_convert= my_identity_convert
     sampler.identity_convert_togpu= my_identity_convert_togpu
     # sampler weights will be CPU-typed, so don't change them
-
+elif opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from plugins
+  sampler = mcsamplerPortfolio.known_pipelines[name]()
+  sampler.xpy = my_xpy
+  sampler.identity_convert= my_identity_convert
+  sampler.identity_convert_togpu= my_identity_convert_togpu
 else:
-    print(" ILE: original sampler")
-    print(" ILE: {}".format(opts.sampler_method))
+    print(" ILE: **original sampler** ")
+    print(" ILE requested: {}".format(opts.sampler_method), " compare to ", mcsamplerPortfolio.known_pipelines)
 
 #
 # Psi -- polarization angle
