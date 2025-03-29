@@ -2294,6 +2294,8 @@ elif opts.sampler_method == "portfolio":
         print('PORTFOLIO: adding {} '.format(name))
         sampler_list.append(sampler)
     sampler = mcsamplerPortfolio.MCSampler(portfolio=sampler_list)
+elif opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from plugins
+  sampler = mcsamplerPortfolio.known_pipelines[opts.sampler_method]()
 
 
 ##
