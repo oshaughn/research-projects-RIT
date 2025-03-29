@@ -57,10 +57,10 @@ try:
   try:
     xpy_special_default = cupyx.scipy.special
     if not(hasattr(xpy_special_default,'logsumexp')):
-          print(" mcsamplerAV: no cupyx.scipy.special.logsumexp, fallback mode ...")
+          print(" mcsamplerNF: no cupyx.scipy.special.logsumexp, fallback mode ...")
           xpy_special_default= special
   except:
-    print(" mcsamplerAV: no cupyx.scipy.special, fallback mode ...")
+    print(" mcsamplerNF: no cupyx.scipy.special, fallback mode ...")
     xpy_special_default= special
   identity_convert = cupy.asnumpy
   identity_convert_togpu = cupy.asarray
@@ -84,7 +84,7 @@ try:
 #  cupy.ndarray.asnumpy = verbose_cupy_asnumpy
 
 except:
-  print(' no cupy (mcsamplerAV)')
+  print(' no cupy (mcsamplerNF)')
 #  import numpy as cupy  # will automatically replace cupy calls with numpy!
   xpy_default=numpy  # just in case, to make replacement clear and to enable override
   xpy_special_default = special
@@ -104,12 +104,12 @@ if 'PROFILE' not in os.environ:
    def profile(fn):
         return fn
 
-if not( 'RIFT_LOWLATENCY'  in os.environ):
-    # Dont support selected external packages in low latency
- try:
-    import healpy
- except:
-    print(" - No healpy - ")
+# if not( 'RIFT_LOWLATENCY'  in os.environ):
+#     # Dont support selected external packages in low latency
+#  try:
+#     import healpy
+#  except:
+#     print(" - No healpy - ")
 
 from RIFT.integrators.statutils import  update,finalize, init_log,update_log,finalize_log
 
@@ -184,7 +184,7 @@ class NFlowsNFS_Trainer:
             # Store loss value for monitoring
             losses.append(loss.item()) 
             if (epoch%n_print)==0:
-              print(epoch, loss.item())
+              print("    Flow training ", epoch, loss.item())
               n_hist = np.min([len(losses), 100])
 #              if check_nonzero_deriv(losses[-n_hist:]):
 #                print("    -- stationary ---")
