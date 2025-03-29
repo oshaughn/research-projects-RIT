@@ -64,6 +64,7 @@ setuptools.setup(
         'RIFT.integrator_plugins':
         ['AC = RIFT.integrators.mcsamplerGPU:MCSampler',
          'AV = RIFT.integrators.mcsamplerAdaptiveVolume:MCSampler',
-         'GMM = RIFT.integrators.mcsamplerEnsemble:MCSampler']
+         'GMM = RIFT.integrators.mcsamplerEnsemble:MCSampler',
+         'NF = RIFT.integrators.mcsamplerNFlow:MCSampler']
     },
 )
