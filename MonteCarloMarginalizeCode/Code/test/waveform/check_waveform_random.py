@@ -7,12 +7,20 @@
 #
 # RESULTS
 #   - Pv2: perfect
-#   - XPHM: some small phase/alignment issues. 
+#   - XPHM: some small phase/alignment issues.  - fixed
+#   - gwsignal
+#      - SEOB: perfect, now
+#       - NRSur
 #
 # WATCH OUT FOR
 #   - starting too close too isco
 #   - wraparound issues (segment length)
 #   - different WF interfaces: eg, some use the IMRPv2 interface fallback, some use ChooseTDModes
+
+# NRSur: use LAL_DATA_PATH, eg from below, and use a larger total mass
+#   scp ldas:/scratch/lalsimulation/NRSur7dq4_v1.0.h5 .
+#    export LAL_DATA_PATH=`pwd`
+#
 
 import numpy as np
 from matplotlib import pyplot as plt
