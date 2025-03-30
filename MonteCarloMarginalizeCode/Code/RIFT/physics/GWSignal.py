@@ -52,7 +52,7 @@ def hlmoff(P, Lmax=2,approx_string=None,**kwargs):
     return hlmsF
 
 
-def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,**kwargs):
+def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phase_shift=np.pi/2, **kwargs):
     """
     gwsignal.  Note the call will use approx_string, NOT a lalsimulation mode ID.  If approx_string is none, use P.approx but convert to string
     """
@@ -134,6 +134,8 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,**kwargs):
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             # Taper at the start of the segment
             h.data.data[:ntaper]*=vectaper
+        # Apply phase shift
+        h.data.data *= np.exp(1j*internal_phase_shift*mode[1])  # exp( i m phi_shift)
         # Add to structure
         hlmT[mode] = h
 
