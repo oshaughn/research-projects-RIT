@@ -735,4 +735,8 @@ class Rift(Pipeline):
             rundir = os.path.abspath(self.production.rundir)
         else:
             rundir = self.production.rundir
-        return glob.glob(os.path.join(rundir, "extrinsic_posterior_samples.dat"))
+        samples =  glob.glob(os.path.join(rundir, "extrinsic_posterior_samples.dat"))
+        rewt_file_name  = os.path.join(rundir,'reweighted_posterior_samples.dat')
+        if os.path.exists(rewt_file_name):
+            return glob.glob(rewt_file_name)
+        return samples
