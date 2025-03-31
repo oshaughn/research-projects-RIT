@@ -6,7 +6,7 @@ development tree is rift_O4c
      to match convention. CIP/ILE plugin acess without portfolios. pp_RIFT/pp_RIFT_with_ini cleanup.  dag_utils
      periodic_release for ILE file transfer issues.  PUFF lambda1,lambda2 in log coords. helper matter uses
      lambda1,lambda2. **--internal-precompute-ignore-threshold** (default None) to future-protect analysis of
-     high-amplitude signals. 
+     high-amplitude signals.  asimov-> pesummary handoff of calmarg output. (rc0)
 
 0.0.17.2
 ------------
