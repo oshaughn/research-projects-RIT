@@ -144,11 +144,11 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
     if no_trust_align_method == 'peak':
         rhosq = np.zeros(TDlen)
         for mode in hlmT:
-            rhosq += np.abs(hlmT.data.data)**2
+            rhosq += np.abs(hlmT[mode].data.data)**2
         indx_max =np.argmax(rhosq)
         new_epoch = - indx_max*P.deltaT
         for mode in hlmT:
-            hlmT.epoch = new_epoch
+            hlmT[mode].epoch = new_epoch
     if approx_string_here == 'TEOBResumSDALI':
         nu = P.m1*P.m2/((P.m1+P.m2)**2)
         distance_rescaling = (
