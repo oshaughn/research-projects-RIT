@@ -3,7 +3,8 @@
 #  EXAMPLES
 #   python check_waveform_random.py --approx SpinTaylorT4 --Lmax 4
 #   python check_waveform_random.py  --force-psi 0.1
-#  python ./check_waveform_random.py --approx SpinTaylorT4 --force-psi 0 --use-same-fref --force-aligned
+#   python ./check_waveform_random.py --approx SpinTaylorT4 --force-psi 0 --use-same-fref --force-aligned
+#   python check_waveform_random.py --approx SEOBNRv5EHM --force-aligned --use-eccentric --use-gwsignal --inj mdc.xml.gz --event 15
 #
 # RESULTS
 #   - Pv2: perfect
@@ -26,6 +27,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import argparse
 import lal
+import sys
 
 import RIFT
 import RIFT.lalsimutils as lalsimutils
@@ -50,6 +52,9 @@ parser.add_argument("--force-psi",default=None,type=float)
 parser.add_argument("--force-phase-shift-factor-of-pi",default=0,type=float)
 parser.add_argument("--force-aligned",action='store_true')
 parser.add_argument("--force-zero-inclination",action='store_true')
+parser.add_argument("--use-eccentric",action='store_true')
+parser.add_argument("--inj", default=None,help="inspiral XML file containing injection information.")
+parser.add_argument("--event",type=int, default=None,help="event ID of injection XML to use.")
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
@@ -57,9 +62,32 @@ P = lalsimutils.ChooseWaveformParams()
 P.ampO=-1  # need this otherwise we don't get SpinTaylor HM output
 P.phaseO = 7 # so we have less insane outputs
 P.taper = lalsimutils.lsu_TAPER_START
-if not(opts.fiducial):
-   P.randomize()   
+if not(opts.fiducial) and not(opts.inj):
+   print("Creating random event to use for plot comparison.")
+   P.randomize()
+   # move inside conditional for use inj purposes
+   P.dist = RIFT.likelihood.factored_likelihood.distMpcRef*1e6*lal.PC_SI  # fiducial reference distance
+   P.assign_param('mtot',opts.mtot*lal.MSUN_SI)
+   if opts.use_eccentric:
+      P.eccentricity = np.random.uniform(0.0,0.4) #for safety, for now
+      P.meanPerAno = np.random.uniform(0.0,2*np.pi)
+
+elif opts.inj:
+   if not(opts.event):
+      print("ERROR: must specify event to use.")
+      sys.exit(0)
+   else:
+      ## as in lalwriteframe
+      from igwn_ligolw import lsctables, table, utils # check all are needed
+      filename = opts.inj
+      event = opts.event
+      print(f"Using event {event} from {filename}.")
+      xmldoc = utils.load_filename(filename, verbose = True, contenthandler =lalsimutils.cthdler)
+      sim_inspiral_table = lsctables.SimInspiralTable.get_table(xmldoc)
+      P.copy_sim_inspiral(sim_inspiral_table[int(event)])
+      P.tref = 0.0 ## force this for plotting purposes only - safe?
 else:
+   print("Using fiducial event parameters.")
    P.m2 = P.m1/1.5
    P.theta = 0.1  # irrelevant/unused
    P.phi = 1.3    # irrelevant/unused
@@ -71,8 +99,13 @@ else:
    P.s1z = 0.4
    P.s2x = 0.4
    P.s2z = -0.3
-P.dist = RIFT.likelihood.factored_likelihood.distMpcRef*1e6*lal.PC_SI  # fiducial reference distance
-P.assign_param('mtot',opts.mtot*lal.MSUN_SI)
+   if opts.use_eccentric:
+      P.eccentricity = 0.15
+      P.meanPerAno = np.pi
+   # move inside conditional for use inj purposes
+   P.dist = RIFT.likelihood.factored_likelihood.distMpcRef*1e6*lal.PC_SI  # fiducial reference distance
+   P.assign_param('mtot',opts.mtot*lal.MSUN_SI)
+
 if opts.force_aligned:
     P.s1x = P.s1y=P.s2x=P.s2y=0
 if not(opts.use_gwsignal):
@@ -81,6 +114,10 @@ if not(opts.use_gwsignal):
 else:
     P.approx = opts.approximant
 
+if opts.approximant == "SEOBNRv5EHM":
+   # temp workaround - needs a solution
+   P.taper = lalsimutils.lsu_TAPER_NONE
+   
 P.deltaT=1./4096
 P.deltaF = 1./8
 P.fref = 22
@@ -92,6 +129,7 @@ if not(opts.force_psi is None):
     P.psi = opts.force_psi
 if opts.force_zero_inclination:
     P.incl = 0
+P.print_params()
 
 # hoft via hlm, using exactly the function call we use in production
 extra_args ={}
@@ -171,7 +209,7 @@ if opts.verbose:
     print( tvals2[indx2], np.angle(hTc_2.data.data[indx2]), P.psi )
 plt.plot(tvals1, np.abs(hTc_1.data.data),c='k')
 plt.plot(tvals2, np.abs(hTc_2.data.data),c='r')
-plt.savefig("fig_waveform_long.png")
+plt.savefig(f"wf_{P.approx}_long_check.png")
 plt.plot(tvals1, np.real(hTc_1.data.data),c='k',lw=1)
 plt.plot(tvals2, np.real(hTc_2.data.data),c='r',lw=1)
 #if dh > 1e-4 *np.max
@@ -180,4 +218,4 @@ plt.plot(tvals2, np.real(hTc_3.data.data),c='g',lw=1)
 plt.xlim(opts.tmin,opts.tmax)
 plt.title(opts.approximant)
 
-plt.savefig("fig_waveform.png")
+plt.savefig(f"wf_{P.approx}_check.png")
