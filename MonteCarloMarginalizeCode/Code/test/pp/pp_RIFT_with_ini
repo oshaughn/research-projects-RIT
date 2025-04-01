@@ -8,6 +8,9 @@
 #
 # REFERENCES
 #   util_RIFT_pseudo_pipe  (for parsing/restructuring arguments)
+#
+# DEVELOPER WARNINGS
+#    - config : assignments are STRINGS, do not use as truth values (e.g., 'False' evaluates to True)
 
 import numpy as np
 import argparse
@@ -481,7 +484,8 @@ config['rift-pseudo-pipe']['internal-propose-converge-last-stage'] = 'True'
 # spin settings
 config['rift-pseudo-pipe']['l-max'] = str(l_max)
 if no_spin:
-    config['rift-pseudo-pipe']['assume-nonprecessing'] = 'True'
+    config['rift-pseudo-pipe']['assume-nospin'] = 'True'
+    config['rift-pseudo-pipe']['assume-nonprecessing'] = 'False'
     config['rift-pseudo-pipe']['assume-precessing'] = 'False'
 # aligned spin options
 if aligned_spin:
@@ -577,7 +581,7 @@ for indx in np.arange(n_events):
     else:
         use_ini = 'pseudo_ini.ini'
     cmd = 'util_RIFT_pseudo_pipe.py --use-coinc `pwd`/coinc.xml --use-ini `pwd`/{} --use-rundir `pwd`/rundir --fake-data-cache `pwd`/local.cache '.format(use_ini)
-    if not config['rift-pseudo-pipe']['internal-marginalize-distance']:
+    if not use_distance_marginalization: # config['rift-pseudo-pipe']['internal-marginalize-distance']:
         cmd += " --manual-extra-ile-args '--d-min {} --d-max {} '".format(d_min, d_max)
     if fix_sky_location:
         cmd += " --manual-extra-ile-args ' --declination {} --right-ascension {} '".format(fiducial_dec, fiducial_ra)
