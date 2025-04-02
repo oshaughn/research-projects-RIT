@@ -361,12 +361,13 @@ for indx in np.arange(n_events):
 
     # Evaluate zero-noise SNR
     #print(" --> FIXME: evaluate zero-noise SNR, to use as hint in place of search <-- ")
-    get_snr = "util_FrameZeroNoiseSNR.py --cache signals.cache --psd-file H1=../../../H1-psd.xml.gz --psd-file L1=../../../L1-psd.xml.gz --psd-file V1=../../../V1-psd.xml.gz"
-    os.system(get_snr)
-    from ast import literal_eval
-    with open('snr-report.txt', 'r') as f:
-        this_snr_dict = literal_eval(f.readlines()[-1])
-        snr_dict[indx] = this_snr_dict['Network']
+    if not(os.path.exists('snr-report.txt')):
+        get_snr = "util_FrameZeroNoiseSNR.py --cache signals.cache --psd-file H1=../../../H1-psd.xml.gz --psd-file L1=../../../L1-psd.xml.gz --psd-file V1=../../../V1-psd.xml.gz"
+        os.system(get_snr)
+        from ast import literal_eval
+        with open('snr-report.txt', 'r') as f:
+            this_snr_dict = literal_eval(f.readlines()[-1])
+            snr_dict[indx] = this_snr_dict['Network']
 
 print(" === Using fiducial noise frames === ")
 
