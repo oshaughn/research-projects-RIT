@@ -357,6 +357,7 @@ for indx in np.arange(n_events):
     if not opts.test:
         cmd = "/bin/find .  -name '*.gwf' | {} > signals.cache".format(lalapps_path2cache)
         os.system(cmd)
+        # Note: this must be COPIED into the run directory if we are using osg
 
     # Evaluate zero-noise SNR
     #print(" --> FIXME: evaluate zero-noise SNR, to use as hint in place of search <-- ")
@@ -593,6 +594,7 @@ for indx in np.arange(n_events):
     os.system(cmd)
     os.chdir("rundir")
     os.system("ln -sf {}/*.xml.gz .".format(base_dir))
+    os.system("cp ../local.cache .")  # make sure we have a copy of the cache file, to generate truncated files for the OSG if we are using OSG mode
 
 
 ##########
@@ -606,3 +608,4 @@ if not opts.test:
     os.system(cmd)
     mod = 'grep -v cip master.dag > master_clean.dag'
     os.system(mod)
+    os.system('rm master.dag') # remove original file, confusing otherwise
