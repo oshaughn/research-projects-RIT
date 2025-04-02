@@ -219,8 +219,9 @@ group = config.get('make_workflow','accounting_group')
 cip_sampler = config.get('make_workflow', 'cip_sampler_method')
 ile_sampler = config.get('make_workflow', 'ile_sampler_method')
 use_gpu = config.getboolean('make_workflow', 'use_gpu')
-use_distance_marginalization = config.get('make_workflow','use_distance_marginalization')
-transverse_puff = config.get('make_workflow','use_transverse_puff')
+use_distance_marginalization = config.getboolean('make_workflow','use_distance_marginalization')
+transverse_puff = config.getboolean('make_workflow','use_transverse_puff')
+#use_mu_coord = config.getboolean('make_workflow','use_mu_coord') # will ignore and always do this, if aligned spin
 
 
 ## "default" incompatible with --force-reset-all inn ILE
@@ -332,12 +333,13 @@ for indx in np.arange(n_events):
     if os.path.exists(target_subdir):
         print(" Signal frames exist for event {}, skipping ".format(indx))
         os.chdir(target_subdir)
-        get_snr = "util_FrameZeroNoiseSNR.py --cache signals.cache --psd-file H1=../../../H1-psd.xml.gz --psd-file L1=../../../L1-psd.xml.gz --psd-file V1=../../../V1-psd.xml.gz"
-        os.system(get_snr)
+        if not(os.path.exists('snr-report.txt')):
+            get_snr = "util_FrameZeroNoiseSNR.py --cache signals.cache --psd-file H1=../../../H1-psd.xml.gz --psd-file L1=../../../L1-psd.xml.gz --psd-file V1=../../../V1-psd.xml.gz"
+            os.system(get_snr)
         from ast import literal_eval
         with open('snr-report.txt', 'r') as f:
-            this_snr_dict = literal_eval(f.readlines()[-1])
-            snr_dict[indx] = this_snr_dict['Network']
+                this_snr_dict = literal_eval(f.readlines()[-1])
+                snr_dict[indx] = this_snr_dict['Network']
         continue
     print(" Writing ", indx)
     mkdir(target_subdir)
@@ -361,12 +363,13 @@ for indx in np.arange(n_events):
 
     # Evaluate zero-noise SNR
     #print(" --> FIXME: evaluate zero-noise SNR, to use as hint in place of search <-- ")
-    get_snr = "util_FrameZeroNoiseSNR.py --cache signals.cache --psd-file H1=../../../H1-psd.xml.gz --psd-file L1=../../../L1-psd.xml.gz --psd-file V1=../../../V1-psd.xml.gz"
-    os.system(get_snr)
-    from ast import literal_eval
-    with open('snr-report.txt', 'r') as f:
-        this_snr_dict = literal_eval(f.readlines()[-1])
-        snr_dict[indx] = this_snr_dict['Network']
+    if not(os.path.exists('snr-report.txt')):
+        get_snr = "util_FrameZeroNoiseSNR.py --cache signals.cache --psd-file H1=../../../H1-psd.xml.gz --psd-file L1=../../../L1-psd.xml.gz --psd-file V1=../../../V1-psd.xml.gz"
+        os.system(get_snr)
+        from ast import literal_eval
+        with open('snr-report.txt', 'r') as f:
+            this_snr_dict = literal_eval(f.readlines()[-1])
+            snr_dict[indx] = this_snr_dict['Network']
 
 print(" === Using fiducial noise frames === ")
 
@@ -447,7 +450,8 @@ if seglen_analysis:
 else:
     config['engine']['seglen'] = '16' 
 config['engine']['srate'] = '4096' # get this from user ini
-config['engine']['distance-max'] = '10000'
+config['engine']['distance-max'] = str(d_max)
+config['engine']['distance-min'] = str(d_min)
 
 ## RIFT-PSEUDO-PIPE
 if 'rift-pseudo-pipe' not in config.sections():
@@ -489,7 +493,7 @@ if no_spin:
     config['rift-pseudo-pipe']['assume-nonprecessing'] = 'False'
     config['rift-pseudo-pipe']['assume-precessing'] = 'False'
 # aligned spin options
-if aligned_spin:
+elif aligned_spin:
     config['engine']['aligned-spin'] = ''
     config['engine']['alignedspin-zprior'] = ''
     config['rift-pseudo-pipe']['assume-nonprecessing'] = 'True'
@@ -497,7 +501,7 @@ if aligned_spin:
     config['rift-pseudo-pipe']['internal-use-aligned-phase-coordinates'] = 'True'
     config['rift-pseudo-pipe']['internal-correlate-default'] = 'True'
 # spin precession ** ask about other necessary options
-if precessing_spin:
+elif precessing_spin:
     config['rift-pseudo-pipe']['assume-nonprecessing'] = 'False'
     config['rift-pseudo-pipe']['assume-precessing'] = 'True'
     config['rift-pseudo-pipe']['internal-use-aligned-phase-coordinates'] = 'True'
@@ -505,7 +509,8 @@ if precessing_spin:
     # for now set to false:
     config['rift-pseudo-pipe']['internal-use-rescaled-transverse-spin-coordinates']= 'False'
     # ability to turn transverse puff on/off - after testing will default to true?
-    config['rift-pseudo-pipe']['internal-puff-transverse'] = str(transverse_puff)
+    if transverse_puff:
+        config['rift-pseudo-pipe']['internal-puff-transverse'] = str(transverse_puff)
 # something about volmetric prior?
 else:
     config['rift-pseudo-pipe']['assume-precessing'] = 'False'
@@ -534,6 +539,13 @@ if use_distance_marginalization:
     config['rift-pseudo-pipe']['internal-marginalize-distance']='True'
 #    config['rift-pseudo-pipe']['ile-distance-prior']='"pseudo_cosmo"'
     config['rift-pseudo-pipe']['internal-distance-max'] = str(d_max)
+    # build distance marginalization table NOW
+    cmd_here = " util_InitMargTable --d-min {} --d-max {} ".format(d_min,d_max)
+    #cmd_here += " --d-prior {} ".format(opts.ile_distance_prior)
+    os.system(cmd_here)
+    here = os.getcwd()
+    config['rift-pseudo-pipe']['internal-marginalize-distance-file']=here+'/distance_marginalization_lookup.npz'
+
 
 # extrinsic - add eventually
 if opts.add_extrinsic:
@@ -582,10 +594,11 @@ for indx in np.arange(n_events):
     else:
         use_ini = 'pseudo_ini.ini'
     cmd = 'util_RIFT_pseudo_pipe.py --use-coinc `pwd`/coinc.xml --use-ini `pwd`/{} --use-rundir `pwd`/rundir --fake-data-cache `pwd`/local.cache '.format(use_ini)
-    if not use_distance_marginalization: # config['rift-pseudo-pipe']['internal-marginalize-distance']:
-        cmd += " --manual-extra-ile-args '--d-min {} --d-max {} '".format(d_min, d_max)
+    manual_extra_ile = " --d-min {} --d-max {} ".format(d_min, d_max) 
     if fix_sky_location:
-        cmd += " --manual-extra-ile-args ' --declination {} --right-ascension {} '".format(fiducial_dec, fiducial_ra)
+        manual_extra_ile += " - --declination {} --right-ascension {} ".format(fiducial_dec, fiducial_ra)
+    #if not use_distance_marginalization: # config['rift-pseudo-pipe']['internal-marginalize-distance']:
+    cmd += " --manual-extra-ile-args ' {} ' ".format(manual_extra_ile)
     if cip_sampler == 'AV':
         cmd += " --manual-extra-cip-args '--downselect-parameter mc --downselect-parameter-range '[{},{}]''".format(mc_min, mc_max)
     if opts.use_gwsignal:
