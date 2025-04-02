@@ -220,7 +220,8 @@ cip_sampler = config.get('make_workflow', 'cip_sampler_method')
 ile_sampler = config.get('make_workflow', 'ile_sampler_method')
 use_gpu = config.getboolean('make_workflow', 'use_gpu')
 use_distance_marginalization = config.getboolean('make_workflow','use_distance_marginalization')
-transverse_puff = config.get('make_workflow','use_transverse_puff')
+transverse_puff = config.getboolean('make_workflow','use_transverse_puff')
+#use_mu_coord = config.getboolean('make_workflow','use_mu_coord') # will ignore and always do this, if aligned spin
 
 
 ## "default" incompatible with --force-reset-all inn ILE
@@ -488,7 +489,7 @@ if no_spin:
     config['rift-pseudo-pipe']['assume-nonprecessing'] = 'False'
     config['rift-pseudo-pipe']['assume-precessing'] = 'False'
 # aligned spin options
-if aligned_spin:
+elif aligned_spin:
     config['engine']['aligned-spin'] = ''
     config['engine']['alignedspin-zprior'] = ''
     config['rift-pseudo-pipe']['assume-nonprecessing'] = 'True'
@@ -496,7 +497,7 @@ if aligned_spin:
     config['rift-pseudo-pipe']['internal-use-aligned-phase-coordinates'] = 'True'
     config['rift-pseudo-pipe']['internal-correlate-default'] = 'True'
 # spin precession ** ask about other necessary options
-if precessing_spin:
+elif precessing_spin:
     config['rift-pseudo-pipe']['assume-nonprecessing'] = 'False'
     config['rift-pseudo-pipe']['assume-precessing'] = 'True'
     config['rift-pseudo-pipe']['internal-use-aligned-phase-coordinates'] = 'True'
@@ -504,7 +505,8 @@ if precessing_spin:
     # for now set to false:
     config['rift-pseudo-pipe']['internal-use-rescaled-transverse-spin-coordinates']= 'False'
     # ability to turn transverse puff on/off - after testing will default to true?
-    config['rift-pseudo-pipe']['internal-puff-transverse'] = str(transverse_puff)
+    if transverse_puff:
+        config['rift-pseudo-pipe']['internal-puff-transverse'] = str(transverse_puff)
 # something about volmetric prior?
 else:
     config['rift-pseudo-pipe']['assume-precessing'] = 'False'
