@@ -447,7 +447,8 @@ if seglen_analysis:
 else:
     config['engine']['seglen'] = '16' 
 config['engine']['srate'] = '4096' # get this from user ini
-config['engine']['distance-max'] = '10000'
+config['engine']['distance-max'] = str(d_max)
+config['engine']['distance-min'] = str(d_min)
 
 ## RIFT-PSEUDO-PIPE
 if 'rift-pseudo-pipe' not in config.sections():
