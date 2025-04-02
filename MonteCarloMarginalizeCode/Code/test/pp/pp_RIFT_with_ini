@@ -219,7 +219,7 @@ group = config.get('make_workflow','accounting_group')
 cip_sampler = config.get('make_workflow', 'cip_sampler_method')
 ile_sampler = config.get('make_workflow', 'ile_sampler_method')
 use_gpu = config.getboolean('make_workflow', 'use_gpu')
-use_distance_marginalization = config.get('make_workflow','use_distance_marginalization')
+use_distance_marginalization = config.getboolean('make_workflow','use_distance_marginalization')
 transverse_puff = config.get('make_workflow','use_transverse_puff')
 
 
@@ -533,6 +533,13 @@ if use_distance_marginalization:
     config['rift-pseudo-pipe']['internal-marginalize-distance']='True'
 #    config['rift-pseudo-pipe']['ile-distance-prior']='"pseudo_cosmo"'
     config['rift-pseudo-pipe']['internal-distance-max'] = str(d_max)
+    # build distance marginalization table NOW
+    cmd_here = " util_InitMargTable --d-min {} --d-max {} ".format(d_min,d_max)
+    #cmd_here += " --d-prior {} ".format(opts.ile_distance_prior)
+    os.system(cmd_here)
+    here = os.getcwd()
+    config['rift-pseudo-pipe']['internal-marginalize-distance-file']=here+'/distance_marginalization_lookup.npz'
+
 
 # extrinsic - add eventually
 if opts.add_extrinsic:
@@ -581,10 +588,11 @@ for indx in np.arange(n_events):
     else:
         use_ini = 'pseudo_ini.ini'
     cmd = 'util_RIFT_pseudo_pipe.py --use-coinc `pwd`/coinc.xml --use-ini `pwd`/{} --use-rundir `pwd`/rundir --fake-data-cache `pwd`/local.cache '.format(use_ini)
-    if not use_distance_marginalization: # config['rift-pseudo-pipe']['internal-marginalize-distance']:
-        cmd += " --manual-extra-ile-args '--d-min {} --d-max {} '".format(d_min, d_max)
+    manual_extra_ile = " --d-min {} --d-max {} ".format(d_min, d_max) 
     if fix_sky_location:
-        cmd += " --manual-extra-ile-args ' --declination {} --right-ascension {} '".format(fiducial_dec, fiducial_ra)
+        manual_extra_ile += " - --declination {} --right-ascension {} ".format(fiducial_dec, fiducial_ra)
+    #if not use_distance_marginalization: # config['rift-pseudo-pipe']['internal-marginalize-distance']:
+    cmd += " --manual-extra-ile-args ' {} ' ".format(manual_extra_ile)
     if cip_sampler == 'AV':
         cmd += " --manual-extra-cip-args '--downselect-parameter mc --downselect-parameter-range '[{},{}]''".format(mc_min, mc_max)
     if opts.use_gwsignal:
