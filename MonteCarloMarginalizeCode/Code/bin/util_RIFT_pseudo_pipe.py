@@ -971,7 +971,7 @@ with open("helper_cip_arg_list.txt",'r') as f:
 if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     snr = event_dict["SNR"]
     q = P.m2/P.m1
-    n_max_jobs=200
+    n_max_jobs=1000
     n_jobs_normal_guess =  2+2*int( (1./q)*np.power(np.max([(snr/15),1]), 1.3) )  # increase number of workers linearly with SNR**1.3 and with mass ratio
     n_jobs_normal_actual = np.min([n_jobs_normal_guess,n_max_jobs])
     n_jobs_final_actual = np.min([2*n_jobs_normal_guess,n_max_jobs])
@@ -984,7 +984,13 @@ if opts.cip_explode_jobs_auto and event_dict["SNR"]:
     print("  AUTO-EXPLODE GUESS {} {} {} ", n_jobs_normal_guess, n_jobs_normal_actual,n_jobs_final_actual)
     opts.cip_explode_jobs = n_jobs_normal_actual
     opts.cip_explode_jobs_last = n_jobs_final_actual
+if opts.cip_explode_jobs_auto:
+     n_eff_last_target_orig = opts.n_output_samples_last/opts.cip_explode_jobs_last
+     if n_eff_last_target_orig > 300:
+          opts.cip_explode_job_last = int(opts.n_output_samples_last/300)
+          print("  LARGE OUTPUT SAMPLES, CHANGING FINAL EXPLODE to keep n_eff in CIP reasonable ", opts.cip_explode_job_last)
 
+    
 # Add arguments to the file we will use
 instructions_cip = list(map(lambda x: x.rstrip().split(' '), raw_lines))#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
 n_iterations =0
