@@ -290,6 +290,8 @@ else:
     #m1,m2 = [np.maximum(m1,m2), np.minimum(m1,m2)]
     m1 = np.random.uniform (np.min([m1a,m1b,m1c,m1d]),np.max([m1a,m1b,m1c,m1d]))
     m2 = np.random.uniform (np.min([m2a,m2b,m2c,m2d]),np.max([m2a,m2b,m2c,m2d]))
+    # sort to make uniform
+    tmp = [m1,m2]; tmp.sort();     m1,m2 = tmp[::-1] # sort !
     P.m1 = m1*lal.MSUN_SI
     P.m2 = m2*lal.MSUN_SI
     # ...but downselect in mchirp, eta
