@@ -324,7 +324,7 @@ if True:
     for indx, P in enumerate(P_list):
         m1[indx] = P.m1/lal.MSUN_SI
         m2[indx] = P.m2/lal.MSUN_SI
-    plt.plot(m1,m2)
+    plt.scatter(m1,m2)
     plt.savefig("prior_m1_m2.png")
   
 
