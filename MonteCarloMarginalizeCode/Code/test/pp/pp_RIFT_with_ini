@@ -349,7 +349,9 @@ for indx in np.arange(n_events):
     # Loop over instruments, write files
     for ifo in ifos:
         if opts.use_gwsignal:
-            cmd = "util_GWSignalWriteFrame.py  --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --approx {}".format(indx, t_start, t_stop, ifo, seglen_analysis, approx_str)
+            cmd = "util_GWSignalWriteFrame.py  --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --approx {} --fref {}".format(indx, t_start, t_stop, ifo, seglen_analysis, approx_str, fmin_template)
+            if approx_str == "SEOBNRv5EHM":
+                cmd += " --use-hlms-as-injections "
         elif 'NRHybSur' in approx_str:
             cmd = "util_ROMWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {} --lmax {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str, l_max)
         else:
@@ -546,7 +548,7 @@ if use_distance_marginalization:
     #cmd_here += " --d-prior {} ".format(opts.ile_distance_prior)
     os.system(cmd_here)
     here = os.getcwd()
-    config['rift-pseudo-pipe']['internal-marginalize-distance-file']=here+'/distance_marginalization_lookup.npz'
+    config['rift-pseudo-pipe']['internal-marginalize-distance-file']=f"'{here}/distance_marginalization_lookup.npz'"
 
 
 # extrinsic - add eventually
