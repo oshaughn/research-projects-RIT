@@ -316,6 +316,17 @@ else:
 
   lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"mdc")
 
+# Make sanity check plot of injection masses - helpful to assess if accidents happen
+if True:
+    from matplotlib import pyplot as plt
+    m1= np.zeros(len(P_list))
+    m2 = np.zeros(len(P_list))
+    for indx, P in enumerate(P_list):
+        m1[indx] = P.m1/lal.MSUN_SI
+        m2[indx] = P.m2/lal.MSUN_SI
+    plt.plot(m1,m2)
+    plt.savefig("prior_m1_m2.png")
+  
 
 # Create data files and cache file
 #   - probably want to create workflow to build these, rather than do it all in one go... very slow!
