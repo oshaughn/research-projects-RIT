@@ -612,6 +612,8 @@ for indx in np.arange(n_events):
     os.chdir("rundir")
     os.system("ln -sf {}/*.xml.gz .".format(base_dir))
     os.system("cp ../local.cache .")  # make sure we have a copy of the cache file, to generate truncated files for the OSG if we are using OSG mode
+    if opts.use_osg:
+        os.system('util_ForOSG_MakeTruncatedLocalFramesDir.sh .')
 
 
 ##########
