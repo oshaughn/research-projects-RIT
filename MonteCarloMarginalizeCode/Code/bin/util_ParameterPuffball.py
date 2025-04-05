@@ -216,8 +216,8 @@ x_out_down = lalsimutils.convert_waveform_coordinates(X_out, coord_names=names_d
 indx_ok = np.ones(len(x_out_down),dtype=bool)
 for indx, name in enumerate(names_downselect):
     indx_ok = np.logical_and(indx_ok,  np.logical_not(np.isnan(x_out_down[:,indx])))
-    indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]< downselect_dict[name][1] )
-    indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]> downselect_dict[name][0] )
+    indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]<= downselect_dict[name][1] )
+    indx_ok = np.logical_and(indx_ok,  x_out_down[:,indx]>= downselect_dict[name][0] )
     print('   Increment downselect : {} {} '.format(name, np.sum(indx_ok) ))
 print(" Range downselect : ", np.sum(indx_ok), len(indx_ok))
 X_out = X_out[indx_ok]
