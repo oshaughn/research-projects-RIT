@@ -1258,7 +1258,9 @@ if opts.assume_highq:
                                                                                                                                 
 with open("args_puff.txt",'w') as f:
         puff_args =''  # note used below
-        if opts.force_chi_max and not(opts.force_chi_small_max):
+        if opts.assume_nospin:
+            puff_args=puff_params
+        elif opts.force_chi_max and not(opts.force_chi_small_max):
             puff_args = puff_params + " --downselect-parameter chi1 --downselect-parameter-range [0,{}]  ".format(opts.force_chi_max)
         elif not(opts.force_chi_max) and (opts.force_chi_small_max):
             puff_args = puff_params + " --downselect-parameter chi2 --downselect-parameter-range [0,{}]  ".format(opts.force_chi_small_max)
