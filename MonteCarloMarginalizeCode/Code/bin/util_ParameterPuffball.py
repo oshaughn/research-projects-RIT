@@ -181,7 +181,7 @@ if len(coord_names) >1:
     X_out = X+delta_X
     if 'eta' in coord_names:
         indx_eta = coord_names.index('eta')
-        X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/4- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
+        X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/2- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] < 0, -X_out[:,indx_eta], X_out[:,indx_eta]) # reflection on other side
 else:
     sigma = np.std(X)
@@ -190,7 +190,7 @@ else:
     X_out = X+delta_X
     if 'eta' in coord_names:
         indx_eta = coord_names.index('eta')
-        X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/4- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
+        X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/2- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] < 0, -X_out[:,indx_eta], X_out[:,indx_eta]) # reflection on other side
 
 # Undo natural logarithm
