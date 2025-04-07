@@ -8,8 +8,10 @@ development tree is rift_O4c
      lambda1,lambda2. **--internal-precompute-ignore-threshold** (default None) to future-protect analysis of
      high-amplitude signals.  asimov-> pesummary handoff of calmarg output. (rc0)
    - pp_RIFT_with_ini improve OSG use, sanity plots, various bugfixes ( mass range, dmax/dmin); GWSignalWriteFrame fixes for inj; PUFF reflection
-     fix; various demos (populations) and pp plotting scripts and waveform/CI plot script; pseudo_pipe cip-expl-de-jobs-auto last explode sanity for n_eff
+     fix; various demos (populations) and pp plotting scripts and waveform/CI plot script; pseudo_pipe
+     cip-expl-de-jobs-auto last explode sanity for n_eff (rc1)
 
+     
 0.0.17.2
 ------------
 development tree is rift_O4c
