@@ -40,6 +40,9 @@ parser.add_argument("--mass1",default=10,type=float,help='Mass 1 (solar masses)'
 parser.add_argument("--mass2",default=1.4,type=float,help='Mass 2 (solar masses)')
 parser.add_argument("--verbose", action="store_true",default=False)
 parser.add_argument("--l-max",default=4,type=float,help='Lmax number of modes')
+parser.add_argument('--gen-hlmoft', action='store_true', help='Creates hoft from hlmoft')
+parser.add_argument('--hyperbolic', action='store_true', help='skips tapering for hyperbolic waveforms')
+parser.add_argument('--force-hyperbolic-22', action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
 opts=  parser.parse_args()
 
 
@@ -51,7 +54,8 @@ if not opts.inj:
     P.randomize(aligned_spin_Q=True,default_inclination=opts.incl)
     P.m1 = opts.mass1*lalsimutils.lsu_MSUN
     P.m2 = opts.mass2*lalsimutils.lsu_MSUN
-    P.taper = lalsimutils.lsu_TAPER_START
+    if not(opts.hyperbolic):
+        P.taper = lalsimutils.lsu_TAPER_START
     P.tref =1000000000  # default
     if opts.approx:
         P.approx = lalsim.GetApproximantFromString(str(opts.approx))
@@ -65,10 +69,12 @@ else:
     xmldoc = utils.load_filename(filename, verbose = True, contenthandler =lalsimutils.cthdler)
     sim_inspiral_table = lsctables.SimInspiralTable.get_table(xmldoc)
     P.copy_sim_inspiral(sim_inspiral_table[int(event)])
-    P.taper = lalsimutils.lsu_TAPER_START
+    if not(opts.hyperbolic):
+        P.taper = lalsimutils.lsu_TAPER_START
     if opts.approx:
         P.approx = lalsim.GetApproximantFromString(str(opts.approx))
-P.taper = lalsimutils.lsu_TAPER_START  # force taper
+if not(opts.hyperbolic):
+    P.taper = lalsimutils.lsu_TAPER_START  # force taper
 P.detector = opts.instrument
 if opts.approx == "EccentricTD":
     P.phaseO = 3
@@ -86,7 +92,14 @@ if T_est < opts.seglen:
 
 
 # Generate signal
-hoft = lalsimutils.hoft(P,Lmax=opts.l_max)   # include translation of source, but NOT interpolation onto regular time grid
+if opts.gen_hlmoft:
+    if opts.hyperbolic and opts.force_hyperbolic_22:
+        hlmT = lalsimutils.hlmoft(P, Lmax=opts.l_max, force_22_mode=True)
+    else:
+        hlmT = lalsimutils.hlmoft(P, Lmax=opts.l_max)
+    hoft = lalsimutils.hoft_from_hlm(hlmT, P, return_complex=False)
+else:
+    hoft = lalsimutils.hoft(P,Lmax=opts.l_max)   # include translation of source, but NOT interpolation onto regular time grid
 # zero pad to be opts.seglen long, if necessary
 if opts.seglen/hoft.deltaT > hoft.data.length:
     TDlenGoal = int(opts.seglen/hoft.deltaT)

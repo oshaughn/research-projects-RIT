@@ -245,7 +245,15 @@ parser.add_argument("--inj-file-out", default=None, help="For compatibility with
 parser.add_argument("--verbose", action="store_true",default=False, help="Extra warnings")
 parser.add_argument("--extra-verbose", action="store_true",default=False, help="Lots of messages")
 parser.add_argument("--save-plots",default=False,action='store_true', help="Write plots to file (only useful for OSX, where interactive is default")
+parser.add_argument('--force-scatter',default=False,action='store_true',help='For hyperbolic analyses forces only scatter grid points.')
+parser.add_argument('--force-plunge',default=False,action='store_true',help='For hyperbolic analyses forces only plunge grid points.')
+parser.add_argument('--force-zoomwhirl',default=False,action='store_true',help='For hyperbolic analyses forces only zoomwhirl grid points.')
 opts=  parser.parse_args()
+
+force_options = [opts.force_scatter, opts.force_plunge, opts.force_zoomwhirl]  # Add more if needed
+if sum(bool(x) for x in force_options) > 1:
+    parser.error("CANNOT use multiple --force-X options at the same time!")
+
 if opts.inj_file_out:
     opts.fname = opts.inj_file_out.replace(".xml.gz","")
 
@@ -366,6 +374,43 @@ def evaluate_overlap_on_grid(hfbase,param_names, grid):
         for param in downselect_dict:
             if Pgrid.extract_param(param) < downselect_dict[param][0] or Pgrid.extract_param(param) > downselect_dict[param][1]:
                 include_item =False
+                
+        if opts.force_scatter:
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:                
+                # removes non-scatter points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'scatter':
+                    include_item = True
+                else:
+                    include_item = False
+        
+        if opts.force_plunge:
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:                
+                # removes non-plunge points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'plunge':
+                    include_item = True
+                else:
+                    include_item = False
+                    
+        if opts.force_zoomwhirl:
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:                
+                # removes non-zoomwhirl points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'zoomwhirl':
+                    include_item = True
+                else:
+                    include_item = False
+                
         if include_item:
          grid_revised.append(line)
          if Pgrid.m2 <= Pgrid.m1:  # do not add grid elements with m2> m1, to avoid possible code pathologies !
