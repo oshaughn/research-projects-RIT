@@ -71,8 +71,11 @@ except:
     mcsampler_AV_ok = False
 mcsampler_Portfolio_ok=False
 try:
-    import RIFT.integrators.mcsamplerPortfolio as mcsamplerPortfolio
-    mcsampler_Portfolio_ok = True
+    if not('RIFT_LOWLATENCY' in os.environ):
+      import RIFT.integrators.mcsamplerPortfolio as mcsamplerPortfolio
+      mcsampler_Portfolio_ok = True
+    else:
+      mcsampler_Portfolio_ok = False
 except:
     print(" No mcsamplerPortolfio ")
 
@@ -787,6 +790,8 @@ elif opts.sampler_method == 'AV':
       sampler.xpy= numpy
       sampler.identity_convert= lambda x: x
 elif opts.sampler_method == "portfolio":
+    if not(mcsampler_Portfolio_ok):
+      raise Exception(" Portfolio integrator requested but not available")
     use_portfolio=True
     opts.internal_use_lnL=True  # required, we only implement those scenarios right now
     sampler_list = []
