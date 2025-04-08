@@ -1477,7 +1477,7 @@ if opts.propose_fit_strategy:
         if not(opts.use_mtot_coords):
             helper_cip_args += mc_range_str_cip + eta_range_str_cip
         else:
-            helper_cip_args += mtot_range_str_cip + eta_range_str_cip + mc_range_str_cip
+            helper_cip_args += mtot_range_str_cip + eta_range_str_cip
     if opts.force_chi_max:
         helper_cip_args += " --chi-max {} ".format(opts.force_chi_max)
     if opts.force_chi_small_max:
