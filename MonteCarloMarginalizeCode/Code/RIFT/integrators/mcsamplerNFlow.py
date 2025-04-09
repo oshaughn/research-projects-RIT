@@ -358,7 +358,7 @@ class MCSampler(MCSamplerGeneric):
         verbose = kwargs["verbose"] if "verbose" in kwargs else False  # default
         super_verbose = kwargs["super_verbose"] if "super_verbose" in kwargs else False  # default
         save_no_samples = kwargs.get("save_no_samples", False)
-        enforce_bounds = kwargs["enforce_bounds"] if "enforce_bounds" in kwargs else False
+        enforce_bounds = kwargs["enforce_bounds"] if "enforce_bounds" in kwargs else True
 
         args = self.params_ordered # by default draw all
 
