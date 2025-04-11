@@ -162,7 +162,7 @@ class NFlowsNFS_Trainer:
         self.plotting            = plotting
     
     def train_flow(self, samples_in: List[List[float]],
-                   out_n_samples: int, max_epochs: int, bound_offset: float,n_print=50):
+                   out_n_samples: int, max_epochs: int, bound_offset: float,n_print=20):
         if self.flow is None:
           self.flow                = Flow(self.transform, self.base_distribution(shape=[len(self.bounds)]))
 
@@ -413,7 +413,7 @@ class MCSampler(MCSamplerGeneric):
 
         return  rv, np.exp(log_ps), np.exp(log_p)
 
-    def update_sampling_prior(self, lnw, *args, xpy=xpy_default,no_protect_names=True,external_rvs=None,tempering_exp=1,n_history=1000,**kwargs):
+    def update_sampling_prior(self, lnw, *args, xpy=xpy_default,no_protect_names=True,external_rvs=None,tempering_exp=1,max_epochs_requested=300,n_history=1000,**kwargs):
       """
       update_sampling_prior
 
@@ -458,8 +458,8 @@ class MCSampler(MCSamplerGeneric):
       for itr, p in enumerate(self.params_ordered):
                 samples_train[itr] = rvs_here[p][-n_history_to_use:]
 
-      # Eliminate points with low weight.  Drop bottom half, right now
-      indx_ok = weights_alt >  np.mean(weights_alt) +0.5*np.std(weights_alt)     
+      # Eliminate points with low weight.  DANGEROUS, adjust
+      indx_ok = weights_alt >  np.mean(weights_alt) -1.5*np.std(weights_alt)     
       if np.sum(indx_ok) < 10:
         if super_verbose:
           print(" Skipping update: too few valid ") 
@@ -476,7 +476,7 @@ class MCSampler(MCSamplerGeneric):
 
       # Train
       trainer = self.nf_trainer
-      max_epochs = 300  # be short, don't need precision/long training
+      max_epochs = max_epochs_requested  # be short, don't need precision/long training
       if max_epochs < int(10*self.num_layers): max_epochs = int(10*self.num_layers)
 
       losses     = trainer.train_flow(samples_in= samples_train.T,
@@ -575,6 +575,7 @@ class MCSampler(MCSamplerGeneric):
         self.setup()  # sets up self.my_ranges, self.dx initially
 
         ntotal_true = 0
+        max_epochs_requested =200
         while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
             # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
             rv, joint_p_s, joint_p_prior = self.draw_simplified(self.n_chunk, save_no_samples=False)  # Beware reversed order of rv
@@ -620,16 +621,6 @@ class MCSampler(MCSamplerGeneric):
             else:
               current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=xpy_special_default)
 
-            # Adapt if needed; decrement adaptation counter
-            if n_adapt > 0:
-              if super_verbose:
-                print("    -- n_adapt {} ".format(n_adapt))
-              self.update_sampling_prior(lnL,**kwargs)
-              n_adapt += -1  # decrement
-            else:
-              if super_verbose:
-                print("  ... skipping adaptation (NF) ")
-
             # Monitoring for i/o
             outvals = finalize_log(current_log_aggregate,xpy=xpy)
             self.ntotal = current_log_aggregate[0]
@@ -640,6 +631,17 @@ class MCSampler(MCSamplerGeneric):
             eff_samp = xpy.exp(  outvals[0]+np.log(self.ntotal) - maxval)   # integral value minus floating point, which is maximum
             if bShowEvaluationLog:
                 print(" :",  self.ntotal, eff_samp, numpy.sqrt(2*maxlnL), numpy.sqrt(2*outvals[0]), outvals[0]-maxlnL, np.exp(outvals[1]/2  - outvals[0]  - np.log(self.ntotal)/2 ))
+
+            # Adapt if needed; decrement adaptation counter
+            if n_adapt > 0:
+              if super_verbose:
+                print("    -- n_adapt {} ".format(n_adapt))
+              self.update_sampling_prior(lnL,max_epochs_requested=max_epochs,**kwargs)
+              max_epochs_requested = 50 # reduce!  Don't constantly overtune
+              n_adapt += -1  # decrement
+            else:
+              if super_verbose:
+                print("  ... skipping adaptation (NF) ")
 
             if save_intg:
                 # FIXME: See warning at beginning of function. The prior values
