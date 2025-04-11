@@ -2800,7 +2800,12 @@ n_params = len(coord_names)
 dat_mass = np.zeros((len(samples[low_level_coord_names[0]]),n_params+3))
 dat_logL = np.zeros(len(samples[low_level_coord_names[0]]))
 if not(opts.internal_use_lnL):
-    dat_logL = np.log(samples["integrand"])
+    if 'log_integrand' in samples_type_names:
+        dat_logL = np.log(samples["log_integrand"])
+    elif 'integrand' in samples_type_names:
+        dat_logL = np.log(samples["integrand"])
+    else:
+        raise Exception("Failure : cannot identify lnL field")
 else:
     if 'log_integrand' in samples_type_names:
         dat_logL = samples['log_integrand']
