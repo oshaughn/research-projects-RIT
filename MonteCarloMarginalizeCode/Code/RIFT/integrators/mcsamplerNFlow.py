@@ -636,7 +636,7 @@ class MCSampler(MCSamplerGeneric):
             if n_adapt > 0:
               if super_verbose:
                 print("    -- n_adapt {} ".format(n_adapt))
-              self.update_sampling_prior(lnL,max_epochs_requested=max_epochs,**kwargs)
+              self.update_sampling_prior(lnL,max_epochs_requested=max_epochs_requested,**kwargs)
               max_epochs_requested = 50 # reduce!  Don't constantly overtune
               n_adapt += -1  # decrement
             else:
