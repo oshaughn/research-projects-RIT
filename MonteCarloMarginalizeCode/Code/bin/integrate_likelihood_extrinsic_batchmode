@@ -1386,7 +1386,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     t_window = opts.internal_data_storage_window_half
     ignore_threshold=None
     if opts.internal_precompute_ignore_threshold:
-      ignore_threshold=internal_precompute_ignore_threshold:
+      ignore_threshold=opts.internal_precompute_ignore_threshold
       print("IGNORE ACTIVE ", ignore_threshold)
     rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest=factored_likelihood.PrecomputeLikelihoodTerms(
             fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
