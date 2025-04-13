@@ -283,7 +283,7 @@ except:
    lalIMRPhenomXPHM = -17
    lalIMRPhenomXO4a = -18
 
-pending_FD_approx = ['IMRPhenomXP_NRTidalv2', 'IMRPhenomXAS_NRTidalv2']
+pending_FD_approx = ['IMRPhenomXP_NRTidalv2','IMRPhenomXP_NRTidalv3']
 pending_approx_code = {}
 pending_default_code = -19
 for name in pending_FD_approx:
@@ -3242,7 +3242,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     sign_factor = 1
     if nr_polarization_convention or (P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         sign_factor = -1
-    if (P.approx == lalIMRPhenomHM or P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomXPHM or P.approx == lalIMRPhenomXO4a or P.approx == lalSEOBNRv4HM_ROM or (check_FD_pending(P.approx)) and is_ChooseFDModes_present):
+    if (P.approx == lalIMRPhenomHM or P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomXPHM or P.approx == lalIMRPhenomXO4a or P.approx == lalSEOBNRv4HM_ROM and is_ChooseFDModes_present):
        is_precessing=True
        if np.sqrt(P.s1x**2 + P.s1y**2 + P.s2x**2+P.s2y**2)<1e-10:  # only perform if really precessing, otherwise skip. Really only for XP variants
            is_precessing=False
@@ -3372,7 +3372,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 hlm_out[key].data.data[:ntaper]*=vectaper
         return hlm_out
 
-    if ('IMRPhenomP' in  lalsim.GetStringFromApproximant(P.approx) or P.approx == lalIMRPhenomXP ): # and not (P.SoftAlignedQ()):
+    if ('IMRPhenomP' in  lalsim.GetStringFromApproximant(P.approx) or P.approx == lalIMRPhenomXP or (check_FD_pending(P.approx)) ): # and not (P.SoftAlignedQ()):
+        print("Passing model through hlmoft_IMRPv2_dict")
         hlms = hlmoft_IMRPv2_dict(P)
         if not (P.deltaF is None):
             TDlen = int(1./P.deltaF * 1./P.deltaT)
@@ -3393,6 +3394,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         return hlms
 
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
+        print("Passing model through hlmoft_FromFD_dict")
         hlms = hlmoft_FromFD_dict(P,Lmax=Lmax)
     elif (P.approx == lalsim.TaylorT1 or P.approx==lalsim.TaylorT2 or P.approx==lalsim.TaylorT3 or P.approx==lalsim.TaylorT4 or P.approx == lalsim.EOBNRv2HM or P.approx==lalsim.EOBNRv2 or P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4 or P.approx == lalSEOBNRv4P or P.approx == lalSEOBNRv4PHM or P.approx == lalNRSur7dq4 or P.approx == lalNRSur7dq2 or P.approx==lalNRHybSur3dq8 or P.approx == lalIMRPhenomTPHM) or (P.approx ==lalsim.TEOBResumS and not(has_external_teobresum) and not(info_use_resum_polarizations)):
         # approximant likst: see https://git.ligo.org/lscsoft/lalsuite/blob/master/lalsimulation/lib/LALSimInspiral.c#2541
