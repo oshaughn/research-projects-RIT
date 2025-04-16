@@ -1490,7 +1490,7 @@ for it in np.arange(it_start,opts.n_iterations):
         cmd += " --n-samples-per-job {} ".format(opts.n_samples_per_job) 
         cmd += " --neff-threshold {} ".format(opts.neff_threshold)
         cmd += " --general-request-disk {} --ile-request-disk {} --cip-request-disk {} ".format(opts.general_request_disk,opts.ile_request_disk,opts.cip_request_disk)
-        cmd += " --request-memory-ILE {} --request-memory-CIP {} ".format(request_memory_ILE,request_memory_CIP)
+        cmd += " --request-memory-ILE {} --request-memory-CIP {} ".format(opts.request_memory_ILE,opts.request_memory_CIP)
         if opts.use_eccentricity:
             cmd += " --use-eccentricity "
             if opts.use_meanPerAno:
