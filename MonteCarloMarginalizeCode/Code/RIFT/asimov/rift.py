@@ -382,6 +382,9 @@ class Rift(Pipeline):
                        # zero out transverse spin if needed
                        if 'nonprecessing' in self.production.meta['likelihood']['assume']:
                            extra_args += " --use-aligned-spin "
+                       if 'bootstrap size' in self.production.meta['scheduler']:
+                           bootstrap_size = int(self.production.meta['scheduler']['bootstrap size'])
+                           extra_args += " --target-size {} ".format(bootstrap_size)
                        os.system("convert_output_format_inference2ile --posterior-samples {} --output {} {} ".format(bootstrap_file_ascii, bootstrap_file, extra_args) )
                 self.bootstrap="manual"
 
@@ -441,7 +444,7 @@ class Rift(Pipeline):
                     production=self.production.name,
                 )
 
-            command += ["--manual-initial-grid", bootstrap_file]
+            command += ["--manual-initial-grid", bootstrap_file, "--manual-initial-grid-supplements"]
 
         if "scheduler" in self.production.meta:
             if "osg" in self.production.meta["scheduler"]:
