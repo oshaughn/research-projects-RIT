@@ -280,6 +280,7 @@ parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrou
 parser.add_argument("--ile-additional-files-to-transfer",default=None,help="Comma-separated list of filenames. To append to the transfer file list for ILE jobs (only). Intended for surrogates in LAL_DATA_PATH for wide-ranging use")
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
+parser.add_argument("--manual-initial-grid-supplements",action='store_true', help="Manual inital grid used to SUPPLEMENT output of the default helper grid.")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--internal-puff-transverse",action='store_true', help=" appends the following arguments: --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u ")
 parser.add_argument("--manual-extra-puff-args",default=None,type=str,help="Avenue to adjoin extra PUFF arguments.  ")
@@ -643,7 +644,7 @@ if opts.internal_use_aligned_phase_coordinates:
     cmd += " --internal-use-aligned-phase-coordinates "
 if opts.internal_use_rescaled_transverse_spin_coordinates:
     cmd += " --internal-use-rescaled-transverse-spin-coordinates "
-if not(opts.internal_use_amr) and not(opts.manual_initial_grid):
+if not(opts.internal_use_amr) and not(opts.manual_initial_grid and not(opts.manual_initial_grid_supplements)):
     cmd+= " --propose-initial-grid "
 if opts.force_initial_grid_size:
     cmd += " --force-initial-grid-size {} ".format(int(opts.force_initial_grid_size))
@@ -1326,7 +1327,12 @@ if opts.internal_force_iterations:
 
 # Overwrite grid if needed
 if not (opts.manual_initial_grid is None):
-    shutil.copyfile(opts.manual_initial_grid, "proposed-grid.xml.gz")
+    if opts.manual_initial_grid_supplements:
+        cmd_add = 'ligolw_add {} proposed-grid.xml.gz --output tmp.xml.gz'.format(opts.manual_initial_grid)
+        os.system(cmd_add)
+        shutil.copyfile('tmp.xml.gz', "proposed-grid.xml.gz")
+    else:
+        shutil.copyfile(opts.manual_initial_grid, "proposed-grid.xml.gz")
 
 # override npts_it if needed
 if opts.internal_n_evaluations_per_iteration:
