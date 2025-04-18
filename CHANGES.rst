@@ -10,7 +10,8 @@ development tree is rift_O4c
    - pp_RIFT_with_ini improve OSG use, sanity plots, various bugfixes ( mass range, dmax/dmin); GWSignalWriteFrame fixes for inj; PUFF reflection
      fix; various demos (populations) and pp plotting scripts and waveform/CI plot script; pseudo_pipe
      cip-expl-de-jobs-auto last explode sanity for n_eff (rc1)
-
+   - bootstrap asimov using --manual-initial-grid-supplements (new option); subdag memory/disk limits correctly passed;
+     wf interface update INRPhenomXAS; mcsamplerNFlow updates; ILE fix precompute-ignore-threshold so non-default value possible.
      
 0.0.17.2
 ------------
