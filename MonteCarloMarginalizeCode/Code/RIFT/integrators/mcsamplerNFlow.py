@@ -28,13 +28,16 @@ import torch
 from torch import optim
 
 from nflows.flows.base import Flow
+from nflows.utils import torchutils
 from nflows.distributions.normal import StandardNormal
-from nflows.transforms.base import CompositeTransform
+from nflows.transforms.normalization import BatchNorm
+from nflows.transforms.base import CompositeTransform, Transform
 from nflows.transforms.autoregressive import MaskedAffineAutoregressiveTransform
 from nflows.transforms.autoregressive import MaskedPiecewiseLinearAutoregressiveTransform
 from nflows.transforms.autoregressive import MaskedPiecewiseQuadraticAutoregressiveTransform
 from nflows.transforms.autoregressive import MaskedPiecewiseCubicAutoregressiveTransform
-from nflows.transforms.permutations import ReversePermutation
+from nflows.transforms.autoregressive import MaskedPiecewiseRationalQuadraticAutoregressiveTransform
+from nflows.transforms.permutations import ReversePermutation, RandomPermutation
 # -------------------------------------
 from nflows.transforms.base import InverseTransform
 from nflows.transforms.base import MultiscaleCompositeTransform
@@ -42,7 +45,7 @@ from nflows.transforms.standard import IdentityTransform
 #from nflows.transforms.standard import AffineScalarTransform
 #from nflows.transforms.standard import AffineTransform
 from nflows.transforms.standard import PointwiseAffineTransform
-from nflows.transforms.linear import NaiveLinear
+from nflows.transforms.lu import LULinear
 
 try:
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -143,6 +146,95 @@ def check_nonzero_deriv(my_seq,deriv_crit =0.05):
     return True
 
 
+# From mbank: https://github.com/stefanoschmidt1995/mbank/blob/master/mbank/flow/flowmodel.py
+#   Should modify to be untrainable, since we want to enforce boundaries.
+class TanhTransform(Transform):
+	"""
+	Implements the Tanh transformation. This maps a Rectangle [low, high] into R^D.
+	It is *very* recommended to use this as the last layer of every flow you will ever train on GW data.
+	"""
+	def __init__(self, D, low = None, high = None):
+		"""
+		Initialize the transformation.
+		
+		Parameters
+		----------
+			D: int
+				Dimensionality of the space
+		"""
+		super().__init__()
+			#Placeholders for the true values
+			#They will be fitted as a first thing in the training procedure
+		if low is None:
+			self.low = torch.nn.Parameter(torch.randn([D], dtype=torch.float32), requires_grad = False)
+		else:
+			self.low = torch.nn.Parameter(torch.tensor(low, dtype=torch.float32), requires_grad = False)
+		if high is None:
+			self.high = torch.nn.Parameter(torch.randn([D], dtype=torch.float32), requires_grad = False)
+		else:
+			self.high = torch.nn.Parameter(torch.tensor(high, dtype=torch.float32), requires_grad = False)
+	
+	def inverse(self, inputs, context=None):
+		th_inputs = torch.tanh(inputs)
+		outputs = (th_inputs*(self.high-self.low)+self.high+self.low)/2
+		logabsdet = torch.log((1 - th_inputs ** 2)*(self.high-self.low)*0.5)
+		logabsdet = torchutils.sum_except_batch(logabsdet, num_batch_dims=1)
+		return outputs, logabsdet
+
+	def forward(self, inputs, context=None):
+		inside = torch.logical_and(torch.prod(inputs>self.low, dim = -1), torch.prod(inputs<self.high, dim = -1))
+		inputs = inputs.mul(2)
+		inputs = inputs.add(-self.high-self.low)
+		inputs = inputs.div(self.high-self.low)
+
+		if torch.min(inputs) <= -1 or torch.max(inputs) >= 1:
+			raise InputOutsideDomain()
+		outputs = 0.5 * torch.log((1 + inputs) / (1 - inputs))
+		logabsdet = -torch.log((1 - inputs ** 2)*0.5*(self.high-self.low))
+		logabsdet = torchutils.sum_except_batch(logabsdet, num_batch_dims=1)
+		return outputs, logabsdet
+
+
+class TanhTransformFrozen(Transform):
+	"""
+	Implements the Tanh transformation. This maps a Rectangle [low, high] into R^D.
+	It is *very* recommended to use this as the last layer of every flow you will ever train on GW data.
+	"""
+	def __init__(self, D, low = None, high = None):
+                """
+		Initialize the transformation.
+		
+		Parameters
+		----------
+			D: int
+				Dimensionality of the space
+                """
+                super().__init__()
+                self.register_buffer("low", torch.Tensor(low))
+                self.register_buffer("high", torch.Tensor(high))
+	
+	def inverse(self, inputs, context=None):
+		th_inputs = torch.tanh(inputs)
+		outputs = (th_inputs*(self.high-self.low)+self.high+self.low)/2
+		logabsdet = torch.log((1 - th_inputs ** 2)*(self.high-self.low)*0.5)
+		logabsdet = torchutils.sum_except_batch(logabsdet, num_batch_dims=1)
+		return outputs, logabsdet
+
+	def forward(self, inputs, context=None):
+		inside = torch.logical_and(torch.prod(inputs>self.low, dim = -1), torch.prod(inputs<self.high, dim = -1))
+		inputs = inputs.mul(2)
+		inputs = inputs.add(-self.high-self.low)
+		inputs = inputs.div(self.high-self.low)
+
+		if torch.min(inputs) <= -1 or torch.max(inputs) >= 1:
+			raise InputOutsideDomain()
+		outputs = 0.5 * torch.log((1 + inputs) / (1 - inputs))
+		logabsdet = -torch.log((1 - inputs ** 2)*0.5*(self.high-self.low))
+		logabsdet = torchutils.sum_except_batch(logabsdet, num_batch_dims=1)
+		return outputs, logabsdet
+
+              
+              
 class NFlowsNFS_Trainer:
     def __init__(self, bounds: List[Tuple[float, float]], 
                  n_samples=100,
@@ -162,6 +254,7 @@ class NFlowsNFS_Trainer:
         self.plotting            = plotting
     
     def train_flow(self, samples_in: List[List[float]],
+                   weights: List[float],
                    out_n_samples: int, max_epochs: int, bound_offset: float,n_print=20):
         if self.flow is None:
           self.flow                = Flow(self.transform, self.base_distribution(shape=[len(self.bounds)]))
@@ -171,14 +264,16 @@ class NFlowsNFS_Trainer:
         losses                   = self.loss_history
         # Fixed training input
         samples              = torch.tensor(samples_in, dtype=torch.float32)
+#        lnL_weighted_func = torch.nn.NLLLoss(weight=torch.tensor(weights))
         for epoch in range(1, int(max_epochs)):       
             # Set gradients equals to zero
             optimizer.zero_grad()
             
             # Compute the loss
             loss                 = -self.flow.log_prob(samples).mean()
+#            loss                 = lnL_weighted_func(self.flow.log_prob(samples))
             
-            # Backpropergate the loss
+            # Create necessary derivatives
             loss.backward()
             
             # Store loss value for monitoring
@@ -263,6 +358,8 @@ class MCSampler(MCSamplerGeneric):
         self.nf_trainer = None
         self.nf_flow = None
 
+        self.mean_affine_set = False
+
 
     def setup(self, nf_cov=None, nf_mean=None,nf_method=None,**kwargs):
 
@@ -275,14 +372,17 @@ class MCSampler(MCSamplerGeneric):
 
         # https://github.com/bayesiains/nflows/blob/master/examples/moons.ipynb
         self.num_layers = int(len(bounds)/2)  # autoregressive
+        n_features = len(bounds)
         transforms = []
-        # trivial scale layer first, to get in the right place
-#        transforms.append(PointwiseAffineTransform())
-#        transforms.append(NaiveLinear(features=len(bounds)))
+        # trivial scale layer first, to get the boundaries in the right place. Use TanhTransform to scale
+#        transforms.append(TanhTransformFrozen(len(bounds), low=bounds[:,0], high=bounds[:,1]))
+        transforms.append(PointwiseAffineTransform())
+#        transforms.append(LULinear(features=len(bounds)))
+
         for _ in range(self.num_layers):
-          transforms.append(ReversePermutation(features = len(bounds)))
+          transforms.append(RandomPermutation(features = len(bounds)))
           transforms.append(MaskedAffineAutoregressiveTransform(features = len(bounds),
-                                                          hidden_features = 2 * len(bounds)))    
+                                                                hidden_features = 2 * len(bounds)) )
         transform  = CompositeTransform(transforms)
         self.nf_model = transform
 
@@ -437,6 +537,7 @@ class MCSampler(MCSamplerGeneric):
 
       # apply tempering exponent (structurally slightly different than in low-level code - not just to likelihood)
       ln_weights  = self.xpy.array(lnw) # force copy
+      print(" Tempering exp " , tempering_exp)
       ln_weights *= tempering_exp
 
       n_history_to_use = np.min([n_history, len(ln_weights), len(rvs_here[self.params_ordered[0]])] )
@@ -466,6 +567,7 @@ class MCSampler(MCSamplerGeneric):
         return
 #      print(indx_ok.shape, samples_train.shape)
       samples_train = samples_train[:,indx_ok]
+      weights_alt = weights_alt[indx_ok]
       if samples_train.shape[1] < 10:
         if super_verbose:
           print(" Skipping update: too few valid ") 
@@ -474,12 +576,24 @@ class MCSampler(MCSamplerGeneric):
         print("    NF: Training data shape ", samples_train.shape)
         print("    NF: training data mean ", np.mean(samples_train,axis=-1))
 
+      if not(self.mean_affine_set):
+          # pvals = weights_alt / np.sum(weights_alt)   # not going to use proper weighted sample mean, just fix to original hotspot to get close.
+          my_mean = torch.as_tensor(np.mean(samples_train.T , axis=0),dtype=torch.float32)
+          my_scale = torch.Tensor(np.diag(np.cov(samples_train)) )  # cov is trickier, do NOT use weights since catastrophe possible
+          #print(my_mean,np.diag(np.cov(samples_train)).shape)
+          tf = PointwiseAffineTransform(scale=1./my_scale,shift=-my_mean/my_scale)
+          self.nf_trainer.transform._transforms[0]=tf # affine transform. MUST BE POSITION OF PointwiseAffine ! 
+          #print(samples_train.T)
+          print("  Training step 0: Set mean of affine transform ", tf._shift, tf._scale) # remember applying in reverse
+          self.mean_affine_set=True
+        
       # Train
       trainer = self.nf_trainer
       max_epochs = max_epochs_requested  # be short, don't need precision/long training
       if max_epochs < int(10*self.num_layers): max_epochs = int(10*self.num_layers)
 
       losses     = trainer.train_flow(samples_in= samples_train.T,
+                                weights=weights_alt,
                                 out_n_samples = 100, 
                                 max_epochs    = max_epochs, 
                                 bound_offset  = 0.5)
@@ -573,7 +687,7 @@ class MCSampler(MCSamplerGeneric):
 
         self.n_chunk = n
         self.setup()  # sets up self.my_ranges, self.dx initially
-
+        
         ntotal_true = 0
         max_epochs_requested =200
         while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
