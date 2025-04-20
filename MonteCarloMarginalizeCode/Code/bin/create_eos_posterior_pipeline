@@ -327,7 +327,7 @@ else:
         cip_job_list.append(cip_job)
 
         # PUFF variant
-        cipPuff_job, cipPuff_job_name = dag_utils.write_CIP_sub(tag='MARG_PUFF_{}'.format(indx),log_dir=None,exe=marg_event_exe_list[indx],arg_str=marg_event_args_list[indx],using_eos='file:'+working_dir_inside+"/grid_puff-$(macroiteration).dat",using_eos_index='$(macroevent)',n_events_to_analyze=n_chunk_here,request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG_puff-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../../event-$(macroid).net','../../grid_puff-$(macroiteration).dat']+transfer_file_names)
+        cipPuff_job, cipPuff_job_name = dag_utils.write_CIP_sub(tag='MARG_PUFF_{}'.format(indx),log_dir=None,exe=marg_event_exe_list[indx],arg_str=marg_event_args_list[indx],using_eos='file:'+working_dir_inside+"/grid_puff-$(macroiteration).dat",using_eos_index='$(macroevent)',n_events_to_analyze=n_chunk_here,request_memory=opts.request_memory_marg,input_net=working_dir_inside+'/event-$(macroid).net',output='MARG_puff-$(macroid)-$(macroevent)',out_dir=out_dir_inside_marg,universe=main_worker_universe,no_grid=not(opts.use_osg),use_osg=opts.use_osg,use_singularity=opts.use_osg and opts.use_singularity,singularity_image=singularity_image,use_simple_osg_requirements=opts.use_osg,transfer_files=['../../event-$(macroid).net','../../grid_puff-$(macroiteration).dat']+transfer_file_names_puff)
     # Modify: set 'initialdir'
         cipPuff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_marg/event_$(macroid)")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -430,7 +430,9 @@ if opts.test_args:
 #  - joins together all files into one
 with open("unify.sh",'w') as f:
     f.write("""#! /bin/bash
-cat *.net_marg | sort -r  > all.marg_net
+ls -1 *.net_marg | head -n 1 | xargs head -n 1  > all.marg_net
+grep -h ^[[:space:]][0-9] *.net_marg | sort -nr >> all.marg_net
+grep -h ^[[:space:]][-] *.net_marg | grep -v "inf" | sort -nr >> all.marg_net
 """)
     os.system("chmod a+x unify.sh")
 unify_marg_job, unify_marg_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/unify.sh",tag='UNIFY',log_dir=None,arg_str='',file_input='',out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
