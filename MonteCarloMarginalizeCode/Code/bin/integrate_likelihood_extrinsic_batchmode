@@ -241,6 +241,7 @@ optp.add_option("--internal-waveform-extra-lalsuite-args",type=str,default=None)
 optp.add_option("--verbose",action='store_true')
 optp.add_option("--save-eccentricity", action="store_true")
 optp.add_option("--save-hyperbolic", action="store_true")
+optp.add_option('--force-hyperbolic-22', default=False, action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
 #
 # Add the integration options
 #
@@ -1187,7 +1188,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             NR_group=NR_template_group,NR_param=NR_template_param,
             use_gwsignal=opts.use_gwsignal,
             use_gwsignal_approx=opts.approximant,
-            use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized, extra_waveform_kwargs=extra_waveform_kwargs)
+            use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized, extra_waveform_kwargs=extra_waveform_kwargs, force_22_mode=opts.force_hyperbolic_22)
 
     if opts.auto_logarithm_offset and guess_snr:
       # important: this only impacts *this* analysis
@@ -1636,7 +1637,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
         elif opts.save_hyperbolic:
             # output format when hyperbolic is being used
-            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.E0, P.p_phi0, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.E0, P.p_phi0, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))
         elif not (P.lambda1>0 or P.lambda2>0):
           # output format when lambda is NOT used
           if not opts.pin_distance_to_sim:
@@ -1716,7 +1717,6 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["alpha6"] =numpy.ones(samples["psi"].shape)*P.lambda2
             samples["psi3"] =numpy.ones(samples["psi"].shape)*P.E0
             samples["beta"] =numpy.ones(samples["psi"].shape)*P.p_phi0
-            
             # Below exist solely to placate XML export; new issue as of latest lalsuite say 7.15+ or so
             samples["alpha2"] = numpy.zeros(samples["psi"].shape)
             samples["alpha3"] = numpy.zeros(samples["psi"].shape)
@@ -1727,7 +1727,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         # Extra metadata
-      dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "psi3":P.E0, "beta":P.p_phi0,  "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
+      dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha5":P.lambda1, "alpha6":P.lambda2, "psi3":P.E0, "beta":P.p_phi0, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
 #      if 'distance' in pinned_params:
 #            dict_out['distance'] = pinned_params["distance"]
       converged_result = False

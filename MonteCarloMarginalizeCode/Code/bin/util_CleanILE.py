@@ -56,7 +56,7 @@ for fname in opts.fname[0]: #sys.argv[1:]:
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,ecc, lnL, sigmaOverL, ntot, neff = line
             col_intrinsic = 10
         if opts.hyperbolic:
-            indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,E0, p_phi0, lnL, sigmaOverL, ntot, neff = line
+            indx, m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, E0, p_phi0, lnL, sigmaOverL, ntot, neff = line
             col_intrinsic = 11
         elif len(line) == 13 and (not tides_on) and (not distance_on):  # strip lines with the wrong length
             indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,lnL, sigmaOverL, ntot, neff = line

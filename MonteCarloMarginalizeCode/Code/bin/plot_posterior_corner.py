@@ -232,6 +232,7 @@ parser.add_argument("--lambda-plot-max",default=2000,type=float)
 parser.add_argument("--lnL-cut",default=None,type=float)
 parser.add_argument("--sigma-cut",default=0.4,type=float)
 parser.add_argument("--eccentricity", action="store_true", help="Read sample files in format including eccentricity")
+parser.add_argument("--hyperbolic", action="store_true", help="Read sample files in format including hyperbolic params")
 parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Relies entirely on user to set plot options for plot styles from matplotlibrc")
 parser.add_argument("--no-mod-psi",action="store_true",help="Default is to take psi mod pi. If present, does not do this")
 parser.add_argument("--verbose",action='store_true',help='print matplotlibrc data')
@@ -467,6 +468,9 @@ if opts.flag_tides_in_composite:
 if opts.eccentricity:
     print(" Reading composite file, assuming eccentricity-based format ")
     field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","eccentricity", "lnL", "sigmaOverL", "ntot", "neff")
+if opts.hyperbolic:
+    print(" Reading composite file, assuming hyperbolic-based format ")
+    field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","E0", "p_phi0", "lnL", "sigmaOverL", "ntot", "neff")
 field_formats = [np.float32 for x in field_names]
 composite_dtype = [ (x,float) for x in field_names] #np.dtype(names=field_names ,formats=field_formats)
 # Load posterior files
