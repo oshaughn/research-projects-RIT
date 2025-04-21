@@ -84,6 +84,10 @@ for indx in np.arange(opts.target_size):
     P = lalsimutils.ChooseWaveformParams(m1=m1,m2=m2,dist=d)
     if "eccentricity" in samples_in.dtype.names:
      P.eccentricity = samples_in["eccentricity"][fac_reduce*indx]
+    if "E0" in samples_in.dtype.names:
+     P.E0 = samples_in["E0"][fac_reduce*indx]
+    if "p_phi0" in samples_in.dtype.names:
+     P.p_phi0 = samples_in["p_phi0"][fac_reduce*indx]
     if "time_maxl" in samples_in.dtype.names:
      P.tref = samples_in["time_maxl"][fac_reduce*indx]
     elif 'time' in samples_in.dtype.names:
