@@ -35,16 +35,18 @@ When preparing your work, please cite
      2.  TEOBResumS interface (original):  Lange et al 2018 RIFT paper
      3.  NR interface (parts inside ILE): Lange et al 2017 PRD 96, 404 [NR comparison methods paper](http://adsabs.harvard.edu/abs/2017PhRvD..96j4041L)
      4.  NRSur7dq2 interface: Lange et al 2018 (RIFT) [paper](https://arxiv.org/abs/1805.10457), and ...
-     5.  gwsignal interface: O'Shaughnessy et al in prep ('finer net')
+     5.  gwsignal interface: Wagner et al LIGO P2500197 (''narrowing rift'')
      6.  TEOBResumS eccentric interface: Iglesias et al
-     7.  TEOBResumS hyperbolic interface: Henshaw, Lange et al 
+     7.  TEOBResumS hyperbolic interface: Henshaw, Lange et al in prep
+
 
   5. If you are using an updated Monte Carlo integration package, please acknowledge the authors; papers will be prepared soon
      1.  GMM integrator: Elizabeth Champion; see [original repo](https://git.ligo.org/benjamin.champion/Monte-Carlo-Integrator), implemented via MonteCarloEnsemble and mcsamplerEnsemble; please cite Ristic et al https://arxiv.org/abs/2105.07013
      2.  GPU MC integrator:  Wysocki, O'Shaughnessy; cite Wofford et al https://dcc.ligo.org/P2200059
-     3.  AV integrator: O'Shaughnessy et al  in prep ('finer net'), based on Tiwari et al VARAHA
-     4.  Portfolio integrator: ditto
-     5.  Oracles: ditto
+     3.  AV integrator: Wagner et al LIGO P2500197 (''narrowing rift''), based on Tiwari et al VARAHA
+     4.  Portfolio integrator: Wagner et al LIGO P2500197 (''narrowing rift'')
+     5.  Oracles: Wagner et al LIGO P2500197 (''narrowing rift'')
+     6.  Normalizing flows: Wagner et al LIGO P2500197 (''narrowing rift'')
 
   6. If you are using a distance-marginalized likeliihood, please acknowledge 
      1. Distance marginalization : Soichiro Morisaki, Dan Wysocki, see  Wofford et al https://dcc.ligo.org/P2200059
@@ -53,11 +55,11 @@ When preparing your work, please cite
      1. Rotated inspiral-phase : cite the original Lee, Morisaki, Tagoshi paper ([journal](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.105.124057) [dcc](https://dcc.ligo.org/LIGO-P2200037)); also cite Wofford et al  [journal](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.107.024040) [dcc](https://dcc.ligo.org/P2200059)
      1. Pseudo-cylindrical coordinates: see Wofford et al   [journal](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.107.024040) [dcc](https://dcc.ligo.org/P2200059)
   
-  8. If you are using calibration marginalization, please acknowledge Ethan Payne  (PRD 122004 (2020)), with RIFT integration provided by Jacob Lange and Daniel Williams
+  8. If you are using calibration marginalization, please acknowledge Ethan Payne  (PRD 122004 (2020)), with RIFT integration provided by Jacob Lange and Daniel Williams, as updated in Wagner et al LIGO P2500197 (''narrowing rift'')
 
   9. If you are using the ``hyperpipeline" for EOS inference or other projects, please acknowledge Kedia et al (arxiv:2405.17326)
 
- 10. If you are using LISA-RIFT, please acknowledge Jan et al 
+ 10. If you are using LISA-RIFT, please acknowledge Jan et al https://arxiv.org/abs/2410.15542
 
 ## Authorlists: Opt-in model
 Several aspects of this code are very actively developed.  We encourage  close collaboration with the lead developers (O'Shaughnessy and Lange) to produce the best possible results, particularly given comparatively rapid changes to the interface and pipeline in the past and planned for the future as the user- and developer-base expands.
