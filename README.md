@@ -16,7 +16,7 @@ Also, make sure you cite the relevant rapid_pe/RIFT papers
  2.  Lange et al 2018 (RIFT)
  3.  Wysocki et al 2019 (RIFT-GPU)
  4.  Wofford et al 2022 (RIFT-Update)
- 5.  O'Shaughnessy et al in prep (RIFT-FinerNet)
+ 5.  Wagner et al 2025 (RIFT-FinerNet, also ''narrowing rift'')
 
 When preparing your work, please cite 
 
