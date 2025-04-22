@@ -42,6 +42,14 @@ log_likelihood_threshold = np.log(opts.likelihood_threshold)
 delta_s = 0.1
 delta_t = 0.1
 
+try:
+    import cupy
+    xpy_default=cupy
+    identity_convert_togpu = cupy.asarray
+except:
+    import numpy
+    xpy_default=numpy
+    identity_convert_togpu = lambda x: x
 
 # cosmo d prior tools for interpolation:  not used normally, but set if needed
 final_scipy_interpolate=None
@@ -73,6 +81,7 @@ elif  (opts.d_prior == 'cosmo' or opts.d_prior == 'cosmo_sourceframe'):
     from astropy import units as u
     from astropy.cosmology import FlatLambdaCDM
     from astropy.units import Hz
+    import RIFT.likelihood.priors_utils as priors_utils
     # ported form https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/bayespputils.py
     # need way to query lalsuite parameters! See
     # https://git.ligo.org/cbc/action_items/-/issues/37#note_1158065
