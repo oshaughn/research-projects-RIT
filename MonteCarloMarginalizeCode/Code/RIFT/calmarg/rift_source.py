@@ -132,7 +132,7 @@ def RIFT_lal_binary_black_hole_orig(
 
 def RIFT_lal_binary_black_hole(
         frequency_array, mass_1, mass_2, luminosity_distance, spin_1x, spin_1y, spin_1z,
-        spin_2x, spin_2y, spin_2z,iota, phase, **kwargs):
+        spin_2x, spin_2y, spin_2z,iota, phase, eccentricity, meanPerAno **kwargs):
 
     waveform_kwargs = dict(
         waveform_approximant='SEOBNRv4PHM', reference_frequency=15.0,
@@ -169,6 +169,8 @@ def RIFT_lal_binary_black_hole(
     P.deltaF=frequency_array[1]-frequency_array[0]
     P.incl = float(iota)
     P.phiref = float(phase)
+    P.eccentricity = float(eccentricity)
+    P.meanPerAno = float(meanPerAno)
     P.dist=luminosity_distance*lal.PC_SI*1e6
     P.approx = approximant
     P.taper = lalsim.SIM_INSPIRAL_TAPER_START

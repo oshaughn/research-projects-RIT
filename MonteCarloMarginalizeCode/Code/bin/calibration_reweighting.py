@@ -248,8 +248,9 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
         result.posterior  = result.posterior.drop(columns=['lnL','ps'])
         result.posterior['p'] = np.log(result.posterior['p'])  # not sure if used, but if so define correctly
         key_swap_dict = {'m1':'mass_1', 'm2':'mass_2', 'a1x':'spin_1x', 'a1y':'spin_1y', 'a1z':'spin_1z',
-            'a2x':'spin_2x', 'a2y':'spin_2y', 'a2z':'spin_2z', 'incl':'iota', 'time':'geocent_time',
-        'phiorb':'phase', 'p':'log_prior', 'distance':'luminosity_distance', 'lambda1':'lambda_1', 'lambda2':'lambda_2'}
+                         'a2x':'spin_2x', 'a2y':'spin_2y', 'a2z':'spin_2z', 'incl':'iota', 'time':'geocent_time',
+                         'phiorb':'phase', 'p':'log_prior', 'distance':'luminosity_distance', 'lambda1':'lambda_1', 'lambda2':'lambda_2',
+                         'eccentricity':'eccentricity', 'meanPerAno':'mean_per_ano'}
 
         names = list(result.posterior.keys())  # dangerous to have iterator tied to changing structure
         for old_key in names:
