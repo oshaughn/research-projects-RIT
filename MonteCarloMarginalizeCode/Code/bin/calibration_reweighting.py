@@ -212,6 +212,7 @@ parser.add(
 parser.add("--internal-waveform-fd-L-frame",action='store_true',help='If true, passes extra_waveform_kwargs = {fd_L_frame=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only.')
 parser.add("--internal-waveform-fd-no-condition",action='store_true',help='If true, adds extra_waveform_kwargs = {no_condition=True} to lalsimutils hlmoft. Impacts outputs of ChooseFDWaveform calls only. Provided to enable controlled tests of conditioning impact on PE')
 parser.add("--use-gwsignal",default=False,action='store_true',help='Use gwsignal. In this case the approx name is passed as a string to the lalsimulation.gwsignal interface')
+parser.add("--use-eccentricity",default=False,action='store_true',help='Use for eccentricity and mean anomali. Currently can only use with Rossellas repo of bilby: https://git.ligo.org/rossella.gamba/bilby. Once merge into master, can get rid of this option.')
 parser.add("--use-gwsignal-lmax-nyquist",default=None,type=int,help='Passes lmax_nyquist integer to the gwsignal waveform interface')
 parser.add("--fmin", default=None, type=float)
 parser.add("--fref", default=None, type=float)
@@ -247,10 +248,17 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
     if args.use_rift_samples:
         result.posterior  = result.posterior.drop(columns=['lnL','ps'])
         result.posterior['p'] = np.log(result.posterior['p'])  # not sure if used, but if so define correctly
-        key_swap_dict = {'m1':'mass_1', 'm2':'mass_2', 'a1x':'spin_1x', 'a1y':'spin_1y', 'a1z':'spin_1z',
-                         'a2x':'spin_2x', 'a2y':'spin_2y', 'a2z':'spin_2z', 'incl':'iota', 'time':'geocent_time',
-                         'phiorb':'phase', 'p':'log_prior', 'distance':'luminosity_distance', 'lambda1':'lambda_1', 'lambda2':'lambda_2',
-                         'eccentricity':'eccentricity', 'meanPerAno':'mean_per_ano'}
+        if args.use_eccentricity:
+            key_swap_dict = {'m1':'mass_1', 'm2':'mass_2', 'a1x':'spin_1x', 'a1y':'spin_1y', 'a1z':'spin_1z',
+                             'a2x':'spin_2x', 'a2y':'spin_2y', 'a2z':'spin_2z', 'incl':'iota', 'time':'geocent_time',
+                             'phiorb':'phase', 'p':'log_prior', 'distance':'luminosity_distance', 'lambda1':'lambda_1', 'lambda2':'lambda_2',
+                             'eccentricity':'eccentricity', 'meanPerAno':'mean_per_ano'}
+        else:
+            key_swap_dict = {'m1':'mass_1', 'm2':'mass_2', 'a1x':'spin_1x', 'a1y':'spin_1y', 'a1z':'spin_1z',
+                             'a2x':'spin_2x', 'a2y':'spin_2y', 'a2z':'spin_2z', 'incl':'iota', 'time':'geocent_time',
+                             'phiorb':'phase', 'p':'log_prior', 'distance':'luminosity_distance', 'lambda1':'lambda_1', 'lambda2':'lambda_2'
+                             }
+            
 
         names = list(result.posterior.keys())  # dangerous to have iterator tied to changing structure
         for old_key in names:
@@ -314,7 +322,10 @@ if args.waveform_approximant:
 if args.use_rift_samples:
     waveform_arguments['Lmax'] = args.l_max
 #    waveform_arguments['waveform_approximant'] = 'SEOBNRv4PHM'
-    wf_func = rift_source.RIFT_lal_binary_black_hole
+    if args.use_eccentricity:
+        wf_func = rift_source.RIFT_lal_eccentric_binary_black_hole
+    else:
+        wf_func = rift_source.RIFT_lal_binary_black_hole
 else:
     wf_func = eval('bilby.gw.source.'+data.meta_data['command_line_args']['frequency_domain_source_model'])
 

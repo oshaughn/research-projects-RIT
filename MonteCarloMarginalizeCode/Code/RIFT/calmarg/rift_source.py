@@ -132,7 +132,7 @@ def RIFT_lal_binary_black_hole_orig(
 
 def RIFT_lal_binary_black_hole(
         frequency_array, mass_1, mass_2, luminosity_distance, spin_1x, spin_1y, spin_1z,
-        spin_2x, spin_2y, spin_2z,iota, phase, eccentricity, meanPerAno **kwargs):
+        spin_2x, spin_2y, spin_2z,iota, phase, **kwargs):
 
     waveform_kwargs = dict(
         waveform_approximant='SEOBNRv4PHM', reference_frequency=15.0,
@@ -169,8 +169,133 @@ def RIFT_lal_binary_black_hole(
     P.deltaF=frequency_array[1]-frequency_array[0]
     P.incl = float(iota)
     P.phiref = float(phase)
+    P.dist=luminosity_distance*lal.PC_SI*1e6
+    P.approx = approximant
+    P.taper = lalsim.SIM_INSPIRAL_TAPER_START
+    
+    if h_method == 'hlmoft':
+        # Waveform generator used internally in RIFT. ILE internally assumes phiref==0, so set this.
+        # Note ILE also assumes L-frame waveforms, so this will not work as expected for J-frame output
+        # Note several underlying interfaces like ChooseTDModes will enforce these conditions already, but not all. Better safe than sorry.
+        P.phiref = 0
+        P.incl = 0  # L direction frame
+        hlmT = lalsimutils.hlmoft(P,Lmax=Lmax,extra_waveform_kwargs=extra_waveform_kwargs) # extra needed to control ChooseFDWaveform
+        P.phiref = phase
+        P.incl =  iota # restore
+
+        # combine modes
+        hT = lalsimutils.hoft_from_hlm(hlmT, P, return_complex=True)
+        
+    elif h_method == 'gws_hlmoft':
+        # gwsignal specific
+        P.phiref = 0
+        P.incl = 0  # L direction frame
+        hlmT = rgws.hlmoft(P,Lmax=Lmax,approx_string=waveform_approximant,**extra_waveform_kwargs)
+        P.phiref = phase
+        P.incl =  iota # restore
+
+        # combine modes
+        hT = lalsimutils.hoft_from_hlm(hlmT, P, return_complex=True)
+
+    elif h_method == 'internal_hlmoft':
+        # gwsignal specific
+        P.phiref = 0
+        P.incl = 0  # L direction frame
+        hlmF_1, _= internal_hlm_generator(P,  **kwargs)
+        hlmT_1  = {}
+        for mode in hlmF_1:
+            #print(mode,hlmF_1[mode].data.data[0])
+            hlmT_1[mode] = lalsimutils.DataInverseFourier(hlmF_1[mode])
+        P.phiref = phase
+        P.incl =  iota # restore
+
+        # combine modes
+        hT = lalsimutils.hoft_from_hlm(hlmT_1, P, return_complex=True)
+
+        
+    else:
+        # Backstop waveform generator. Includes all L modes. Use cases where waveforms are J-frame calculations for hlm.
+        hT = lalsimutils.complex_hoft(P)
+    tvals = lalsimutils.evaluate_tvals(hT)
+    t_max = tvals[np.argmax(np.abs(hT.data.data))]
+
+    # end max is cutting the signal such that it ends 2s after merger
+    n_max = np.argmax(np.abs(hT.data.data))
+
+    hp = lal.CreateREAL8TimeSeries("h(t)", hT.epoch, hT.f0, hT.deltaT, hT.sampleUnits, hT.data.length)
+    hp.data.data = np.real(hT.data.data)
+    hc = lal.CreateREAL8TimeSeries("h(t)", hT.epoch, hT.f0, hT.deltaT, hT.sampleUnits, hT.data.length)
+    hc.data.data = -np.imag(hT.data.data)
+
+    lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
+    lalsim.SimInspiralREAL8WaveTaper(hc.data, P.taper)
+
+    h_plus = hp.data.data
+    h_plus = np.concatenate([h_plus[n_max:], h_plus[:n_max]])
+    h_cross = hc.data.data
+    h_cross = np.concatenate([h_cross[n_max:], h_cross[:n_max]])
+
+    hf_p, freqs = utils.nfft(h_plus, sampling_frequency)
+    hf_c, freqs = utils.nfft(h_cross, sampling_frequency)
+
+    #hf_p *= np.exp(2j*np.pi * freqs * tvals[0])
+    #hf_c *= np.exp(2j*np.pi * freqs * tvals[0])
+
+    # PROBLEM: now we need to interpolate to frequency_array : our grid does not correspond to frequency_array in general
+    if frequency_array[0] >0:
+        hf_p_out = np.zeros(frequency_array.shape,dtype=np.complex128)
+        hf_c_out = np.zeros(frequency_array.shape,dtype=np.complex128)
+        # interpolate in real, imag
+        hf_p_out += np.interp(frequency_array, freqs, np.real(hf_p))
+        hf_p_out += 1j* np.interp(frequency_array, freqs, np.imag(hf_p))
+        hf_c_out += np.interp(frequency_array, freqs, np.real(hf_c))
+        hf_c_out += 1j* np.interp(frequency_array, freqs, np.imag(hf_c))
+        hf_p = hf_p_out
+        hf_c = hf_c_out
+    
+    return dict(plus=hf_p, cross=hf_c)
+
+def RIFT_lal_eccentric_binary_black_hole(
+        frequency_array, mass_1, mass_2, luminosity_distance, spin_1x, spin_1y, spin_1z,
+        spin_2x, spin_2y, spin_2z,iota, phase, eccentricity, mean_per_ano, **kwargs):
+
+    waveform_kwargs = dict(
+        waveform_approximant='SEOBNRv4PHM', reference_frequency=15.0,
+        minimum_frequency=15.0, maximum_frequency=frequency_array[-1], Lmax=4,
+        sampling_frequency=2*frequency_array[-1],
+        extra_waveform_kwargs={})
+    waveform_kwargs.update(kwargs)
+    waveform_approximant = waveform_kwargs['waveform_approximant']
+    reference_frequency = waveform_kwargs['reference_frequency']
+    minimum_frequency = waveform_kwargs['minimum_frequency']
+    maximum_frequency = waveform_kwargs['maximum_frequency']
+    sampling_frequency = waveform_kwargs['sampling_frequency']
+    Lmax = waveform_kwargs['Lmax']
+    waveform_dictionary = waveform_kwargs.get(
+        'lal_waveform_dictionary', lal.CreateDict()
+    )
+    h_method = 'hoft'
+    extra_waveform_kwargs = waveform_kwargs['extra_waveform_kwargs']
+    if 'h_method' in kwargs:
+        h_method = kwargs['h_method']
+
+    approximant = lalsim.GetApproximantFromString(waveform_approximant)
+    
+    P = lalsimutils.ChooseWaveformParams()
+    P.m1 = mass_1 * lal.MSUN_SI
+    P.m2 = mass_2 * lal.MSUN_SI
+    P.s1x = float(spin_1x); P.s1y = float(spin_1y); P.s1z = float(spin_1z)
+    P.s2x = float(spin_2x); P.s2y = float(spin_2y); P.s2z = float(spin_2z)
     P.eccentricity = float(eccentricity)
-    P.meanPerAno = float(meanPerAno)
+    P.meanPerAno = float(mean_per_ano)
+    P.deltaT = 1./(sampling_frequency)
+
+    P.fmin = float(minimum_frequency)
+    P.fmax = float(maximum_frequency)
+    P.fref = float(reference_frequency)
+    P.deltaF=frequency_array[1]-frequency_array[0]
+    P.incl = float(iota)
+    P.phiref = float(phase)
     P.dist=luminosity_distance*lal.PC_SI*1e6
     P.approx = approximant
     P.taper = lalsim.SIM_INSPIRAL_TAPER_START
