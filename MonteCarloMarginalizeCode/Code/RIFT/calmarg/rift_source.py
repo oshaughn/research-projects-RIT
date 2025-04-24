@@ -132,7 +132,7 @@ def RIFT_lal_binary_black_hole_orig(
 
 def RIFT_lal_binary_black_hole(
         frequency_array, mass_1, mass_2, luminosity_distance, spin_1x, spin_1y, spin_1z,
-        spin_2x, spin_2y, spin_2z,iota, phase, eccentricity, meanPerAno **kwargs):
+        spin_2x, spin_2y, spin_2z,iota, phase, eccentricity, meanPerAno, **kwargs):
 
     waveform_kwargs = dict(
         waveform_approximant='SEOBNRv4PHM', reference_frequency=15.0,
