@@ -186,7 +186,7 @@ likelihood = bilby.gw.GravitationalWaveTransient(
 
 
 # using transient code, to get raw waveform data
-waveform_polarizations = \
-    likelihood.waveform_generator.frequency_domain_strain(self.parameters)
+#waveform_polarizations = \
+#    likelihood.waveform_generator.frequency_domain_strain(self.parameters)
 
 
