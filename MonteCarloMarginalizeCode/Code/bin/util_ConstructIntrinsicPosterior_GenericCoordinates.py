@@ -1435,6 +1435,54 @@ def fit_rf(x,y,y_errors=None,fname_export='nn_fit',verbose=False):
     print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
     return fn_return
 
+def fit_rf_pca(x,y,y_errors=None,fname_export='nn_fit'):
+    # from aasim
+#    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.ensemble import ExtraTreesRegressor
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import StandardScaler
+    x_scaler = StandardScaler()
+    x_scaled = x_scaler.fit_transform(x)
+    pca = PCA()
+    x_pca = pca.fit_transform(x_scaled)
+    # Instantiate model. Usually not that many structures to find, don't overcomplicate
+    #   - should scale like number of samples
+    rf = ExtraTreesRegressor(n_estimators=100, verbose=True,n_jobs=-1) # no more than 5% of samples in a leaf
+
+    if y_errors is None:
+        rf.fit(x_pca,y)
+    else:
+        rf.fit(x_pca,y,sample_weight=1./y_errors**2)
+
+    ### reject points with infinities : problems for inputs
+    def fn_return(x_in,rf=rf):
+        f_out = -100000*np.ones(len(x_in))
+        # remove infinity or Nan
+        indx_ok = np.all(np.isfinite(x_in),axis=-1)
+        # rf internally uses float32, so we need to remove points > 10^37 or so ! 
+        #    ... this *should* never happen due to bounds constraints, but ...
+        indx_ok_size = np.all( np.logical_not(np.greater(np.abs(x_in),1e37)), axis=-1)
+        indx_ok = np.logical_and(indx_ok, indx_ok_size)
+
+        f_out[indx_ok] = rf.predict(pca.transform(x_scaler.transform(x_in[indx_ok])))
+        return f_out
+#    fn_return = lambda x_in: rf.predict(x_in) 
+
+    print( " Demonstrating RF")   # debugging
+    residuals = rf.predict(pca.transform(x_scaler.transform(x)))-y
+    print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
+    return fn_return
+
+def fit_rbf(x,y,y_errors=None,fname_export='rbf_fit',verbose=False):
+    from scipy.interpolate import RBFInterpolator
+    #   - should scale like number of samples
+    rbf = RBFInterpolator(x,y)
+
+    print( " Demonstrating RBF")   # debugging
+    residuals = rbf(x)-y
+    print( "    std ", np.std(residuals), np.max(y), np.max(rbf(x)))
+    return rbf
+
 def fit_nn_rfwrapper(x,y,y_errors=None,fname_export='nn_fit'):
     from sklearn.ensemble import RandomForestRegressor
     # Instantiate model. Usually not that many structures to find, don't overcomplicate
@@ -2106,6 +2154,38 @@ elif opts.fit_method == 'rf':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_rf(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'rf_pca':
+    print( " FIT METHOD ", opts.fit_method, " IS RF-pca ")
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_rf_pca(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'rbf':
+    print( " FIT METHOD ", opts.fit_method, " IS RBF; **errors not used! **")
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_rbf(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'nn_rfwrapper':
     print( " FIT METHOD ", opts.fit_method, " IS NN with RF wrapper ")
     # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others

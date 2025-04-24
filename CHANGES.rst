@@ -12,6 +12,8 @@ development tree is rift_O4c
      cip-expl-de-jobs-auto last explode sanity for n_eff (rc1)
    - bootstrap asimov using --manual-initial-grid-supplements (new option); subdag memory/disk limits correctly passed;
      wf interface update INRPhenomXAS; mcsamplerNFlow updates; ILE fix precompute-ignore-threshold so non-default value possible.
+     calmarg now works with eccentric waveforms. cosmo_sourceframe works with distance-marginalization. hyperpipe minor
+     puff file transfer fix.   CIP adds rf_pca, rbf fit options.
      
 0.0.17.2
 ------------
