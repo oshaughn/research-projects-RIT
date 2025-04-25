@@ -32,12 +32,14 @@ from nflows.utils import torchutils
 from nflows.distributions.normal import StandardNormal
 from nflows.transforms.normalization import BatchNorm
 from nflows.transforms.base import CompositeTransform, Transform
+from nflows.transforms import AffineCouplingTransform
 from nflows.transforms.autoregressive import MaskedAffineAutoregressiveTransform
 from nflows.transforms.autoregressive import MaskedPiecewiseLinearAutoregressiveTransform
 from nflows.transforms.autoregressive import MaskedPiecewiseQuadraticAutoregressiveTransform
 from nflows.transforms.autoregressive import MaskedPiecewiseCubicAutoregressiveTransform
 from nflows.transforms.autoregressive import MaskedPiecewiseRationalQuadraticAutoregressiveTransform
 from nflows.transforms.permutations import ReversePermutation, RandomPermutation
+from nflows.nn.nets import ResidualNet
 # -------------------------------------
 from nflows.transforms.base import InverseTransform
 from nflows.transforms.base import MultiscaleCompositeTransform
@@ -233,17 +235,74 @@ class TanhTransformFrozen(Transform):
 		logabsdet = torchutils.sum_except_batch(logabsdet, num_batch_dims=1)
 		return outputs, logabsdet
 
-              
+
+class IterativeSnapshot_Trainer:
+    """
+     Transform sequence provided F0, F1, F2, ... Usually F0 will be *fixed* (eg Tanh to get to correct range)
+    """
+    def __init__(self, bounds: List[Tuple[float, float]], 
+                 base_distribution=StandardNormal,
+                 transform_list=None):
+        self.bounds              = bounds
+        self.base_distribution   = base_distribution
+        self.transform_list           = transform_list
+        self.loss_history = []
+        self.flow = None
+        
+    def train_flow(self, samples_in: List[List[float]],
+                   weights: List[float],
+                   max_epochs: int, bound_offset: float,n_print=20, n_transforms=0, n_transforms_delta=2):
+        # Transform samples by first n_transforms-1 transforms
+        assert n_transforms >= 0
+        samples= torch.tensor(samples_in, dtype=torch.float32)
+        if n_transforms >0:
+          transform_before = CompositeTransform(self.transform_list[:n_transforms])
+          # just do the transform
+          with torch.no_grad():
+            samples = transform_before.forward(samples)[0]  # forwards, just need to evaluate -
+          print(samples, samples_in)
+        if True: # n_transforms+n_transforms_delta < len(self.transform_list):
+          # try LOCAL optimization of part of flow
+          flow_here = Flow(CompositeTransform(self.transform_list[n_transforms:n_transforms+n_transforms_delta]), self.base_distribution(shape=[len(self.bounds)]))
+        else:
+          # try GLOBAL optimization at end
+          flow_here = Flow(CompositeTransform(self.transform_list), self.base_distribution(shape=[len(self.bounds)]))
+
+        optimizer                = optim.Adam(flow_here.parameters(),lr=1e-3)
+        prev_efficiency          = float('inf')
+        losses                   = self.loss_history
+        # Fixed training input
+#        lnL_weighted_func = torch.nn.NLLLoss(weight=torch.tensor(weights))
+        for epoch in range(1, int(max_epochs)):       
+            # Set gradients equals to zero
+            optimizer.zero_grad()
+            
+            # Compute the loss
+            loss                 = -flow_here.log_prob(samples).mean()
+            
+            # Create necessary derivatives
+            loss.backward()
+            
+            # Store loss value for monitoring
+            losses.append(loss.item()) 
+            if (epoch%n_print)==0:
+              print("    Flow training ", epoch, loss.item())
+              n_hist = np.min([len(losses), 100])
+            
+            optimizer.step()
+
+        # define flow, so we can draw from it
+        self.flow = Flow(CompositeTransform(self.transform_list[:n_transforms+n_transforms_delta]),  self.base_distribution(shape=[len(self.bounds)]) )
+        return losses
+
               
 class NFlowsNFS_Trainer:
     def __init__(self, bounds: List[Tuple[float, float]], 
-                 n_samples=100,
                  target_distribution= StandardNormal,
                  base_distribution=StandardNormal,
                  transform=CompositeTransform):
         self.bounds              = bounds
-        self.n_samples           = n_samples
-        self.target_distribution = target_distribution
+#        self.target_distribution = target_distribution
         self.base_distribution   = base_distribution
         self.transform           = transform
         self.flow                = None
@@ -255,7 +314,7 @@ class NFlowsNFS_Trainer:
     
     def train_flow(self, samples_in: List[List[float]],
                    weights: List[float],
-                   out_n_samples: int, max_epochs: int, bound_offset: float,n_print=20):
+                   max_epochs: int, bound_offset: float,n_print=20, **kwargs):
         if self.flow is None:
           self.flow                = Flow(self.transform, self.base_distribution(shape=[len(self.bounds)]))
 
@@ -281,41 +340,9 @@ class NFlowsNFS_Trainer:
             if (epoch%n_print)==0:
               print("    Flow training ", epoch, loss.item())
               n_hist = np.min([len(losses), 100])
-#              if check_nonzero_deriv(losses[-n_hist:]):
-#                print("    -- stationary ---")
-            
             optimizer.step()
-            
-            # Display Results Every 500 Iterations 
-            if (epoch + 1) % 500 == 0:
-                # with torch.no_grad():
-                #     min_bounds   = [bound[0] - bound_offset for bound in self.bounds]
-                #     max_bounds   = [bound[1] + bound_offset for bound in self.bounds]
-                #     xgrid        = [torch.linspace(min_bound, 
-                #                                    max_bound, 
-                #                                    out_n_samples) for min_bound, 
-                #                                                       max_bound in zip(min_bounds, 
-                #                                                                        max_bounds)]
-                #     meshgrids    = torch.meshgrid(*xgrid)
-                #     xyinput      = torch.cat([meshgrid.reshape(-1, 1) for meshgrid in meshgrids], dim=1)
-
-                #     zgrid        = self.flow.log_prob(xyinput).exp().reshape([out_n_samples] * len(self.bounds))
-                    
-                # if len(self.bounds) == 2 and self.plotting == True:
-                #     self.plot_if_2d(epoch, meshgrids, zgrid, loss)
-              #else:
-              print(f"Iteration: {epoch + 1}   Training Loss: {loss}")
 
         return losses
-    
-    
-    def plot_if_2d(self, epoch, meshgrids, zgrid, loss) -> None:
-        plt.figure()
-        dummy_variable = plt.contourf(*meshgrids, zgrid.numpy())
-        plt.title(f"Iteration: {epoch + 1}   Training Loss: {loss}")
-        plt.savefig("fig_{}.png".format(epoch))
-
-
 
 
 class MCSampler(MCSamplerGeneric):
@@ -357,15 +384,17 @@ class MCSampler(MCSamplerGeneric):
         self.nf_model = None
         self.nf_trainer = None
         self.nf_flow = None
+        self.nf_epoch = 0
 
         self.mean_affine_set = False
 
 
-    def setup(self, nf_cov=None, nf_mean=None,nf_method=None,**kwargs):
+    def setup(self, nf_cov=None, nf_mean=None, nf_method='default',**kwargs):
 
         self._rvs={}
         self.lnL_thresh = -np.inf
         self.enc_prob = 0.999
+        self.nf_method=nf_method
         d_nf = len(self.params_ordered)
 
         bounds = np.array([ [self.llim[p],self.rlim[p]] for p in self.params_ordered])
@@ -375,19 +404,31 @@ class MCSampler(MCSamplerGeneric):
         n_features = len(bounds)
         transforms = []
         # trivial scale layer first, to get the boundaries in the right place. Use TanhTransform to scale
-#        transforms.append(TanhTransformFrozen(len(bounds), low=bounds[:,0], high=bounds[:,1]))
-        transforms.append(PointwiseAffineTransform())
+        if nf_method=='iterative':
+          transforms.append(TanhTransformFrozen(len(bounds), low=bounds[:,0], high=bounds[:,1]))
+        else:
+          transforms.append(PointwiseAffineTransform())
 #        transforms.append(LULinear(features=len(bounds)))
 
         for _ in range(self.num_layers):
-          transforms.append(RandomPermutation(features = len(bounds)))
-          transforms.append(MaskedAffineAutoregressiveTransform(features = len(bounds),
+            transforms.append(RandomPermutation(features = len(bounds)))
+            if self.nf_method =='iterative':
+              transforms.append(AffineCouplingTransform(
+                mask                    = np.arange(n_features) % 2,
+                transform_net_create_fn = lambda in_features, out_features: ResidualNet(in_features, out_features, hidden_features=64, num_blocks=2)))
+            else:
+              transforms.append(MaskedAffineAutoregressiveTransform(features = len(bounds),
                                                                 hidden_features = 2 * len(bounds)) )
         transform  = CompositeTransform(transforms)
         self.nf_model = transform
 
-        trainer    = NFlowsNFS_Trainer(bounds              = bounds, 
-                               transform           = transform)
+        if nf_method=='iterative':
+          trainer    = IterativeSnapshot_Trainer(bounds              = bounds, 
+                                               transform_list           = transforms)
+        else:
+          trainer    = NFlowsNFS_Trainer(bounds              = bounds, 
+                                 transform           = transform)
+
         self.nf_trainer = trainer
         self.nf_flow = trainer.flow
         
@@ -576,7 +617,7 @@ class MCSampler(MCSamplerGeneric):
         print("    NF: Training data shape ", samples_train.shape)
         print("    NF: training data mean ", np.mean(samples_train,axis=-1))
 
-      if not(self.mean_affine_set):
+      if not(self.mean_affine_set) and self.nf_method != 'iterative':
           # pvals = weights_alt / np.sum(weights_alt)   # not going to use proper weighted sample mean, just fix to original hotspot to get close.
           my_mean = torch.as_tensor(np.mean(samples_train.T , axis=0),dtype=torch.float32)
           my_scale = torch.Tensor(np.diag(np.cov(samples_train)) )  # cov is trickier, do NOT use weights since catastrophe possible
@@ -591,14 +632,17 @@ class MCSampler(MCSamplerGeneric):
       trainer = self.nf_trainer
       max_epochs = max_epochs_requested  # be short, don't need precision/long training
       if max_epochs < int(10*self.num_layers): max_epochs = int(10*self.num_layers)
-
+      # for iterative trainer: start with fixed first transform, train next wo
+      n_transforms=1 + 2*self.nf_epoch
+      n_transforms_delta = 2
+      
       losses     = trainer.train_flow(samples_in= samples_train.T,
-                                weights=weights_alt,
-                                out_n_samples = 100, 
-                                max_epochs    = max_epochs, 
-                                bound_offset  = 0.5)
+                                      weights=weights_alt,
+                                      max_epochs    = max_epochs, 
+                                      bound_offset  = 0.5, n_transforms=n_transforms, n_transforms_delta=n_transforms_delta)
 
       self.nf_flow = trainer.flow
+      self.nf_epoch +=1
 
 
     @profile
