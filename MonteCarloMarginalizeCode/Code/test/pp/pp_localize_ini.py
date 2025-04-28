@@ -15,6 +15,10 @@ parser.add_argument("--ini")
 parser.add_argument("--sim-xml")
 parser.add_argument("--guess-snr",type=float)
 parser.add_argument("--mc-range")
+parser.add_argument("--cip-sampler",type=str)
+parser.add_argument("--ile-sampler",type=str)
+parser.add_argument("--assume-nonprecessing",action='store_true')
+parser.add_argument("--assume-fixed-sky-location",action='store_true')
 #parser.add_argument("--mc-range-limits-snr-safety",type=float,default=8)
 #parser.add_argument("--duration",type=int)
 opts = parser.parse_args()
@@ -127,16 +131,21 @@ else:
 
 sky_printed=False
 # Try to set most of the high-SNR options here. Distance marginalization will be left to the top-level script
-if opts.guess_snr>37.5:
+if opts.ile_sampler != 'AV':
+  if opts.guess_snr>37.5:
     print("use-downscale-early=True")
     print("internal-ile-use-lnL=True")
-    print("internal-ile-sky-network-coordinates=True")
+    if not(opts.fix_sky_location):
+        print("internal-ile-sky-network-coordinates=True")
     print("cip-sigma-cut=0.7")
-    sky_printed=True
-if opts.guess_snr>100:
+  if opts.guess_snr>100:
     print("internal-cip-use-lnL=True")
     print("internal-ile-rotate-phase=True")
     print("ile-sampler-method=GMM")
+elif opts.ile_sampler == 'AV':
+    print("internal-ile-use-lnL=True")  # automatic/redundant
+    if opts.guess_SNR > 26:
+        print("manual-extra-ile-args=--force-adapt-all")  # adapt in all parameters
 #if len(ifos) == 2 and not sky_printed:
 #    print("internal-ile-sky-network-coordinates=True")
 print("event-time={}".format(P.tref))

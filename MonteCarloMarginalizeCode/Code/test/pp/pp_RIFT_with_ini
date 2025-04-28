@@ -602,7 +602,13 @@ for indx in np.arange(n_events):
     os.system(cmd)
     # Copy main pseudo_ini here and run pp_localize_ini.py to see if defaults should change
     os.system('cp ../pseudo_ini.ini pseudo_ini.ini')
-    localize = 'python ../../pp_localize_ini.py --event {} --ini pseudo_ini.ini --sim-xml ../mdc.xml.gz --guess-snr {}  --mc-range "[{}, {}]"'.format(indx, snr_dict[indx], mc_min, mc_max)
+    extra_args = ''
+    if fix_sky_location:
+        extra_args += " --assume-fixed-sky-location "
+    if aligned_spin or no_spin:
+        extra_args += ' --assume-nonprecessing '
+    localize = 'python ../../pp_localize_ini.py --ciip-sampler{} --ile-sampler {} --event {} --ini pseudo_ini.ini --sim-xml ../mdc.xml.gz --guess-snr {}  --mc-range "[{}, {}]"'.format(cip_sampler,ile_sampler, indx, snr_dict[indx], mc_min, mc_max)
+    localize += extra_args
     os.system(localize)
     ## Make call to pseudo_pipe - should create rundir within event_dir
     if os.path.exists('localize.ini'):
