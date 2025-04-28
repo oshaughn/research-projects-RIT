@@ -737,5 +737,5 @@ class MCSampler(object):
 
 
 # PROVIDE CROSS-CODE DEPLOY, without rewrite
-from RIFT.integrators.mcsamplerGPU import  uniform_samp_cdf_inv_vector,     ret_uniform_samp_vector_alt,uniform_samp_phase, cos_samp_vector, cos_samp_cdf_inv_vector,ret_uniform_samp_vector_alt, uniform_samp_theta,uniform_samp_psi
+from RIFT.integrators.mcsamplerGPU import  uniform_samp_cdf_inv_vector,     ret_uniform_samp_vector_alt,uniform_samp_phase, cos_samp_vector, cos_samp_cdf_inv_vector,ret_uniform_samp_vector_alt, uniform_samp_theta,uniform_samp_psi, dec_samp_vector
 from RIFT.integrators.mcsamplerGPU import q_samp_vector, M_samp_vector,q_cdf_inv_vector
