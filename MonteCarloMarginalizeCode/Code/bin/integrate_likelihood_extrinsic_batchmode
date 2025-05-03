@@ -250,6 +250,7 @@ optp.add_option("--internal-waveform-extra-lalsuite-args",type=str,default=None)
 optp.add_option("--internal-waveform-extra-kwargs",type=str,default=None)
 optp.add_option("--internal-precompute-ignore-threshold",default=None,type=float)
 optp.add_option("--verbose",action='store_true')
+optp.add_option("--save-EOB-parameters", action="store_true")
 optp.add_option("--save-eccentricity", action="store_true")
 optp.add_option("--save-meanPerAno", action="store_true")
 #
@@ -1874,16 +1875,23 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           else:  
             # output format when only eccentricity is being used
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+        elif not (P.lambda1>0 or P.lambda2>0) and opts.save_EOB_parameters:
+          numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, P.a6c, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+        elif (P.lambda1>0 or P.lambda2>0) and opts.save_EOB_parameters:
+          numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, P.a6c, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
         elif not (P.lambda1>0 or P.lambda2>0):
           # output format when lambda is NOT used
           if not opts.pin_distance_to_sim:
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+#          elif opts.save_EOB_parameters:
+
           else:
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, pinned_params["distance"], log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
         else:
           if not(opts.export_eos_index):
             # Alternative output format if lambda is active
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
+#          elif opts.save_EOB_parameters:
           else:
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, P.eos_table_index, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
 
@@ -1959,6 +1967,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["spin2z"] =numpy.ones(samples["psi"].shape)*P.s2z
             samples["alpha4"] =numpy.ones(samples["psi"].shape)*P.eccentricity
             samples["alpha"] =numpy.ones(samples["psi"].shape)*P.meanPerAno
+            samples["a6c"] =numpy.ones(samples["psi"].shape)*P.a6c
             samples["alpha5"] =numpy.ones(samples["psi"].shape)*P.lambda1
             samples["alpha6"] =numpy.ones(samples["psi"].shape)*P.lambda2
             # Below exist solely to placate XML export; new issue as of latest lalsuite say 7.15+ or so
@@ -1971,7 +1980,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         # Extra metadata
-      dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha": P.meanPerAno, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
+      dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha": P.meanPerAno, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal, "psi0": P.a6c}
 #      if 'distance' in pinned_params:
 #            dict_out['distance'] = pinned_params["distance"]
       converged_result = False

@@ -38,7 +38,9 @@ parser.add_argument("--fref", dest='fref', type=float, default=0.0, help="Wavefo
 parser.add_argument("--incl",default=None,help="Set the inclination of L (at fref). Particularly helpful for aligned spin tests")
 parser.add_argument("--mass1",default=10,type=float,help='Mass 1 (solar masses)')
 parser.add_argument("--mass2",default=1.4,type=float,help='Mass 2 (solar masses)')
+parser.add_argument("--l-max",default=4,type=float,help='Inclusion of modes in injection')
 parser.add_argument("--verbose", action="store_true",default=False)
+parser.add_argument("--use-hlms-as-injections", action="store_true",default=False)
 opts=  parser.parse_args()
 
 
@@ -86,7 +88,14 @@ if T_est < opts.seglen:
 
 
 # Generate signal
-hoft = lalsimutils.hoft(P)   # include translation of source, but NOT interpolation onto regular time grid
+#hoft = lalsimutils.hoft(P)   # include translation of source, but NOT interpolation onto regular time grid
+if not (opts.use_hlms_as_injections):
+    print("Injecting with hoft")
+    hoft = lalsimutils.hoft(P,approx_string=opts.approx)
+else:
+    print("Injecting with hlms")
+    hlm = lalsimutils.hlmoft(P,Lmax=opts.l_max)
+    hoft = lalsimutils.hoft_from_hlm(hlm,P)
 epoch_orig = hoft.epoch
 # zero pad to be opts.seglen long, if necessary
 if opts.seglen/hoft.deltaT > hoft.data.length:

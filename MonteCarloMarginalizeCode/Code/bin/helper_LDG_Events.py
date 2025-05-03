@@ -200,6 +200,7 @@ parser.add_argument("--assume-matter-but-primary-bh",action='store_true',help="I
 parser.add_argument("--internal-tabular-eos-file",type=str,default=None,help="Tabular file of EOS to use.  The default prior will be UNIFORM in this table!. NOT YET IMPLEMENTED (initial grids, etc)")
 parser.add_argument("--assume-eccentric",action='store_true',help="If present, the code will add options necessary to manage eccentric arguments. The proposed fit strategy and initial grid will allow for eccentricity")
 parser.add_argument("--use-meanPerAno",action='store_true',help="The proposed fit strategy and initial grid will allow for meanPerAno")
+parser.add_argument("--use-EOB-parameters",action='store_true',help="The proposed fit strategy and initial grid will allow for EOB parameters: currently only a6c")
 parser.add_argument("--assume-nospin",action='store_true',help="If present, the code will not add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-precessing-spin",action='store_true',help="If present, the code will add options to manage precessing spins (the default is aligned spin)")
 parser.add_argument("--assume-volumetric-spin",action='store_true',help="If present, the code will assume a volumetric spin prior in its last iterations. If *not* present, the code will adopt a uniform magnitude spin prior in its last iterations. If not present, generally more iterations are taken.")
@@ -994,6 +995,8 @@ if use_ini:
         eta_max = q_max/(1.+q_max)**2
         if eta_max >=0.25:
             eta_max = 0.24999999  # rounding/finite-precision issues may cause nan problems 
+    if 'a6c_min' in engine_dict:
+        a6c_range_str = "  ["+str(engine_dict['a6c_min'])+","+str(engine_dict['a6c_max'])+"]"
     if 'ecc_min' in engine_dict:
         ecc_range_str = "  ["+str(engine_dict['ecc_min'])+","+str(engine_dict['ecc_max'])+"]"
     if 'meanPerAno_min' in engine_dict:
@@ -1197,6 +1200,8 @@ elif opts.data_LI_seglen:
     if opts.psd_assume_common_window:
             helper_ile_args += " --psd-window-shape {} ".format(window_shape)
 
+if opts.use_EOB_parameters:
+    helper_ile_args += " --save-EOB-parameters "
 if opts.assume_eccentric:
     helper_ile_args += " --save-eccentricity "
     if opts.use_meanPerAno:
@@ -1229,6 +1234,8 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
 
         cmd += " --random-parameter chieff_aligned  --random-parameter-range " + chieff_range
         grid_size =2500
+    if opts.use_EOB_parameters:
+        cmd += " --random-parameter a6c --random-parameter-range " + a6c_range_str
     if opts.assume_eccentric:
         cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
         grid_size = int(grid_size*1.5)
@@ -1288,6 +1295,9 @@ elif opts.propose_initial_grid:
         if opts.assume_precessing_spin:
             # Handle problems with SEOBNRv3 failing for aligned binaries -- add small amount of misalignment in the initial grid
             cmd += " --parameter s1x --parameter-range [0.00001,0.00003] "
+    if opts.use_EOB_parameters:
+        cmd += " --random-parameter a6c --random-parameter-range " + a6c_range_str
+        grid_size = int(grid_size*1.5)
     if opts.assume_eccentric:
         cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
         grid_size = int(grid_size*1.5)
@@ -1441,6 +1451,8 @@ if event_dict["MChirp"] >25:
     helper_puff_args = " --parameter mc --parameter delta_mc --fmin {} --fref {}  ".format(opts.fmin_template,opts.fmin_template)  
 else:
     helper_puff_args = " --parameter mc --parameter eta --fmin {} --fref {} ".format(opts.fmin_template,opts.fmin_template)
+if opts.use_EOB_parameters:
+    helper_puff_args += " --parameter a6c "
 if opts.assume_eccentric:
     helper_puff_args += " --parameter eccentricity "
     if opts.use_meanPerAno:
@@ -1760,6 +1772,10 @@ if opts.assume_matter and opts.internal_tabular_eos_file:
     with open("helper_convert_args.txt", 'a') as f:
         f.write(" --export-eos ")
         
+if opts.use_EOB_parameters:
+    with open("helper_convert_args.txt",'a') as f:
+        f.write(" --export-EOB-parameters ")
+
 if opts.assume_eccentric:
     with open("helper_convert_args.txt",'a') as f:
         f.write(" --export-eccentricity ")

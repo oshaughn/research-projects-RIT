@@ -47,6 +47,7 @@ import numpy as np
 from numpy import sin, cos
 from scipy import interpolate
 from scipy import signal
+from scipy.optimize import fsolve
 import scipy  # for decimate
 try:
     import precession
@@ -314,6 +315,31 @@ MsunInSec = lal.MSUN_SI*lal.G_SI/lal.C_SI**3
 
 def modes_to_k(modes):
     return [int(x[0]*(x[0]-1)/2 + x[1]-2) for x in modes]
+def mean_anomaly_from_true(true_anomaly, eccentricity):
+    return (
+        np.arctan2(
+            -np.sqrt(
+                1 - eccentricity**2)
+            * np.sin(true_anomaly),
+            - eccentricity - np.cos(true_anomaly)
+        ) + np.pi
+        - eccentricity
+        * np.sqrt(1 - eccentricity**2)
+        * np.sin(true_anomaly)
+        / (
+            1 + eccentricity
+            * np.cos(true_anomaly)
+        )
+    )
+def eccentric_anomaly_from_mean(mean_anomaly, eccentricity):
+    func = lambda E : E - eccentricity*np.sin(E) - mean_anomaly
+    return fsolve(func, x0=mean_anomaly)
+def true_anomaly_from_eccentric(eccentric_anomaly, eccentricity):
+    # formula from https://ui.adsabs.harvard.edu/abs/1973CeMec...7..388B/abstract
+    # avoids numerical issues
+
+    beta = eccentricity / (1+np.sqrt(1 - eccentricity**2))
+    return eccentric_anomaly + 2 * np.arctan2(beta * np.sin(eccentric_anomaly), 1 - beta * np.cos(eccentric_anomaly))
 
 # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/_l_a_l_sim_inspiral_8c_source.html#l02910
 def lsu_StringFromPNOrder(order):
@@ -342,7 +368,7 @@ def lsu_StringFromPNOrder(order):
 # Class to hold arguments of ChooseWaveform functions
 #
 
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','eccentricity_squared', 'chi_pavg','mu1','mu2','eos_table_index','meanPerAno']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','eccentricity_squared', 'chi_pavg','mu1','mu2','eos_table_index','meanPerAno','a6c','E0','p_phi0','hypclass']
 
 # so far, used for puffball, to prevent insanity (infinite growth) and/or death to downselect
 #   - note we also provide for extrinsic: RA (phi), phiref, psi, just in case we need it in the future
@@ -388,6 +414,9 @@ tex_dictionary  = {
   "s2y": r"$\chi_{2,y}$",
   "eccentricity":"$e$",
   "meanPerAno":"$l_{gw}$",
+  "E0" : "$E_0 / M$",
+  "p_phi0" : r"$p__{\phi}^0",  
+  "a6c":"$a^c_6$",
   # tex labels for inherited LI names
  "a1z": r'$\chi_{1,z}$',
  "a2z": r'$\chi_{2,z}$',
@@ -436,8 +465,11 @@ class ChooseWaveformParams:
             deltaF=None, fmax=0., # for use w/ FD approximants
             taper=lsu_TAPER_NONE, # for use w/TD approximants
             eccentricity=0., # make eccentricity a parameter
-            meanPerAno=0. # make meanPerAno a parameter
-            ):
+            meanPerAno=0., # make meanPerAno a parameter
+            E0=0., # make E0/M a parameter
+            p_phi0=0., # make j_hyp a parameter
+            a6c=10000. # EOB Parameter
+    ):
         self.phiref = phiref
         self.deltaT = deltaT
         self.m1 = m1
@@ -462,10 +494,12 @@ class ChooseWaveformParams:
         self.theta = theta     # DEC.  DEC =0 on the equator; the south pole has DEC = - pi/2
         self.phi = phi         # RA.   
         self.psi = psi
-        self.meanPerAno = 0.0  # port 
+        self.a6c=a6c
         self.longAscNodes = self.psi # port to master
         self.eccentricity=eccentricity
         self.meanPerAno=meanPerAno
+        self.E0 = E0
+        self.p_phi0 = p_phi0
         self.tref = tref
         self.radec = radec
         self.detector = "H1"
@@ -1567,12 +1601,16 @@ class ChooseWaveformParams:
             print( thePrefix, " :+ beta = ", self.extract_param('beta'))
         print( "lambda1 =", self.lambda1)
         print( "lambda2 =", self.lambda2)
+        print("EOB Parameters:")
+        print("a6c = ",self.a6c)
         print( "inclination =", self.incl)
         print( "distance =", self.dist / 1.e+6 / lsu_PC, "(Mpc)")
         print( "reference orbital phase =", self.phiref)
         print( "polarization angle =", self.psi)
         print( "eccentricity = ", self.eccentricity)
         print( "meanPerAno = ", self.meanPerAno)
+        print("E0 / M = ", self.E0)
+        print("j_hyp = ", self.p_phi0)
         print( "time of coalescence =", float(self.tref),  " [GPS sec: ",  int(self.tref), ",  GPS ns ", (self.tref - int(self.tref))*1e9, "]")
         print( "detector is:", self.detector)
         if self.radec==False:
@@ -1759,6 +1797,9 @@ class ChooseWaveformParams:
         # FAKED COLUMNS (nonstandard)
         self.lambda1 = row.alpha5
         self.lambda2 = row.alpha6
+        self.E0 = row.psi3
+        self.p_phi0 = row.beta
+        self.a6c = row.psi0
         self.eccentricity=row.alpha4
         self.meanPerAno=row.alpha
         self.snr = row.alpha3   # lnL info
@@ -1824,6 +1865,9 @@ class ChooseWaveformParams:
         # NONSTANDARD
         row.alpha5 = self.lambda1
         row.alpha6 = self.lambda2
+        row.psi0 = self.a6c
+        row.psi3 = self.E0
+        row.beta = self.p_phi0
         row.alpha4 = self.eccentricity
         row.alpha = self.meanPerAno
         if self.eos_table_index and not self.eccentricity:
@@ -2863,68 +2907,113 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
         extra_waveform_args.update(kwargs['extra_waveform_args'])
     extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
     if P.approx==lalsim.TEOBResumS and has_external_teobresum and info_use_ext:
-        Lmax=8
+        Lmax=4
         modes_used = []
         distance_s = P.dist/lal.C_SI
         m_total_s = MsunInSec*(P.m1+P.m2)/lal.MSUN_SI
+        k_coprecessing_frame_check = [1, 0, 4, 8]
         for l in np.arange(2,Lmax+1,1):
             for m in np.arange(0,l+1,1):
                 if m !=0:
                     modes_used.append((l,m))
+        print(modes_used)
         k = modes_to_k(modes_used)
+        k_coprecessing_frame = []
+        for count,value in enumerate(k):
+            if value in k_coprecessing_frame_check:
+                k_coprecessing_frame.append(value)
+        print(" k inertial modes: ", k, "k coprecessing frames: ", k_coprecessing_frame)
+        if kwargs.get('force_22_mode', False):
+            print('Forcing ONLY the 22 modes')
+            k = [1]
         M1=P.m1/lal.MSUN_SI
         M2=P.m2/lal.MSUN_SI
         nu=M1*M2/((M1+M2)**2)
-        if (P.eccentricity == 0.0):
-            print("Using ResumS master; not eccentric")
+        ecc_ano=eccentric_anomaly_from_mean(P.meanPerAno,P.eccentricity)
+        true_ano=true_anomaly_from_eccentric(ecc_ano,P.eccentricity)
+        if P.E0 == 0.0:
+            print("Using TEOBResumSDALI/GIOTTO standard call")
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
-                'LambdaAl2'            : P.lambda1,
-                'LambdaBl2'            : P.lambda2,
+                'LambdaAl2'          : P.lambda1,
+                'LambdaBl2'          : P.lambda2,
                 'chi1x'              : P.s1x,
                 'chi1y'              : P.s1y,
                 'chi1z'              : P.s1z,
                 'chi2x'              : P.s2x,
                 'chi2y'              : P.s2y,
                 'chi2z'              : P.s2z,
+                'ecc'                : P.eccentricity,
+                'inclination'        : P.incl,
+                'coalescence_angle'  : np.pi / 2 - P.phiref,
+                'srate_interp'       : 1./P.deltaT,
+                'initial_frequency'  : P.fmin,
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'anomaly'            : true_ano,
+#                'a6c'                : P.a6c,
                 'domain'             : 0,
                 'arg_out'            : "yes",
-                'use_mode_lm'        : k,
-                'srate_interp'       : 1./P.deltaT,
-                'use_geometric_units': "no",
-                'initial_frequency'  : P.fmin,
                 'interp_uniform_grid': "yes",
-                'distance'           : P.dist/(lal.PC_SI*1e6),
-                'inclination'        : P.incl,
-                "coalescence_angle": np.pi / 2 - P.phiref,
+                'use_geometric_units': "no",
+                # spin_flx can be "EOB" or "PN" prescription. Currently suggested to use EOB as standard (use PN for GIOTTO like prescription)
+                'spin_flx'           : "EOB",
+                'spin_interp_domain' : 0,
+                # This can be "QNMs" or "constant". Currently it looks like without QNMs enabled gives basically only prior for precessing events (even for low mass events)
+                'ringdown_eulerangles': "QNMs",
+                'use_mode_lm'        : k_coprecessing_frame,
+                #                'output_lm'          : k,
+#                'df'                 : P.deltaF,
                 'output_hpc'         : "no"
             }
+            if (np.abs(P.s1x) >  1e-4 or P.s1y!=0.0 or P.s2x!=0.0 or P.s2y!=0.0):
+                pars.update({'use_mode_lm_inertial': k})
+            if P.a6c < 1000:
+                pars.update({'a6c' : P.a6c})
         else:
-            print("Using eccentric call")
+            print("Using hyperbolic call")
+            hyp_wav = True # convenient way to know if the waveform is hyperbolic
+            
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
-                'Lambda2'            : P.lambda1,
-                'Lambda2'            : P.lambda2,
-                'chi1'              : P.s1z,
-                'chi2'              : P.s2z,
-                'domain'             : 0,
-                'arg_out'            : 1,
-                'use_mode_lm'        : k,
-                'output_lm'          : k,
-                'srate_interp'       : 1./P.deltaT,
-                'use_geometric_units': 0,
-                'initial_frequency'  : P.fmin,
-                'df'                 : P.deltaF,
-                'interp_uniform_grid': 1,
-                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'H_hyp'              : P.E0, # energy at initial separation
+                'j_hyp'              : P.p_phi0, # angular momentum at initial separation
+                'r_hyp'              : 6000.0, #hardcoded separation: may need to increase with certain systems; may want to make a option
+                'npc'                : "no",
+                'nqc_coefs_hlm'      : "none",
+                'nqc_coefs_flx'      : "none",
+                'ode_tmax'           : 3e4, # controls how long end of waveform is; may need to change for some systems
+                'LambdaAl2'          : P.lambda1,
+                'LambdaBl2'          : P.lambda2,
+                'chi1x'              : P.s1x,
+                'chi1y'              : P.s1y,
+                'chi1z'              : P.s1z,
+                'chi2x'              : P.s2x,
+                'chi2y'              : P.s2y,
+                'chi2z'              : P.s2z,
                 'inclination'        : P.incl,
-                "coalescence_angle": np.pi / 2 - P.phiref,
-                'output_hpc'         : 0,
-                'ecc'                : P.eccentricity,
-                'ecc_freq'           : 1 #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
+                'coalescence_angle'  : np.pi / 2 - P.phiref,
+                'srate_interp'       : 1./P.deltaT,
+                'initial_frequency'  : P.fmin,
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'domain'             : 0,
+                'arg_out'            : "yes",
+                'interp_uniform_grid': "yes",
+                'use_geometric_units': "no",
+                # spin_flx can be "EOB" or "PN" prescription. Currently suggested to use EOB as standard (use PN for GIOTTO like prescription)
+                'spin_flx'           : "EOB",
+                'spin_interp_domain' : 0,
+                # This can be "QNMs" or "constant". Currently it looks like without QNMs enabled gives basically only prior for precessing events (even for low mass events)
+                'ringdown_eulerangles': "QNMs",
+                'use_mode_lm'        : k_coprecessing_frame,
+                #                'output_lm'          : k,
+#                'df'                 : P.deltaF,
+                'output_hpc'         : "no"
             }
+            if (np.abs(P.s1x) >  1e-4 or P.s1y!=0.0 or P.s2x!=0.0 or P.s2y!=0.0):
+                pars.update({'use_mode_lm_inertial': k})
+
         print("Starting EOBRun_module")
         print(pars)
         t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
@@ -3414,22 +3503,33 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             P.fmin, P.fref, P.dist, extra_params, \
              Lmax, P.approx)
     elif P.approx ==lalsim.TEOBResumS and has_external_teobresum and not(info_use_resum_polarizations):  # don't call external if fallback to polarizations
-        print("Using TEOBResumS hlms")
+        print("Using TEOBResumS hlms (only using (2,2); (2,1); (3,3); (4,4) in coprecessing frame)")
         modes_used = []
+        modes_used_check = []
         distance_s = P.dist/lal.C_SI
         m_total_s = MsunInSec*(P.m1+P.m2)/lal.MSUN_SI
+        k_coprecessing_frame_check = [1, 0, 4, 8]
         for l in np.arange(2,Lmax+1,1):
             for m in np.arange(0,l+1,1):
                 if m !=0:
                     modes_used.append((l,m))
         print(modes_used)
         k = modes_to_k(modes_used)
-        print(k)
+        k_coprecessing_frame = []
+        for count,value in enumerate(k):
+            if value in k_coprecessing_frame_check:
+                k_coprecessing_frame.append(value)
+        print(" k inertial modes: ", k, "k coprecessing frames: ", k_coprecessing_frame)
+        if kwargs.get('force_22_mode', False):
+            print('Forcing ONLY the 22 modes')
+            k = [1]
         M1=P.m1/lal.MSUN_SI
         M2=P.m2/lal.MSUN_SI
         nu=M1*M2/((M1+M2)**2)
-        if P.eccentricity == 0.0:
-            print("Using ResumS master; not eccentric")
+        ecc_ano=eccentric_anomaly_from_mean(P.meanPerAno,P.eccentricity)
+        true_ano=true_anomaly_from_eccentric(ecc_ano,P.eccentricity)
+        if P.E0 == 0.0:
+            print("Using TEOBResumSDALI/GIOTTO standard call")
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
@@ -3441,50 +3541,88 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 'chi2x'              : P.s2x,
                 'chi2y'              : P.s2y,
                 'chi2z'              : P.s2z,
+                'ecc'                : P.eccentricity,
+                'inclination'        : P.incl,
+                'coalescence_angle'  : np.pi / 2 - P.phiref,
+                'srate_interp'       : 1./P.deltaT,
+                'initial_frequency'  : P.fmin,
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'anomaly'            : true_ano,
+#                'a6c'                : P.a6c,
                 'domain'             : 0,
                 'arg_out'            : "yes",
-                'use_mode_lm'        : k,
-#                'output_lm'          : k,
-                'srate_interp'       : 1./P.deltaT,
-#                'df'                 : P.deltaF,
-                'use_geometric_units': "no",
-                'initial_frequency'  : P.fmin,
                 'interp_uniform_grid': "yes",
-                'distance'           : P.dist/(lal.PC_SI*1e6),
-                'inclination'        : P.incl,
+                'use_geometric_units': "no",
+                # spin_flx can be "EOB" or "PN" prescription. Currently suggested to use EOB as standard (use PN for GIOTTO like prescription)
+                'spin_flx'           : "EOB",
+                'spin_interp_domain' : 0,
+                # This can be "QNMs" or "constant". Currently it looks like without QNMs enabled gives basically only prior for precessing events (even for low mass events)
+                'ringdown_eulerangles': "QNMs",
+                'use_mode_lm'        : k_coprecessing_frame,
+                #                'output_lm'          : k,
+#                'df'                 : P.deltaF,
                 'output_hpc'         : "no"
             }
+            if (np.abs(P.s1x) >  1e-4 or P.s1y!=0.0 or P.s2x!=0.0 or P.s2y!=0.0):
+                pars.update({'use_mode_lm_inertial': k})
+            if P.a6c < 1000:
+                pars.update({'a6c' : P.a6c})
         else:
-            print("Using eccentric call")
+            print("Using hyperbolic call")
+            hyp_wav = True # convenient way to know if the waveform is hyperbolic
+            
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
-                'LambdaAl2'            : P.lambda1,
-                'LambdaBl2'            : P.lambda2,
-                'chi1'               : P.s1z,
-                'chi2'               : P.s2z,
-                'domain'             : 0,
-                'arg_out'            : 1,
-                'use_mode_lm'        : k,
-                'output_lm'          : k,
-                'srate_interp'       : 1./P.deltaT,
-                'use_geometric_units': 0,
-                'initial_frequency'  : P.fmin,
-                'df'                 : P.deltaF,
-                'interp_uniform_grid': 1,
-                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'H_hyp'              : P.E0, # energy at initial separation
+                'j_hyp'              : P.p_phi0, # angular momentum at initial separation
+                'r_hyp'              : 6000.0, #hardcoded separation: may need to increase with certain systems; may want to make a option
+                'npc'                : "no",
+                'nqc_coefs_hlm'      : "none",
+                'nqc_coefs_flx'      : "none",
+                'ode_tmax'           : 3e4, # controls how long end of waveform is; may need to change for some systems
+                'LambdaAl2'          : P.lambda1,
+                'LambdaBl2'          : P.lambda2,
+                'chi1x'              : P.s1x,
+                'chi1y'              : P.s1y,
+                'chi1z'              : P.s1z,
+                'chi2x'              : P.s2x,
+                'chi2y'              : P.s2y,
+                'chi2z'              : P.s2z,
                 'inclination'        : P.incl,
-                'output_hpc'         : 0,
-                'ecc'                : P.eccentricity,
-                'ecc_freq'           : 1 #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
+                'coalescence_angle'  : np.pi / 2 - P.phiref,
+                'srate_interp'       : 1./P.deltaT,
+                'initial_frequency'  : P.fmin,
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'domain'             : 0,
+                'arg_out'            : "yes",
+                'interp_uniform_grid': "yes",
+                'use_geometric_units': "no",
+                # spin_flx can be "EOB" or "PN" prescription. Currently suggested to use EOB as standard (use PN for GIOTTO like prescription)
+                'spin_flx'           : "EOB",
+                'spin_interp_domain' : 0,
+                # This can be "QNMs" or "constant". Currently it looks like without QNMs enabled gives basically only prior for precessing events (even for low mass events)
+                'ringdown_eulerangles': "QNMs",
+                'use_mode_lm'        : k_coprecessing_frame,
+                #                'output_lm'          : k,
+#                'df'                 : P.deltaF,
+                'output_hpc'         : "no"
             }
+            if (np.abs(P.s1x) >  1e-4 or P.s1y!=0.0 or P.s2x!=0.0 or P.s2y!=0.0):
+                pars.update({'use_mode_lm_inertial': k})
+                
         # Run the WF generator
         print("Starting EOBRun_module")
         print(pars)
         t, hptmp, hctmp, hlmtmp, dym = EOBRun_module.EOBRunPy(pars)
-        print("EOBRun_module done")
+
         k_list_orig = hlmtmp.keys()
-        hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+#        print(hlmtmp.keys())
+        rho_net = np.zeros(len(t))
+        for mode in hlmtmp:
+            rho_net += np.abs(hlmtmp[mode][0])**2
+        hlmepoch = -P.deltaT*np.argmax(rho_net)
+#        hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
         hlmlen = len(hptmp)
         hlm = {}
         hlmtmp2 = {}
@@ -3564,7 +3702,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         check_if_only_positive_m = not( (mode_keys < 0).any())
         for mode in modes_used:
             hlmtmp2[mode][0]*=(m_total_s/distance_s)*nu
-            hlm[mode] = lal.CreateCOMPLEX16TimeSeries("Complex hlm(t)", hpepoch, 0,
+            hlm[mode] = lal.CreateCOMPLEX16TimeSeries("Complex hlm(t)", hlmepoch, 0,
                                                       P.deltaT, lsu_DimensionlessUnit, hlmlen)
             hlm[mode].data.data = (hlmtmp2[mode][0] * np.exp(-1j*(mode[1]*(np.pi/2.)+hlmtmp2[mode][1])))
             if not (P.deltaF is None):

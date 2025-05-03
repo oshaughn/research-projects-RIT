@@ -42,6 +42,7 @@ CMAP = { "right_ascension": "longitude",
     "joint_s_prior": "alpha3",
     "eccentricity":"alpha4",
     "meanPerAno":"alpha",
+    "a6c":"psi0",
     "lambda1":"alpha5",
     "lambda2":"alpha6",
     "spin1x":"spin1x",
@@ -54,7 +55,7 @@ CMAP = { "right_ascension": "longitude",
 
 # FIXME: Find way to intersect given cols with valid cols when making table.
 # Otherwise, we'll have to add them manually and ensure they all exist
-sim_valid_cols = ["simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "alpha", "alpha1", "alpha2", "alpha3", "alpha4", "alpha5", "alpha6", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"]
+sim_valid_cols = ["simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time", "geocent_end_time_ns", "coa_phase", "distance", "mass1", "mass2", "alpha", "alpha1", "alpha2", "alpha3", "alpha4", "alpha5", "alpha6", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z","psi0"]
 sngl_valid_cols = [ "event_id", "snr", "tau0", "tau3"]
 multi_valid_cols = ["process_id", "event_id", "snr"]
 

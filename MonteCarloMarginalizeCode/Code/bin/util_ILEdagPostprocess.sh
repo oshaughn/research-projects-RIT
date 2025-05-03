@@ -28,6 +28,8 @@ if [ "$3" == '--eccentricity' ]; then
     else
 	util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k11 > $BASE_OUT.composite
     fi
+elif [ "$3" == '--a6c' ]; then
+    util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k13 > $BASE_OUT.composite
 else
     util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k10 > $BASE_OUT.composite
 fi
