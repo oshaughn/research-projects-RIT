@@ -27,6 +27,11 @@ from typing import List, Tuple
 import torch
 from torch import optim
 
+from torch.optim.lr_scheduler import LambdaLR
+from torch.optim.lr_scheduler import ExponentialLR, ReduceLROnPlateau
+from torch.utils.data import DataLoader, TensorDataset, random_split
+
+
 from nflows.flows.base import Flow
 from nflows.utils import torchutils
 from nflows.distributions.normal import StandardNormal
@@ -251,7 +256,11 @@ class IterativeSnapshot_Trainer:
         
     def train_flow(self, samples_in: List[List[float]],
                    weights: List[float],
-                   max_epochs: int, bound_offset: float,n_print=20, n_transforms=0, n_transforms_delta=2):
+                   max_epochs: int, bound_offset: float,n_print=20, n_transforms=0, n_transforms_delta=2,batch_size=1000,val_split=0.2):
+        """
+            train_flow
+               - we build the flow object HERE, to allow it to use flexible transform sets
+        """
         # Transform samples by first n_transforms-1 transforms
         assert n_transforms >= 0
         samples= torch.tensor(samples_in, dtype=torch.float32)
@@ -261,6 +270,21 @@ class IterativeSnapshot_Trainer:
           with torch.no_grad():
             samples = transform_before.forward(samples)[0]  # forwards, just need to evaluate -
           print(samples, samples_in)
+        # Validation/training split
+        full_data = samples_in
+        val_size = int(len(samples_in)*val_split)
+        train_size = num_samples - val_size
+
+        indices                          = torch.randperm(num_samples)
+        train_indices                    = indices[:train_size]
+        val_indices                      = indices[train_size:train_size+val_size]
+        
+        train_data                       = TensorDataset(full_data[train_indices])
+        val_data                         = TensorDataset(full_data[val_indices])
+        
+        train_loader                     = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+        val_loader                       = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+        
         if True: # n_transforms+n_transforms_delta < len(self.transform_list):
           # try LOCAL optimization of part of flow
           flow_here = Flow(CompositeTransform(self.transform_list[n_transforms:n_transforms+n_transforms_delta]), self.base_distribution(shape=[len(self.bounds)]))
@@ -268,28 +292,47 @@ class IterativeSnapshot_Trainer:
           # try GLOBAL optimization at end
           flow_here = Flow(CompositeTransform(self.transform_list), self.base_distribution(shape=[len(self.bounds)]))
 
-        optimizer                = optim.Adam(flow_here.parameters(),lr=1e-3)
+        optimizer                = optim.Adam(flow_here.parameters(),lr=1e-3,weight_decay=1e-5)
+        scheduler                        = ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.7)
+        
         prev_efficiency          = float('inf')
         losses                   = self.loss_history
         # Fixed training input
 #        lnL_weighted_func = torch.nn.NLLLoss(weight=torch.tensor(weights))
-        for epoch in range(1, int(max_epochs)):       
-            # Set gradients equals to zero
-            optimizer.zero_grad()
+        for epoch in range(1, int(max_epochs)):
+            train_loss = 0
+            for batch in train_loader:
+              # Set gradients equals to zero
+              optimizer.zero_grad()
             
-            # Compute the loss
-            loss                 = -flow_here.log_prob(samples).mean()
+              # Compute the loss
+              loss                 = -flow_here.log_prob(batch).mean()
             
-            # Create necessary derivatives
-            loss.backward()
-            
+              # Create necessary derivatives
+              loss.backward()
+              # Optimize on batch
+              optimizer.step()
+              train_loss += loss.item()
+
             # Store loss value for monitoring
-            losses.append(loss.item()) 
+            losses.append(loss.item())
+
+            # Compute validation loss
+            flow_here.eval()
+            val_loss                     = 0
+            val_accuracy                 = 0
+            val_batch_count              = 0
+            with torch.no_grad():
+                for batch, in val_loader:
+                    val_loss += -flow_here.log_prob(batch).mean()
+                    val_batch_count+=1
+            val_loss /= val_batch_count
+            # Increment scheduler, based on validation loss
+            scheduler.step(val_loss)
             if (epoch%n_print)==0:
-              print("    Flow training ", epoch, loss.item())
-              n_hist = np.min([len(losses), 100])
+                print("    Flow training ", epoch, loss.item(), val_loss.item())
+                n_hist = np.min([len(losses), 100])
             
-            optimizer.step()
 
         # define flow, so we can draw from it
         self.flow = Flow(CompositeTransform(self.transform_list[:n_transforms+n_transforms_delta]),  self.base_distribution(shape=[len(self.bounds)]) )
@@ -314,33 +357,41 @@ class NFlowsNFS_Trainer:
     
     def train_flow(self, samples_in: List[List[float]],
                    weights: List[float],
-                   max_epochs: int, bound_offset: float,n_print=20, **kwargs):
+                   max_epochs: int, bound_offset: float,n_print=20,batch_size=1000, **kwargs):
         if self.flow is None:
           self.flow                = Flow(self.transform, self.base_distribution(shape=[len(self.bounds)]))
 
-        optimizer                = optim.Adam(self.flow.parameters())
+        optimizer                = optim.Adam(self.flow.parameters(),lr=1e-3, weight_decay=1e-5)
+        scheduler                        = ReduceLROnPlateau(optimizer, 'min', patience=5, factor=0.7)
+                
         prev_efficiency          = float('inf')
         losses                   = self.loss_history
-        # Fixed training input
+        # Fixed training input. Default use WHOLE data set
         samples              = torch.tensor(samples_in, dtype=torch.float32)
+        train_loader                     = DataLoader(samples, batch_size=batch_size, shuffle=True)
 #        lnL_weighted_func = torch.nn.NLLLoss(weight=torch.tensor(weights))
-        for epoch in range(1, int(max_epochs)):       
-            # Set gradients equals to zero
-            optimizer.zero_grad()
+        for epoch in range(1, int(max_epochs)):
+            n_batch = 0
+            train_loss=0
+            for batch in train_loader:
+              # Set gradients equals to zero
+              optimizer.zero_grad()
             
-            # Compute the loss
-            loss                 = -self.flow.log_prob(samples).mean()
-#            loss                 = lnL_weighted_func(self.flow.log_prob(samples))
+              # Compute the loss
+              loss                 = -self.flow.log_prob(batch).mean()
             
-            # Create necessary derivatives
-            loss.backward()
+              # Create necessary derivatives
+              loss.backward()
+              optimizer.step()
+              train_loss += loss.item()
+              n_batch +=1
             
             # Store loss value for monitoring
-            losses.append(loss.item()) 
+            loss_now = train_loss/n_batch
+            losses.append(loss_now)
+            scheduler.step(loss_now)
             if (epoch%n_print)==0:
-              print("    Flow training ", epoch, loss.item())
-              n_hist = np.min([len(losses), 100])
-            optimizer.step()
+              print("    Flow training ", epoch, loss_now)
 
         return losses
 
@@ -389,11 +440,10 @@ class MCSampler(MCSamplerGeneric):
         self.mean_affine_set = False
 
 
-    def setup(self, nf_cov=None, nf_mean=None, nf_method='default',**kwargs):
+    def setup(self, nf_method='default',**kwargs):
 
         self._rvs={}
         self.lnL_thresh = -np.inf
-        self.enc_prob = 0.999
         self.nf_method=nf_method
         d_nf = len(self.params_ordered)
 
@@ -417,6 +467,7 @@ class MCSampler(MCSamplerGeneric):
                 mask                    = np.arange(n_features) % 2,
                 transform_net_create_fn = lambda in_features, out_features: ResidualNet(in_features, out_features, hidden_features=64, num_blocks=2)))
             else:
+              # https://homepages.inf.ed.ac.uk/imurray2/pub/17maf/maf.pdf
               transforms.append(MaskedAffineAutoregressiveTransform(features = len(bounds),
                                                                 hidden_features = 2 * len(bounds)) )
         transform  = CompositeTransform(transforms)
@@ -519,9 +570,9 @@ class MCSampler(MCSamplerGeneric):
           if super_verbose:
             print(" Using actual flow ")
           flow = self.nf_flow
-          flow_samples = flow.sample(n_to_get)
+          flow_samples, flow_log_prob = flow.sample_and_log_prob(n_to_get) # alternate function call
           rv = flow_samples.detach().numpy().T
-          log_ps = flow.log_prob(flow_samples).detach().numpy()
+          log_ps = flow.log_prob(flow_samples).detach().numpy()  # should replace with above and detach
           log_p  =  np.log(self.prior_prod(rv.T))
           # remove nan values
           # enforce boundaries: don't trust flow
@@ -689,7 +740,7 @@ class MCSampler(MCSamplerGeneric):
             print("  Note: cannot adapt, no history ")
 
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
-        n_adapt = int(kwargs["n_adapt"]) if "n_adapt" in kwargs else 10  # default to adapt to 10 chunks, then freeze
+        n_adapt = int(kwargs["n_adapt"]) if "n_adapt" in kwargs else 20  # default to adapt to 10 chunks, then freeze
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
         temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
         tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
@@ -709,6 +760,7 @@ class MCSampler(MCSamplerGeneric):
         bShowEvaluationLog = kwargs['verbose'] if 'verbose' in kwargs else True
         bShowEveryEvaluation = kwargs['extremely_verbose'] if 'extremely_verbose' in kwargs else False
 
+        nf_method = kwargs['nf_method'] if 'nf_method' in kwargs else 'default'
 
         verbose = kwargs["verbose"] if "verbose" in kwargs else False  # default
         super_verbose = kwargs["super_verbose"] if "super_verbose" in kwargs else False  # default
@@ -730,10 +782,10 @@ class MCSampler(MCSamplerGeneric):
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
 
         self.n_chunk = n
-        self.setup()  # sets up self.my_ranges, self.dx initially
+        self.setup(nf_method=nf_method)  
         
         ntotal_true = 0
-        max_epochs_requested =200
+        max_epochs_requested =300
         while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
             # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
             rv, joint_p_s, joint_p_prior = self.draw_simplified(self.n_chunk, save_no_samples=False)  # Beware reversed order of rv
@@ -795,7 +847,8 @@ class MCSampler(MCSamplerGeneric):
               if super_verbose:
                 print("    -- n_adapt {} ".format(n_adapt))
               self.update_sampling_prior(lnL,max_epochs_requested=max_epochs_requested,**kwargs)
-              max_epochs_requested = 50 # reduce!  Don't constantly overtune
+              max_epochs_requested +=- 20 # reduce!  Don't constantly overtune
+              max_epochs_requested = np.max([max_epochs_requested,20]) # Don't under-tune
               n_adapt += -1  # decrement
             else:
               if super_verbose:
