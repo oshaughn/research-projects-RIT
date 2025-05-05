@@ -248,11 +248,13 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
     if args.use_rift_samples:
         result.posterior  = result.posterior.drop(columns=['lnL','ps'])
         result.posterior['p'] = np.log(result.posterior['p'])  # not sure if used, but if so define correctly
+        # The key_sap_dict does not have an 'eccentricity' key since both RIFT and Bilby use "eccentricity" as the key.
+        # DO NOT ADD THIS TO THE key_swap_dict; THIS WILL CAUSE AN ERROR USING ECCENTRIC WAVEFORMS
         if args.use_eccentricity:
             key_swap_dict = {'m1':'mass_1', 'm2':'mass_2', 'a1x':'spin_1x', 'a1y':'spin_1y', 'a1z':'spin_1z',
                              'a2x':'spin_2x', 'a2y':'spin_2y', 'a2z':'spin_2z', 'incl':'iota', 'time':'geocent_time',
                              'phiorb':'phase', 'p':'log_prior', 'distance':'luminosity_distance', 'lambda1':'lambda_1', 'lambda2':'lambda_2',
-                             'eccentricity':'eccentricity', 'meanPerAno':'mean_per_ano'}
+                             'meanPerAno':'mean_per_ano'}
         else:
             key_swap_dict = {'m1':'mass_1', 'm2':'mass_2', 'a1x':'spin_1x', 'a1y':'spin_1y', 'a1z':'spin_1z',
                              'a2x':'spin_2x', 'a2y':'spin_2y', 'a2z':'spin_2z', 'incl':'iota', 'time':'geocent_time',
