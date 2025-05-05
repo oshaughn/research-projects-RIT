@@ -108,6 +108,7 @@ parser.add_argument("--use-ini",default=None,type=str,help="Pass ini file for pa
 parser.add_argument("--use-gwsignal",action='store_true')
 #parser.add_argument("--internal-distance-ladder",action='store_true',help="Modify injection distance ladder as in G2201558 ")
 parser.add_argument("--use-osg",action='store_true',help="Attempt OSG operation. Command-line level option, not at ini level to make portable results")
+parser.add_argument("--use-osg-cip",action='store_true',help="Attempt OSG operation. Command-line level option, not at ini level to make portable results")
 parser.add_argument("--add-extrinsic",action='store_true',help="Add extrinsic posterior.  Corresponds to --add-extrinsic --add-extrinsic-time-resampling --batch-extrinsic for pipeline")
 parser.add_argument("--test",default=False,action='store_true',help="Used to test the pipeline : prints out commands, generates workflows as much as possible without high-cost steps")
 opts =  parser.parse_args()
@@ -158,6 +159,8 @@ m1d,m2d = m1m2(mc_range[1], eta_range[1])
 # use matter?
 lambda_max=0
 use_matter=False
+manual_extra_ile_args=None
+use_4096s_data=False
 if config.has_option('priors','use_matter'):
     use_matter=True
     lambda_max = float(config.get('priors','lambda_max'))
@@ -170,7 +173,9 @@ if config.has_option('waveform','approx_template'):
 l_max = 2
 if config.has_option('waveform','lmax'):
     l_max = int(config.get('waveform','lmax')  )
+use_hlms_as_injections = unsafe_config_get(config,['waveform','use_hlms_as_injections'])
 fmin_template = float(config.get('waveform','fmin_template'))
+fref = float(config.get('data','fref'))
 fmax = float(config.get('data','fmax'))
 flow_dict = unsafe_config_get(config,['data','flow'])
 srate_data = float(config.get('data', 'srate_data'))
@@ -207,10 +212,15 @@ fiducial_dec=float(config.get('priors','fiducial_dec'))
 fiducial_event_time=float(config.get('priors','fiducial_event_time'))
 
 use_eccentric = unsafe_config_get(config,['priors','use_eccentric'])
+use_meanPerAno = unsafe_config_get(config,['priors','use_meanPerAno'])
 if use_eccentric:
     print(" === eccentric PP ==== ")
     ecc_min = float(config.get('priors','ecc_min'))
     ecc_max = float(config.get('priors','ecc_max'))
+if use_meanPerAno:
+    print(" === meanPerAno PP ==== ")
+    meanPerAno_min = float(config.get('priors','meanPerAno_min'))
+    meanPerAno_max = float(config.get('priors','meanPerAno_max'))
 
 
 ifos = unsafe_config_get(config,['data','ifos'])
@@ -218,6 +228,22 @@ username = config.get('make_workflow','username')
 group = config.get('make_workflow','accounting_group')
 cip_sampler = config.get('make_workflow', 'cip_sampler_method')
 ile_sampler = config.get('make_workflow', 'ile_sampler_method')
+ile_n_eff = config.get('make_workflow','ile_n_eff')
+if config.has_option('make_workflow','manual_extra_ile_args'):
+    manual_extra_ile_args = config.get('make_workflow','manual_extra_ile_args')
+if config.has_option('make_workflow','use_gwsignal_lmax_nyquist'):
+    use_gwsignal_lmax_nyquist= config.get('make_workflow','use_gwsignal_lmax_nyquist')
+ile_n_copies = config.get('make_workflow','ile_n_copies')
+ile_request_memory = config.get('make_workflow','ile_request_memory')
+n_events_per_worker = config.get('make_workflow','n_events_per_worker')
+ile_request_disk = config.get('make_workflow','ile_request_disk')
+cip_fit_method = config.get('make_workflow', 'cip_fit_method')
+cip_explode_jobs = config.get('make_workflow','cip_explode_jobs')
+cip_explode_jobs_last = config.get('make_workflow','cip_explode_jobs_last')
+cip_request_memory = config.get('make_workflow','cip_request_memory')
+cip_request_disk = config.get('make_workflow','cip_request_disk')
+if config.has_option('make_data','use_4096s_data'):
+    use_4096s_data = config.get('make_data','use_4096s_data')
 use_gpu = config.getboolean('make_workflow', 'use_gpu')
 use_distance_marginalization = config.getboolean('make_workflow','use_distance_marginalization')
 transverse_puff = config.getboolean('make_workflow','use_transverse_puff')
@@ -278,6 +304,8 @@ else:
         P.lambda2 = np.random.uniform(0,lambda_max)
     if use_eccentric:
         P.eccentricity = np.random.uniform(ecc_min, ecc_max)
+    if use_meanPerAno:
+        P.meanPerAno = np.random.uniform(meanPerAno_min, meanPerAno_max)
     if 'TaylorF2Ecc' in approx_str:
         P.ampO = amporder
         
@@ -335,9 +363,12 @@ print(" === Writing signal files === ")
 
 # made up durations for now
 # must be compatible with duration of the noise frames
-t_start = int(fiducial_event_time)-150
-t_stop = int(fiducial_event_time)+150
-
+if use_4096s_data:
+    t_start = int(fiducial_event_time)-2048
+    t_stop = int(fiducial_event_time)+2048
+else:
+    t_start = int(fiducial_event_time)-150
+    t_stop = int(fiducial_event_time)+150
 mkdir('signal_frames')
 snr_dict = {}
 for indx in np.arange(n_events):
@@ -361,8 +392,8 @@ for indx in np.arange(n_events):
     # Loop over instruments, write files
     for ifo in ifos:
         if opts.use_gwsignal:
-            cmd = "util_GWSignalWriteFrame.py  --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --approx {} --fref {}".format(indx, t_start, t_stop, ifo, seglen_analysis, approx_str, fmin_template)
-            if approx_str == "SEOBNRv5EHM":
+            cmd = "util_GWSignalWriteFrame.py  --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --approx {} --fref {} --use-gwsignal-lmax-nyquist {}".format(indx, t_start, t_stop, ifo, seglen_analysis, approx_str, fref, use_gwsignal_lmax_nyquist)
+            if use_hlms_as_injections: #approx_str == "SEOBNRv5EHM" or approx_str == "TEOBResumSDALI":
                 cmd += " --use-hlms-as-injections "
         elif 'NRHybSur' in approx_str:
             cmd = "util_ROMWriteFrame.py --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --group {} --param {} --lmax {}".format(indx, t_start, t_stop, ifo, seglen_analysis, group_str, param_str, l_max)
@@ -455,7 +486,7 @@ else:
 ## ENGINE
 if 'engine' not in config.sections():
     config.add_section('engine')
-config['engine']['fref'] = str(fmin_template) ## check this!!!!
+config['engine']['fref'] = str(fref) #str(fmin_template) ## check this!!!!
 config['engine']['approx'] = approx_str
 if 'TaylorF2Ecc' in approx_str:
     config['engine']['amporder'] = str(amporder)
@@ -465,7 +496,7 @@ if seglen_analysis:
     config['engine']['seglen'] = str(seglen_analysis)
 else:
     config['engine']['seglen'] = '16' 
-config['engine']['srate'] = '4096' # get this from user ini
+config['engine']['srate'] = str(srate_data) # get this from user ini
 config['engine']['distance-max'] = str(d_max)
 config['engine']['distance-min'] = str(d_min)
 
@@ -478,15 +509,24 @@ config['rift-pseudo-pipe']['approx'] = '"{}"'.format(approx_str)
 config['rift-pseudo-pipe']['fmin-template'] = str(fmin_template)
 
 # ILE stuff
-config['rift-pseudo-pipe']['ile-n-eff'] = '10'
+#config['rift-pseudo-pipe']['manual-extra-ile-args'] = str(manual_extra_ile_args)
+if use_gwsignal_lmax_nyquist and not (manual_extra_ile_args):
+    config['rift-pseudo-pipe']['manual-extra-ile-args'] = ' --use-gwsignal-lmax-nyquist {} '.format(use_gwsignal_lmax_nyquist)
+elif not (use_gwsignal_lmax_nyquist) and manual_extra_ile_args:
+    config['rift-pseudo-pipe']['manual-extra-ile-args'] = str(manual_extra_ile_args)
+elif use_gwsignal_lmax_nyquist and manual_extra_ile_args:
+    config['rift-pseudo-pipe']['manual-extra-ile-args'] = ' --use-gwsignal-lmax-nyquist {} {} '.format(use_gwsignal_lmax_nyquist,manual_extra_ile_args)    
+config['rift-pseudo-pipe']['ile-n-eff'] = str(ile_n_eff)
+config['rift-pseudo-pipe']['ile-copies'] = str(ile_n_copies)
 config['rift-pseudo-pipe']['ile-sampler-method'] = '"{}"'.format(str(ile_sampler))
 config['rift-pseudo-pipe']['internal-ile-freezeadapt'] = 'False'
 config['rift-pseudo-pipe']['ile-runtime-max-minutes'] = '700'
-config['rift-pseudo-pipe']['ile-jobs-per-worker'] = '20'
+config['rift-pseudo-pipe']['ile-jobs-per-worker'] = str(n_events_per_worker)
 config['rift-pseudo-pipe']['internal-ile-auto-logarithm-offset'] = 'False'
 config['rift-pseudo-pipe']['internal-ile-use-lnL'] = 'False'
 config['rift-pseudo-pipe']['internal-ile-reset-adapt'] = 'True'
-config['rift-pseudo-pipe']['internal-ile-request-disk']='"10M"'
+config['rift-pseudo-pipe']['internal-ile-request-disk']=str(ile_request_disk) #'"10M"'
+config['rift-pseudo-pipe']['internal-ile-request-memory']=str(ile_request_memory)
 if use_gpu:
     config['rift-pseudo-pipe']['ile-force-gpu'] = 'True'
 else:
@@ -494,12 +534,15 @@ else:
 
 # CIP stuff
 #  * Fit method can be 'rf', 'gp'
-config['rift-pseudo-pipe']['cip-fit-method'] = '"rf"'
+config['rift-pseudo-pipe']['cip-fit-method'] = '"{}"'.format(str(cip_fit_method))#'"rf"'
 #  * sampler method can be 'default', 'GMM', 'adaptive_cartesian_gpu', 'AV'
 config['rift-pseudo-pipe']['cip-sampler-method'] = '"{}"'.format(str(cip_sampler))
 print("Using {} for fitting and {} for sampling".format(config['rift-pseudo-pipe']['cip-fit-method'],config['rift-pseudo-pipe']['cip-sampler-method']))
 # run CIP workers simultaneously - larger = faster
-config['rift-pseudo-pipe']['cip-explode-jobs'] = '20'
+config['rift-pseudo-pipe']['cip-explode-jobs'] = str(cip_explode_jobs)
+config['rift-pseudo-pipe']['cip-explode-jobs-last'] = str(cip_explode_jobs_last)
+config['rift-pseudo-pipe']['internal-cip-request-memory']=str(cip_request_memory)
+config['rift-pseudo-pipe']['internal-cip-request-disk']=str(cip_request_disk) #'"10M"'
 config['rift-pseudo-pipe']['internal-propose-converge-last-stage'] = 'True'
 
 # spin settings
@@ -537,20 +580,27 @@ if use_eccentric:
     config['engine']['ecc_max'] = str(ecc_max)
     config['rift-pseudo-pipe']['assume-eccentric'] = 'True'
     config['rift-pseudo-pipe']['force-ecc-max'] = str(ecc_max)
+    config['rift-pseudo-pipe']['force-ecc-min'] = str(ecc_min)
 else:
     config['rift-pseudo-pipe']['assume-eccentric'] = 'False'
-
+# meanPerAno
+if use_meanPerAno:
+    config['rift-pseudo-pipe']['use-meanPerAno'] = 'True'
+    config['rift-pseudo-pipe']['force-meanPerAno-max'] = str(meanPerAno_max)
+    config['rift-pseudo-pipe']['force-meanPerAno-min'] = str(meanPerAno_min)
 # osg
 if opts.use_osg:
     config['rift-pseudo-pipe']['use_osg'] = 'True'
     config['rift-pseudo-pipe']['use_osg_file_transfer'] = 'True'
-    config['rift-pseudo-pipe']['use_osg_cip'] = 'True'
     config['rift-pseudo-pipe']['internal_truncate_files_for_osg_file_transfer'] = 'True'
 else:
     config['rift-pseudo-pipe']['use_osg'] = 'False'
     config['rift-pseudo-pipe']['use_osg_file_transfer'] = 'False'
-    config['rift-pseudo-pipe']['use_osg_cip'] =	'False'
-
+if opts.use_osg_cip:
+    config['rift-pseudo-pipe']['use_osg_cip'] = 'True'
+else:
+    config['rift-pseudo-pipe']['use_osg_cip'] = 'False'
+    
 if use_distance_marginalization:
     config['rift-pseudo-pipe']['internal-marginalize-distance']='True'
 #    config['rift-pseudo-pipe']['ile-distance-prior']='"pseudo_cosmo"'
@@ -602,13 +652,7 @@ for indx in np.arange(n_events):
     os.system(cmd)
     # Copy main pseudo_ini here and run pp_localize_ini.py to see if defaults should change
     os.system('cp ../pseudo_ini.ini pseudo_ini.ini')
-    extra_args = ''
-    if fix_sky_location:
-        extra_args += " --assume-fixed-sky-location "
-    if aligned_spin or no_spin:
-        extra_args += ' --assume-nonprecessing '
-    localize = 'python ../../pp_localize_ini.py --ciip-sampler{} --ile-sampler {} --event {} --ini pseudo_ini.ini --sim-xml ../mdc.xml.gz --guess-snr {}  --mc-range "[{}, {}]"'.format(cip_sampler,ile_sampler, indx, snr_dict[indx], mc_min, mc_max)
-    localize += extra_args
+    localize = 'python ../../pp_localize_ini.py --event {} --ini pseudo_ini.ini --sim-xml ../mdc.xml.gz --guess-snr {}  --mc-range "[{}, {}]"'.format(indx, snr_dict[indx], mc_min, mc_max)
     os.system(localize)
     ## Make call to pseudo_pipe - should create rundir within event_dir
     if os.path.exists('localize.ini'):
@@ -618,7 +662,7 @@ for indx in np.arange(n_events):
     cmd = 'util_RIFT_pseudo_pipe.py --use-coinc `pwd`/coinc.xml --use-ini `pwd`/{} --use-rundir `pwd`/rundir --fake-data-cache `pwd`/local.cache '.format(use_ini)
     manual_extra_ile = " --d-min {} --d-max {} ".format(d_min, d_max) 
     if fix_sky_location:
-        manual_extra_ile += " - --declination {} --right-ascension {} ".format(fiducial_dec, fiducial_ra)
+        cmd += " --fix-bns-sky --declination {} --right-ascension {} ".format(fiducial_dec, fiducial_ra)
     #if not use_distance_marginalization: # config['rift-pseudo-pipe']['internal-marginalize-distance']:
     cmd += " --manual-extra-ile-args ' {} ' ".format(manual_extra_ile)
     if cip_sampler == 'AV':
