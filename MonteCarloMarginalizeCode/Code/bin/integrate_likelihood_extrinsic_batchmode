@@ -48,7 +48,6 @@ from igwn_ligolw import utils,  ligolw
 import glue.lal
 
 import RIFT.lalsimutils as lalsimutils
-import RIFT.likelihood.factored_likelihood as factored_likelihood
 import RIFT.integrators.mcsampler as mcsampler
 import RIFT.misc.sky_rotations as sky_rotations
 try:
@@ -366,6 +365,12 @@ if opts.internal_use_lnL and not(opts.sampler_method  in ok_lnL_methods ):
 # if we are on a GPU and using a GPU-accelerated likelihood, don't send the likelihood data back from the GPU needlessly
 if cupy_success and opts.gpu and opts.sampler_method == 'adaptive_cartesian_gpu':
   identity_convert_lnL  = lambda x:x
+
+
+# FACTORED LIKELIHOOD LATER, SO WE CAN SET OPTIONS TO CONTROL IMPORT OF SUPERFLUOUS PACKAGES
+if not(opts.use_gwsignal):
+  os.environ['RIFT_NO_GWSIGNAL'] = 'True'
+import RIFT.likelihood.factored_likelihood as factored_likelihood
 
 if opts.use_gwsignal and not(factored_likelihood.has_GWS):
   print(" HARD FAILURE: this node could not import gwsignal ! ")
@@ -789,7 +794,7 @@ elif opts.sampler_method == 'AV':
       mcsampler.set_xpy_to_numpy()
       sampler.xpy= numpy
       sampler.identity_convert= lambda x: x
-elif opts.sampler_method == "portfolio":
+elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
     if not(mcsampler_Portfolio_ok):
       raise Exception(" Portfolio integrator requested but not available")
     use_portfolio=True
