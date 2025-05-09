@@ -1385,7 +1385,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       extra_waveform_kwargs['extra_waveform_args'] = extra_args_dict
     if opts.internal_waveform_extra_kwargs:
       extra_args_dict = eval(opts.internal_waveform_extra_kwargs)  # pass arguments at high level (eg, gwsignal), not to lalsuite wrapper
-      print(" Waveform high-level extra args passed ", extra_args_dict)
+      if not(isinstance(extra_args_dict, dict)):
+        print(" Type casting fail, maybe retrying ", extra_args_dict, type(extra_args_dict))  # might happen with double-quoting failure at condor level
+        if isinstance(extra_args_dict, str):
+          extra_args_dict = eval(extra_args_dict)
+      print(" Waveform high-level extra args passed ", extra_args_dict, type(extra_args_dict))
       extra_waveform_kwargs.update(extra_args_dict)
     # Precompute
     t_window = opts.internal_data_storage_window_half
