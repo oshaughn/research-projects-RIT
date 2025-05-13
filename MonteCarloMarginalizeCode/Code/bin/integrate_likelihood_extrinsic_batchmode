@@ -1666,7 +1666,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
               def distmarg_loglikelihood(kappa_sq, rho_sq):
                 x0 = kappa_sq / rho_sq
 #                lnI = np.ones(shape=x0.shape) * -np.inf
-                lnI = xpy_default.full_like(x0, xpy_default.NINF)
+                lnI = xpy_default.full_like(x0, -xpy_default.inf)
                 s = x0_to_s(x0)
                 t = b_to_t(rho_sq)
 #                in_bounds = (s > smin) * (s < smax) * (t < tmax)
