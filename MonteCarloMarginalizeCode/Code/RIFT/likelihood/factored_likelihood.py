@@ -74,8 +74,11 @@ __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, R. O'Shaughnessy"
 
 has_GWS=False  # make sure defined in top-level scope
 try:
+   if not('RIFT_NO_GWSIGNAL' in os.environ):
         import RIFT.physics.GWSignal as rgws
         has_GWS=True
+   else:
+        has_GWS=False
 except:
         has_GWS=False
 

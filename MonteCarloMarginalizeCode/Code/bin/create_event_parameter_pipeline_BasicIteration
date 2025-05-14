@@ -1199,7 +1199,11 @@ if opts.calibration_reweighting:
         calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args,n_cal=opts.calibration_reweighting_count)
         
     if opts.calibration_reweighting_initial_extra_args:
-        calibration_job.add_arg(opts.calibration_reweighting_initial_extra_args)
+        # properly handle quoted extra arguments, such as dictionaries of waveform arguments
+        add_str = opts.calibration_reweighting_extra_args
+        if '"' in opts.calibration_reweighting_extra_args:
+            add_str = RIFT.misc.dag_utils.safely_quote_arg_str(add_str)
+        calibration_job.add_arg(add_str)
     if not(opts.calibration_reweighting_batchsize): # single run
         calibration_job.set_log_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).log")
         calibration_job.set_stderr_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).err")

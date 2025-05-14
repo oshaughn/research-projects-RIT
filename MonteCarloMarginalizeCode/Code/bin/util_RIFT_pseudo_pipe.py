@@ -1624,7 +1624,25 @@ if opts.calibration_reweighting:
     if opts.use_gwsignal:
         my_extra_string = ' --use-gwsignal '
     if opts.manual_extra_ile_args:
-         my_extra_string += ' ' + opts.manual_extra_ile_args + ' '
+         # Parse string for waveform arguments
+         # Currently: fork off the lmax_nyquist (the most common scenario), leave the rest to a unified dictionary to pass on
+         my_parser=argparse.ArgumentParser()
+         my_parser.add_argument("--internal-waveform-extra-lalsuite-args",default=None)
+         my_parser.add_argument("--internal-waveform-extra-kwargs",default=None)
+         my_opts, unknown_opts =my_parser.parse_known_args(line.split())
+         my_extra_args = {}
+         if my_parser.internal_waveform_extra_kwargs:
+             my_arg_dict = eval(my_parser.internal_waveform_extra_kwargs)
+             if 'lmax_nyquist' in my_arg_dict:
+                 my_extra_str+= " --use-gwsignal-lmax_nyquist {} ".format(lmax_nyquist)
+                 del my_arg_dict['lmax_nyquist'] # remove key
+             my_extra_args.update(my_arg_dict)
+         if my_parser.internal_waveform_extra_lalsuite_args:
+             my_arg_dict = eval(my_parser.internal_waveform_extra_kwargs)
+             my_extra_args.update(my_arg_dict)
+         if my_extra_args:
+            my_extra_string = ' --extra-waveform-kwargs "{}" '.format(my_extra_args)
+#         my_extra_string += ' ' + opts.manual_extra_ile_args + ' '
     if opts.use_ini:
         fref = unsafe_config_get(config,['engine','fref'])
         my_extra_string += ' --fref {} '.format(fref)
