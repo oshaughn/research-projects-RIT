@@ -859,8 +859,8 @@ def tapered_magnitude_prior_alt(x,loc=0.8,kappa=20.):   #
 def eccentricity_prior(x):
     return np.ones(x.shape) / (ECC_MAX-ECC_MIN) # uniform over the interval [0.0, ECC_MAX]
 
-def eccentricity_squared_prior(x):  # note this is INCONSISTENT with the prior above -- we are designed to give a CDF = (e/emax)^2 for example here
-    return np.ones(x.shape) / (ECC_MAX-ECC_MIN)**2 # uniform over the interval [0.0, ECC_MAX]
+def eccentricity_squared_prior(x):  # note this is INCONSISTENT with the prior above -- we are designed to give a CDF = (e/emax)^2 for example here, or more generally (e^2 - emin^2)/(emax^2-emin^2)
+    return np.ones(x.shape) *2/ (ECC_MAX**2-ECC_MIN**2) # uniform over the interval [ECC_MIN, ECC_MAX]
 
 def meanPerAno_prior(x):
     return np.ones(x.shape) / (MEANPERANO_MAX-MEANPERANO_MIN) # uniform over the interval [MEANPERANO_MIN, MEANPERANO_MAX]
