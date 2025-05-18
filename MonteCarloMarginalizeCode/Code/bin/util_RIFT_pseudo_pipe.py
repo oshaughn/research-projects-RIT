@@ -461,20 +461,31 @@ if opts.gracedb_id is None:
     gwid="manual_"+ format_gps_time(opts.event_time)
     if not (opts.use_ini is None):
         gwid = ''
+elif opts.use_coinc and opts.fake_data_cache:
+    # if gracedb id is NOT none, but if we have a coinc and cache file, do nothing/no warnings
+   print("  pseudo_pipe: no authenticated lookup needed, coinc and cache file provided as ", opts.use_coinc, opts.fake_data_cache)     
 else:
-# checks X509_USER_PROXY env variable
-# if empty, checks grid-proxy-info -path
-# if empty, fails and tells you to run ligo-proxy-init
-    if not("X509_USER_PROXY" in os.environ.keys()):
-        import subprocess
-        from RIFT.misc.dag_utils import which
-        cmd_grid = which("ecp-cert-info")  # current default
-        if not cmd_grid:
-            cmd_grid = which('grid-proxy-info')  # old behavior
-        str_proxy =subprocess.check_output([cmd_grid,'-path']).rstrip()
-        if len(str_proxy) < 1:
-            print( " Run ligo-proxy-init or otherwise have a method to query gracedb / use CVMFS frames as you need! ! ")
-            sys.exit(1)
+    from RIFT.misc.dag_utils import which
+    # https://computing.docs.ligo.org/guide/htcondor/credentials/#scitokens
+    print(" ===> WARNING <=== ")
+    print(" gracedb id provided but either missing coinc file or cache file; lookup necessary, possibly requiring authentication ")
+    cmd_httoken_info = which('httokendecode')
+    if not (cmd_httoken_info):
+        print("   - no httokendecode - ")
+    else:
+        print(" Token info , if any ")
+        os.system(cmd_httoken_info)
+        # checks X509_USER_PROXY env variable
+        # if empty, checks grid-proxy-info -path
+        # if empty, fails and tells you to run ligo-proxy-init
+    # if not("X509_USER_PROXY" in os.environ.keys()):
+    #     cmd_grid = which("ecp-cert-info")  # current default
+    #     if not cmd_grid:
+    #         cmd_grid = which('grid-proxy-info')  # old behavior
+    #     str_proxy =subprocess.check_output([cmd_grid,'-path']).rstrip()
+    #     if len(str_proxy) < 1:
+    #         print( " Run ligo-proxy-init or otherwise have a method to query gracedb / use CVMFS frames as you need! ! ")
+    #         sys.exit(1)
 print(" Event ", gwid)
 base_dir = os.getcwd()
 if opts.use_rundir:
