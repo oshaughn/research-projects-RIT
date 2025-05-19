@@ -47,7 +47,7 @@ if len(n_list) <1:
     raise Exception(" util_RandomizeOverlapOrder : Failure, not enough points in each file greater than {} ".format(opts.n_min))
 n_min = np.min(n_list)
 for indx in np.arange(len(P_list_list)):
-    indx_to_take = np.random.choice(np.arange(len(P_list_list[indx])),size=n_min)
+    indx_to_take = np.random.choice(np.arange(len(P_list_list[indx])),size=n_min,replace=False) # do not take duplicate entries from any file. Files may be small!
     P_to_add = [P_list_list[indx][a] for a in indx_to_take]
     P_list += P_to_add
 
