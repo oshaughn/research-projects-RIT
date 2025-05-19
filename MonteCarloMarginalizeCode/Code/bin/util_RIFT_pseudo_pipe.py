@@ -1541,14 +1541,14 @@ if opts.calibration_reweighting:
          my_parser.add_argument("--internal-waveform-extra-kwargs",default=None)
          my_opts, unknown_opts =my_parser.parse_known_args(line.split())
          my_extra_args = {}
-         if my_parser.internal_waveform_extra_kwargs:
-             my_arg_dict = eval(my_parser.internal_waveform_extra_kwargs)
+         if my_opts.internal_waveform_extra_kwargs:
+             my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
              if 'lmax_nyquist' in my_arg_dict:
                  my_extra_str+= " --use-gwsignal-lmax_nyquist {} ".format(lmax_nyquist)
                  del my_arg_dict['lmax_nyquist'] # remove key
              my_extra_args.update(my_arg_dict)
-         if my_parser.internal_waveform_extra_lalsuite_args:
-             my_arg_dict = eval(my_parser.internal_waveform_extra_kwargs)
+         if my_opts.internal_waveform_extra_lalsuite_args:
+             my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
              my_extra_args.update(my_arg_dict)
          if my_extra_args:
             my_extra_string = ' --extra-waveform-kwargs "{}" '.format(my_extra_args)
