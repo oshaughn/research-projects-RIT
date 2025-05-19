@@ -2968,7 +2968,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
             }
             if (np.abs(P.s1x) >  1e-4 or P.s1y!=0.0 or P.s2x!=0.0 or P.s2y!=0.0):
                 pars.update({'use_mode_lm_inertial': k})
-            if P.a6c < 1000:
+            if P.a6c < 1000 and P.a6c != 0.0:
                 pars.update({'a6c' : P.a6c})
         else:
             print("Using hyperbolic call")
@@ -3565,7 +3565,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             }
             if (np.abs(P.s1x) >  1e-4 or P.s1y!=0.0 or P.s2x!=0.0 or P.s2y!=0.0):
                 pars.update({'use_mode_lm_inertial': k})
-            if P.a6c < 1000:
+            if P.a6c < 1000 and P.a6c != 0.0:
                 pars.update({'a6c' : P.a6c})
         else:
             print("Using hyperbolic call")
