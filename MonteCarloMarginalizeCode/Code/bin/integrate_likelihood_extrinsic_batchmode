@@ -930,6 +930,7 @@ if (opts.d_prior == 'cosmo' or opts.d_prior == 'cosmo_sourceframe') and not opts
     try:
       from lal import H0_SI, OMEGA_M
     except:
+      # IN FUTURE: based on https://git.ligo.org/rapidpe-rift/rapidpe_rift_review_o4/-/wikis/Cosmo_sourceframe-Code-Review, updating previous version (from lalsuite 7.6.1) to match new constant in 7.25.1
       H0_SI, OMEGA_M = 2.200489137532724e-18, 0.3065
     my_cosmo = FlatLambdaCDM(H0=H0_SI*Hz, Om0=OMEGA_M)
 #    omega = lal.CreateDefaultCosmologicalParameters() # matching the lal options. Only needed if we have it

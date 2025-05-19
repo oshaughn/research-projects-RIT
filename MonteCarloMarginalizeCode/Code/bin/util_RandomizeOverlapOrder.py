@@ -9,14 +9,14 @@
 #   - takes equal number from each file by default ... WARNING THIS MEANS WE CAN HAVE PATHOLOGICAL SIZE LIMITS
 
 
-import sys
+#import sys
 from optparse import OptionParser
 import numpy as np
-from igwn_ligolw import utils, table, lsctables, ligolw
-try:
-    import h5py
-except:
-    print(" - no h5py - ")
+from igwn_ligolw import utils, lsctables, ligolw
+# try:
+#     import h5py
+# except:
+#     print(" - no h5py - ")
 
 import RIFT.lalsimutils as lalsimutils
 

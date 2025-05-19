@@ -16,7 +16,8 @@ development tree is rift_O4c
      distance-marginalization. hyperpipe minor. puff file transfer fix.   CIP adds rf_pca, rbf fit options.
      asimov defaults AV/AV no transverse coord as preferred, asimov scitokens; updates for pp test infrastructure (AV allows pinned sky, test/pp localizer
      adjust to be AV-relevant); factored_likelihood/ILE minimize gwsignal import to reduce overhead (pyseobnr
-     expensive!); pp_RIFT_with_ini updates/bugfixes from Jake
+     expensive!); pp_RIFT_with_ini updates/bugfixes from Jake.  ILE_batchmode dmarg NINF-> -inf protect numpy  2.0.
+     rift.ini 'n input samples' option to control grid sizes. (rc2)
      
 0.0.17.2
 ------------

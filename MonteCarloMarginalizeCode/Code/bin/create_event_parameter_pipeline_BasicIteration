@@ -1200,8 +1200,8 @@ if opts.calibration_reweighting:
         
     if opts.calibration_reweighting_initial_extra_args:
         # properly handle quoted extra arguments, such as dictionaries of waveform arguments
-        add_str = opts.calibration_reweighting_extra_args
-        if '"' in opts.calibration_reweighting_extra_args:
+        add_str = opts.calibration_reweighting_initial_extra_args
+        if '"' in add_str:
             add_str = RIFT.misc.dag_utils.safely_quote_arg_str(add_str)
         calibration_job.add_arg(add_str)
     if not(opts.calibration_reweighting_batchsize): # single run
