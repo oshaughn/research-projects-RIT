@@ -501,10 +501,10 @@ if opts.flag_tides_in_composite:
     else:
         print(" Reading composite file, assuming tide-based format ")
         field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "lnL", "sigmaOverL", "ntot", "neff")
-if opts.a6c:
+elif opts.a6c and (not opts.flag_tides_in_composite):
     print(" Reading composite file, assuming non-tide-based format with EOB parameter a6c ")
     field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z", "a6c","lnL", "sigmaOverL", "ntot", "neff")
-if opts.eccentricity:
+elif opts.eccentricity:
     print(" Reading composite file, assuming eccentricity-based format ")
     if opts.meanPerAno:
         print(" Reading composite file, assuming mpa-based format ")
