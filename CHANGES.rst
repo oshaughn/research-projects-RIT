@@ -19,7 +19,7 @@ development tree is rift_O4c
      expensive!); pp_RIFT_with_ini updates/bugfixes from Jake.  ILE_batchmode dmarg NINF-> -inf protect numpy  2.0.
      rift.ini 'n input samples' option to control grid sizes. (rc2)
    - pseudo_pipe quoted waveform arg passing to calibration_reweighting fixes; util_RandomizeOverlapOrder fix in case of
-     many workers/few points per worker; remove X509 access; fix e^2 prior normalization
+     many workers/few points per worker; remove X509 access; fix e^2 prior normalization (rc3)
      
 0.0.17.2
 ------------
