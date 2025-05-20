@@ -255,6 +255,7 @@ parser.add_argument("--meanPerAno", action="store_true", help="Read sample files
 parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Relies entirely on user to set plot options for plot styles from matplotlibrc")
 parser.add_argument("--no-mod-psi",action="store_true",help="Default is to take psi mod pi. If present, does not do this")
 parser.add_argument("--verbose",action='store_true',help='print matplotlibrc data')
+parser.add_argument("--no-special-param-ranges",action='store_true',help='Wipe all artifical param ranges; let samples guide the ranges')
 opts=  parser.parse_args()
 
 plt.rc('axes',unicode_minus=False)
@@ -333,7 +334,9 @@ if opts.bind_param:
          special_param_ranges[par]=eval(opts.param_bound[i])
          print(par +" range ",special_param_ranges[par])
 
-
+if opts.no_special_param_ranges:
+    special_param_ranges = {}
+    print("WARNING: Special Parameter Ranges being erased; make sure you want to do this!")
 # Parameters
 param_list = opts.parameter
 
