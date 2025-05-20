@@ -35,7 +35,7 @@ When preparing your work, please cite
      2.  TEOBResumS interface (original):  Lange et al 2018 RIFT paper
      3.  NR interface (parts inside ILE): Lange et al 2017 PRD 96, 404 [NR comparison methods paper](http://adsabs.harvard.edu/abs/2017PhRvD..96j4041L)
      4.  NRSur7dq2 interface: Lange et al 2018 (RIFT) [paper](https://arxiv.org/abs/1805.10457), and ...
-     5.  gwsignal interface: Wagner et al LIGO P2500197 (''narrowing rift'')
+     5.  gwsignal interface: Wagner et al [paper](https://arxiv.org/abs/2505.11655)  (''narrowing rift'')
      6.  TEOBResumS eccentric interface: Iglesias et al
      7.  TEOBResumS hyperbolic interface: Henshaw, Lange et al in prep
 
@@ -44,9 +44,9 @@ When preparing your work, please cite
      1.  GMM integrator: Elizabeth Champion; see [original repo](https://git.ligo.org/benjamin.champion/Monte-Carlo-Integrator), implemented via MonteCarloEnsemble and mcsamplerEnsemble; please cite Ristic et al https://arxiv.org/abs/2105.07013
      2.  GPU MC integrator:  Wysocki, O'Shaughnessy; cite Wofford et al https://dcc.ligo.org/P2200059
      3.  AV integrator: Wagner et al LIGO P2500197 (''narrowing rift''), based on Tiwari et al VARAHA
-     4.  Portfolio integrator: Wagner et al LIGO P2500197 (''narrowing rift'')
-     5.  Oracles: Wagner et al LIGO P2500197 (''narrowing rift'')
-     6.  Normalizing flows: Wagner et al LIGO P2500197 (''narrowing rift'')
+     4.  Portfolio integrator: Wagner et al [paper](https://arxiv.org/abs/2505.11655)  (''narrowing rift'')
+     5.  Oracles: Wagner et al [paper](https://arxiv.org/abs/2505.11655)   (''narrowing rift'')
+     6.  Normalizing flows: Wagner et al [paper](https://arxiv.org/abs/2505.11655) (''narrowing rift'')
 
   6. If you are using a distance-marginalized likeliihood, please acknowledge 
      1. Distance marginalization : Soichiro Morisaki, Dan Wysocki, see  Wofford et al https://dcc.ligo.org/P2200059
