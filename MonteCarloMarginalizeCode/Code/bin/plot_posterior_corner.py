@@ -245,8 +245,11 @@ parser.add_argument("--meanPerAno-min",default=0,type=float)
 parser.add_argument("--meanPerAno-max",default=2*np.pi,type=float)
 parser.add_argument("--ecc-min",default=0,type=float)
 parser.add_argument("--ecc-max",default=1,type=float)
+parser.add_argument("--a6c-min",default=-80,type=float)
+parser.add_argument("--a6c-max",default=-20,type=float)
 parser.add_argument("--lnL-cut",default=None,type=float)
 parser.add_argument("--sigma-cut",default=0.4,type=float)
+parser.add_argument("--a6c", action="store_true", help="Read sample files in format including a6c")
 parser.add_argument("--eccentricity", action="store_true", help="Read sample files in format including eccentricity")
 parser.add_argument("--meanPerAno", action="store_true", help="Read sample files in format including meanPerAno - assumes eccentricity also present")
 parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Relies entirely on user to set plot options for plot styles from matplotlibrc")
@@ -315,6 +318,7 @@ special_param_ranges = {
   'chi_pavg':[0,2],
   'chi_p':[0,1],
   'lambdat':[0,4000],
+  'a6c':[opts.a6c_min,opts.a6c_max],
   'eccentricity':[opts.ecc_min,opts.ecc_max],
   'meanPerAno':[opts.meanPerAno_min,opts.meanPerAno_max]
 }
@@ -489,11 +493,17 @@ composite_full_list = []
 field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lnL", "sigmaOverL", "ntot", "neff")
 if opts.flag_tides_in_composite:
     if opts.flag_eos_index_in_composite:
-        print(" Reading composite file, assumingtide/eos-index-based format ")
+        print(" Reading composite file, assuming tide/eos-index-based format ")
         field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "eos_indx","lnL", "sigmaOverL", "ntot", "neff")
+    elif opts.a6c:
+        print(" Reading composite file, assuming tide-based format with EOB parameter a6c ")
+        field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "a6c","lnL", "sigmaOverL", "ntot", "neff")
     else:
         print(" Reading composite file, assuming tide-based format ")
         field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "lnL", "sigmaOverL", "ntot", "neff")
+if opts.a6c:
+    print(" Reading composite file, assuming non-tide-based format with EOB parameter a6c ")
+    field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z", "a6c","lnL", "sigmaOverL", "ntot", "neff")
 if opts.eccentricity:
     print(" Reading composite file, assuming eccentricity-based format ")
     if opts.meanPerAno:
