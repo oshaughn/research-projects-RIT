@@ -90,7 +90,7 @@ class TestRIFTMarginalizedLikelihoods(AsimovTest):
 
                     with self.subTest(event=event.title, production=production.name):
                         # check that we have enough points within 10 of the peak (typical model dimension constraint).  Argue we need at least 1000
-                        self.assertFalse( np.sum( np.max(lnL_vals) - lnL_vals) < 1000 )
+                        self.assertFalse( np.sum( np.max(lnL_vals) - lnL_vals < 10 ) < 1000)
 
                         
 if __name__ == '__main__':
