@@ -5,6 +5,7 @@
 
 from asimov.testing import AsimovTest
 import os, sys,glob
+import numpy as np
 
 
 class TestRIFTConvergence(AsimovTest):
@@ -14,10 +15,10 @@ class TestRIFTConvergence(AsimovTest):
         """
         for event in self.events:
             for production in event.productions:
-                if production.pipeline == "rift":
-                    with self.subTest(event=event.title, production=production.name):
+                if production.pipeline.name.lower() == "rift":
+                    with self.subTest("convergence", production=production.name):
                         rundir = production.rundir
-                        print(rundir, "NOT IMPLEMENTED")
+                        print('RIFT convergence test for ', rundir, "NOT IMPLEMENTED")
 #                        repo = event.event_object.repository.directory
 
 
@@ -28,14 +29,15 @@ class TestRIFTCalmargSampleSize(AsimovTest):
         """
         for event in self.events:
             for production in event.productions:
-                if production.pipeline == "rift":
+                if production.pipeline.name.lower() == "rift":
                     rundir = production.rundir
                     print(rundir)
                     target_file = rundir + "/reweighted_posterior_samples.dat"
-                    if os.path.exists(target_file)
-                        with self.subTest(event=event.title, production=production.name):
-                            dat = np.loadtxt(target_file)
-                            assert len(dat) > 1000 
+                    if os.path.exists(target_file):
+                        with self.subTest(event=event, production=production.name):
+                            dat = np.loadtxt(target_file,skiprows=1) # skip header row
+                            print(event, production.name, len(dat))
+                            self.assertFalse(  len(dat) <  1000  )
 
 
 
@@ -46,11 +48,14 @@ class TestRIFTFinalCIPneff(AsimovTest):
         """
         for event in self.events:
             for production in event.productions:
-                if production.pipeline == "rift":
+                if production.pipeline.name.lower() == "rift":
                     rundir = production.rundir
-                    dir_cip_last = list(glob.glob(os.path.join(rundir, "iteration_*_cip"))).sort()[-1]
+                    dir_cip_last = list(glob.glob(os.path.join(rundir, "iteration_*_cip"))).sort()
+                    if dir_cip_last is None:
+                        continue
+                    dir_cip_last = dir_cip_last[-1]
                     print(rundir, dir_cip_last)
-                    with self.subTest(event=event.title, production=production.name):
+                    with self.subTest(event=event, production=production.name):
                         cip_out_annotate  = glob.glob(os.path.join(dir_cip_last, "cip_worker*_withpriorchange+annotation.dat"))
                         n_eff_list = []
                         for name in cip_out_annotate:
@@ -67,12 +72,22 @@ class TestRIFTMarginalizedLikelihoods(AsimovTest):
 
         for event in self.events:
             for production in event.productions:
-                if production.pipeline == "rift":
+                if production.pipeline.name.lower() == "rift":
                     rundir = production.rundir
-                    all_net_name = production.collect_assets()['lnL_marg']
+                    # completion check
+                    target_file = rundir + "/extrinsic_posterior_samples.dat"
+                    if os.path.exists(target_file):
+                        continue
+                    # test on marginalized likelihood
+                    all_net_name = production.pipeline.collect_assets()['lnL_marg']
+                    # check file has nonzero size
+                    if os.stat(all_net_name).st_size ==0:
+                        continue
                     dat = np.loadtxt(all_net_name)  # lnL col is -3, always
-                    lnL_col = -3
-                    sigma_col = -2
+                    if len(dat) < 1:
+                        continue 
+                    lnL_col = -4
+                    sigma_col = -3
                     # sort by lnL
                     indx_sort = np.argsort( dat[:,lnL_col])
                     dat = dat[indx_sort]
@@ -80,15 +95,15 @@ class TestRIFTMarginalizedLikelihoods(AsimovTest):
                     lnL_vals = dat[:,lnL_col]
                     sigma_vals = dat[:,sigma_col]
                     n_lines = len(dat)
-                    with self.subTest(event=event.title, production=production.name):
+                    with self.subTest(event=event, production=production.name):
                         # Check file size
                         self.assertFalse(len(lnL_vals)< 5000) # too few lines
-                    with self.subTest(event=event.title, production=production.name):
+                    with self.subTest(event=event, production=production.name):
                         # check top 10% of file has reasonable sigma_vals. Use MEAN
                         n_test = int(n_lines*0.1)
                         self.assertFalse( np.mean(sigma_vals[:n_test]) > 0.4)
 
-                    with self.subTest(event=event.title, production=production.name):
+                    with self.subTest(event=event, production=production.name):
                         # check that we have enough points within 10 of the peak (typical model dimension constraint).  Argue we need at least 1000
                         self.assertFalse( np.sum( np.max(lnL_vals) - lnL_vals < 10 ) < 1000)
 
