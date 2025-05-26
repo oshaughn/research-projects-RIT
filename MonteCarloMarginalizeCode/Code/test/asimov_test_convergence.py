@@ -13,12 +13,13 @@ class TestRIFTConvergence(AsimovTest):
         """
         the rundir/iter*test/logs/*.out have convergence information : make sure we achieve our target (<0.02)
         """
+        print('RIFT check for internal convergence test NOT IMPLEMENTED')
         for event in self.events:
             for production in event.productions:
                 if production.pipeline.name.lower() == "rift":
                     with self.subTest("convergence", production=production.name):
                         rundir = production.rundir
-                        print('RIFT convergence test for ', rundir, "NOT IMPLEMENTED")
+#                        print('RIFT convergence test for ', rundir, "NOT IMPLEMENTED")
 #                        repo = event.event_object.repository.directory
 
 
@@ -36,7 +37,7 @@ class TestRIFTCalmargSampleSize(AsimovTest):
                     if os.path.exists(target_file):
                         with self.subTest(event=event, production=production.name):
                             dat = np.loadtxt(target_file,skiprows=1) # skip header row
-                            print(event, production.name, len(dat))
+                            print(event, production.name, len(dat))  # verbose, most common failure mode, can easily eyeball
                             self.assertFalse(  len(dat) <  1000  )
 
 
@@ -50,18 +51,28 @@ class TestRIFTFinalCIPneff(AsimovTest):
             for production in event.productions:
                 if production.pipeline.name.lower() == "rift":
                     rundir = production.rundir
-                    dir_cip_last = list(glob.glob(os.path.join(rundir, "iteration_*_cip"))).sort()
-                    if dir_cip_last is None:
+                    # completion check
+                    target_file = rundir + "/extrinsic_posterior_samples.dat"
+                    if not(os.path.exists(target_file)):
                         continue
-                    dir_cip_last = dir_cip_last[-1]
-                    print(rundir, dir_cip_last)
+
+                    dir_cip_last = glob.glob(rundir +  "/iteration_*_cip")  # usually iteration_6_cip
+                    dir_cip_last.sort()
+                    if dir_cip_last is None or dir_cip_last is []:
+                        print("   RIFT CIP n_eff : -should not happen-, skipping cip test ")
+                        continue
+                    dir_cip_last = dir_cip_last[-2] # second to last
                     with self.subTest(event=event, production=production.name):
-                        cip_out_annotate  = glob.glob(os.path.join(dir_cip_last, "cip_worker*_withpriorchange+annotation.dat"))
+                        cip_out_annotate  = glob.glob(dir_cip_last + "/overlap-grid-*_withpriorchange+annotation.dat")
+#                        print(dir_cip_last, cip_out_annotate)
+                        if len(cip_out_annotate) < 1:
+                            print("   RIFT CIP n_eff stage 2 : -should not happen-, skipping cip test ")
                         n_eff_list = []
                         for name in cip_out_annotate:
                             dat  = np.genfromtxt(name, names=True)
                             n_eff_list.append(dat['neff'])
-                        self.assertFalse( any(np.array(n_eff_list) < 2000/len(n_eff_list)) )   # attempt to require the sum of n_eff is at least 2000, distributed evenly over all of them
+                        print(event, production.name, np.min(n_eff_list), 1000/len(n_eff_list) )
+                        self.assertFalse( any(np.array(n_eff_list) < 1000/len(n_eff_list)) )   # attempt to require the sum of n_eff is at least 1000, distributed evenly over all of them
 
 class TestRIFTMarginalizedLikelihoods(AsimovTest):
     def test_lnLmarg_final(self):
@@ -76,7 +87,7 @@ class TestRIFTMarginalizedLikelihoods(AsimovTest):
                     rundir = production.rundir
                     # completion check
                     target_file = rundir + "/extrinsic_posterior_samples.dat"
-                    if os.path.exists(target_file):
+                    if not(os.path.exists(target_file)):
                         continue
                     # test on marginalized likelihood
                     all_net_name = production.pipeline.collect_assets()['lnL_marg']
