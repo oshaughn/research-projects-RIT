@@ -218,4 +218,8 @@ plt.plot(tvals2, np.real(hTc_3.data.data),c='g',lw=1)
 plt.xlim(opts.tmin,opts.tmax)
 plt.title(opts.approximant)
 
-plt.savefig(f"wf_{P.approx}_check.png")
+insert_string = str(P.approx)
+if not(isinstance(P.approx, str)):
+   import lalsimulation as lalsim
+   insert_string = lalsim.GetStringFromApproximant(P.approx)
+plt.savefig(f"wf_{insert_string}_check.png")
