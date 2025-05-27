@@ -335,7 +335,7 @@ class MCSampler(object):
         trunc_p = 1e-10 #How much probability analysis removes with evolution
         nsel = 1000# number of largest log-likelihood samples selected to estimate lkl_thr for the next cycle.
         if cupy_ok:
-          alldx = identity_convert_togpu(allx)
+          allx = identity_convert_togpu(allx)
           allloglkl = identity_convert_togpu(allloglkl)
 
         ntotal_true = 0
@@ -539,7 +539,7 @@ class MCSampler(object):
         nsel = 1000# number of largest log-likelihood samples selected to estimate lkl_thr for the next cycle.
         nsel = np.min([nsel, int(0.1*self.n_chunk)]) #  if chunk size is small, don't pick too many points
         if cupy_ok:
-          alldx = identity_convert_togpu(allx)
+          allx = identity_convert_togpu(allx)
           allloglkl = identity_convert_togpu(allloglkl)
 
         ntotal_true = 0
