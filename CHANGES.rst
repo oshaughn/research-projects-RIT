@@ -20,6 +20,8 @@ development tree is rift_O4c
      rift.ini 'n input samples' option to control grid sizes. (rc2)
    - pseudo_pipe quoted waveform arg passing to calibration_reweighting fixes; util_RandomizeOverlapOrder fix in case of
      many workers/few points per worker; remove X509 access; fix e^2 prior normalization (rc3)
+   - minor review-requested edits (mostly unused code), but note factored_likelihood precompute was doing redundant
+     calculation (since 0.0.17.0). asimov_test_convergence.py
      
 0.0.17.2
 ------------
