@@ -1792,9 +1792,9 @@ for line in dat:
         P.eccentricity = line[col_eccentricity]  # 9
         if opts.use_meanPerAno:
             P.meanPerAno = line[col_meanPerAno] #10
-        P.eccentricity = line[9]
-        if opts.use_meanPerAno:
-            P.meanPerAno = line[10]
+#        P.eccentricity = line[9]
+#        if opts.use_meanPerAno:
+#            P.meanPerAno = line[10]
     if opts.input_distance:
         P.dist = lal.PC_SI*1e6*line[col_distance]  # 9. Previously incompatible with tides when hardcoded
     
