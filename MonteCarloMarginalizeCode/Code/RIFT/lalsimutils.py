@@ -3275,7 +3275,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        if not(no_condition):
            our_fvals = evaluate_fvals(hlmsdict[(2,2)])
            vectaper_symmetric  = np.ones(len(our_fvals))
-           indx_below = np.logical_and(np.abs(np.abs(our_fvals)<P.fmin), np.abs(our_fvals)>=P.fmin*fd_standoff_factor)
+           indx_below = np.logical_and(np.abs(our_fvals)<P.fmin, np.abs(our_fvals)>=P.fmin*fd_standoff_factor)
            vectaper_symmetric[indx_below] = 0.5 + 0.5*np.cos(np.pi* (np.abs(our_fvals[indx_below])/P.fmin - 1)/(1-fd_standoff_factor))
            indx_within = np.abs(our_fvals)< P.fmin*fd_standoff_factor
            for mode in hlmsdict:
