@@ -26,7 +26,7 @@ lsctables.use_in(ligolw.LIGOLWContentHandler)
 
 optp = OptionParser()
 optp.add_option("--fref",default=20,type=float,help="Reference frequency. Depending on approximant and age of implementation, may be ignored")
-optp.add_option("--n-min",default=20,type=int,help="Minimum size of file to include")
+optp.add_option("--n-min",default=20,type=int,help="Minimum size of file to include. NOT USED")
 optp.add_option("--output-file",default='merged_output',type=str,help="Merged output file")
 optp.add_option("--verbose",action='store_true',help="Print messages")
 opts, args = optp.parse_args()
@@ -37,13 +37,13 @@ P_list_list =[]
 n_list = []
 for fname in args:
     P_list_this_file = lalsimutils.xml_to_ChooseWaveformParams_array(fname)
-    if len(P_list_this_file)<opts.n_min:
+    if False: # len(P_list_this_file)<opts.n_min:
         if opts.verbose: print("  Skipping ", fname)
         continue
     P_list_list.append(P_list_this_file)
     n_list.append(len(P_list_this_file))
 
-if len(n_list) <1:
+if False: #len(n_list) <1:
     raise Exception(" util_RandomizeOverlapOrder : Failure, not enough points in each file greater than {} ".format(opts.n_min))
 n_min = np.min(n_list)
 for indx in np.arange(len(P_list_list)):
