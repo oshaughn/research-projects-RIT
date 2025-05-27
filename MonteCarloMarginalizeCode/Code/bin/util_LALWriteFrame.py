@@ -41,6 +41,8 @@ parser.add_argument("--mass2",default=1.4,type=float,help='Mass 2 (solar masses)
 parser.add_argument("--l-max",default=4,type=float,help='Inclusion of modes in injection')
 parser.add_argument("--verbose", action="store_true",default=False)
 parser.add_argument("--use-hlms-as-injections", action="store_true",default=False)
+parser.add_argument('--hyperbolic', action='store_true', help='skips tapering for hyperbolic waveforms')
+parser.add_argument('--force-hyperbolic-22', action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
 opts=  parser.parse_args()
 
 
@@ -52,7 +54,8 @@ if not opts.inj:
     P.randomize(aligned_spin_Q=True,default_inclination=opts.incl)
     P.m1 = opts.mass1*lalsimutils.lsu_MSUN
     P.m2 = opts.mass2*lalsimutils.lsu_MSUN
-    P.taper = lalsimutils.lsu_TAPER_START
+    if not(opts.hyperbolic):
+        P.taper = lalsimutils.lsu_TAPER_START
     P.tref =1000000000  # default
     if opts.approx:
         P.approx = lalsim.GetApproximantFromString(str(opts.approx))
@@ -66,10 +69,12 @@ else:
     xmldoc = utils.load_filename(filename, verbose = True, contenthandler =lalsimutils.cthdler)
     sim_inspiral_table = lsctables.SimInspiralTable.get_table(xmldoc)
     P.copy_sim_inspiral(sim_inspiral_table[int(event)])
-    P.taper = lalsimutils.lsu_TAPER_START
+    if not(opts.hyperbolic):
+        P.taper = lalsimutils.lsu_TAPER_START
     if opts.approx:
         P.approx = lalsim.GetApproximantFromString(str(opts.approx))
-P.taper = lalsimutils.lsu_TAPER_START  # force taper
+if not(opts.hyperbolic):
+    P.taper = lalsimutils.lsu_TAPER_START  # force taper
 P.detector = opts.instrument
 if opts.approx == "EccentricTD":
     P.phaseO = 3
@@ -94,7 +99,10 @@ if not (opts.use_hlms_as_injections):
     hoft = lalsimutils.hoft(P,approx_string=opts.approx)
 else:
     print("Injecting with hlms")
-    hlm = lalsimutils.hlmoft(P,Lmax=opts.l_max)
+    if opts.hyperbolic and opts.force_hyperbolic_22:
+            hlm = lalsimutils.hlmoft(P,Lmax=opts.l_max,force_22_mode=True)
+    else:
+        hlm = lalsimutils.hlmoft(P,Lmax=opts.l_max)
     hoft = lalsimutils.hoft_from_hlm(hlm,P)
 epoch_orig = hoft.epoch
 # zero pad to be opts.seglen long, if necessary

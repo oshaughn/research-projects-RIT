@@ -182,7 +182,7 @@ def internal_hlm_generator(P,
     elif use_gwsignal and (has_GWS):  # this MUST be called first, so the P.approx is never tested
         if not quiet:
             print( "  FACTORED LIKELIHOOD WITH hlmoff (GWsignal) " )            
-        hlms, hlms_conj = rgws.std_and_conj_hlmoff(P,Lmax,approx_string=use_gwsignal_approx,**extra_waveform_kwargs)
+        hlms, hlms_conj = rgws.std_and_conj_hlmoff(P,Lmax,approx_string=use_gwsignal_approx,force_22_mode=force_22_mdoe,**extra_waveform_kwargs)
 
     elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx ==lsu.lalSEOBNRv4HM or P.approx == lalsim.EOBNRv2 or P.approx == lsu.lalTEOBv2 or P.approx==lsu.lalTEOBv4 ):
         # note: alternative to this branch is to call hlmoff, which will actually *work* if ChooseTDModes is propertly implemented for that model
@@ -236,7 +236,7 @@ def internal_hlm_generator(P,
         #         hlms_conj = hlms_conj_list
         if not('fd_standoff_factor' in extra_waveform_kwargs):
           extra_waveform_kwargs['fd_standoff_factor'] = 0.9  # IMPORTANT to match SimInspiralTD. But allow user to override
-        hlms, hlms_conj = lsu.std_and_conj_hlmoff(P,Lmax,**extra_waveform_kwargs)
+        hlms, hlms_conj = lsu.std_and_conj_hlmoff(P,Lmax,force_22_mode=force_22_mode,**extra_waveform_kwargs)
     elif (nr_lookup or NR_group) and useNR:
 	    # look up simulation
 	    # use nrwf to get hlmf
@@ -384,6 +384,10 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     crossTerms = {}
     crossTermsV = {}
 
+    if kwargs.get('force_22_mode',False):
+      # forcing mode only for TEOBResumS in lalsimutils
+      force_22_mode = True
+      
     # Compute hlms at a reference distance, distance scaling is applied later
     P.dist = distMpcRef*1e6*lsu.lsu_PC
 

@@ -101,6 +101,15 @@ def retrieve_event_from_coinc(fname_coinc):
     else:
         event_dict["eccentricity"] = None
         event_dict["meanPerAno"] = None
+    try:
+        event_dict["E0"] = row.psi3
+    except:
+        event_dict["E0"] = 0.0
+    try:
+        event_dict["p_phi0"] = row.beta
+    except:
+        event_dict["p_phi0"] = 0.0
+
     event_dict["IFOs"] = list(set(ifo_list))
     max_snr_idx = snr_list.index(max(snr_list))
     event_dict['SNR'] = snr_list[max_snr_idx]
@@ -554,7 +563,7 @@ is_analysis_precessing =False
 is_analysis_eccentric =False
 is_analysis_hyperbolic =False
 if opts.approx == "SEOBNRv3" or opts.approx == "NRSur7dq2" or opts.approx == "NRSur7dq4" or (opts.approx == 'SEOBNv3_opt') or (opts.approx == 'IMRPhenomPv2') or (opts.approx =="SEOBNRv4P" ) or (opts.approx == "SEOBNRv4PHM") or (opts.approx == "SEOBNRv5PHM") or ('SpinTaylor' in opts.approx) or ('IMRPhenomTP' in opts.approx or ('IMRPhenomXP' in opts.approx)):
-    is_analysis_precessing=True
+    is_analysis_precessing = True
 if opts.assume_precessing:
     is_analysis_precessing = True
 if opts.assume_nonprecessing:
@@ -562,7 +571,7 @@ if opts.assume_nonprecessing:
 if opts.assume_eccentric:
     is_analysis_eccentric = True
 if opts.assume_hyperbolic:
-    is_analysis_hyperbolic =False
+    is_analysis_hyperbolic = True
 
 dirname_run = gwid+ "_" + opts.calibration+ "_"+ opts.approx+"_fmin" + str(fmin) +"_fmin-template"+str(fmin_template) +"_lmax"+str(opts.l_max) + "_"+opts.spin_magnitude_prior
 if opts.online:
@@ -633,6 +642,9 @@ if not(opts.use_ini is None):
         P.eccentricity = event_dict["eccentricity"]
     if not(event_dict['meanPerAno'] is None):
         P.meanPerAno = event_dict["meanPerAno"]
+    if not(event_dict['E0'] is None):
+        P.E0 = event_dict['E0']
+        P.p_phi0 = event_dict['p_phi0']
     # Write 'target_params.xml.gz' file
     lalsimutils.ChooseWaveformParams_array_to_xml([P], "target_params")
 
@@ -964,8 +976,10 @@ if opts.use_gwsignal:
     line += " --use-gwsignal  --approx " + opts.approx
 elif not 'NR' in opts.approx:
         line += " --approx " + opts.approx
-elif opts.use_gwsurrogate and 'NRHybSur' in opts.approx:
+elif opts.use_gwsurrogate and ('NRHybSur' and not 'Tidal' in opts.approx):
         line += " --rom-group {} --rom-param NRHybSur3dq8.h5 --approx {} ".format(sur_location_prefix,opts.approx)
+elif opts.use_gwsurrogate and ('NRHybSur' and 'Tidal' in opts.approx):
+        line += " --rom-group {} --rom-param NRHybSur3dq8Tidal --approx {} ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7dq2" in opts.approx:
         line += " --rom-group {} --rom-param NRSur7dq2.h5 --approx {}  ".format(sur_location_prefix,opts.approx)
 elif opts.use_gwsurrogate and "NRSur7dq4" in opts.approx:
@@ -1252,7 +1266,7 @@ for indx in np.arange(len(instructions_cip)):
             meanPerAno_min = opts.force_meanPerAno_min
             line += " --meanPerAno-min {}  ".format(meanPerAno_min)
     if opts.assume_hyperbolic:
-        line += " --parameter E0 --parameter p_phi0 --use-hyperbolic')"
+        line += " --parameter E0 --parameter p_phi0 --use-hyperbolic "
         if not(opts.force_E0_max is None):
             E0_max = opts.force_E0_max
             line += " --E0-max {}  ".format(E0_max)
@@ -1364,6 +1378,13 @@ if opts.assume_hyperbolic:
         pphi0_max = opts.force_pphi0_max
         pphi0_min = opts.force_pphi0_min
         puff_params += " --downselect-parameter p_phi0 --downselect-parameter-range [{pphi0_min},{pphi0_max}]"
+    if opts.force_scatter_grids:
+        puff_params += ' --force-scatter '
+    if opts.force_plunge_grids:
+        puff_params += ' --force-plunge '
+    if opts.force_zoomwhirl_grids:
+        puff_params += ' --force-zoomwhirl '
+        
 if opts.assume_highq:
         puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
         puff_max_it +=3
@@ -1463,7 +1484,7 @@ cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
 cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
-if opts.assume_matter or opts.assume_eccentric:
+if opts.assume_matter or opts.assume_eccentric or opts.assume_hyperbolic:
     cmd +=  " --convert-args `pwd`/helper_convert_args.txt "
 if not(opts.ile_runtime_max_minutes is None):
     cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
@@ -1477,6 +1498,8 @@ if opts.assume_eccentric:
         cmd += " --use-eccentricity-squared-sampling "
     if opts.use_meanPerAno:
         cmd += " --use-meanPerAno "
+if opts.assume_hyperbolic:
+    cmd += " --use-hyperbolic "
 if opts.calibration_reweighting and (not opts.bilby_pickle_file):
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-ini-file {} --bilby-pickle-exe `which bilby_pipe_generation` ".format(str(opts.bilby_ini_file))
     if opts.calibration_reweighting_count:

@@ -8,7 +8,7 @@
 
 DIR_PROCESS=$1
 BASE_OUT=$2
-ECC=$3 # Liz (Capstone): this will only be non-blank in the case where my eccentric PE Makefile has inserted "--eccentricity" into join.sub
+ECC=$3 # Liz (Capstone): this will only be non-blank in the case where my eccentric PE Makefile has inserted "--eccentricity" into join.sub; JL: Should now be more general for any advanced physics: currently works with --eccentricity, --a6c, --hyperbolic
 MPA=$4
 
 # join together the .dat files
@@ -30,6 +30,8 @@ if [ "$3" == '--eccentricity' ]; then
     fi
 elif [ "$3" == '--a6c' ]; then
     util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k13 > $BASE_OUT.composite
+elif [ "$3" == '--hyperbolic' ]; then
+    util_CleanILE.py ${RND}_tmp.dat $3 $4 | sort -rg -k12 > $BASE_OUT.composite
 else
     util_CleanILE.py ${RND}_tmp.dat $3 | sort -rg -k10 > $BASE_OUT.composite
 fi

@@ -247,6 +247,7 @@ parser.add_argument("--ecc-min",default=0,type=float)
 parser.add_argument("--ecc-max",default=1,type=float)
 parser.add_argument("--lnL-cut",default=None,type=float)
 parser.add_argument("--sigma-cut",default=0.4,type=float)
+parser.add_argument("--hyperbolic", action="store_true", help="Read sample files in format including hyperbolic")
 parser.add_argument("--eccentricity", action="store_true", help="Read sample files in format including eccentricity")
 parser.add_argument("--meanPerAno", action="store_true", help="Read sample files in format including meanPerAno - assumes eccentricity also present")
 parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Relies entirely on user to set plot options for plot styles from matplotlibrc")
@@ -494,6 +495,9 @@ if opts.flag_tides_in_composite:
     else:
         print(" Reading composite file, assuming tide-based format ")
         field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "lnL", "sigmaOverL", "ntot", "neff")
+if opts.hyperbolic:
+    print(" Reading composite file, assuming hyperbolic-based format ")
+    field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","E0", "p_phi0", "lnL", "sigmaOverL", "ntot", "neff")
 if opts.eccentricity:
     print(" Reading composite file, assuming eccentricity-based format ")
     if opts.meanPerAno:

@@ -287,6 +287,10 @@ parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a'
 parser.add_argument("--chi-small-max", default=None,type=float,help="Maximum range of 'a' allowed on the smaller body.  If not specified, defaults to chi_max")
 parser.add_argument("--a6c-max", default=-20,type=float,help="Maximum range of 'a6c' allowed.")
 parser.add_argument("--a6c-min", default=-80,type=float,help="Minimum range of 'a6c' allowed.")
+parser.add_argument("--E0-max", default=1.2,type=float,help="Maximum range of 'E0' allowed.")
+parser.add_argument("--E0-min", default=1.0,type=float,help="Minimum range of 'E0' allowed.")
+parser.add_argument("--pphi0-max", default=5.4,type=float,help="Maximum range of 'p_phi0' allowed.")
+parser.add_argument("--pphi0-min", default=0.0,type=float,help="Minimum range of 'p_phi0' allowed.")
 parser.add_argument("--ecc-max", default=0.9,type=float,help="Maximum range of 'eccentricity' allowed.")
 parser.add_argument("--ecc-min", default=0.0,type=float,help="Minimum range of 'eccentricity' allowed.")
 parser.add_argument("--meanPerAno-max", default=2*np.pi,type=float,help="Maximum range of 'meanPerAno' allowed.")
@@ -361,6 +365,10 @@ parser.add_argument("--assume-eos-but-primary-bh",action='store_true',help="Spec
 parser.add_argument("--use-EOB-parameters", action="store_true")
 parser.add_argument("--use-eccentricity", action="store_true")
 parser.add_argument("--use-meanPerAno", action="store_true")
+parser.add_argument("--use-hyperbolic", action="store_true")
+parser.add_argument("--force-scatter",default=False,action='store_true', help='For hyperbolic analyses forces only scatter grid points')
+parser.add_argument("--force-plunge",default=False,action='store_true', help='For hyperbolic analyses forces only plunge grid points')
+parser.add_argument("--force-zoomwhirl",default=False,action='store_true', help='For hyperbolic analyses forces only zoomwhirl grid points')
 parser.add_argument("--tripwire-fraction",default=0.05,type=float,help="Fraction of nmax of iterations after which n_eff needs to be greater than 1+epsilon for a small number epsilon")
 
 # FIXME hacky options added by me (Liz) to try to get my capstone project to work.
@@ -394,10 +402,14 @@ if not(opts.no_adapt_parameter):
     opts.no_adapt_parameter =[] # needs to default to empty list
 A6C_MAX = opts.a6c_max
 A6C_MIN = opts.a6c_min
+E0_MAX = opts.E0_max
+E0_MIN = opts.E0_min
+PPHI0_MAX = opts.pphi_max
+PPHI0_MIN = opts.pphi_min
 ECC_MAX = opts.ecc_max
 ECC_MIN = opts.ecc_min
-MEANPERANO_MAX = 2*np.pi
-MEANPERANO_MIN = 0
+MEANPERANO_MAX = opts.meanPerAno_max
+MEANPERANO_MIN = opts.meanPerAno_min
 no_plots = no_plots |  opts.no_plots
 lnL_shift = 0
 lnL_default_large_negative = -500
@@ -873,6 +885,12 @@ def eccentricity_squared_prior(x):  # note this is INCONSISTENT with the prior a
 def meanPerAno_prior(x):
     return np.ones(x.shape) / (MEANPERANO_MAX-MEANPERANO_MIN) # uniform over the interval [MEANPERANO_MIN, MEANPERANO_MAX]
 
+def initial_energy_prior(x):
+    return np.ones(x.shape) / (E0_MAX-E0_MIN) # uniform over the interval [E0_MIN, E0_MAX]
+
+def initial_angmom_prior(x):
+    return np.ones(x.shape) / (PPHI0_MAX-PPHI0_MIN) # uniform over the interval [PPHI0_MIN, PPHI0_MAX]
+
 def precession_prior(x):
     return 0.5*np.ones(x.shape) # uniform over the interval [0.0, 2.0]
 
@@ -922,6 +940,8 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     's2z_bar':normalized_zbar_prior,
     # Other priors
     'a6c':a6c_prior,
+    'E0':initial_energy_prior,
+    'p_phi0':initial_angmom_prior,
     'eccentricity':eccentricity_prior,
     'eccentricity_squared':eccentricity_squared_prior,
     'meanPerAno':meanPerAno_prior,
@@ -943,6 +963,8 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'lambda_plus':[lambda_min,lambda_plus_max],
   'lambda_minus':[-lambda_max,lambda_max],  # will include the true region always...lots of overcoverage for small lambda, but adaptation will save us.
   'a6c':[A6C_MIN, A6C_MAX],
+  'E0':[E0_MIN,E0_MAX],
+  'p_phi0':[PPHI0_MIN,PPHI0_MAX],
   'eccentricity':[ECC_MIN, ECC_MAX],
   'eccentricity_squared':[ECC_MIN**2, ECC_MAX**2],
   'meanPerAno':[MEANPERANO_MIN, MEANPERANO_MAX],
@@ -1626,6 +1648,8 @@ n_params = -1
 #  id m1 m2  lnL sigma/L  neff
 col_lnL = 9
 col_a6c = None
+col_E0 = None
+col_pphi0 = None
 col_eccentricity = None
 col_meanPerAno = None
 col_lambda1 = None
@@ -1651,6 +1675,10 @@ if opts.input_tides:
         print(" EOB parameters (a6c) with tides input: [",A6C_MIN, ", ",A6C_MAX, "]")
         col_lnL += 1
         col_a6c = col_lnL -1
+    if opts.use_hyperbolic:
+        col_lnL += 2
+        col_E0 += col_lnL -2
+        col_pphi0 += col_lnL -1
 elif opts.use_eccentricity:
     print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
     if opts.use_meanPerAno:
@@ -1669,6 +1697,13 @@ if opts.use_EOB_parameters and not (opts.input_tides):
     print(" EOB parameters (a6c) input: [",A6C_MIN, ", ",A6C_MAX, "]")
     col_lnL += 1
     col_a6c = col_lnL -1
+if opts.use_hyperbolic and not (opts.input_tides):
+    print(" E0 input: [",E0_MIN, ", ",E0_MAX, "]")
+    print(" p_phi0 input: [",PPHI0_MIN, ", ",PPHI0_MAX, "]")
+    col_lnL += 2
+    col_E0 += col_lnL -2
+    col_pphi0 += col_lnL -1
+    
     
 dat_orig = dat = np.loadtxt(opts.fname)
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
@@ -3233,6 +3268,42 @@ for indx_here in indx_list:
                     include_item = False
                     if opts.verbose:
                         print(" Sample: Skipping " , line, ' due to ', p, val, downselect_dict[p])
+
+        if opts.force_scatter:
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:
+                # removes non-scatter points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'scatter':
+                    include_item = True
+                else:
+                    include_item = False
+
+        if opts.force_plunge:
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:
+                # removes non-plunge points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'plunge':
+                    include_item = True
+                else:
+                    include_item = False
+
+        if opts.force_zoomwhirl:
+            if include_item==False:
+                # no need to evaluate if the point is already downselected out
+                pass
+            else:
+                # removes non-zoomwhirl points from the hyperbolic grid
+                hypclass = Pgrid.extract_param('hypclass')
+                if hypclass == 'zoomwhirl':
+                    include_item = True
+                else:
+                    include_item = False
 
         # Set some superfluous quantities, needed only for PN approximants, so the result is generated sensibly
         Pgrid.ampO =opts.amplitude_order
