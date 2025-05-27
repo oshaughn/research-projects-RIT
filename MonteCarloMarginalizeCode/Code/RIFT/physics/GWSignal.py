@@ -250,8 +250,8 @@ def hoft(P, Fp=None, Fc=None,approx_string=None, **kwargs):
         hp = lal.AddREAL8TimeSeries(hp, hc)
         ht = hp
     elif P.radec==False:
-        fp = Fplus(P.theta, P.phi, P.psi)
-        fc = Fcross(P.theta, P.phi, P.psi)
+        fp = lalsimutils.Fplus(P.theta, P.phi, P.psi)
+        fc = lalsimutils.Fcross(P.theta, P.phi, P.psi)
         hp.data.data *= fp
         hc.data.data *= fc
         hp = lal.AddREAL8TimeSeries(hp, hc)
