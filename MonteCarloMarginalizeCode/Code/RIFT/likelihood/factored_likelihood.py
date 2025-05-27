@@ -1017,8 +1017,8 @@ def ComputeModeCrossTermIP(hlmsA, hlmsB, psd, fmin, fMax, fNyq, deltaF,
           crossTerms[ (mode2,mode1) ] = crossTerms[(mode1,mode2)]
         else:
           crossTerms[ (mode2,mode1) ] = np.conj(crossTerms[(mode1,mode2)])
-
-    for mode1 in hlmsA.keys():
+    else:
+     for mode1 in hlmsA.keys():
         for mode2 in hlmsB.keys():
             crossTerms[ (mode1,mode2) ] = IP.ip(hlmsA[mode1], hlmsB[mode2])
             if verbose:
