@@ -555,7 +555,7 @@ if opts.assume_matter:
 if opts.assume_eccentric:
     dirname_run += "_with_eccentricity"
     if opts.use_meanPerAno:
-        dirname_run += "_with_eccentricity_and_meanPerAno"
+        dirname_run += "_and_meanPerAno"
 if opts.no_matter:
     dirname_run += "_no_matter"
 if opts.assume_highq:
