@@ -1015,7 +1015,7 @@ if not(opts.force_mc_range is None):
     mc_min = np.max([mc_min_tight,mc_min_lim])
     mc_max = np.min([mc_max_tight,mc_max_lim])
     mc_range_str = " [{},{}] ".format(mc_min,mc_max)  # for grid placement, stay in range.
-    if mc_max < mc_min:  # passthrough in insane case, do actual grid placement on entire range. Should not happen
+    if mc_max < mc_min or mc_center < mc_min_lim:  # passthrough in insane case, do actual grid placement on entire range. Should not happen, but sometimes coinc is insane.
         mc_range_str = opts.force_mc_range  
 elif opts.limit_mc_range:
     line_here = list(map(float,opts.limit_mc_range.replace('[','').replace(']','').split(',') ))
