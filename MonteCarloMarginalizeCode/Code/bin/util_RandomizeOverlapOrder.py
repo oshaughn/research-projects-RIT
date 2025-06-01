@@ -45,10 +45,12 @@ for fname in args:
 
 
 # Find mean and standard deviation
+n_list = np.array(n_list)
 n_mean = np.mean(n_list)
-n_std = np.std(n_list)
-indx_good = n_list > np.max(n_mean  - 3*n_std, 1)  # reject points with too few points. So at least 2 per worker hard minimum.
-P_list_list = P_list_list[indx_good]
+n_std = np.std(n_list)+0.5 # in case all equal !
+indx_good = n_list > np.max([n_mean  - 3*n_std, 1])  # reject points with too few points. So at least 2 per worker hard minimum.
+indx_valid = np.arange(len(n_list),dtype=int)[indx_good]
+P_list_list = [P_list_list[k] for k in indx_valid] # dumb
 n_list = n_list[indx_good]
     
 if len(n_list) <1:
