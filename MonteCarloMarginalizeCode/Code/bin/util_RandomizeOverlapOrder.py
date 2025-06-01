@@ -43,8 +43,16 @@ for fname in args:
     P_list_list.append(P_list_this_file)
     n_list.append(len(P_list_this_file))
 
-if False: #len(n_list) <1:
-    raise Exception(" util_RandomizeOverlapOrder : Failure, not enough points in each file greater than {} ".format(opts.n_min))
+
+# Find mean and standard deviation
+n_mean = np.mean(n_list)
+n_std = np.std(n_list)
+indx_good = n_list > np.max(n_mean  - 3*n_std, 1)  # reject points with too few points. So at least 2 per worker hard minimum.
+P_list_list = P_list_list[indx_good]
+n_list = n_list[indx_good]
+    
+if len(n_list) <1:
+    raise Exception(" util_RandomizeOverlapOrder : Failure, not enough points in each file, after stripping outliers ")
 n_min = np.min(n_list)
 for indx in np.arange(len(P_list_list)):
     indx_to_take = np.random.choice(np.arange(len(P_list_list[indx])),size=n_min,replace=False) # do not take duplicate entries from any file. Files may be small!
