@@ -25,7 +25,7 @@ development tree is rift_O4c
      RandomizeOverlapOrder --n-min test since needs to be passed consistently, defer until future (rc4)
    - cepp_basic change pattern for CIP worker join_cip to only matches to wroker jobs + util_RandomizeOverlapOder.py
      drop CIP worker output with catastrophically too few points, so the use of min(n_samples) from each worker doesn't
-     cause dramatic loss of precision - fix to change made in rc3 (rc4)
+     cause dramatic loss of precision - fix to change made in rc3 (rc5)
      
 0.0.17.2
 ------------
