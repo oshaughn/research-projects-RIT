@@ -23,6 +23,9 @@ development tree is rift_O4c
    - minor review-requested edits (mostly unused code), but note factored_likelihood precompute was doing redundant
      calculation (since 0.0.17.0). asimov_test_convergence.py. helper corner case if gid input coinc crazy in mc; undo
      RandomizeOverlapOrder --n-min test since needs to be passed consistently, defer until future (rc4)
+   - cepp_basic change pattern for CIP worker join_cip to only matches to wroker jobs + util_RandomizeOverlapOder.py
+     drop CIP worker output with catastrophically too few points, so the use of min(n_samples) from each worker doesn't
+     cause dramatic loss of precision - fix to change made in rc3 (rc4)
      
 0.0.17.2
 ------------
