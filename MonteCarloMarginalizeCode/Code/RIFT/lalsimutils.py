@@ -3156,7 +3156,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
             indices_to_keep = set()
             sorted_indices = np.argsort(peak_heights)[::-1]
             tol = int(pars['srate_interp'] / 13.65) # 300 samples at srate of 4096 - minimum distance between peaks.
-             for i in sorted_indices:
+            for i in sorted_indices:
                 peak = peaks[i]                
                 keep = True
                 for kept_index in indices_to_keep:
@@ -3242,7 +3242,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
             vectaper= 0.5 + 0.5*np.cos(np.pi* (1-np.arange(n_samp)/(1.*n_samp)))
             ht.data.data[0:n_samp] *= vectaper
         else:
-             if P.deltaF is not None:
+            if P.deltaF is not None:
                 TDlen = int(1./P.deltaF * 1./P.deltaT)
             for count,value in enumerate(ht.data.data):
                 if count == 0:
@@ -3899,7 +3899,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                     indices_to_keep.add(i)                    
             filtered_peaks = peaks[list(indices_to_keep)]
             # parsing number of peaks after filtering against distance tolerance
-             if len(filtered_peaks) == 1:
+            if len(filtered_peaks) == 1:
                 # scatter case OR plunge case, we can set the epoch normally
                 hpepoch = -P.deltaT*np.argmax(amp)
                 
@@ -3914,7 +3914,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 hpepoch = -P.deltaT*np.argmax(amp)
                 reclassify = True
 
-             else:
+            else:
                 # capture case, we need to force the epoch to be the last peak
                 hypclass = 'zoomwhirl'
                 hpepoch = -P.deltaT*filtered_peaks[-1]
@@ -3955,7 +3955,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 else:
                     print('No peaks detected after reclassifcation')
                     hypclass='meaningless'
-                    
+        if hyp_wav:
+            hlmepoch=hpepoch
         hlmlen = len(hptmp)
         hlm = {}
         hlmtmp2 = {}
