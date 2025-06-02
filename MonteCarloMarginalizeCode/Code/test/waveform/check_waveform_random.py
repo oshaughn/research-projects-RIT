@@ -203,13 +203,19 @@ tvals2 = lalsimutils.evaluate_tvals(hTc_2)
 indx1 = np.argmax(np.abs(hTc_1.data.data))
 indx2 = np.argmax(np.abs(hTc_2.data.data))
 
+insert_string = str(P.approx)
+if not(isinstance(P.approx, str)):
+   import lalsimulation as lalsim
+   insert_string = lalsim.GetStringFromApproximant(P.approx)
+
+
 plt.title(opts.approximant)
 if opts.verbose:
     print( tvals1[indx1], np.angle(hTc_1.data.data[indx1]), P.psi )
     print( tvals2[indx2], np.angle(hTc_2.data.data[indx2]), P.psi )
 plt.plot(tvals1, np.abs(hTc_1.data.data),c='k')
 plt.plot(tvals2, np.abs(hTc_2.data.data),c='r')
-plt.savefig(f"wf_{P.approx}_long_check.png")
+plt.savefig(f"wf_{opts.approximant}_long_check.png")
 plt.plot(tvals1, np.real(hTc_1.data.data),c='k',lw=1)
 plt.plot(tvals2, np.real(hTc_2.data.data),c='r',lw=1)
 #if dh > 1e-4 *np.max
@@ -218,4 +224,4 @@ plt.plot(tvals2, np.real(hTc_3.data.data),c='g',lw=1)
 plt.xlim(opts.tmin,opts.tmax)
 plt.title(opts.approximant)
 
-plt.savefig(f"wf_{P.approx}_check.png")
+plt.savefig(f"wf_{opts.approximant}_check.png")

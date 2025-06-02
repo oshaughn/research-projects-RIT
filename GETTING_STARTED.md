@@ -1,7 +1,9 @@
-In this document, we'll walk you through the bare minimum needed to get RIFT up and running.  We won't explain all the settings, but you will get a realistic analysis working.   You can find a more comprehensive and pedagogical tutorial at
-```
-https://git.ligo.org/pe/tutorials/blob/master/offline_RIFT.md
-```
+In this document, we'll walk you through the bare minimum needed to get RIFT up and running.  We won't explain all the settings, but you will get a realistic analysis working.
+More comprehensive and up-to-date tutorials are available at the following link
+* https://github.com/kjtwagner/rift-tutorials/tree/main
+More comprehensive documentation about RIFT is avilable
+* https://rift-documentation.readthedocs.io/en/latest/index.html
+
 
 ## Installation and setup
 

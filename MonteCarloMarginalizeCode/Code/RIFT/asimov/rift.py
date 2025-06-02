@@ -638,7 +638,7 @@ class Rift(Pipeline):
         if count < 100 and (time_mod_out > time_mod_rescue+300): # some buffer in seconds for file i/o. Note this time can be LONG.
             print("   ... probably still going, leaving it alone ")
             return None
-        if "allow ressurect" in self.production.meta:
+        if "allow resurrect" in self.production.meta:
             count = 0
         if (count < 900) and (
             len(

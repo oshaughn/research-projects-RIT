@@ -99,7 +99,7 @@ try:
     import RIFT.integrators.mcsamplerPortfolio as mcsamplerPortfolio
     mcsampler_Portfolio_ok = True
 except:
-    print(" No mcsamplerPortolfio ")
+    print(" No mcsamplerPortfolio ")
 try:
     import RIFT.interpolators.senni as senni
     senni_ok = True
@@ -1801,9 +1801,9 @@ for line in dat:
         P.eccentricity = line[col_eccentricity]  # 9
         if opts.use_meanPerAno:
             P.meanPerAno = line[col_meanPerAno] #10
-        P.eccentricity = line[9]
-        if opts.use_meanPerAno:
-            P.meanPerAno = line[10]
+#        P.eccentricity = line[9]
+#        if opts.use_meanPerAno:
+#            P.meanPerAno = line[10]
     if opts.input_distance:
         P.dist = lal.PC_SI*1e6*line[col_distance]  # 9. Previously incompatible with tides when hardcoded
     
@@ -2402,7 +2402,7 @@ if opts.supplementary_prior_code:
       if type(external_prior_module.prior_pdf) == dict:
           for name in external_prior_module.prior_pdf:
               sampler.prior_pdf[name] = external_prior_module[name]
-              sampler.llim[name],sampler.rlim
+              sampler.llim[name],sampler.rlim[param] = stored_param_ranges[param]
 
 # Import prior (does not work as implemented! Need to edit)
 if not(opts.import_prior_dictionary_file is None):

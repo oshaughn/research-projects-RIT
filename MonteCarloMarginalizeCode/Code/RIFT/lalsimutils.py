@@ -3603,7 +3603,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        if not(no_condition):
            our_fvals = evaluate_fvals(hlmsdict[(2,2)])
            vectaper_symmetric  = np.ones(len(our_fvals))
-           indx_below = np.logical_and(np.abs(np.abs(our_fvals)<P.fmin), np.abs(our_fvals)>=P.fmin*fd_standoff_factor)
+           indx_below = np.logical_and(np.abs(our_fvals)<P.fmin, np.abs(our_fvals)>=P.fmin*fd_standoff_factor)
            vectaper_symmetric[indx_below] = 0.5 + 0.5*np.cos(np.pi* (np.abs(our_fvals[indx_below])/P.fmin - 1)/(1-fd_standoff_factor))
            indx_within = np.abs(our_fvals)< P.fmin*fd_standoff_factor
            for mode in hlmsdict:
@@ -6051,7 +6051,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         for name in ['mc', 'm1', 'm2']:
             if name in coord_names:
                 indx_name = coord_names.index(name)
-                x_out[name] *= (1+source_redshift)
+                x_out[indx_name] *= (1+source_redshift)
 
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
     if len(coord_names_reduced)<1:

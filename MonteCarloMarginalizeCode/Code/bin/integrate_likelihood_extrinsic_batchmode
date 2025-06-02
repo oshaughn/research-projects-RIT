@@ -547,7 +547,7 @@ if opts.sim_xml:
       n_event_max= np.min([len(P_list), opts.event+opts.n_events_to_analyze])
       P_list = P_list[opts.event:n_event_max]
     else:
-      P_list = P_list[np.random.choice( np.range(len(P_list)), size=n_events_to_analyze, replace=False) ]
+      P_list = P_list[np.random.choice( np.range(len(P_list)), size=opts.n_events_to_analyze, replace=False) ]
     if len(P_list) ==0:
       print(" No events to analyze, terminating with success ")
       sys.exit(0)

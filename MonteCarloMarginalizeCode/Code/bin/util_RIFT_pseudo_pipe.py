@@ -234,9 +234,10 @@ parser.add_argument("--ile-xpu",action='store_true',help='Request ILE run on bot
 parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--fake-data-cache",type=str)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [uniform mag for precessing, zprior for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
-parser.add_argument("--force-lambda-max",default=None,type=float,help="Provde this value to override the value of lambda-max provided") 
-parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provde this value to override the value of lambda-small-max provided") 
+parser.add_argument("--force-lambda-max",default=None,type=float,help="Provide this value to override the value of lambda-max provided") 
+parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provide this value to override the value of lambda-small-max provided") 
 parser.add_argument("--force-lambda-no-linear-init",action='store_true',help="Disables use of priors focused towards small lambda for initial iterations. Designed for PP plot tests with wide/uniform priors.")
+
 parser.add_argument("--force-chi-max",default=None,type=float,help="Provde this value to override the value of chi-max provided") 
 parser.add_argument("--force-chi-small-max",default=None,type=float,help="Provde this value to override the value of chi-max provided")
 parser.add_argument("--force-a6c-max",default=-20,type=float,help="Provde this value to override the value of a6c-max provided")
@@ -1658,24 +1659,39 @@ if opts.calibration_reweighting:
     if opts.use_gwsignal:
         my_extra_string = ' --use-gwsignal '
     if opts.manual_extra_ile_args:
+         print(" calmarg: Parsing  ", opts.manual_extra_ile_args)
+         my_str_list = opts.manual_extra_ile_args.lstrip().split("--")
+         my_revised_args = []
+         # MANUAL PARSING, SO STUPID, but argparse does not do what I want
+         for arg_item in my_str_list:
+             if 'internal-waveform-extra-lalsuite-args' in arg_item:
+                 my_revised_args += ['--internal-waveform-extra-lalsuite-args', arg_item.replace('internal-waveform-extra-lalsuite-args', '')]
+             if 'internal-waveform-extra-kwargs' in arg_item:
+                 my_revised_args += ['--internal-waveform-extra-kwargs', arg_item.replace('internal-waveform-extra-kwargs', '')]
+        
          # Parse string for waveform arguments
          # Currently: fork off the lmax_nyquist (the most common scenario), leave the rest to a unified dictionary to pass on
+         # ISSUE: argparse parsing does not seem to work, fall back to optparse
          my_parser=argparse.ArgumentParser()
-         my_parser.add_argument("--internal-waveform-extra-lalsuite-args",default=None)
-         my_parser.add_argument("--internal-waveform-extra-kwargs",default=None)
-         my_opts, unknown_opts =my_parser.parse_known_args(line.split())
+         my_parser.add_argument("--internal-waveform-extra-lalsuite-args",type=str,default=None)
+         my_parser.add_argument("--internal-waveform-extra-kwargs",type=str, default=None)
+         my_opts, unknown_opts =my_parser.parse_known_args(my_revised_args )
+         print(' calmarg: parsed args ', my_opts, " and others ", unknown_opts)
          my_extra_args = {}
-         if my_parser.internal_waveform_extra_kwargs:
-             my_arg_dict = eval(my_parser.internal_waveform_extra_kwargs)
+         if my_opts.internal_waveform_extra_kwargs:
+             my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
+             # due to quoting, might not evaluate to a dictionary
+             if not(isinstance(my_arg_dict, dict)):
+                 my_arg_dict = eval(my_arg_dict)
              if 'lmax_nyquist' in my_arg_dict:
-                 my_extra_str+= " --use-gwsignal-lmax_nyquist {} ".format(lmax_nyquist)
+                 my_extra_string+= " --use-gwsignal-lmax-nyquist {} ".format(my_arg_dict['lmax_nyquist'])
                  del my_arg_dict['lmax_nyquist'] # remove key
              my_extra_args.update(my_arg_dict)
-         if my_parser.internal_waveform_extra_lalsuite_args:
-             my_arg_dict = eval(my_parser.internal_waveform_extra_kwargs)
+         if my_opts.internal_waveform_extra_lalsuite_args:
+             my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
              my_extra_args.update(my_arg_dict)
          if my_extra_args:
-            my_extra_string = ' --extra-waveform-kwargs "{}" '.format(my_extra_args)
+            my_extra_string += ' --extra-waveform-kwargs "{}" '.format(my_extra_args)
 #         my_extra_string += ' ' + opts.manual_extra_ile_args + ' '
     if opts.use_ini:
         fref = unsafe_config_get(config,['engine','fref'])
