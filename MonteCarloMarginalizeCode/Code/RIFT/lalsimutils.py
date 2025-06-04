@@ -3817,7 +3817,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 'H_hyp'              : P.E0, # energy at initial separation
                 'j_hyp'              : P.p_phi0, # angular momentum at initial separation
                 'r_hyp'              : 6000.0, #hardcoded separation: may need to increase with certain systems; may want to make a option
-                'npc'                : "no",
+                'nqc'                : "no",
                 'nqc_coefs_hlm'      : "none",
                 'nqc_coefs_flx'      : "none",
                 'ode_tmax'           : 3e4, # controls how long end of waveform is; may need to change for some systems
