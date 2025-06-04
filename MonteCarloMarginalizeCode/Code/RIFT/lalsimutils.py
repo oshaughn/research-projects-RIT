@@ -3101,7 +3101,7 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                 'H_hyp'              : P.E0, # energy at initial separation
                 'j_hyp'              : P.p_phi0, # angular momentum at initial separation
                 'r_hyp'              : 6000.0, #hardcoded separation: may need to increase with certain systems; may want to make a option
-                'npc'                : "no",
+                'nqc'                : "no",
                 'nqc_coefs_hlm'      : "none",
                 'nqc_coefs_flx'      : "none",
                 'ode_tmax'           : 3e4, # controls how long end of waveform is; may need to change for some systems
@@ -3745,7 +3745,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         print("Using TEOBResumS hlms (only using (2,2); (2,1); (3,3); (4,4) in coprecessing frame)")
         modes_used = []
         modes_used_check = []
-        hyp_wave = False
+        hyp_wav = False
         distance_s = P.dist/lal.C_SI
         m_total_s = MsunInSec*(P.m1+P.m2)/lal.MSUN_SI
         k_coprecessing_frame_check = [1, 0, 4, 8]

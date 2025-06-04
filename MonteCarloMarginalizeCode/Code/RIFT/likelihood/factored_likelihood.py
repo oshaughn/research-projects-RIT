@@ -134,7 +134,7 @@ def internal_hlm_generator(P,
         extra_waveform_kwargs={},
         use_gwsignal=False,
         use_gwsignal_approx=None,
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False,**kwargs):
+                           use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False,force_22_mode=False,**kwargs):
     """
     internal_hlm_generator: top-level front end to all waveform generators used.
     Needs to be restructured so it works on a 'hook' basis, so we are not constantly changing the source code
@@ -182,7 +182,7 @@ def internal_hlm_generator(P,
     elif use_gwsignal and (has_GWS):  # this MUST be called first, so the P.approx is never tested
         if not quiet:
             print( "  FACTORED LIKELIHOOD WITH hlmoff (GWsignal) " )            
-        hlms, hlms_conj = rgws.std_and_conj_hlmoff(P,Lmax,approx_string=use_gwsignal_approx,force_22_mode=force_22_mdoe,**extra_waveform_kwargs)
+        hlms, hlms_conj = rgws.std_and_conj_hlmoff(P,Lmax,approx_string=use_gwsignal_approx,force_22_mode=force_22_mode,**extra_waveform_kwargs)
 
     elif (not nr_lookup) and (not NR_group) and ( P.approx ==lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or P.approx==lalsim.SEOBNRv3 or P.approx == lsu.lalSEOBv4 or P.approx ==lsu.lalSEOBNRv4HM or P.approx == lalsim.EOBNRv2 or P.approx == lsu.lalTEOBv2 or P.approx==lsu.lalTEOBv4 ):
         # note: alternative to this branch is to call hlmoff, which will actually *work* if ChooseTDModes is propertly implemented for that model
@@ -362,7 +362,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         extra_waveform_kwargs={},
         use_gwsignal=False,
         use_gwsignal_approx=None,
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False):
+                              use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False,force_22_mode=False,**kwargs):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -387,6 +387,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     if kwargs.get('force_22_mode',False):
       # forcing mode only for TEOBResumS in lalsimutils
       force_22_mode = True
+    print("force_22_mode test: ",force_22_mode)
       
     # Compute hlms at a reference distance, distance scaling is applied later
     P.dist = distMpcRef*1e6*lsu.lsu_PC
@@ -409,7 +410,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                                              hybrid_use=hybrid_use,hybrid_method=hybrid_method,use_provided_strain=use_provided_strain,
                                              ROM_group=ROM_group,ROM_param=ROM_param,ROM_use_basis=ROM_use_basis,ROM_limit_basis_size=ROM_limit_basis_size,
                                              extra_waveform_kwargs=extra_waveform_kwargs,use_gwsignal=use_gwsignal,use_gwsignal_approx=use_gwsignal_approx,
-                                             skip_interpolation=skip_interpolation)
+                                             skip_interpolation=skip_interpolation,force_22_mode=force_22_mode)
                                              
 
     if not(ignore_threshold is None) and (not ROM_use_basis):
