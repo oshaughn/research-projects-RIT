@@ -1704,6 +1704,7 @@ class ChooseWaveformParams:
             Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
         print(   " : hat(L). s1 x s2 =  ",  vecDot( Lhat, vecCross([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z])))
         print(   " : hat(L).(S1(1+q)+S2(1+1/q)) = ", vecDot( Lhat, S1vec*(1+qval)  + S2vec*(1+1./qval) )/(self.m1+self.m2)/(self.m1+self.m2))
+        print(   " chi_p = ", self.extract_param('chi_p'))
         if show_system_frame:
             thePrefix = ""
             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = self.extract_system_frame()
@@ -2409,6 +2410,7 @@ class ComplexIP(InnerProduct):
         Compute inner product between two COMPLEX16Frequency Series
         Accounts for time shfit
         """
+        print(h1.data.length,h2.data.length,self.len2side,self.fNyq)
         assert h1.data.length==h2.data.length==self.len2side
         assert abs(h1.deltaF-h2.deltaF) <= TOL_DF\
                 and abs(h1.deltaF-self.deltaF) <= TOL_DF
