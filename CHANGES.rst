@@ -27,6 +27,8 @@ development tree is rift_O4c
      drop CIP worker output with catastrophically too few points, so the use of min(n_samples) from each worker doesn't
      cause dramatic loss of precision - fix to change made in rc3 (rc5)
    - asimov/rift.ini access to ILE 'n copies', as backstop for highest SNR (rc6)
+   - update requirements.txt so ligolw_print installed, to allow CI to work - with release, commit c723ae29c
+Release is after last commit
      
 0.0.17.2
 ------------
