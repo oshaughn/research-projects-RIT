@@ -13,7 +13,7 @@ matplotlib
 lalsuite
 gwdatafind 
 #ligo-segments 
-#python-ligo-lw
+python-ligo-lw
 igwn-segments
 igwn-ligolw
 six
