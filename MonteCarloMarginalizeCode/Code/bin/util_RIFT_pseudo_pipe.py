@@ -1369,16 +1369,16 @@ if opts.use_EOB_parameters:
 if opts.assume_eccentric:
     puff_params += " --downselect-parameter eccentricity --downselect-parameter-range [{},{}] ".format(opts.force_ecc_min,opts.force_ecc_max)
 if opts.assume_hyperbolic:
-    puff_params += " --parameter E0 "
+#    puff_params += " --parameter E0 "
     if not(opts.force_E0_max is None and opts.force_E0_min is None):
         E0_max = opts.force_E0_max
         E0_min = opts.force_E0_min
-        puff_params += " --downselect-parameter E0 --downselect-parameter-range [{E0_min},{E0_max}] "
-    puff_params += " --parameter p_phi0 "
+        puff_params += " --downselect-parameter E0 --downselect-parameter-range [{},{}] ".format(E0_min,E0_max)
+#    puff_params += " --parameter p_phi0 "
     if not(opts.force_pphi0_max is None and opts.force_pphi0_min is None):
         pphi0_max = opts.force_pphi0_max
         pphi0_min = opts.force_pphi0_min
-        puff_params += " --downselect-parameter p_phi0 --downselect-parameter-range [{pphi0_min},{pphi0_max}]"
+        puff_params += " --downselect-parameter p_phi0 --downselect-parameter-range [{},{}]".format(pphi0_min,pphi0_max)
     if opts.force_scatter_grids:
         puff_params += ' --force-scatter '
     if opts.force_plunge_grids:

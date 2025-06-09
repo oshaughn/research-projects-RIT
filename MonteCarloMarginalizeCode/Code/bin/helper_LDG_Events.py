@@ -1280,7 +1280,7 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
     if opts.use_EOB_parameters:
         cmd += " --random-parameter a6c --random-parameter-range " + a6c_range_str
     if opts.assume_hyperbolic:
-        cmd += f" --random-parameter E0 --random-parameter-range [{opts.E0_min},{opts.E0_max}] --random-parameter p_phi0 --random-parameter-range [{opts.pphi0_min},{opts.pphi0_max}] "
+        cmd += " --random-parameter E0 --random-parameter-range [{},{}] --random-parameter p_phi0 --random-parameter-range [{},{}] ".format(opts.E0_min,opts.E0_max,opts.pphi0_min,opts.pphi0_max)
     if opts.assume_eccentric:
         cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
         grid_size = int(grid_size*1.5)
@@ -1349,7 +1349,7 @@ elif opts.propose_initial_grid:
         cmd += " --random-parameter a6c --random-parameter-range " + a6c_range_str
         grid_size = int(grid_size*1.5)
     if opts.assume_hyperbolic:
-        cmd += f" --random-parameter E0 --random-parameter-range [{opts.E0_min},{opts.E0_max}] --random-parameter p_phi0 --random-parameter-range [{opts.pphi0_min},{opts.pphi0_max}] "
+        cmd += " --random-parameter E0 --random-parameter-range [{},{}] --random-parameter p_phi0 --random-parameter-range [{},{}] ".format(opts.E0_min,opts.E0_max,opts.pphi0_min,opts.pphi0_max)
         if opts.force_scatter_grids:
             cmd += " --force-scatter "
         if opts.force_plunge_grids:
