@@ -2410,7 +2410,7 @@ class ComplexIP(InnerProduct):
         Compute inner product between two COMPLEX16Frequency Series
         Accounts for time shfit
         """
-        print(h1.data.length,h2.data.length,self.len2side,self.fNyq)
+#        print(h1.data.length,h2.data.length,self.len2side,self.fNyq)
         assert h1.data.length==h2.data.length==self.len2side
         assert abs(h1.deltaF-h2.deltaF) <= TOL_DF\
                 and abs(h1.deltaF-self.deltaF) <= TOL_DF
@@ -3046,8 +3046,8 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
                 k_coprecessing_frame.append(value)
         print(" k inertial modes: ", k, "k coprecessing frames: ", k_coprecessing_frame)
         if kwargs.get('force_22_mode', False):
-            print('Forcing ONLY the 22 modes')
-            k = [1]
+            k_coprecessing_frame = [1]
+            print("Forcing ONLY the 22 modes, so k coprecessing frames: ", k_coprecessing_frame)
         M1=P.m1/lal.MSUN_SI
         M2=P.m2/lal.MSUN_SI
         nu=M1*M2/((M1+M2)**2)
@@ -3763,8 +3763,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 k_coprecessing_frame.append(value)
         print(" k inertial modes: ", k, "k coprecessing frames: ", k_coprecessing_frame)
         if kwargs.get('force_22_mode', False):
-            print('Forcing ONLY the 22 modes')
-            k = [1]
+            k_coprecessing_frame = [1]
+            print("Forcing ONLY the 22 modes, so k coprecessing frames: ", k_coprecessing_frame)
         M1=P.m1/lal.MSUN_SI
         M2=P.m2/lal.MSUN_SI
         nu=M1*M2/((M1+M2)**2)
@@ -4029,7 +4029,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                     modes_used_new.append((4,0))
                     hlmtmp2[(4,0)]=np.array(hlmtmp[k])
             modes_used=modes_used_new
-            print(modes_used,hlmtmp,hlmtmp2)
+#            print(modes_used,hlmtmp,hlmtmp2)
 #        for count,mode in enumerate(modes_used):
 #            hlmtmp2[mode]=np.array(hlmtmp[str(count)])
         check_if_only_positive_m = False  
@@ -4043,7 +4043,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             hlm[mode].data.data = (hlmtmp2[mode][0] * np.exp(-1j*(mode[1]*(np.pi/2.)+hlmtmp2[mode][1])))
             if not ((P.deltaF is None) or (hyp_wav)):
                 TDlen = int(1./P.deltaF * 1./P.deltaT)
-                print("TDlen: ", TDlen, "data length: ", hlm[mode].data.length)
+#                print("TDlen: ", TDlen, "data length: ", hlm[mode].data.length)
                 if TDlen < hlm[mode].data.length:
                     print("TDlen < hlm[mode].data.length: need to increase segment length; Instead Truncating from left!")
 #                    sys.exit()
@@ -4051,8 +4051,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 elif TDlen >= hlm[mode].data.length:
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
             if check_if_only_positive_m or (np.abs(P.s1x) <  1e-4 and P.s2x == 0.0 and P.s1y == 0.0 and P.s2y == 0.0):
-                print("Conjugating modes")
                 mode_conj = (mode[0],-mode[1])
+                print("Conjugating mode: ",mode_conj)
                 if not mode_conj in hlm:
                     hC = hlm[mode]
                     hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0,
@@ -4093,14 +4093,15 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             
             vectaper= 0.5 + 0.5*np.cos(np.pi* (1-np.arange(n_samp)/(1.*n_samp)))
             nmax = np.argmax(hlm[(2,2)].data.data)
-            for mode in modes_used:
+            for mode in hlm:
                 #pass
                 hlm[mode].data.data[0:n_samp] *= vectaper
                 
             if hypclass == 'scatter':
                 # Taper for scatter
+                print('Scatter waveform, taper start and end')                
                 vectaper2= 0.5 + 0.5 * np.cos(np.pi * np.arange(n_samp2 + 1) / (1. * n_samp2))
-                for mode in modes_used:
+                for mode in hlm:
                     hlm[mode].data.data[-(n_samp2+1):] *= vectaper2
             elif hypclass == 'plunge':
                 # taper for plunge
@@ -4110,16 +4111,19 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 print('Zoom-whirl waveform, only start taper')
             elif hypclass =='meaningless':
                 # zero out meaningless
-                for mode in modes_used:
-                    hlm[mode].data.data *= 0.0
-                    # For hyp waveforms, resize after tapering. Non-hyp waveforms should have done this earlier (before tapering).
-                    if not (P.deltaF is None):
-                        TDlen = int(1./P.deltaF * 1./P.deltaT)
-                        if TDlen < hlm[mode].data.length:
-                            hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
-                        elif TDlen >= hlm[mode].data.length:
-                            hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
-
+                hlm[mode].data.data *= 0.0
+                            
+            for mode in hlm:
+#                print(mode)
+                # For hyp waveforms, resize after tapering. Non-hyp waveforms should have done this earlier (before tapering).
+                if not (P.deltaF is None):
+                    TDlen = int(1./P.deltaF * 1./P.deltaT)
+#                    print("TDlen: ", TDlen," hlm[{}].data.length: ".format(mode), hlm[mode].data.length)
+                    if TDlen < hlm[mode].data.length:
+                        hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
+                        print("TDlen < hlm[mode].data.length: need to increase segment length; Instead Truncating from left!")
+                    elif TDlen >= hlm[mode].data.length:
+                        hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)                    
         return hlm
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
         extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)

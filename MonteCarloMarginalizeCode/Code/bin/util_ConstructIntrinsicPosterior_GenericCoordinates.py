@@ -1677,8 +1677,8 @@ if opts.input_tides:
         col_a6c = col_lnL -1
     if opts.use_hyperbolic:
         col_lnL += 2
-        col_E0 += col_lnL -2
-        col_pphi0 += col_lnL -1
+        col_E0 = col_lnL -2
+        col_pphi0 = col_lnL -1
 elif opts.use_eccentricity:
     print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
     if opts.use_meanPerAno:
