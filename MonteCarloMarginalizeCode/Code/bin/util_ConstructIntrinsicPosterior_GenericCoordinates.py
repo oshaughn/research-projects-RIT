@@ -1701,8 +1701,8 @@ if opts.use_hyperbolic and not (opts.input_tides):
     print(" E0 input: [",E0_MIN, ", ",E0_MAX, "]")
     print(" p_phi0 input: [",PPHI0_MIN, ", ",PPHI0_MAX, "]")
     col_lnL += 2
-    col_E0 += col_lnL -2
-    col_pphi0 += col_lnL -1
+    col_E0 = col_lnL -2
+    col_pphi0 = col_lnL -1
     
     
 dat_orig = dat = np.loadtxt(opts.fname)
