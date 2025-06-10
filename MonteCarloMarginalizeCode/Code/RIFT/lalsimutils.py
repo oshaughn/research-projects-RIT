@@ -4118,7 +4118,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 # For hyp waveforms, resize after tapering. Non-hyp waveforms should have done this earlier (before tapering).
                 if not (P.deltaF is None):
                     TDlen = int(1./P.deltaF * 1./P.deltaT)
-#                    print("TDlen: ", TDlen," hlm[{}].data.length: ".format(mode), hlm[mode].data.length)
+                    print("TDlen for  your Hyperbolic waveform: ", TDlen," hlm[{}].data.length: ".format(mode), hlm[mode].data.length)
                     if TDlen < hlm[mode].data.length:
                         hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
                         print("TDlen < hlm[mode].data.length: need to increase segment length; Instead Truncating from left!")

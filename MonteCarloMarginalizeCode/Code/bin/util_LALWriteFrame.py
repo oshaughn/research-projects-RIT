@@ -80,17 +80,19 @@ if opts.approx == "EccentricTD":
     P.phaseO = 3
 P.print_params()
 
-
-T_est = lalsimutils.estimateWaveformDuration(P)
-T_est = P.deltaT*lalsimutils.nextPow2(T_est/P.deltaT)
-if T_est > opts.seglen:
-    print(" WARNING: THE SIGNAL WILL LIKELY BE TRUNCATED when writing the frame, which is VERY BAD ")
-T_est =opts.seglen
-P.deltaF = 1./T_est
-print(" Duration ", T_est)
-if T_est < opts.seglen:
-    print(" Buffer length too short, automating retuning forced ")
-
+if not ops.hyperbolic:
+    T_est = lalsimutils.estimateWaveformDuration(P)
+    T_est = P.deltaT*lalsimutils.nextPow2(T_est/P.deltaT)
+    if T_est > opts.seglen:
+        print(" WARNING: THE SIGNAL WILL LIKELY BE TRUNCATED when writing the frame, which is VERY BAD ")
+    T_est =opts.seglen
+    P.deltaF = 1./T_est
+    print(" Duration ", T_est)
+    if T_est < opts.seglen:
+        print(" Buffer length too short, automating retuning forced ")
+else:
+    T_est =opts.seglen
+    P.deltaF = 1./T_est
 
 # Generate signal
 #hoft = lalsimutils.hoft(P)   # include translation of source, but NOT interpolation onto regular time grid
