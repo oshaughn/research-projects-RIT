@@ -38,7 +38,9 @@ optp.add_option("--export-tides",action='store_true',help="Include tidal paramet
 optp.add_option("--export-eos",action='store_true',help="Include EOS index parameter")
 optp.add_option("--export-cosmology",action='store_true',help="Include source frame masses and redshift")
 optp.add_option("--export-weights",action='store_true',help="Include a field 'weights' equal to L p/ps")
+optp.add_option("--export-EOB-parameters", action="store_true", help="Include EOB Parameter: a6c")
 optp.add_option("--export-eccentricity", action="store_true", help="Include eccentricity")
+optp.add_option("--export-hyperbolic", action="store_true", help="Include hyperbolic")
 optp.add_option("--export-meanPerAno", action="store_true", help="Include meanPerAno")
 optp.add_option("--with-cosmology",default="Planck15",help="Specific cosmology to use")
 optp.add_option("--use-interpolated-cosmology",action='store_true',help="Specific cosmology to use")
@@ -75,14 +77,20 @@ if opts.convention == 'LI':
   print("# m1 m2 a1x a1y a1z a2x a2y a2z mc eta  ra dec time phiorb incl psi  distance Npts lnL p ps neff  mtotal q chi_eff chi_p",end=' ')
   if opts.export_extra_spins:
       print( 'theta_jn phi_jl tilt1 tilt2 costilt1 costilt2 phi12 a1 a2 psiJ',end=' ')
-  if opts.export_tides:
+  if opts.export_tides and not (opts.export_EOB_parameters):
       print( "lambda1 lambda2 lam_tilde",end=' ')
+  if opts.export_tides and opts.export_EOB_parameters:
+      print( "lambda1 lambda2 lam_tilde a6c",end=' ')
+  if not (opts.export_tides) and opts.export_EOB_parameters:
+      print( "a6c")    
   if opts.export_eos:
       print( "eos_indx",end=' ')
   if opts.export_cosmology:
       print( " m1_source m2_source mc_source mtotal_source redshift ",end=' ')
   if opts.export_weights:
       print( " weights ", )
+  if opts.export_hyperbolic:
+      print("E0 p_phi0 ",)
   if opts.export_eccentricity:
       if not opts.export_meanPerAno:
           print( "eccentricity ", )
@@ -104,6 +112,9 @@ if opts.convention == 'LI':
         else:
             ecc = [row.alpha4 for row in points]
             meanPerAno = [row.alpha for row in points]
+    if opts.export_hyperbolic:
+        p_phi0 = [row.beta for row in points]
+        E0 = [row.psi3 for row in points]
     
     wt = np.exp(like)*p/ps
     # remove nan wt - can happen for extrinsic output
@@ -168,7 +179,14 @@ if opts.convention == 'LI':
             if hasattr(pt, 'alpha6'):
                 P.lambda2 = pt.alpha6
             lam_tilde = P.extract_param("LambdaTilde")
-            print( P.lambda1, P.lambda2, lam_tilde,end=' ')
+            if not (opts.export_EOB_parameters):
+                print( P.lambda1, P.lambda2, lam_tilde,end=' ')
+            if opts.export_EOB_parameters:
+                P.a6c=pt.psi0
+                print( P.lambda1, P.lambda2, lam_tilde, P.a6c,end=' ')
+        if not(opts.export_tides) and opts.export_EOB_parameters:
+            P.a6c=pt.psi0
+            print(P.a6c, end=' ')    
         if opts.export_eos:
             eos_indx = P.eos_table_index
             print(eos_indx, end=' ')
@@ -181,6 +199,8 @@ if opts.convention == 'LI':
             print( m1_source, m2_source, mc_here/(1+z), mtot_here/(1+z), float(z), end=' ')
         if opts.export_weights:
             print(wt[indx],end=' ')
+        if opts.export_hyperbolic:
+            print(E0[indx],p_phi0[indx])
         if opts.export_eccentricity:
             if not opts.export_meanPerAno:
                 print(ecc[indx])
@@ -197,14 +217,20 @@ if opts.convention == 'LI':
 print( "# m1 m2 a1x a1y a1z a2x a2y a2z mc eta indx  Npts ra dec tref phiorb incl psi  dist p ps lnL mtotal q ",end=' ')
 if opts.export_extra_spins:
     print( 'thetaJN phi_jl tilt1 tilt2 phi12 a1 a2 psiJ',end=' ')
-if opts.export_tides:
+if opts.export_tides and not (opts.export_EOB_parameters):
     print( "lambda1 lambda2",end=' ')
+if opts.export_tides and opts.export_EOB_parameters:
+    print( "lambda1 lambda2 a6c",end=' ')
+if not (opts.export_tides) and opts.export_EOB_parameters:
+    print( "a6c")    
 if opts.export_eos:
       print( "eos_indx",end=' ')
 if opts.export_cosmology:
     print( " m1_source m2_source redshift ",end=' ')
 if opts.export_weights:
     print( " weights ",end=' ')
+if opts.export_hyperbolic:
+    print( "E0 p_phi0 ",)
 if opts.export_eccentricity:
     if not opts.export_meanPerAno:
         print( "eccentricity ",)
@@ -249,6 +275,9 @@ for fname in args:
     Nmax = np.max([int(row.simulation_id) for row in points])+1
     sim_id = np.array([int(row.simulation_id) for row in points])+1
 
+    if opts.export_hyperbolic:
+        p_phi0 = [row.beta for row in points]
+        E0 = [row.psi3 for row in points]
     if opts.export_eccentricity:
         if not opts.export_meanPerAno:
             ecc = [row.alpha4 for row in points]
@@ -283,8 +312,12 @@ for fname in args:
                 True
             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = P.extract_system_frame()
             print( thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ,end=' ')
-        if opts.export_tides:
+        if opts.export_tides and not (opts.export_EOB_parameters):
             print(pt.alpha5, pt.alpha6,end=' ')
+        if opts.export_tides and opts.export_EOB_parameters:
+            print( pt.alpha5, pt.alpha6, pt.psi0,end=' ')
+        if not(opts.export_tides) and opts.export_EOB_parameters:
+                print(pt.psi0, end=' ')    
         if opts.export_eos:
             print(pt.alpha, end=' ')
         if opts.export_cosmology:
@@ -295,6 +328,8 @@ for fname in args:
             print( m1_source, m2_source, z,end=' ')
         if opts.export_weights:
             print(wt[indx],end=' ')
+        if opts.export_hyperbolic:
+            print(E0[indx], p_phi0[indx],)
         if opts.export_eccentricity:
             if not opts.export_meanPerAno:
                 print(ecc[indx],)

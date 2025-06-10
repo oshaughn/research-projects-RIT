@@ -47,6 +47,7 @@ import numpy as np
 from numpy import sin, cos
 from scipy import interpolate
 from scipy import signal
+from scipy.optimize import fsolve
 import scipy  # for decimate
 try:
     import precession
@@ -314,6 +315,31 @@ MsunInSec = lal.MSUN_SI*lal.G_SI/lal.C_SI**3
 
 def modes_to_k(modes):
     return [int(x[0]*(x[0]-1)/2 + x[1]-2) for x in modes]
+def mean_anomaly_from_true(true_anomaly, eccentricity):
+    return (
+        np.arctan2(
+            -np.sqrt(
+                1 - eccentricity**2)
+            * np.sin(true_anomaly),
+            - eccentricity - np.cos(true_anomaly)
+        ) + np.pi
+        - eccentricity
+        * np.sqrt(1 - eccentricity**2)
+        * np.sin(true_anomaly)
+        / (
+            1 + eccentricity
+            * np.cos(true_anomaly)
+        )
+    )
+def eccentric_anomaly_from_mean(mean_anomaly, eccentricity):
+    func = lambda E : E - eccentricity*np.sin(E) - mean_anomaly
+    return fsolve(func, x0=mean_anomaly)
+def true_anomaly_from_eccentric(eccentric_anomaly, eccentricity):
+    # formula from https://ui.adsabs.harvard.edu/abs/1973CeMec...7..388B/abstract
+    # avoids numerical issues
+
+    beta = eccentricity / (1+np.sqrt(1 - eccentricity**2))
+    return eccentric_anomaly + 2 * np.arctan2(beta * np.sin(eccentric_anomaly), 1 - beta * np.cos(eccentric_anomaly))
 
 # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/_l_a_l_sim_inspiral_8c_source.html#l02910
 def lsu_StringFromPNOrder(order):
@@ -342,7 +368,7 @@ def lsu_StringFromPNOrder(order):
 # Class to hold arguments of ChooseWaveform functions
 #
 
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','eccentricity_squared', 'chi_pavg','mu1','mu2','eos_table_index','meanPerAno']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','eccentricity_squared', 'chi_pavg','mu1','mu2','eos_table_index','meanPerAno','a6c','E0','p_phi0','hypclass']
 
 # so far, used for puffball, to prevent insanity (infinite growth) and/or death to downselect
 #   - note we also provide for extrinsic: RA (phi), phiref, psi, just in case we need it in the future
@@ -388,6 +414,9 @@ tex_dictionary  = {
   "s2y": r"$\chi_{2,y}$",
   "eccentricity":"$e$",
   "meanPerAno":"$l_{gw}$",
+  "E0" : "$E_0 / M$",
+  "p_phi0" : r"$p__{\phi}^0",  
+  "a6c":"$a^c_6$",
   # tex labels for inherited LI names
  "a1z": r'$\chi_{1,z}$',
  "a2z": r'$\chi_{2,z}$',
@@ -436,8 +465,11 @@ class ChooseWaveformParams:
             deltaF=None, fmax=0., # for use w/ FD approximants
             taper=lsu_TAPER_NONE, # for use w/TD approximants
             eccentricity=0., # make eccentricity a parameter
-            meanPerAno=0. # make meanPerAno a parameter
-            ):
+            meanPerAno=0., # make meanPerAno a parameter
+            E0=0., # make E0/M a parameter
+            p_phi0=0., # make j_hyp a parameter
+            a6c=10000. # EOB Parameter
+    ):
         self.phiref = phiref
         self.deltaT = deltaT
         self.m1 = m1
@@ -462,10 +494,12 @@ class ChooseWaveformParams:
         self.theta = theta     # DEC.  DEC =0 on the equator; the south pole has DEC = - pi/2
         self.phi = phi         # RA.   
         self.psi = psi
-        self.meanPerAno = 0.0  # port 
+        self.a6c=a6c
         self.longAscNodes = self.psi # port to master
         self.eccentricity=eccentricity
         self.meanPerAno=meanPerAno
+        self.E0 = E0
+        self.p_phi0 = p_phi0
         self.tref = tref
         self.radec = radec
         self.detector = "H1"
@@ -900,6 +934,123 @@ class ChooseWaveformParams:
             return (self.m2+self.m1)
         if p == 'q':
             return self.m2/self.m1
+        if p == 'hypclass':
+            # Checks type of hyperbolic waveform: scatter, plunge, zoomwhirl, or meaningless
+            # check if valid
+            if self.E0 == 0.0:
+                print('Invalid use of hypclass: non-hyperbolic configuration')
+                return None
+
+            # Generate waveform
+            pars = {
+                'M'                  : (self.m1+self.m2)/lal.MSUN_SI,
+                'q'                  : self.m1/self.m2,
+                'H_hyp'              : self.E0, # energy at initial separation
+                'j_hyp'              : self.p_phi0, # angular momentum at initial separation
+                'r_hyp'              : 6000,
+                'LambdaA12'          : self.lambda1,
+                'LambdaB12'          : self.lambda2,
+                'chi1'               : self.s1z,
+                'chi2'               : self.s2z,
+                'dt'                 : self.deltaT,
+                'domain'             : 0, # 0 sets time domain
+                'arg_out'            : 1, # Request multiples and dynamics as output of the function call - 1=yes
+                'nqc'                : 2, # sets the NQCs, 2=no
+                'nqc_coefs_hlm'      : 0, # Option for the NQC model used in the waveform. 0=none
+                'nqc_coefs_flx'      : 0, # Option for the NQC model used in the flux. 0=none
+                'use_mode_lm'        : [1], # 22 mode
+                'output_lm'          : [1],
+                'srate_interp'       : 1./self.deltaT,
+                'use_geometric_units': 0,
+                'interp_uniform_grid': 1,
+                'initial_frequency'  : self.fmin,
+                'ode_tmax'           : 3e4,
+                'distance'           : self.dist/(lal.PC_SI*1e6),
+                'inclination'        : self.incl,
+                'output_hpc'         : 0 # output plus and cross polarizations, 0=no
+            }
+
+            t, hptmp, hctmp, hlmtmp, dym = EOBRun_module.EOBRunPy(pars)
+
+            # peak finding to classify
+
+            # wf amplitude - 22 mode only
+            tmp_22 = np.array(hlmtmp['1'])
+            distance_s = self.dist/lal.C_SI
+            m_total_s = MsunInSec*(self.m1+self.m2)/lal.MSUN_SI
+            M1=self.m1/lal.MSUN_SI
+            M1=self.m1/lal.MSUN_SI
+            nu=M1*M2/((M1+M2)**2)
+            tmp_22[0] *= (m_total_s/distance_s)*nu
+            amp = np.abs(tmp_22[0] * np.exp(-1j*(2*(np.pi/2.)+tmp_22[1])))
+            amp_norm = amp / np.amax(amp) # normalize amplitude for peak finding
+
+            # Check for cases where the amplitude is max at the start or end
+            if np.argmax(amp_norm) == 0 or np.argmax(amp_norm) == len(amp_norm) - 1:
+                reclassify = True
+            else:
+                reclassify = False
+            # peak finding to determine system type
+            height_thresh = 0.25
+            prom_thresh = 0.1
+            peaks, props = signal.find_peaks(amp_norm, height = height_thresh, prominence = prom_thresh)
+            peak_heights = props['peak_heights']
+            # filtering out peaks so we only keep the local maxima
+            indices_to_keep = set()
+            sorted_indices = np.argsort(peak_heights)[::-1]
+            tol = int(pars['srate_interp'] / 13.65) # 300 samples at srate of 4096 - minimum distance between peaks.
+            for i in sorted_indices:
+                peak = peaks[i]
+                keep = True
+                for kept_index in indices_to_keep:
+                    if abs(peaks[kept_index] - peak) <= tol:
+                        keep = False
+                        break
+                if keep:
+                    indices_to_keep.add(i)
+            filtered_peaks = peaks[list(indices_to_keep)]
+
+            # parsing number of peaks after filtering against distance tolerance
+            if len(filtered_peaks) == 1:
+                if np.abs(amp)[-1] > 1e-26:
+                    # scatter waveform
+                    return 'scatter'
+                else:
+                    # plunge waveform
+                    return 'plunge'
+            elif len(filtered_peaks) == 0:
+                # meaningless waveform
+                reclassify = True
+            else:
+                # zoom whirl waveform
+                return 'zoomwhirl'
+
+            if reclassify:
+                print('Running re-classification')
+                # run minimal threshold peak finder
+                all_peaks, all_props = signal.find_peaks(amp_norm, height=0.0001, prominence=0.0001)
+
+                # checking for minima if no peaks found
+                if len(all_peaks) == 0:
+                    print("No peaks found, checking for minima instead...")
+                    all_peaks, all_props = signal.find_peaks((-1*amp_norm + 1.0), height=0.0001, prominence=0.0001)
+
+                if len(all_props['prominences']) > 3:
+                    print('MANY peaks detected on reclassification, evaluating...')
+                    # these can be scatter or plunge
+                    if np.abs(amp)[-1] < 1e-26:
+                        print('Reclassifying to Plunge')
+                        return 'plunge'
+                    else:
+                        print('Reclassifying to Scatter')
+                        return 'scatter'
+                elif len(all_props['prominences']) == 3 or len(all_props['prominences']) == 2 or len(all_props['prominences']) == 1:
+                    # these are always scatters
+                    print('Reclassifying to Scatter')
+                    return 'scatter'
+                else:
+                    print('No peaks detected after reclassifcation')
+                    return 'meaningless'
         if p == 'delta' or p=='delta_mc':  # Same access routine
             return (self.m1-self.m2)/(self.m1+self.m2)
         if p == 'mc':
@@ -1553,6 +1704,7 @@ class ChooseWaveformParams:
             Lhat = np.array( [np.sin(self.incl),0,np.cos(self.incl)])  # does NOT correct for psi polar anogle!   Uses OLD convention for spins!
         print(   " : hat(L). s1 x s2 =  ",  vecDot( Lhat, vecCross([self.s1x,self.s1y,self.s1z],[self.s2x,self.s2y,self.s2z])))
         print(   " : hat(L).(S1(1+q)+S2(1+1/q)) = ", vecDot( Lhat, S1vec*(1+qval)  + S2vec*(1+1./qval) )/(self.m1+self.m2)/(self.m1+self.m2))
+        print(   " chi_p = ", self.extract_param('chi_p'))
         if show_system_frame:
             thePrefix = ""
             thetaJN, phiJL, theta1, theta2, phi12, chi1, chi2, psiJ = self.extract_system_frame()
@@ -1567,12 +1719,16 @@ class ChooseWaveformParams:
             print( thePrefix, " :+ beta = ", self.extract_param('beta'))
         print( "lambda1 =", self.lambda1)
         print( "lambda2 =", self.lambda2)
+        print("EOB Parameters:")
+        print("a6c = ",self.a6c)
         print( "inclination =", self.incl)
         print( "distance =", self.dist / 1.e+6 / lsu_PC, "(Mpc)")
         print( "reference orbital phase =", self.phiref)
         print( "polarization angle =", self.psi)
         print( "eccentricity = ", self.eccentricity)
         print( "meanPerAno = ", self.meanPerAno)
+        print("E0 / M = ", self.E0)
+        print("j_hyp = ", self.p_phi0)
         print( "time of coalescence =", float(self.tref),  " [GPS sec: ",  int(self.tref), ",  GPS ns ", (self.tref - int(self.tref))*1e9, "]")
         print( "detector is:", self.detector)
         if self.radec==False:
@@ -1759,6 +1915,9 @@ class ChooseWaveformParams:
         # FAKED COLUMNS (nonstandard)
         self.lambda1 = row.alpha5
         self.lambda2 = row.alpha6
+        self.E0 = row.psi3 # hyperbolic parameter
+        self.p_phi0 = row.beta # hyperbolic parameter
+        self.a6c = row.psi0
         self.eccentricity=row.alpha4
         self.meanPerAno=row.alpha
         self.snr = row.alpha3   # lnL info
@@ -1824,6 +1983,9 @@ class ChooseWaveformParams:
         # NONSTANDARD
         row.alpha5 = self.lambda1
         row.alpha6 = self.lambda2
+        row.psi0 = self.a6c
+        row.psi3 = self.E0
+        row.beta = self.p_phi0
         row.alpha4 = self.eccentricity
         row.alpha = self.meanPerAno
         if self.eos_table_index and not self.eccentricity:
@@ -1876,7 +2038,7 @@ class ChooseWaveformParams:
         # Call the function to read lalmetaio.SimInspiral format
         self.copy_sim_inspiral(swigrow)
 
-    def scale_to_snr(self,new_SNR,psd, ifo_list,analyticPSD_Q=True):
+    def scale_to_snr(self,new_SNR,psd, ifo_list,analyticPSD_Q=True, **kwargs):
         """
         scale_to_snr
           - evaluates network SNR in the ifo list provided (assuming *constant* psd for all..may change)
@@ -1884,6 +2046,8 @@ class ChooseWaveformParams:
           - returns current_SNR, for sanity
         """
         deltaF=findDeltaF(self)
+        Lmax = kwargs.get('Lmax', 4)  # Default to 4 if not specified in kwargs
+        deltaF=findDeltaF(self, Lmax=Lmax)
         det_orig = self.detector
         IP = Overlap(fLow=self.fmin, fNyq=1./self.deltaT/2., deltaF=deltaF, psd=psd, full_output=True,analyticPSD_Q=analyticPSD_Q)
 
@@ -1892,7 +2056,7 @@ class ChooseWaveformParams:
         for det in ifo_list:
             self.detector = det
             self.radec = True
-            h=hoff(self)
+            h=hoff(self, Lmax=Lmax)
             rho_ifo[det] = IP.norm(h)
             current_SNR_squared +=rho_ifo[det]*rho_ifo[det]
         current_SNR = np.sqrt(current_SNR_squared)
@@ -2246,6 +2410,7 @@ class ComplexIP(InnerProduct):
         Compute inner product between two COMPLEX16Frequency Series
         Accounts for time shfit
         """
+#        print(h1.data.length,h2.data.length,self.len2side,self.fNyq)
         assert h1.data.length==h2.data.length==self.len2side
         assert abs(h1.deltaF-h2.deltaF) <= TOL_DF\
                 and abs(h1.deltaF-self.deltaF) <= TOL_DF
@@ -2773,7 +2938,7 @@ def nextPow2(length):
     """
     return int(2**np.ceil(np.log2(length)))
 
-def findDeltaF(P):
+def findDeltaF(P,**kwargs):
     """
     Given ChooseWaveformParams P, generate the TD waveform,
     round the length to the next power of 2,
@@ -2781,7 +2946,8 @@ def findDeltaF(P):
     This is useful b/c deltaF is needed to define an inner product
     which is needed for norm_hoft and norm_hoff functions
     """
-    h = hoft(P)
+    Lmax = kwargs.get('Lmax', 4)  # Default to 4 if not specified in kwargs
+    h = hoft(P,Lmax=Lmax)
     return 1./(nextPow2(h.data.length) * P.deltaT)
 
 def estimateWaveformDuration(P,LmaxEff=2):
@@ -2863,73 +3029,158 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
         extra_waveform_args.update(kwargs['extra_waveform_args'])
     extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
     if P.approx==lalsim.TEOBResumS and has_external_teobresum and info_use_ext:
-        Lmax=8
+        Lmax = kwargs.get('Lmax', 4)  # Default to 4 if not specified in kwargs
         modes_used = []
         distance_s = P.dist/lal.C_SI
         m_total_s = MsunInSec*(P.m1+P.m2)/lal.MSUN_SI
+        k_coprecessing_frame_check = [1, 0, 4, 8]
         for l in np.arange(2,Lmax+1,1):
             for m in np.arange(0,l+1,1):
                 if m !=0:
                     modes_used.append((l,m))
+        print(modes_used)
         k = modes_to_k(modes_used)
+        k_coprecessing_frame = []
+        for count,value in enumerate(k):
+            if value in k_coprecessing_frame_check:
+                k_coprecessing_frame.append(value)
+        print(" k inertial modes: ", k, "k coprecessing frames: ", k_coprecessing_frame)
+        if kwargs.get('force_22_mode', False):
+            k_coprecessing_frame = [1]
+            print("Forcing ONLY the 22 modes, so k coprecessing frames: ", k_coprecessing_frame)
         M1=P.m1/lal.MSUN_SI
         M2=P.m2/lal.MSUN_SI
         nu=M1*M2/((M1+M2)**2)
-        if (P.eccentricity == 0.0):
-            print("Using ResumS master; not eccentric")
+        hyp_wav = False
+        ecc_ano=eccentric_anomaly_from_mean(P.meanPerAno,P.eccentricity)
+        true_ano=true_anomaly_from_eccentric(ecc_ano,P.eccentricity)
+        if P.E0 == 0.0:
+            print("Using TEOBResumSDALI/GIOTTO standard call")
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
-                'LambdaAl2'            : P.lambda1,
-                'LambdaBl2'            : P.lambda2,
+                'LambdaAl2'          : P.lambda1,
+                'LambdaBl2'          : P.lambda2,
                 'chi1x'              : P.s1x,
                 'chi1y'              : P.s1y,
                 'chi1z'              : P.s1z,
                 'chi2x'              : P.s2x,
                 'chi2y'              : P.s2y,
                 'chi2z'              : P.s2z,
+                'ecc'                : P.eccentricity,
+                'inclination'        : P.incl,
+                'coalescence_angle'  : np.pi / 2 - P.phiref,
+                'srate_interp'       : 1./P.deltaT,
+                'initial_frequency'  : P.fmin,
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'anomaly'            : true_ano,
+#                'a6c'                : P.a6c,
                 'domain'             : 0,
                 'arg_out'            : "yes",
-                'use_mode_lm'        : k,
-                'srate_interp'       : 1./P.deltaT,
-                'use_geometric_units': "no",
-                'initial_frequency'  : P.fmin,
                 'interp_uniform_grid': "yes",
-                'distance'           : P.dist/(lal.PC_SI*1e6),
-                'inclination'        : P.incl,
-                "coalescence_angle": np.pi / 2 - P.phiref,
+                'use_geometric_units': "no",
+                # spin_flx can be "EOB" or "PN" prescription. Currently suggested to use EOB as standard (use PN for GIOTTO like prescription)
+                'spin_flx'           : "EOB",
+                'spin_interp_domain' : 0,
+                # This can be "QNMs" or "constant". Currently it looks like without QNMs enabled gives basically only prior for precessing events (even for low mass events)
+                'ringdown_eulerangles': "QNMs",
+                'use_mode_lm'        : k_coprecessing_frame,
+                #                'output_lm'          : k,
+#                'df'                 : P.deltaF,
                 'output_hpc'         : "no"
             }
+            if (np.abs(P.s1x) >  1e-4 or P.s1y!=0.0 or P.s2x!=0.0 or P.s2y!=0.0):
+                pars.update({'use_mode_lm_inertial': k})
+            if P.a6c < 1000 and P.a6c != 0.0:
+                pars.update({'a6c' : P.a6c})
         else:
-            print("Using eccentric call")
+            print("Using TEOBResumSDALI hyperbolic call")
+            hyp_wav = True # convenient way to know if the waveform is hyperbolic
+            
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
-                'Lambda2'            : P.lambda1,
-                'Lambda2'            : P.lambda2,
-                'chi1'              : P.s1z,
-                'chi2'              : P.s2z,
-                'domain'             : 0,
-                'arg_out'            : 1,
-                'use_mode_lm'        : k,
-                'output_lm'          : k,
-                'srate_interp'       : 1./P.deltaT,
-                'use_geometric_units': 0,
-                'initial_frequency'  : P.fmin,
-                'df'                 : P.deltaF,
-                'interp_uniform_grid': 1,
-                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'H_hyp'              : P.E0, # energy at initial separation
+                'j_hyp'              : P.p_phi0, # angular momentum at initial separation
+                'r_hyp'              : 6000.0, #hardcoded separation: may need to increase with certain systems; may want to make a option
+                'nqc'                : "no",
+                'nqc_coefs_hlm'      : "none",
+                'nqc_coefs_flx'      : "none",
+                'ode_tmax'           : 3e4, # controls how long end of waveform is; may need to change for some systems
+                'LambdaAl2'          : P.lambda1,
+                'LambdaBl2'          : P.lambda2,
+                'chi1x'              : P.s1x,
+                'chi1y'              : P.s1y,
+                'chi1z'              : P.s1z,
+                'chi2x'              : P.s2x,
+                'chi2y'              : P.s2y,
+                'chi2z'              : P.s2z,
                 'inclination'        : P.incl,
-                "coalescence_angle": np.pi / 2 - P.phiref,
-                'output_hpc'         : 0,
-                'ecc'                : P.eccentricity,
-                'ecc_freq'           : 1 #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
+                'coalescence_angle'  : np.pi / 2 - P.phiref,
+                'srate_interp'       : 1./P.deltaT,
+                'initial_frequency'  : P.fmin,
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'domain'             : 0,
+                'arg_out'            : "yes",
+                'interp_uniform_grid': "yes",
+                'use_geometric_units': "no",
+                # spin_flx can be "EOB" or "PN" prescription. Currently suggested to use EOB as standard (use PN for GIOTTO like prescription)
+                'spin_flx'           : "EOB",
+                'spin_interp_domain' : 0,
+                # This can be "QNMs" or "constant". Currently it looks like without QNMs enabled gives basically only prior for precessing events (even for low mass events)
+                'ringdown_eulerangles': "QNMs",
+                'use_mode_lm'        : k_coprecessing_frame,
+                #                'output_lm'          : k,
+#                'df'                 : P.deltaF,
+                'output_hpc'         : "no"
             }
+            if (np.abs(P.s1x) >  1e-4 or P.s1y!=0.0 or P.s2x!=0.0 or P.s2y!=0.0):
+                pars.update({'use_mode_lm_inertial': k})
+
         print("Starting EOBRun_module")
         print(pars)
         t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
         print("EOBRun_module done")
-        hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+        if not(hyp_wav):
+            ## Set the epoch for non-hyperbolic cases ##
+            hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+        else:
+             ## custom epoch for the hyperbolic case ##            
+            # wf amplitude
+            amp = np.sqrt(np.abs(hptmp)**2+np.abs(hctmp)**2)
+            amp_norm = amp / np.amax(amp) # normalize amplitude for peak finding                
+            # peak finding to determine system type
+            height_thresh = 0.25*np.abs(amp_norm)
+            prom_thresh = 0.1*np.abs(amp_norm)
+            peaks, props = signal.find_peaks(amp_norm, height = height_thresh, prominence = prom_thresh)    
+            peak_heights = props['peak_heights']
+            # filtering out peaks so we only keep the local maxima
+            indices_to_keep = set()
+            sorted_indices = np.argsort(peak_heights)[::-1]
+            tol = int(pars['srate_interp'] / 13.65) # 300 samples at srate of 4096 - minimum distance between peaks.
+            for i in sorted_indices:
+                peak = peaks[i]                
+                keep = True
+                for kept_index in indices_to_keep:
+                    if abs(peaks[kept_index] - peak) <= tol:
+                        keep = False
+                        break                
+                if keep:
+                    indices_to_keep.add(i)                    
+            filtered_peaks = peaks[list(indices_to_keep)]
+             # parsing number of peaks after filtering against distance tolerance
+            if len(filtered_peaks) == 1:
+                # scatter case OR plunge case, we can set the epoch normally
+                hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+            elif len(filtered_peaks) == 0:
+                # meaningless waveform, essentially a non-interacting case. Set the epoch normally
+                # These points should return very low likelihood and not interfere with the analysis
+                print('WARNING: no peak detected; non-interacting hyperbolic case')
+                hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+            else:
+                # capture case, we need to force the epoch to be the last peak
+                hpepoch = -P.deltaT*filtered_peaks[-1]
+                
         hplen = len(hptmp)
         hp = {}
         hc = {}
@@ -2980,15 +3231,92 @@ def hoft(P, Fp=None, Fc=None,**kwargs):
         ht = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc, 
                 P.phi, P.theta, P.psi, 
                 lalsim.DetectorPrefixToLALDetector(str(P.detector)))
-    if P.taper != lsu_TAPER_NONE: # Taper if requested
+    if P.taper != lsu_TAPER_NONE and P.approx != lalsim.TEOBResumS: # Taper if requested
         lalsim.SimInspiralREAL8WaveTaper(ht.data, P.taper)
+    if P.approx == lalsim.TEOBResumS:
+        # Create a taper similar to NRWaveformCatalogManager for TEOBResumS waveforms
+        if (P.E0 == 0.0):
+            # Tapering for eccentric/master branch
+            t_samp_1 = ht.data.length*P.deltaT*0.05
+            t_samp_2 = 2/P.fmin
+            t_samp = np.max([t_samp_1,t_samp_2])
+            n_samp = int(t_samp/P.deltaT)
+            vectaper= 0.5 + 0.5*np.cos(np.pi* (1-np.arange(n_samp)/(1.*n_samp)))
+            ht.data.data[0:n_samp] *= vectaper
+        else:
+            if P.deltaF is not None:
+                TDlen = int(1./P.deltaF * 1./P.deltaT)
+            for count,value in enumerate(ht.data.data):
+                if count == 0:
+                    continue
+                if np.abs(value-ht.data.data[count-1]) < 0.01 *np.abs(ht.data.data[0]):
+                    ht = lal.ResizeREAL8TimeSeries(ht, count, ht.data.length)
+                    break
+                else:
+                    continue
+            for count,value in enumerate(ht.data.data):
+                if count == 0:
+                    continue
+                if np.abs(value-ht.data.data[0]) > 0.01 * np.abs(ht.data.data[0]):
+                    n_samp=int(count/2)
+                    break
+            
+            # peak finding to determine system type
+            ht_norm = ht.data.data/np.amax(ht.data.data)
+            height_thresh = 0.25
+            prom_thresh = 0.1
+
+            peaks, props = signal.find_peaks(ht_norm, height = height_thresh, prominence = prom_thresh)
+            peak_heights = props['peak_heights']
+            indices_to_keep = set()
+            sorted_indices = np.argsort(peak_heights)[::-1]
+            tol = int(pars['srate_interp'] / 13.65) # 300 samples at srate of 4096 - minimum distance between peaks.
+            for i in sorted_indices:
+                peak = peaks[i]                
+                keep = True
+                for kept_index in indices_to_keep:
+                    if abs(peaks[kept_index] - peak) <= tol:
+                        keep = False
+                        break                
+                if keep:
+                    indices_to_keep.add(i)                    
+            filtered_peaks = peaks[list(indices_to_keep)]
+            
+            vectaper= 0.5 + 0.5*np.cos(np.pi* (1-np.arange(n_samp)/(1.*n_samp))) # this tapers the start
+
+            nmax = np.argmax(ht.data.data)
+            ht.data.data[0:n_samp] *= vectaper
+            
+            if len(filtered_peaks) == 1:
+                # check if a scatter or a plunge            
+                if np.abs(ht.data.length-nmax) > 3e3:
+                    #scatter
+                    print('Tapering for scatter waveform')
+                    n_samp2=n_samp
+                    vectaper2 = 0.5 + 0.5 * np.cos(np.pi * np.arange(n_samp2 + 1) / (1. * n_samp2)) # end taper
+                    ht.data.data[-(n_samp2+1):] *= vectaper2
+                else:
+                    # plunge, only need to taper the start
+                    print('Plunge waveform, only start taper')
+                    
+            elif len(filtered_peaks) == 0:
+                print('Non-interactive hyperbolic waveform, tapering both ends')
+                n_samp2=n_samp
+                vectaper2 = 0.5 + 0.5 * np.cos(np.pi * np.arange(n_samp2 + 1) / (1. * n_samp2))
+                ht.data.data[-(n_samp2+1):] *= vectaper2
+            
+            else:
+                # zoom-whirl case, taper just the start
+                print('Zoom-whirl waveform, only start taper')
+                
+                
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
         assert TDlen >= ht.data.length
         ht = lal.ResizeREAL8TimeSeries(ht, 0, TDlen)
     return ht
 
-def hoff(P, Fp=None, Fc=None, fwdplan=None):
+def hoff(P, Fp=None, Fc=None, fwdplan=None, **kwargs):
     """
     Generate a FD waveform from ChooseWaveformParams P.
     Will return a COMPLEX16FrequencySeries object.
@@ -3004,6 +3332,7 @@ def hoff(P, Fp=None, Fc=None, fwdplan=None):
         If P.deltaF == None, the TD waveform will be zero-padded
         to the next power of 2.
     """
+    Lmax = kwargs.get('Lmax', 4)  # Default to 4 if not specified in kwargs
     # For FD approximants, use the ChooseFDWaveform path = hoff_FD
     if lalsim.SimInspiralImplementedFDApproximants(P.approx)==1:
         # Raise exception if unused arguments were specified
@@ -3013,11 +3342,11 @@ def hoff(P, Fp=None, Fc=None, fwdplan=None):
 
     # For TD approximants, do ChooseTDWaveform + FFT path = hoff_TD
     else:
-        hf = hoff_TD(P, Fp, Fc, fwdplan)
+        hf = hoff_TD(P, Fp, Fc, fwdplan, Lmax=Lmax)
 
     return hf
 
-def hoff_TD(P, Fp=None, Fc=None, fwdplan=None):
+def hoff_TD(P, Fp=None, Fc=None, fwdplan=None, **kwargs):
     """
     Generate a FD waveform from ChooseWaveformParams P
     by creating a TD waveform, zero-padding and
@@ -3037,8 +3366,9 @@ def hoff_TD(P, Fp=None, Fc=None, fwdplan=None):
 
     Returns a COMPLEX16FrequencySeries object
     """
+    Lmax = kwargs.get('Lmax', 4)  # Default to 4 if not specified in kwargs
     ht = hoft(P, Fp, Fc)
-
+    
     if P.deltaF == None: # h(t) was not zero-padded, so do it now
         TDlen = nextPow2(ht.data.length)
         ht = lal.ResizeREAL8TimeSeries(ht, 0, TDlen)
@@ -3414,22 +3744,34 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             P.fmin, P.fref, P.dist, extra_params, \
              Lmax, P.approx)
     elif P.approx ==lalsim.TEOBResumS and has_external_teobresum and not(info_use_resum_polarizations):  # don't call external if fallback to polarizations
-        print("Using TEOBResumS hlms")
+        print("Using TEOBResumS hlms (only using (2,2); (2,1); (3,3); (4,4) in coprecessing frame)")
         modes_used = []
+        modes_used_check = []
+        hyp_wav = False
         distance_s = P.dist/lal.C_SI
         m_total_s = MsunInSec*(P.m1+P.m2)/lal.MSUN_SI
+        k_coprecessing_frame_check = [1, 0, 4, 8]
         for l in np.arange(2,Lmax+1,1):
             for m in np.arange(0,l+1,1):
                 if m !=0:
                     modes_used.append((l,m))
         print(modes_used)
         k = modes_to_k(modes_used)
-        print(k)
+        k_coprecessing_frame = []
+        for count,value in enumerate(k):
+            if value in k_coprecessing_frame_check:
+                k_coprecessing_frame.append(value)
+        print(" k inertial modes: ", k, "k coprecessing frames: ", k_coprecessing_frame)
+        if kwargs.get('force_22_mode', False):
+            k_coprecessing_frame = [1]
+            print("Forcing ONLY the 22 modes, so k coprecessing frames: ", k_coprecessing_frame)
         M1=P.m1/lal.MSUN_SI
         M2=P.m2/lal.MSUN_SI
         nu=M1*M2/((M1+M2)**2)
-        if P.eccentricity == 0.0:
-            print("Using ResumS master; not eccentric")
+        ecc_ano=eccentric_anomaly_from_mean(P.meanPerAno,P.eccentricity)
+        true_ano=true_anomaly_from_eccentric(ecc_ano,P.eccentricity)
+        if P.E0 == 0.0:
+            print("Using TEOBResumSDALI/GIOTTO standard call")
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
@@ -3441,50 +3783,182 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 'chi2x'              : P.s2x,
                 'chi2y'              : P.s2y,
                 'chi2z'              : P.s2z,
+                'ecc'                : P.eccentricity,
+                'inclination'        : P.incl,
+                'coalescence_angle'  : np.pi / 2 - P.phiref,
+                'srate_interp'       : 1./P.deltaT,
+                'initial_frequency'  : P.fmin,
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'anomaly'            : true_ano,
+#                'a6c'                : P.a6c,
                 'domain'             : 0,
                 'arg_out'            : "yes",
-                'use_mode_lm'        : k,
-#                'output_lm'          : k,
-                'srate_interp'       : 1./P.deltaT,
-#                'df'                 : P.deltaF,
-                'use_geometric_units': "no",
-                'initial_frequency'  : P.fmin,
                 'interp_uniform_grid': "yes",
-                'distance'           : P.dist/(lal.PC_SI*1e6),
-                'inclination'        : P.incl,
+                'use_geometric_units': "no",
+                # spin_flx can be "EOB" or "PN" prescription. Currently suggested to use EOB as standard (use PN for GIOTTO like prescription)
+                'spin_flx'           : "EOB",
+                'spin_interp_domain' : 0,
+                # This can be "QNMs" or "constant". Currently it looks like without QNMs enabled gives basically only prior for precessing events (even for low mass events)
+                'ringdown_eulerangles': "QNMs",
+                'use_mode_lm'        : k_coprecessing_frame,
+                #                'output_lm'          : k,
+#                'df'                 : P.deltaF,
                 'output_hpc'         : "no"
             }
+            if (np.abs(P.s1x) >  1e-4 or P.s1y!=0.0 or P.s2x!=0.0 or P.s2y!=0.0):
+                pars.update({'use_mode_lm_inertial': k})
+            if P.a6c < 1000 and P.a6c != 0.0:
+                pars.update({'a6c' : P.a6c})
         else:
-            print("Using eccentric call")
+            print("Using hyperbolic call")
+            hyp_wav = True # convenient way to know if the waveform is hyperbolic
+            
             pars = {
                 'M'                  : M1+M2,
                 'q'                  : M1/M2,
-                'LambdaAl2'            : P.lambda1,
-                'LambdaBl2'            : P.lambda2,
-                'chi1'               : P.s1z,
-                'chi2'               : P.s2z,
-                'domain'             : 0,
-                'arg_out'            : 1,
-                'use_mode_lm'        : k,
-                'output_lm'          : k,
-                'srate_interp'       : 1./P.deltaT,
-                'use_geometric_units': 0,
-                'initial_frequency'  : P.fmin,
-                'df'                 : P.deltaF,
-                'interp_uniform_grid': 1,
-                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'H_hyp'              : P.E0, # energy at initial separation
+                'j_hyp'              : P.p_phi0, # angular momentum at initial separation
+                'r_hyp'              : 6000.0, #hardcoded separation: may need to increase with certain systems; may want to make a option
+                'nqc'                : "no",
+                'nqc_coefs_hlm'      : "none",
+                'nqc_coefs_flx'      : "none",
+                'ode_tmax'           : 3e4, # controls how long end of waveform is; may need to change for some systems
+                'LambdaAl2'          : P.lambda1,
+                'LambdaBl2'          : P.lambda2,
+                'chi1x'              : P.s1x,
+                'chi1y'              : P.s1y,
+                'chi1z'              : P.s1z,
+                'chi2x'              : P.s2x,
+                'chi2y'              : P.s2y,
+                'chi2z'              : P.s2z,
                 'inclination'        : P.incl,
-                'output_hpc'         : 0,
-                'ecc'                : P.eccentricity,
-                'ecc_freq'           : 1 #Use periastron (0), average (1) or apastron (2) frequency for initial condition computation. Default = 1
+                'coalescence_angle'  : np.pi / 2 - P.phiref,
+                'srate_interp'       : 1./P.deltaT,
+                'initial_frequency'  : P.fmin,
+                'distance'           : P.dist/(lal.PC_SI*1e6),
+                'domain'             : 0,
+                'arg_out'            : "yes",
+                'interp_uniform_grid': "yes",
+                'use_geometric_units': "no",
+                # spin_flx can be "EOB" or "PN" prescription. Currently suggested to use EOB as standard (use PN for GIOTTO like prescription)
+                'spin_flx'           : "EOB",
+                'spin_interp_domain' : 0,
+                # This can be "QNMs" or "constant". Currently it looks like without QNMs enabled gives basically only prior for precessing events (even for low mass events)
+                'ringdown_eulerangles': "QNMs",
+                'use_mode_lm'        : k_coprecessing_frame,
+                #                'output_lm'          : k,
+#                'df'                 : P.deltaF,
+                'output_hpc'         : "no"
             }
+            if (np.abs(P.s1x) >  1e-4 or P.s1y!=0.0 or P.s2x!=0.0 or P.s2y!=0.0):
+                pars.update({'use_mode_lm_inertial': k})
+                
         # Run the WF generator
         print("Starting EOBRun_module")
         print(pars)
         t, hptmp, hctmp, hlmtmp, dym = EOBRun_module.EOBRunPy(pars)
-        print("EOBRun_module done")
+
         k_list_orig = hlmtmp.keys()
-        hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+        if not(hyp_wav):
+            rho_net = np.zeros(len(t))
+            for mode in hlmtmp:
+                rho_net += np.abs(hlmtmp[mode][0])**2
+            hlmepoch = -P.deltaT*np.argmax(rho_net)
+#        hpepoch = -P.deltaT*np.argmax(np.abs(hptmp)**2+np.abs(hctmp)**2)
+
+        else:
+            ## custom epoch for the hyperbolic case ##
+                        
+            # wf amplitude - 22 mode only
+            tmp_22 = np.array(hlmtmp['1'])
+            tmp_22[0] *= (m_total_s/distance_s)*nu
+            amp = np.abs(tmp_22[0] * np.exp(-1j*(2*(np.pi/2.)+tmp_22[1])))
+            amp_norm = amp / np.amax(amp) # normalize amplitude for peak finding
+            
+            # Check for cases where the amplitude is max at the start or end
+            if np.argmax(amp_norm) == 0 or np.argmax(amp_norm) == len(amp_norm) - 1:
+                reclassify = True
+            else:
+                reclassify = False
+
+            # initial peak finding to determine system type
+            height_thresh = 0.25
+            prom_thresh = 0.1
+            peaks, props = signal.find_peaks(amp_norm, height = height_thresh, prominence = prom_thresh) 
+            peak_heights = props['peak_heights']
+            # filtering out peaks so we only keep the local maxima
+            indices_to_keep = set()
+            sorted_indices = np.argsort(peak_heights)[::-1]
+            tol = int(pars['srate_interp'] / 13.65) # 300 samples at srate of 4096 - minimum distance between peaks.
+            for i in sorted_indices:
+                peak = peaks[i]                
+                keep = True
+                for kept_index in indices_to_keep:
+                    if abs(peaks[kept_index] - peak) <= tol:
+                        keep = False
+                        break                
+                if keep:
+                    indices_to_keep.add(i)                    
+            filtered_peaks = peaks[list(indices_to_keep)]
+            # parsing number of peaks after filtering against distance tolerance
+            if len(filtered_peaks) == 1:
+                # scatter case OR plunge case, we can set the epoch normally
+                hpepoch = -P.deltaT*np.argmax(amp)
+                
+                if np.abs(amp)[-1] > 1e-26:
+                    hypclass = 'scatter' # maybe should do through assign_param?
+                else:
+                    hypclass = 'plunge'
+                
+                
+            elif len(filtered_peaks) == 0:
+                hypclass = 'meaningless'
+                hpepoch = -P.deltaT*np.argmax(amp)
+                reclassify = True
+
+            else:
+                # capture case, we need to force the epoch to be the last peak
+                hypclass = 'zoomwhirl'
+                hpepoch = -P.deltaT*filtered_peaks[-1]
+                
+            if reclassify:
+                print('Running re-classification')
+                # run minimal threshold peak finder
+                all_peaks, all_props = signal.find_peaks(amp_norm, height=0.000001, prominence=0.000001)
+                
+                # checking for minima if no peaks found
+                
+                if len(all_peaks) == 0:
+                    print("No peaks found, checking for minima instead...")
+                    all_peaks, all_props = signal.find_peaks((-1*amp_norm + 1.0), height=0.000001, prominence=0.000001)
+                
+                if len(all_props['prominences']) > 3:
+                    print('MANY peaks detected on reclassification, evaluating...')
+                    
+                    if np.abs(amp)[-1] < 1e-26:
+                        print('Reclassifying to Plunge')
+                        hpepoch = -P.deltaT*np.argmax(amp)
+                        hypclass = 'plunge' 
+                    else:
+                        print('Reclassifying to Scatter')
+                        max_peak_index = all_peaks[np.argmax(all_props['peak_heights'])]
+                        print(f"Largest peak is at index {max_peak_index} with height {amp_norm[max_peak_index]}")
+                        # setting the epoch to the largest amplitude peak
+                        hpepoch = -P.deltaT*max_peak_index
+                elif len(all_props['prominences']) == 3 or len(all_props['prominences']) == 2 or len(all_props['prominences']) == 1:
+                    print('Reclassifying to Scatter')
+                    hypclass = 'scatter'
+                    
+                    max_peak_index = all_peaks[np.argmax(all_props['peak_heights'])]
+                    print(f"Largest peak is at index {max_peak_index} with height {amp_norm[max_peak_index]}")
+                    
+                    # setting the epoch to the largest amplitude peak
+                    hpepoch = -P.deltaT*max_peak_index
+                else:
+                    print('No peaks detected after reclassifcation')
+                    hypclass='meaningless'
+        if hyp_wav:
+            hlmepoch=hpepoch
         hlmlen = len(hptmp)
         hlm = {}
         hlmtmp2 = {}
@@ -3555,7 +4029,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                     modes_used_new.append((4,0))
                     hlmtmp2[(4,0)]=np.array(hlmtmp[k])
             modes_used=modes_used_new
-            print(modes_used,hlmtmp,hlmtmp2)
+#            print(modes_used,hlmtmp,hlmtmp2)
 #        for count,mode in enumerate(modes_used):
 #            hlmtmp2[mode]=np.array(hlmtmp[str(count)])
         check_if_only_positive_m = False  
@@ -3564,21 +4038,21 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         check_if_only_positive_m = not( (mode_keys < 0).any())
         for mode in modes_used:
             hlmtmp2[mode][0]*=(m_total_s/distance_s)*nu
-            hlm[mode] = lal.CreateCOMPLEX16TimeSeries("Complex hlm(t)", hpepoch, 0,
+            hlm[mode] = lal.CreateCOMPLEX16TimeSeries("Complex hlm(t)", hlmepoch, 0,
                                                       P.deltaT, lsu_DimensionlessUnit, hlmlen)
             hlm[mode].data.data = (hlmtmp2[mode][0] * np.exp(-1j*(mode[1]*(np.pi/2.)+hlmtmp2[mode][1])))
-            if not (P.deltaF is None):
+            if not ((P.deltaF is None) or (hyp_wav)):
                 TDlen = int(1./P.deltaF * 1./P.deltaT)
-                print("TDlen: ", TDlen, "data length: ", hlm[mode].data.length)
+#                print("TDlen: ", TDlen, "data length: ", hlm[mode].data.length)
                 if TDlen < hlm[mode].data.length:
-#                    print("TDlen < hlm[mode].data.length: need to increase segment length; Instead Truncating from left!")
+                    print("TDlen < hlm[mode].data.length: need to increase segment length; Instead Truncating from left!")
 #                    sys.exit()
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
                 elif TDlen >= hlm[mode].data.length:
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
             if check_if_only_positive_m or (np.abs(P.s1x) <  1e-4 and P.s2x == 0.0 and P.s1y == 0.0 and P.s2y == 0.0):
-                print("Conjugating modes")
                 mode_conj = (mode[0],-mode[1])
+                print("Conjugating mode: ",mode_conj)
                 if not mode_conj in hlm:
                     hC = hlm[mode]
                     hC2 = lal.CreateCOMPLEX16TimeSeries("Complex h(t)", hC.epoch, hC.f0,
@@ -3586,16 +4060,70 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                     hC2.data.data = (-1.)**mode[0] * np.conj(hC.data.data) # h(l,-m) = (-1)^ell hlm^* for reflection symmetry
                     hlm[mode_conj] = hC2
 
-        # Create a taper, matching exactly what is used in hoft
-        hp = lal.CreateREAL8TimeSeries('junk',
-                    lal.LIGOTimeGPS(0.), 1., P.deltaT,
-                    lsu_DimensionlessUnit, len(hlm[(2,2)].data.data ) )
-        hp.data.data = np.ones(len(hp.data.data))
-        lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
-        # apply taper to all modes
-        for mode in hlm:
-            hlm[mode].data.data*= hp.data.data
-
+        if not(hyp_wav):
+            # Create a taper, matching exactly what is used in hoft
+            hp = lal.CreateREAL8TimeSeries('junk',
+                                           lal.LIGOTimeGPS(0.), 1., P.deltaT,
+                                           lsu_DimensionlessUnit, len(hlm[(2,2)].data.data ) )
+            hp.data.data = np.ones(len(hp.data.data))
+            lalsim.SimInspiralREAL8WaveTaper(hp.data, P.taper)
+            # apply taper to all modes
+            for mode in hlm:
+                hlm[mode].data.data*= hp.data.data
+        else:
+             # determine location of start taper
+            if not 'n_samp' in locals():
+                for count,value in enumerate(hlm[(2,2)].data.data):
+                    if count ==0:
+                        continue
+                    if np.abs(np.real(value)-np.real(hlm[(2,2)].data.data[0])) > 0.01 * np.abs(np.real(hlm[(2,2)].data.data[0])):
+                        n_samp=int(count/2)
+                        break
+            
+            # determine location of end taper
+            if not 'n_samp2' in locals():
+                for count, value in enumerate(reversed(hlm[(2,2)].data.data)):  # Scan backwards
+                    if count == 0:
+                        continue
+                    if np.abs(np.real(value) - np.real(hlm[(2,2)].data.data[-1])) > 0.01 * np.abs(np.real(hlm[(2,2)].data.data[-1])):
+                        n_samp2 = int(count / 2) 
+                        break
+            
+            # Always taper the start
+            
+            vectaper= 0.5 + 0.5*np.cos(np.pi* (1-np.arange(n_samp)/(1.*n_samp)))
+            nmax = np.argmax(hlm[(2,2)].data.data)
+            for mode in hlm:
+                #pass
+                hlm[mode].data.data[0:n_samp] *= vectaper
+                
+            if hypclass == 'scatter':
+                # Taper for scatter
+                print('Scatter waveform, taper start and end')                
+                vectaper2= 0.5 + 0.5 * np.cos(np.pi * np.arange(n_samp2 + 1) / (1. * n_samp2))
+                for mode in hlm:
+                    hlm[mode].data.data[-(n_samp2+1):] *= vectaper2
+            elif hypclass == 'plunge':
+                # taper for plunge
+                print('Plunge waveform, only start taper')
+            elif hypclass == 'zoomwhirl':
+                # taper for ZW
+                print('Zoom-whirl waveform, only start taper')
+            elif hypclass =='meaningless':
+                # zero out meaningless
+                hlm[mode].data.data *= 0.0
+                            
+            for mode in hlm:
+#                print(mode)
+                # For hyp waveforms, resize after tapering. Non-hyp waveforms should have done this earlier (before tapering).
+                if not (P.deltaF is None):
+                    TDlen = int(1./P.deltaF * 1./P.deltaT)
+                    print("TDlen for  your Hyperbolic waveform: ", TDlen," hlm[{}].data.length: ".format(mode), hlm[mode].data.length)
+                    if TDlen < hlm[mode].data.length:
+                        hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
+                        print("TDlen < hlm[mode].data.length: need to increase segment length; Instead Truncating from left!")
+                    elif TDlen >= hlm[mode].data.length:
+                        hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)                    
         return hlm
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
         extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)

@@ -237,6 +237,8 @@ parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If n
 parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
 parser.add_argument("--cip-post-exe",default=None,help="filename of script to execute with SCRIPT POST joblist scripname JOBID RETURN worklevel in the dag. This will be run after each CIP completes in the main dag. Objective is to enable larger-scale CIP queues which work efficiently to a target work level (e.g,, n_eff). Note this script is responsible for reading htcondor logs to identify the run directory!")
 parser.add_argument("--cip-exe-G",default=None,help="filename of CIP or equivalent executable, as ALTERNATE CIP used when a 'G' iteration is requested ")
+parser.add_argument("--use-EOB-parameters",default=False,action='store_true')
+parser.add_argument("--use-hyperbolic",default=False,action='store_true')
 parser.add_argument("--use-eccentricity",default=False,action='store_true')
 parser.add_argument("--use-meanPerAno",default=False,action='store_true')
 parser.add_argument("--use-eccentricity-squared-sampling",default=False,action='store_true')
@@ -835,6 +837,10 @@ if  (opts.last_iteration_extrinsic):
 ##   Consolidate job(s)
 #   - consolidate output of single previous job
 con_arg_str = ''
+if opts.use_EOB_parameters:
+    con_arg_str += " --a6c "
+if opts.use_hyperbolic:
+    con_arg_str += " --hyperbolic "
 if opts.use_eccentricity:
     con_arg_str += " --eccentricity "
     if opts.use_meanPerAno:
@@ -859,6 +865,10 @@ con_job.write_sub_file()
 ##   Unify job
 #   - update 'all.net' to include all previous events
 unify_arg_str = ''
+if opts.use_EOB_parameters:
+    unify_arg_str += " --a6c "
+if opts.use_hyperbolic:
+    unify_arg_str += " --hyperbolic "
 if opts.use_eccentricity:
     unify_arg_str += " --eccentricity "
     if opts.use_meanPerAno:
@@ -1496,6 +1506,10 @@ for it in np.arange(it_start,opts.n_iterations):
         cmd += " --neff-threshold {} ".format(opts.neff_threshold)
         cmd += " --general-request-disk {} --ile-request-disk {} --cip-request-disk {} ".format(opts.general_request_disk,opts.ile_request_disk,opts.cip_request_disk)
         cmd += " --request-memory-ILE {} --request-memory-CIP {} ".format(opts.request_memory_ILE,opts.request_memory_CIP)
+        if opts.use_EOB_parameters:
+            cmd += " --use-EOB-parameters "
+        if opts.use_hyperbolic:
+            cmd += " --use-hyperbolic "
         if opts.use_eccentricity:
             cmd += " --use-eccentricity "
             if opts.use_meanPerAno:

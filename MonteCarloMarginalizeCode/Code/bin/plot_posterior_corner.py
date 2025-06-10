@@ -245,13 +245,18 @@ parser.add_argument("--meanPerAno-min",default=0,type=float)
 parser.add_argument("--meanPerAno-max",default=2*np.pi,type=float)
 parser.add_argument("--ecc-min",default=0,type=float)
 parser.add_argument("--ecc-max",default=1,type=float)
+parser.add_argument("--a6c-min",default=-80,type=float)
+parser.add_argument("--a6c-max",default=-20,type=float)
 parser.add_argument("--lnL-cut",default=None,type=float)
 parser.add_argument("--sigma-cut",default=0.4,type=float)
+parser.add_argument("--hyperbolic", action="store_true", help="Read sample files in format including hyperbolic")
+parser.add_argument("--a6c", action="store_true", help="Read sample files in format including a6c")
 parser.add_argument("--eccentricity", action="store_true", help="Read sample files in format including eccentricity")
 parser.add_argument("--meanPerAno", action="store_true", help="Read sample files in format including meanPerAno - assumes eccentricity also present")
 parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Relies entirely on user to set plot options for plot styles from matplotlibrc")
 parser.add_argument("--no-mod-psi",action="store_true",help="Default is to take psi mod pi. If present, does not do this")
 parser.add_argument("--verbose",action='store_true',help='print matplotlibrc data')
+parser.add_argument("--no-special-param-ranges",action='store_true',help='Wipe all artifical param ranges; let samples guide the ranges')
 opts=  parser.parse_args()
 
 plt.rc('axes',unicode_minus=False)
@@ -315,6 +320,7 @@ special_param_ranges = {
   'chi_pavg':[0,2],
   'chi_p':[0,1],
   'lambdat':[0,4000],
+  'a6c':[opts.a6c_min,opts.a6c_max],
   'eccentricity':[opts.ecc_min,opts.ecc_max],
   'meanPerAno':[opts.meanPerAno_min,opts.meanPerAno_max]
 }
@@ -329,7 +335,9 @@ if opts.bind_param:
          special_param_ranges[par]=eval(opts.param_bound[i])
          print(par +" range ",special_param_ranges[par])
 
-
+if opts.no_special_param_ranges:
+    special_param_ranges = {}
+    print("WARNING: Special Parameter Ranges being erased; make sure you want to do this!")
 # Parameters
 param_list = opts.parameter
 
@@ -489,12 +497,21 @@ composite_full_list = []
 field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lnL", "sigmaOverL", "ntot", "neff")
 if opts.flag_tides_in_composite:
     if opts.flag_eos_index_in_composite:
-        print(" Reading composite file, assumingtide/eos-index-based format ")
+        print(" Reading composite file, assuming tide/eos-index-based format ")
         field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "eos_indx","lnL", "sigmaOverL", "ntot", "neff")
+    elif opts.a6c:
+        print(" Reading composite file, assuming tide-based format with EOB parameter a6c ")
+        field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "a6c","lnL", "sigmaOverL", "ntot", "neff")
     else:
         print(" Reading composite file, assuming tide-based format ")
         field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","lambda1", "lambda2", "lnL", "sigmaOverL", "ntot", "neff")
-if opts.eccentricity:
+elif opts.hyperbolic:
+    print(" Reading composite file, assuming hyperbolic-based format ")
+    field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z","E0", "p_phi0", "lnL", "sigmaOverL", "ntot", "neff")
+elif opts.a6c and (not opts.flag_tides_in_composite):
+    print(" Reading composite file, assuming non-tide-based format with EOB parameter a6c ")
+    field_names=("indx","m1", "m2",  "a1x", "a1y", "a1z", "a2x", "a2y", "a2z", "a6c","lnL", "sigmaOverL", "ntot", "neff")
+elif opts.eccentricity:
     print(" Reading composite file, assuming eccentricity-based format ")
     if opts.meanPerAno:
         print(" Reading composite file, assuming mpa-based format ")

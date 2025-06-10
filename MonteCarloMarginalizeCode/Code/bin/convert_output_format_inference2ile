@@ -182,6 +182,13 @@ for indx in np.arange(opts.target_size):
     if opts.add_eccentricity_params and P.eccentricity < 1e-5:
             P.meanPerAno = np.random.uniform(0,2*np.pi)
             P.eccentricity = np.random.uniform(0,opts.ecc_max) # some convervative range
+    elif opts.add_eccentricity_params and P.eccentricity >= 1e-5:
+            P.eccentricity = samples_in["eccentricity"][fac_reduce*indx]
+            P.meanPerAno = samples_in["meanPerAno"][fac_reduce*indx]
+    if "E0" in samples_in.dtype.names:
+            P.E0 = samples_in["E0"][fac_reduce*indx]
+    if "p_phi0" in samples_in.dtype.names:
+            P.p_phi0 = samples_in["p_phi0"][fac_reduce*indx]
             
     if ros_debug:
         if 'iota' in samples_in.dtype.names:
