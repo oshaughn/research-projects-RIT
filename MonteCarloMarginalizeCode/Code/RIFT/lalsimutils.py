@@ -415,7 +415,7 @@ tex_dictionary  = {
   "eccentricity":"$e$",
   "meanPerAno":"$l_{gw}$",
   "E0" : "$E_0 / M$",
-  "p_phi0" : r"$p_{\phi}^0",  
+  "p_phi0" : r"$p_{\phi}^0$",  
   "a6c":"$a^c_6$",
   # tex labels for inherited LI names
  "a1z": r'$\chi_{1,z}$',
