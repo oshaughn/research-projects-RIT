@@ -305,6 +305,7 @@ intrinsic_params.add_option("--spin2z", type=float, help="Value of second  compo
 intrinsic_params.add_option("--eff-lambda", type=float, help="Value of effective tidal parameter. Optional, ignored if not given.")
 intrinsic_params.add_option("--deff-lambda", type=float, help="Value of second effective tidal parameter. Optional, ignored if not given")
 intrinsic_params.add_option("--export-eos-index",action='store_true')
+intrinsic_params.add_option("--export-marginal-distance-grid",action='store_true')
 optp.add_option_group(intrinsic_params)
 
 
@@ -1897,7 +1898,68 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           else:
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, P.eos_table_index, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
 
-
+        # Distance marginal grid. Only if NOT marginalize distance AND use lnL
+        if opts.output_file and opts.export_marginal_distance_grid and not(opts.distance_marginalization) and opts.internal_use_lnL:
+          fname_output_dgrid = opts.output_file +"_"+str(indx_event)+"_" + ".dgrid"
+          npts_dgrid_out = opts.n_eff  # target samples
+          # compute CDF in distance and its inverse
+          # copy d grid  and weights, make CDF
+          dL = np.array(sampler._rvs["distance"] )
+          if 'log_weights' in sampler._rvs:
+            ln_wts = np.array(sampler._rvs['log_weights']) # assume present
+          elif 'log_integrand' in sampler._rvs:
+            ln_wts = np.array(sampler._rvs["log_integrand"] + sampler._rvs["log_joint_prior"] - sampler._rvs["log_joint_s_prior"])
+          else:
+            raise Exception(" distance grid export: missing type")
+          indx_sort = np.argsort(dL); dL=dL[indx_sort]; ln_wts = ln_wts[indx_sort];
+          from scipy.special import logsumexp
+          ln_wts += -logsumexp(ln_wts) # normalize
+          ln_sums = np.log(np.cumsum(np.exp(ln_wts))) #CDF log.
+          # Some summary statistics, to help later
+          ln_dL_av = np.average(np.log(dL), weights=np.exp(ln_wts))
+          ln_dL_std = np.sqrt(np.average( (np.log(dL) - ln_dL_av)**2, weights=np.exp(ln_wts)))
+          # problem of CDF sometimes having zero derivative! Fix with small admixture of uniform probability
+          npts_grid = len(ln_sums)
+          eps_uniform  = 1e-3
+          # Check if gradient too small
+#          ln_sums = np.logaddexp(np.log(1-eps_uniform)+ ln_sums,  np.log(eps_uniform) +  (ln_sums[--1]  + np.log( np.arange(npts_grid) /npts_grid) ) )
+          # downselect grid, reduce to reasonalbe size of points points, chosen uniformly more or less
+          npts_target = opts.n_eff*10
+          p_random = np.arange(npts_target)/(npts_target+1)
+          p_random.sort()
+          indx_downselect = np.array( list(set( [ np.sum( np.exp(ln_sums) < p ) for p in p_random] )) ) # can include duplicates! Remove!
+          indx_downselect.sort()
+          dL = dL[indx_downselect]  # Selected d values for grid
+          ln_sums = ln_sums[indx_downselect]
+          # Interpolate CDF, then PDF
+          from scipy.interpolate import PchipInterpolator
+          intp_cdf = PchipInterpolator(dL, np.exp(ln_sums)) # not necessarily most stable ...
+          intp_pdf  = intp_cdf.derivative()
+          # dL values to EXPORT can be anything. We don't have to use the same.
+          dL_new = np.exp( np.random.normal(loc=ln_dL_av, scale=ln_dL_std, size=opts.n_eff ) )  # cover target range, use logarithmic scaling
+          dL_new = np.minimum( dL_new, np.max(dL))
+          dL_new = np.maximum( dL_new, np.min(dL))
+          dL = dL_new
+          pdf_vals = intp_pdf(dL)
+          indx_ok = pdf_vals > 0; dL=dL[indx_ok]; pdf_vals = pdf_vals[indx_ok]  # reject zero probabiliity points.
+          # compute revised lnL values. Note it is a constant
+          lnL_export=log_res + manual_avoid_overflow_logarithm + np.log(pdf_vals)
+          sigmaL = sqrt_var_over_res
+          # use labelled field names for export. Provide all by default
+          header = "lnL sigmaL m1 m2 s1x s1y s2z s2x s2y s2z lambda1 lambda2 eccentricity meanPerAno eos_index dist"
+          header_fields  = header.split()[2:-2]  # drop first two and last one (unit conversion)
+          dat = np.zeros( (len(dL), len(header.split()) ) )
+          dat[:,0] = lnL_export
+          dat[:,1] = sigmaL
+          dat[:,-1] = dL # units are in Mpc by default, or should be
+          for indx, name in enumerate(header_fields):
+            fac_here = 1
+            if name in ['m1', 'm2']:
+              fac_here = lal.MSUN_SI
+            dat[:,2+indx] = getattr(P, name)/fac_here
+          # Save field
+          np.savetxt(fname_output_dgrid, dat, header=header)
+          
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
     if opts.save_samples and opts.output_file:
@@ -2104,7 +2166,7 @@ lnL_sofar = -np.inf
 no_adapt_sky = False
 
 for indx in numpy.arange(len(P_list)):
- try:
+ if True: # try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   # abort if horrible (nan event) - done with 'raise'
   lnL_sofar = np.max([lnL_sofar,res])
@@ -2130,7 +2192,7 @@ for indx in numpy.arange(len(P_list)):
       # Disable saving of the integrand -- saves on memory and will reduce speed. 
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
- except Exception as exception_failure:
+ else: #except Exception as exception_failure:
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
   if opts.internal_make_empty_file_on_error:
