@@ -1173,7 +1173,7 @@ def makeFast1dInterpolator(y,xlow,xhigh):
     return lambda x: evaluateFast1dInterpolator(x,y, xlow, xhigh)
 
 def NetworkLogLikelihoodTimeMarginalizedDiscrete(epoch,rholmsDictionary,crossTerms, tref, deltaTWindow, RA,DEC, thS,phiS,psi,  dist, Lmax, detList,array_output=False):
-    """
+    r"""
     NetworkLogLikelihoodTimeMarginalizedDiscrete
     Uses DiscreteSingleDetectorLogLikelihoodData to calculate the lnL(t) on a discrete grid.
      - Mode 1: array_output = False
