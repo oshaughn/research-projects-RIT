@@ -93,6 +93,14 @@ def retrieve_event_from_coinc(fname_coinc):
     event_dict["s1z"] = row.spin1z
     event_dict["s2z"] = row.spin2z
     try:
+        event_dict["E0"] = row.psi3
+    except:
+        event_dict["E0"] = 0.0
+    try:
+        event_dict["p_phi0"] = row.beta
+    except:
+        event_dict["p_phi0"] = 0.0
+    try:
         event_dict["eccentricity"] = row.alpha4
     except:
         event_dict["eccentricity"] = 0.0
@@ -220,6 +228,7 @@ parser.add_argument("--scale-mc-range",type=float,default=None,help="If using th
 parser.add_argument("--limit-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-mc-range",default=None,type=str,help="Pass this argumen through to the helper to set the mc range")
 parser.add_argument("--force-eta-range",default=None,type=str,help="Pass this argumen through to the helper to set the eta range")
+parser.add_argument("--force-mtot-range",default=None,type=str,help="Pass this argument through to the helper to set the mtot range. Overrides mc parameter with mtot parameter broadly throughout the pipeline.")
 parser.add_argument("--force-comp-max",default=1000,type=float,help="Provde this value to override the value of component mass in CIP provided")
 parser.add_argument("--force-comp-min",default=1,type=float,help="Provde this value to override the value of component mass in CIP provided")
 parser.add_argument("--allow-subsolar", action='store_true', help="Override limits which otherwise prevent subsolar mass PE")
@@ -279,7 +288,22 @@ parser.add_argument("--use-osg-simple-requirements",action='store_true',help="Pr
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
+parser.add_argument("--first-iteration-jumpstart",action='store_true',help="No ILE jobs the first iteration.  Assumes you already have .composite files and want to get going. Particularly helpful for subdag systems")
+parser.add_argument("--use-mtot-coords",action='store_true',help="Passed to the helper to configure CIP and PUFF for mtot instead of mc.")
+parser.add_argument("--force-scatter-grids",action='store_true',help="Eliminates all non-scatter intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-plunge-grids",action='store_true',help="Eliminates all non-plunge intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-zoomwhirl-grids",action='store_true',help="Eliminates all non-zoomwhirl intrinsic points from hyperbolic grids throughout the workflow.")
+parser.add_argument("--force-hyperbolic-22", action='store_true', help='Forces just the 22 modes for hyperbolic waveforms')
 opts=  parser.parse_args()
+
+# Ensure --assume-hyperbolic is set when using any --force-X-grids option
+# Ensure only ONE of the --force-X-grids options is set
+force_grids = [opts.force_scatter_grids, opts.force_plunge_grids, opts.force_zoomwhirl_grids]
+if any(force_grids) and not opts.assume_hyperbolic:
+    parser.error("Using --force-scatter-grids, --force-plunge-grids, or --force-zoomwhirl-grids requires --assume-hyperbolic!")
+
+if sum(bool(x) for x in force_grids) > 1:
+    parser.error("CANNOT use multiple --force-X-grids options at the same time!")
 
 
 if (opts.use_ini):
@@ -487,8 +511,7 @@ if opts.assume_nonprecessing:
 if opts.assume_eccentric:
         is_analysis_eccentric = True
 if opts.assume_hyperbolic:
-    is_analysis_hyperbolic = True
-    
+        is_analysis_hyperbolic = True
 
 dirname_run = gwid+ "_" + opts.calibration+ "_"+ opts.approx+"_fmin" + str(fmin) +"_fmin-template"+str(fmin_template) +"_lmax"+str(opts.l_max) + "_"+opts.spin_magnitude_prior
 if opts.online:
@@ -555,6 +578,10 @@ if not(opts.use_ini is None):
     # default value for eccentricity is 0 for 'P'!  Only change this value from default if eccentricity is present, do NOT want to fill it with None in particular
     if not(event_dict['eccentricity'] is None):   
         P.eccentricity = event_dict["eccentricity"]
+    # same for the hyperbolic params
+    if not(event_dict['E0'] is None):
+        P.E0 = event_dict['E0']
+        P.p_phi0 = event_dict["p_phi0"]
     # Write 'target_params.xml.gz' file
     lalsimutils.ChooseWaveformParams_array_to_xml([P], "target_params")
 
@@ -632,6 +659,30 @@ if is_analysis_eccentric:
     cmd += " --assume-eccentric "
 if is_analysis_hyperbolic:
     cmd += " --assume-hyperbolic "
+    if not(opts.force_E0_max is None):
+        E0_max = opts.force_E0_max
+        cmd += " --E0-max {}  ".format(E0_max)
+    if not(opts.force_E0_min is None):
+        E0_min = opts.force_E0_min
+        cmd += " --E0-min {}  ".format(E0_min)
+    if not(opts.force_pphi0_max is None):
+        pphi0_max = opts.force_pphi0_max
+        cmd += " --pphi0-max {}  ".format(pphi0_max)
+    if not(opts.force_pphi0_min is None):
+        pphi0_min = opts.force_pphi0_min
+        cmd += " --pphi0-min {}  ".format(pphi0_min)
+        
+    if opts.force_scatter_grids:
+        cmd += " --force-scatter-grids "
+        
+    if opts.force_plunge_grids:
+        cmd += " --force-plunge-grids "
+        
+    if opts.force_zoomwhirl_grids:
+        cmd += " --force-zoomwhirl-grids "
+        
+    if opts.force_hyperbolic_22:
+        cmd += " --force-hyperbolic-22 "
 if opts.assume_highq:
     cmd+= ' --assume-highq  --force-grid-stretch-mc-factor 2'  # the mc range, tuned to equal-mass binaries, is probably too narrow. Workaround until fixed in helper
     npts_it =1000
@@ -661,6 +712,10 @@ elif opts.scale_mc_range:
     cmd += " --scale-mc-range  " + str(opts.scale_mc_range).replace(' ','')
 if not(opts.force_eta_range is None):
     cmd+= " --force-eta-range  " + str(opts.force_eta_range).replace(' ','')
+if not(opts.force_mtot_range is None):
+    cmd+= " --force-mtot-range  " + str(opts.force_mtot_range).replace(' ','')
+if opts.use_mtot_coords:
+    cmd+= " --use-mtot-coords "
 if opts.allow_subsolar:
     cmd += " --allow-subsolar "
 if opts.force_chi_max:
@@ -1057,7 +1112,12 @@ for indx in np.arange(len(instructions_cip)):
             line += " --ecc-min {}  ".format(ecc_min)
     if opts.assume_hyperbolic:
         if not(opts.internal_use_aligned_phase_coordinates):
-            line = line.replace('parameter mc', 'parameter mc --parameter E0 --parameter p_phi0 --use-hyperbolic')
+            if not(opts.use_mtot_coords):
+                line = line.replace('parameter mc', 'parameter mc --parameter E0 --parameter p_phi0 --use-hyperbolic')
+            else:
+                #line = line.replace('parameter mc', 'parameter mtot --parameter E0 --parameter p_phi0 --use-hyperbolic')
+                line = line.replace('parameter mc', 'parameter-implied mc --parameter-nofit mtot --parameter-nofit q --parameter E0 --parameter p_phi0 --use-hyperbolic')
+                line = line.replace('parameter delta_mc', 'parameter-implied delta_mc')
         else:
             line = line.replace('parameter-nofit mc', 'parameter-nofit mc --parameter E0 --parameter p_phi0 --use-hyperbolic')
         if not(opts.force_E0_max is None):
@@ -1072,6 +1132,17 @@ for indx in np.arange(len(instructions_cip)):
         if not(opts.force_pphi0_min is None):
             pphi0_min = opts.force_pphi0_min
             line += " --pphi0-min {}  ".format(pphi0_min)
+            
+        if opts.force_scatter_grids:
+            line += " --force-scatter "
+            
+        if opts.force_plunge_grids:
+            line += " --force-plunge "
+            
+        if opts.force_zoomwhirl_grids:
+            line += " --force-zoomwhirl "
+        
+        
     if not(opts.manual_extra_cip_args is None):
         line += " {} ".format(opts.manual_extra_cip_args)  # embed with space on each side, avoid collisions
     line += "\n"
@@ -1133,9 +1204,28 @@ if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
 if opts.assume_eccentric:
-        puff_params += " --parameter eccentricity --downselect-parameter eccentricity --downselect-parameter-range '[{},{}]' ".format(ecc_min,ecc_max)
+        puff_params += " --parameter eccentricity --downselect-parameter eccentricity --downselect-parameter-range '[{},{}]' ".format(ecc_min,ecc_max)  
 if opts.assume_hyperbolic:
-    puff_params += " --parameter E0 --downselect-parameter E0 --downselect-parameter-range '[{},{}]' --parameter E0 --downselect-parameter p_phi0 --downselect-parameter-range '[{},{}]' ".format(E0_min,E0_max,pphi0_min,pphi0_max)
+        puff_params += " --parameter E0 "
+        if not(opts.force_E0_max is None and opts.force_E0_min is None):
+            E0_max = opts.force_E0_max
+            E0_min = opts.force_E0_min
+            puff_params += f" --downselect-parameter E0 --downselect-parameter-range [{E0_min},{E0_max}] "
+        puff_params += " --parameter p_phi0 "
+        if not(opts.force_pphi0_max is None and opts.force_pphi0_min is None):
+            pphi0_max = opts.force_pphi0_max
+            pphi0_min = opts.force_pphi0_min
+            puff_params += f" --downselect-parameter p_phi0 --downselect-parameter-range [{pphi0_min},{pphi0_max}]"
+            
+        if opts.force_scatter_grids:
+            puff_params += ' --force-scatter '
+            
+        if opts.force_plunge_grids:
+            puff_params += ' --force-plunge '
+            
+        if opts.force_zoomwhirl_grids:
+            puff_params += ' --force-zoomwhirl '
+            
 if opts.assume_highq:
     puff_params = puff_params.replace(' delta_mc ', ' eta ')  # use natural coordinates in the high q strategy. May want to do this always
     puff_max_it +=3
@@ -1254,6 +1344,8 @@ if opts.distance_reweighting:
     cmd += " --comov-distance-reweighting --comov-distance-reweighting-exe `which make_uni_comov_skymap.py` --convert-ascii2h5-exe `which convert_output_format_ascii2h5.py` "
 if opts.use_gauss_early:
     cmd += " --cip-exe-G `which util_ConstructIntrinsicPosterior_GaussianResampling.py ` "
+if opts.first_iteration_jumpstart:
+    cmd += " --first-iteration-jumpstart "
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
     cmd += " --cip-exe `which util_AMRGrid.py ` "

@@ -137,6 +137,18 @@ def extract_combination_from_LI(samples_LI, p):
         a = a[8:]
         if a =='q' and 'm1' in samples_LI.dtype.names:
             return samples_LI["m1"]/samples_LI["m2"]
+        
+    if p == 'b_hyp':
+        samples = np.array([samples_LI["m1"], samples_LI["m2"], samples_LI["a1x"], samples_LI["a1y"], samples_LI["a1z"], samples_LI["a2x"], samples_LI["a2y"], samples_LI["a2z"], samples_LI["E0"], samples_LI["p_phi0"]]).T
+        with Pool(12) as pool:   
+            b_hyp = np.array(pool.map(f_b_hyp, samples))          
+        return b_hyp
+    
+    if p == 'phi_scatter':
+        samples = np.array([samples_LI["m1"], samples_LI["m2"], samples_LI["a1x"], samples_LI["a1y"], samples_LI["a1z"], samples_LI["a2x"], samples_LI["a2y"], samples_LI["a2z"], samples_LI["E0"], samples_LI["p_phi0"]]).T
+        with Pool(12) as pool:   
+            phi_scatter = np.array(pool.map(f_phi_scatter, samples))          
+        return phi_scatter
 
     print(" No access for parameter ", p)
     return np.zeros(len(samples_LI['m1']))  # to avoid causing a hard failure
@@ -272,3 +284,33 @@ def fchip(sample):
             P.s2z = sample[7]
             chip = P.extract_param('chi_p')
             return chip  
+
+def f_b_hyp(sample):
+            P=lalsimutils.ChooseWaveformParams()
+            P.m1 = sample[0]
+            P.m2 = sample[1]
+            P.s1x = sample[2]
+            P.s1y = sample[3]
+            P.s1z = sample[4]
+            P.s2x = sample[5]
+            P.s2y = sample[6]
+            P.s2z = sample[7]
+            P.E0 = sample[8]
+            P.p_phi0 = sample[9]
+            b_hyp = P.extract_param('b_hyp')
+            return b_hyp
+        
+def f_phi_scatter(sample):
+            P=lalsimutils.ChooseWaveformParams()
+            P.m1 = sample[0]
+            P.m2 = sample[1]
+            P.s1x = sample[2]
+            P.s1y = sample[3]
+            P.s1z = sample[4]
+            P.s2x = sample[5]
+            P.s2y = sample[6]
+            P.s2z = sample[7]
+            P.E0 = sample[8]
+            P.p_phi0 = sample[9]
+            phi_scatter = P.extract_param('phi_scatter')
+            return phi_scatter
