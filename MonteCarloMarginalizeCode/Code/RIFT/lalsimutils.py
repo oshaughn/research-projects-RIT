@@ -375,6 +375,8 @@ tex_dictionary  = {
   "eccentricity":"$e$",
   "E0": "$E_0 / M$",
   "p_phi0": r"$p_{\phi}^0$",
+  "b_hyp" : r"$b_{hyp}$",
+  "phi_scatter" : r"$\phi_{sc}$",  
   # tex labels for inherited LI names
  "a1z": r'$\chi_{1,z}$',
  "a2z": r'$\chi_{2,z}$',
