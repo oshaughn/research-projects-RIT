@@ -332,7 +332,7 @@ def lsu_StringFromPNOrder(order):
 #
 # Class to hold arguments of ChooseWaveform functions
 #
-valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','mu1','mu2','eos_table_index', 'E0', 'p_phi0', 'hypclass']
+valid_params = ['m1', 'm2', 's1x', 's1y', 's1z', 's2x', 's2y', 's2z', 'chi1_perp', 'chi2_perp', 'chi1_perp_bar', 'chi2_perp_bar','chi1_perp_u', 'chi2_perp_u', 's1z_bar', 's2z_bar', 'lambda1', 'lambda2', 'theta','phi', 'phiref',  'psi', 'incl', 'tref', 'dist', 'mc', 'mc_ecc', 'eta', 'delta_mc', 'chi1', 'chi2', 'thetaJN', 'phiJL', 'theta1', 'theta2', 'cos_theta1', 'cos_theta2',  'theta1_Jfix', 'theta2_Jfix', 'psiJ', 'beta', 'cos_beta', 'sin_phiJL', 'cos_phiJL', 'phi12', 'phi1', 'phi2', 'LambdaTilde', 'DeltaLambdaTilde', 'lambda_plus', 'lambda_minus', 'q', 'mtot','xi','chiz_plus', 'chiz_minus', 'chieff_aligned','fmin','fref', "SOverM2_perp", "SOverM2_L", "DeltaOverM2_perp", "DeltaOverM2_L", "shu","ampO", "phaseO",'eccentricity','chi_pavg','mu1','mu2','eos_table_index', 'E0', 'p_phi0', 'hypclass', 'b_hyp', 'phi_scattter']
 
 tex_dictionary  = {
  "mtot": '$M$',
@@ -1006,6 +1006,74 @@ class ChooseWaveformParams:
                 else:
                     print('No peaks detected after reclassifcation')
                     return 'meaningless'
+                
+        if p == 'b_hyp':
+            # Calculates impact parameter for hyperbolic cases. 
+            # See https://arxiv.org/pdf/2309.07228 for details.
+            # check if valid use
+            if self.E0 == 0.0:
+                print('Invalid use of b_hyp: non-hyperbolic configuration')
+                return None
+                        
+            h = self.E0 # mass normalized local system energy at initial separation
+            j = self.p_phi0 # mass normalized local system angular momentum at initial separation
+            
+            M1=self.m1/lal.MSUN_SI
+            M2=self.m2/lal.MSUN_SI
+            nu=M1*M2/((M1+M2)**2)
+            
+            E_eff = 1. + (h**2 - 1)/(2*nu) # effective energy of the one-body particle            
+            b = j*h / (np.sqrt(E_eff**2 - 1)) # dimensionless impact parameter normalized by total mass
+            
+            return b
+        
+        if p == 'phi_scatter':
+            # Calculates scattering angle for hyperbolic scatters 
+            # See https://arxiv.org/pdf/1402.7307,
+            # https://teobresums.bitbucket.io/gallery/scattering-angles/
+            
+            # NOTE that you can calculate this for capture/plunge cases, but it is physically meaningless
+            
+            # check if valid use
+            if self.E0 == 0.0:
+                print('Invalid use of phi_scatter: non-hyperbolic configuration')
+                return None
+            
+            # Generate waveform
+            pars = {
+                'M'                  : (self.m1+self.m2)/lal.MSUN_SI,
+                'q'                  : self.m1/self.m2,
+                'H_hyp'              : self.E0, # energy at initial separation
+                'j_hyp'              : self.p_phi0, # angular momentum at initial separation
+                'r_hyp'              : 6000.0,
+                'LambdaAl2'            : self.lambda1,
+                'LambdaBl2'            : self.lambda2,
+                'chi1'              : self.s1z, #note that there are no transverse spins
+                'chi2'              : self.s2z,
+                'dt'                : self.deltaT,
+                'domain'             : 0, # 0 sets time domain
+                'arg_out'            : 1, # Request multipoles and dynamics as output of the function call - 1=yes
+                'nqc'                : 2, # sets the NQCs, 2=no
+                'nqc_coefs_hlm'      : 0, # Option for the NQC model used in the waveform. 0=none
+                'nqc_coefs_flx'      : 0, # Option for the NQC model used in the flux. 0=none
+                'use_mode_lm'        : [1], # 22 mode
+                'output_lm'          : [1],
+                'srate_interp'       : 1./self.deltaT,
+                'use_geometric_units': 0,
+                'interp_uniform_grid': 1,
+                'initial_frequency'  : self.fmin,
+                'ode_tmax'           : 3e4,
+                'distance'           : self.dist/(lal.PC_SI*1e6),
+                'inclination'        : self.incl,
+                'output_hpc'         : 0 # output plus and cross polarizations, 0=no
+            }
+            
+            t, hptmp, hctmp, hlmtmp, dyn = EOBRun_module.EOBRunPy(pars)
+            
+            angle = dyn['phi'][-1] - dyn['phi'][0] - np.pi
+            
+            return angle
+            
         if p == 'delta' or p=='delta_mc':  # Same access routine
             return (self.m1-self.m2)/(self.m1+self.m2)
         if p == 'mc':
