@@ -36,6 +36,13 @@ for param in opts.parameter:
         dat_1d = (dat['m2']*dat['a2z']+dat['m1']*dat['a1z'])/(dat['m1']+dat['m2'])
     elif param=='mtot':
         dat_1d = dat['m1']+dat['m2']
+    elif param=='b_hyp':
+        h = dat['E0']
+        j = dat['p_phi0']
+        nu = dat['m1']*dat['m2']/((dat['m1']+dat['m2'])**2)
+        E_eff = 1. + (h**2 - 1)/(2*nu)
+        b = j*h / (np.sqrt(E_eff**2 - 1))
+        dat_1d = b
     else:
         dat_1d = dat[param]
     quant_here  = np.percentile(dat_1d,100*quantile_list)
