@@ -29,6 +29,9 @@ import gzip
 # Backward compatibility
 from RIFT.misc.dag_utils import which
 lalapps_path2cache = which('lal_path2cache')
+ligolw_add = 'igwn_ligolw_add'
+if not(which(ligolw_add)):
+    ligolw_add = 'ligolw_add'
 if lalapps_path2cache == None:
     lalapps_path2cache =  which('lalapps_path2cache')
 
@@ -1359,7 +1362,7 @@ elif opts.propose_initial_grid:
         cmd_alt = cmd_alt.replace("fname proposed-grid",  "fname proposed-grid-extra")
         print(" Executing supplementary grid command for rf, to stabilize spin fits ", cmd_alt)
         os.system(cmd_alt)
-        cmd_add = "ligolw_add proposed-grid.xml.gz proposed-grid-extra.xml.gz --output tmp.xml.gz"
+        cmd_add = "{} proposed-grid.xml.gz proposed-grid-extra.xml.gz --output tmp.xml.gz".format(ligolw_add)
         os.system(cmd_add)
         os.system("mv tmp.xml.gz proposed-grid.xml.gz")
 
@@ -1381,7 +1384,7 @@ elif opts.propose_initial_grid:
         cmd = cmd.replace("fname proposed-grid",  "fname proposed-grid-extra")
         print(" Executing supplementary grid command for high q ", cmd)
         os.system(cmd)
-        cmd_add = "ligolw_add proposed-grid.xml.gz proposed-grid-extra.xml.gz --output tmp.xml.gz"
+        cmd_add = "{} proposed-grid.xml.gz proposed-grid-extra.xml.gz --output tmp.xml.gz".format(ligolw_add)
         os.system(cmd_add)
         os.system("mv tmp.xml.gz proposed-grid.xml.gz")
 
