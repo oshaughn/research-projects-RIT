@@ -55,7 +55,7 @@ print("List of strings created")
 
 for i in range(len(P_list_list)):
     print(i, ' EXTR-INTERIM_'+str(i)+'.xml.gz', batches[i][:2])
-    Grid = subprocess.run(['ligolw_add '+ P_list_list[i]+ ' --output  EXTR-INTERIM_'+str(i)+'.xml.gz'], shell=True,capture_output=True)
+    Grid = subprocess.run(['igwn_ligolw_add '+ P_list_list[i]+ ' --output  EXTR-INTERIM_'+str(i)+'.xml.gz'], shell=True,capture_output=True)
 print("Intermediate grids generated; Joining all now")
 
 subprocess.run(['ligolw_add EXTR-INTERIM_*.xml.gz --output '+ opts.output],shell=True, capture_output=True, text=True)
