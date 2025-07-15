@@ -21,6 +21,9 @@ for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
    if [[ ${EXE} == *'calibration_reweighting.py' ]]; then
        continue
    fi
+   if [[ ${EXE} == *'util_RecalibrateDataByMean.py' ]]; then
+       continue
+   fi
    if [[ ${EXE} == *'combine_weights_and_rejection_sample.py' ]]; then
        continue
    fi
