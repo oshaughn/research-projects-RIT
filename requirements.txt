@@ -17,7 +17,7 @@ gwdatafind
 igwn-segments
 igwn-ligolw
 six
-precession
+precession[chip_avg]
 ligo.skymap
 gwpy
 natsort
