@@ -31,7 +31,7 @@ else:
 # Backward compatibility
 from RIFT.misc.dag_utils import which
 ligolw_prefix = 'igwn_'
-if not(which(igwn_prefix + "ligolw_add")):
+if not(which(ligolw_prefix + "ligolw_add")):
     ligolw_prefix = ''
 
 
