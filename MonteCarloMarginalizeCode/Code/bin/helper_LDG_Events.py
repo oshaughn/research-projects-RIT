@@ -545,7 +545,7 @@ if use_gracedb_event:
         if not(opts.use_legacy_gracedb):
             cmd_event += " > coinc.xml "
         os.system(cmd_event)
-        cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
+        cmd_fix_ilwdchar = "igwn_ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
     else:
         coinc_name = opts.use_coinc
     samples = lsctables.SnglInspiralTable.get_table(utils.load_filename(coinc_name,contenthandler=lalsimutils.cthdler))
@@ -599,7 +599,7 @@ if use_gracedb_event:
             if do_fallback:
               for ifo  in event_dict["IFOs"]:
                 if event_dict['search_pipeline'] == 'gstlal':
-                  cmd_event = "ligolw_print -t {}:array -d ' '  {}  > {}_psd_ascii.dat".format(ifo,coinc_name,ifo)
+                  cmd_event = "igwn_ligolw_print -t {}:array -d ' '  {}  > {}_psd_ascii.dat".format(ifo,coinc_name,ifo)
                   os.system(cmd_event)
                   cmd_event = "convert_psd_ascii2xml  --fname-psd-ascii {}_psd_ascii.dat --conventional-postfix --ifo {}  ".format(ifo,ifo)
                   os.system(cmd_event)
