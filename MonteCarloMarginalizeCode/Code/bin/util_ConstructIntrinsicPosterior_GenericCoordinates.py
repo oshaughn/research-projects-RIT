@@ -423,7 +423,7 @@ fake_eos =False
 args_init = None
 if opts.using_eos_for_prior and opts.using_eos:
     # NO LOGIC HERE, PERFORM NECESSARY LOGIC LATER
-    fake_eos = True  # don't use eos in convert_waveform_coordinates
+    fake_eos = True  # don't use eos in convert_waveform_coordinates. will override later if EOS routine present in routine!
 elif opts.using_eos!=None:
     import RIFT.physics.EOSManager as EOSManager
     eos_name=opts.using_eos
@@ -724,6 +724,13 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
           args_init = {'input_line' : dat}
           supplemental_init = getattr(external_likelihood_module, 'initialize_me')
           supplemental_init(**args_init)
+          # CHECK IF WE RETRIEVE AN EOS from these hyperparameters too, so we can do both. 
+          if hasattr(external_likelihood_module,'retrieve_eos'):
+              fake_eos = False  # using EOS hyperparameter conversion! 
+              supplemental_eos = getattr(external_likelihood_module, 'retrieve_eos')
+              supplemental_eos(**args_init)
+              my_eos = supplemental_eos(**args_init)
+
 
   if hasattr(external_likelihood_module,name_prep):
     supplemental_ln_likelhood_prep=getattr(external_likelihood_module,name_prep)
