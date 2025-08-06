@@ -334,6 +334,7 @@ parser.add_argument("--tabular-eos-file",type=str,default=None,help="Tabular fil
 parser.add_argument("--tabular-eos-file-format",type=str,default=None,help="Format of tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--tabular-eos-order-statistic",type=str,default=None,help="Order statistic to use.  Options will include R1p4, LambdaTildeQ1, and ...}")
 parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS.  Fit parameter list should physically use lambda1, lambda2 information (but need not). If starts with 'file:', uses a filename with EOS parameters ")
+parser.add_argument("--using-eos-for-prior", action='store_true', default=None, help="Alternate (hacky) implementation, which overrides using-eos and using-eos-index, to handle loading in a hyperprior")
 parser.add_argument("--using-eos-index", type=int, default=None, help="Index of EOS parameters in file.")
 parser.add_argument("--no-use-lal-eos",action='store_true',help="Do not use LAL EOS interface. Used for spectral EOS. Do not use this.")
 parser.add_argument("--no-matter1", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
@@ -418,7 +419,12 @@ if  not(opts.input_eos_index) and (opts.tabular_eos_file):
 
 my_eos=None
 #option to be used if gridded values not calculated assuming EOS
-if opts.using_eos!=None:
+fake_eos =False
+args_init = None
+if opts.using_eos_for_prior and opts.using_eos:
+    # NO LOGIC HERE, PERFORM NECESSARY LOGIC LATER
+    fake_eos = True  # don't use eos in convert_waveform_coordinates
+elif opts.using_eos!=None:
     import RIFT.physics.EOSManager as EOSManager
     eos_name=opts.using_eos
     if opts.verbose:
@@ -713,6 +719,12 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
   external_likelihood_module = sys.modules[opts.supplementary_likelihood_factor_code]
   supplemental_ln_likelihood = getattr(external_likelihood_module,opts.supplementary_likelihood_factor_function)
   name_prep = "prepare_"+opts.supplementary_likelihood_factor_function
+  if opts.using_eos_for_prior:
+          dat = np.genfromtxt(opts.using_eos)[opts.using_eos_index]   # Parse file for them, to reduce need for burden parsing, and avoid burden/confusion.
+          args_init = {'input_line' : dat}
+          supplemental_init = getattr(external_likelihood_module, 'initialize_me')
+          supplemental_init(**args_init)
+
   if hasattr(external_likelihood_module,name_prep):
     supplemental_ln_likelhood_prep=getattr(external_likelihood_module,name_prep)
     # Check for and load in ini file associated with external library
@@ -2327,7 +2339,7 @@ if not no_plots:
 ###
 ### Coordinate conversion tool
 ###
-if not opts.using_eos:
+if not opts.using_eos or (fake_eos):
  def convert_coords(x_in):
     return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
 else:
