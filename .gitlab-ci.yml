@@ -68,7 +68,7 @@ test_run:
 
 documentation:
   stage: docs
-  image: debian:latest
+  image: debian:bookworm
   script:
     - apt-get -y install graphviz
     - cd docs
