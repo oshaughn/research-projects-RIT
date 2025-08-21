@@ -6,7 +6,8 @@ variables:
 
 
 default:
-  image: debian:latest
+  # debian:latest (trixie) caused problems, lock version for now
+  image: debian:bookworm
 
 stages:
   - system tests

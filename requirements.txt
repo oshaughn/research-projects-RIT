@@ -22,4 +22,4 @@ ligo.skymap
 gwpy
 natsort
 scipy<1.16
-htcondor
+htcondor[monitor]
