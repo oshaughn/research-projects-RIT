@@ -723,7 +723,7 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
           dat = np.genfromtxt(opts.using_eos,names=True)[opts.using_eos_index]   # Parse file for them, to reduce need for burden parsing, and avoid burden/confusion.
           param_names = dat.dtype.names
           dat_as_array = dat.view((float, len(param_names)))
-          args_init = {'input_line' : dat_as_array, 'param_names':param_names}  # pass the recordarray broken into parts, for convenience
+          args_init = {'input_line' : dat_as_array, 'param_names':param_names, 'cip_param_names':coord_names}  # pass the recordarray broken into parts, for convenience
           supplemental_init = getattr(external_likelihood_module, 'initialize_me')
           supplemental_init(**args_init)
           # CHECK IF WE RETRIEVE AN EOS from these hyperparameters too, so we can do both. 
