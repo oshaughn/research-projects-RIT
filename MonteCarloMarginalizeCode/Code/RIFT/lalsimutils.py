@@ -4041,13 +4041,17 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             hlm[mode] = lal.CreateCOMPLEX16TimeSeries("Complex hlm(t)", hlmepoch, 0,
                                                       P.deltaT, lsu_DimensionlessUnit, hlmlen)
             hlm[mode].data.data = (hlmtmp2[mode][0] * np.exp(-1j*(mode[1]*(np.pi/2.)+hlmtmp2[mode][1])))
-            if not ((P.deltaF is None) or (hyp_wav)):
+            if not ((P.deltaF is None)): # or (hyp_wav)):
                 TDlen = int(1./P.deltaF * 1./P.deltaT)
 #                print("TDlen: ", TDlen, "data length: ", hlm[mode].data.length)
                 if TDlen < hlm[mode].data.length:
                     print("TDlen < hlm[mode].data.length: need to increase segment length; Instead Truncating from left!")
-#                    sys.exit()
-                    hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
+                    if hypclass == 'scatter':
+                        j_peak_dyn = np.argmin(dym['r'])
+                        j_peak     = int((dym['t'][j_peak_dyn] - dym['t'][0])*(M1+M2)*lal.MTSUN_SI/P.deltaT)
+                        hlm[mode]  = lal.ResizeCOMPLEX16TimeSeries(hlm[mode], int(j_peak - 0.5*TDlen), TDlen)
+                    else:
+                        hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
                 elif TDlen >= hlm[mode].data.length:
                     hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)
             if check_if_only_positive_m or (np.abs(P.s1x) <  1e-4 and P.s2x == 0.0 and P.s1y == 0.0 and P.s2y == 0.0):
@@ -4113,17 +4117,17 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 # zero out meaningless
                 hlm[mode].data.data *= 0.0
                             
-            for mode in hlm:
+#            for mode in hlm:
 #                print(mode)
                 # For hyp waveforms, resize after tapering. Non-hyp waveforms should have done this earlier (before tapering).
-                if not (P.deltaF is None):
-                    TDlen = int(1./P.deltaF * 1./P.deltaT)
-                    print("TDlen for  your Hyperbolic waveform: ", TDlen," hlm[{}].data.length: ".format(mode), hlm[mode].data.length)
-                    if TDlen < hlm[mode].data.length:
-                        hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
-                        print("TDlen < hlm[mode].data.length: need to increase segment length; Instead Truncating from left!")
-                    elif TDlen >= hlm[mode].data.length:
-                        hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)                    
+#                if not (P.deltaF is None):
+#                    TDlen = int(1./P.deltaF * 1./P.deltaT)
+#                    print("TDlen for  your Hyperbolic waveform: ", TDlen," hlm[{}].data.length: ".format(mode), hlm[mode].data.length)
+#                    if TDlen < hlm[mode].data.length:
+#                        hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
+#                        print("TDlen < hlm[mode].data.length: need to increase segment length; Instead Truncating from left!")
+#                    elif TDlen >= hlm[mode].data.length:
+#                        hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],0,TDlen)                    
         return hlm
     else: # (P.approx == lalSEOBv4 or P.approx == lalsim.SEOBNRv2 or P.approx == lalsim.SEOBNRv1 or  P.approx == lalsim.EOBNRv2 
         extra_params = P.to_lal_dict_extended(extra_args_dict=extra_waveform_args)
