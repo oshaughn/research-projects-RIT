@@ -125,7 +125,7 @@ if opts.start and hoft.epoch > opts.start:
     hoft = ht
 
 if opts.stop and hoft.epoch+hoft.data.length*hoft.deltaT < opts.stop:
-    nToAddAtEnd = int( (-(hoft.epoch+hoft.data.length*hoft.deltaT)+opts.stop)/hoft.deltaT)
+    nToAddAtEnd = int( (-(hoft.epoch+hoft.data.length*hoft.deltaT)+opts.stop)/hoft.deltaT)+1
     print("Padding end ", nToAddAtEnd, hoft.data.length)
     hoft = lal.ResizeREAL8TimeSeries(hoft,0, int(hoft.data.length+nToAddAtEnd))
 
