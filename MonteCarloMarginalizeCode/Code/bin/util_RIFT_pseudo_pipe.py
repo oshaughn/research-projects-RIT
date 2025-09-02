@@ -1541,7 +1541,7 @@ if opts.calibration_reweighting:
     my_extra_string = ''
     if opts.use_gwsignal:
         my_extra_string = ' --use-gwsignal '
-    if opts.assume_eccentricity:
+    if opts.assume_eccentric:
         my_extra_string += " --use-eccentricity "
     if opts.manual_extra_ile_args:
          print(" calmarg: Parsing  ", opts.manual_extra_ile_args)
