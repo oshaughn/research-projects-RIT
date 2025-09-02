@@ -80,7 +80,7 @@ if opts.approx == "EccentricTD":
     P.phaseO = 3
 P.print_params()
 
-if not ops.hyperbolic:
+if not opts.hyperbolic:
     T_est = lalsimutils.estimateWaveformDuration(P)
     T_est = P.deltaT*lalsimutils.nextPow2(T_est/P.deltaT)
     if T_est > opts.seglen:
