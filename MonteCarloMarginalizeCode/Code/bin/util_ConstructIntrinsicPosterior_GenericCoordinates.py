@@ -730,7 +730,6 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
           if hasattr(external_likelihood_module,'retrieve_eos'):
               fake_eos = False  # using EOS hyperparameter conversion! 
               supplemental_eos = getattr(external_likelihood_module, 'retrieve_eos')
-              supplemental_eos(**args_init)
               my_eos = supplemental_eos(**args_init)
 
 
