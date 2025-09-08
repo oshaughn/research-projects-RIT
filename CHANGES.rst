@@ -1,3 +1,9 @@
+0.0.18.0
+------------
+development tree is rift_O4d.
+  - CIP hyperpipe improvements (initialize_me; enable population and EOS params in using_eos file with arbitrary
+    labelled parameters); CIP xgboost gp fit (from Aasim); install make 'precession' optional; see also 0.0.17.4rc0 igwn-ligolw
+
 0.0.17.4
 ------------
 development tree is rift_O4c_updates/rift_O4c; see https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/45
