@@ -688,6 +688,10 @@ if opts.parameter_nofit:
         low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
+# SANITY COMPATIBILITY CHECK
+if 'q' in low_level_coord_names and 'mc' in low_level_coord_names:
+    print(" Coordinate compatibility error: mc,eta or mc,delta_mc or M,q are compatible coordinates for masses. Do not mix!")
+    sys.exit(1)
 error_factor = len(coord_names)
 if error_factor ==0 :
     raise Exception(" Coordinate list for fit empty; exiting ")
@@ -755,8 +759,8 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
 # mcmin, mcmax : to be defined later
 def M_prior(x):  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
     return 2*x/(mc_max**2-mc_min**2)
-def q_prior(x):
-    return 1./(1+x)**2  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
+def q_prior(x,norm_factor=1.):
+    return nm/(1+x)**2  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
 def m1_prior(x):
     return 1./200
 def m2_prior(x):
@@ -990,6 +994,14 @@ if not (opts.eta_range is None):
     norm_factor = unscaled_eta_prior_cdf(eta_range[0]) - unscaled_eta_prior_cdf(eta_range[1])
     prior_map['eta'] = functools.partial(eta_prior, norm_factor=norm_factor)
     prior_map['delta_mc'] = functools.partial(delta_mc_prior, norm_factor=norm_factor)
+
+    # if q in parameters, also correctly normalize the prior for q, in case user is using (M,q) coordinates
+    # Note CDF of 1/(1+q)^2 is    -1/(1+q), so the normalization is analytic
+    if 'q' in low_level_coord_names:
+        delta_range = np.sqrt(1 - 4*np.array(eta_range))
+        q_range = (1-delta_range)/(1+delta_range)
+        norm_factor_q = 1./(1+qmin) - 1./(1+qmax)
+        prior_map['q']  = functools.partial(q_prior, norm_factor=norm_factor_q)
 
 ###
 ### Modify priors, as needed
