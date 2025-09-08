@@ -424,7 +424,7 @@ args_init = None
 if opts.using_eos_for_prior and opts.using_eos:
     # NO LOGIC HERE, PERFORM NECESSARY LOGIC LATER
     fake_eos = True  # don't use eos in convert_waveform_coordinates. will override later if EOS routine present in routine!
-elif opts.using_eos!=None:
+elif opts.using_eos!=None and not(opts.using_eos_for_prior):
     import RIFT.physics.EOSManager as EOSManager
     eos_name=opts.using_eos
     if opts.verbose:
