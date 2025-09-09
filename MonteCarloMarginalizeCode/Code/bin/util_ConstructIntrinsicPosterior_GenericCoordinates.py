@@ -1032,7 +1032,7 @@ if not (opts.eta_range is None):
     if 'q' in low_level_coord_names:
         delta_range = np.sqrt(1 - 4*np.array(eta_range))
         q_range = (1-delta_range)/(1+delta_range)
-        norm_factor_q = 1./(1+qmin) - 1./(1+qmax)
+        norm_factor_q = 1./(1+q_range[0]) - 1./(1+q_range[1])
         prior_map['q']  = functools.partial(q_prior, norm_factor=norm_factor_q)
 
 ###
