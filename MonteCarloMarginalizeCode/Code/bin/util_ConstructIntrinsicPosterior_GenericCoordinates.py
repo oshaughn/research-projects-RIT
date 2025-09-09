@@ -340,6 +340,7 @@ parser.add_argument("--tabular-eos-file",type=str,default=None,help="Tabular fil
 parser.add_argument("--tabular-eos-file-format",type=str,default=None,help="Format of tabular file of EOS to use.  The default prior will be UNIFORM in this table!")
 parser.add_argument("--tabular-eos-order-statistic",type=str,default=None,help="Order statistic to use.  Options will include R1p4, LambdaTildeQ1, and ...}")
 parser.add_argument("--using-eos", type=str, default=None, help="Name of EOS.  Fit parameter list should physically use lambda1, lambda2 information (but need not). If starts with 'file:', uses a filename with EOS parameters ")
+parser.add_argument("--using-eos-for-prior", action='store_true', default=None, help="Alternate (hacky) implementation, which overrides using-eos and using-eos-index, to handle loading in a hyperprior")
 parser.add_argument("--using-eos-index", type=int, default=None, help="Index of EOS parameters in file.")
 parser.add_argument("--no-use-lal-eos",action='store_true',help="Do not use LAL EOS interface. Used for spectral EOS. Do not use this.")
 parser.add_argument("--no-matter1", action='store_true', help="Set the lambda parameters to zero (BBH) but return them")
@@ -435,7 +436,12 @@ if  not(opts.input_eos_index) and (opts.tabular_eos_file):
 
 my_eos=None
 #option to be used if gridded values not calculated assuming EOS
-if opts.using_eos!=None:
+fake_eos =False
+args_init = None
+if opts.using_eos_for_prior and opts.using_eos:
+    # NO LOGIC HERE, PERFORM NECESSARY LOGIC LATER
+    fake_eos = True  # don't use eos in convert_waveform_coordinates. will override later if EOS routine present in routine!
+elif opts.using_eos!=None and not(opts.using_eos_for_prior):
     import RIFT.physics.EOSManager as EOSManager
     eos_name=opts.using_eos
     if opts.verbose:
@@ -699,6 +705,10 @@ if opts.parameter_nofit:
         low_level_coord_names = opts.parameter_nofit # Used for Monte Carlo
     else:
         low_level_coord_names = opts.parameter+opts.parameter_nofit # Used for Monte Carlo
+# SANITY COMPATIBILITY CHECK
+if 'q' in low_level_coord_names and 'mc' in low_level_coord_names:
+    print(" Coordinate compatibility error: mc,eta or mc,delta_mc or M,q are compatible coordinates for masses. Do not mix!")
+    sys.exit(1)
 error_factor = len(coord_names)
 if error_factor ==0 :
     raise Exception(" Coordinate list for fit empty; exiting ")
@@ -730,6 +740,20 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
   external_likelihood_module = sys.modules[opts.supplementary_likelihood_factor_code]
   supplemental_ln_likelihood = getattr(external_likelihood_module,opts.supplementary_likelihood_factor_function)
   name_prep = "prepare_"+opts.supplementary_likelihood_factor_function
+  if opts.using_eos_for_prior:
+          dat = np.genfromtxt(opts.using_eos,names=True)[opts.using_eos_index]   # Parse file for them, to reduce need for burden parsing, and avoid burden/confusion.
+          param_names = dat.dtype.names
+          dat_as_array = dat.view((float, len(param_names)))
+          args_init = {'input_line' : dat_as_array, 'param_names':param_names, 'cip_param_names':coord_names}  # pass the recordarray broken into parts, for convenience
+          supplemental_init = getattr(external_likelihood_module, 'initialize_me')
+          supplemental_init(**args_init)
+          # CHECK IF WE RETRIEVE AN EOS from these hyperparameters too, so we can do both. 
+          if hasattr(external_likelihood_module,'retrieve_eos'):
+              fake_eos = False  # using EOS hyperparameter conversion! 
+              supplemental_eos = getattr(external_likelihood_module, 'retrieve_eos')
+              my_eos = supplemental_eos(**args_init)
+
+
   if hasattr(external_likelihood_module,name_prep):
     supplemental_ln_likelhood_prep=getattr(external_likelihood_module,name_prep)
     # Check for and load in ini file associated with external library
@@ -752,8 +776,8 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
 # mcmin, mcmax : to be defined later
 def M_prior(x):  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
     return 2*x/(mc_max**2-mc_min**2)
-def q_prior(x):
-    return 1./(1+x)**2  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
+def q_prior(x,norm_factor=1.):
+    return nm/(1+x)**2  # not normalized; see section II.C of https://arxiv.org/pdf/1701.01137.pdf
 def m1_prior(x):
     return 1./200
 def m2_prior(x):
@@ -1002,6 +1026,14 @@ if not (opts.eta_range is None):
     norm_factor = unscaled_eta_prior_cdf(eta_range[0]) - unscaled_eta_prior_cdf(eta_range[1])
     prior_map['eta'] = functools.partial(eta_prior, norm_factor=norm_factor)
     prior_map['delta_mc'] = functools.partial(delta_mc_prior, norm_factor=norm_factor)
+
+    # if q in parameters, also correctly normalize the prior for q, in case user is using (M,q) coordinates
+    # Note CDF of 1/(1+q)^2 is    -1/(1+q), so the normalization is analytic
+    if 'q' in low_level_coord_names:
+        delta_range = np.sqrt(1 - 4*np.array(eta_range))
+        q_range = (1-delta_range)/(1+delta_range)
+        norm_factor_q = 1./(1+qmin) - 1./(1+qmax)
+        prior_map['q']  = functools.partial(q_prior, norm_factor=norm_factor_q)
 
 ###
 ### Modify priors, as needed
@@ -1405,6 +1437,34 @@ def fit_gp_lazy(x,y,y_errors=None,dy_cov=5):
     else:
             return lambda x: adderr(gp.predict(x,return_std=True))
 
+
+def fit_xg(x,y,y_errors=None,fname_export='nn_fit',verbose=False):
+    import xgboost as xgb
+    # Instantiate model. Usually not that many structures to find, don't overcomplicate
+    #   - should scale like number of samples
+    rf = xgb.XGBRegressor(n_estimators=100) # no more than 5% of samples in a leaf
+    if y_errors is None:
+        rf.fit(x,y)
+    else:
+        rf.fit(x,y,sample_weight=1./y_errors**2)
+
+    ### reject points with infinities : problems for inputs
+    def fn_return(x_in,rf=rf):
+        f_out = -lnL_default_large_negative*np.ones(len(x_in))
+        # remove infinity or Nan
+        indx_ok = np.all(np.isfinite(x_in),axis=-1)
+        # rf internally uses float32, so we need to remove points > 10^37 or so !
+        #    ... this *should* never happen due to bounds constraints, but ...
+        indx_ok_size = np.all( np.logical_not(np.greater(np.abs(x_in),1e37)), axis=-1)
+        indx_ok = np.logical_and(indx_ok, indx_ok_size)
+        f_out[indx_ok] = rf.predict(x_in[indx_ok])
+        return f_out
+#    fn_return = lambda x_in: rf.predict(x_in)
+
+    print( " Demonstrating XGBoost")   # debugging
+    residuals = rf.predict(x)-y
+    print( "    std ", np.std(residuals), np.max(y), np.max(fn_return(x)))
+    return fn_return
 
 def fit_nn(x,y,y_errors=None,fname_export='nn_fit',adaptive=True):
     y_packed = y[:,np.newaxis]
@@ -2107,6 +2167,22 @@ elif opts.fit_method == 'gp-torch':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_gpytorch(X,Y,y_errors=Y_err)
+elif opts.fit_method == 'gp-xgboost':
+    print( " FIT METHOD ", opts.fit_method, " IS xgboost ")
+    # NO data truncation for NN needed?  To be *consistent*, have the code function the same way as the others
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_xgb(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'gp_lazy':
     print(" FIT METHOD ", opts.fit_method, " IS lazy GP")
     # some data truncation IS used for the GP, but beware
@@ -2263,7 +2339,7 @@ if not no_plots:
 ###
 ### Coordinate conversion tool
 ###
-if not opts.using_eos:
+if not opts.using_eos or (fake_eos):
  def convert_coords(x_in):
     return lalsimutils.convert_waveform_coordinates(x_in, coord_names=coord_names,low_level_coord_names=low_level_coord_names,source_redshift=source_redshift,enforce_kerr=opts.downselect_enforce_kerr)
 else:

@@ -297,6 +297,8 @@ if args.data_integration_window_half: #args.time_marginalization:
 if args.phase_marginalization:
     if not args.use_rift_samples:
         result.posterior['phase'] = np.zeros(len(result.posterior))
+if args.use_gwsignal_lmax_nyquist:
+    args.use_gwsignal = True  # force setting, in case of fallthrough
 if args.use_gwsignal:
     args.h_method = 'gws_hlmoft' 
 
