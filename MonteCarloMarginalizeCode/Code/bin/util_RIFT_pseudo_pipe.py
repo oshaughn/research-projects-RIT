@@ -1095,7 +1095,7 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('parameter delta_mc', 'parameter q')
         line += " --prior-gaussian-mass-ratio --prior-gaussian-spin1-magnitude "   # should require precessing analysis
     elif opts.assume_highq and ('s1z' in line):
-        if not( opts.cip_sampler_method =='GMM' or opts.cip_sampler_method == 'AV' or opts.cip_sampler_method =='portfolio'):
+        if opts.cip_sampler_method not in {'GMM', 'AV', 'portfolio'}:
             print("  ASSUME HIGHQ FAIL  - currently only GMM/AV/portfolio ")
         else:
             line += " --sampler-method {} --internal-correlate-parameters 'mc,delta_mc,s1z' ".format(opts.cip_sampler_method)
