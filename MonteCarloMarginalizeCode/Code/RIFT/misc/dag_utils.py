@@ -2098,11 +2098,11 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
     """
     default_add = "util_RandomizeOverlapOrder.py"
     if old_style_add:
-        default_add = "ligolw_add"
+        default_add = "igwn_ligolw_add"
     
     exe = exe or which(default_add)  
     if not(exe):
-        exe = "ligolw_add"   # go back to fallback if there is a weird disaster -- eg we are using an old-style install before this was updated
+        exe = "igwn_ligolw_add"   # go back to fallback if there is a weird disaster -- eg we are using an old-style install before this was updated
 
     working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
 
