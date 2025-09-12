@@ -1908,7 +1908,7 @@ if opts.cip_explode_jobs_subdag:
     # script to count lines in overlap-grid files. Note this does NOT check n_eff directly ... should count n_eff instead based on +annotation.dat files
         with open("cip_check_work.sh", 'w') as f:
             f.write("""#! /bin/bash
-LINES=`ligolw_print -c mass1 $1/overlap-grid*.xml.gz | wc -l `
+LINES=`igwn_ligolw_print -c mass1 $1/overlap-grid*.xml.gz | wc -l `
 [ ${LINES} -ge $2 ]
 """)
         st=os.stat("cip_check_work.sh"); os.chmod("cip_check_work.sh", st.st_mode | stat.S_IEXEC)
