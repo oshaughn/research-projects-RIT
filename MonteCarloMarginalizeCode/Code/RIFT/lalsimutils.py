@@ -4049,7 +4049,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                     if hypclass == 'scatter':
                         j_peak_dyn = np.argmin(dym['r'])
                         j_peak     = int((dym['t'][j_peak_dyn] - dym['t'][0])*(M1+M2)*lal.MTSUN_SI/P.deltaT)
-                        hlm[mode]  = lal.ResizeCOMPLEX16TimeSeries(hlm[mode], int(j_peak - 0.5*TDlen), TDlen)
+                        hlm[mode]  = lal.ResizeCOMPLEX16TimeSeries(hlm[mode], max(int(j_peak - 0.5*TDlen), 0), TDlen)
                     else:
                         hlm[mode] = lal.ResizeCOMPLEX16TimeSeries(hlm[mode],hlm[mode].data.length-TDlen,TDlen)
                 elif TDlen >= hlm[mode].data.length:
