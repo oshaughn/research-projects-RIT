@@ -4075,7 +4075,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
             for mode in hlm:
                 hlm[mode].data.data*= hp.data.data
         else:
-             # determine location of start taper
+            # determine location of start taper
             if not 'n_samp' in locals():
                 for count,value in enumerate(hlm[(2,2)].data.data):
                     if count ==0:
@@ -4083,15 +4083,23 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                     if np.abs(np.real(value)-np.real(hlm[(2,2)].data.data[0])) > 0.01 * np.abs(np.real(hlm[(2,2)].data.data[0])):
                         n_samp=int(count/2)
                         break
-            
+                    
             # determine location of end taper
+            if hlm[(2,2)].data.data[-1] == 0.0:
+                print("Signal shorter than seglen; probably can use smaller value.")
+                j_signal_end = np.nonzero(hlm[(2,2)].data.data != 0.)[0][-1] + 1
+            else:
+                j_signal_end = hlm[(2,2)].data.length
             if not 'n_samp2' in locals():
-                for count, value in enumerate(reversed(hlm[(2,2)].data.data)):  # Scan backwards
+                for count, value in enumerate(reversed(hlm[(2,2)].data.data[:j_signal_end])):  # Scan backwards
                     if count == 0:
                         continue
-                    if np.abs(np.real(value) - np.real(hlm[(2,2)].data.data[-1])) > 0.01 * np.abs(np.real(hlm[(2,2)].data.data[-1])):
-                        n_samp2 = int(count / 2) 
+                    if np.abs(np.real(value) - np.real(hlm[(2,2)].data.data[j_signal_end - 1])) > 0.01 * np.abs(np.real(hlm[(2,2)].\
+data.data[j_signal_end - 1])):
+                        n_samp2 = int(count / 2)
                         break
+            j_taper_end = range(j_signal_end - (n_samp2 + 1), j_signal_end)
+            
             
             # Always taper the start
             
@@ -4106,7 +4114,8 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 print('Scatter waveform, taper start and end')                
                 vectaper2= 0.5 + 0.5 * np.cos(np.pi * np.arange(n_samp2 + 1) / (1. * n_samp2))
                 for mode in hlm:
-                    hlm[mode].data.data[-(n_samp2+1):] *= vectaper2
+#                    hlm[mode].data.data[-(n_samp2+1):] *= vectaper2
+                    hlm[mode].data.data[j_taper_end] *= vectaper2
             elif hypclass == 'plunge':
                 # taper for plunge
                 print('Plunge waveform, only start taper')
