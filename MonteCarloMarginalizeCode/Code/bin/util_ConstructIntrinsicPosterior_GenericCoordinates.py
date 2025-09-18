@@ -1866,7 +1866,7 @@ for line in dat:
 #            P.meanPerAno = line[10]
     if opts.use_hyperbolic:
         P.E0 = line[col_E0]
-        P.P_phi0 = line[col_pphi0]
+        P.p_phi0 = line[col_pphi0]
     if opts.input_distance:
         P.dist = lal.PC_SI*1e6*line[col_distance]  # 9. Previously incompatible with tides when hardcoded
     
