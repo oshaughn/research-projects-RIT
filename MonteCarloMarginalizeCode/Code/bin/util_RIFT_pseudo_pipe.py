@@ -28,6 +28,14 @@ if ( 'RIFT_LOWLATENCY'  in os.environ):
 else:
     assume_lowlatency=False
 
+# Backward compatibility
+from RIFT.misc.dag_utils import which
+ligolw_prefix = 'igwn_'
+if not(which(ligolw_prefix + "ligolw_add")):
+    ligolw_prefix = ''
+
+
+    
 import shutil
 
 # Default setup assumes the underlying sampling will be *cartesian* 
@@ -501,7 +509,7 @@ if opts.choose_data_LI_seglen:
         if not(opts.use_legacy_gracedb):
             cmd_event += " > coinc.xml "
         os.system(cmd_event)
-        cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
+        cmd_fix_ilwdchar = "{}ligolw_no_ilwdchar coinc.xml".format(ligolw_prefix); os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
     elif opts.use_coinc:
         coinc_file = opts.use_coinc
     event_dict = retrieve_event_from_coinc(coinc_file)
@@ -1087,10 +1095,10 @@ for indx in np.arange(len(instructions_cip)):
         line = line.replace('parameter delta_mc', 'parameter q')
         line += " --prior-gaussian-mass-ratio --prior-gaussian-spin1-magnitude "   # should require precessing analysis
     elif opts.assume_highq and ('s1z' in line):
-        if not( opts.cip_sampler_method =='GMM'):
-            print("  ASSUME HIGHQ FAIL  - currently only GMM ")
+        if opts.cip_sampler_method not in {'GMM', 'AV', 'portfolio'}:
+            print("  ASSUME HIGHQ FAIL  - currently only GMM/AV/portfolio ")
         else:
-            line += " --sampler-method GMM --internal-correlate-parameters 'mc,delta_mc,s1z' "
+            line += " --sampler-method {} --internal-correlate-parameters 'mc,delta_mc,s1z' ".format(opts.cip_sampler_method)
             if 's1z_bar' in line:
                 # FIRST attempt to replace with commas, note previous line
                 line = line.replace("mc,s1z'", "mc,s1z_bar'")
@@ -1342,7 +1350,7 @@ if opts.internal_force_iterations:
 # Overwrite grid if needed
 if not (opts.manual_initial_grid is None):
     if opts.manual_initial_grid_supplements:
-        cmd_add = 'ligolw_add {} proposed-grid.xml.gz --output tmp.xml.gz'.format(opts.manual_initial_grid)
+        cmd_add = '{}ligolw_add {} proposed-grid.xml.gz --output tmp.xml.gz'.format(ligolw_prefix,opts.manual_initial_grid)
         os.system(cmd_add)
         shutil.copyfile('tmp.xml.gz', "proposed-grid.xml.gz")
     else:
@@ -1408,7 +1416,7 @@ if opts.internal_use_amr:
         if not(opts.use_legacy_gracedb):
             cmd_event += " > coinc.xml "
         os.system(cmd_event)
-        cmd_fix_ilwdchar = "ligolw_no_ilwdchar coinc.xml"; os.system(cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
+        cmd_fix_ilwdchar = "{}ligolw_no_ilwdchar coinc.xml"; os.system(ligolw_prefix,cmd_fix_ilwdchar) # sigh, need to make sure we are compatible
     elif opts.use_coinc:
         coinc_file = opts.use_coinc
     event_dict = retrieve_event_from_coinc(coinc_file)
@@ -1533,6 +1541,8 @@ if opts.calibration_reweighting:
     my_extra_string = ''
     if opts.use_gwsignal:
         my_extra_string = ' --use-gwsignal '
+    if opts.assume_eccentric:
+        my_extra_string += " --use-eccentricity "
     if opts.manual_extra_ile_args:
          print(" calmarg: Parsing  ", opts.manual_extra_ile_args)
          my_str_list = opts.manual_extra_ile_args.lstrip().split("--")

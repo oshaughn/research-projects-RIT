@@ -13,7 +13,7 @@ matplotlib
 lalsuite
 gwdatafind 
 #ligo-segments 
-python-ligo-lw
+#python-ligo-lw
 igwn-segments
 igwn-ligolw
 six
@@ -21,5 +21,5 @@ precession
 ligo.skymap
 gwpy
 natsort
-scipy
-htcondor
+scipy<1.16
+htcondor[monitor]
