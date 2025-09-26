@@ -415,7 +415,7 @@ else:
 
 # Setting up the resume and weight file names
 resume_file = None
-if (start_index != None) and (start_index != None):
+if (start_index != None) and (end_index != None):
     weights_file = f'{outdir}/weight_files/weights_s{start_index}e{end_index}.dat'
 elif start_index != None:
     weights_file = f'{outdir}/weight_files/weights_s{start_index}eNone.dat'
