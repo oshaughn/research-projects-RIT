@@ -89,6 +89,15 @@ class EOSConcrete:
 
         return dimensionless_lam
 
+    def lambda_from_m_vector(self, m):
+        # vectorize above. Naive vectorization, will depend on improved swig interface
+        # alternative is to store meta-information and re-interpolatie
+        if not(isinstance(m, np.ndarray)):
+            return self.lambda_from_m(m)
+        else:
+            # horribly inefficient right now!  Hopefully vectorized code available soon
+            out = np.array([self.lambda_from_m(m_here) for m_here in m])
+
     def estimate_baryon_mass_from_mg(self,m):
         r"""
         Estimate m_b = m_g + m_g^2/(R_{1.4}/km) based on https://arxiv.org/pdf/1905.03784.pdf Eq. (6)

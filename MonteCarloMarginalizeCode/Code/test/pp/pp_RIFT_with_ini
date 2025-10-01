@@ -173,7 +173,9 @@ if config.has_option('waveform','approx_template'):
 l_max = 2
 if config.has_option('waveform','lmax'):
     l_max = int(config.get('waveform','lmax')  )
-use_hlms_as_injections = unsafe_config_get(config,['waveform','use_hlms_as_injections'])
+use_hlms_as_injections=False
+if config.has_option('waveform', 'use_hlms_as_injections'):
+    use_hlms_as_injections = unsafe_config_get(config,['waveform','use_hlms_as_injections'])
 fmin_template = float(config.get('waveform','fmin_template'))
 fref = float(config.get('data','fref'))
 fmax = float(config.get('data','fmax'))
@@ -231,6 +233,7 @@ ile_sampler = config.get('make_workflow', 'ile_sampler_method')
 ile_n_eff = config.get('make_workflow','ile_n_eff')
 if config.has_option('make_workflow','manual_extra_ile_args'):
     manual_extra_ile_args = config.get('make_workflow','manual_extra_ile_args')
+use_gwsignal_lmax_nyquist = None
 if config.has_option('make_workflow','use_gwsignal_lmax_nyquist'):
     use_gwsignal_lmax_nyquist= config.get('make_workflow','use_gwsignal_lmax_nyquist')
 ile_n_copies = config.get('make_workflow','ile_n_copies')
@@ -392,7 +395,9 @@ for indx in np.arange(n_events):
     # Loop over instruments, write files
     for ifo in ifos:
         if opts.use_gwsignal:
-            cmd = "util_GWSignalWriteFrame.py  --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --approx {} --fref {} --use-gwsignal-lmax-nyquist {}".format(indx, t_start, t_stop, ifo, seglen_analysis, approx_str, fref, use_gwsignal_lmax_nyquist)
+            cmd = "util_GWSignalWriteFrame.py  --inj " + working_dir_full+"/mdc.xml.gz --event {} --start {} --stop {} --instrument {} --seglen {} --approx {} --fref {}".format(indx, t_start, t_stop, ifo, seglen_analysis, approx_str, fref)
+            if use_gwsignal_lmax_nyquist:
+                cmd += " --use-gwsignal-lmax-nyquist {}".format(use_gwsignal_lmax_nyquist)
             if use_hlms_as_injections: #approx_str == "SEOBNRv5EHM" or approx_str == "TEOBResumSDALI":
                 cmd += " --use-hlms-as-injections "
         elif 'NRHybSur' in approx_str:

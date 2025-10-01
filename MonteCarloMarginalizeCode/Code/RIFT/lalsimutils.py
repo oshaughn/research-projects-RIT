@@ -6095,7 +6095,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
             x_out[indx_out] = -np.inf*np.ones( len(coord_names) ) # return negative infinity for all coordinates, if Kerr bound violated
     return x_out
 
-def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,eos_class=None,no_matter1=False,no_matter2=False,source_redshift=0):
+def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_level_coord_names=['m1','m2'],enforce_kerr=False,eos_class=None,no_matter1=False,no_matter2=False,source_redshift=0, backstop_novector=False):
     """
     A wrapper for ChooseWaveformParams() 's coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)
     """
@@ -6105,6 +6105,28 @@ def convert_waveform_coordinates_with_eos(x_in,coord_names=['mc', 'eta'],low_lev
         print( " - Failed to load EOSManager - ")  # this will occur at the start
     assert not (eos_class==None)
     x_out = np.zeros( (len(x_in), len(coord_names) ) )
+
+    if not(backstop_novector):  # backstop option to use older code
+        # define coordinates
+        low_level_coord_names_extended = low_level_coord_names  + ['lambda1','lambda2'] # forces a copy
+        n_fields_normal = len(low_level_coord_names)
+        x_in_extended = np.zeros( (len(x_in), len(low_level_coord_names_extended)))
+        x_in_extended[:,:n_fields_normal] = x_in
+
+        # Extract individual masses
+        x_out_temp_mass = convert_waveform_coordinates(x_in, coord_names=['m1','m2'], low_level_coord_names=low_level_coord_names)
+
+        # Add lambda from EOS. Note backend vectorization is not ready, so this is not as efficient as it should be
+        if not(no_matter1):
+            indx_ok = x_out_temp_mass[:,0] < eos_class.mMaxMsun # valid assignments
+            x_in_extended[indx_ok,-2] = eos_class.lambda_from_m_vector( x_out_temp_mass[indx_ok,0]*lal.MSUN_SI)  # mass of primary
+        if not(no_matter2):
+            indx_ok = x_out_temp_mass[:,1] < eos_class.mMaxMsun # valid assignments
+            x_in_extended[indx_ok,-1] = eos_class.lambda_from_m_vector( x_out_temp_mass[indx_ok,1]*lal.MSUN_SI)  # mass of secondary
+
+        # Now call normal converter, with new variables defined
+        return convert_waveform_coordinates(x_in_extended, coord_names=coord_names,low_level_coord_names=low_level_coord_names_extended,enforce_kerr=enforce_kerr, source_redshift=source_redshift)
+            
     P = ChooseWaveformParams()
     for indx_out  in np.arange(len(x_in)):
         # WARNING UNUSUAL CONVENTION

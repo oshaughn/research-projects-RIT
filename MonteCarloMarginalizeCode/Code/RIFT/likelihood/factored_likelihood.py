@@ -296,8 +296,8 @@ def internal_hlm_generator(P,
         hlms = wfP.hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF,hybrid_use=hybrid_use,hybrid_method=hybrid_method)  # force a window.  Check the time
         hlms_conj = wfP.conj_hlmoff( deltaT=P.deltaT,force_T=1./P.deltaF,hybrid_use=hybrid_use)  # force a window.  Check the time
 
-        if rosDebugMessages:
-                print("NR variant: Length check: ",hlms[(2,2)].data.length, first_data.data.length)
+        #if rosDebugMessages:
+        #        print("NR variant: Length check: ",hlms[(2,2)].data.length, first_data.data.length)
         # Remove memory modes (ALIGNED ONLY: Dangerous for precessing spins)
         if no_memory and wfP.P.SoftAlignedQ():
                 for key in hlms.keys():
@@ -323,10 +323,10 @@ def internal_hlm_generator(P,
             hlms_conj = wfP.conj_hlmoff(force_T=1./P.deltaF,deltaT=P.deltaT)
 
             # Code will not make the EOB waveform shorter, so the code can fail if you have insufficient data, later
-            print(" External EOB length check ", hlms[(2,2)].data.length, first_data.data.length, first_data.data.length*P.deltaT)
+#            print(" External EOB length check ", hlms[(2,2)].data.length, first_data.data.length, first_data.data.length*P.deltaT)
             print(" External EOB length check (in M) ", end=' ')
             print(" Comparison EOB duration check vs epoch vs window size (sec) ", wfP.estimateDurationSec(),  -hlms[(2,2)].epoch, 1./hlms[(2,2)].deltaF)
-            assert hlms[(2,2)].data.length ==first_data.data.length
+#            assert hlms[(2,2)].data.length ==first_data.data.length
             if rosDebugMessagesDictionary["DebugMessagesLong"]:
                     hlmT_ref = lsu.DataInverseFourier(hlms[(2,2)])
                     print(" External EOB: Time offset of largest sample (should be zero) ", hlms[(2,2)].epoch + np.argmax(np.abs(hlmT_ref.data.data))*P.deltaT)

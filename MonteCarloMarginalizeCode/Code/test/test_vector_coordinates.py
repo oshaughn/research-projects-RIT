@@ -6,6 +6,7 @@
 
 import numpy as np
 import RIFT.lalsimutils as lalsimutils
+import lal
 
 import optparse
 parser = optparse.OptionParser()
@@ -317,8 +318,37 @@ if opts.as_test and err > 1e-9:
 
 
 # tidal test (CIP : LambdaTilde, DeltaLambdaTilde from lambda1, lambda2)
+#   NOTE: recast mc parameter ranges into a BNS range, so sane answers
 coord_names =['mu1','mu2', 'delta_mc', 'LambdaTilde', 'DeltaLambdaTilde', 'xi', 'chiMinus']
 low_level_coord_names = ['mc', 'delta_mc', 's1z', 's2z', 'lambda1', 'lambda2']
+
+x1 = np.zeros((npts,len(coord_names)))
+x2 = np.zeros((npts,len(coord_names)))
+y2 = np.zeros((npts,len(low_level_coord_names)))
+
+for indx in np.arange(npts):
+    P = P_list[indx]
+    P.assign_param('mc', np.random.uniform(1.1, 1.3)*lal.MSUN_SI)   # reset mass!  NEEDED FOR VALID EOS TEST LATER
+    for indx_name  in np.arange(len(coord_names)):
+        x1[indx,indx_name]  = P.extract_param( coord_names[indx_name])
+    for indx_name2 in np.arange(len(low_level_coord_names)):
+        y2[indx,indx_name2]  = P.extract_param( low_level_coord_names[indx_name2])
+
+x2 = lalsimutils.convert_waveform_coordinates(y2, coord_names=coord_names, low_level_coord_names=low_level_coord_names)
+
+print("Tidal test 1 ", np.max(np.abs(x1 - x2)))
+err = np.max(np.abs(x1 - x2))
+if opts.as_test and err > 1e-9:
+    raise ValueError(" Large deviation seen ")
+
+
+# tidal test (CIP : LambdaTilde, DeltaLambdaTilde from lambda1, lambda2, created via EOS)
+coord_names =['mu1','mu2', 'delta_mc', 'LambdaTilde', 'DeltaLambdaTilde', 'xi', 'chiMinus']
+low_level_coord_names = ['mc', 'delta_mc', 's1z', 's2z']
+import RIFT.physics.EOSManager as eom
+import lal
+
+my_eos = eom.EOSLALSimulation(name="AP4")
 
 x1 = np.zeros((npts,len(coord_names)))
 x2 = np.zeros((npts,len(coord_names)))
@@ -331,9 +361,9 @@ for indx in np.arange(npts):
     for indx_name2 in np.arange(len(low_level_coord_names)):
         y2[indx,indx_name2]  = P.extract_param( low_level_coord_names[indx_name2])
 
-x2 = lalsimutils.convert_waveform_coordinates(y2, coord_names=coord_names, low_level_coord_names=low_level_coord_names)
+x2 = lalsimutils.convert_waveform_coordinates_with_eos(y2, coord_names=coord_names, low_level_coord_names=low_level_coord_names, eos_class=my_eos)
 
-print("Tidal test 1 ", np.max(np.abs(x1 - x2)))
+print("Tidal test 1b: with EOS enforced ", np.max(np.abs(x1 - x2)))
 err = np.max(np.abs(x1 - x2))
 if opts.as_test and err > 1e-9:
     raise ValueError(" Large deviation seen ")
