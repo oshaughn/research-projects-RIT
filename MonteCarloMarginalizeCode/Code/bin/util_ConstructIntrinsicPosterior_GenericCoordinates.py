@@ -1002,6 +1002,7 @@ if not (opts.eta_range is None):
         q_range = (1-delta_range)/(1+delta_range)
         norm_factor_q = 1./(1+q_range[0]) - 1./(1+q_range[1])
         prior_map['q']  = functools.partial(q_prior, norm_factor=norm_factor_q)
+        prior_range_map['q'] = q_range
 
 ###
 ### Modify priors, as needed
