@@ -2392,6 +2392,7 @@ if opts.sampler_method == 'portfolio' and not(opts.sampler_oracle is None):
 
 # Sampler
 sampler = mcsampler.MCSampler()
+use_portfolio=False
 if opts.sampler_method == "adaptive_cartesian_gpu":
     sampler = mcsamplerGPU.MCSampler()
     sampler.xpy = xpy_default
@@ -2402,8 +2403,7 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
     #   mcsampler.set_xpy_to_numpy()
     #   sampler.xpy= numpy
     #   sampler.identity_convert= lambda x: x
-use_portfolio=False
-if opts.sampler_method == "GMM":
+elif opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
 elif opts.sampler_method == "AV":
     sampler = mcsamplerAdaptiveVolume.MCSampler()
