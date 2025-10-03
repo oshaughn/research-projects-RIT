@@ -97,6 +97,7 @@ class EOSConcrete:
         else:
             # horribly inefficient right now!  Hopefully vectorized code available soon
             out = np.array([self.lambda_from_m(m_here) for m_here in m])
+            return out
 
     def estimate_baryon_mass_from_mg(self,m):
         r"""
