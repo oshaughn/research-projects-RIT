@@ -2,7 +2,13 @@
 ------------
 development tree is rift_O4d.
   - CIP hyperpipe improvements (initialize_me; enable population and EOS params in using_eos file with arbitrary
-    labelled parameters); CIP xgboost gp fit (from Aasim); install make 'precession' optional; see also 0.0.17.4rc0 igwn-ligolw
+    labelled parameters); CIP xgboost gp fit (from Aasim); install make 'precession' optional; see also 0.0.17.4rc0
+    igwn-ligolw
+    
+0.0.17.5
+------------
+development tree is rift_O4c.
+   - dag_utils/write_bilby_pickle_sub parsing error if only *one* interferometer is supplied in the bilby ini file. 
 
 0.0.17.4
 ------------
@@ -10,7 +16,8 @@ development tree is rift_O4c_updates/rift_O4c; see https://git.ligo.org/rapidpe-
    - CI update; scipy < 1.16 to avoid mvn inport error; htcondor not on by default; igwn_ligolw executables and python
      code; calmarg: pass --use-eccentricity to Calib_reweight.sub correctly; factored_likelihood backstop for cases
      where overlaps ==0 for guess_snr, needed for nonprecessing binaries (rc0)
-
+Release is rc0
+     
 0.0.17.3
 ------------
 development tree is rift_O4c
