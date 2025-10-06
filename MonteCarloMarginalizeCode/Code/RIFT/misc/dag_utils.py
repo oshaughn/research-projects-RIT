@@ -2386,6 +2386,16 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
     with open(bilby_ini_file) as stream:
         config.read_string("[top]\n" + stream.read())
         bilby_items = dict(config["top"])
+        # Backstop horrible parsing situations where it returns a string and not dict
+        if not(isinstance(bilby_items['channel-dict'], dict)):
+            base_list=bilby_items['channel-dict'][1:-1].split(',')[:-1]
+            base_dict = {}
+            for item in base_list:
+                if item:
+                   key,value =item.split(':')
+                   key = key.lstrip()
+                   base_dict[key] = value
+            bilby_items['channel-dict'] = base_dict
         ifo_list = list(bilby_items['channel-dict'])  # PSDs must be listed, implicitly provides all ifos
     # remove entries with the None keyword, as misleading
     dict_names = list(bilby_items)
@@ -2397,11 +2407,15 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
         if cache_file:
             print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from (host) directory: {} ".format(frames_dir))
             cache_lines = np.loadtxt(cache_file,dtype=str)
-            if len(cache_lines) > len(ifo_list):
-                raise Exception(" Pipeline failure: cache file must contain one line per IFO to identify files in this approach")
-            for indx in np.arange(len(cache_lines)):
-                ifo = cache_lines[indx][0]+"1"
-                bilby_data_dict[ifo] = cache_lines[indx][-1].replace('file://localhost','')
+            if len(ifo_list)==1 and len(cache_lines.shape)==1:
+                ifo = cache_lines[0] + '1'
+                bilby_data_dict[ifo] = cache_lines[-1].replace('file://localhost','')
+            else:
+                if len(cache_lines) > len(ifo_list):
+                        raise Exception(" Pipeline failure: cache file must contain one line per IFO to identify files in this approach")
+                for indx in np.arange(len(cache_lines)):
+                        ifo = cache_lines[indx][0]+"1"
+                        bilby_data_dict[ifo] = cache_lines[indx][-1].replace('file://localhost','')
         elif frames_dir:  # Danger : this directory might be EMPTY and generated at runtile
             import glob
             print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from directory: {} ".format(frames_dir))
