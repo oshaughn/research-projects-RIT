@@ -324,7 +324,7 @@ if args.extra_waveform_kwargs:
     my_arg_dict = eval(args.extra_waveform_kwargs)
     # dictionary may be malformed (eg not properly quoted) or render as string
     if not(isinstance(my_arg_dict, dict)):
-        base_list = my_arg_list[1,-1].split(',') # remove {} at end
+        base_list = my_arg_dict[1,-1].split(',') # remove {} at end, assume string
         base_dict = {}
         for item in base_list:
             if item:
