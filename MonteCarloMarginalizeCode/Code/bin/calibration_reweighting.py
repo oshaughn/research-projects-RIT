@@ -331,7 +331,7 @@ if args.extra_waveform_kwargs:
                 key,value =item.split(':')
                 key = key.lstrip()
                 base_dict[key] = value
-        my_arg_dict = base_dicct
+        my_arg_dict = base_dict
     extra_waveform_kwargs.update(my_arg_dict)
 waveform_arguments['extra_waveform_kwargs'] = extra_waveform_kwargs
 if args.waveform_approximant:
