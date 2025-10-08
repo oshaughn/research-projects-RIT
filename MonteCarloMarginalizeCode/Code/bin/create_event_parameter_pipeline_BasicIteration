@@ -1198,7 +1198,7 @@ if opts.calibration_reweighting:
         # properly handle quoted extra arguments, such as dictionaries of waveform arguments
         add_str = opts.calibration_reweighting_initial_extra_args
         if '"' in add_str:
-            add_str = RIFT.misc.dag_utils.safely_quote_arg_str(add_str)
+            add_str = dag_utils.safely_quote_arg_str(add_str)
         calibration_job.add_arg(add_str)
     if not(opts.calibration_reweighting_batchsize): # single run
         calibration_job.set_log_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).log")
