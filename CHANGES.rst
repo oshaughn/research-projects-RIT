@@ -1,3 +1,10 @@
+0.0.17.6
+------------
+development tree is rift_O4c.
+   - cepp_basic two corner cases impacting calmarg args: minor fix use of package name if calmarg extra args passed to
+     gwsignal; add transfer-input-files to Calib_reweight.sub writer to pass h5 dependencies to reweighting code (rc0)
+
+
 0.0.17.5
 ------------
 development tree is rift_O4c.
