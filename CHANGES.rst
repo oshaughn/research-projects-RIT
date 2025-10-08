@@ -8,8 +8,9 @@ development tree is rift_O4d.
 0.0.17.5
 ------------
 development tree is rift_O4c.
-   - dag_utils/write_bilby_pickle_sub parsing error if only *one* interferometer is supplied in the bilby ini file. 
-
+   - dag_utils/write_bilby_pickle_sub parsing error if only *one* interferometer is supplied in the bilby ini file. (rc0)
+Release is rc0
+     
 0.0.17.4
 ------------
 development tree is rift_O4c_updates/rift_O4c; see https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/45
