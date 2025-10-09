@@ -1224,6 +1224,8 @@ if opts.calibration_reweighting:
             fname_str = fname_str.strip()
             calibration_job.add_condor_cmd('transfer_input_files',fname_str)
             calibration_job.add_condor_cmd('should_transfer_files','YES')
+            if 'osdf:' in fname_str and opts.use_oauth_files:
+                calibration_job.add_condor_cmd('use_oauth_services', opts.use_oauth_files)  # add scitokens
     calibration_job.write_sub_file()
 
     # job to combine things. Write here to make logic human-readable
