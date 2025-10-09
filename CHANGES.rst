@@ -1,3 +1,14 @@
+0.0.17.6
+------------
+development tree is rift_O4c.
+   - cepp_basic two corner cases impacting calmarg args: minor fix use of package name if calmarg extra args passed to
+     gwsignal; add transfer-input-files to Calib_reweight.sub writer to pass h5 dependencies to reweighting code (rc0)
+   - calibration_reweighting.py: fix typo and parsing issue for --extra_waveform_kwargs, since argument not usually
+     fully quoted unlike ILE args (rc1)
+   - calibration_reweighting: typos in previous commits (rc2)
+   - pseudo_pipe --internal-general-request-disk (rc3)
+   - calib_reweight scitokens (rc4)
+
 0.0.17.5
 ------------
 development tree is rift_O4c.

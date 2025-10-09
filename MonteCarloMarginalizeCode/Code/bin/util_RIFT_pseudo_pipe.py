@@ -185,6 +185,7 @@ parser.add_argument("--ile-distance-prior",default=None,help="If present, passed
 parser.add_argument("--internal-ile-buffer-after-trigger",default=2,type=float,help="Provided to allow user to change time after trigger. NOT FULLY IMPLEMENTED")
 parser.add_argument("--internal-ile-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
 parser.add_argument("--internal-cip-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data ")
+parser.add_argument("--internal-general-request-disk",help="Use if you are transferring large files, or if you otherwise expect a lot of data. Specifically for things like calmarg/surrogate h5 files ")
 parser.add_argument("--internal-ile-request-memory",default=4096,type=int,help="ILE memory request in Mb. Only experts should change this.")
 parser.add_argument("--internal-ile-n-max",default=None,type=int,help="Set maximum number of evaluations each ILE worker uses. EXPERTS ONLY")
 parser.add_argument("--internal-ile-inv-spec-trunc-time",default=None,type=float,help="Timescale of inverse spectrum truncation time. Default in pipeline is zero. Should be no more than 1/2 the segment length")
@@ -1486,6 +1487,8 @@ if opts.internal_ile_request_disk:
     cmd += " --ile-request-disk {} ".format(opts.internal_ile_request_disk)
 if opts.internal_cip_request_disk:
     cmd += " --cip-request-disk {} ".format(opts.internal_ile_request_disk)
+if opts.internal_general_request_disk:
+    cmd += " --general-request-disk {} ".format(opts.internal_general_request_disk)
 if opts.use_ile_subdags:
     cmd += " --ile-group-subdag "
 if opts.cip_explode_jobs_dag:  # note name does not match name used in next level below ! Beware!

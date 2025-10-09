@@ -1198,7 +1198,7 @@ if opts.calibration_reweighting:
         # properly handle quoted extra arguments, such as dictionaries of waveform arguments
         add_str = opts.calibration_reweighting_initial_extra_args
         if '"' in add_str:
-            add_str = RIFT.misc.dag_utils.safely_quote_arg_str(add_str)
+            add_str = dag_utils.safely_quote_arg_str(add_str)
         calibration_job.add_arg(add_str)
     if not(opts.calibration_reweighting_batchsize): # single run
         calibration_job.set_log_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).log")
@@ -1216,6 +1216,16 @@ if opts.calibration_reweighting:
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+calibration_job.get_sub_file()
         calibration_job.set_sub_file(fname)
+    if opts.transfer_file_list:
+        # Handle scenario where h5 file needed by calmarg job. Note arranged as transfer because we don't know if execute nodes have the file, even if local
+        any_h5_needed_list = [x for x in transfer_file_names if x.endswith('.h5')]  # NRSur, etc h5 files we need for lalsuite
+        if len(any_h5_needed_list)>0:
+            fname_str = ','.join(any_h5_needed_list)
+            fname_str = fname_str.strip()
+            calibration_job.add_condor_cmd('transfer_input_files',fname_str)
+            calibration_job.add_condor_cmd('should_transfer_files','YES')
+            if 'osdf:' in fname_str and opts.use_oauth_files:
+                calibration_job.add_condor_cmd('use_oauth_services', opts.use_oauth_files)  # add scitokens
     calibration_job.write_sub_file()
 
     # job to combine things. Write here to make logic human-readable
