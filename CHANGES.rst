@@ -8,6 +8,7 @@ development tree is rift_O4c.
    - calibration_reweighting: typos in previous commits (rc2)
    - pseudo_pipe --internal-general-request-disk (rc3)
    - calib_reweight scitokens (rc4)
+release is rc4
 
 0.0.17.5
 ------------
