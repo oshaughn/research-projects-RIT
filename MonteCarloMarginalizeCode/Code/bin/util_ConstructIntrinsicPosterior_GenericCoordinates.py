@@ -724,7 +724,9 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
   supplemental_ln_likelihood = getattr(external_likelihood_module,opts.supplementary_likelihood_factor_function)
   name_prep = "prepare_"+opts.supplementary_likelihood_factor_function
   if opts.using_eos_for_prior:
-          dat = np.genfromtxt(opts.using_eos,names=True)[opts.using_eos_index]   # Parse file for them, to reduce need for burden parsing, and avoid burden/confusion.
+          # Load in filename
+          fname = opts.using_eos.replace('file:', '')
+          dat = np.genfromtxt(fname,names=True)[opts.using_eos_index]   # Parse file for them, to reduce need for burden parsing, and avoid burden/confusion.
           param_names = dat.dtype.names
           dat_as_array = dat.view((float, len(param_names)))
           args_init = {'input_line' : dat_as_array, 'param_names':param_names, 'cip_param_names':coord_names}  # pass the recordarray broken into parts, for convenience
