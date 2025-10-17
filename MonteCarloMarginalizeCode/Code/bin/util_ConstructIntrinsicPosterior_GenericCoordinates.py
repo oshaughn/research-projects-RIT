@@ -2934,12 +2934,12 @@ elif opts.using_eos and opts.using_eos.startswith('file:'):
     annotation_header = linefirst # this will/must be lnL sigma_lnL and then parameter names, which we want to preserve
 with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
   if not(opts.using_eos) or not(opts.using_eos.startswith('file:')):
-    str_out =list( map(str,[log_integrand_value, np.sqrt(var)/res, neff]))
+    str_out =list( map(str,[ln_integrand_value, np.sqrt(var)/res, neff]))
     file_out.write("# " + annotation_header + "\n")
     file_out.write(' '.join( str_out + eos_extra + ["\n"]))
   else:
     file_out.write("# " + annotation_header + "\n")
-    file_out.write(" {} {} ".format(log_integrand_value, np.sqrt(var)/res) + ' '.join(map(str,params_here)))
+    file_out.write(" {} {} ".format(ln_integrand_value, np.sqrt(var)/res) + ' '.join(map(str,params_here)))
 #np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
 # since not EOS, can just use np.savetxt
 # with open(opts.fname_output_integral+"+annotation_ESS.dat", 'w') as file_out:
@@ -2992,7 +2992,7 @@ if True:
     weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
     n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
     print(" n_eff n_ESS ", neff, n_ESS)
-np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[log_integrand_value, np.sqrt(var)/res, neff, n_ESS]],header=" lnL sigmaL neff n_ESS ")
+np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[ln_integrand_value, np.sqrt(var)/res, neff, n_ESS]],header=" lnL sigmaL neff n_ESS ")
 
 
 # Throw away stupid points that don't impact the posterior
