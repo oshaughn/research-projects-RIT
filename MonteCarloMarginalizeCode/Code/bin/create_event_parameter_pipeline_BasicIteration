@@ -233,6 +233,7 @@ parser.add_argument("--ile-request-disk",default="10M",type=str,help="Request di
 parser.add_argument("--cip-request-disk",default="10M",type=str,help="Request disk passed to condor for ILE. Must be done for all jobs now")
 parser.add_argument("--cal-request-disk",default="8G",type=str,help="Request disk passed to condor for ILE. Must be done for all jobs now")
 parser.add_argument("--ile-n-events-to-analyze",default=1,type=int,help="If >1, you are using ILE_batchmode.  Structures the DAG correctly to account for batch cadence")
+parser.add_argument("--ile-n-events-to-analyze-first",default=None,type=int,help="If provided, use a different number batch size for iteration 0. Can be helpful if initial grid is broad.")
 parser.add_argument("--ile-runtime-max-minutes",default=None,type=int,help="If not none, kills ILE jobs that take longer than the specified integer number of minutes. Do not use unless an expert")
 parser.add_argument("--cip-exe",default=None,help="filename of CIP or equivalent executable. Will default to `which util_ConstructIntrinsicPosterior_GenericCoordinates` in low-level code")
 parser.add_argument("--cip-post-exe",default=None,help="filename of script to execute with SCRIPT POST joblist scripname JOBID RETURN worklevel in the dag. This will be run after each CIP completes in the main dag. Objective is to enable larger-scale CIP queues which work efficiently to a target work level (e.g,, n_eff). Note this script is responsible for reading htcondor logs to identify the run directory!")
@@ -1363,6 +1364,9 @@ if opts.use_bw_psd:
         convert_psd_node_list.append(convert_psd_node)
 
 n_group = opts.ile_n_events_to_analyze
+n_group_first = opts.ile_n_events_to_analyze
+if opts.ile_n_events_to_analyze_first:
+    n_group_first= opts.ile_n_events_to_analyze_first
 
 unify_node_list = []
 ile_node_list_per_iteration={}
@@ -1385,20 +1389,24 @@ for it in np.arange(it_start,opts.n_iterations):
     unify_node.set_retry(opts.general_retries)
     if not(it ==0) and not(opts.first_iteration_jumpstart):  # don't require first composite to be nonempty if we are running a jumpstart!
         unify_node_list.append(unify_node)
-    
+
+    n_group_here = n_group
+    if it ==0 and n_group_first:
+        n_group_here=n_group_first
+        
     # Create one node per job
     n_jobs_this_time = opts.n_samples_per_job
     if it ==it_start:
         n_jobs_this_time = n_initial
-    indx_max = int((1.0*n_jobs_this_time)/n_group)
-    if indx_max*n_jobs_this_time < n_group:
+    indx_max = int((1.0*n_jobs_this_time)/n_group_here)
+    if indx_max*n_jobs_this_time < n_group_here:
         indx_max+=1
     if not(it==it_start and opts.first_iteration_jumpstart):   # if on first iteration ,don't do this for jumpstart
         if opts.ile_group_subdag:
             # Write the subdag
             my_ile_subdag_name = subdag_dir + "/subdag_ILE_{}".format(it)
             my_ile_subdag = pipeline.CondorDAG(log=os.getcwd())
-            add_batch_ILE_nodes_to_dag(my_ile_subdag, ile_job, None, None, indx_max, n_group, it, n_retries=opts.ile_retries,it_start=-1)
+            add_batch_ILE_nodes_to_dag(my_ile_subdag, ile_job, None, None, indx_max, n_group_here, it, n_retries=opts.ile_retries,it_start=-1)
             my_ile_subdag.set_dag_file(my_ile_subdag_name)
             my_ile_subdag.write_concrete_dag()
             my_ile_subdag_name += ".dag"
@@ -1412,14 +1420,14 @@ for it in np.arange(it_start,opts.n_iterations):
             con_node.add_parent(main_analysis_node)
             dag.add_node(main_analysis_node)
         else:
-            add_batch_ILE_nodes_to_dag(dag, ile_job, parent_fit_node, con_node, indx_max, n_group, it, n_retries=opts.ile_retries,it_start=it_start,convert_psd_node_list=convert_psd_node_list,node_list_dict=ile_node_list_per_iteration)
+            add_batch_ILE_nodes_to_dag(dag, ile_job, parent_fit_node, con_node, indx_max, n_group_here, it, n_retries=opts.ile_retries,it_start=it_start,convert_psd_node_list=convert_psd_node_list,node_list_dict=ile_node_list_per_iteration)
 #       for event in np.arange(indx_max): #np.arange(n_jobs_this_time):
 #         # Add task per ILE operation
 #         ile_node = pipeline.CondorDAGNode(ile_job)
 # #        ile_node.set_priority(JOB_PRIORITIES["ILE"])
 #         ile_node.set_retry(opts.ile_retries)
-#         ile_node.add_macro("macroevent", event*n_group)
-#         ile_node.add_macro("macrongroup", n_group)
+#         ile_node.add_macro("macroevent", event*n_group_here)
+#         ile_node.add_macro("macrongroup", n_group_here)
 #         ile_node.add_macro("macroiteration", it)
 #         if not(parent_fit_node is None):
 #             ile_node.add_parent(parent_fit_node)
@@ -1433,12 +1441,12 @@ for it in np.arange(it_start,opts.n_iterations):
     if puff_args and puff_cadence:
      if it>it_start and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
         print(" ILE jobs for puffball on iteration ", it)
-        add_batch_ILE_nodes_to_dag(dag, ilePuff_job, parent_fit_node, con_node, indx_max, n_group, it, n_retries=opts.ile_retries,node_list_dict=ile_node_list_per_iteration)
+        add_batch_ILE_nodes_to_dag(dag, ilePuff_job, parent_fit_node, con_node, indx_max, n_group_here, it, n_retries=opts.ile_retries,node_list_dict=ile_node_list_per_iteration)
         # for event in np.arange(indx_max):
         #     ile_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
         #     ile_node.set_retry(opts.ile_retries)
-        #     ile_node.add_macro("macroevent", event*n_group)
-        #     ile_node.add_macro("macrongroup", n_group)
+        #     ile_node.add_macro("macroevent", event*n_group_here)
+        #     ile_node.add_macro("macrongroup", n_group_here)
         #     ile_node.add_macro("macroiteration", it)
         #     if not(parent_fit_node is None):
         #         ile_node.add_parent(parent_fit_node)
@@ -1458,12 +1466,12 @@ for it in np.arange(it_start,opts.n_iterations):
         dag.add_node(fetch_node)
 
         print(" ILE jobs for fetch on iteration ", it)
-        add_batch_ILE_nodes_to_dag(dag, ileFetch_job, parent_fit_node, con_node, indx_max, n_group, it, n_retries=opts.ile_retries,node_list_dict=ile_node_list_per_iteration)
+        add_batch_ILE_nodes_to_dag(dag, ileFetch_job, parent_fit_node, con_node, indx_max, n_group_here, it, n_retries=opts.ile_retries,node_list_dict=ile_node_list_per_iteration)
         # for event in np.arange(indx_max):
         #     ile_node = pipeline.CondorDAGNode(ileFetch_job)  # only difference is here: uses fetch. ASSUME it is the same size (!!) -- should make this controllable
         #     ile_node.set_retry(opts.ile_retries)
-        #     ile_node.add_macro("macroevent", event*n_group)
-        #     ile_node.add_macro("macrongroup", n_group)
+        #     ile_node.add_macro("macroevent", event*n_group_here)
+        #     ile_node.add_macro("macrongroup", n_group_here)
         #     ile_node.add_macro("macroiteration", it)
         #     if not(parent_fit_node is None):
         #         ile_node.add_parent(parent_fit_node)
