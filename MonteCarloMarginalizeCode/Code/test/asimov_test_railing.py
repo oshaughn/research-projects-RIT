@@ -75,5 +75,5 @@ class TestRIFTAnalysesForRailing(AsimovTest):
                                                              Nbin=50,
                                                              tolerance=2.0,
                                                              label="chirp_mass")
-                        self.assertFalse(railing_up, msg=f"Railing detected in mass ratio at the upper bound; recommend this is adjusted to {_[1]}")
-                        self.assertFalse(railing_down, msg=f"Railing detected in mass ratio at the lower bound; recommend this is adjusted to {_[0]}")
+                        self.assertFalse(railing_up, msg=f"Railing detected in chirp mass at the upper bound; recommend this is adjusted to {_[1]}")
+                        self.assertFalse(railing_down, msg=f"Railing detected in chirp mass at the lower bound; recommend this is adjusted to {_[0]}")
