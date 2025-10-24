@@ -46,7 +46,9 @@ class TestRIFTAnalysesForRailing(AsimovTest):
                         target_file = rundir + "/extrinsic_posterior_samples.dat"
                         if not(os.path.exists(target_file)):
                             continue
-                        dat = np.loadtxt(target_file)
+                        dat = np.genfromtxt(target_file, names=True)
+                        if len(dat)==0:
+                            self.assertFalse(len(dat)==0, msg="** Run failed to generate output ** ")
                         railing_down, railing_up, rec, _ = configurator.railing_check(dat["distance"],
                                                              Nbin=50,
                                                              tolerance=2.0,
@@ -66,8 +68,9 @@ class TestRIFTAnalysesForRailing(AsimovTest):
                         target_file = rundir + "/extrinsic_posterior_samples.dat"
                         if not(os.path.exists(target_file)):
                             continue
-                        dat = np.loadtxt(target_file)                        
-                        posterior, prior = open_pesummary_samples(metafile)
+                        dat = np.genfromtxt(target_file, names=True)
+                        if len(dat)==0:
+                            self.assertFalse(len(dat)==0, msg="** Run failed to generate output ** ")
                         railing_down, railing_up, rec, _ = configurator.railing_check(dat["mc"],
                                                              Nbin=50,
                                                              tolerance=2.0,
