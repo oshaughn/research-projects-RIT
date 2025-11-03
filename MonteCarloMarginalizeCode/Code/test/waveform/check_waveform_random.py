@@ -73,7 +73,7 @@ if not(opts.fiducial) and not(opts.inj):
       P.meanPerAno = np.random.uniform(0.0,2*np.pi)
 
 elif opts.inj:
-   if not(opts.event):
+   if (opts.event is None):
       print("ERROR: must specify event to use.")
       sys.exit(0)
    else:
