@@ -1755,7 +1755,9 @@ class ChooseWaveformParams:
             if lalmetaio_old_style or hasattr(row, 'geocent_end_time_ns'):
                 self.tref += 1e-9*row.geocent_end_time_ns
         if hasattr(row, 'taper'):
-            self.taper = lalsim.GetTaperFromString(str(row.taper))
+            self.taper = row.taper
+        else:
+            self.taper = lalsimutils.lsu_TAPER_NONE
         # FAKED COLUMNS (nonstandard)
         self.lambda1 = row.alpha5
         self.lambda2 = row.alpha6
@@ -1781,7 +1783,7 @@ class ChooseWaveformParams:
         if rosDebugMessagesContainer[0]:
             print( " --- Creating XML row for the following ---- ")
             self.print_params()
-        sim_valid_cols = [ "simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time",  "coa_phase", "distance", "mass1", "mass2", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z"] # ,  "alpha1", "alpha2", "alpha3"
+        sim_valid_cols = [ "simulation_id", "inclination", "longitude", "latitude", "polarization", "geocent_end_time",  "coa_phase", "distance", "mass1", "mass2", "spin1x", "spin1y", "spin1z", "spin2x", "spin2y", "spin2z","taper"] # ,  "alpha1", "alpha2", "alpha3"
         if True: #lalmetaio_old_style:
             sim_valid_cols += [ "geocent_end_time_ns"]
         si_table = lsctables.New(lsctables.SimInspiralTable, sim_valid_cols)
@@ -1919,7 +1921,6 @@ def xml_to_ChooseWaveformParams_array(fname, minrow=None, maxrow=None,
     values will use the standard default values of ChooseWaveformParams.
     """
     
-  
     xmldoc = utils.load_filename( fname ,contenthandler = cthdler )
     try:
         # Read SimInspiralTable from the xml file, set row bounds
@@ -1935,13 +1936,27 @@ def xml_to_ChooseWaveformParams_array(fname, minrow=None, maxrow=None,
         rng = range(minrow,maxrow)
         # Create a ChooseWaveformParams for each requested row
         Ps = [ChooseWaveformParams(deltaT=deltaT, fref=fref, lambda1=lambda1,
-            lambda2=lambda2, waveFlags=waveFlags, nonGRparams=nonGRparams,                                   
-            detector=detector, deltaF=deltaF, fmax=fmax) for i in rng]
-        # Copy the information from requested rows to the ChooseWaveformParams
-        [Ps[i-minrow].copy_lsctables_sim_inspiral(sim_insp[i]) for i in rng]
-        # set the approximants correctly -- this is NOT straightforward because of conversions
+            lambda2=lambda2, waveFlags=waveFlags, nonGRparams=nonGRparams,                                       detector=detector, deltaF=deltaF, fmax=fmax) for i in rng]
+        # Copy data from XML rows to ChooseWaveformParams
+        for i in rng:
+            row = sim_insp[i]
+            P = Ps[i - minrow]
+
+            # Copy the standard SimInspiral attributes
+            P.copy_lsctables_sim_inspiral(row)
+
+            # DEBUG: print taper from XML row
+            taper_val = getattr(row, "taper", None)
+
+            # Set taper if present, else default
+            if taper_val is not None:
+                P.taper = taper_val
+            else:
+                P.taper = lsu_TAPER_NONE
+
     except ValueError:
-        print( "No SimInspiral table found in xml file",file=sys.stderr)
+        print("No SimInspiral table found in xml file", file=sys.stderr)
+
     return Ps
 
 #
@@ -1954,15 +1969,28 @@ def ChooseWaveformParams_array_to_xml(P_list, fname="injections", minrow=None, m
     Standard XML storage for parameters.
     Note that lambda values are NOT stored in xml table entries --- I have a special hack to do this
     """
+
     xmldoc = ligolw.Document()
     xmldoc.appendChild(ligolw.LIGO_LW())
     sim_table = lsctables.New(lsctables.SimInspiralTable)
     xmldoc.childNodes[0].appendChild(sim_table)
+
+    # Make sure taper column exists
+    if 'taper' not in sim_table.validcolumns:
+         sim_table.validcolumns.append('taper')
+        
     indx =0
     for P in P_list:
         row= P.create_sim_inspiral()
         row.process_id = indx # ilwd.ilwdchar("process:process_id:{0}".format(indx))
         row.simulation_id = indx # ilwd.ilwdchar("sim_inspiral:simulation_id:{0}".format(indx))
+        taper_map = {
+            lsu_TAPER_NONE: "TAPER_NONE",
+            lsu_TAPER_START: "TAPER_START",
+            lsu_TAPER_END: "TAPER_END",
+            lsu_TAPER_STARTEND: "TAPER_STARTEND"
+        }
+        row.taper = taper_map.get(getattr(P, "taper", lsu_TAPER_NONE), "TAPER_NONE")
         indx+=1
         sim_table.append(row)
     if rosDebugMessagesContainer[0]:
@@ -1974,7 +2002,6 @@ def ChooseWaveformParams_array_to_xml(P_list, fname="injections", minrow=None, m
     if not(".xml.gz" in fname):
         fname_out = fname+".xml.gz"
     utils.write_filename(xmldoc, fname_out, compress="gz")
-
     return True
 
 hdf_params = ['m1', 'm2', \
