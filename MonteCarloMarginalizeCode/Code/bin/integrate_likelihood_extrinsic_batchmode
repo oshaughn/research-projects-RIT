@@ -187,6 +187,7 @@ optp.add_option("--soft-fail-event-range",action='store_true',help='Soft failure
 optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Waveform reference frequency. Required, default is 100 Hz.")
 optp.add_option("--fmin-template", dest='fmin_template', type=float, default=40, help="Waveform starting frequency.  Default is 40 Hz. Also equal to starting frequency for integration") 
 optp.add_option("--fmin-template-correct-for-lmax",action='store_true',help="Modify amount of data selected, waveform starting frequency to account for l-max, to better insure all requested modes start within the targeted band")
+optp.add_option("--internal-waveform-taper",default=None, help="lalsimulation taper option string name ")
 optp.add_option("--fmin-ifo", action='append' , help="Minimum frequency for each IFO. Implemented by setting the PSD=0 below this cutoff. Use with care.") 
 #optp.add_option("--nr-params",default=None, help="List of specific NR parameters and groups (and masses?) to use for the grid.")
 #optp.add_option("--nr-index",type=int,default=-1,help="Index of specific NR simulation to use [integer]. Mass used: mtot= m1+m2")
@@ -358,6 +359,11 @@ if opts.check_good_enough:
       print(" Good enough file ZERO LENGTH, continuing")
 
 
+# Parse tapering request, if present.
+taper_default =lalsimutils.lsu_TAPER_NONE
+if opts.internal_waveform_taper and 'TAPER' in opts.internal_waveform_taper:
+  if hasattr(lalsimutils.lalsim, opts.internal_waveform_taper):
+    taper_default = getattr(lalsimutils.lalsim, opts.internal_waveform_taper)
 
 #
 # Failure modes
@@ -604,7 +610,8 @@ else:
     ampO = opts.amp_order,
     fref = opts.reference_freq,
     tref = fiducial_epoch,
-    dist = factored_likelihood.distMpcRef * 1.e6 * lal.PC_SI
+    dist = factored_likelihood.distMpcRef * 1.e6 * lal.PC_SI,
+    taper= taper_default
     )
  P_list= [P]
 

@@ -741,7 +741,9 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
   supplemental_ln_likelihood = getattr(external_likelihood_module,opts.supplementary_likelihood_factor_function)
   name_prep = "prepare_"+opts.supplementary_likelihood_factor_function
   if opts.using_eos_for_prior:
-          dat = np.genfromtxt(opts.using_eos,names=True)[opts.using_eos_index]   # Parse file for them, to reduce need for burden parsing, and avoid burden/confusion.
+          # Load in filename
+          fname = opts.using_eos.replace('file:', '')
+          dat = np.genfromtxt(fname,names=True)[opts.using_eos_index]   # Parse file for them, to reduce need for burden parsing, and avoid burden/confusion.
           param_names = dat.dtype.names
           dat_as_array = dat.view((float, len(param_names)))
           args_init = {'input_line' : dat_as_array, 'param_names':param_names, 'cip_param_names':coord_names}  # pass the recordarray broken into parts, for convenience
@@ -1034,6 +1036,7 @@ if not (opts.eta_range is None):
         q_range = prior_range_map['q'] = (1-delta_range)/(1+delta_range)
         norm_factor_q = 1./(1+q_range[0]) - 1./(1+q_range[1])
         prior_map['q']  = functools.partial(q_prior, norm_factor=norm_factor_q)
+        prior_range_map['q'] = q_range
 
 ###
 ### Modify priors, as needed
@@ -2371,6 +2374,7 @@ if opts.sampler_method == 'portfolio' and not(opts.sampler_oracle is None):
 
 # Sampler
 sampler = mcsampler.MCSampler()
+use_portfolio=False
 if opts.sampler_method == "adaptive_cartesian_gpu":
     sampler = mcsamplerGPU.MCSampler()
     sampler.xpy = xpy_default
@@ -2381,8 +2385,7 @@ if opts.sampler_method == "adaptive_cartesian_gpu":
     #   mcsampler.set_xpy_to_numpy()
     #   sampler.xpy= numpy
     #   sampler.identity_convert= lambda x: x
-use_portfolio=False
-if opts.sampler_method == "GMM":
+elif opts.sampler_method == "GMM":
     sampler = mcsamplerEnsemble.MCSampler()
 elif opts.sampler_method == "AV":
     sampler = mcsamplerAdaptiveVolume.MCSampler()
@@ -2831,7 +2834,12 @@ if sampler_oracle:  # NON-PORTFOLIO SCENARIO TARGET
     
 
 res, var, neff, dict_return = sampler.integrate(fn_passed, *low_level_coord_names,  verbose=True,nmax=int(opts.n_max),n=n_step,neff=opts.n_eff, save_intg=True,tempering_adapt=tempering_adapt, floor_level=1e-3,igrand_threshold_p=1e-3,convergence_tests=test_converged,tempering_exp=my_exp,no_protect_names=True, **extra_args)  # weight ecponent needs better choice. We are using arbitrary-name functions
-
+# result value:  be careful, if return lnL, then must not take log twice!
+ln_integrand_value =  None
+if opts.internal_use_lnL:  # eg, AV integrator, etc
+    ln_integrand_value = res
+else:
+    ln_integrand_value = np.log(res)
 
 # Test n_eff threshold
 if not (opts.fail_unless_n_eff is None):
@@ -2879,7 +2887,7 @@ if neff < opts.n_eff:
 
 # Save result -- needed for odds ratios, etc.
 #   Warning: integral_result.dat uses *original* prior, before any reweighting
-np.savetxt(opts.fname_output_integral+".dat", [np.log(res)+lnL_shift])
+np.savetxt(opts.fname_output_integral+".dat", [ln_integrand_value+lnL_shift])
 
 
 
@@ -2905,12 +2913,12 @@ elif opts.using_eos and opts.using_eos.startswith('file:'):
     annotation_header = linefirst # this will/must be lnL sigma_lnL and then parameter names, which we want to preserve
 with open(opts.fname_output_integral+"+annotation.dat", 'w') as file_out:
   if not(opts.using_eos) or not(opts.using_eos.startswith('file:')):
-    str_out =list( map(str,[np.log(res), np.sqrt(var)/res, neff]))
+    str_out =list( map(str,[ln_integrand_value, np.sqrt(var)/res, neff]))
     file_out.write("# " + annotation_header + "\n")
     file_out.write(' '.join( str_out + eos_extra + ["\n"]))
   else:
     file_out.write("# " + annotation_header + "\n")
-    file_out.write(" {} {} ".format(np.log(res), np.sqrt(var)/res) + ' '.join(map(str,params_here)))
+    file_out.write(" {} {} ".format(ln_integrand_value, np.sqrt(var)/res) + ' '.join(map(str,params_here)))
 #np.savetxt(opts.fname_output_integral+"+annotation.dat", np.array([[np.log(res), np.sqrt(var)/res, neff]]), header=eos_extra)
 # since not EOS, can just use np.savetxt
 # with open(opts.fname_output_integral+"+annotation_ESS.dat", 'w') as file_out:
@@ -2963,7 +2971,7 @@ if True:
     weights_scaled = weights_scaled/np.max(weights_scaled)  # try to reduce dynamic range
     n_ESS = np.sum(weights_scaled)**2/np.sum(weights_scaled**2)
     print(" n_eff n_ESS ", neff, n_ESS)
-np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[np.log(res), np.sqrt(var)/res, neff, n_ESS]],header=" lnL sigmaL neff n_ESS ")
+np.savetxt(opts.fname_output_integral+"+annotation_ESS.dat",[[ln_integrand_value, np.sqrt(var)/res, neff, n_ESS]],header=" lnL sigmaL neff n_ESS ")
 
 
 # Throw away stupid points that don't impact the posterior
