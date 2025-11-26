@@ -362,7 +362,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         extra_waveform_kwargs={},
         use_gwsignal=False,
         use_gwsignal_approx=None,
-       use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False):
+        use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False, calibration_realizations=None):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -459,8 +459,8 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         # Compute rholm(t) = < h_lm(t) | d >
         rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
                 psd_dict[det], P.fmin, fMax, 1./2./P.deltaT, N_shift, N_window,
-                analyticPSD_Q, inv_spec_trunc_Q, T_spec)
-        rhoXX = rholms[det][list(rholms[det].keys())[0]]
+                analyticPSD_Q, inv_spec_trunc_Q, T_spec, calibration_realizations=calibration_realizations)
+#        rhoXX = rholms[det][list(rholms[det].keys())[0]]
         # The vector of time steps within our window of interest
         # for which we have discrete values of the rholms
         # N.B. I don't do simply rho_epoch + t_shift, b/c t_shift is the
@@ -896,7 +896,7 @@ def SingleDetectorLogLikelihood(rholm_vals, crossTerms,crossTermsV, Ylms, F, dis
 
 def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
         N_shift, N_window, analyticPSD_Q=False,
-        inv_spec_trunc_Q=False, T_spec=0.):
+        inv_spec_trunc_Q=False, T_spec=0., calibration_realizations=None):
     r"""
     Compute the complex-valued overlap between
     each member of a SphHarmFrequencySeries 'hlms'
@@ -921,12 +921,29 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
             analyticPSD_Q, inv_spec_trunc_Q, T_spec, full_output=True)
 
     # Loop over modes and compute the overlap time series
-    for pair in hlms.keys():
+    if calibration_realizations is None:
+      for pair in hlms.keys():
         rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
         rhoTS.epoch = data.epoch - hlms[pair].epoch
 #        rholms[pair] = lal.CutCOMPLEX16TimeSeries(rhoTS, N_shift, N_window)  # Warning: code currently fails w/o this cut.
         tmp= lsu.DataRollBins(rhoTS, N_shift)  # restore functionality for bidirectional shifts: waveform need not start at t=0
         rholms[pair] =lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
+    else:
+      data_now =  lal.CreateCOMPLEX16FrequencySeries("data", 
+                             data.epoch, data.f0, data.deltaF , lsu_HertzUnit, data.length)
+      rholms_so_far = lal.CreateCOMPLEX16TimeSeries("rho", data.epoch, data.f0, lal.DimensionlessUnit, 1./data.deltaF/data.data.length, N_window*len(calib_realizations))
+
+      # Create multiple data realizations from the realizations, and construct a longer IP item.
+      for index, calib_array in enumerate(calibration_realizations):
+          data_now.data.data = calib_array * data.data.data
+          rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
+          rhoTS.epoch = data.epoch - hlms[pair].epoch
+          tmp= lsu.DataRollBins(rhoTS, N_shift)  # restore functionality for bidirectional shifts: waveform need not start at t=0
+          rholms_here = lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
+          indx_start = index*N_window
+          rholms_so_far.data.dat[indx_start:indx_start+N_window] = rholms_here.data.data
+      rholms[pair] = rholms_so_far
+      
 
     return rholms
 
