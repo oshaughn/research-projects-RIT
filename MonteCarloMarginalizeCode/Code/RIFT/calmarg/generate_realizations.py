@@ -8,6 +8,8 @@
 #
 # PROBLEM
 #    - calibration factors are one-sided by default?  Need to be careful about 2-sided things
+# EXAMPLE:
+#      python  ./generate_realizations.py --fname H1.txt
 
 #import bilby.gw.detector.calibration
 
