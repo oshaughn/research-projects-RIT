@@ -230,6 +230,9 @@ optp.add_option("-m", "--time-marginalization", action="store_true", help="Perfo
 optp.add_option("--resample-time-marginalization",action='store_true', help="If time-marginalizaiton is true (and should almost always be true), at the end export step use resampling. REQUIRES using fairdraw-extrinsic-output")
 optp.add_option("-d", "--distance-marginalization", action="store_true", help="Perform marginalization over distance via a look-up table. Default is false.")
 optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, help="Look-up table for distance marginalization.")
+optp.add_option("--calibration-envelope-directory",default=None, help="Name of directory")
+optp.add_option("--calibration-n-realizations", default=100, type=int, help="Number of realizations to use for calmarg, recommend 100")
+optp.add_option("--calibration-spline-count", default=10,type=int)
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
 optp.add_option("--force-gpu-only", action="store_true", help="Hard fail if no GPU present (assessed by cupy not loading)")
@@ -731,6 +734,23 @@ for Psig in P_list:
   Psig.deltaf = P.deltaF
 
 
+#
+# Load in calibration realizations, if desired
+#
+calibration_marginalization=False
+calibration_realization_dict = {}
+if opts.calibration_envelope_directory:
+  import RIFT.calmarg.generate_realizations
+  calibration_marginalization=True
+  for ifo in psd_dict:
+     fname = opts.calibration_envelope_directory + "/" + ifo + ".txt"
+     fmin_here = opts.fmin_template
+     if opts.fmin_ifo:
+       fmin_here = flow_ifo_dict[ifo]
+       
+     calibration_realization_dict[ifo] = RIFT.calmarg.generate_realizations.create_realizations(fname, 1./P.deltaF, P.deltaT, fmin_here, fmax, opts.calibration_spline_count, opts.calibration_n_realizations)
+
+  
 
 #
 # Set up parameters and bounds
@@ -1406,6 +1426,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     if opts.internal_precompute_ignore_threshold:
       ignore_threshold=opts.internal_precompute_ignore_threshold
       print("IGNORE ACTIVE ", ignore_threshold)
+    extra_kwargs ={}
+    if calibration_marginalization:
+      extra_kwargs['calibration_realizations'] = calibration_realization_dict
     rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest=factored_likelihood.PrecomputeLikelihoodTerms(
             fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
             False, inv_spec_trunc_Q, T_spec,
@@ -1413,7 +1436,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             NR_group=NR_template_group,NR_param=NR_template_param,
             use_gwsignal=opts.use_gwsignal,
             use_gwsignal_approx=opts.approximant,
-            use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized, extra_waveform_kwargs=extra_waveform_kwargs)
+            use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized, extra_waveform_kwargs=extra_waveform_kwargs,**extra_kwargs)
 
     # skip nan ! Something horrible has happened
     if np.isnan(guess_snr):
