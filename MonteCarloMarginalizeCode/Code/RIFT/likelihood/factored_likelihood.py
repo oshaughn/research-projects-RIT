@@ -930,19 +930,21 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
         rholms[pair] =lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
     else:
       data_now =  lal.CreateCOMPLEX16FrequencySeries("data", 
-                             data.epoch, data.f0, data.deltaF , lsu_HertzUnit, data.length)
-      rholms_so_far = lal.CreateCOMPLEX16TimeSeries("rho", data.epoch, data.f0, lal.DimensionlessUnit, 1./data.deltaF/data.data.length, N_window*len(calib_realizations))
+                             data.epoch, data.f0, data.deltaF , lsu.lsu_HertzUnit, data.data.length)
+      for pair in hlms.keys():
+         rholms_so_far = lal.CreateCOMPLEX16TimeSeries("rho", data.epoch, data.f0, deltaT, lal.DimensionlessUnit,  N_window*len(calibration_realizations))
 
-      # Create multiple data realizations from the realizations, and construct a longer IP item.
-      for index, calib_array in enumerate(calibration_realizations):
-          data_now.data.data = calib_array * data.data.data
-          rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
-          rhoTS.epoch = data.epoch - hlms[pair].epoch
-          tmp= lsu.DataRollBins(rhoTS, N_shift)  # restore functionality for bidirectional shifts: waveform need not start at t=0
-          rholms_here = lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
-          indx_start = index*N_window
-          rholms_so_far.data.dat[indx_start:indx_start+N_window] = rholms_here.data.data
-      rholms[pair] = rholms_so_far
+         # Create multiple data realizations from the realizations, and construct a longer IP item.
+         # Note this is somewhat redundant in that we are creating the same data array many times, one for each hlm!
+         for index, calib_array in enumerate(calibration_realizations.T):
+           data_now.data.data = calib_array * data.data.data
+           rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
+           rhoTS.epoch = data.epoch - hlms[pair].epoch
+           tmp= lsu.DataRollBins(rhoTS, N_shift)  # restore functionality for bidirectional shifts: waveform need not start at t=0
+           rholms_here = lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
+           indx_start = index*N_window
+           rholms_so_far.data.data[indx_start:indx_start+N_window] = rholms_here.data.data
+           rholms[pair] = rholms_so_far
       
 
     return rholms
