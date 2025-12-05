@@ -914,7 +914,7 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
     rholms = {}
     assert data.deltaF == hlms[list(hlms.keys())[0]].deltaF
     assert data.data.length == hlms[list(hlms.keys())[0]].data.length
-    deltaT = data.data.length/(2*fNyq)
+    deltaT = 1./(2*fNyq)
 
     # Create an instance of class to compute inner product time series
     IP = lsu.ComplexOverlap(fmin, fMax, fNyq, data.deltaF, psd,
@@ -932,20 +932,20 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
       data_now =  lal.CreateCOMPLEX16FrequencySeries("data", 
                              data.epoch, data.f0, data.deltaF , lsu.lsu_HertzUnit, data.data.length)
       for pair in hlms.keys():
-         rholms_so_far = lal.CreateCOMPLEX16TimeSeries("rho", data.epoch, data.f0, deltaT, lal.DimensionlessUnit,  N_window*len(calibration_realizations))
+         rholms_so_far = lal.CreateCOMPLEX16TimeSeries("rho", data.epoch, data.f0, deltaT, lal.DimensionlessUnit,  N_window*len(calibration_realizations.T))
 
          # Create multiple data realizations from the realizations, and construct a longer IP item.
-         # Note this is somewhat redundant in that we are creating the same data array many times, one for each hlm!
          for index, calib_array in enumerate(calibration_realizations.T):
-           data_now.data.data = calib_array * data.data.data
-           rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
-           rhoTS.epoch = data.epoch - hlms[pair].epoch
-           tmp= lsu.DataRollBins(rhoTS, N_shift)  # restore functionality for bidirectional shifts: waveform need not start at t=0
-           rholms_here = lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
-           indx_start = index*N_window
-           rholms_so_far.data.data[indx_start:indx_start+N_window] = rholms_here.data.data
-           rholms[pair] = rholms_so_far
-      
+          #print(calib_array.shape, data.data.length, calibration_realizations.shape)
+          data_now.data.data = calib_array * data.data.data
+          rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
+          rhoTS.epoch = data.epoch - hlms[pair].epoch
+          tmp= lsu.DataRollBins(rhoTS, N_shift)  # restore functionality for bidirectional shifts: waveform need not start at t=0
+          rholms_here = lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
+          indx_start = index*N_window
+          rholms_so_far.data.data[indx_start:indx_start+N_window] = rholms_here.data.data
+         rholms[pair] = rholms_so_far
+         print(pair, rholms[pair].data.length, rholms[pair].data.length*deltaT, N_window, N_window*deltaT, 1./deltaT) 
 
     return rholms
 
