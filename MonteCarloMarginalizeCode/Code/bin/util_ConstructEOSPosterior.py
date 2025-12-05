@@ -815,6 +815,25 @@ indx_list = np.random.choice(np.arange(len(weights)), p=p_norm.astype(np.float64
 
 
 dat_out = np.zeros( (opts.n_output_samples,2+len(dat_orig_names)) )
+
+# Initialize fixed parameters
+if len(coord_names) < len(dat_orig_names): # not needed if all params are in fit
+
+    if len(dat) < opts.n_output_samples:
+        print(" NOTE: original data shorter than  requested output; adding",opts.n_output_samples-len(dat),"duplicate fill lines from original data.")
+        newlines = dat[:opts.n_output_samples-len(dat)] #duplicate lines to fill
+        dat = np.concatenate((dat,newlines), axis=0) #should be fine since dat isn't used after this
+        
+    for c in np.arange(len(dat_orig_names)):
+        if dat_orig_names[c] not in coord_names:
+            print("  Not in coord_names:",dat_orig_names[c],"; adding to output as constant.")
+            outidx = name_index_dict[dat_orig_names[c]]   # write in correct place
+            if len(dat) > opts.n_output_samples:
+                dat_out[:,outidx] = dat[:opts.n_output_samples,outidx] #truncate original data to fit (not ideal)
+            else: #len(dat) <= n_output_samples (if dat was <, should now be =)
+                dat_out[:,outidx] = dat[:,outidx]
+                
+# Fill data from PE
 for indx in np.arange(len(coord_names)):
     vals = samples[coord_names[indx]][indx_list]   # load in data for this column
     outindx = name_index_dict[ coord_names[indx]]   # write in correct place
