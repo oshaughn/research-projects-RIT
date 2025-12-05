@@ -444,17 +444,20 @@ n_params = -1
  ### Convert data.   RIGHT NOW JUST DOWNSELECTING, no intermediate fitting parameters defined
  ###
 
+indx_of_orig_names =  np.array([ dat_orig_names.index(coord_names[k]) for k in range(len(coord_names))])
+
 dat_out = []
 for line in dat:
   dat_here= np.zeros(len(coord_names)+2)
   if line[col_lnL+1] > opts.sigma_cut:
       print("skipping", line)
       continue
-  dat_here[:-2] = line[2:len(coord_names)+2]  # modify to use names!
+  dat_here[:-2] = line[indx_of_orig_names+2]#line[2:len(coord_names)+2]  # modify to use names!
   dat_here[-2] = line[0]
   dat_here[-1] = line[1]
   dat_out.append(dat_here)
 dat_out= np.array(dat_out)
+
 # Repack data
 X =dat_out[:,0:len(coord_names)]
 Y = dat_out[:,-2]
