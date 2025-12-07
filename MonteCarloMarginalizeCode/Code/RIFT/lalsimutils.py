@@ -3402,6 +3402,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     if ('IMRPhenomP' in  lalsim.GetStringFromApproximant(P.approx) or P.approx == lalIMRPhenomXP or (check_FD_pending(P.approx)) ): # and not (P.SoftAlignedQ()):
         print("Passing model through hlmoft_IMRPv2_dict")
         hlms = hlmoft_IMRPv2_dict(P)
+        TDlen_orig = hlms[(2,2)].data.length
         if not (P.deltaF is None):
             TDlen = int(1./P.deltaF * 1./P.deltaT)
             for mode in hlms:
@@ -3410,7 +3411,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 if TDlen < hlms[mode].data.length:  # we have generated too long a signal!...truncate from LEFT. Danger!
                     hlms[mode] = lal.ResizeCOMPLEX16TimeSeries(hlms[mode],hlms[mode].data.length-TDlen,TDlen)
         if True: #P.taper:
-            ntaper = int(0.01*hlms[(2,2)].data.length)  # fixed 1% of waveform length, at start, be consistent with other methods
+            ntaper = int(0.01*np.min([hlms[(2,2)].data.length,TDlen_orig]))  # fixed 1% of waveform length, at start, be consistent with other methods
             ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             for key in hlms.keys():
@@ -3640,17 +3641,19 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     # FIXME: Add ability to taper
     # COMMENT: Add ability to generate hlmoft at a nonzero GPS time directly.
     #      USUALLY we will use the hlms in template-generation mode, so will want the event at zero GPS time
-
+    TDlen_orig = None
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
         hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
+        TDlen_orig = hxx.data.length
         # Consider modifing TD behavior to be consistent with FD behavior used to match LI
         if TDlen >= hxx.data.length:
             hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
 
     hlm_dict = SphHarmTimeSeries_to_dict(hlms,Lmax)
-
-
+    if (TDlen_orig is None):
+        TDlen_orig = hlm_dict[(2,2)].data.length
+    
     # positive m only check: should never happen
     # ...but if it does (for NRSur lalsuite interface), perform reflection.
     approx_string = P.approx
@@ -3690,7 +3693,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         # at this point we know the waveform length!
         TDlen_here = hlm_dict[mode].data.length
         # Base taper, based on 1% of waveform length
-        ntaper = int(0.01*TDlen_here)  # fixed 1% of waveform length, at start
+        ntaper = int(0.01*np.min([TDlen_here,TDlen_orig]) )  # fixed 1% of waveform length, at start
         ntaper = np.max([ntaper, int(1./(fmin_effective*P.deltaT)) ])  # require at least one waveform cycle of tapering; should never happen
         vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
         # Taper at the start of the segment
