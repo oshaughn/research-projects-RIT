@@ -1,7 +1,5 @@
 #! /usr/bin/env python
 
-# KJ Wagner 2023
-
 import numpy as np
 import argparse
 #import os
@@ -60,7 +58,7 @@ if 'TaylorF2Ecc' in approx_str:
 lmax = 4
 
 ## Read in and store values from Zee
-read_vals = pd.read_csv(param_file, header=0, index_col=False, delim_whitespace=True)
+read_vals = pd.read_csv(param_file, header=0, index_col=False, sep='\s+')
 n_events = len(read_vals)
 
 ## Create list of all waveforms to send to xml, like ish pp_RIFT
@@ -86,14 +84,22 @@ while len(P_list) < n_events:
       P.phi = read_vals['dec'][indx]
 
   # spins, none and aligned for now
+  # spins, none and aligned for now
   if no_spin:
-      P.s1x=P.s1y=P.s1z=0.0
-      P.s2x=P.s2y=P.s2z=0.0
+      P.s1x = P.s1y = P.s1z = 0.0
+      P.s2x = P.s2y = P.s2z = 0.0
   elif aligned_spin:
-      P.s1x = P.s1y=0
-      P.s2x = P.s2y=0
-      P.s1z = read_vals['spin1_z'][indx]
-      P.s2z = read_vals['spin2_z'][indx]
+      P.s1x = P.s1y = 0.0
+      P.s2x = P.s2y = 0.0
+      P.s1z = read_vals['spin_1z'][indx]
+      P.s2z = read_vals['spin_2z'][indx]
+  elif precessing_spin:
+      P.s1x = read_vals['spin_1x'][indx]
+      P.s1y = read_vals['spin_1y'][indx]
+      P.s1z = read_vals['spin_1z'][indx]
+      P.s2x = read_vals['spin_2x'][indx]
+      P.s2y = read_vals['spin_2y'][indx]
+      P.s2z = read_vals['spin_2z'][indx]
   P.approx = lalsim.GetApproximantFromString(approx_str)
   
   # Read in values from Zee
