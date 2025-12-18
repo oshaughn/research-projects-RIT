@@ -313,7 +313,7 @@ if __name__ == "__main__":
     parser.add_argument("fname_out",default=None,help="output file")
     opts=  parser.parse_args()
 
-    dump_pesummary_samples_to_file(opts.fname_in, opts.key, opts.fname_out)
+    dump_pesummary_samples_to_file_as_rift(opts.fname_in, opts.key, opts.fname_out)
     
 
 
