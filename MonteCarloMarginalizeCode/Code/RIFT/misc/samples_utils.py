@@ -27,6 +27,8 @@ remap_ILE_2_LI = {
   "thetaJN":"theta_jn"}
 remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot', "distance":"dist", 'ra':'phi', 'dec':'theta',"phiorb":"phiref"}
 
+remap_bilby_to_rift={'chirp_mass':'mc', 'mass_ratio':'q', 'mass_1':'m1', 'mass_2':'m2','geocent_time':'time','luminosity_distance':'distance','phase':'phiorb','chi_1_in_plane':'chi1_perp','spin_1x': 'a1x', 'spin_1y':'a1y', 'spin_2x': 'a2x','spin_2y':'a2y', 'spin_1z':'a1z', 'spin_2z':'a2z', 'chi_2_in_plane':'chi2_perp','iota':'incl','lambda_1':'lambda1', 'lambda_2':'lambda2','lambdat':'LambdaTilde'}
+
 import numpy.lib.recfunctions as rfn
 
 def extract_combination_from_LI(samples_LI, p):
@@ -181,8 +183,9 @@ def standard_expand_samples(samples):
         m1_here = mtot_here/(1+q_here)
         samples = add_field(samples, [('mtotal', float)]); samples['mtotal'] = mtot_here
         samples = add_field(samples, [('eta', float)]); samples['eta'] = eta_here
-        samples = add_field(samples, [('m1', float)]); samples['m1'] = m1_here
-        samples = add_field(samples, [('m2', float)]); samples['m2'] = mtot_here * q_here/(1+q_here)
+        if not 'm1' in samples.dtype.names:
+                       samples = add_field(samples, [('m1', float)]); samples['m1'] = m1_here
+                       samples = add_field(samples, [('m2', float)]); samples['m2'] = mtot_here * q_here/(1+q_here)
         
     if "theta1" in samples.dtype.names and not('chi1_perp' in samples.dtype.names):
         a1x_dat = samples["a1"]*np.sin(samples["theta1"])*np.cos(samples["phi1"])
@@ -293,7 +296,7 @@ def dump_pesummary_samples_to_file_as_rift(fname_h5,key,fname_out):
             continue
         samp[name] = samples[name]
     # Rename
-    samp = rfn.rename_fields(samp, {'chirp_mass':'mc', 'mass_1':'m1', 'mass_2':'m2','geocent_time':'time','luminosity_distance':'distance','phase':'phiorb','chi_1_in_plane':'chi1_perp','spin_1x': 'a1x', 'spin_1y':'a1y', 'spin_2x': 'a2x','spin_2y':'a2y', 'spin_1z':'a1z', 'spin_2z':'a2z', 'chi_2_in_plane':'chi2_perp','iota':'incl','lambda_1':'lambda1', 'lambda_2':'lambda2','lambdat':'LambdaTilde'})
+    samp = rfn.rename_fields(samp,remap_bilby_to_rift )
     # Drop
     ugly_fields = [x for x in samp.dtype.names if 'recalib' in x or 'snr' in x]
     samp = rfn.drop_fields(samp,ugly_fields)
