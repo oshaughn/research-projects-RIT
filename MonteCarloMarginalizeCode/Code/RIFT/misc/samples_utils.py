@@ -299,3 +299,22 @@ def dump_pesummary_samples_to_file_as_rift(fname_h5,key,fname_out):
     samp = rfn.drop_fields(samp,ugly_fields)
 
     np.savetxt(fname_out,samp,header=" ".join(samp.dtype.names) )
+
+
+
+if __name__ == "__main__":
+    import os
+    import sys
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--key", default="rift-v5PHM-calmarg",help="Key for bilby file")
+    parser.add_argument("fname_in",default=None,help="File name of result file")
+    parser.add_argument("fname_out",default=None,help="output file")
+    opts=  parser.parse_args()
+
+    dump_pesummary_samples_to_file(opts.fname_in, opts.key, opts.fname_out)
+    
+
+
+    
