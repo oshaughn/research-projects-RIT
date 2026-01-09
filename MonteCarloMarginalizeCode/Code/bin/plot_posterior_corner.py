@@ -220,6 +220,7 @@ parser.add_argument("--composite-file-has-labels",action='store_true',help="Assu
 parser.add_argument("--use-all-composite-but-grayscale",action='store_true',help="Composite")
 parser.add_argument("--flag-tides-in-composite",action='store_true',help='Required, if you want to parse files with tidal parameters')
 parser.add_argument("--flag-eos-index-in-composite",action='store_true',help='Required, if you want to parse files with EOS index in composite (and tides)')
+parser.add_argument("--source-redshift", default=None, type=float,help="Source redshift. Solely for use in converting composite files, assumed to be in detector frame, for comparison with files that use m1,m2 and are interpreted as source frame.")
 parser.add_argument("--posterior-label",action='append',help="label for posterior file")
 parser.add_argument("--external-exact-marginals",type=str,help="Provide this routne for EXACT marginals")
 parser.add_argument("--posterior-color",action='append',help="color and linestyle for posterior. PREPENDED onto default list, so defaults exist")
@@ -510,9 +511,14 @@ if opts.composite_file:
     print(" Loading ... ", fname)
     if not(opts.composite_file_has_labels):
         samples = np.loadtxt(fname,dtype=composite_dtype)  # Names are not always available
+        if opts.source_redshift:
+            samples['m1'] *= 1./(1+opts.source_redshift)
+            samples['m2'] *= 1./(1+opts.source_redshift)
     else:
         samples = np.genfromtxt(fname,names=True)
         samples = rfn.rename_fields(samples, {'sigmalnL': 'sigmaOverL', 'sigma_lnL': 'sigmaOverL'})   # standardize names, some drift in labels
+        if opts.source_redshift:
+            print(" WARNING SOURCE REDSHIFT SCALING NOT IMPLEMENTED FOR THIS PATH")
     # enforce periodicity
     for name in samples.dtype.names:
         if name in lalsimutils.periodic_params:
