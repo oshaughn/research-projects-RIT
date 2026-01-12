@@ -2,7 +2,7 @@
 #
 # Uses a fiducial event time, start time, stop time
 #
-#  util_WriteFrameAndCacheFromXML.sh   <inj> <event> <base>  [<approx>
+#  util_WriteFrameAndCacheFromXML.sh   <inj> <event> <base>  [<approx>] 
 #
 #     <approx>    [TaylorT4|MATLAB|EOBNRv2|...]  # approximant used
 #
@@ -58,7 +58,9 @@ then
  exit 1
 fi
 
-
+# Allow for other arguments -- eg, passthrough arguments like  --verbose
+shift 4
+REST=$@
 
 
 INJ_CHANNEL_NAME=FAKE-STRAIN
@@ -72,6 +74,11 @@ then
  exit 1
 fi
 
+# add ability to FORCE the duration.
+if [ ! -z "${DUR_FORCE}" ]; then
+    DUR_EST=${DUR_FORCE}
+    DUR=${DUR_FORCE}
+fi
 
 
 # event_time: only used to grab the data. 
@@ -86,9 +93,6 @@ DUR_REVISED=`python -c "print( int(${STOP}-${START}))"`
 
 echo " Duration estimates :"  ${START} ${STOP}  ${DUR_EST} ${DUR} ${DUR_REVISED}
 
-# Allow for other arguments -- eg, passthrough arguments like  --verbose
-shift 4
-REST=$@
 
 function make_cache(){
   local ifo=$1;
