@@ -2032,7 +2032,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     # Take exponential of the log likelihood in-place.
     lnLmax  = xpy.max(lnL_t)
     if return_lnLt:
-      return lnL_t - lnLmax
+      return lnL_t  #- lnLmax    # we want the verbatim lnL_t values, no shift
     L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
 
     L = simps(L_t, dx=deltaT, axis=-1)
