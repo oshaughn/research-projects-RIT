@@ -740,6 +740,7 @@ for Psig in P_list:
 calibration_marginalization=False
 calibration_realization_dict = {}
 if opts.calibration_envelope_directory:
+#  t_ref_wind = opts.calibration_n_realizations * t_ref_wind  # changes length of buffer, should produce longer window. DOES NOT WORK PROPERLY
   import RIFT.calmarg.generate_realizations
   calibration_marginalization=True
   for ifo in psd_dict:
@@ -2045,10 +2046,12 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       else:
             samples["latitude"] = samples["declination"]
             samples["longitude"] = samples["right_ascension"]
-      if "log_integrand" in samples:
-        samples["loglikelihood"] = samples["log_integrand"] +  manual_avoid_overflow_logarithm
-      else:
-        samples["loglikelihood"] = numpy.log(samples["integrand"]) + manual_avoid_overflow_logarithm  # export with consistent offset
+      # do not overwrite information produced in the fairdraw process for extrinsic output
+      if not "loglikelihood" in samples:    
+        if "log_integrand" in samples:
+          samples["loglikelihood"] = samples["log_integrand"] +  manual_avoid_overflow_logarithm
+        else:
+          samples["loglikelihood"] = numpy.log(samples["integrand"]) + manual_avoid_overflow_logarithm  # export with consistent offset
       if not opts.rom_integrate_intrinsic:
             # ILE mode: insert fixed model parameters
             samples["mass1"] = numpy.ones(samples["psi"].shape)*m1 # opts.mass1
