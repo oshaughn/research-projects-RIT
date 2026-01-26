@@ -457,9 +457,12 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
                 fMax, 1./2./P.deltaT, P.deltaF, analyticPSD_Q,
                 inv_spec_trunc_Q, T_spec,prefix="V",verbose=verbose,same_waveform_Q=internal_fast_precompute)
         # Compute rholm(t) = < h_lm(t) | d >
+        cal_realization = None
+        if not(calibration_realizations is None) and isinstance(calibration_realizations, dict):
+          cal_realization=calibration_realizations[det]
         rholms[det] = ComputeModeIPTimeSeries(hlms, data_dict[det],
                 psd_dict[det], P.fmin, fMax, 1./2./P.deltaT, N_shift, N_window,
-                analyticPSD_Q, inv_spec_trunc_Q, T_spec, calibration_realizations=calibration_realizations[det])
+                analyticPSD_Q, inv_spec_trunc_Q, T_spec, calibration_realizations=cal_realization)
 #        rhoXX = rholms[det][list(rholms[det].keys())[0]]
         # The vector of time steps within our window of interest
         # for which we have discrete values of the rholms
