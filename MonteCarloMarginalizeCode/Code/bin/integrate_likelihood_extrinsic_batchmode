@@ -2046,11 +2046,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       else:
             samples["latitude"] = samples["declination"]
             samples["longitude"] = samples["right_ascension"]
-      # do not overwrite information produced in the fairdraw process for extrinsic output
-      if not "loglikelihood" in samples:    
-        if "log_integrand" in samples:
+      if "log_integrand" in samples:
           samples["loglikelihood"] = samples["log_integrand"] +  manual_avoid_overflow_logarithm
-        else:
+      else:
           samples["loglikelihood"] = numpy.log(samples["integrand"]) + manual_avoid_overflow_logarithm  # export with consistent offset
       if not opts.rom_integrate_intrinsic:
             # ILE mode: insert fixed model parameters
