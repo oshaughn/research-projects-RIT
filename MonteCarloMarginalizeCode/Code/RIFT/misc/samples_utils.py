@@ -27,7 +27,7 @@ remap_ILE_2_LI = {
   "thetaJN":"theta_jn"}
 remap_LI_to_ILE = { "a1z":"s1z", "a2z":"s2z", "chi_eff":"xi", "lambdat":"LambdaTilde", 'mtotal':'mtot', "distance":"dist", 'ra':'phi', 'dec':'theta',"phiorb":"phiref"}
 
-remap_bilby_to_rift={'chirp_mass':'mc', 'mass_ratio':'q', 'mass_1':'m1', 'mass_2':'m2','geocent_time':'time','luminosity_distance':'distance','phase':'phiorb','chi_1_in_plane':'chi1_perp','spin_1x': 'a1x', 'spin_1y':'a1y', 'spin_2x': 'a2x','spin_2y':'a2y', 'spin_1z':'a1z', 'spin_2z':'a2z', 'chi_2_in_plane':'chi2_perp','iota':'incl','lambda_1':'lambda1', 'lambda_2':'lambda2','lambdat':'LambdaTilde'}
+remap_bilby_to_rift={'chirp_mass':'mc', 'mass_ratio':'q', 'mass_1':'m1', 'mass_2':'m2','geocent_time':'time','luminosity_distance':'distance','phase':'phiorb','chi_1_in_plane':'chi1_perp','spin_1x': 'a1x', 'spin_1y':'a1y', 'spin_2x': 'a2x','spin_2y':'a2y', 'spin_1z':'a1z', 'spin_2z':'a2z', 'chi_2_in_plane':'chi2_perp','iota':'incl','lambda_1':'lambda1', 'lambda_2':'lambda2','lambdat':'LambdaTilde','log_likelihood':'lnL'}
 
 import numpy.lib.recfunctions as rfn
 
@@ -268,7 +268,7 @@ def fchip(sample):
             chip = P.extract_param('chi_p')
             return chip  
 
-def dump_pesummary_samples_to_file_as_rift(fname_h5,key,fname_out):
+def dump_pesummary_samples_to_file_as_rift(fname_h5,key,fname_out,no_drop=False,no_rename=False):
     """
     >>> import samples_utils
     >>> samples_utils.dump_pesummary_samples_to_file_as_rift("metafile.h5", "bilby-IMRPhenomXPHM-SpinTaylor-3",'test.dat')
@@ -298,8 +298,9 @@ def dump_pesummary_samples_to_file_as_rift(fname_h5,key,fname_out):
     # Rename
     samp = rfn.rename_fields(samp,remap_bilby_to_rift )
     # Drop
-    ugly_fields = [x for x in samp.dtype.names if 'recalib' in x or 'snr' in x]
-    samp = rfn.drop_fields(samp,ugly_fields)
+    if not(no_drop):
+      ugly_fields = [x for x in samp.dtype.names if 'recalib' in x or 'snr' in x]
+      samp = rfn.drop_fields(samp,ugly_fields)
 
     np.savetxt(fname_out,samp,header=" ".join(samp.dtype.names) )
 
@@ -312,11 +313,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--key", default="rift-v5PHM-calmarg",help="Key for bilby file")
+    parser.add_argument("--no-drop",action='store_true',default=False)
     parser.add_argument("fname_in",default=None,help="File name of result file")
     parser.add_argument("fname_out",default=None,help="output file")
     opts=  parser.parse_args()
 
-    dump_pesummary_samples_to_file_as_rift(opts.fname_in, opts.key, opts.fname_out)
+    dump_pesummary_samples_to_file_as_rift(opts.fname_in, opts.key, opts.fname_out,no_drop=opts.no_drop)
     
 
 
