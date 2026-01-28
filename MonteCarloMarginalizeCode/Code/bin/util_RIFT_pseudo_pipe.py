@@ -1582,7 +1582,9 @@ if opts.calibration_reweighting:
                  del my_arg_dict['lmax_nyquist'] # remove key
              my_extra_args.update(my_arg_dict)
          if my_opts.internal_waveform_extra_lalsuite_args:
-             my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
+             my_arg_dict = eval(my_opts.internal_waveform_extra_lalsuite_args)
+             if not(isinstance(my_arg_dict, dict)):
+                 my_arg_dict = eval(my_arg_dict)
              my_extra_args.update(my_arg_dict)
          if my_extra_args:
             my_extra_string += ' --extra-waveform-kwargs "{}" '.format(my_extra_args)
