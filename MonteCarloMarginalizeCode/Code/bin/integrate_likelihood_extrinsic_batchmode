@@ -1411,6 +1411,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     extra_waveform_kwargs['e_freq'] = int(opts.e_freq)
     if opts.internal_waveform_extra_lalsuite_args:
       extra_args_dict = eval(opts.internal_waveform_extra_lalsuite_args)  # should only do this once and for all, not in loop!
+      if not(isinstance(extra_args_dict,dict)):
+        print(" Type casting fail, maybe retrying ", extra_args_dict, type(extra_args_dict))  # might happen with double-quoting failure at condor level
+        extra_args_dict = eval(extra_args_dict)
       print(" Waveform interface: extra args passed ", extra_args_dict)
       extra_waveform_kwargs['extra_waveform_args'] = extra_args_dict
     if opts.internal_waveform_extra_kwargs:
