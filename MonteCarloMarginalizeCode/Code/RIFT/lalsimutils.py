@@ -4601,7 +4601,7 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
     return tmp
 
 def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
-        verbose=True,deltaT=None):
+                       verbose=True,deltaT=None,use_gwpy=False,**kwargs):
     """
     Function to read in data in the frame format and convert it to 
     a REAL8TimeSeries. fname is the path to a LIGO cache file.
@@ -4617,20 +4617,35 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
     """
     if verbose:
         print( " ++ Loading from cache ", fname, channel)
+
     with open(fname) as cfile:
         cachef = Cache.fromfile(cfile)
     cachef=cachef.sieve(ifos=channel[:1])
-    # for i in range(len(cachef))[::-1]:
-    #     # FIXME: HACKHACKHACK
-    #     if cachef[i].observatory != channel[0]:
-    #         del cachef[i]
-    if verbose:
+    for name in cachef:
+        print(name)
+        
+    if use_gwpy:
+        import gwpy.timeseries #, gwpy.io
+        #my_cache=gwpy.io.cache.read_cache(fname)
+        my_cache = [x.url.split(' ')[-1]  for x in cachef]
+        my_cache_cleaned = [ x.replace("file://localhost","") for x in my_cache] # causes problems
+        #print(my_cache_cleaned)
+        ht_gwpy = gwpy.timeseries.TimeSeries.read(source=my_cache_cleaned, start=start, end=stop ,channel=channel)
+        ht_gwpy.dtype =np.float64 # make sure cast to REAL8
+        tmp = ht_gwpy.to_lal() 
+    else:
+
+      # for i in range(len(cachef))[::-1]:
+      #     # FIXME: HACKHACKHACK
+      #     if cachef[i].observatory != channel[0]:
+      #         del cachef[i]
+      if verbose:
         print( cachef.to_segmentlistdict())
         
-    duration = stop - start if None not in (start, stop) else None
-    try:
+      duration = stop - start if None not in (start, stop) else None
+      try:
         tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose,datatype='REAL8')
-    except Exception as fail:
+      except Exception as fail:
         if str(fail) == "RuntimeError: Failure in an XLAL routine":
             print(f"Encountered {fail}")
             sys.exit(91)
@@ -4649,7 +4664,7 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
 
 
 def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0,
-        window_shape=0., verbose=True):
+                       window_shape=0., verbose=True,**kwargs):
     """
     Function to read in data in the frame format
     and convert it to a COMPLEX16FrequencySeries holding
@@ -4665,7 +4680,7 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0,
     If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
-    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose)
+    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose,**kwargs)
 
     tmplen = ht.data.length
     if TDlen == -1:
@@ -4688,7 +4703,7 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0,
 
 
 def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
-        window_shape=0., verbose=True,deltaT=None):
+                                window_shape=0., verbose=True,deltaT=None,**kwargs):
     """
     Function to read in data in the frame format
     and convert it to a COMPLEX16FrequencySeries 
@@ -4706,7 +4721,7 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
     If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
-    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose,deltaT=deltaT)
+    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose,deltaT=deltaT,**kwargs)
 
     tmplen = ht.data.length
     if TDlen == -1:
