@@ -4629,10 +4629,14 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
         #my_cache=gwpy.io.cache.read_cache(fname)
         my_cache = [x.url.split(' ')[-1]  for x in cachef]
         my_cache_cleaned = [ x.replace("file://localhost","") for x in my_cache] # causes problems
-        #print(my_cache_cleaned)
-        ht_gwpy = gwpy.timeseries.TimeSeries.read(source=my_cache_cleaned, start=start, end=stop ,channel=channel)
-        ht_gwpy.dtype =np.float64 # make sure cast to REAL8
-        tmp = ht_gwpy.to_lal() 
+        ht_gwpy = gwpy.timeseries.TimeSeries.read(source=my_cache_cleaned, start=start, end=stop ,channel=channel,pad=0).astype(np.float64) # force type so real8 later
+        trange_here = ht_gwpy.times.value-start
+        #print(ht_gwpy.t0, 1./ht_gwpy.dt, start, stop, np.min(trange_here), np.max(trange_here), len(trange_here),ht_gwpy.dtype)
+        ht_gwpy.crop(start=start, end=stop) # force to target size, NTRODUCES TIME SHIFTS RELATIVE TO USUAL CODE
+        #ht_gwpy.dtype =np.float64 # make sure cast to REAL8
+        tmp = ht_gwpy.to_lal() # DANGER, can truncate the desired size! 
+        #print(" Input ", 1./tmp.deltaT, tmp.data.length, tmp.deltaT*tmp.data.length)
+        #print(type(tmp))
     else:
 
       # for i in range(len(cachef))[::-1]:
