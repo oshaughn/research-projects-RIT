@@ -188,6 +188,7 @@ optp.add_option("-f", "--reference-freq", type=float, default=100.0, help="Wavef
 optp.add_option("--fmin-template", dest='fmin_template', type=float, default=40, help="Waveform starting frequency.  Default is 40 Hz. Also equal to starting frequency for integration") 
 optp.add_option("--fmin-template-correct-for-lmax",action='store_true',help="Modify amount of data selected, waveform starting frequency to account for l-max, to better insure all requested modes start within the targeted band")
 optp.add_option("--internal-waveform-taper",default=None, help="lalsimulation taper option string name ")
+optp.add_option("--internal-use-gwpy",action='store_true', help="Use gwpy for low-level io")
 optp.add_option("--fmin-ifo", action='append' , help="Minimum frequency for each IFO. Implemented by setting the PSD=0 below this cutoff. Use with care.") 
 #optp.add_option("--nr-params",default=None, help="List of specific NR parameters and groups (and masses?) to use for the grid.")
 #optp.add_option("--nr-index",type=int,default=-1,help="Index of specific NR simulation to use [integer]. Mass used: mtot= m1+m2")
@@ -658,7 +659,7 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print( "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
     data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
             inst+":"+chan, start=start_time, stop=end_time,
-            window_shape=opts.window_shape,deltaT=deltaT)
+            window_shape=opts.window_shape,deltaT=deltaT,use_gwpy=opts.internal_use_gwpy)
     print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
             data_dict[inst].data.length) )
 
