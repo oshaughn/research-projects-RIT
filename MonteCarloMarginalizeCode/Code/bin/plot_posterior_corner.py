@@ -541,7 +541,7 @@ if opts.composite_file:
 #    samples = np.recarray(samples.T,names=field_names,dtype=field_formats) #,formats=field_formats)
     # If no record names
     # Add mtotal, q, 
-    if 'm1' in samples.dtype.names:
+    if 'm1' in samples.dtype.names and not 'q' in samples.dtype.names:
         samples=add_field(samples,[('mtotal',float)]); samples["mtotal"]= samples["m1"]+samples["m2"]; 
         samples=add_field(samples,[('q',float)]); samples["q"]= samples["m2"]/samples["m1"]; 
         samples=add_field(samples,[('mc',float)]); samples["mc"] = lalsimutils.mchirp(samples["m1"], samples["m2"])
