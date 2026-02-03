@@ -129,6 +129,7 @@ for indx, name in enumerate(names_downselect):
     indx_ok = np.logical_and(indx_ok,  X_out[:,indx]>= downselect_dict[name][0] )
     print('   Increment downselect : {} {} '.format(name, np.sum(indx_ok) ))
 X_out = X_out[indx_ok]
+dat_raw = dat_raw[indx_ok] # must downselect here as well!
     
 # Write data back into correct format and save
 for p in coord_names:
