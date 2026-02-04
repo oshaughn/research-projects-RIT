@@ -450,8 +450,15 @@ if opts.verbose:
 
 datafind_server = None
 try:
-   datafind_server = os.environ['LIGO_DATAFIND_SERVER']
-   print(" LIGO_DATAFIND_SERVER ", datafind_server)
+   if 'GWDATAFIND_SERVER' in os.environ:
+       datafind_server = os.environ['LIGO_DATAFIND_SERVER']
+       print(" GWDATAFIND_SERVER ", datafind_server)
+   elif 'LIGO_DATAFIND_SERVER' in os.environ:
+       datafind_server = os.environ['LIGO_DATAFIND_SERVER']
+       print(" LIGO_DATAFIND_SERVER ", datafind_server)
+   else:
+       print(" No LIGO_DATAFIND_SERVER, using backup ")
+       datafind_server = "datafind.igwn.org:80"
 except:
   print(" No LIGO_DATAFIND_SERVER ")
   datafind_server = "datafind.ligo.org:443"

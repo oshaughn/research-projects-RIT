@@ -119,7 +119,7 @@ def add_field(a, descr):
 parser = argparse.ArgumentParser()
 parser.add_argument("--fname",help="filename of *.dat file (EOS-format: lnL sigma_lnL p1 p2 ... .  ASSUME any stacking over events already performed.")
 parser.add_argument("--fname-output-samples",default="output-EOS-samples",help="output grid")
-parser.add_argument("--fname-output-integral",default="output-EOS-samples",help="for evidencees and pipeline compatibility")
+parser.add_argument("--fname-output-integral",default="output-EOS-integral",help="for evidencees and pipeline compatibility")
 parser.add_argument("--n-output-samples",default=2000,type=int,help="output posterior samples (default 3000)")
 parser.add_argument("--eos-param", type=str, default=None, help="parameterization of equation of state [spectral only, for now]")
 parser.add_argument("--parameter", action='append', help="Parameters used as fitting parameters AND varied at a low level to make a posterior. Currently can only specify gamma1,gamma2, ..., and these MUST be columns in --fname. IF NOT PROVIDED, DEFAULTS TO LIST IN FILE.  ")
@@ -444,17 +444,20 @@ n_params = -1
  ### Convert data.   RIGHT NOW JUST DOWNSELECTING, no intermediate fitting parameters defined
  ###
 
+indx_of_orig_names =  np.array([ dat_orig_names.index(coord_names[k]) for k in range(len(coord_names))])
+
 dat_out = []
 for line in dat:
   dat_here= np.zeros(len(coord_names)+2)
   if line[col_lnL+1] > opts.sigma_cut:
       print("skipping", line)
       continue
-  dat_here[:-2] = line[2:len(coord_names)+2]  # modify to use names!
+  dat_here[:-2] = line[indx_of_orig_names+2]#line[2:len(coord_names)+2]  # modify to use names!
   dat_here[-2] = line[0]
   dat_here[-1] = line[1]
   dat_out.append(dat_here)
 dat_out= np.array(dat_out)
+
 # Repack data
 X =dat_out[:,0:len(coord_names)]
 Y = dat_out[:,-2]
@@ -742,7 +745,7 @@ res, var, neff, dict_return = sampler.integrate(fn_passed, *coord_names,  verbos
 
 
 # Save result -- needed for odds ratios, etc.
-np.savetxt("integral_result.dat", [np.log(res)])
+np.savetxt(opts.fname_output_integral, [np.log(res)])
 
 if neff < len(coord_names):
     print(" PLOTS WILL FAIL ")
@@ -812,6 +815,25 @@ indx_list = np.random.choice(np.arange(len(weights)), p=p_norm.astype(np.float64
 
 
 dat_out = np.zeros( (opts.n_output_samples,2+len(dat_orig_names)) )
+
+# Initialize fixed parameters
+if len(coord_names) < len(dat_orig_names): # not needed if all params are in fit
+
+    if len(dat) < opts.n_output_samples:
+        print(" NOTE: original data shorter than  requested output; adding",opts.n_output_samples-len(dat),"duplicate fill lines from original data.")
+        newlines = dat[:opts.n_output_samples-len(dat)] #duplicate lines to fill
+        dat = np.concatenate((dat,newlines), axis=0) #should be fine since dat isn't used after this
+        
+    for c in np.arange(len(dat_orig_names)):
+        if dat_orig_names[c] not in coord_names:
+            print("  Not in coord_names:",dat_orig_names[c],"; adding to output as constant.")
+            outidx = name_index_dict[dat_orig_names[c]]   # write in correct place
+            if len(dat) > opts.n_output_samples:
+                dat_out[:,outidx] = dat[:opts.n_output_samples,outidx] #truncate original data to fit (not ideal)
+            else: #len(dat) <= n_output_samples (if dat was <, should now be =)
+                dat_out[:,outidx] = dat[:,outidx]
+                
+# Fill data from PE
 for indx in np.arange(len(coord_names)):
     vals = samples[coord_names[indx]][indx_list]   # load in data for this column
     outindx = name_index_dict[ coord_names[indx]]   # write in correct place

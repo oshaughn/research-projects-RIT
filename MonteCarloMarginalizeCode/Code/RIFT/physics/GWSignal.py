@@ -119,6 +119,7 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
                 npts)
         h.data.data = np.array(hlm[mode])
         h.epoch = epoch
+        TDlen_orig = h.data.length  # size of data, pertinent for tapering!
         # Resize if needed
         if P.deltaF:
             TDlen = int(1./P.deltaF * 1./P.deltaT)
@@ -128,7 +129,7 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
                 h = lal.ResizeCOMPLEX16TimeSeries(h,0,TDlen)
         # WARNING:  realistically, the GWSignal mode output was NEVER tapered, oddly -- so do it by hand, following lalsimutils choices
         if taper:
-            ntaper = int(0.01*TDlen)
+            ntaper = int(0.01*np.min([TDlen_orig,h.data.length]) ) # DO NOT TAPER BASED ON RESIZING/EXTENDING, otherwise we taper due to zero pad!
             if P.fmin > 0: # avoid failure if waveform start frequency 0 is nominally specified
                 ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))]) 
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))

@@ -118,6 +118,19 @@ else:
     delta_X =np.random.normal(size=len(coord_names), scale=sigma)
     X_out = X+delta_X
 
+
+# Downselect
+names_downselect = list(downselect_dict.keys())
+# no conversion needed
+indx_ok = np.ones(len(X_out),dtype=bool)
+for indx, name in enumerate(names_downselect):
+    indx_ok = np.logical_and(indx_ok,  np.logical_not(np.isnan(X_out[:,indx])))
+    indx_ok = np.logical_and(indx_ok,  X_out[:,indx]<= downselect_dict[name][1] )
+    indx_ok = np.logical_and(indx_ok,  X_out[:,indx]>= downselect_dict[name][0] )
+    print('   Increment downselect : {} {} '.format(name, np.sum(indx_ok) ))
+X_out = X_out[indx_ok]
+dat_raw = dat_raw[indx_ok] # must downselect here as well!
+    
 # Write data back into correct format and save
 for p in coord_names:
 #    indx_p = dat_raw.dtype.names.index(p)

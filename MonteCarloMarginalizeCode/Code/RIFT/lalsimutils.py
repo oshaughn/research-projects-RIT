@@ -3732,6 +3732,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     if ('IMRPhenomP' in  lalsim.GetStringFromApproximant(P.approx) or P.approx == lalIMRPhenomXP or (check_FD_pending(P.approx)) ): # and not (P.SoftAlignedQ()):
         print("Passing model through hlmoft_IMRPv2_dict")
         hlms = hlmoft_IMRPv2_dict(P)
+        TDlen_orig = hlms[(2,2)].data.length
         if not (P.deltaF is None):
             TDlen = int(1./P.deltaF * 1./P.deltaT)
             for mode in hlms:
@@ -3740,7 +3741,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
                 if TDlen < hlms[mode].data.length:  # we have generated too long a signal!...truncate from LEFT. Danger!
                     hlms[mode] = lal.ResizeCOMPLEX16TimeSeries(hlms[mode],hlms[mode].data.length-TDlen,TDlen)
         if True: #P.taper:
-            ntaper = int(0.01*hlms[(2,2)].data.length)  # fixed 1% of waveform length, at start, be consistent with other methods
+            ntaper = int(0.01*np.min([hlms[(2,2)].data.length,TDlen_orig]))  # fixed 1% of waveform length, at start, be consistent with other methods
             ntaper = np.max([ntaper, int(1./(P.fmin*P.deltaT))])  # require at least one waveform cycle of tapering; should never happen
             vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
             for key in hlms.keys():
@@ -4181,17 +4182,19 @@ data.data[j_signal_end - 1])):
     # FIXME: Add ability to taper
     # COMMENT: Add ability to generate hlmoft at a nonzero GPS time directly.
     #      USUALLY we will use the hlms in template-generation mode, so will want the event at zero GPS time
-
+    TDlen_orig = None
     if P.deltaF is not None:
         TDlen = int(1./P.deltaF * 1./P.deltaT)
         hxx = lalsim.SphHarmTimeSeriesGetMode(hlms, 2, 2)
+        TDlen_orig = hxx.data.length
         # Consider modifing TD behavior to be consistent with FD behavior used to match LI
         if TDlen >= hxx.data.length:
             hlms = lalsim.ResizeSphHarmTimeSeries(hlms, 0, TDlen)
 
     hlm_dict = SphHarmTimeSeries_to_dict(hlms,Lmax)
-
-
+    if (TDlen_orig is None):
+        TDlen_orig = hlm_dict[(2,2)].data.length
+    
     # positive m only check: should never happen
     # ...but if it does (for NRSur lalsuite interface), perform reflection.
     approx_string = P.approx
@@ -4231,7 +4234,7 @@ data.data[j_signal_end - 1])):
         # at this point we know the waveform length!
         TDlen_here = hlm_dict[mode].data.length
         # Base taper, based on 1% of waveform length
-        ntaper = int(0.01*TDlen_here)  # fixed 1% of waveform length, at start
+        ntaper = int(0.01*np.min([TDlen_here,TDlen_orig]) )  # fixed 1% of waveform length, at start
         ntaper = np.max([ntaper, int(1./(fmin_effective*P.deltaT)) ])  # require at least one waveform cycle of tapering; should never happen
         vectaper= 0.5 - 0.5*np.cos(np.pi*np.arange(ntaper)/(1.*ntaper))
         # Taper at the start of the segment
@@ -5139,7 +5142,7 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
     return tmp
 
 def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
-        verbose=True,deltaT=None):
+                       verbose=True,deltaT=None,use_gwpy=False,**kwargs):
     """
     Function to read in data in the frame format and convert it to 
     a REAL8TimeSeries. fname is the path to a LIGO cache file.
@@ -5155,20 +5158,39 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
     """
     if verbose:
         print( " ++ Loading from cache ", fname, channel)
+
     with open(fname) as cfile:
         cachef = Cache.fromfile(cfile)
     cachef=cachef.sieve(ifos=channel[:1])
-    # for i in range(len(cachef))[::-1]:
-    #     # FIXME: HACKHACKHACK
-    #     if cachef[i].observatory != channel[0]:
-    #         del cachef[i]
-    if verbose:
+    for name in cachef:
+        print(name)
+        
+    if use_gwpy:
+        import gwpy.timeseries #, gwpy.io
+        #my_cache=gwpy.io.cache.read_cache(fname)
+        my_cache = [x.url.split(' ')[-1]  for x in cachef]
+        my_cache_cleaned = [ x.replace("file://localhost","") for x in my_cache] # causes problems
+        ht_gwpy = gwpy.timeseries.TimeSeries.read(source=my_cache_cleaned, start=start, end=stop ,channel=channel,pad=0).astype(np.float64) # force type so real8 later
+        trange_here = ht_gwpy.times.value-start
+        #print(ht_gwpy.t0, 1./ht_gwpy.dt, start, stop, np.min(trange_here), np.max(trange_here), len(trange_here),ht_gwpy.dtype)
+        ht_gwpy.crop(start=start, end=stop) # force to target size, NTRODUCES TIME SHIFTS RELATIVE TO USUAL CODE
+        #ht_gwpy.dtype =np.float64 # make sure cast to REAL8
+        tmp = ht_gwpy.to_lal() # DANGER, can truncate the desired size! 
+        #print(" Input ", 1./tmp.deltaT, tmp.data.length, tmp.deltaT*tmp.data.length)
+        #print(type(tmp))
+    else:
+
+      # for i in range(len(cachef))[::-1]:
+      #     # FIXME: HACKHACKHACK
+      #     if cachef[i].observatory != channel[0]:
+      #         del cachef[i]
+      if verbose:
         print( cachef.to_segmentlistdict())
         
-    duration = stop - start if None not in (start, stop) else None
-    try:
+      duration = stop - start if None not in (start, stop) else None
+      try:
         tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=verbose,datatype='REAL8')
-    except Exception as fail:
+      except Exception as fail:
         if str(fail) == "RuntimeError: Failure in an XLAL routine":
             print(f"Encountered {fail}")
             sys.exit(91)
@@ -5187,7 +5209,7 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
 
 
 def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0,
-        window_shape=0., verbose=True):
+                       window_shape=0., verbose=True,**kwargs):
     """
     Function to read in data in the frame format
     and convert it to a COMPLEX16FrequencySeries holding
@@ -5203,7 +5225,7 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0,
     If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
-    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose)
+    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose,**kwargs)
 
     tmplen = ht.data.length
     if TDlen == -1:
@@ -5226,7 +5248,7 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0,
 
 
 def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
-        window_shape=0., verbose=True,deltaT=None):
+                                window_shape=0., verbose=True,deltaT=None,**kwargs):
     """
     Function to read in data in the frame format
     and convert it to a COMPLEX16FrequencySeries 
@@ -5244,7 +5266,7 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
     If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
-    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose,deltaT=deltaT)
+    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose,deltaT=deltaT,**kwargs)
 
     tmplen = ht.data.length
     if TDlen == -1:
@@ -6097,7 +6119,7 @@ def convert_waveform_coordinates(x_in,coord_names=['mc', 'eta'],low_level_coord_
         for name in ['mc', 'm1', 'm2']:
             if name in coord_names:
                 indx_name = coord_names.index(name)
-                x_out[indx_name] *= (1+source_redshift)
+                x_out[:,indx_name] *= (1+source_redshift)
 
     # return if we don't need to do any more conversions (e.g., if we only have --parameter specification)
     if len(coord_names_reduced)<1:

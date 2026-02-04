@@ -1639,7 +1639,7 @@ if opts.use_osg:
         cmd += " --use-osg-cip "
     if not(opts.use_osg_file_transfer):
         cmd += " --use-cvmfs-frames "
-    elif not(opts.internal_truncate_files_for_osg_file_transfer):  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
+    elif (opts.internal_truncate_files_for_osg_file_transfer):  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
         os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
         # if environment variable active, check that frames were created! Fail otherwise
         if 'RIFT_TRUNCATE_CHECK' in os.environ:
@@ -1707,7 +1707,9 @@ if opts.calibration_reweighting:
                  del my_arg_dict['lmax_nyquist'] # remove key
              my_extra_args.update(my_arg_dict)
          if my_opts.internal_waveform_extra_lalsuite_args:
-             my_arg_dict = eval(my_opts.internal_waveform_extra_kwargs)
+             my_arg_dict = eval(my_opts.internal_waveform_extra_lalsuite_args)
+             if not(isinstance(my_arg_dict, dict)):
+                 my_arg_dict = eval(my_arg_dict)
              my_extra_args.update(my_arg_dict)
          if my_extra_args:
             my_extra_string += ' --extra-waveform-kwargs "{}" '.format(my_extra_args)

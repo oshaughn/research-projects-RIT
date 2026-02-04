@@ -2185,7 +2185,7 @@ elif opts.fit_method == 'gp-xgboost':
         X=X[indx]
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
-    my_fit = fit_xgb(X,Y,y_errors=Y_err)
+    my_fit = fit_xg(X,Y,y_errors=Y_err)
 elif opts.fit_method == 'gp_lazy':
     print(" FIT METHOD ", opts.fit_method, " IS lazy GP")
     # some data truncation IS used for the GP, but beware
