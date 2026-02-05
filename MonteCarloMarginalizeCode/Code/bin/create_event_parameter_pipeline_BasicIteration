@@ -95,6 +95,13 @@ def add_batch_ILE_nodes_to_dag(my_dag,my_ile_job,my_parent_node, my_child_node, 
                 node_list_dict[it].append(ile_node)
 
 
+def parse_ile_args_lazy(my_arg_str,key_target):
+    str_split = my_arg_str.split('--')
+    matches = [x for x in str_split if x.startswith(key_target)]
+    print(matches)
+    return matches[-1].split(' ')[1]
+
+                
 def parse_ile_args_for_bw(my_arg_str):
     # Copied verbatim from ILE
     from optparse import OptionParser, OptionGroup
@@ -716,9 +723,14 @@ if not (fetch_args is None):
 
 if  (opts.last_iteration_extrinsic):
     n_points_per_ILE = opts.last_iteration_extrinsic_samples_per_ile
+    neff_orig = parse_ile_args_lazy(ile_args_orig,'n-eff') # parse to get originally requested n_eff, as string
+    print(" Orig n_eff ", neff_orig, n_points_per_ILE)
+    n_eff_last = np.min([2*n_points_per_ILE,opts.last_iteration_extrinsic_samples_per_ile])  # make n_eff large enough to get all samples requested. Provide cap in case user requests very vew extrinsic workers.
+    if isinstance(neff_orig,str):
+        n_eff_last  = np.max([n_eff_last, int(neff_orig)]) 
     # ILE job with modified output format
     #  - note we *double* the memory request, because we need space to save samples
-    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(np.min([2*n_points_per_ILE,opts.last_iteration_extrinsic_samples_per_ile]))  # modify convergence criteria so output of reasonable size
+    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(n_eff_last)
     #  - note we *disable* --no-adapt-after-first (if present), so each point is independent (e.g., in sky location)
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
     if opts.last_iteration_extrinsic_time_resampling:
