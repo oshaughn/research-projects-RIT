@@ -1,3 +1,14 @@
+0.0.17.7
+------------
+development tree is rift_O4c.
+
+Point release targeting MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/48
+  - cepp_basic: LE_extrinsic n_eff cannot be lower than normal ILE n_eff
+  - factored_likelihood: lnL_t no more offset
+  - ILE: fix type casting issue for XPHM-style args going through Asimov
+  - convert.._inference2ile: pass psi from input to output. 
+
+
 0.0.17.6
 ------------
 development tree is rift_O4c.

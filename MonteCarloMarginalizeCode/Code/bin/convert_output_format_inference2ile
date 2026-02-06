@@ -173,6 +173,7 @@ for indx in np.arange(opts.target_size):
             P.theta = samples_in["dec"][fac_reduce*indx]
             P.phi   = samples_in["ra"][fac_reduce*indx]
             P.dist  = samples_in["distance"][fac_reduce*indx]*lal.PC_SI*1e6
+            P.psi = samples_in["psi"][fac_reduce*indx]  
 
     if opts.use_aligned_spin:  # redundant, see --force-aligned below
             P.s1y=0
