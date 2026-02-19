@@ -179,7 +179,8 @@ optp.add_option("-C", "--channel-name", action="append", help="instrument=channe
 optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
 optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS file.")
 optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
-optp.add_option("-I", "--sim-xml", help="XML file containing mass grid to be evaluated")
+optp.add_option("-I", "--sim-xml", help="XML file containing parameter grid to be evaluated")
+optp.add_option( "--sim-grid", help="ascii file with labels containing parameter grid to be evaluated, potentially including parameters passed to external libraries or to the waveform generator/cal/systematics as extra arguments.  ")
 optp.add_option("-E", "--event", default=0,type=int, help="Event number used for this run")
 optp.add_option( "--random-event", action='store_true', help="Pick a RANDOM event from the file. Dangerous - watch out for oversampling fast events")
 optp.add_option("--n-events-to-analyze", default=1,type=int, help="Number of events to analyze from this XML")
@@ -579,6 +580,28 @@ if opts.sim_xml:
             P.phaseO = 3
 
     P = P_list[0]  # Load in the physical parameters of the injection.  
+elif opts.sim_grid:
+  print( "====Loading injection grid file:", opts.sim_grid, opts.event, " =======")
+  grid_in = np.genfromtxt(opts.sim_grid,names=True)
+  grid_names = grid_in.dtype.names
+  grid_names_params = list(set(grid_names).intersection(set(lalsimutils.valid_params))) # only do internal loop over valid parameters
+  grid_indx_params = [grid_names.index(x) for x in grid_names_params]
+  if len(grid_in) < opts.event:
+    print(" No events lft to analyze, out of ramge")
+    sys.exit(0)
+  n_event_max= np.min([len(grid_in), opts.event+opts.n_events_to_analyze])
+  grid_in = grid_in[opts.event, n_event_max]
+  P_list = []
+  # Should call a convert_vector_coordinates call to get m1, m2, etc all in a grid, to make it faster. Assume user is friendly/sane
+  for indx in range(opts.n_events_to_analyze):
+    P = lalsimutils.ChooseWaveformParams()
+    for name, indx  in enumerate(grid_names_params):
+      if hasattr(P, name): # fast version
+        P.setattr(name,  grid_in[grid_names_params[indx]])
+      else: # slightly slower version
+        P.assign_param(name, grid_in[grid_names_params[indx]])
+    P_list.append(P)
+  P = P_list[0]
 else:
  if opts.mass1 is not None and opts.mass2 is not None:
     m1, m2 = opts.mass1, opts.mass2
