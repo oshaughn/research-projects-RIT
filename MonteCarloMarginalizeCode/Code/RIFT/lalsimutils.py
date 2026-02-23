@@ -3775,6 +3775,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
         print("Using TEOBResumS hlms (only using (2,2); (2,1); (3,3); (4,4) in coprecessing frame)")
         modes_used = []
         modes_used_check = []
+        hypclass = 0.0
         hyp_wav = False
         distance_s = P.dist/lal.C_SI
         m_total_s = MsunInSec*(P.m1+P.m2)/lal.MSUN_SI

@@ -1037,7 +1037,7 @@ if use_ini:
     if 'a6c_min' in engine_dict:
         a6c_range_str = "  ["+str(engine_dict['a6c_min'])+","+str(engine_dict['a6c_max'])+"]"
     if 'ecc_min' in engine_dict:
-        ecc_range_str = "  ["+str(engine_dict['ecc_min'])+","+str(engine_dict['ecc_max'])+"]"
+        ecc_range_str = "  ["+str((engine_dict['ecc_min'])**2)+","+str((engine_dict['ecc_max'])**2)+"]"
     if 'meanPerAno_min' in engine_dict:
         meanPerAno_range_str = "  ["+str(engine_dict['meanPerAno_min'])+","+str(engine_dict['meanPerAno_max'])+"]"
         
@@ -1292,7 +1292,7 @@ if opts.propose_initial_grid_fisher: # and (P.extract_param('mc')/lal.MSUN_SI < 
     if opts.assume_hyperbolic:
         cmd += " --random-parameter E0 --random-parameter-range [{},{}] --random-parameter p_phi0 --random-parameter-range [{},{}] ".format(opts.E0_min,opts.E0_max,opts.pphi0_min,opts.pphi0_max)
     if opts.assume_eccentric:
-        cmd += " --random-parameter eccentricity --random-parameter-range " + ecc_range_str
+        cmd += " --random-parameter eccentricity_squared --random-parameter-range " + ecc_range_str
         grid_size = int(grid_size*1.5)
         if opts.use_meanPerAno:
             cmd += " --random-parameter meanPerAno --random-parameter-range [0,6.2831]"
