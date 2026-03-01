@@ -1,4 +1,7 @@
 #! /usr/bin/env python
+#
+# EXAMPLE
+#   
 
 # ARGUMENT SPECIFICATION
 #   arch
@@ -44,17 +47,103 @@
 #
 
 import numpy as np
-import os
+import os, shutil
+import logging
+logger = logging.getLogger(__name__)
 
 # install reuires hydra-core
 from omegaconf import DictConfig, OmegaConf
 import hydra
 
 
+base_dir =None
+config_here = None
 
-@hydra.main(version_base=None, config_path=".",config_name='hyperpipe_config')
+@hydra.main(version_base=None, config_path=".",config_name='hyperpipe_conf')
 def my_app(cfg: DictConfig):
+    global config_here
+    logging.basicConfig()
+    logger.info(" ---- INPUT CONFIG --- ")
     print(OmegaConf.to_yaml(cfg))
+    config_here=cfg
 
 if __name__ == "__main__":
     my_app()
+
+    base_dir = os.getcwd()
+    # make run directory
+    if config_here['general']['rundir'] :
+        if not(os.path.exists(config_here['general']['rundir'])):
+            os.mkdir(config_here['general']['rundir'])
+        os.chdir(config_here['general']['rundir'])
+
+    # Create necessary files (note event files will need to be copied in place)
+    #   - MARG
+    lines_marg = ''
+    lines_marg_exe = ''
+    lines_event_list = ''
+    for indx in range(len(config_here['marg-list'])):
+        lines_marg += config_here['marg-list'][indx]['args'] + "\n"
+        lines_marg_exe += config_here['marg-list'][indx]['exe'] + "\n"
+        if 'event file' in config_here['marg-list'][indx]:
+            prefix = base_dir
+            fname_orig = config_here['marg-list'][indx]['event file']
+            if fname_orig[0]  != '/':
+                fname_orig = base_dir +'/'  +fname_orig
+            shutil.copy(fname_orig, 'event_file_{}.dat'.format(indx))
+        else:
+            lines_event_list += "empty_event_file\n"
+    with open("args_marg_eos.txt", "w") as f:
+        f.write(lines_marg)
+    with open("args_marg_eos_exe.txt", "w") as f:
+        f.write(lines_marg_exe)
+    # Create event file.  Use empty file if empty
+    with open("event_files.txt", "w") as f:
+        f.write(lines_event_list)
+    
+    #   - POST
+    line_post =''
+    line_post_exe = None
+    coord_names = config_here['post']['coords-fit'].split()
+    coord_range_blocks = config_here['post']['coords-sample'].split()
+    for name in coord_names:
+        line_post += " --parameter {} ".format(name) # no matching : fit coords in principle independent, may even use converter
+    for block in coord_range_blocks:
+        line_post += " --integration-parameter-range {} ".format(block)
+    with open("args_eos_post.txt", "w") as f:
+        f.write(line_post)
+        
+    #  - PUFF
+    force_away_val =0.1
+    if 'puff' in config_here:
+        if 'puff factor' in config_here['puff']:
+            force_away_val = config_here['puff']['puff factor']
+    line_puff = ' --force-away {} '.format(force_away_val)
+    for name in coord_names:
+        line_puff += " --parameter {} ".format(name)  # default: puff in all parameters
+    with open("args_puff.txt", "w") as f:
+        f.write(line_puff)
+        
+        
+    # Create initialization file
+    if 'file' in config_here['init']:
+        # default: copy from base directory, unless absolute
+        prefix = base_dir
+        target_file = config_here["init"]['file']
+        if target_file[0]  != '/':
+            target_file = prefix+ "/" + target_file
+        shutil.copy(target_file, 'initial_grid.dat')
+
+    # Extract architecture arguments
+    n_iterations = config_here['arch']['n-iterations']
+    n_samples_per_job = config_here['arch']['n-samples-per-job']
+    
+        
+    # Create command line
+    cmd = "create_eos_posterior_pipeline  --n-samples-per-job {} --n-iterations {}  --working-dir `pwd` --event-file `pwd`/event_files.txt ".format(n_samples_per_job, n_iterations)
+    cmd += " --marg-event-exe-list-file `pwd`/args_marg_eos_exe.txt --marg-event-args-list-file  `pwd`/args_marg_eos.txt  "
+    cmd += " --eos-post-args `pwd`/args_eos_post.txt --eos-post-exe `which util_ConstructEOSPosterior.py`  "
+    cmd += " --puff-exe `which util_HyperparameterPuffball.py` --puff-args `pwd`/args_puff.txt "
+    cmd += " --input-grid `pwd`/initial_grid.dat "  # somewhat redundant to copy it, but we might be building in place
+    print(cmd)
+    os.system(cmd)
