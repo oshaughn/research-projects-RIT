@@ -70,6 +70,7 @@ if not(opts.input_grid):
 
 main_worker_universe='vanilla'
 local_worker_universe="vanilla"
+desired_sites_name = "none"
 no_worker_grid=False
 if opts.condor_local_nonworker:
     local_worker_universe="local"
@@ -370,7 +371,7 @@ if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+con_marg_job.get_sub_file()
     con_marg_job.set_sub_file(fname)
 if opts.use_osg:
-    con_marg_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+    con_marg_job.add_condor_cmd("+DESIRED_SITES",'"{}"'.format(desired_sites_name))
     con_marg_job.add_condor_cmd("+flock_local",'true')
 if opts.use_singularity_local:
     con_marg.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
@@ -394,15 +395,15 @@ with open("con_prod.sh",'w') as f:
 
 con_prod_job, con_prod_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/con_prod.sh",tag='CON_PROD',log_dir=None,arg_str='',file_input="$(macroiteration)  ", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
 con_prod_job.add_condor_cmd("initialdir",opts.working_directory)
-con_prod_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).log")
-con_prod_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).out")
-con_prod_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).err")
+con_prod_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con_prod-$(macroevent)-$(process).log")
+con_prod_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con_prod-$(macroevent)-$(process).out")
+con_prod_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con_prod-$(macroevent)-$(process).err")
 con_prod_job.add_condor_cmd('request_disk',opts.general_request_disk)
 if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+con_prod_job.get_sub_file()
     con_prod_job.set_sub_file(fname)
 if opts.use_osg:
-    con_prod_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+    con_prod_job.add_condor_cmd("+DESIRED_SITES",'"{}"'.format(desired_sites_name))
     con_prod_job.add_condor_cmd("+flock_local",'true')
 if opts.use_singularity_local:
     con_marg.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
@@ -437,15 +438,15 @@ grep -h ^[[:space:]][-] *.net_marg | grep -v "inf" | sort -nr >> all.marg_net
     os.system("chmod a+x unify.sh")
 unify_marg_job, unify_marg_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/unify.sh",tag='UNIFY',log_dir=None,arg_str='',file_input='',out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
 unify_marg_job.add_condor_cmd("initialdir",opts.working_directory)
-unify_marg_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).log")
-unify_marg_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).out")
-unify_marg_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/con-$(macroevent).err")
+unify_marg_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(process).log")
+unify_marg_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(process).out")
+unify_marg_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(process).err")
 unify_marg_job.add_condor_cmd('request_disk',opts.general_request_disk)
 if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+unify_marg_job.get_sub_file()
     unify_marg_job.set_sub_file(fname)
 if opts.use_osg:
-    unify_marg_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+    unify_marg_job.add_condor_cmd("+DESIRED_SITES",'"{}"'.format(desired_sites_name))
     unify_marg_job.add_condor_cmd("+flock_local",'true')
 if opts.use_singularity_local:
     con_marg.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
@@ -490,7 +491,7 @@ if opts.use_full_submit_paths:
     join_post_job.set_sub_file(fname)
 join_post_job.write_sub_file()
 if opts.use_osg:
-    join_post_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+    join_post_job.add_condor_cmd("+DESIRED_SITES",'"{}"'.format(desired_sites_name))
     join_post_job.add_condor_cmd("+flock_local",'true')
 
 
@@ -522,7 +523,7 @@ if puff_args and puff_cadence:
         puff_job.set_sub_file(fname)
     puff_job.write_sub_file()
     if opts.use_osg:
-        puff_job.add_condor_cmd("+DESIRED_SITES",'"nogrid"')
+        puff_job.add_condor_cmd("+DESIRED_SITES",'"{}"'.format(desired_sites_name))
         puff_job.add_condor_cmd("+flock_local",'true')
 
 
