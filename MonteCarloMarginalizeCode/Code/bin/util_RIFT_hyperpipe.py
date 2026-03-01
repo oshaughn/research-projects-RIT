@@ -184,8 +184,10 @@ if __name__ == "__main__":
               for line in fnames_marg_exe_long:
                   f.write(line)
           files_transferred=True
-    if 'condor-local-nonworker-igwn-prefix' in config_here['general']:
-        cmd += " --condor-local-nonworker-igwn-prefix "
+    if 'condor-local-nonworker' in config_here['general']:
+        cmd += " --condor-local-nonworker "
+        if 'condor-local-nonworker-igwn-prefix' in config_here['general']:
+            cmd += " --condor-local-nonworker-igwn-prefix "
     if files_transferred: # should embed this as control to transfer each executable ?
         cmd += " --transfer-file-list `pwd`/transfer_file_list.txt " # redundant - transfers all things every time for all MARG, need to improve
     print(cmd)
