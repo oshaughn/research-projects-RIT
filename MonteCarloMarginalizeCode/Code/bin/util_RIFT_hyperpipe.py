@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 # install reuires hydra-core
 from omegaconf import DictConfig, OmegaConf
 import hydra
+import RIFT.misc.dag_utils as dag_utils
 
 
 base_dir =None
@@ -76,15 +77,31 @@ if __name__ == "__main__":
         if not(os.path.exists(config_here['general']['rundir'])):
             os.mkdir(config_here['general']['rundir'])
         os.chdir(config_here['general']['rundir'])
+    run_dir = os.getcwd()
 
     # Create necessary files (note event files will need to be copied in place)
     #   - MARG
     lines_marg = ''
     lines_marg_exe = ''
+    fnames_marg_exe_long = []
     lines_event_list = ''
+    nchunk_list =[]
     for indx in range(len(config_here['marg-list'])):
+        prefix=base_dir
         lines_marg += config_here['marg-list'][indx]['args'] + "\n"
-        lines_marg_exe += config_here['marg-list'][indx]['exe'] + "\n"
+
+        fname_orig = config_here['marg-list'][indx]['exe'] + "\n"
+        fname_clean = os.path.basename(fname_orig.strip())
+        lines_marg_exe += fname_orig
+        loc = dag_utils.which(fname_clean)
+        if loc is None:
+            loc = base_dir + "/" +fname_clean
+        print(fname_orig, loc)
+        if not('MonteCarloMarginalizeCode/Code/bin' in loc): # don't copy core rift executables
+            shutil.copyfile(loc, './'+fname_clean) # copy file
+            fnames_marg_exe_long += [run_dir + "/" + fname_clean]
+
+        # copy event files
         if 'event file' in config_here['marg-list'][indx]:
             prefix = base_dir
             fname_orig = config_here['marg-list'][indx]['event file']
@@ -93,6 +110,10 @@ if __name__ == "__main__":
             shutil.copy(fname_orig, 'event_file_{}.dat'.format(indx))
         else:
             lines_event_list += "empty_event_file\n"
+        if 'n-chunk' in config_here['marg-list'][indx]:
+            nchunk_list.append(int(config_here['marg-list'][indx]['n-chunk']))
+        else:
+            nchunk_list.append(1)
     with open("args_marg_eos.txt", "w") as f:
         f.write(lines_marg)
     with open("args_marg_eos_exe.txt", "w") as f:
@@ -100,6 +121,7 @@ if __name__ == "__main__":
     # Create event file.  Use empty file if empty
     with open("event_files.txt", "w") as f:
         f.write(lines_event_list)
+    np.savetxt("event_nchunk.txt", np.array(nchunk_list,dtype=int),fmt="%i")
     
     #   - POST
     line_post =''
@@ -138,12 +160,33 @@ if __name__ == "__main__":
     n_iterations = config_here['arch']['n-iterations']
     n_samples_per_job = config_here['arch']['n-samples-per-job']
     
-        
+    
+    files_transferred=False
+    fname_transfer_files = 'transfer_file_list.txt'
     # Create command line
-    cmd = "create_eos_posterior_pipeline  --n-samples-per-job {} --n-iterations {}  --working-dir `pwd` --event-file `pwd`/event_files.txt ".format(n_samples_per_job, n_iterations)
+    cmd = "create_eos_posterior_pipeline  --n-samples-per-job {} --n-iterations {}  --working-dir `pwd` ".format(n_samples_per_job, n_iterations)
+    # MARG
+    cmd += " --marg-event-nchunk-list-file `pwd`/event_nchunk.txt  --event-file `pwd`/event_files.txt "
     cmd += " --marg-event-exe-list-file `pwd`/args_marg_eos_exe.txt --marg-event-args-list-file  `pwd`/args_marg_eos.txt  "
+    # POST
     cmd += " --eos-post-args `pwd`/args_eos_post.txt --eos-post-exe `which util_ConstructEOSPosterior.py`  "
+    # PUFF
     cmd += " --puff-exe `which util_HyperparameterPuffball.py` --puff-args `pwd`/args_puff.txt "
+    # init
     cmd += " --input-grid `pwd`/initial_grid.dat "  # somewhat redundant to copy it, but we might be building in place
+    # general
+    if 'use-osg' in config_here['general']:
+        check = config_here['general']['use-osg']
+        if (isinstance(check, bool) and check) or (isinstance(check, str) and (check == 'True' or check == 'true') ):
+          cmd += " --use-osg --use-singularity "
+          # Transfer executables
+          with open('transfer_file_list.txt', 'a') as f:
+              for line in fnames_marg_exe_long:
+                  f.write(line)
+          files_transferred=True
+    if 'condor-local-nonworker-igwn-prefix' in config_here['general']:
+        cmd += " --condor-local-nonworker-igwn-prefix "
+    if files_transferred: # should embed this as control to transfer each executable ?
+        cmd += " --transfer-file-list `pwd`/transfer_file_list.txt " # redundant - transfers all things every time for all MARG, need to improve
     print(cmd)
     os.system(cmd)
