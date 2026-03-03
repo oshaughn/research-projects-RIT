@@ -558,6 +558,11 @@ if opts.composite_file:
         samples['phi1'] = phi1
         samples['phi2'] = phi2
         samples['phi12'] = phi2 - phi1
+        
+        chi1 = np.sqrt(samples['a1x']**2 + samples['a1y']**2+samples['a1z']**2)
+        chi2 = np.sqrt(samples['a2x']**2 + samples['a2y']**2+samples['a2z']**2)
+        samples = add_field(samples, [('chi1',float), ('chi2',float)])
+
 
         if ('lambda1' in samples.dtype.names):
             Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])

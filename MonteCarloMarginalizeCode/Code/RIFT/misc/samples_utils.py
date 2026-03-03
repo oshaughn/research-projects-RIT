@@ -225,6 +225,14 @@ def standard_expand_samples(samples):
                 samples = add_field(samples, [(field_name, float)])
                 samples[field_name] = phi_func_dict[field_name](samples)
 
+    if not('chi1' in samples.dtype.names):
+        chi1 = np.sqrt(samples['a1x']**2 + samples['a1y']**2+samples['a1z']**2)
+        samples = add_field(samples, [('chi1',float)])
+    if not('chi2' in samples.dtype.names):
+        chi2 = np.sqrt(samples['a2x']**2 + samples['a2y']**2+samples['a2z']**2)
+        samples = add_field(samples, [('chi2',float)])
+        
+                
     if 'lambda1' in samples.dtype.names and not ('lambdat' in samples.dtype.names):
         Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
         samples = add_field(samples, [('lambdat', float)]); samples['lambdat'] = Lt
