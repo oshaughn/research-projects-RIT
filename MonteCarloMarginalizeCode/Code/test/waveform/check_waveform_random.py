@@ -55,6 +55,7 @@ parser.add_argument("--force-zero-inclination",action='store_true')
 parser.add_argument("--use-eccentric",action='store_true')
 parser.add_argument("--inj", default=None,help="inspiral XML file containing injection information.")
 parser.add_argument("--event",type=int, default=None,help="event ID of injection XML to use.")
+parser.add_argument("--seglen",default=8,type=int)
 parser.add_argument("--verbose",action='store_true')
 opts=  parser.parse_args()
 
@@ -85,6 +86,7 @@ elif opts.inj:
       xmldoc = utils.load_filename(filename, verbose = True, contenthandler =lalsimutils.cthdler)
       sim_inspiral_table = lsctables.SimInspiralTable.get_table(xmldoc)
       P.copy_sim_inspiral(sim_inspiral_table[int(event)])
+      P.taper = lalsimutils.lsu_TAPER_START
       P.tref = 0.0 ## force this for plotting purposes only - safe?
 else:
    print("Using fiducial event parameters.")
@@ -119,7 +121,7 @@ if opts.approximant == "SEOBNRv5EHM":
    P.taper = lalsimutils.lsu_TAPER_NONE
    
 P.deltaT=1./4096
-P.deltaF = 1./8
+P.deltaF = 1./opts.seglen
 P.fref = 22
 P.fmin=opts.fmin
 if opts.use_same_fref:
