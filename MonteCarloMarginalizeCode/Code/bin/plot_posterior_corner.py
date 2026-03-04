@@ -542,11 +542,14 @@ if opts.composite_file:
     # If no record names
     # Add mtotal, q, 
     if 'm1' in samples.dtype.names and not 'q' in samples.dtype.names:
-        samples=add_field(samples,[('mtotal',float)]); samples["mtotal"]= samples["m1"]+samples["m2"]; 
-        samples=add_field(samples,[('q',float)]); samples["q"]= samples["m2"]/samples["m1"]; 
-        samples=add_field(samples,[('mc',float)]); samples["mc"] = lalsimutils.mchirp(samples["m1"], samples["m2"])
+        samples=add_field(samples,[('mtotal',float)]); samples["mtotal"]= samples["m1"]+samples["m2"];
+        if not 'q' in samples.dtype.names:
+            samples=add_field(samples,[('q',float)]); samples["q"]= samples["m2"]/samples["m1"];
+        if not 'mc' in samples.dtype.names:
+            samples=add_field(samples,[('mc',float)]); samples["mc"] = lalsimutils.mchirp(samples["m1"], samples["m2"])
         samples=add_field(samples,[('eta',float)]); samples["eta"] = lalsimutils.symRatio(samples["m1"], samples["m2"])
-        samples=add_field(samples,[('chi_eff',float)]); samples["chi_eff"]= (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["mtotal"]); 
+        if not 'chi_eff' in samples.dtype.names:
+            samples=add_field(samples,[('chi_eff',float)]); samples["chi_eff"]= (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["mtotal"]); 
         chi1_perp = np.sqrt(samples['a1x']*samples["a1x"] + samples['a1y']**2)
         chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
         samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
