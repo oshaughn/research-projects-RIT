@@ -99,6 +99,11 @@ def extract_combination_from_LI(samples_LI, p):
         m2v = samples_LI["m2"]
         return lalsimutils.symRatio(m1v,m2v)
 
+    if (p == 'chi1' or p=='a1') and 'a1x' in samples.dtype.names:
+        return np.sqrt(samples['a1x']**2 + samples['a1y']**2 + samples['a1z']**2)
+    if (p == 'chi2' or p=='a2') and 'a2x' in samples.dtype.names:
+        return np.sqrt(samples['a2x']**2 + samples['a2y']**2 + samples['a2z']**2)
+    
     if p == 'phi1':
         return np.angle(samples_LI['a1x']+1j*samples_LI['a1y'])
     if p == 'chi_pavg':
@@ -211,6 +216,13 @@ def standard_expand_samples(samples):
         chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
         samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
         samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
+
+        if not ('a1' in samples.dtype.names):
+            chi1 = np.sqrt(samples['a1x']**2 + samples['a1y']**2 + samples['a1z']**2)
+            samples = add_field(samples, [('a1', float)]); samples['a1']= chi1
+        if not ('a2' in samples.dtype.names):
+            chi2 = np.sqrt(samples['a2x']**2 + samples['a2y']**2 + samples['a2z']**2)
+            samples = add_field(samples, [('a2', float)]); samples['a2']= chi2
 
         # Askold: this part will check if phi1, phi2, phi12 are present. If not, compute and add the missing ones
         phi_fields = ['phi1', 'phi2', 'phi12']
