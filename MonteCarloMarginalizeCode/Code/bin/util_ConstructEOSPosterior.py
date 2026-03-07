@@ -842,7 +842,16 @@ if len(coord_names) < len(dat_orig_names): # not needed if all params are in fit
 
     if len(dat) < opts.n_output_samples:
         print(" NOTE: original data shorter than  requested output; adding",opts.n_output_samples-len(dat),"duplicate fill lines from original data.")
-        newlines = dat[:opts.n_output_samples-len(dat)] #duplicate lines to fill
+        newlines = None
+        if opts.n_output_samples > 2*len(dat):
+            newlines = dat[:]
+            newlen = len(newlines)
+            while newlen < opts.n_output_samples:
+                newerlines = dat[:opts.n_output_samples-newlen] #will only get up to len(dat) lines
+                newlines = np.concatenate((newlines,newerlines), axis=0)
+                newlen = len(newlines)
+        else:
+            newlines = dat[:opts.n_output_samples-len(dat)] #duplicate lines to fill
         dat = np.concatenate((dat,newlines), axis=0) #should be fine since dat isn't used after this
         
     for c in np.arange(len(dat_orig_names)):
@@ -860,5 +869,15 @@ for indx in np.arange(len(coord_names)):
     outindx = name_index_dict[ coord_names[indx]]   # write in correct place
     dat_out[:,outindx] = vals
 
+# NOTE: if m1 or m2 is "constant" (i.e., not in samples), the possibility for m2 > m1 arises! Re-sort masses here to avoid; use below code.
+#if ("m1" not in coord_names) or ("m2" not in coord_names):
+#    print(" NOTE: re-sorting masses so m1 > m2 (precaution)")
+#    m1dx = name_index_dict["m1"]
+#    m1 = np.maximum(dat_out[:,m1dx], dat_out[:,m1dx+1]) #N.B.: assumes m2 col index after m1 col
+#    m2 = np.minimum(dat_out[:,m1dx], dat_out[:,m1dx+1])
+#    dat_out[:,m1dx] = m1
+#    dat_out[:,m1dx+1] = m2
+
 print(" Saving to ", opts.fname_output_samples+".dat")
 np.savetxt(opts.fname_output_samples+".dat",dat_out,header=" lnL sigma_lnL " + ' '.join(dat_orig_names))
+
