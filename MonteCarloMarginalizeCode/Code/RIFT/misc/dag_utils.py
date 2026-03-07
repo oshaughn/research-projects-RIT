@@ -1051,8 +1051,21 @@ echo Starting ...
         cmdname = 'ile_pre.sh'
         if transfer_files is None:
             transfer_files = []
-        transfer_files += ["../ile_pre.sh", frames_dir]  # assuming default working directory setup
-        with open(cmdname,'w') as f:
+        transfer_files += [frames_dir]
+        # Test if we *need* ile_pre.sh : are path names already relative?
+        pre_needed = False
+        with open('local.cache', 'r') as f:
+            lines = f.readlines()
+            fnames = [x.split()[-1] for x in lines]
+            fnames_no_prefix = [x.replace('file:/','').replace('osdf:/','') for x in fnames]
+            for name in fnames_no_prefix:
+                if name[0] == '/':
+                    pre_needed =True
+        if not(pre_needed):
+            transfer_files += ['../local.cache']
+        else:            
+          transfer_files += ["../ile_pre.sh"]  # assuming default working directory setup
+          with open(cmdname,'w') as f:
             f.write("#! /bin/bash -xe \n")
             f.write( "ls "+frames_local+" | {lalapps_path2cache} 1> local.cache \n".format(lalapps_path2cache=lalapps_path2cache))  # Danger: need user to correctly specify local.cache directory
             # Rewrite cache file to use relative paths, not a file:// operation
@@ -1061,7 +1074,7 @@ echo Starting ...
             f.write("paste local_stripped.cache base_paths.dat > local_relative.cache \n")
             f.write("cp local_relative.cache local.cache \n")
             os.system("chmod a+x ile_pre.sh")
-        ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
+          ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
 
 
 #    if use_osg:
