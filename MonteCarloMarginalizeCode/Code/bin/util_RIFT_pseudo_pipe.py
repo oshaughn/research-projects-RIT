@@ -1602,6 +1602,16 @@ if opts.calibration_reweighting:
 #    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
 if opts.condor_local_nonworker_igwn_prefix:
     cmd += " --condor-local-nonworker-igwn-prefix "
+
+# Make copy of local.cache for use in file transfer
+if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
+    shutil.copyfile('local.cache', 'local_orig.cache')
+    # Move contents of ile_pre.sh here
+    os.system("cat local.cache > awk '{print $1, $2, $3, $4}' > local_stripped.cache")
+    os.system('for i in `ls frames_dir/*.gwf`; do echo frames_local/${i} ; done > base_paths.dat') # yes probably easier to do the ls myself
+    os.system("paste local_stripped.cache base_paths.dat > local_relative.cache ")
+    os.system("cp local_relative.cache local.cache")
+
 print(cmd)
 os.system(cmd)
 
@@ -1615,6 +1625,9 @@ if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_tran
         shutil.copyfile(opts.fake_data_cache, 'local.cache')
     # build truncated frames.  Note this parses ILE arguments, so must be done last
     os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
+
+
+    
 
 ## RUNMON
 try:
