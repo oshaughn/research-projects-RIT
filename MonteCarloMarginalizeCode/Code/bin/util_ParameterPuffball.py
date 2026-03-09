@@ -118,6 +118,7 @@ for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
 indx_reflect=[]
+rlist=[]
 if opts.reflect_parameter:
     rlist  = opts.reflect_parameter
     indx_reflect = [coord_names.index(param) for param in opts.reflect_parameter]
