@@ -239,7 +239,7 @@ for indx, name  in enumerate(coord_names):
 
 # Apply downselect constraints, using conversion utility for speed
 #   WARNING: For spin, we are NOT retaining transverse DOF by default!
-names_downselect = list(downselect_dict.keys())
+names_downselect = list(set(downselect_dict.keys()) - set(rlist)) # make sure to remove the unneeded conversions
 x_out_down = lalsimutils.convert_waveform_coordinates(X_out, coord_names=names_downselect, low_level_coord_names=coord_names)
 indx_ok = np.ones(len(x_out_down),dtype=bool)
 for indx, name in enumerate(names_downselect):
