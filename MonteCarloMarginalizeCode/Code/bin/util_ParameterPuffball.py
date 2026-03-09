@@ -202,7 +202,8 @@ if len(coord_names) >1:
         # final reflection
         tmp = np.where( tmp > reflect_dict[param][1], 2*reflect_dict[param][1] - tmp, tmp)
         X_out[:,indx] = tmp
-                                                 
+        # DELETE parameter from downselet_dict : no longer needed
+        del downselect_dict[param]
 
     # perform manual requirement
     if 'eta' in coord_names:
@@ -218,7 +219,7 @@ else:
         indx_eta = coord_names.index('eta')
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/2- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] < 0, -X_out[:,indx_eta], X_out[:,indx_eta]) # reflection on other side
-
+        
 # Undo natural logarithm
 for indx, name  in enumerate(coord_names):
     if name in log_coord_names:
