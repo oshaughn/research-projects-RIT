@@ -1052,9 +1052,9 @@ echo Starting ...
         if transfer_files is None:
             transfer_files = []
         transfer_files += [frames_dir]
-        # Test if we *need* ile_pre.sh : are path names already relative?
-        pre_needed = False
-        try:
+        # Test if we *need* ile_pre.sh : are path names already relative? DOES NOT WORK
+        pre_needed = True
+        if False: # try:
           with open('local.cache', 'r') as f:
             lines = f.readlines()
             fnames = [x.split()[-1] for x in lines]
@@ -1062,7 +1062,7 @@ echo Starting ...
             for name in fnames_no_prefix:
                 if name[0] == '/':
                     pre_needed =True
-        except:
+        else: # except:
             print(" WARNING: local.cache file not present, reverting to ile_pre.sh ")
         if not(pre_needed):
             transfer_files += ['../local.cache']
