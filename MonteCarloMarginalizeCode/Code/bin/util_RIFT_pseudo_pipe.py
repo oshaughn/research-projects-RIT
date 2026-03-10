@@ -966,7 +966,7 @@ if opts.internal_mitigate_fd_J_frame == 'L_frame':
     line += " --internal-waveform-fd-L-frame "
 if opts.internal_ile_inv_spec_trunc_time:
     line = line.replace("inv-spec-trunc-time 0 ","inv-spec-trunc-time {} ".format(opts.internal_ile_inv_spec_trunc_time))
-if not(opts.internal_ile_modify_taper):
+if (opts.internal_ile_modify_taper):
     line += " --internal-waveform-taper SIM_INSPIRAL_TAPER_START " # taper start of waveform by default, overrides any settings in the grids
 with open('args_ile.txt','w') as f:
         f.write(line)
