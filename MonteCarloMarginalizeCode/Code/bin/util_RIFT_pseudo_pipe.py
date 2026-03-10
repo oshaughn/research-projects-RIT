@@ -319,12 +319,13 @@ parser.add_argument("--archive-pesummary-event-label",default="this_event",help=
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
 opts=  parser.parse_args()
 
-
+config_stored=None; config_dict=None
 if (opts.use_ini):
     # Attempt to lazy-parse all command line arguments from ini file
     config = ConfigParser.ConfigParser()
     config.optionxform=str # force preserve case! Important for --choose-data-LI-seglen
     config.read(opts.use_ini)
+    config_stored=config
     if 'rift-pseudo-pipe' in config:
         # get the list of items
         rift_items = dict(config["rift-pseudo-pipe"])
@@ -356,6 +357,8 @@ if (opts.use_ini):
                 else:
                     config_dict[item_renamed] = True
         print(config_dict)
+
+
 
 
 if opts.use_osg:
@@ -639,13 +642,22 @@ if not(opts.skip_reproducibility): # not(assume_lowlatency):
         import shutil, json
         if opts.use_ini:
             shutil.copyfile(opts.use_ini, "local.ini") # copy into current directory
-        os.mkdir("reproducibility")
+        if not(os.path.exists("reproducibility")):
+            os.mkdir("reproducibility")
         # Write this script and its arguments
 #        thisfile = os.path.realpath(__file__)
 #        shutil.copyfile(thisfile, "reproducibility/the_script_used.py")
         argparse_dict = vars(opts)
+        # arguments in json form
         with open("reproducibility/the_arguments_used.json",'w') as f:
                 json.dump(argparse_dict,f)
+        # config parsing
+        if opts.use_ini and not(config_dict is None):
+            for name in argparse_dict:
+                config_stored['rift-pseudo-pipe'][name] = str(argparse_dict[name]) # add info
+            with open("reproducibility/local_real.ini",'w') as f:
+                config.write(f) # the actual arguments used!  (Not yet tested it works as input)
+            
         # Write commits
 #        cmd = "(cd ${ILE_CODE_PATH}; git rev-parse HEAD) > reproducibility/RIFT.commit"
 #        os.system(cmd)
