@@ -1680,7 +1680,9 @@ for it in np.arange(it_start,opts.n_iterations):
     if (opts.cip_explode_jobs is None) or (last_cip_subdag) or ('fit-method gp' in cip_args_base):
         dag.add_node(fit_node) 
         parent_fit_node = fit_node
-    elif not(opts.cip_explode_jobs is None) and not(last_cip_subdag): # don't explode if we just made a subdag!
+    else:
+        parent_fit_node = unify_node
+    if not(opts.cip_explode_jobs is None) and not(last_cip_subdag): # don't explode if we just made a subdag!
         print(" Exploding workers out ")
         # Create job to consolidate worker outputs
         join_node =pipeline.CondorDAGNode(join_cip_job)
