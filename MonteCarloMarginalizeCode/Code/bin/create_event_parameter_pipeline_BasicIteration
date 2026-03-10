@@ -95,7 +95,29 @@ def add_batch_ILE_nodes_to_dag(my_dag,my_ile_job,my_parent_node, my_child_node, 
                 node_list_dict[it].append(ile_node)
 
 
+def parse_ile_args_flexible(my_arg_str):
+    """
+    Narrower-scope parser with flexible arguments, to target
+    """
+    import argparse
+    import shlex
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--n-eff",type=int)
+    parser.add_argument("--cache-file",type=str)
+    parser.add_argument('other', nargs=argparse.REMAINDER)
+    args  = parser.parse_args(shlex.split(my_arg_str))
+    return args
+
+def parse_ile_args_lazy(my_arg_str,key_target):
+    str_split = my_arg_str.split('--')
+    matches = [x for x in str_split if x.startswith(key_target)]
+    print(matches)
+    return matches[-1].split(' ')[1]
+                
 def parse_ile_args_for_bw(my_arg_str):
+    """
+    this is HARD TO MAINTAIN since it needs to match ILE exactly
+    """
     # Copied verbatim from ILE
     from optparse import OptionParser, OptionGroup
     optp = OptionParser()
@@ -720,7 +742,7 @@ if  (opts.last_iteration_extrinsic):
     # ILE job with modified output format
     #  - note we *double* the memory request, because we need space to save samples
     #  - note
-    opts_ile = parse_ile_args_for_bw(ile_args_orig) # parse to get originally requested n_eff
+    opts_ile = parse_ile_args_flexible(ile_args_orig) # parse to get originally requested n_eff, cache-file
     n_eff_last = np.min([2*n_points_per_ILE,opts.last_iteration_extrinsic_samples_per_ile])  # make n_eff large enough to get all samples requested. Provide cap in case user requests very vew extrinsic workers.
     if hasattr(opts_ile, 'n_eff'):
         n_eff_last  = np.max([n_eff_last, opts_ile.n_eff]) # NEVER USE FEWER n_eff THAN WAS USED FOR intrinsic run. Fallback to no change in case (never happens) not in arg list
