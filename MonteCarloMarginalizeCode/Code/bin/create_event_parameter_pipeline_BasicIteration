@@ -746,16 +746,12 @@ if  (opts.last_iteration_extrinsic):
         n_eff_last  = np.max([n_eff_last, int(neff_orig)]) 
     # ILE job with modified output format
     #  - note we *double* the memory request, because we need space to save samples
-<<<<<<< HEAD
     #  - note
     opts_ile = parse_ile_args_flexible(ile_args_orig) # parse to get originally requested n_eff, cache-file
     n_eff_last = np.min([2*n_points_per_ILE,opts.last_iteration_extrinsic_samples_per_ile])  # make n_eff large enough to get all samples requested. Provide cap in case user requests very vew extrinsic workers.
     if hasattr(opts_ile, 'n_eff'):
         n_eff_last  = np.max([n_eff_last, opts_ile.n_eff]) # NEVER USE FEWER n_eff THAN WAS USED FOR intrinsic run. Fallback to no change in case (never happens) not in arg list
     ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(n_eff_last)  # modify convergence criteria so output of reasonable size/matching needs of extrinsic output
-=======
-    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(n_eff_last)
->>>>>>> f6012f93 (cepp_basic: enforce n_eff during intrinsic no less than n_eff during run, with safer parsing this time (other parser not well maintained))
     #  - note we *disable* --no-adapt-after-first (if present), so each point is independent (e.g., in sky location)
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
     if opts.last_iteration_extrinsic_time_resampling:
