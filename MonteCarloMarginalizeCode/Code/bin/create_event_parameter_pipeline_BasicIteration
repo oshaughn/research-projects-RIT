@@ -779,7 +779,7 @@ if  (opts.last_iteration_extrinsic):
         relevant_path_2 = dag_utils.which('convert_output_format_ile2inference')
         if opts.condor_local_nonworker_igwn_prefix:
             # we are in igwn environment
-            relevant_path = 'util_HyperCombine.py'  
+            relevant_path = 'util_JoinExtrXML.py'  
             relevant_path_2 = 'convert_output_format_ile2inference'
         # randomization: 'shuf' is preferred, but otherwise use ' sort -R'. Note performed locally, so local filesystem/os is fine.
         extra_shuffle_command = ''
