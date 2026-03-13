@@ -1237,12 +1237,17 @@ if opts.calibration_reweighting:
     if opts.calibration_reweighting_osg:
         extra_args_dict['use_osg'] =  opts.use_osg
         extra_args_dict['use_singularity'] =  opts.use_singularity
+        extra_args_dict['singularity_image'] = singularity_image
+        extra_args['universe'] = vanilla
+    else:
+        extra_args['no_grid']  = no_worker_grid
+        extra_args['universe'] = local_worker_universe
     if opts.transfer_file_list:
         # Handle scenario where h5 file needed by calmarg job. Note arranged as transfer because we don't know if execute nodes have the file, even if local
         any_h5_needed_list = [x for x in transfer_file_names if x.endswith('.h5')]  # NRSur, etc h5 files we need for lalsuite
         extra_args_dict['transfer_files'] = any_h5_needed_list
         
-    calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args,n_cal=opts.calibration_reweighting_count, **extra_args_dict)
+    calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",exe=opts.calibration_reweighting_exe,ile_args=ile_args,n_cal=opts.calibration_reweighting_count, **extra_args_dict)
         
     if opts.calibration_reweighting_initial_extra_args:
         # properly handle quoted extra arguments, such as dictionaries of waveform arguments
@@ -1261,7 +1266,10 @@ if opts.calibration_reweighting:
         calibration_job.set_log_file(opts.working_directory+"/calmarg/logs/calibration-$(macrostartidx)-$(cluster)-$(process).log")
         calibration_job.set_stderr_file(opts.working_directory+"/calmarg/logs/calibration-$(macrostartidx)-$(cluster)-$(process).err")
         calibration_job.set_stdout_file(opts.working_directory+"/calmarg/logs/calibration-$(macrostartidx)-$(cluster)-$(process).out")
-    calibration_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_singularity and opts.calibration_reweighting_osg:
+        calibration_job.add_condor_cmd('request_disk',opts.ile_request_disk)  # similar task, so use similar request
+    else:
+        calibration_job.add_condor_cmd('request_disk',opts.general_request_disk)
 
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+calibration_job.get_sub_file()
