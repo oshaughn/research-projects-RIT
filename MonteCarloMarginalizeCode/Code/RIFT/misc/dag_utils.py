@@ -2310,7 +2310,7 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
 
     #
     # Add mandatory options
-    pickke_file_arg = str(pickle_file)
+    pickle_file_arg = str(pickle_file)
     post_file_arg = str(posterior_file)
     if use_osg:
         transfer_files = pickle_file_arg + ',' + post_file_arg
