@@ -2225,7 +2225,7 @@ def write_subdagILE_sub(tag='subdag_ile', full_path_name=True, exe=None, univers
     return ile_job, ile_sub_name
 
 
-def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',no_grid=False,ile_args=None,n_cal=100,**kwargs):
+def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',no_grid=False,ile_args=None,n_cal=100,use_osg=False,use_oauth_files=False,singularity_image=None,transfer_files=None,**kwargs):
     """
     Write a submit file for launching jobs to reweight final posterior samples due to calibration uncertainty 
 
@@ -2234,6 +2234,8 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     Outputs:
      - reweighted samples due to calibration uncertainty and corresponding weights
     """
+    transfer_files = None
+    
     exe = exe or which("calibration_reweighting.py")
     if exe is None:
         print(" Calibration Reweighting code not available. ")
@@ -2250,6 +2252,21 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
 
 
     requirements =[]
+    # Containerization basics
+    if use_singularity:
+        # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+        ile_job.add_condor_cmd('request_CPUs', str(1))
+        ile_job.add_condor_cmd('transfer_executable', 'False')
+        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        requirements.append("HAS_SINGULARITY=?=TRUE")
+    if use_oauth_files:
+        # we are using some authentication to retrieve files from the file transfer list, for example, from distributed hosts, not just submit. eg urls provided
+            ile_job.add_condor_cmd('use_oauth_services',use_oauth_files)
+    if use_singularity or use_osg:
+            # Set up file transfer options
+           ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
+
     #
     # Logging options
     #
@@ -2260,8 +2277,14 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
 
     #
     # Add mandatory options
-    ile_job.add_opt('data_dump_file', str(pickle_file))
-    ile_job.add_opt('posterior_sample_file', str(posterior_file))
+    pickke_file_arg = str(pickle_file)
+    post_file_arg = str(posterior_fie)
+    if use_osg:
+        transfer_files = pickle_file_arg + ',' + post_file_arg
+        pickle_file_arg = os.path.basename(pickle_file_arg)
+        post_file_arg = os.path.basename(post_file_arg)
+    ile_job.add_opt('data_dump_file', str(pickle_file_arg))
+    ile_job.add_opt('posterior_sample_file', str(post_file_arg))
     ile_job.add_opt('number_of_calibration_curves', str(n_cal))
     ile_job.add_opt('reevaluate_likelihood', 'True')
     ile_job.add_opt('use_rift_samples', 'True')
@@ -2325,6 +2348,21 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
+    # Write transfer file list.  Will handle any surrogates + pickle/container files.
+    if not transfer_files is None:
+        if not isinstance(transfer_files, list):
+            fname_str=transfer_files + ' '.join(extra_files)
+        else:
+            fname_str = ','.join(transfer_files+extra_files)
+        fname_str=fname_str.strip()
+        ile_job.add_condor_cmd('transfer_input_files', fname_str)
+        ile_job.add_condor_cmd('should_transfer_files','YES')
+
+    # Stream log info
+    if not ('RIFT_NOSTREAM_LOG' in os.environ):
+        ile_job.add_condor_cmd("stream_error",'True')
+        ile_job.add_condor_cmd("stream_output",'True')
+    
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
