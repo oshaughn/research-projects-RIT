@@ -1245,10 +1245,10 @@ if opts.calibration_reweighting:
         extra_args_dict['use_osg'] =  opts.use_osg
         extra_args_dict['use_singularity'] =  opts.use_singularity
         extra_args_dict['singularity_image'] = singularity_image
-        extra_args['universe'] = vanilla
+        extra_args_dict['universe'] = 'vanilla'
     else:
-        extra_args['no_grid']  = no_worker_grid
-        extra_args['universe'] = local_worker_universe
+        extra_args_dict['no_grid']  = no_worker_grid
+        extra_args_dict['universe'] = local_worker_universe
     if opts.transfer_file_list:
         # Handle scenario where h5 file needed by calmarg job. Note arranged as transfer because we don't know if execute nodes have the file, even if local
         any_h5_needed_list = [x for x in transfer_file_names if x.endswith('.h5')]  # NRSur, etc h5 files we need for lalsuite
