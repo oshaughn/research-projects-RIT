@@ -2266,7 +2266,7 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
             if transfer_files is None:
                 transfer_files= [singularity_image]
             else:
-                transfer_files + = [singularity_image]
+                transfer_files += [singularity_image]
 
     
     exe = exe or which("calibration_reweighting.py")
