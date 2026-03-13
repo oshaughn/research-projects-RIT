@@ -515,15 +515,16 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     exe = exe or which("util_ConstructIntrinsicPosterior_GenericCoordinates.py")
     if use_singularity:
-        path_split = exe.split("/")
-        print((" Executable: name breakdown ", path_split, " from ", exe))
+        exe_base = os.path.basename(exe)
+#        path_split = exe.split("/")
+#        print((" Executable: name breakdown ", path_split, " from ", exe))
         singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
         if 'SINGULARITY_BASE_EXE_DIR_HYPERPIPE' in list(os.environ.keys()) : # allow a DIFFERENT exe to be used here for hyperpipe : CIP used for remote
             singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR_HYPERPIPE']
         elif 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()) :
             singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
-        exe=singularity_base_exe_path + path_split[-1]
-        if path_split[-1] == 'true':  # special universal path for /bin/true, don't override it!
+        exe=singularity_base_exe_path + exe_base
+        if exe_base == 'true':  # special universal path for /bin/true, don't override it!
             exe = "/usr/bin/true"
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
@@ -832,22 +833,21 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     exe = exe or which("integrate_likelihood_extrinsic")
     frames_local = None
     if use_singularity:
-        path_split = exe.split("/")
-        print((" Executable: name breakdown ", path_split, " from ", exe))
+        exe_base = os.path.basename(exe)
+#        print((" Executable: name breakdown ", path_split, " from ", exe))
         singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
         if 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()) :
             singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
         else:
 #            singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
             singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
-        exe=singularity_base_exe_path + path_split[-1]
+        exe=singularity_base_exe_path + exe_base
         if not(frames_dir is None):
             frames_local = frames_dir.split("/")[-1]
     elif use_osg:  # NOT using singularity!
         if not(frames_dir is None):
             frames_local = frames_dir.split("/")[-1]
-        path_split = exe.split("/")
-        exe=path_split[-1]  # pull out basename
+        exe = os.path.basename(exe)
         exe_here = 'my_wrapper.sh'
         if transfer_files is None:
             transfer_files = []
