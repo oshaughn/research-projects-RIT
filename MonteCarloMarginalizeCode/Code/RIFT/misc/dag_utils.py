@@ -2531,7 +2531,17 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
 
-    ile_job.add_condor_cmd('getenv', default_getenv_value)
+    # getenv: use default, BUT want to check for datafind so it is passed!
+    #
+    pickle_getenv_value = str(default_getenv_value) # force re-create
+    if not(pickle_getenv_value == 'True') and not('DATAFIND' in pickle_getenv_value):
+        names_datafind = []
+        for name in os.environ:
+            if 'DATAFIND' in name:
+                names_datafind.append(name)
+        if len(names_datafind)>0:
+            pickle_getenv_value= default_getenv_value +',' + ",".join(names_datafind)
+    ile_job.add_condor_cmd('getenv', pickle_getenv_value)
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M")
 
     # no grid
