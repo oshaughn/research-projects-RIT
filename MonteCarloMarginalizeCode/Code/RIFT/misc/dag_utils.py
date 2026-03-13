@@ -2243,7 +2243,7 @@ def write_subdagILE_sub(tag='subdag_ile', full_path_name=True, exe=None, univers
     return ile_job, ile_sub_name
 
 
-def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',no_grid=False,ile_args=None,n_cal=100,use_osg=False,use_oauth_files=False,singularity_image=None,transfer_files=None,**kwargs):
+def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',no_grid=False,ile_args=None,n_cal=100,use_osg=False,use_oauth_files=False,use_singularity=False,singularity_image=None,transfer_files=None,**kwargs):
     """
     Write a submit file for launching jobs to reweight final posterior samples due to calibration uncertainty 
 
@@ -2252,7 +2252,22 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     Outputs:
      - reweighted samples due to calibration uncertainty and corresponding weights
     """
-    transfer_files = None
+    if use_singularity and (singularity_image == None)  :
+        print(" FAIL : Need to specify singularity_image to use singularity ")
+        sys.exit(0)
+    if use_singularity and (transfer_files == None)  :
+        print(" FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file ")
+        sys.exit(0)
+
+    singularity_image_used = "{}".format(singularity_image) # make copy
+    if singularity_image:
+        if 'osdf:' in singularity_image:
+            singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
+            if transfer_files is None:
+                transfer_files= [singularity_image]
+            else:
+                transfer_files + = [singularity_image]
+
     
     exe = exe or which("calibration_reweighting.py")
     if exe is None:
