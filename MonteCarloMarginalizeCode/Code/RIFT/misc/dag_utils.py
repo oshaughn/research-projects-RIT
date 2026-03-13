@@ -2255,6 +2255,16 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     if exe is None:
         print(" Calibration Reweighting code not available. ")
         sys.exit(0)
+    if use_singularity:
+        exe_base = os.path.basename(exe)
+#        print((" Executable: name breakdown ", path_split, " from ", exe))
+        singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
+        if 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()) :
+            singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
+        else:
+#            singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
+            singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
+        exe=singularity_base_exe_path + exe_base
 
     ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
