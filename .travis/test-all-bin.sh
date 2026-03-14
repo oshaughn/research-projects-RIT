@@ -65,6 +65,11 @@ for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
         echo " NR-based code : " ${EXE}
         continue
    fi
+   # skip tests that are experimental code and/or require external packages (eg RIFT_hyperpipe.py)
+   if [[ ${EXE} == *"util_RIFT_hyperpipe.py" ]]; then
+         echo "Hyperpipe  " ${EXE}
+         continue
+   fi   
    # skip tests that require condor environment
    if [[ ${EXE} == *"check_CIP_complete_work.py" ]]; then
          continue
