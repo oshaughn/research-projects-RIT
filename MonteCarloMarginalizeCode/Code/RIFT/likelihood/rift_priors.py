@@ -1,11 +1,16 @@
 import RIFT.lalsimutils as lalsimutils
 import numpy as np
+import functools
+
+from RIFT.integrators.mcsampler import uniform_samp_cos_theta, uniform_samp_theta, uniform_samp_phase
 
 # problem: weird names, changing them is annoying!
 mc_max = 100
 mc_min = 1
 chi_max = 1
 chi_min =0
+chi_small_max=1
+chi_small_min=0
 eta_min =0.1
 lambda_max = 5000
 lambda_min=0.1
@@ -181,12 +186,12 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     # Polar spin components (uniform magnitude by default)
     'chi1':s_magnitude_uniform_prior,  
     'chi2':functools.partial(s_magnitude_uniform_prior, R=chi_small_max),
-    'theta1': mcsampler.uniform_samp_theta,
-    'theta2': mcsampler.uniform_samp_theta,
-    'cos_theta1': mcsampler.uniform_samp_cos_theta,
-    'cos_theta2': mcsampler.uniform_samp_cos_theta,
-    'phi1':mcsampler.uniform_samp_phase,
-    'phi2':mcsampler.uniform_samp_phase,
+    'theta1': uniform_samp_theta,
+    'theta2': uniform_samp_theta,
+    'cos_theta1': uniform_samp_cos_theta,
+    'cos_theta2': uniform_samp_cos_theta,
+    'phi1':uniform_samp_phase,
+    'phi2':uniform_samp_phase,
     # Pseudo-cylindrical : note this is a VOLUMETRIC prior
     'chi1_perp_bar':normalized_Rbar_prior,
     'chi1_perp_u':unnormalized_uniform_prior,
