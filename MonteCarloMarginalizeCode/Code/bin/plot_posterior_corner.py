@@ -302,7 +302,8 @@ if len(dlist) != len(dlist_ranges):
     print(" downselect parameters inconsistent", dlist, dlist_ranges)
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
-
+if opts.downselect_parameter:
+    print("Parameter downselect " , downselect_dict)
     
 truth_P_list = None
 P_ref = None
@@ -467,13 +468,15 @@ if opts.posterior_file:
         samples = new_samples
 
     # impose downselect on samples
-    if len(downselect_dict.keys()) < 1:
+    if len(downselect_dict.keys()) > 0:
         indx_ok = np.ones(len(samples),dtype=bool)
+        print(" Downselecting input samples for file ", fname, len(samples))
         for param in downselect_dict:
             if not param in samples.dtype.names:
                 print(" FAILURE TO DOWNSELECT ON  ", param)
                 continue
             indx_ok = np.logical_and(indx_ok, np.logical_and(samples[param] > downselect_dict[param][0], samples[param]<=downselect_dict[param][1]))
+            print("   {} : {} ", param, np.sum(indx_ok))
         samples = samples[indx_ok]
         
 
