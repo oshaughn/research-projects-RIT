@@ -252,6 +252,8 @@ parser.add_argument("--eccentricity", action="store_true", help="Read sample fil
 parser.add_argument("--meanPerAno", action="store_true", help="Read sample files in format including meanPerAno - assumes eccentricity also present")
 parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Relies entirely on user to set plot options for plot styles from matplotlibrc")
 parser.add_argument("--no-mod-psi",action="store_true",help="Default is to take psi mod pi. If present, does not do this")
+parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
+parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--verbose",action='store_true',help='print matplotlibrc data')
 opts=  parser.parse_args()
 
@@ -286,6 +288,22 @@ if opts.posterior_file is None:
 if opts.pdf:
     fig_extension='.pdf'
 
+
+downselect_dict = {}
+dlist = []
+dlist_ranges=[]
+if opts.downselect_parameter:
+    dlist = opts.downselect_parameter
+    dlist_ranges  = list(map(eval,opts.downselect_parameter_range))
+else:
+    dlist = []
+    dlist_ranges = []
+if len(dlist) != len(dlist_ranges):
+    print(" downselect parameters inconsistent", dlist, dlist_ranges)
+for indx in np.arange(len(dlist_ranges)):
+    downselect_dict[dlist[indx]] = dlist_ranges[indx]
+
+    
 truth_P_list = None
 P_ref = None
 truth_dat = None
@@ -448,6 +466,16 @@ if opts.posterior_file:
             new_samples[name] = samples[name][indx_ok]
         samples = new_samples
 
+    # impose downselect on samples
+    if len(downselect_dict.keys()) < 1:
+        indx_ok = np.ones(len(samples),dtype=bool)
+        for param in downselect_dict:
+            if not param in samples.dtype.names:
+                print(" FAILURE TO DOWNSELECT ON  ", param)
+                continue
+            indx_ok = np.logical_and(indx_ok, np.logical_and(samples[param] > downselect_dict[param][0], samples[param]<=downselect_dict[param][1]))
+        samples = samples[indx_ok]
+        
 
     # Save samples
     posterior_list.append(samples)
@@ -614,6 +642,16 @@ if opts.composite_file:
                 new_samples[name] = samples[name][indx_ok]
             samples = new_samples
             print(" Stripped samples  from ", fname , len(np.atleast_1d(samples["m1"])))
+
+    # impose downselect on composite file
+    if len(downselect_dict.keys()) < 1:
+        indx_ok = np.ones(len(samples),dtype=bool)
+        for param in downselect_dict:
+            if not param in samples.dtype.names:
+                print(" FAILURE TO DOWNSELECT ON  ", param)
+                continue
+            indx_ok = np.logical_and(indx_ok, np.logical_and(samples[param] > downselect_dict[param][0], samples[param]<=downselect_dict[param][1]))
+        samples = samples[indx_ok]
 
 
     composite_list.append(samples)
