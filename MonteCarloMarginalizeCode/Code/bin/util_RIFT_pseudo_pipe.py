@@ -1625,7 +1625,7 @@ if opts.condor_local_nonworker_igwn_prefix:
     cmd += " --condor-local-nonworker-igwn-prefix "
 
 # Make copy of local.cache for use in file transfer
-if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer:
+if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer and os.path.exists('local.cache'):
     shutil.copyfile('local.cache', 'local_orig.cache')
     # Move contents of ile_pre.sh here
     os.system("cat local.cache > awk '{print $1, $2, $3, $4}' > local_stripped.cache")
