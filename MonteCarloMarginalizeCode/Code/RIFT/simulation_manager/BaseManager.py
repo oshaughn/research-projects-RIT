@@ -61,6 +61,8 @@ class SimulationArchiveOnLocalDisk(SimulationArchive):
         self.valid_simulation_file = lambda x: os.path.exists(x) and not(x.startswith('metadata_'))
         self.valid_metadata_file = lambda x: os.path.exists(x) and (x.startswith('metadata_'))
         self.params_same_q = lambda x,y : str(x)==str(y)   # check if parameters are IDENTICAL
+        if not(hasattr(self, '_internal_simulations_have_sub_directories')):
+            self._internal_simulations_have_sub_directories = False
         if not(hasattr(self, '_internal_annotator')):
             self._internal_annotator = None  # internal function to return lists, to append to the structure.
         # default method
@@ -111,7 +113,14 @@ class SimulationArchiveOnLocalDisk(SimulationArchive):
         full_meta_fname = os.path.join(self.base_location, meta_name)
         self.save_params_command(full_meta_fname, sim_params)
         # Save simulation data
-        full_fname = os.path.join(self.base_location, sim_name)
+        if self._internal_simulations_have_sub_directories:
+            # make directory
+            full_fname = os.path.join(self.base_location, sim_name)
+            os.path.mkdir(full_fname)
+            # make full filename. Note full filename saved, so we can access the sved simulation file right now
+            full_fname = os.path.join(self.base_location, sim_name,sim_name)
+        else:
+            full_fname = os.path.join(self.base_location, sim_name)
         self.save_command(full_fname, sim_here)
         # Add extra internal annotations if any to end
         extra_stuff = []
@@ -182,7 +191,7 @@ class SimulationArchiveOnLocalDiskExternalQueue(SimulationArchiveOnLocalDisk):
 
     
 if __name__ == "__main__":
-    import BaseManager
+#    import BaseManager
 
     def my_generator(k,**kwargs):
         x = np.linspace(0,1,30)
