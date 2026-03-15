@@ -783,7 +783,7 @@ if  (opts.last_iteration_extrinsic):
             relevant_path = 'util_JoinExtrXML.py'  
             relevant_path_2 = 'convert_output_format_ile2inference'
         # randomization: 'shuf' is preferred, but otherwise use ' sort -R'. Note performed locally, so local filesystem/os is fine.
-        extra_shuffle_command = 'cat'
+        extra_shuffle_command = ' | cat'
         which_shuf = which('shuf'); which_sort = which('sort')
         if isinstance(which_shuf, str):
             extra_shuffle_command = ' | {} '.format(which_shuf)
@@ -793,9 +793,9 @@ if  (opts.last_iteration_extrinsic):
             f.write(f"""#! /bin/bash
 {extra_text}
 {relevant_path} ./iteration_$1_ile/'EXTR_out-*.xml_*_.xml.gz' --output ./tmp_converted.xml.gz
-{relevant_path2} {convert_args_extr} ./tmp_converted.xml.gz  > ./tmp_converted.dat
+{relevant_path_2} {convert_args_extr} ./tmp_converted.xml.gz  > ./tmp_converted.dat
 head -n 1 ./tmp_converted.dat > ./extrinsic_posterior_samples.dat
-sed 1d ./tmp_converted.dat | {extra_shuffle_command} >> ./extrinsic_posterior_samples.dat
+sed 1d ./tmp_converted.dat  {extra_shuffle_command} >> ./extrinsic_posterior_samples.dat
 """)#.format(extra_text,relevant_path,'.','.',relevant_path_2,convert_args_extr,opts.working_directory,extra_shuffle_command,opts.working_directory))
         os.system("chmod a+x allinone_convert.sh")
         # Create job submit file
