@@ -1,1 +1,1 @@
-__all__ = ['BaseManager']
+__all__ = ['BaseManager','CondorManager']
