@@ -2260,13 +2260,12 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         sys.exit(0)
 
     singularity_image_used = "{}".format(singularity_image) # make copy
+    extra_files = []
     if singularity_image:
-        if 'osdf:' in singularity_image:
-            singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
-            if transfer_files is None:
-                transfer_files= [singularity_image]
-            else:
-                transfer_files += [singularity_image]
+            if 'osdf:' in singularity_image:
+                singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
+                extra_files += [singularity_image]
+
 
     
     exe = exe or which("calibration_reweighting.py")
@@ -2392,9 +2391,9 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     # Write transfer file list.  Will handle any surrogates + pickle/container files.
     if not transfer_files is None:
         if not isinstance(transfer_files, list):
-            fname_str=transfer_files # + ' '.join(extra_files)
+            fname_str=transfer_files  + ' '.join(extra_files)
         else:
-            fname_str = ','.join(transfer_files)
+            fname_str = ','.join(transfer_files+extra_files)
         fname_str=fname_str.strip()
         ile_job.add_condor_cmd('transfer_input_files', fname_str)
         ile_job.add_condor_cmd('should_transfer_files','YES')
