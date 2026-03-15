@@ -182,6 +182,9 @@ if has_glue_pipeline:
             super().__init__(**kwargs)
             if not os.path.exists(self.base_location+"/logs"):
                 os.mkdir(self.base_location + '/logs')
+            # workspace for dags which are building the simulations
+            if not os.path.exists(self.base_location+"/dags"):
+                os.mkdir(self.base_location + '/dag')
 
         def generate_simulation(self, sim_params,**kwargs):
             self._internal_simulations_have_sub_directories = True 
@@ -215,7 +218,10 @@ if has_glue_pipeline:
             sim_path  = Path(self.simulations[sim_id_internal][1]).stem # path to directory 
             ile_node.add_macro("macro_sim_path", sim_path)
             return ile_node
-        
+
+
+        # NEXT STEP
+        #   - make a dag for all simulations which are 'ready', and set their status to 'submit_ready'
     
 
 if __name__ == "__main__":
