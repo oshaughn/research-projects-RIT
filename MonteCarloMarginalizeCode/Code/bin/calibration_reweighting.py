@@ -182,6 +182,9 @@ parser.add(
     "--dump_cal_realization", action='store_true',
     help="Dumps output file (in same location as weights) ")
 parser.add(
+    "--use_local_cal_files", action='store_true',
+    help="Assume cal files have been transferred to the current working directory, without name conflicts!")
+parser.add(
     "--posterior_sample_file", default=None,
     help="Bilby result file or text file with posterior samples to reweight")
 parser.add(
@@ -356,6 +359,8 @@ waveform_generator = bilby.gw.waveform_generator.WaveformGenerator(
 priors = bilby.core.prior.PriorDict()
 for ifo in ifos_for_reweighting:
     calibration_file_path = f'{spline_calibration_envelope_dict[ifo.name]}'
+    if args.use_local_cal_files:
+        calibration_file_path = os.path.basename(calibration_file_path) # force local
     ifo_calibration_priors = bilby.gw.prior.CalibrationPriorDict.from_envelope_file(
         calibration_file_path, ifo.minimum_frequency, ifo.maximum_frequency, 10, ifo.name)
 
