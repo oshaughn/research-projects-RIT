@@ -783,18 +783,20 @@ if  (opts.last_iteration_extrinsic):
             relevant_path = 'util_JoinExtrXML.py'  
             relevant_path_2 = 'convert_output_format_ile2inference'
         # randomization: 'shuf' is preferred, but otherwise use ' sort -R'. Note performed locally, so local filesystem/os is fine.
-        extra_shuffle_command = ''
+        extra_shuffle_command = ' | cat'
         which_shuf = which('shuf'); which_sort = which('sort')
         if isinstance(which_shuf, str):
             extra_shuffle_command = ' | {} '.format(which_shuf)
         elif isinstance(which_short,str):
             extra_shuffle_command  = ' | {} -R '.format(which_sort)
         with open("allinone_convert.sh",'w') as f:
-            f.write("""#! /bin/bash
-{}
-{} {}/iteration_$1_ile/'EXTR_out-*.xml_*_.xml.gz' --output {}/tmp_converted.xml.gz
-{} {} {}/tmp_converted.xml.gz {} > {}/extrinsic_posterior_samples.dat
-""".format(extra_text,relevant_path,'.','.',relevant_path_2,convert_args_extr,opts.working_directory,extra_shuffle_command,opts.working_directory))
+            f.write(f"""#! /bin/bash
+{extra_text}
+{relevant_path} ./iteration_$1_ile/'EXTR_out-*.xml_*_.xml.gz' --output ./tmp_converted.xml.gz
+{relevant_path_2} {convert_args_extr} ./tmp_converted.xml.gz  > ./tmp_converted.dat
+head -n 1 ./tmp_converted.dat > ./extrinsic_posterior_samples.dat
+sed 1d ./tmp_converted.dat  {extra_shuffle_command} >> ./extrinsic_posterior_samples.dat
+""")#.format(extra_text,relevant_path,'.','.',relevant_path_2,convert_args_extr,opts.working_directory,extra_shuffle_command,opts.working_directory))
         os.system("chmod a+x allinone_convert.sh")
         # Create job submit file
         batchConvertExtr_job, batchConvertExtr_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/allinone_convert.sh",tag='convert_extr',log_dir=None,arg_str='',file_input="$(macroiteration) ",file_output="/dev/null", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)

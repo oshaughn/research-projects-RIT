@@ -2302,6 +2302,11 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
         ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
         requirements.append("HAS_SINGULARITY=?=TRUE")
+        print(" WARNING: cal reweighting requires bilby -- currently configured to use LOCAL PATHS via pickle lookup. Locking cal reweighting to to current UID_DOMAIN, so files can be found. THIS WILL STOP WORKING WHEN HOME DIRECTORIES ARE NO LONGER ACCESSIBLE. Need to identify and transfer cal envelopes at runtime or extract from pickle better")
+        os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
+        with open("uid_domain.txt", 'r') as f:
+            uid_domain = f.readline()
+            requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
     if use_oauth_files:
         # we are using some authentication to retrieve files from the file transfer list, for example, from distributed hosts, not just submit. eg urls provided
             ile_job.add_condor_cmd('use_oauth_services',use_oauth_files)
