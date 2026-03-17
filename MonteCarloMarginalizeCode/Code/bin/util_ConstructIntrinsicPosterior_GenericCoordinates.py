@@ -1742,6 +1742,16 @@ if opts.input_tides:
         col_lnL += 2
         col_E0 = col_lnL -2
         col_pphi0 = col_lnL -1
+    if opts.use_eccentricity:
+        print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
+        if opts.use_meanPerAno:
+            print("  Also using meanPerAno ")
+            col_lnL+=2
+            col_meanPerAno = col_lnL -1
+            col_eccentricity = col_lnL -2
+        else:
+            col_lnL += 1
+            col_eccentricity = col_lnL -1
 elif opts.use_eccentricity:
     print(" Eccentricity input: [",ECC_MIN, ", ",ECC_MAX, "]")
     if opts.use_meanPerAno:
