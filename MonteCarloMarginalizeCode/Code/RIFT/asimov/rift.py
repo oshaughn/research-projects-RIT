@@ -370,10 +370,10 @@ class Rift(Pipeline):
                         "C01_offline",
                         f"{self.production.name}_bootstrap.xml.gz",
                     )
+                bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
                 # test if bootstrap file already exists
                 if not(os.path.exists(bootstrap_file)):
                        import RIFT.misc.samples_utils
-                       bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
                        RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
                        extra_args =''
                        # bootstrap eccentricity from samples
@@ -391,8 +391,8 @@ class Rift(Pipeline):
                 self.bootstrap="manual"
                 # as needed, parse bootstrap file for signal
                 if 'bootstrap amplitude' in self.production.meta['scheduler']:
-                           dat = np.genfromtxt(bootstrap_file_ascii)
-                           if 'log_likelihood' in dat:
+                           dat = np.genfromtxt(bootstrap_file_ascii,names=True)
+                           if 'log_likelihood' in dat.dtype.namees:
                                if np.max(dat['log_likelihood']) >   500:   # threshold,
                                    command += " --internal-ile-force-adapt-all "   # force 
 
