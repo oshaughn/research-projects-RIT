@@ -1244,7 +1244,8 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     if no_grid:
         ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
         ile_job.add_condor_cmd("MY.flock_local",'true')
-
+    if use_singularity or use_osg: 
+        ile_job.add_condor_cmd("MY.flock_local",'true')  # jobs can match to local pool !
 
 
     try:
