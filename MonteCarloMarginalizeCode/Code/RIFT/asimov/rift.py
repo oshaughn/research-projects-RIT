@@ -381,10 +381,10 @@ class Rift(Pipeline):
                            extra_args += ' --add-eccentricity-params  '
                            if 'force-ecc-max' in self.production.meta['sampler']:
                                extra_args+= ' --ecc-max {} '.format(self.production.meta['sampler']['force-ecc-max'])
-                        # zero out transverse spin if needed
-                        if 'nonprecessing' in self.production.meta['likelihood']['assume']:
+                       # zero out transverse spin if needed
+                       if 'nonprecessing' in self.production.meta['likelihood']['assume']:
                            extra_args += " --use-aligned-spin "
-                        if 'bootstrap size' in self.production.meta['scheduler']:
+                       if 'bootstrap size' in self.production.meta['scheduler']:
                                bootstrap_size = int(self.production.meta['scheduler']['bootstrap size'])
                                extra_args += " --target-size {} ".format(bootstrap_size)
                        os.system("convert_output_format_inference2ile --posterior-samples {} --output {} {} ".format(bootstrap_file_ascii, bootstrap_file, extra_args) )
