@@ -377,8 +377,8 @@ class Rift(Pipeline):
                        if 'bootstrap amplitude' in self.production.meta['scheduler']:
                            dat = np.genfromtxt(bootstrap_file_ascii)
                            if 'log_likelihood' in dat:
-                               if np.max(dat['log_likelihood']) >   300:   # threshold, roughly , correspond to SNR= 40
-                                   command += " --force-adapt-all "   # force 
+                               if np.max(dat['log_likelihood']) >   500:   # threshold,
+                                   command += " --internal-ile-force-adapt-all "   # force 
                        extra_args =''
                        # bootstrap eccentricity from samples
                        if 'eccentric' in self.production.meta['likelihood']['assume']:
