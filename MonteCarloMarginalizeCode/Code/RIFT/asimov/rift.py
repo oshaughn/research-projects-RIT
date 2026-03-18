@@ -16,6 +16,8 @@ from asimov.pipeline import PESummaryPipeline
 
 from asimov.utils import update
 
+import numpy as np
+
 try: 
     from asimov import auth
     my_auth_decorator = auth.refresh_scitoken
