@@ -987,6 +987,7 @@ echo Starting ...
         ile_job.add_condor_cmd('transfer_executable', 'False')
         ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
         ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')  # jobs can match to local pool !
         requirements.append("HAS_SINGULARITY=?=TRUE")
 #               if not(use_simple_osg_requirements):
 #                requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
@@ -1244,9 +1245,6 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     if no_grid:
         ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
         ile_job.add_condor_cmd("MY.flock_local",'true')
-    if use_singularity or use_osg: 
-        ile_job.add_condor_cmd("MY.flock_local",'true')  # jobs can match to local pool !
-
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
