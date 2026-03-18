@@ -295,6 +295,7 @@ parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-initial-grid-supplements",action='store_true', help="Manual inital grid used to SUPPLEMENT output of the default helper grid.")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
+parser.add_argument("--internal-ile-force-adapt-all",action='store_true', help="Syntactic sugar to prevent need to add manual-extra-ile-args for this: easier on user")
 parser.add_argument("--internal-puff-transverse",action='store_true', help=" appends the following arguments: --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u ")
 parser.add_argument("--manual-extra-puff-args",default=None,type=str,help="Avenue to adjoin extra PUFF arguments.  ")
 parser.add_argument("--manual-extra-test-args",default=None,type=str,help="Avenue to adjoin extra TEST arguments.  ")
@@ -952,7 +953,9 @@ if opts.internal_ile_reset_adapt or ((opts.ile_sampler_method =='adaptive_cartes
 if not(opts.manual_extra_ile_args is None):
     line += " {} ".format(opts.manual_extra_ile_args)  # embed with space on each side, avoid collisions
     if '--declination ' in opts.manual_extra_ile_args:   # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.
-        line = line.replace('--declination-cosine-sampler', '')  
+        line = line.replace('--declination-cosine-sampler', '')
+if opts.internal_ile_force_adapt_all:
+    line += " --force-adapt-all "
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 if opts.internal_ile_sky_network_coordinates:
