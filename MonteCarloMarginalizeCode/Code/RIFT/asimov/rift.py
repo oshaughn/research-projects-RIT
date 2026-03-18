@@ -374,6 +374,12 @@ class Rift(Pipeline):
                        import RIFT.misc.samples_utils
                        bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
                        RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
+                       # as needed, parse bootstrap file for signal
+                       if 'bootstrap amplitude' in self.production.meta['scheduler']:
+                           dat = np.genfromtxt(bootstrap_file_ascii)
+                           if 'log_likelihood' in dat:
+                               if np.max(dat['log_likelihood']) >   300:   # threshold, roughly , correspond to SNR= 40
+                                   command += " --force-adapt-all "   # force 
                        extra_args =''
                        # bootstrap eccentricity from samples
                        if 'eccentric' in self.production.meta['likelihood']['assume']:
