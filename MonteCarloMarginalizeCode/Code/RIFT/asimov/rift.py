@@ -393,9 +393,9 @@ class Rift(Pipeline):
                 # as needed, parse bootstrap file for signal
                 if 'bootstrap amplitude' in self.production.meta['scheduler']:
                            dat = np.genfromtxt(bootstrap_file_ascii,names=True)
-                           if 'log_likelihood' in dat.dtype.namees:
-                               if np.max(dat['log_likelihood']) >   500:   # threshold,
-                                   command += " --internal-ile-force-adapt-all "   # force 
+                           if 'lnL' in dat.dtype.names: # remember, cast to RIFT format ! name change !
+                               if np.max(dat['lnL']) >   500:   # threshold,
+                                   command +=[ " --internal-ile-force-adapt-all "]   # force 
 
                 # bootstrap coinc file !  note the intention will be to OVERWRITE the existing coinc (or to deal with the absence of one for this event)
                 if  'bootstrap coinc' in self.production.meta['scheduler']:
