@@ -923,6 +923,19 @@ if opts.condor_containerize_nonworker and singularity_image:
 unify_job.write_sub_file()
 
 
+# Evidence job
+evidence_job, evidence_job_name = dag_utils.write_convert_sub(tag='evidence', log_dir='', arg_str=" --cip-dir iteration_$(macroiteration)_cip --output evidence_$(macroiteration) ", base=opts.working_directory, universe=local_worker_universe, no_grid=no_worker_grid, extra_text=extra_text)
+evidence_job.add_condor_cmd("initialdir",opts.working_directory)
+evidence_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-$(cluster)-$(process).log")
+evidence_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-$(cluster)-$(process).err")
+evidence_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-$(cluster)-$(process).out")
+evidence_job.add_condor_cmd('request_disk',opts.general_request_disk)
+if opts.use_full_submit_paths:
+    fname = opts.working_directory+"/"+evidence_job.get_sub_file()
+    evidence_job.set_sub_file(fname)
+if opts.condor_containerize_nonworker and singularity_image:
+    evidence_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+evidence_job.write_sub_file()
 
 
 ##   Fit job: default case
@@ -1439,6 +1452,13 @@ for it in np.arange(it_start,opts.n_iterations):
     unify_node.add_parent(con_node)
     unify_node.set_retry(opts.general_retries)
     unify_node_list.append(unify_node)
+    # Create evidence job. ALWAYS HAS con_node as parent, guarantees it happens at the right time, same time as unify, NO CHILDREN.
+    evidence_node = pipeline.CondorDAGNode(evidence_job)
+    evidence_node.add_macro("macroiteration",it)
+    evidence_node.add_parent(con_node)
+    evidence_node.set_retry(opts.general_retries)
+    evidence_node_list.append(evidence_node)
+    
 
     n_group_here = n_group
     if it ==0 and n_group_first:
