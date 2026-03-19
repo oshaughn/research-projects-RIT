@@ -902,7 +902,8 @@ unify_job.write_sub_file()
 
 
 # Evidence job
-evidence_job, evidence_job_name = dag_utils.write_convert_sub(tag='evidence', exe='util_CIPDirSummarizeEvidence.py', log_dir='', file_input='',  arg_str=" --cip-dir iteration_$(macroiteration)_cip --output evidence_$(macroiteration) ",  universe=local_worker_universe, no_grid=no_worker_grid)
+exe_evidence = which('util_CIPDirSummarizeEvidence.py')
+evidence_job, evidence_job_name = dag_utils.write_convert_sub(tag='evidence', exe=exe_evidence, log_dir='', file_input='',  arg_str=" --cip-dir iteration_$(macroiteration)_cip --output evidence_$(macroiteration) ",  universe=local_worker_universe, no_grid=no_worker_grid)
 evidence_job.add_condor_cmd("initialdir",opts.working_directory)
 evidence_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-$(cluster)-$(process).log")
 evidence_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-$(cluster)-$(process).err")
