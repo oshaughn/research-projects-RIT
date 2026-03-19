@@ -1401,13 +1401,20 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
-    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
-
     # no grid
-    if no_grid:
-        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+    if no_grid:  # very aggressively enforce staying on the current filesystem!
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"none"')
         ile_job.add_condor_cmd("MY.flock_local",'true')
+        try:
+            os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
+            with open("uid_domain.txt", 'r') as f:
+                uid_domain = f.readline()
+                requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
+        except:
+            True
 
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+        
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
