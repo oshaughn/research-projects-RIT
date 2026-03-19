@@ -1429,7 +1429,6 @@ for it in np.arange(it_start,opts.n_iterations):
     evidence_node.add_macro("macroiteration",it)
     evidence_node.add_parent(con_node)
     evidence_node.set_retry(opts.general_retries)
-    
 
     n_group_here = n_group
     if it ==0 and n_group_first:
@@ -1523,6 +1522,7 @@ for it in np.arange(it_start,opts.n_iterations):
     # add con job
     dag.add_node(con_node)
     dag.add_node(unify_node)
+    dag.add_node(evidence_node)
 
     # Create fit node, which depends on consolidate node
     cip_job = cip_job_list[it]
