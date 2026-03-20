@@ -116,7 +116,8 @@ class SimulationArchiveOnLocalDisk(SimulationArchive):
         if self._internal_simulations_have_sub_directories:
             # make directory
             full_fname = os.path.join(self.base_location, sim_name)
-            os.path.mkdir(full_fname)
+            if not os.path.exists(full_fname):
+                os.mkdir(full_fname)
             # make full filename. Note full filename saved, so we can access the sved simulation file right now
             full_fname = os.path.join(self.base_location, sim_name,sim_name)
         else:

@@ -189,7 +189,7 @@ if has_glue_pipeline:
         def generate_simulation(self, sim_params,**kwargs):
             self._internal_simulations_have_sub_directories = True 
             # Create filesystem space, etc
-            super().__init__(**kwargs)
+            super().generate_simulation(sim_params,**kwargs)
             print(" NOT YET IMPLEMENTED TO INTERFACE AUTOMATICALLY")
 
         def build_master_job(self, tag=None, **kwargs):
@@ -231,7 +231,13 @@ if __name__ == "__main__":
     archive = SimulationArchiveOnLocalDiskIntegratedCondorQueue(name="test", base_location="foo", _internal_annotator=bm.append_queue_default)
     archive.generator = my_generator
     archive.build_master_job(tag="me") # Create condor submit file prototype
+
+    # dag management
+    dag = pipeline.CondorDAG(log=os.getcwd())
+    # initialization node? None
     
     sim_param = 0.5
-#    archive.generate_simulation(sim_param)
-#    archive.generate_simulation(sim_param+1)
+    archive.generate_simulation(sim_param+1)
+    sim_node = acrhive.get_node_for_dag('1') # get simulation first from the table
+    dag.set_dag_file("dags/my_dag.dag") # do not be this hardcoded
+    dag.write_concrete_dag()
