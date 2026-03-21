@@ -2415,6 +2415,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
                         ifo = cache_lines[indx][0]+"1"
                         bilby_data_dict[ifo] = cache_lines[indx][-1].replace('file://localhost','')
                 else:
+                    import glob
                     print(" WARNING: cache file ideallly contain one line per IFO to identify files in this approach")
                     if  not(frames_dir) or not os.path.exists('./frames_dir'):
                         print(" WARNING: Backstop method being applied - regenerating frames into frames_dir")
