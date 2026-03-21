@@ -1453,10 +1453,13 @@ for it in np.arange(it_start,opts.n_iterations):
     unify_node.set_retry(opts.general_retries)
     unify_node_list.append(unify_node)
     # Create evidence job. ALWAYS HAS con_node as parent, guarantees it happens at the right time, same time as unify, NO CHILDREN.
+    # It is also *backward looking*
     evidence_node = pipeline.CondorDAGNode(evidence_job)
-    evidence_node.add_macro("macroiteration",it)
-    evidence_node.add_parent(con_node)
+    evidence_node.add_macro("macroiteration",it-1)  # LAST ITERATION being analyzed, not this one
     evidence_node.set_retry(opts.general_retries)
+    if it > it_start:
+        evidence_node.add_parent(parent_fit_node)  # run evidence after previous iteration, on previous
+        dag.add_node(evidence_node)
 
     n_group_here = n_group
     if it ==0 and n_group_first:
@@ -1550,8 +1553,7 @@ for it in np.arange(it_start,opts.n_iterations):
     # add con job
     dag.add_node(con_node)
     dag.add_node(unify_node)
-    dag.add_node(evidence_node)
-
+    
     # Create fit node, which depends on consolidate node
     cip_job = cip_job_list[it]
 #    print(it, cip_job,creating_subdag_arg_list)
