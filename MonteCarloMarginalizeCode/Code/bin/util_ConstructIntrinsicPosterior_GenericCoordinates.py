@@ -672,7 +672,7 @@ if not('chi2' in downselect_dict):
     downselect_dict['chi2'] = [0,chi_small_max]
 if opts.input_tides:
     # only insert these cuts if we are using a composite file with tides!  
-    if not('lambda1' in downselect_dict):
+    if not('lambda1' in downselect_dict) and ('lambda1' in opts.parameter):
         downselect_dict['lambda1'] = [lambda_min,lambda_max]
     if not('lambda2' in downselect_dict):
         downselect_dict['lambda2'] = [lambda_min,lambda_small_max]
