@@ -318,7 +318,8 @@ parser.add_argument("--archive-pesummary-event-label",default="this_event",help=
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
 opts=  parser.parse_args()
 
-
+config_stored=None; config_dict=None
+ile_condor_commands = None
 if (opts.use_ini):
     # Attempt to lazy-parse all command line arguments from ini file
     config = ConfigParser.ConfigParser()
@@ -355,6 +356,15 @@ if (opts.use_ini):
                 else:
                     config_dict[item_renamed] = True
         print(config_dict)
+    # Condor commands for ile
+    if 'rift-ile-condor' in config:
+        rift_items = dict(config["rift-ile-condor"])
+        config_ile_condor_dict = vars(opts) # access dictionry of options
+        ile_condor_commands = []
+        for item in rift_items:
+            val = rift_items[item].strip()
+            ile_condor_commands.append([item, val])
+            
 
 
 if opts.use_osg:
@@ -1599,6 +1609,23 @@ if opts.calibration_reweighting:
 #    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
 if opts.condor_local_nonworker_igwn_prefix:
     cmd += " --condor-local-nonworker-igwn-prefix "
+
+# Make copy of local.cache for use in file transfer
+if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer and os.path.exists('local.cache'):
+    shutil.copyfile('local.cache', 'local_orig.cache')
+    # Move contents of ile_pre.sh here
+    os.system("cat local.cache > awk '{print $1, $2, $3, $4}' > local_stripped.cache")
+    os.system('for i in `ls frames_dir/*.gwf`; do echo frames_local/${i} ; done > base_paths.dat') # yes probably easier to do the ls myself
+    os.system("paste local_stripped.cache base_paths.dat > local_relative.cache ")
+    os.system("cp local_relative.cache local.cache")
+
+if not(ile_condor_commands is None):
+    # create file
+    with open("ile_condor_commands.txt", 'w') as f:
+        for key, val in ile_condor_commands:
+            f.write(key+ '  ' + val + '\n')
+    cmd += " --ile-condor-commands `pwd`/ile_condor_commands.txt "
+    
 print(cmd)
 os.system(cmd)
 
