@@ -671,7 +671,7 @@ if opts.ile_condor_commands and os.path.exists(opts.ile_condor_commands):
     lines =None
     ile_condor_commands = {}
     with open(opts.ile_condor_commands, 'r') as f:
-        line = f.readline()
+      for line in f:
         key, value = line.split(" ", 1) # force a single splitf
         ile_condor_commands[key] = value
     # reset to None if none provided
@@ -1595,6 +1595,8 @@ for it in np.arange(it_start,opts.n_iterations):
             cmd += " --frames-dir {} ".format(opts.frames_dir)
         if opts.ile_runtime_max_minutes:
             cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
+        if opts.ile_condor_commands:
+            cmd += " --ile-condor-commands {} ".format(opts.ile_condor_commands)
         if opts.use_osg:
             cmd += " --use-osg "
             if opts.use_osg_cip:
