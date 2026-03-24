@@ -322,12 +322,14 @@ parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_f
 opts=  parser.parse_args()
 
 config_stored=None; config_dict=None
+ile_condor_commands = None
 if (opts.use_ini):
     # Attempt to lazy-parse all command line arguments from ini file
     config = ConfigParser.ConfigParser()
     config.optionxform=str # force preserve case! Important for --choose-data-LI-seglen
     config.read(opts.use_ini)
     config_stored=config
+    # Command line arguments
     if 'rift-pseudo-pipe' in config:
         # get the list of items
         rift_items = dict(config["rift-pseudo-pipe"])
@@ -359,8 +361,15 @@ if (opts.use_ini):
                 else:
                     config_dict[item_renamed] = True
         print(config_dict)
-
-
+    # Condor commands for ile
+    if 'rift-ile-condor' in config:
+        rift_items = dict(config["rift-ile-condor"])
+        config_ile_condor_dict = vars(opts) # access dictionry of options
+        ile_condor_commands = []
+        for item in rift_items:
+            val = rift_items[item].strip()
+            ile_condor_commands.append([item, val])
+            
 
 
 if opts.use_osg:
@@ -1636,6 +1645,13 @@ if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_tran
     os.system("paste local_stripped.cache base_paths.dat > local_relative.cache ")
     os.system("cp local_relative.cache local.cache")
 
+if not(ile_condor_commands is None):
+    # create file
+    with open("ile_condor_commands.txt", 'w') as f:
+        for key, val in ile_condor_commands:
+            f.write(key+ '  ' + val + '\n')
+    cmd += " --ile-condor-commands `pwd`/ile_condor_commands.txt "
+    
 print(cmd)
 os.system(cmd)
 
