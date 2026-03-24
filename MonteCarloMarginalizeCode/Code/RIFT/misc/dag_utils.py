@@ -695,7 +695,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
     # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
     if condor_commands is not None:
-        for cmd, value in condor_commands.iteritems():
+        for cmd, value in condor_commands.items():
             ile_job.add_condor_cmd(cmd, value)
 
 
@@ -1142,7 +1142,7 @@ echo Starting ...
     # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
     # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
     if condor_commands is not None:
-        for cmd, value in condor_commands.iteritems():
+        for cmd, value in condor_commands.items():
             ile_job.add_condor_cmd(cmd, value)
 
     return ile_job, ile_sub_name
@@ -2987,7 +2987,7 @@ def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='
     # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
     # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
     if condor_commands is not None:
-        for cmd, value in condor_commands.iteritems():
+        for cmd, value in condor_commands.items():
             ile_job.add_condor_cmd(cmd, value)
 
 
