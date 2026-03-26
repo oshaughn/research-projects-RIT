@@ -126,6 +126,15 @@ def safely_quote_arg_str(arg_str):
     args1 = quote_arguments('"{}"'.format( quote_breaks[1])) # quote this properly, should be one argument
     return "{} {} {}".format(args0,args1,args2)
 
+def bilby_ish_string_to_dict(my_str):
+    items = my_str.replace('{', '').replace('}','').strip().split(',')
+    items = [x for x in items if len(x)>0] # drop cases wiith commas
+    pseudo_dict = {}
+    for item in items:
+        key,val = item.split(':')
+        pseudo_dict[key] = val
+    return pseudo_dict
+
 # for resolving environment variables
 def match_expr(my_list, my_expr):
   list_out = []
@@ -2359,6 +2368,9 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         transfer_files = pickle_file_arg + ',' + post_file_arg
         pickle_file_arg = os.path.basename(pickle_file_arg)
         post_file_arg = os.path.basename(post_file_arg)
+        if os.path.exists('calmarg/cal_envelopes'):
+            transfer_files += './cal_envelopes' # note initial dir configured so this will work
+            ile_job.add_arg(" --use-local-cal-files ")
     ile_job.add_opt('data_dump_file', str(pickle_file_arg))
     ile_job.add_opt('posterior_sample_file', str(post_file_arg))
     ile_job.add_opt('number_of_calibration_curves', str(n_cal))
@@ -2568,6 +2580,13 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
         else:
             print(" ==== WARNING FALLTHROUGH : calmarg failed to pull out options  ===",bilby_data_dict,bilby_items)
 
+    # make LOCAL COPIES OF CAL ENVELOPES with STANDARD NAMES - facilitate remote/OSG use
+    if 'spline-calibration-envelope-dict' in bilby_items:
+        spline_dict = bilby_ish_string_to_dict(bilby_items['spline-calibration-envelope-dict'])
+        if not os.path.exists('calmarg/cal_envelopes'):
+            os.mkdir('calmarg/cal_envelopes')
+        for ifo in spline_dict:
+            shutil.copyfile(spline_dict[ifo], 'cal_envelopes/{}.txt'.format(ifo))
 
     # Other required settings from ILE
     # approximant: if ile_args present, ALWAYS parse it and set it that way, so we are consistent with our own analysis
