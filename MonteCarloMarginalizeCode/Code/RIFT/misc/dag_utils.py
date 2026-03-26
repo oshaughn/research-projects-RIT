@@ -2515,14 +2515,16 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
         bilby_items = dict(config["top"])
         # Backstop horrible parsing situations where it returns a string and not dict
         if not(isinstance(bilby_items['channel-dict'], dict)):
-            base_list=bilby_items['channel-dict'][1:-1].split(',')[:-1]
-            base_dict = {}
-            for item in base_list:
-                if item:
-                   key,value =item.split(':')
-                   key = key.lstrip()
-                   base_dict[key] = value
-            bilby_items['channel-dict'] = base_dict
+            # Safer string parsing - in case no comma at end, etc
+            bilby_items['channel-dict'] = bilby_ish_string_to_dict(bilby_items['channel_dict'])
+            # base_list=bilby_items['channel-dict'][1:-1].split(',')[:-1]
+            # base_dict = {}
+            # for item in base_list:
+            #     if item:
+            #        key,value =item.split(':')
+            #        key = key.lstrip()
+            #        base_dict[key] = value
+            # bilby_items['channel-dict'] = base_dict
         ifo_list = list(bilby_items['channel-dict'])  # PSDs must be listed, implicitly provides all ifos
     # remove entries with the None keyword, as misleading
     dict_names = list(bilby_items)
@@ -2532,7 +2534,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
     if not('data-dict' in bilby_items):
         bilby_data_dict = {}
         if cache_file:
-            print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from (host) directory: {} ".format(frames_dir))
+            print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from (host) cache file: {} ".format(cache_file))
             cache_lines = np.loadtxt(cache_file,dtype=str)
             if len(ifo_list)==1 and len(cache_lines.shape)==1:
                 ifo = cache_lines[0] + '1'
