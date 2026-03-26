@@ -149,6 +149,7 @@ parser.add_argument("--online",action='store_true')
 parser.add_argument("--calibration-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to calibration uncertainty.")
 parser.add_argument("--calibration-reweighting-batchsize",type=int,default=None,help="If not 'None', tries to group the final set of points based on jobs of a fixed size")
 parser.add_argument("--calibration-reweighting-count",type=int,default=None,help="If not 'None', the number of calibration curves to request when marginalizing. Default is 100")
+parser.add_argument("--calibration-reweighting-initial-extra-args",type=str,default=None,help="If not 'None', pass through. One argument targets effective sample size, other duplicates inoutput")
 parser.add_argument("--calibration-reweighting-extra-args",type=str,default=None,help="If not 'None', pass through. One argument targets effective sample size, other duplicates inoutput")
 parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
@@ -1409,12 +1410,20 @@ if opts.calibration_reweighting and (not opts.bilby_pickle_file):
         cmd += " --calibration-reweighting-batchsize {} ".format(opts.calibration_reweighting_batchsize)
     if opts.calibration_reweighting_extra_args:
         cmd += " --calibration-reweighting-extra-args '{}' ".format(opts.calibration_reweighting_extra_args)
+    if opts.calibration_reweighting_initial_extra_args:
+        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_intial_extra_args)
+    if opts.calibration_reweighting_osg:
+        cmd += " --calibration-reweighting-osg "
 elif opts.calibration_reweighting and opts.bilby_pickle_file:
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-pickle-file {} ".format(str(opts.bilby_pickle_file))
     if opts.calibration_reweighting_count:
         cmd+= " --calibration-reweighting-count {} ".format(opts.calibration_reweighting_count)
     if opts.calibration_reweighting_extra_args:
         cmd += " --calibration-reweighting-extra-args '{}' ".format(opts.calibration_reweighting_extra_args)
+    if opts.calibration_reweighting_initial_extra_args:
+        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_intial_extra_args)
+    if opts.calibration_reweighting_osg:
+        cmd += " --calibration-reweighting-osg "
 if opts.internal_tabular_eos_file:
     cmd += " --use-tabular-eos-file "
 if opts.distance_reweighting:
@@ -1604,6 +1613,8 @@ if opts.calibration_reweighting:
         my_extra_string += ' --fref {} '.format(fref)
     if (opts.internal_mitigate_fd_J_frame =="L_frame"):
         my_extra_string += ' --internal-waveform-fd-L-frame '
+    if opts.calibration_reweighting_initial_extra_args:
+        my_extra_string+= ' {} '.format(opts.calibration_reweighting_initial_extra_args) # make sure to add spaces/padding
     cmd +=" --calibration-reweighting-initial-extra-args='  {}' ".format(my_extra_string)
 #if opts.internal_mitigate_fd_J_frame =="L_frame" and opts.use_gwsignal and not(opts.manual_extra_ile_args):
 #    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
