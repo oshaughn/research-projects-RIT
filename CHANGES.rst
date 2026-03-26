@@ -1,3 +1,14 @@
+0.0.17.8
+------------
+development tree is rift_O4c_staging -> rift_O4c; draft MR notes at
+https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
+
+   - (rc0) extrinsic output shuffle; datafind parsing contemporary environement; evidence files collected in one place
+     for humans; asimov SNR bootstrap; asimov safety protection for calmarg/bilby ini parsing; condor_commands
+     capability; calmarg output includes calibratio parameters in workflow, along with script to add postprocessing
+
+
+
 0.0.17.7
 ------------
 development tree is rift_O4c.
