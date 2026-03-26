@@ -360,7 +360,7 @@ priors = bilby.core.prior.PriorDict()
 for ifo in ifos_for_reweighting:
     calibration_file_path = f'{spline_calibration_envelope_dict[ifo.name]}'
     if args.use_local_cal_files:
-        calibration_file_path = os.path.basename(calibration_file_path) # force local
+        calibration_file_path = './cal_envelopes' #os.path.basename(calibration_file_path) # force local, specific name
     ifo_calibration_priors = bilby.gw.prior.CalibrationPriorDict.from_envelope_file(
         calibration_file_path, ifo.minimum_frequency, ifo.maximum_frequency, 10, ifo.name)
 
