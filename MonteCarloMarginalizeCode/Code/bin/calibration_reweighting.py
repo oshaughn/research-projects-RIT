@@ -235,6 +235,9 @@ with open(args.data_dump_file, "rb") as data_file:
 start_index = args.start_index
 end_index = args.end_index
 
+key_swap_dict = None
+key_swap_dict_backwards = None
+
 result=None # scoping requirement
 # read in the posterior samples for reweighting
 if args.posterior_sample_file.split(".")[-1] == 'json':
@@ -270,11 +273,14 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
                              'a2x':'spin_2x', 'a2y':'spin_2y', 'a2z':'spin_2z', 'incl':'iota', 'time':'geocent_time',
                              'phiorb':'phase', 'p':'log_prior', 'distance':'luminosity_distance', 'lambda1':'lambda_1', 'lambda2':'lambda_2',
                              'meanPerAno':'mean_per_ano'}
+            key_swap_dict_backwards = dict(zip(key_swap_dict.values(), key_swap_dict.keys()))
+
         else:
             key_swap_dict = {'m1':'mass_1', 'm2':'mass_2', 'a1x':'spin_1x', 'a1y':'spin_1y', 'a1z':'spin_1z',
                              'a2x':'spin_2x', 'a2y':'spin_2y', 'a2z':'spin_2z', 'incl':'iota', 'time':'geocent_time',
                              'phiorb':'phase', 'p':'log_prior', 'distance':'luminosity_distance', 'lambda1':'lambda_1', 'lambda2':'lambda_2'
                              }
+            key_swap_dict_backwards = dict(zip(key_swap_dict.values(), key_swap_dict.keys()))
             
 
         names = list(result.posterior.keys())  # dangerous to have iterator tied to changing structure
@@ -511,6 +517,15 @@ if args.dump_cal_realization:
             #for indx_event in range(len(result.posterior)):
             #    new_posterior.loc[indx_event,name] = recal_file_dict[ifo.name]["CalParams"]["table"][name][    recal_indx_array[indx_event]]
 
+    # Re-insert RIFT key names if needed
+    if opts.use_rift_samples:
+        names = list(new_posterior.keys())  # dangerous to have iterator tied to changing structure
+        for old_key in names:
+            if old_key in key_swap_dict:
+                new_posterior[key_swap_dict_backwards[old_key]] = new_posterior[old_key]
+                del new_posterior[old_key]
+
+            
     # WRITE TO FILE
     new_posterior.to_csv(extended_posterior_file,sep=' ',index=False)
 
