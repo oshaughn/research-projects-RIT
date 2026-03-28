@@ -1431,7 +1431,7 @@ if opts.calibration_reweighting and (not opts.bilby_pickle_file):
     if opts.calibration_reweighting_extra_args:
         cmd += " --calibration-reweighting-extra-args '{}' ".format(opts.calibration_reweighting_extra_args)
     if opts.calibration_reweighting_initial_extra_args:
-        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_intial_extra_args)
+        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_initial_extra_args)
     if opts.calibration_reweighting_osg:
         cmd += " --calibration-reweighting-osg "
 elif opts.calibration_reweighting and opts.bilby_pickle_file:
@@ -1441,7 +1441,7 @@ elif opts.calibration_reweighting and opts.bilby_pickle_file:
     if opts.calibration_reweighting_extra_args:
         cmd += " --calibration-reweighting-extra-args '{}' ".format(opts.calibration_reweighting_extra_args)
     if opts.calibration_reweighting_initial_extra_args:
-        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_intial_extra_args)
+        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_initial_extra_args)
     if opts.calibration_reweighting_osg:
         cmd += " --calibration-reweighting-osg "
 if opts.internal_tabular_eos_file:
