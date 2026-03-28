@@ -33,9 +33,10 @@ if len(sys.argv) > 4:
 outdir = os.path.dirname(os.path.abspath(sample_file))
 
 # test if cal samples are present,and of the correct length of filesa
-fnames_extended_post = glob.glob(weights_file_directory+"/weights*extended_posterior")
+fnames_extended_post = glob(weights_file_directory+"/weights*extended_posterior")
+fnames_weights = glob(weights_file_directory+"/weights*dat")
 have_extended = len(fnames_extended_post)>0
-if have_extended and len(fnames_extended_post) ==len(glob.glob(weights_file_directory+"/weights*dat")):
+if have_extended and len(fnames_extended_post) ==len(fname_weights):
     # important to import them IN ORDER -- see above
     fnames_extended_post.sort(key=sortKeyFunc)
     # import all the data, then concatenate
@@ -69,7 +70,8 @@ np.savetxt(f'{outdir}/weights.dat', weights)
 
 # Truncate samples to weight size, if larger
 npts_wts = len(weights)
-npts_samples = len(result.posterior['m1'])
+name_0 = result.posterior.keys()[0]
+npts_samples = len(result.posterior[name_0])
 print(" Sizes ", npts_samples, npts_wts)
 if npts_samples > len(weights):
     print(" Truncating input samples to weight size (=requested output size) ")
