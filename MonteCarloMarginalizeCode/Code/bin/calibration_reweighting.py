@@ -40,6 +40,7 @@ weights.dat:
 
 import os
 import sys
+import tempfile,shutil
 
 import argparse
 from copy import deepcopy, copy
@@ -498,7 +499,13 @@ if args.dump_cal_realization:
             #    new_posterior.loc[indx_event,name] = recal_file_dict[ifo.name]["CalParams"]["table"][name][    recal_indx_array[indx_event]]
 
     # WRITE TO FILE
-    new_posterior.to_csv(extended_posterior_file,sep=' ',index=False)
+    #   - problem with corrupted output if job fails on write (happens too often)
+    #new_posterior.to_csv(extended_posterior_file,sep=' ',index=False)
+    with tempfile.NamedTemporaryFile(mode='w+',delete=False) as temp:
+        new_posterior.to_csv(temp.name,sep=' ',index=False)
+        shutil.copy(temp.name, extended_posterior_file)
+        #os.rename(temp.name, extended_posterior_file)
+        
 
 
 if (start_index == None) and (end_index == None):
