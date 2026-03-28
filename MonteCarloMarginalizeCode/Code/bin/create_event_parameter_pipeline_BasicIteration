@@ -1445,10 +1445,6 @@ for it in np.arange(it_start,opts.n_iterations):
         evidence_node.add_parent(parent_fit_node)  # run evidence after previous iteration, on previous
         dag.add_node(evidence_node)
 
-    n_group_here = n_group
-    if it ==0 and n_group_first:
-        n_group_here=n_group_first
-        
     # Create one node per job
     n_jobs_this_time = opts.n_samples_per_job
     if it ==it_start:
