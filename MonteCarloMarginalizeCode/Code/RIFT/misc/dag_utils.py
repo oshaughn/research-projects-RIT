@@ -2424,7 +2424,9 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         ile_job.add_condor_cmd('getenv', default_getenv_value)
     else:
         ile_job.add_condor_cmd('getenv', getenv_calmarg)
-    ile_job.add_condor_cmd('request_memory', str(request_memory)+"M")
+    # use a smaller request initially, then increase. Should improve throughput
+    ile_job.add_condor_cmd('request_memory', str(request_memory/2)+"M")
+    ile_job.add_condor_cmd('retry_request_memory', str(request_memory)+"M")
 
     # no grid
     if no_grid:
