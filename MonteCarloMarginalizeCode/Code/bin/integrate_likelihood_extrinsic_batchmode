@@ -220,6 +220,7 @@ optp.add_option("--data-integration-window-half",default=75*1e-3,type=float,help
 optp.add_option("--internal-data-storage-window-half",default=0.15,type=float,help="Only change this window size if you are an expert. This is the haf-size of the window used to store data internally during the precompute step")
 optp.add_option("-F", "--fmax", type=float, help="Upper frequency of signal integration. Default is use PSD's maximum frequency.")
 optp.add_option("--srate",default=16384,type=int,help="Sampling rate. Change ONLY IF YOU ARE ABSOLUTELY SURE YOU KNOW WHAT YOU ARE DOING.")
+optp.add_option("--srate-internal",default=None,type=int,help="If provided, internal-use sampling rate. If not provided, all calculations performed with 'srate'. Change ONLY IF YOU ARE ABSOLUTELY SURE YOU KNOW WHAT YOU ARE DOING.")
 optp.add_option("-t", "--event-time", type=float, help="GPS time of the event --- probably the end time. Required if --coinc-xml not given.")
 optp.add_option("-i", "--inv-spec-trunc-time", type=float, default=8., help="Timescale of inverse spectrum truncation in seconds (Default is 8 - give 0 for no truncation)")
 optp.add_option("-w", "--window-shape", type=float, default=0, help="Shape of Tukey window to apply to data (default is no windowing)")
@@ -227,6 +228,7 @@ optp.add_option("--psd-window-shape", type=float, default=0, help="Shape of Tuke
 optp.add_option("-m", "--time-marginalization", action="store_true", help="Perform marginalization over time via direct numerical integration. Default is false.")
 #optp.add_option("--n-fairdraw-extrinsic-samples",default=None,type=int,help="Extracts a concrete number of fair draw extrinsic samples, bounded above by n_eff")
 optp.add_option("--resample-time-marginalization",action='store_true', help="If time-marginalizaiton is true (and should almost always be true), at the end export step use resampling. REQUIRES using fairdraw-extrinsic-output")
+optp.add_option("--srate-resample-time-marginalization",type=int, default=None, help="If time-marginalizaiton is true (and should almost always be true), an opportunity to interpolate the likelihoods on the (internal) time grid and perform time resampling at a higher sampling rate, for greater nominal time resolution. Does not change underlying calculations.")
 optp.add_option("-d", "--distance-marginalization", action="store_true", help="Perform marginalization over distance via a look-up table. Default is false.")
 optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, help="Look-up table for distance marginalization.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
@@ -432,9 +434,12 @@ manual_avoid_overflow_logarithm=opts.manual_logarithm_offset
 manual_avoid_overflow_logarithm_default =  manual_avoid_overflow_logarithm
 
 deltaT = None
+deltaT_internal=None
 fSample= opts.srate # change sampling rate
 if not(fSample is None):
   deltaT =1./fSample
+if not (opts.srate_internal is None):
+  deltaT_internal = 1./opts.srate_internal
 
 
 # Load in restricted mode set, if available
@@ -1308,6 +1313,7 @@ if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
 
 def resample_samples(my_samples,
                      lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None): # uses LOTS of global variables, don't pass them all
+  global fSample # access global sampling rate
   # will look a LOT like the likelihood function definitions, unfortunately
   if not opts.vectorized:
     raise Exception( ' resample_samples currently only for vectorized ')
@@ -1343,8 +1349,22 @@ def resample_samples(my_samples,
   tvals = identity_convert(tvals) # back to CPU
 #  print(lnLt.shape, lnLt_norm.shape,tvals.shape)
   # Loop over and resample in time, picking index according to weights
+  #   - perform higher-resolution interpolation
   t_out = np.zeros(n_samples)
   lnL_out = np.zeros(n_samples)
+  # IF UPSAMPLING, PERFORM NOW.  (Currently on
+  if opts.srate_resample_time_marginalization and opts.srate_resample_time_marginalization > fSample:
+    deltaT_orig = tvals[1]-tvals[0]
+    tvals_denser = tvals[0] + deltaT_orig/2 * np.arange(2*len(tvals))
+    from scipy.interpolate import RegularGridInterpolator, CubicSpline
+    # cubic spline at first, easiest  - generally not exporting too many events
+    lnLt_new = np.zeros( (lnLt.shape[0], lnLt.shape[1]*2) )
+    for indx_here in np.arange(n_samples):
+      cs = CubicSpline(tvals, lnLt[indx_here])
+      lnLt_new[indx_here] = cs(tvals_denser)
+    # replace, re-normalize
+    tvals = tvals_denser; lnLt= lnLt_new
+    lnLt_norm = scipy.special.logsumexp(lnLt,axis=-1)
   indx_list =np.arange(len(tvals))
   for indx in np.arange(n_samples):
     indx_choose = np.random.choice(indx_list, p=np.exp(lnLt[indx] - lnLt_norm[indx]))
