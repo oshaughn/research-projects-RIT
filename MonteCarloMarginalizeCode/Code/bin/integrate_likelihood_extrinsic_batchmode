@@ -653,14 +653,13 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print( "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
     data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
             inst+":"+chan, start=start_time, stop=end_time,
-            window_shape=opts.window_shape,deltaT=deltaT)
+            window_shape=opts.window_shape,deltaT=deltaT,deltaT_internal=deltaT_internal,use_gwpy=opts.internal_use_gwpy)
     print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
             data_dict[inst].data.length) )
-
 # set global sampling rate, now that we have done import
 if deltaT_internal:
   deltaT=deltaT_internal
-  fSample = 1./deltaT   # make sure reassign, for time resampling argument safety
+  fSample = 1./deltaT
     
 flow_ifo_dict = {}
 if opts.fmin_ifo:
