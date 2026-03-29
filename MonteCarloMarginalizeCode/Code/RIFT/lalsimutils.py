@@ -4603,7 +4603,7 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
     return tmp
 
 def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
-                       verbose=True,deltaT=None,use_gwpy=False,**kwargs):
+                       verbose=True,deltaT=None,deltaT_internal=None,use_gwpy=False,**kwargs):
     """
     Function to read in data in the frame format and convert it to 
     a REAL8TimeSeries. fname is the path to a LIGO cache file.
@@ -4665,6 +4665,11 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
     # Resample the timeries as requested
     if (not (deltaT is None)) and deltaT > tmp.deltaT:
         lal.ResampleREAL8TimeSeries(tmp,deltaT)
+
+    # Upsample if requested. We do *after* the above, so the correct filter is applied for any low pass.
+    if not deltaT_internal is None:
+        if deltaT_internal < deltaT:
+            lal.ResampleREAL8TimeSeries(tmp, deltaT_internal)
 
     return tmp
 
