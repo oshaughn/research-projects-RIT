@@ -710,6 +710,7 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
 # set global sampling rate, now that we have done import
 if deltaT_internal:
   deltaT=deltaT_internal
+  fSample = 1./deltaT   # make sure reassign, for time resampling argument safety
     
 flow_ifo_dict = {}
 if opts.fmin_ifo:
