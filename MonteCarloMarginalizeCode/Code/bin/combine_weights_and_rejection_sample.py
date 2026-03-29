@@ -36,7 +36,7 @@ outdir = os.path.dirname(os.path.abspath(sample_file))
 fnames_extended_post = glob(weights_file_directory+"/weights*extended_posterior")
 fnames_weights = glob(weights_file_directory+"/weights*dat")
 have_extended = len(fnames_extended_post)>0
-if have_extended and len(fnames_extended_post) ==len(fname_weights):
+if have_extended and len(fnames_extended_post) ==len(fnames_weights):
     # important to import them IN ORDER -- see above
     fnames_extended_post.sort(key=sortKeyFunc)
     # import all the data, then concatenate
