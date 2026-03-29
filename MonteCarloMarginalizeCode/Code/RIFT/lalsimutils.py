@@ -4667,9 +4667,18 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
         lal.ResampleREAL8TimeSeries(tmp,deltaT)
 
     # Upsample if requested. We do *after* the above, so the correct filter is applied for any low pass.
+    #   -  last points in upsampling aren't defined since they is not an interior point. Set to zero
     if not deltaT_internal is None:
         if deltaT_internal < deltaT:
-            lal.ResampleREAL8TimeSeries(tmp, deltaT_internal)
+            fac = int(deltaT/deltaT_internal) # upsampling factor, needs to be INTEGER for now
+            if fac < 1:
+                raise Exception(" frame_data_to_hoft: deltaT_internal resampling not a valid multiple of deltaT ")
+            xvals = np.arange(tmp.data.length)*fac
+            xvals_resampled = np.arange(fac*tmp.data.length)
+            tmp2 = lal.CreateREAL8TimeSeries("hoft", tmp.epoch, 0, tmp.deltaT/fac, lsu_DimensionlessUnit, fac*tmp.data.length)
+            tmp2.data.data *= 0 # zero out
+            tmp2.data.data = np.interp(xvals_resampled,xvals,   tmp.data.data)
+            tmp = tmp2
 
     return tmp
 
