@@ -1417,7 +1417,7 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
         try:
             os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
             with open("uid_domain.txt", 'r') as f:
-                uid_domain = f.readline()
+                uid_domain = f.readline().strip()
                 requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
         except:
             True
@@ -1487,7 +1487,7 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
         try:
             os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
             with open("uid_domain.txt", 'r') as f:
-                uid_domain = f.readline()
+                uid_domain = f.readline().strip()
                 requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
         except:
             True
@@ -2072,7 +2072,7 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
         try:
             os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
             with open("uid_domain.txt", 'r') as f:
-                uid_domain = f.readline()
+                uid_domain = f.readline().strip()
                 requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
         except:
             True
@@ -2183,7 +2183,7 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
         try:
             os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
             with open("uid_domain.txt", 'r') as f:
-                uid_domain = f.readline()
+                uid_domain = f.readline().strip()
                 requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
         except:
             True
@@ -2343,7 +2343,7 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         print(" WARNING: cal reweighting requires bilby -- currently configured to use LOCAL PATHS via pickle lookup. Locking cal reweighting to to current UID_DOMAIN, so files can be found. THIS WILL STOP WORKING WHEN HOME DIRECTORIES ARE NO LONGER ACCESSIBLE. Need to identify and transfer cal envelopes at runtime or extract from pickle better")
         os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
         with open("uid_domain.txt", 'r') as f:
-            uid_domain = f.readline()
+            uid_domain = f.readline().strip()
             requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
     if use_oauth_files:
         # we are using some authentication to retrieve files from the file transfer list, for example, from distributed hosts, not just submit. eg urls provided
@@ -2703,7 +2703,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
         try:
             os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
             with open("uid_domain.txt", 'r') as f:
-                uid_domain = f.readline()
+                uid_domain = f.readline().strip()
                 requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
         except:
             True
@@ -2858,7 +2858,7 @@ def write_convert_ascii_to_h5_sub(tag='Convert_ascii2h5', convert_ascii_to_h5_ex
         try:
             os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
             with open("uid_domain.txt", 'r') as f:
-                uid_domain = f.readline()
+                uid_domain = f.readline().strip()
                 requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
         except:
             True
@@ -2916,7 +2916,7 @@ def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='
         try:
             os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
             with open("uid_domain.txt", 'r') as f:
-                uid_domain = f.readline()
+                uid_domain = f.readline().strip()
                 requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
         except:
             True
