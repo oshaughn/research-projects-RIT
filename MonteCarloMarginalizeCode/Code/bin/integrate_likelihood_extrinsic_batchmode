@@ -657,6 +657,11 @@ for inst, chan in map(lambda c: c.split("="), opts.channel_name):
     print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
             data_dict[inst].data.length) )
 
+# set global sampling rate, now that we have done import
+if deltaT_internal:
+  deltaT=deltaT_internal
+  fSample = 1./deltaT   # make sure reassign, for time resampling argument safety
+    
 flow_ifo_dict = {}
 if opts.fmin_ifo:
  for inst, freq_str in map(lambda c: c.split("="), opts.fmin_ifo):
