@@ -2518,7 +2518,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
         # Backstop horrible parsing situations where it returns a string and not dict
         if not(isinstance(bilby_items['channel-dict'], dict)):
             # Safer string parsing - in case no comma at end, etc
-            bilby_items['channel-dict'] = bilby_ish_string_to_dict(bilby_items['channel_dict'])
+            bilby_items['channel-dict'] = bilby_ish_string_to_dict(bilby_items['channel-dict'])
             # base_list=bilby_items['channel-dict'][1:-1].split(',')[:-1]
             # base_dict = {}
             # for item in base_list:
