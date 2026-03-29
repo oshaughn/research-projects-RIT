@@ -984,8 +984,8 @@ if opts.internal_ile_inv_spec_trunc_time:
     line = line.replace("inv-spec-trunc-time 0 ","inv-spec-trunc-time {} ".format(opts.internal_ile_inv_spec_trunc_time))
 if (opts.internal_ile_modify_taper):
     line += " --internal-waveform-taper SIM_INSPIRAL_TAPER_START " # taper start of waveform by default, overrides any settings in the grids
-if opts.internal_ile_rate_internal:
-    line += " --srate-internal {} ".format(opts.internal_ile_rate_internal)
+if opts.internal_ile_srate_internal:
+    line += " --srate-internal {} ".format(opts.internal_ile_srate_internal)
 # strictly the next argument only does anything at the extrinsic step, otherwis it is ignored
 if opts.internal_ile_srate_time_resampling:
     line += " --srate-resample-time-marginalization {} ".format(opts.internal_ile_srate_time_resampling)
