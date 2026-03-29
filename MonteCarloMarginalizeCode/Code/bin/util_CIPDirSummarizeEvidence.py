@@ -16,7 +16,9 @@ opts = parser.parse_args()
 # normal: have correct error (sometimes double log)
 fnames_cip = glob.glob(opts.cip_dir+"/overlap-grid-*-*[0-9]+annotation.dat") # avoid the non-worker result
 if len(fnames_cip) < 1:
-    raise Exception(" No files for evidence in ", opts.cip_dir)
+    #raise Exception(" No files for evidence in ", opts.cip_dir)
+    print(" No files for evidence in ", opts.cip_dir)
+    sys.exit(0) # SUCCESS IMPORTANT: do not stop dag, this is probably a subdag. Worst case we can run manually later.
 net_dat = []
 for fname in fnames_cip:
     fname_alt =fname.replace('+annotation.dat', '_withpriorchange+annotation.dat')
