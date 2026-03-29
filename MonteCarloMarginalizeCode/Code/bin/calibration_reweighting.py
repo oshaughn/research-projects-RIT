@@ -239,6 +239,10 @@ result=None # scoping requirement
 # read in the posterior samples for reweighting
 if args.posterior_sample_file.split(".")[-1] == 'json':
     result = bilby.core.result.read_in_result(args.posterior_sample_file)
+    if start_index is not None:
+        if start_index > len(result.posterior):
+            print(" Stopping : no work after end of file")
+            sys.exit(0)  # no work needed, stop
     if end_index is not None:
         if end_index > len(result.posterior):
             end_index = len(result.posterior)
@@ -246,6 +250,10 @@ if args.posterior_sample_file.split(".")[-1] == 'json':
 elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sample_file.split(".")[-1] == 'dat'):
     result = bilby.core.result.Result()
     result.posterior = pd.DataFrame(np.genfromtxt(args.posterior_sample_file, names=True))
+    if start_index is not None:
+        if start_index > len(result.posterior):
+            print(" Stopping : no work after end of file")
+            sys.exit(0)  # no work needed, stop
     if end_index is not None:
         if end_index > len(result.posterior):
             end_index = len(result.posterior)
