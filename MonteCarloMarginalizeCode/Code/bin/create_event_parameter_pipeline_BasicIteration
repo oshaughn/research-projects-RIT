@@ -2005,7 +2005,8 @@ with open("confirm_exist.sh",'w') as f:
 st=os.stat("confirm_exist.sh"); os.chmod("confirm_exist.sh", st.st_mode | stat.S_IEXEC)
 with open(dag_name+".dag",'a') as f:
     for indx_here, name in enumerate(my_names_con):
-        f.write("SCRIPT POST "+ name + " {}/confirm_exist.sh {}/consolidated_{}.composite \n".format(opts.working_directory,opts.working_directory,indx_here+indx))
+        if indx_here >=indx: # skip 0th entry if appropriate
+            f.write("SCRIPT POST "+ name + " {}/confirm_exist.sh {}/consolidated_{}.composite \n".format(opts.working_directory,opts.working_directory,indx_here))
     for name in my_names_unify:
         f.write("SCRIPT POST "+ name + " {}/confirm_exist.sh {}/all.net \n".format(opts.working_directory,opts.working_directory))
     # add dot file, for dag visualization
