@@ -6,7 +6,9 @@ https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
    - (rc0) extrinsic output shuffle; datafind parsing contemporary environement; evidence files collected in one place
      for humans; asimov SNR bootstrap; asimov safety protection for calmarg/bilby ini parsing; condor_commands
      capability; calmarg output includes calibratio parameters in workflow, along with script to add postprocessing
-
+   - (rc1) data upsampling support (--srate-internal); time output interpolation to higher sampling rates
+     (--srate-resample-time-marginalization); calmarg output for cal  parameters safety and function improved; fix bugs
+     introduced cherry-picking for last release.
 
 
 0.0.17.7
