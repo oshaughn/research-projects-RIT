@@ -4680,7 +4680,7 @@ def frame_data_to_hoff(fname, channel, start=None, stop=None, TDlen=0,
 
 
 def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
-        window_shape=0., verbose=True,deltaT=None):
+    window_shape=0., verbose=True,deltaT=None,**kwargs):
     """
     Function to read in data in the frame format
     and convert it to a COMPLEX16FrequencySeries 
@@ -4698,7 +4698,7 @@ def frame_data_to_non_herm_hoff(fname, channel, start=None, stop=None, TDlen=0,
     If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
     If TDlen == N, zero-pad the TD waveform to length N before FFTing
     """
-    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose,deltaT=deltaT)
+    ht = frame_data_to_hoft(fname, channel, start, stop, window_shape, verbose,deltaT=deltaT,**kwargs)
 
     tmplen = ht.data.length
     if TDlen == -1:
