@@ -1054,6 +1054,8 @@ chieff_str = '' # Scoping issue fix
 helper_test_args += "  --method lame  --parameter mc --parameter eta  --iteration $(macroiteration) "
 if not opts.assume_nospin:
     helper_test_args += " --parameter xi "  # require chi_eff distribution to be stable
+    if opts.assume_precessing:  # test on spin 1 perpendicular variables. Note this WILL PROBABLY FAIL IF PRIMARY HAS EXACTLY ZERO TRANSVERSE SPIN (or zero overall)
+        helper_test_args += " --parameter chi1_perp --parameter phi1 "
 if not opts.test_convergence:
     helper_test_args+= " --always-succeed "
 
