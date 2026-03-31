@@ -347,7 +347,20 @@ if args.internal_waveform_fd_no_condition:
 if args.use_gwsignal_lmax_nyquist:
     extra_waveform_kwargs['lmax_nyquist'] = int(args.use_gwsignal_lmax_nyquist)
 if args.extra_waveform_kwargs:
-    extra_waveform_kwargs.update(eval(args.extra_waveform_kwargs))
+    # this form is REQUIRED to parse the standard v5PHM arguments : the key strings are not quoted when passed in from asimov
+    # Need to work on consistency for XPHM-SpinTaylor parsing
+    my_arg_dict = eval(args.extra_waveform_kwargs)
+    # dictionary may be malformed (eg not properly quoted) or render as string
+    if not(isinstance(my_arg_dict, dict)):
+        base_list = my_arg_dict[1:-1].split(',') # remove {} at end, assume string
+        base_dict = {}
+        for item in base_list:
+            if item:
+                key,value =item.split(':')
+                key = key.lstrip()
+                base_dict[key] = value
+        my_arg_dict = base_dict
+    extra_waveform_kwargs.update(my_arg_dict)
 waveform_arguments['extra_waveform_kwargs'] = extra_waveform_kwargs
 if args.waveform_approximant:
     waveform_arguments['waveform_approximant'] = args.waveform_approximant
