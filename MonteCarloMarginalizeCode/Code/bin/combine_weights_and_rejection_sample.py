@@ -75,8 +75,8 @@ else:
     # in case we have job failures or other corrpution 
     indx_net = []
     for fname in fnames_weights:
-        start,end = key_to_bound(name_to_key(fname))
-        indx_net.append(range(start,end))
+        start,end = key_to_bounds(name_to_key(fname))
+        indx_net += range(start,end)
     indx_result_to_downselect = np.array(indx_net)
 
 
