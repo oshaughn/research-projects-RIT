@@ -347,7 +347,7 @@ if args.internal_waveform_fd_no_condition:
 if args.use_gwsignal_lmax_nyquist:
     extra_waveform_kwargs['lmax_nyquist'] = int(args.use_gwsignal_lmax_nyquist)
 if args.extra_waveform_kwargs:
-    extra_waveform_kwwargs.update(eval(args.extra_waveform_kwargs))
+    extra_waveform_kwargs.update(eval(args.extra_waveform_kwargs))
 waveform_arguments['extra_waveform_kwargs'] = extra_waveform_kwargs
 if args.waveform_approximant:
     waveform_arguments['waveform_approximant'] = args.waveform_approximant
