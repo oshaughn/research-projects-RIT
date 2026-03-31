@@ -526,7 +526,7 @@ if args.dump_cal_realization:
             #    new_posterior.loc[indx_event,name] = recal_file_dict[ifo.name]["CalParams"]["table"][name][    recal_indx_array[indx_event]]
 
     # Re-insert RIFT key names if needed
-    if opts.use_rift_samples:
+    if args.use_rift_samples:
         names = list(new_posterior.keys())  # dangerous to have iterator tied to changing structure
         for old_key in names:
             if old_key in key_swap_dict:
