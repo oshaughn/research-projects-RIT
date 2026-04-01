@@ -174,6 +174,7 @@ if args.use_gwsignal:
 # Setting up the waveform generator using the data dump features
 fref = data.meta_data['command_line_args']['reference_frequency']
 if args.fref:
+    print(" Reference frequency on *this* command line overrides value in pickle: old, new   = ", fref, args.fref)
     fref = args.fref
 waveform_arguments = dict(
     reference_frequency=fref,
