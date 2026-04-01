@@ -536,10 +536,15 @@ if args.dump_cal_realization:
             
     # WRITE TO FILE
     #   - problem with corrupted output if job fails on write (happens too often)
-    #new_posterior.to_csv(extended_posterior_file,sep=' ',index=False)
-    with tempfile.NamedTemporaryFile(mode='w+',delete=False) as temp:
-        new_posterior.to_csv(temp.name,sep=' ',index=False)
-        shutil.copy(temp.name, extended_posterior_file)
+#    new_posterior.to_csv(extended_posterior_file,sep=' ',index=False)
+    with open(extended_posterior_file, 'w+') as f:
+        new_posterior.to_csv(f,sep=' ',index=False)
+        f.flush()
+        
+    # with tempfile.NamedTemporaryFile(mode='w+',delete=False) as temp:
+    #     print(" Writing to temporary file: ".temp.name)
+    #     new_posterior.to_csv(temp.name,sep=' ',index=False)
+    #     shutil.copy(temp.name, extended_posterior_file)
         #os.rename(temp.name, extended_posterior_file)
         
 
