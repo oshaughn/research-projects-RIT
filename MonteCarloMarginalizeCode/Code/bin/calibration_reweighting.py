@@ -505,11 +505,11 @@ if args.dump_cal_realization:
         cal_param_names_rest = list( set(cal_param_names) - set(cal_param_names_freq) )
         cal_names_for[ifo_name] =  cal_param_names_rest
         # assign blank entries for remaining parameters
-        args = dict(zip( cal_param_names_rest, [ np.zeros(len(new_posterior))  for x in cal_param_names_rest] ) )
-        new_posterior = new_posterior.assign(**args) # empty arrays
+        cal_args = dict(zip( cal_param_names_rest, [ np.zeros(len(new_posterior))  for x in cal_param_names_rest] ) )
+        new_posterior = new_posterior.assign(**cal_args) # empty arrays
         freq_values = [ recal_file_dict[ifo.name]["CalParams"]["table"][name][0]  for name in cal_param_names_freq]
-        args = dict(zip( cal_param_names_freq, [ freq_values[indx]*np.ones(len(new_posterior))  for indx in range(len(freq_values))] )) # frequency values
-        new_posterior = new_posterior.assign(**args)
+        cal_args = dict(zip( cal_param_names_freq, [ freq_values[indx]*np.ones(len(new_posterior))  for indx in range(len(freq_values))] )) # frequency values
+        new_posterior = new_posterior.assign(**cal_args)
 
         # now add cal results, based on cal index.
         for name in cal_names_for[ifo_name]:
