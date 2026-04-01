@@ -9,7 +9,8 @@ https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
    - (rc1) data upsampling support (--srate-internal); time output interpolation to higher sampling rates
      (--srate-resample-time-marginalization); calmarg output for cal  parameters safety and function improved; fix bugs
      introduced cherry-picking for last release.
-
+   - (rc2) calparam_attempt review feedback; calibration_reweighting lessons learned from review; lalsimutils fix
+     cherry-picking error in last release frame_data_to ...
 
 0.0.17.7
 ------------
