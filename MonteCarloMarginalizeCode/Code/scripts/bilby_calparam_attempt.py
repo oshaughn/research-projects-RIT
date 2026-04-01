@@ -378,4 +378,4 @@ print(new_posterior)
 
 # save result file.
 # Note not sure if we need to do any recalculation
-new_posterior.to_csv('test.txt',sep=' ',index=False)
+new_posterior.to_csv('post_with_cal_s{}e{}.txt'.format(start_index,end_index),sep=' ',index=False)
