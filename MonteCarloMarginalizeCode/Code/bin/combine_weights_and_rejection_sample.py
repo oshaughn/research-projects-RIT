@@ -84,18 +84,22 @@ if have_extended and len(fnames_extended_post) ==len(fnames_weights):
     # important to import them IN ORDER -- see above
     #fnames_extended_post.sort(key=sortKeyFunc)
     # import all the data, then concatenate
+    # BEWARE NUMPY MERGES OF RECORD ARRAYS: This requires care to do correctly!
     dat_individual =[]
     dtype_here=None
+    dat_net = None
     for name in fnames_extended_post:
         dat_here = np.genfromtxt(name, names=True)
         if dtype_here is None:
             dtype_here = dat_here.dtype
+            dat_net = dat_here
         else:
-            dat_here = dat_here.astype(dtype_here)
-        dat_individual.append(dat_here) #np.genfromtxt(name, names=True))
+            dat_here_reordered = dat_here[[  *dtype_here.names ]]
+            dat_net = np.concatenate((dat_net, dat_here_reordered
+#        dat_individual.append(dat_here) #np.genfromtxt(name, names=True))
 
     result = bilby.core.result.Result()
-    result.posterior = pd.DataFrame(np.concatenate(dat_individual))
+    result.posterior = pd.DataFrame(dat_net) #   np.concatenate(dat_individual))
     if indx_result_to_downselect:
         result.posterior= result.posterior[indx_result_to_downselect] # force order change/downselect to match the files we really have
     result.meta_data = {}
