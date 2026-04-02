@@ -501,7 +501,11 @@ if args.dump_cal_realization:
     for indx in range(len(result.posterior)):
         dict_samples = {key: result.posterior[key][indx] for key in result.posterior}
         calibration_likelihood.parameters = dict_samples
-        recal_indx_array[indx] = int(calibration_likelihood.generate_calibration_sample_from_marginalized_likelihood())
+        try:
+            recal_indx_array[indx] = int(calibration_likelihood.generate_calibration_sample_from_marginalized_likelihood())
+        except:
+            # sometimes probabilities are 'nan'
+            recal_indx_array[indx] = -1
     #  ADD THEM TO THE RESULT OBJECT
     for ifo in ifos:
         ifo_name = ifo.name
@@ -521,7 +525,10 @@ if args.dump_cal_realization:
 
         # now add cal results, based on cal index.
         for name in cal_names_for[ifo_name]:
-            new_posterior[name] = recal_file_dict[ifo.name]["CalParams"]["table"][name][    recal_indx_array]
+            values = recal_file_dict[ifo.name]["CalParams"]["table"][name][    recal_indx_array]
+            bad_indexes = recal_indx_array == -1
+            values[bad_indexes] = float('nan')  # these will not be selected anyways
+            new_posterior[name] = values
             #for indx_event in range(len(result.posterior)):
             #    new_posterior.loc[indx_event,name] = recal_file_dict[ifo.name]["CalParams"]["table"][name][    recal_indx_array[indx_event]]
 
