@@ -11,6 +11,7 @@ https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
      introduced cherry-picking for last release.
    - (rc2) calparam_attempt review feedback; calibration_reweighting lessons learned from review; lalsimutils fix
      cherry-picking error in last release frame_data_to ...
+   - (rc3) evidence calculation doesn't fail on subdags; calmarg nan protection.
 
 0.0.17.7
 ------------
