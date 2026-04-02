@@ -146,7 +146,7 @@ if 'm2' in samples2.dtype.names:
         print(" Samples 2 expanded fields ", samples2.dtype.names)
 
 # sanity check: is this a result for PE?
-if False: #'m1' in samples1.dtype.names:
+if 'm1' in samples1.dtype.names:
     # Add missing fields needed for some tests
     if  not('xi' in samples1.dtype.names):
         if not 'chi_eff' in samples1.dtype.names:
