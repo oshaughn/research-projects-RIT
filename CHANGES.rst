@@ -13,6 +13,7 @@ https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
      cherry-picking error in last release frame_data_to ...
    - (rc3) evidence calculation doesn't fail on subdags; calmarg nan protection.
    - (rc4) calmarg+cal params: fix concatenation
+   - (rc5) typo in last commit/port
 
 0.0.17.7
 ------------
