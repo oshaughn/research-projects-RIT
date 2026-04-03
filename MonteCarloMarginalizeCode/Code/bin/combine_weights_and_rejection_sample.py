@@ -95,7 +95,7 @@ if have_extended and len(fnames_extended_post) ==len(fnames_weights):
             dat_net = dat_here
         else:
             dat_here_reordered = dat_here[[  *dtype_here.names ]]
-            dat_net = np.concatenate((dat_net, dat_here_reordered
+            dat_net = np.concatenate((dat_net, dat_here_reordered))
 #        dat_individual.append(dat_here) #np.genfromtxt(name, names=True))
 
     result = bilby.core.result.Result()
