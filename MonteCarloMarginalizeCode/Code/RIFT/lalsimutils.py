@@ -4065,7 +4065,7 @@ def hoft_from_hlm(hlms,P, return_complex=False, extra_phase_shift=0):
         hc = lal.CreateREAL8TimeSeries("hT", h22.epoch, h22.f0,
             h22.deltaT, h22.sampleUnits, h22.data.length)
         hp.data.data = np.real(hT.data.data)
-        hc.data.data = np.imag(hT.data.data)
+        hc.data.data = (-1)*np.imag(hT.data.data)
         hp.epoch = hp.epoch + P.tref
         hc.epoch = hc.epoch + P.tref
         h_real = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc, 
