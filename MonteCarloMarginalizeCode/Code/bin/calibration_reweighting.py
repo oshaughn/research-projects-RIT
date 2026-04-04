@@ -534,7 +534,7 @@ if args.dump_cal_realization:
 
     # Re-insert RIFT key names if needed
     if args.use_rift_samples:
-        df.rename(columns=key_swap_dict_backwards,inplace=True)
+        new_posterior.rename(columns=key_swap_dict_backwards,inplace=True)
         #names = list(new_posterior.keys())  # dangerous to have iterator tied to changing structure
         # for old_key in names:
         #     if old_key in key_swap_dict:
