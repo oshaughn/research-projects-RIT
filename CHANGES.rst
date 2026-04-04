@@ -14,6 +14,7 @@ https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
    - (rc3) evidence calculation doesn't fail on subdags; calmarg nan protection.
    - (rc4) calmarg+cal params: fix concatenation
    - (rc5) typo in last commit/port
+   - (rc6) calmarg: fix export using rift field names
 
 0.0.17.7
 ------------
