@@ -2305,9 +2305,12 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     pickle_file_arg = str(pickle_file)
     post_file_arg = str(posterior_file)
     if use_osg:
-        transfer_files = pickle_file_arg + ',' + post_file_arg
+        transfer_files += [pickle_file_arg , post_file_arg]
         pickle_file_arg = os.path.basename(pickle_file_arg)
         post_file_arg = os.path.basename(post_file_arg)
+        if os.path.exists('cal_envelopes'):
+            transfer_files += ['./cal_envelopes'] # note initial dir configured so this will work
+            ile_job.add_arg(" --use-local-cal-files ")
     ile_job.add_opt('data_dump_file', str(pickle_file_arg))
     ile_job.add_opt('posterior_sample_file', str(post_file_arg))
     ile_job.add_opt('number_of_calibration_curves', str(n_cal))
