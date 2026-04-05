@@ -18,6 +18,7 @@ fnames_cip = glob.glob(opts.cip_dir+"/overlap-grid-*-*[0-9]+annotation.dat") # a
 if len(fnames_cip) < 1:
     #raise Exception(" No files for evidence in ", opts.cip_dir)
     print(" No files for evidence in ", opts.cip_dir)
+    import sys
     sys.exit(0) # SUCCESS IMPORTANT: do not stop dag, this is probably a subdag. Worst case we can run manually later.
 net_dat = []
 for fname in fnames_cip:
