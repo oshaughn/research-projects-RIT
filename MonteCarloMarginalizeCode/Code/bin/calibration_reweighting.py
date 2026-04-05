@@ -548,6 +548,13 @@ if args.dump_cal_realization:
     with open(extended_posterior_file, 'w+') as f:
         new_posterior.to_csv(f,sep=' ',index=False)
         f.flush()
+
+    # DELETE CAL FILES
+    for name in calibration_lookup_table:
+        try:
+          os.remove(calibration_lookup_table[name])
+        except:
+          print(" Can't remove  file")        
         
     # with tempfile.NamedTemporaryFile(mode='w+',delete=False) as temp:
     #     print(" Writing to temporary file: ".temp.name)
