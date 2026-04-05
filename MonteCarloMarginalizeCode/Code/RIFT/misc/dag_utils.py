@@ -1056,8 +1056,8 @@ echo Starting ...
         try:
             lalapps_path2cache=os.environ['LALAPPS_PATH2CACHE']
         except KeyError:
-            print("Variable LALAPPS_PATH2CACHE is unset, assume default lalapps_path2cache is appropriate")
-            lalapps_path2cache="lalapps_path2cache"
+            print("Variable LALAPPS_PATH2CACHE is unset, assume default lal_path2cache is appropriate")
+            lalapps_path2cache="lal_path2cache"
         cmdname = 'ile_pre.sh'
         if transfer_files is None:
             transfer_files = []
@@ -1086,8 +1086,10 @@ echo Starting ...
             f.write("for i in `ls " + frames_local + "`; do echo "+ frames_local + "/$i; done  > base_paths.dat \n")
             f.write("paste local_stripped.cache base_paths.dat > local_relative.cache \n")
             f.write("cp local_relative.cache local.cache \n")
+            f.write('{exe}  "$@" '.format(exe=exe))
             os.system("chmod a+x ile_pre.sh")
-          ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
+            ile_job.set_executable("ile_pre.sh")  # transferred, used as executable
+#          ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
 
 
 #    if use_osg:
