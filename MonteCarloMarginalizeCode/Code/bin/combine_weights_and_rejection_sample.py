@@ -35,7 +35,8 @@ def index_of(sub_str, my_list):
 saved_dtype=None
 def check_valid_import(fname):
     try:
-        dat = np.genfromtxt(fname,names=True)
+        #dat = np.genfromtxt(fname,names=True)
+        pd.read_csv(fname, sep=' ')
     except:
         return False
     return True
@@ -63,7 +64,8 @@ if have_extended:
     keys_post = [name_to_key(s) for s in fnames_extended_post if check_valid_import(s)] # key list
     v = set(keys_weights).intersection(set(keys_post)); print(v)
     keys_common = list(v) # remove duplicates
-    #print(keys_weights, keys_common, keys_post)
+    print(keys_weights, keys_common, keys_post)
+    print(len(keys_common), len(keys_weights), len(keys_post))
     indx_post    = [index_of(s, fnames_extended_post) for s in keys_common]
     indx_weights = [index_of(s, fnames_weights) for s in keys_common]
     #print(indx_post, indx_weights)
@@ -89,7 +91,7 @@ if have_extended and len(fnames_extended_post) ==len(fnames_weights):
     dtype_here=None
     dat_net = None
     for name in fnames_extended_post:
-        dat_here = np.genfromtxt(name, names=True)
+        dat_here = pd.read_csv(name,sep=' ').to_records() #np.genfromtxt(name, names=True)
         if dtype_here is None:
             dtype_here = dat_here.dtype
             dat_net = dat_here
