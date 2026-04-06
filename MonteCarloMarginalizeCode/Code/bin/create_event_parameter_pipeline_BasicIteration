@@ -260,6 +260,7 @@ parser.add_argument("--calibration-reweighting-batchsize",type=int,default=None,
 parser.add_argument("--calibration-reweighting-initial-extra-args",type=str,default='',help="Passed to reweighting script as extra args")
 parser.add_argument("--calibration-reweighting-extra-args",type=str,default='',help="Passed to the combination script as extra arguments. ")
 parser.add_argument("--calibration-reweighting-count",type=int,default=100,help="Number of calibration marginalization realizations. Default is 100")
+parser.add_argument("--calibration-reweighting-osg",action='store_true',help="Attempt to use settings for OSG for cal reweighting. Remove after developed")
 parser.add_argument("--convert-ascii2h5-exe",default=None,help="Converting ascii to h5 file script")
 parser.add_argument("--comov-distance-reweighting-exe",default=None,help="Comoving distance reweighting script")
 parser.add_argument("--comov-distance-reweighting",action='store_true',help="Run comoving distance reweighting on final posterior samples")
@@ -1233,14 +1234,27 @@ fi;
     rotate_job.write_sub_file()
 
 if opts.calibration_reweighting:
-    if opts.last_iteration_extrinsic_time_resampling and opts.bilby_pickle_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=False,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args,n_cal=opts.calibration_reweighting_count)
-    elif opts.last_iteration_extrinsic_time_resampling and opts.bilby_ini_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=False,pickle_file=opts.working_directory+"/calmarg/data/calmarg_data_dump.pickle",exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args,n_cal=opts.calibration_reweighting_count)
-    elif (not opts.last_iteration_extrinsic_time_resampling) and opts.bilby_ini_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.working_directory+"/calmarg/data/calmarg_data_dump.pickle",exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args,n_cal=opts.calibration_reweighting_count)
-    elif (not opts.last_iteration_extrinsic_time_resampling) and opts.bilby_pickle_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args,n_cal=opts.calibration_reweighting_count)
+    extra_args_dict = {}
+    extra_args_dict['time_marg'] = not (opts.last_iteration_extrinsic)   # pass time_marg=False if we are resampling in time
+    if opts.bilby_pickle_file:
+        extra_args_dict['pickle_file'] = opts.bilby_pickle_file
+    else:
+        extra_args_dict['pickle_file'] =opts.working_directory+"/calmarg/data/calmarg_data_dump.pickle"
+    # OSG options
+    if opts.calibration_reweighting_osg:
+        extra_args_dict['use_osg'] =  opts.use_osg
+        extra_args_dict['use_singularity'] =  opts.use_singularity
+        extra_args_dict['singularity_image'] = singularity_image
+        extra_args_dict['universe'] = 'vanilla'
+    else:
+        extra_args_dict['no_grid']  = no_worker_grid
+        extra_args_dict['universe'] = local_worker_universe
+    if opts.transfer_file_list:
+        # Handle scenario where h5 file needed by calmarg job. Note arranged as transfer because we don't know if execute nodes have the file, even if local
+        any_h5_needed_list = [x for x in transfer_file_names if x.endswith('.h5')]  # NRSur, etc h5 files we need for lalsuite
+        extra_args_dict['transfer_files'] = any_h5_needed_list
+        
+    calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",exe=opts.calibration_reweighting_exe,ile_args=ile_args,n_cal=opts.calibration_reweighting_count,use_oauth_files=opts.use_oauth_files,**extra_args_dict)
         
     if opts.calibration_reweighting_initial_extra_args:
         # properly handle quoted extra arguments, such as dictionaries of waveform arguments
@@ -1253,27 +1267,23 @@ if opts.calibration_reweighting:
         calibration_job.set_stderr_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).err")
         calibration_job.set_stdout_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).out")
     else:
-        calibration_job.add_condor_cmd("initialdir",opts.working_directory+"/calmarg/")
+        if not(opts.calibration_reweighting_osg):
+            calibration_job.add_condor_cmd("initialdir",opts.working_directory+"/calmarg/")
+        else:
+            calibration_job.add_condor_cmd("initialdir",opts.working_directory)            
         calibration_job.add_arg(" --start_index $(macrostartidx) ")
         calibration_job.add_arg(" --end_index $(macroendidx) ")
         calibration_job.set_log_file(opts.working_directory+"/calmarg/logs/calibration-$(macrostartidx)-$(cluster)-$(process).log")
         calibration_job.set_stderr_file(opts.working_directory+"/calmarg/logs/calibration-$(macrostartidx)-$(cluster)-$(process).err")
         calibration_job.set_stdout_file(opts.working_directory+"/calmarg/logs/calibration-$(macrostartidx)-$(cluster)-$(process).out")
-    calibration_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_singularity and opts.calibration_reweighting_osg:
+        calibration_job.add_condor_cmd('request_disk',opts.ile_request_disk)  # similar task, so use similar request
+    else:
+        calibration_job.add_condor_cmd('request_disk',opts.general_request_disk)
 
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+calibration_job.get_sub_file()
         calibration_job.set_sub_file(fname)
-    if opts.transfer_file_list:
-        # Handle scenario where h5 file needed by calmarg job. Note arranged as transfer because we don't know if execute nodes have the file, even if local
-        any_h5_needed_list = [x for x in transfer_file_names if x.endswith('.h5')]  # NRSur, etc h5 files we need for lalsuite
-        if len(any_h5_needed_list)>0:
-            fname_str = ','.join(any_h5_needed_list)
-            fname_str = fname_str.strip()
-            calibration_job.add_condor_cmd('transfer_input_files',fname_str)
-            calibration_job.add_condor_cmd('should_transfer_files','YES')
-            if 'osdf:' in fname_str and opts.use_oauth_files:
-                calibration_job.add_condor_cmd('use_oauth_services', opts.use_oauth_files)  # add scitokens
     calibration_job.write_sub_file()
 
     # job to combine things. Write here to make logic human-readable

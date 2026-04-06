@@ -151,6 +151,7 @@ parser.add_argument("--calibration-reweighting-batchsize",type=int,default=None,
 parser.add_argument("--calibration-reweighting-count",type=int,default=None,help="If not 'None', the number of calibration curves to request when marginalizing. Default is 100")
 parser.add_argument("--calibration-reweighting-initial-extra-args",type=str,default=None,help="If not 'None', pass through. One argument targets effective sample size, other duplicates inoutput")
 parser.add_argument("--calibration-reweighting-extra-args",type=str,default=None,help="If not 'None', pass through. One argument targets effective sample size, other duplicates inoutput")
+parser.add_argument("--calibration-reweighting-osg",action='store_true',help="Attempt to use settings for OSG for cal reweighting. Remove after developed")
 parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
@@ -1417,6 +1418,9 @@ if opts.calibration_reweighting and (not opts.bilby_pickle_file):
         cmd += " --calibration-reweighting-batchsize {} ".format(opts.calibration_reweighting_batchsize)
     if opts.calibration_reweighting_extra_args:
         cmd += " --calibration-reweighting-extra-args '{}' ".format(opts.calibration_reweighting_extra_args)
+    if opts.calibration_reweighting_osg:
+        cmd += " --calibration-reweighting-osg "
+        opts.calibration_reweighting_intial_extra_args += " --local_cal_files "
     if opts.calibration_reweighting_initial_extra_args:
         cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_initial_extra_args)
 elif opts.calibration_reweighting and opts.bilby_pickle_file:
@@ -1425,6 +1429,9 @@ elif opts.calibration_reweighting and opts.bilby_pickle_file:
         cmd+= " --calibration-reweighting-count {} ".format(opts.calibration_reweighting_count)
     if opts.calibration_reweighting_extra_args:
         cmd += " --calibration-reweighting-extra-args '{}' ".format(opts.calibration_reweighting_extra_args)
+    if opts.calibration_reweighting_osg:
+        cmd += " --calibration-reweighting-osg "
+        opts.calibration_reweighting_intial_extra_args += " --local_cal_files "
     if opts.calibration_reweighting_initial_extra_args:
         cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_initial_extra_args)
 if opts.internal_tabular_eos_file:

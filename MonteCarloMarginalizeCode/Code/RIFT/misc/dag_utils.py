@@ -701,7 +701,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     return ile_job, ile_sub_name
 
 
-def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, no_grid=False,extra_text='',**kwargs):
+def write_puff_sub(tag='puffball', exe=None, base=None,input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, no_grid=False,extra_text='',**kwargs):
     """
     Perform puffball calculation 
     Inputs:
@@ -711,6 +711,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
 
     exe = exe or which("util_ParameterPuffball.py")
     # Create executable if needed  (using extra_text as flag for now)
+    base_str = ''
     if len(extra_text) > 0:
         if not (base is None):
             base_str = ' ' + base +"/"
@@ -1147,6 +1148,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     exe = exe or which("util_ILEdagPostprocess.sh")
 
     # Create executable if needed  (using extra_text as flag for now)
+    base_str = ''
     if len(extra_text) > 0:
         if not (base is None):
             base_str = ' ' + base +"/"
@@ -2225,7 +2227,7 @@ def write_subdagILE_sub(tag='subdag_ile', full_path_name=True, exe=None, univers
     return ile_job, ile_sub_name
 
 
-def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',no_grid=False,ile_args=None,n_cal=100,**kwargs):
+def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',no_grid=False,ile_args=None,n_cal=100,use_osg=False,use_oauth_files=False,use_singularity=False,singularity_image=None,transfer_files=None,**kwargs):
     """
     Write a submit file for launching jobs to reweight final posterior samples due to calibration uncertainty 
 
@@ -2234,10 +2236,37 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     Outputs:
      - reweighted samples due to calibration uncertainty and corresponding weights
     """
+    if use_singularity and (singularity_image == None)  :
+        print(" FAIL : Need to specify singularity_image to use singularity ")
+        sys.exit(0)
+    if use_singularity and (transfer_files == None)  :
+        print(" FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file ")
+        sys.exit(0)
+
+    singularity_image_used = "{}".format(singularity_image) # make copy
+    if singularity_image:
+        if 'osdf:' in singularity_image:
+            singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
+            if transfer_files is None:
+                transfer_files= [singularity_image]
+            else:
+                transfer_files += [singularity_image]
+
+    
     exe = exe or which("calibration_reweighting.py")
     if exe is None:
         print(" Calibration Reweighting code not available. ")
         sys.exit(0)
+    if use_singularity:
+        exe_base = os.path.basename(exe)
+#        print((" Executable: name breakdown ", path_split, " from ", exe))
+        singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
+        if 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()) :
+            singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
+        else:
+#            singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
+            singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
+        exe=singularity_base_exe_path + exe_base
 
     ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
@@ -2250,6 +2279,27 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
 
 
     requirements =[]
+    # Containerization basics
+    if use_singularity:
+        # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+        ile_job.add_condor_cmd('request_CPUs', str(1))
+        ile_job.add_condor_cmd('transfer_executable', 'False')
+        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        ile_job.add_condor_cmd("transfer_output_files", "weight_files")
+        requirements.append("HAS_SINGULARITY=?=TRUE")
+        print(" WARNING: cal reweighting requires bilby. Directories are moved to cal_evelopes")
+#        os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
+#       with open("uid_domain.txt", 'r') as f:
+#            uid_domain = f.readline().strip()
+#            requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
+    if use_oauth_files:
+        # we are using some authentication to retrieve files from the file transfer list, for example, from distributed hosts, not just submit. eg urls provided
+            ile_job.add_condor_cmd('use_oauth_services',use_oauth_files)
+    if use_singularity or use_osg:
+            # Set up file transfer options
+           ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
+
     #
     # Logging options
     #
@@ -2260,8 +2310,17 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
 
     #
     # Add mandatory options
-    ile_job.add_opt('data_dump_file', str(pickle_file))
-    ile_job.add_opt('posterior_sample_file', str(posterior_file))
+    pickle_file_arg = str(pickle_file)
+    post_file_arg = str(posterior_file)
+    if use_osg:
+        transfer_files += [pickle_file_arg , post_file_arg]
+        pickle_file_arg = os.path.basename(pickle_file_arg)
+        post_file_arg = os.path.basename(post_file_arg)
+        if os.path.exists('cal_envelopes'):
+            transfer_files += ['./cal_envelopes'] # note initial dir configured so this will work
+            ile_job.add_arg(" --use-local-cal-files ")
+    ile_job.add_opt('data_dump_file', str(pickle_file_arg))
+    ile_job.add_opt('posterior_sample_file', str(post_file_arg))
     ile_job.add_opt('number_of_calibration_curves', str(n_cal))
     ile_job.add_opt('reevaluate_likelihood', 'True')
     ile_job.add_opt('use_rift_samples', 'True')
@@ -2325,6 +2384,21 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
+    # Write transfer file list.  Will handle any surrogates + pickle/container files.
+    if not transfer_files is None:
+        if not isinstance(transfer_files, list):
+            fname_str=transfer_files # + ' '.join(extra_files)
+        else:
+            fname_str = ','.join(transfer_files)
+        fname_str=fname_str.strip()
+        ile_job.add_condor_cmd('transfer_input_files', fname_str)
+        ile_job.add_condor_cmd('should_transfer_files','YES')
+
+    # Stream log info
+    if not ('RIFT_NOSTREAM_LOG' in os.environ):
+        ile_job.add_condor_cmd("stream_error",'True')
+        ile_job.add_condor_cmd("stream_output",'True')
+    
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
