@@ -182,6 +182,9 @@ parser.add(
     "--dump_cal_realization", action='store_true',
     help="Dumps output file (in same location as weights) ")
 parser.add(
+    "--use_local_cal_files", action='store_true',
+    help="Assume cal files have been transferred to the current working directory, without name conflicts!")
+parser.add(
     "--posterior_sample_file", default=None,
     help="Bilby result file or text file with posterior samples to reweight")
 parser.add(
@@ -381,6 +384,8 @@ waveform_generator = bilby.gw.waveform_generator.WaveformGenerator(
 priors = bilby.core.prior.PriorDict()
 for ifo in ifos_for_reweighting:
     calibration_file_path = f'{spline_calibration_envelope_dict[ifo.name]}'
+    if args.use_local_cal_files:
+        calibration_file_path = './cal_envelopes/' + os.path.basename(calibration_file_path) # force local, specific name. Copied in place earlier
     ifo_calibration_priors = bilby.gw.prior.CalibrationPriorDict.from_envelope_file(
         calibration_file_path, ifo.minimum_frequency, ifo.maximum_frequency, 10, ifo.name)
 
@@ -448,7 +453,7 @@ else:
 
 # Setting up the resume and weight file names
 resume_file = None
-if (start_index != None) and (start_index != None):
+if (start_index != None) and (end_index != None):
     weights_file = f'{outdir}/weight_files/weights_s{start_index}e{end_index}.dat'
 elif start_index != None:
     weights_file = f'{outdir}/weight_files/weights_s{start_index}eNone.dat'
