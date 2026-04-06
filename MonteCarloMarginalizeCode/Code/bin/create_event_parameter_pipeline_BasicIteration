@@ -1274,7 +1274,7 @@ if opts.calibration_reweighting:
         any_h5_needed_list = [x for x in transfer_file_names if x.endswith('.h5')]  # NRSur, etc h5 files we need for lalsuite
         extra_args_dict['transfer_files'] = any_h5_needed_list
         
-    calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",exe=opts.calibration_reweighting_exe,ile_args=ile_args,n_cal=opts.calibration_reweighting_count, **extra_args_dict)
+    calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",exe=opts.calibration_reweighting_exe,ile_args=ile_args,n_cal=opts.calibration_reweighting_count,use_oauth_files=opts.use_oauth_files,**extra_args_dict)
         
     if opts.calibration_reweighting_initial_extra_args:
         # properly handle quoted extra arguments, such as dictionaries of waveform arguments
