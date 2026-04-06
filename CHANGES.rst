@@ -17,6 +17,7 @@ https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
    - (rc6) calmarg: fix export using rift field names
    - (rc7) calmarg+OSG operation, combine_weights uses pandas consistently for safety, delete cal files after run, minor
      evidence fix
+   - (rc8) calmarg+OSG miscellaneous missing cherry-picks, plus swap order of writing submit files so cal_envelopes made first.
 
 0.0.17.7
 ------------
