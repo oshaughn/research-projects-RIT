@@ -1157,11 +1157,8 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     exe = exe or which("util_ILEdagPostprocess.sh")
 
     # Create executable if needed  (using extra_text as flag for now)
-<<<<<<< HEAD
     base_str = ''
-=======
     # Note 'base' refers to the working diretory here, so we need to back up
->>>>>>> fd058651 (dag_utils: fix join.sub / con_sub.sh pathname used if --condor-local-nonworker --condor-local-nonworker-igwn-prefix is active)
     if len(extra_text) > 0:
         if not (base is None):
             base_0 = base[0]
