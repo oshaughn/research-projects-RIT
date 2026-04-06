@@ -151,6 +151,7 @@ parser.add_argument("--calibration-reweighting-batchsize",type=int,default=None,
 parser.add_argument("--calibration-reweighting-count",type=int,default=None,help="If not 'None', the number of calibration curves to request when marginalizing. Default is 100")
 parser.add_argument("--calibration-reweighting-initial-extra-args",type=str,default=None,help="If not 'None', pass through. One argument targets effective sample size, other duplicates inoutput")
 parser.add_argument("--calibration-reweighting-extra-args",type=str,default=None,help="If not 'None', pass through. One argument targets effective sample size, other duplicates inoutput")
+parser.add_argument("--calibration-reweighting-osg",action='store_true',help="Attempt to use settings for OSG for cal reweighting. Remove after developed")
 parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
