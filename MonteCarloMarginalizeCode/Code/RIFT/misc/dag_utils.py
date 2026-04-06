@@ -2545,8 +2545,8 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
     # make LOCAL COPIES OF CAL ENVELOPES with STANDARD NAMES - facilitate remote/OSG use
     if 'spline-calibration-envelope-dict' in bilby_items:
         spline_dict = bilby_ish_string_to_dict(bilby_items['spline-calibration-envelope-dict'])
-        if not os.path.exists('calmarg/cal_envelopes'):
-            os.mkdir('calmarg/cal_envelopes')
+        if not os.path.exists('cal_envelopes'):
+            os.mkdir('cal_envelopes')
         for ifo in spline_dict:
             shutil.copyfile(spline_dict[ifo], 'cal_envelopes/{}.txt'.format(ifo))
 
