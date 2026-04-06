@@ -1287,7 +1287,10 @@ if opts.calibration_reweighting:
         calibration_job.set_stderr_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).err")
         calibration_job.set_stdout_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).out")
     else:
-        calibration_job.add_condor_cmd("initialdir",opts.working_directory+"/calmarg/")
+        if not(opts.calibration_reweighting_osg):
+            calibration_job.add_condor_cmd("initialdir",opts.working_directory+"/calmarg/")
+        else:
+            calibration_job.add_condor_cmd("initialdir",opts.working_directory)            
         calibration_job.add_arg(" --start_index $(macrostartidx) ")
         calibration_job.add_arg(" --end_index $(macroendidx) ")
         calibration_job.set_log_file(opts.working_directory+"/calmarg/logs/calibration-$(macrostartidx)-$(cluster)-$(process).log")

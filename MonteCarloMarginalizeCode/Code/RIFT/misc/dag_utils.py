@@ -2341,6 +2341,7 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         ile_job.add_condor_cmd('transfer_executable', 'False')
         ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
         ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        ile_job.add_condor_cmd("transfer_output_files", "weight_files")
         requirements.append("HAS_SINGULARITY=?=TRUE")
         print(" WARNING: cal reweighting requires bilby. Directories are moved to cal_evelopes")
 #        os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
@@ -2371,7 +2372,7 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         pickle_file_arg = os.path.basename(pickle_file_arg)
         post_file_arg = os.path.basename(post_file_arg)
         if os.path.exists('cal_envelopes'):
-            transfer_files += ['../cal_envelopes'] # note initial dir configured so this will work
+            transfer_files += ['./cal_envelopes'] # note initial dir configured so this will work
             ile_job.add_arg(" --use-local-cal-files ")
     ile_job.add_opt('data_dump_file', str(pickle_file_arg))
     ile_job.add_opt('posterior_sample_file', str(post_file_arg))
