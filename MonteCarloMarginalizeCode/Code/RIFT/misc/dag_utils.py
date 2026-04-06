@@ -711,7 +711,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     return ile_job, ile_sub_name
 
 
-def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, no_grid=False,extra_text='',**kwargs):
+def write_puff_sub(tag='puffball', exe=None, base=None,input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, no_grid=False,extra_text='',**kwargs):
     """
     Perform puffball calculation 
     Inputs:
@@ -721,6 +721,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
 
     exe = exe or which("util_ParameterPuffball.py")
     # Create executable if needed  (using extra_text as flag for now)
+    base_str = ''
     if len(extra_text) > 0:
         if not (base is None):
             base_str = ' ' + base +"/"
@@ -1173,6 +1174,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
 
     # Create executable if needed  (using extra_text as flag for now)
     # Note 'base' refers to the working diretory here, so we need to back up
+    base_str = ''
     if len(extra_text) > 0:
         if not (base is None):
             base_0 = base[0]
