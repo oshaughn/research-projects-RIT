@@ -15,6 +15,8 @@ https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
    - (rc4) calmarg+cal params: fix concatenation
    - (rc5) typo in last commit/port
    - (rc6) calmarg: fix export using rift field names
+   - (rc7) calmarg+OSG operation, combine_weights uses pandas consistently for safety, delete cal files after run, minor
+     evidence fix
 
 0.0.17.7
 ------------
