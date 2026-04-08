@@ -241,6 +241,11 @@ end_index = args.end_index
 key_swap_dict = None
 key_swap_dict_backwards = None
 
+outdir = os.path.dirname(os.path.abspath(args.posterior_sample_file))
+# make IMMEDIATELY, so we don't get held when evicted for OSG operation
+if not os.path.exists(f'{outdir}/weight_files/'):
+    os.makedirs(f'{outdir}/weight_files/')
+
 result=None # scoping requirement
 # read in the posterior samples for reweighting
 if args.posterior_sample_file.split(".")[-1] == 'json':
@@ -302,8 +307,6 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
               result.posterior['lambda_2'] = np.zeros(len(result.posterior['mass_1']))
 else:
   raise Exception(" Unknown posterior_sample_file format ")          
-
-outdir = os.path.dirname(os.path.abspath(args.posterior_sample_file))
 
 ifos = data.interferometers
 time_marginalization_interval = args.data_integration_window_half #args.time_marginalization_interval
