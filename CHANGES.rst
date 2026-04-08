@@ -18,7 +18,8 @@ https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
    - (rc7) calmarg+OSG operation, combine_weights uses pandas consistently for safety, delete cal files after run, minor
      evidence fix
    - (rc8) calmarg+OSG miscellaneous missing cherry-picks, plus swap order of writing submit files so cal_envelopes made first.
-
+   - (rc9) OSG-safe operation missing cherry-pick from O4d for allinone_convert; minor arg label fix calmarg+OSG
+     
 0.0.17.7
 ------------
 development tree is rift_O4c.
