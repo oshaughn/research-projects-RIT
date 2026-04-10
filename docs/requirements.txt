@@ -1,10 +1,10 @@
-sphinx
+sphinx<=8.2.3
 numpydoc
 nbsphinx
 autodoc
 sphinx_rtd_theme
 sphinx-argparse
-#sphinx-tabs
+sphinx-tabs
 graphviz
 sphinx-multiversion
-#sphinx-toolbox
+sphinx-toolbox
