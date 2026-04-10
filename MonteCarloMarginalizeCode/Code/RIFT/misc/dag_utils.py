@@ -126,6 +126,15 @@ def safely_quote_arg_str(arg_str):
     args1 = quote_arguments('"{}"'.format( quote_breaks[1])) # quote this properly, should be one argument
     return "{} {} {}".format(args0,args1,args2)
 
+def bilby_ish_string_to_dict(my_str):
+    items = my_str.replace('{', '').replace('}','').strip().split(',')
+    items = [x for x in items if len(x)>0] # drop cases wiith commas
+    pseudo_dict = {}
+    for item in items:
+        key,val = item.split(':')
+        pseudo_dict[key] = val
+    return pseudo_dict
+
 # for resolving environment variables
 def match_expr(my_list, my_expr):
   list_out = []
@@ -695,14 +704,14 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
     # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
     if condor_commands is not None:
-        for cmd, value in condor_commands.iteritems():
+        for cmd, value in condor_commands.items():
             ile_job.add_condor_cmd(cmd, value)
 
 
     return ile_job, ile_sub_name
 
 
-def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, no_grid=False,extra_text='',**kwargs):
+def write_puff_sub(tag='puffball', exe=None, base=None,input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, no_grid=False,extra_text='',**kwargs):
     """
     Perform puffball calculation 
     Inputs:
@@ -712,6 +721,7 @@ def write_puff_sub(tag='puffball', exe=None, input_net='output-ILE-samples',outp
 
     exe = exe or which("util_ParameterPuffball.py")
     # Create executable if needed  (using extra_text as flag for now)
+    base_str = ''
     if len(extra_text) > 0:
         if not (base is None):
             base_str = ' ' + base +"/"
@@ -1047,8 +1057,8 @@ echo Starting ...
         try:
             lalapps_path2cache=os.environ['LALAPPS_PATH2CACHE']
         except KeyError:
-            print("Variable LALAPPS_PATH2CACHE is unset, assume default lalapps_path2cache is appropriate")
-            lalapps_path2cache="lalapps_path2cache"
+            print("Variable LALAPPS_PATH2CACHE is unset, assume default lal_path2cache is appropriate")
+            lalapps_path2cache="lal_path2cache"
         cmdname = 'ile_pre.sh'
         if transfer_files is None:
             transfer_files = []
@@ -1077,8 +1087,10 @@ echo Starting ...
             f.write("for i in `ls " + frames_local + "`; do echo "+ frames_local + "/$i; done  > base_paths.dat \n")
             f.write("paste local_stripped.cache base_paths.dat > local_relative.cache \n")
             f.write("cp local_relative.cache local.cache \n")
+            f.write('{exe}  "$@" '.format(exe=exe))
             os.system("chmod a+x ile_pre.sh")
-          ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
+            ile_job.set_executable("ile_pre.sh")  # transferred, used as executable
+#          ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
 
 
 #    if use_osg:
@@ -1142,7 +1154,7 @@ echo Starting ...
     # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
     # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
     if condor_commands is not None:
-        for cmd, value in condor_commands.iteritems():
+        for cmd, value in condor_commands.items():
             ile_job.add_condor_cmd(cmd, value)
 
     return ile_job, ile_sub_name
@@ -1162,6 +1174,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
 
     # Create executable if needed  (using extra_text as flag for now)
     # Note 'base' refers to the working diretory here, so we need to back up
+    base_str = ''
     if len(extra_text) > 0:
         if not (base is None):
             base_0 = base[0]
@@ -1408,7 +1421,7 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
         try:
             os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
             with open("uid_domain.txt", 'r') as f:
-                uid_domain = f.readline()
+                uid_domain = f.readline().strip()
                 requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
         except:
             True
@@ -1475,6 +1488,14 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
     if no_grid:
         ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
         ile_job.add_condor_cmd("MY.flock_local",'true')
+        try:
+            os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
+            with open("uid_domain.txt", 'r') as f:
+                uid_domain = f.readline().strip()
+                requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
+        except:
+            True
+
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -2052,6 +2073,13 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
     if no_grid:
         ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
         ile_job.add_condor_cmd("MY.flock_local",'true')
+        try:
+            os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
+            with open("uid_domain.txt", 'r') as f:
+                uid_domain = f.readline().strip()
+                requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
+        except:
+            True
 
 
     ile_sub_name = tag + '.sub'
@@ -2156,6 +2184,13 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
     if no_grid:
         ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
         ile_job.add_condor_cmd("MY.flock_local",'true')
+        try:
+            os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
+            with open("uid_domain.txt", 'r') as f:
+                uid_domain = f.readline().strip()
+                requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
+        except:
+            True
 
     ile_sub_name = tag + '.sub'
     ile_job.set_sub_file(ile_sub_name)
@@ -2190,6 +2225,7 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
         ile_job.add_opt("ilwdchar-compat",'')  # needed?
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
+
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
@@ -2307,12 +2343,13 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         ile_job.add_condor_cmd('transfer_executable', 'False')
         ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
         ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        ile_job.add_condor_cmd("transfer_output_files", "weight_files")
         requirements.append("HAS_SINGULARITY=?=TRUE")
-        print(" WARNING: cal reweighting requires bilby -- currently configured to use LOCAL PATHS via pickle lookup. Locking cal reweighting to to current UID_DOMAIN, so files can be found. THIS WILL STOP WORKING WHEN HOME DIRECTORIES ARE NO LONGER ACCESSIBLE. Need to identify and transfer cal envelopes at runtime or extract from pickle better")
-        os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
-        with open("uid_domain.txt", 'r') as f:
-            uid_domain = f.readline()
-            requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
+        print(" WARNING: cal reweighting requires bilby. Directories are moved to cal_evelopes")
+#        os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
+#       with open("uid_domain.txt", 'r') as f:
+#            uid_domain = f.readline().strip()
+#            requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
     if use_oauth_files:
         # we are using some authentication to retrieve files from the file transfer list, for example, from distributed hosts, not just submit. eg urls provided
             ile_job.add_condor_cmd('use_oauth_services',use_oauth_files)
@@ -2333,9 +2370,12 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     pickle_file_arg = str(pickle_file)
     post_file_arg = str(posterior_file)
     if use_osg:
-        transfer_files = pickle_file_arg + ',' + post_file_arg
+        transfer_files += [pickle_file_arg , post_file_arg]
         pickle_file_arg = os.path.basename(pickle_file_arg)
         post_file_arg = os.path.basename(post_file_arg)
+        if os.path.exists('cal_envelopes'):
+            transfer_files += ['./cal_envelopes'] # note initial dir configured so this will work
+            ile_job.add_arg(" --use_local_cal_files ")
     ile_job.add_opt('data_dump_file', str(pickle_file_arg))
     ile_job.add_opt('posterior_sample_file', str(post_file_arg))
     ile_job.add_opt('number_of_calibration_curves', str(n_cal))
@@ -2389,7 +2429,9 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         ile_job.add_condor_cmd('getenv', default_getenv_value)
     else:
         ile_job.add_condor_cmd('getenv', getenv_calmarg)
-    ile_job.add_condor_cmd('request_memory', str(request_memory)+"M")
+    # use a smaller request initially, then increase. Should improve throughput
+    ile_job.add_condor_cmd('request_memory', str(request_memory/2)+"M")
+    ile_job.add_condor_cmd('retry_request_memory', str(request_memory)+"M")
 
     # no grid
     if no_grid:
@@ -2480,14 +2522,16 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
         bilby_items = dict(config["top"])
         # Backstop horrible parsing situations where it returns a string and not dict
         if not(isinstance(bilby_items['channel-dict'], dict)):
-            base_list=bilby_items['channel-dict'][1:-1].split(',')[:-1]
-            base_dict = {}
-            for item in base_list:
-                if item:
-                   key,value =item.split(':')
-                   key = key.lstrip()
-                   base_dict[key] = value
-            bilby_items['channel-dict'] = base_dict
+            # Safer string parsing - in case no comma at end, etc
+            bilby_items['channel-dict'] = bilby_ish_string_to_dict(bilby_items['channel-dict'])
+            # base_list=bilby_items['channel-dict'][1:-1].split(',')[:-1]
+            # base_dict = {}
+            # for item in base_list:
+            #     if item:
+            #        key,value =item.split(':')
+            #        key = key.lstrip()
+            #        base_dict[key] = value
+            # bilby_items['channel-dict'] = base_dict
         ifo_list = list(bilby_items['channel-dict'])  # PSDs must be listed, implicitly provides all ifos
     # remove entries with the None keyword, as misleading
     dict_names = list(bilby_items)
@@ -2497,7 +2541,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
     if not('data-dict' in bilby_items):
         bilby_data_dict = {}
         if cache_file:
-            print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from (host) directory: {} ".format(frames_dir))
+            print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from (host) cache file: {} ".format(cache_file))
             cache_lines = np.loadtxt(cache_file,dtype=str)
             if len(ifo_list)==1 and len(cache_lines.shape)==1:
                 ifo = cache_lines[0] + '1'
@@ -2545,6 +2589,13 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
         else:
             print(" ==== WARNING FALLTHROUGH : calmarg failed to pull out options  ===",bilby_data_dict,bilby_items)
 
+    # make LOCAL COPIES OF CAL ENVELOPES with STANDARD NAMES - facilitate remote/OSG use
+    if 'spline-calibration-envelope-dict' in bilby_items:
+        spline_dict = bilby_ish_string_to_dict(bilby_items['spline-calibration-envelope-dict'])
+        if not os.path.exists('cal_envelopes'):
+            os.mkdir('cal_envelopes')
+        for ifo in spline_dict:
+            shutil.copyfile(spline_dict[ifo], 'cal_envelopes/{}.txt'.format(ifo))
 
     # Other required settings from ILE
     # approximant: if ile_args present, ALWAYS parse it and set it that way, so we are consistent with our own analysis
@@ -2654,6 +2705,13 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
     if no_grid:
         ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
         ile_job.add_condor_cmd("MY.flock_local",'true')
+        try:
+            os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
+            with open("uid_domain.txt", 'r') as f:
+                uid_domain = f.readline().strip()
+                requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
+        except:
+            True
 
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
@@ -2802,6 +2860,13 @@ def write_convert_ascii_to_h5_sub(tag='Convert_ascii2h5', convert_ascii_to_h5_ex
     if no_grid:
         ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
         ile_job.add_condor_cmd("MY.flock_local",'true')
+        try:
+            os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
+            with open("uid_domain.txt", 'r') as f:
+                uid_domain = f.readline().strip()
+                requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
+        except:
+            True
 
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
@@ -2853,6 +2918,13 @@ def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='
     if no_grid:
         ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
         ile_job.add_condor_cmd("MY.flock_local",'true')
+        try:
+            os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
+            with open("uid_domain.txt", 'r') as f:
+                uid_domain = f.readline().strip()
+                requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
+        except:
+            True
 
     requirements=[]
     if universe=='local':
@@ -2987,7 +3059,7 @@ def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='
     # periodic_release = ((HoldReasonCode =?= 34) || (HoldReasonCode =?= 26))
     # This will automatically release a job that is put on hold for using too much memory with a 50% increased memory request each tim.e
     if condor_commands is not None:
-        for cmd, value in condor_commands.iteritems():
+        for cmd, value in condor_commands.items():
             ile_job.add_condor_cmd(cmd, value)
 
 

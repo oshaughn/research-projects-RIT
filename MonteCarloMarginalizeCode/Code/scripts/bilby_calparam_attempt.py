@@ -79,11 +79,11 @@ parser.add("--internal-waveform-fd-no-condition",action='store_true',help='If tr
 parser.add("--use-gwsignal",default=False,action='store_true',help='Use gwsignal. In this case the approx name is passed as a string to the lalsimulation.gwsignal interface')
 parser.add("--use-eccentricity",default=False,action='store_true',help='Use for eccentricity and mean anomali. Currently can only use with Rossellas repo of bilby: https://git.ligo.org/rossella.gamba/bilby. Once merge into master, can get rid of this option.')
 parser.add("--use-gwsignal-lmax-nyquist",default=None,type=int,help='Passes lmax_nyquist integer to the gwsignal waveform interface')
-parser.add("--fmin", default=None, type=float)
-parser.add("--fref", default=None, type=float)
-parser.add("--l-max", default=4, type=int)
-parser.add("--start_index", default=None, type=int)
-parser.add("--end_index", default=None, type=int)
+parser.add("--fmin", default=None, type=float, help="Minimum frequency for waveform generation")
+parser.add("--fref", default=None, type=float, help="Reference frequency for waveform generation (if applicable)")
+parser.add("--l-max", default=4, type=int, help="Maximum L used (for RIFT-based calls)")
+parser.add("--start_index", default=None, type=int, help="Starting row in posterior file, where the first line is zero ")
+parser.add("--end_index", default=None, type=int, help="Ending index in posterior file, noninclusive")
 parser.add("--internal-use-normal-reweight", default=None, type=float)
 parser.add("--internal-use-common-cal-draws", action='store_true',help="By default, the code will use a different set of draws for each 'start_index', to avoid collisions accessing the same h5 file")
 args = parser.parse_args()
@@ -174,6 +174,7 @@ if args.use_gwsignal:
 # Setting up the waveform generator using the data dump features
 fref = data.meta_data['command_line_args']['reference_frequency']
 if args.fref:
+    print(" Reference frequency on *this* command line overrides value in pickle: old, new   = ", fref, args.fref)
     fref = args.fref
 waveform_arguments = dict(
     reference_frequency=fref,
@@ -225,12 +226,12 @@ waveform_generator = bilby.gw.waveform_generator.WaveformGenerator(
             duration=ifos.duration,
             start_time=ifos.start_time,
             waveform_arguments=waveform_arguments)
-waveform_generator_alt =  bilby.gw.waveform_generator.WaveformGenerator(
-            frequency_domain_source_model=copy(wf_func),
-            sampling_frequency=ifos.sampling_frequency,
-            duration=ifos.duration,
-            start_time=ifos.start_time,
-            waveform_arguments=waveform_arguments)
+# waveform_generator_alt =  bilby.gw.waveform_generator.WaveformGenerator(
+#             frequency_domain_source_model=copy(wf_func),
+#             sampling_frequency=ifos.sampling_frequency,
+#             duration=ifos.duration,
+#             start_time=ifos.start_time,
+#             waveform_arguments=waveform_arguments)
 # if False: #args.use_gwsignal and hasattr(bilby.gw.waveform_generator, 'GWSignalWaveformGenerator'):
 #   waveform_generator_alt = bilby.gw.waveform_generator.GWSignalWaveformGenerator(
 #             sampling_frequency=ifos.sampling_frequency,
@@ -260,7 +261,7 @@ priors = bilby.core.prior.PriorDict()
 for ifo in ifos_for_reweighting:
     calibration_file_path = f'{spline_calibration_envelope_dict[ifo.name]}'
     ifo_calibration_priors = bilby.gw.prior.CalibrationPriorDict.from_envelope_file(
-        calibration_file_path, ifo.minimum_frequency, ifo.maximum_frequency, 10, ifo.name)
+        calibration_file_path, ifo.minimum_frequency, ifo.maximum_frequency, data.meta_data["command_line_args"]["spline_calibration_nodes"], ifo.name)
 
     # TODO FOR DEBUGGING PURPOSES
     # for key in ifo_calibration_priors.keys():
@@ -348,13 +349,13 @@ for ifo in ifos:
     cal_param_names_rest = list( set(cal_param_names) - set(cal_param_names_freq) )
     cal_names_for[ifo_name] =  cal_param_names_rest
     # assign blank entries for remaining parameters
-    args = dict(zip( cal_param_names_rest, [ np.zeros(len(new_posterior))  for x in cal_param_names_rest] ) )
+    cal_args = dict(zip( cal_param_names_rest, [ np.zeros(len(new_posterior))  for x in cal_param_names_rest] ) )
 #    print(args)
-    new_posterior = new_posterior.assign(**args) # empty arrays
+    new_posterior = new_posterior.assign(**cal_args) # empty arrays
     freq_values = [ recal_file_dict[ifo_name]["CalParams"]["table"][name][0]  for name in cal_param_names_freq]
-    args = dict(zip( cal_param_names_freq, [ freq_values[indx]*np.ones(len(new_posterior))  for indx in range(len(freq_values))] )) # frequency values
+    cal_args = dict(zip( cal_param_names_freq, [ freq_values[indx]*np.ones(len(new_posterior))  for indx in range(len(freq_values))] )) # frequency values
 #    print(args)
-    new_posterior = new_posterior.assign(**args)
+    new_posterior = new_posterior.assign(**cal_args)
     
     # for name in cal_param_names:
     #     if 'recalib' in name:
@@ -377,4 +378,4 @@ print(new_posterior)
 
 # save result file.
 # Note not sure if we need to do any recalculation
-new_posterior.to_csv('test.txt',sep=' ',index=False)
+new_posterior.to_csv('post_with_cal_s{}e{}.txt'.format(start_index,end_index),sep=' ',index=False)

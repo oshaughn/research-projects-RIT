@@ -158,6 +158,7 @@ parser.add_argument("--online",action='store_true')
 parser.add_argument("--calibration-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to calibration uncertainty.")
 parser.add_argument("--calibration-reweighting-batchsize",type=int,default=None,help="If not 'None', tries to group the final set of points based on jobs of a fixed size")
 parser.add_argument("--calibration-reweighting-count",type=int,default=None,help="If not 'None', the number of calibration curves to request when marginalizing. Default is 100")
+parser.add_argument("--calibration-reweighting-initial-extra-args",type=str,default=None,help="If not 'None', pass through. One argument targets effective sample size, other duplicates inoutput")
 parser.add_argument("--calibration-reweighting-extra-args",type=str,default=None,help="If not 'None', pass through. One argument targets effective sample size, other duplicates inoutput")
 parser.add_argument("--calibration-reweighting-osg",action='store_true',help="Attempt to use settings for OSG for cal reweighting. Remove after developed")
 parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
@@ -224,6 +225,8 @@ parser.add_argument("--internal-n-iterations-subdag-max",default=10,type=int,hel
 parser.add_argument("--internal-n-evaluations-per-iteration",default=None,type=int,help="Number of ILE evaluation points per iteration, if not set then pipeline selects experience-based default.  Each ILE worker will do a fraction of this total workload.")
 parser.add_argument("--add-extrinsic",action='store_true')
 parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="adds the time resampling option.  Only deployed for vectorized calculations (which should be all that end-users can access)")
+parser.add_argument("--internal-ile-srate-time-resampling",default=None, help=" Adds --srate-resample-time-marginalization to ILE for  output, to provide higher-resolution time output ")
+parser.add_argument("--internal-ile-srate-internal",default=None, help=" Adds --srate-internal to ILE, modifying how calculations are performed internally to use a higher sampling rate ")
 parser.add_argument("--batch-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
 parser.add_argument("--fmin-template",default=None,type=float,help="Mininum frequency for template. If provided, then overrides automated settings for fmin-template = fmin/Lmax")  # should be 23 for the BNS
@@ -356,12 +359,14 @@ if sum(bool(x) for x in force_grids) > 1:
     parser.error("CANNOT use multiple --force-X-grids options at the same time!")
 
 config_stored=None; config_dict=None
+ile_condor_commands = None
 if (opts.use_ini):
     # Attempt to lazy-parse all command line arguments from ini file
     config = ConfigParser.ConfigParser()
     config.optionxform=str # force preserve case! Important for --choose-data-LI-seglen
     config.read(opts.use_ini)
     config_stored=config
+    # Command line arguments
     if 'rift-pseudo-pipe' in config:
         # get the list of items
         rift_items = dict(config["rift-pseudo-pipe"])
@@ -393,8 +398,15 @@ if (opts.use_ini):
                 else:
                     config_dict[item_renamed] = True
         print(config_dict)
-
-
+    # Condor commands for ile
+    if 'rift-ile-condor' in config:
+        rift_items = dict(config["rift-ile-condor"])
+        config_ile_condor_dict = vars(opts) # access dictionry of options
+        ile_condor_commands = []
+        for item in rift_items:
+            val = rift_items[item].strip()
+            ile_condor_commands.append([item, val])
+            
 
 
 if opts.use_osg:
@@ -1044,6 +1056,11 @@ if opts.internal_ile_inv_spec_trunc_time:
     line = line.replace("inv-spec-trunc-time 0 ","inv-spec-trunc-time {} ".format(opts.internal_ile_inv_spec_trunc_time))
 if (opts.internal_ile_modify_taper):
     line += " --internal-waveform-taper SIM_INSPIRAL_TAPER_START " # taper start of waveform by default, overrides any settings in the grids
+if opts.internal_ile_srate_internal:
+    line += " --srate-internal {} ".format(opts.internal_ile_srate_internal)
+# strictly the next argument only does anything at the extrinsic step, otherwis it is ignored
+if opts.internal_ile_srate_time_resampling:
+    line += " --srate-resample-time-marginalization {} ".format(opts.internal_ile_srate_time_resampling)
 with open('args_ile.txt','w') as f:
         f.write(line)
 
@@ -1546,6 +1563,9 @@ if opts.calibration_reweighting and (not opts.bilby_pickle_file):
         cmd += " --calibration-reweighting-extra-args '{}' ".format(opts.calibration_reweighting_extra_args)
     if opts.calibration_reweighting_osg:
         cmd += " --calibration-reweighting-osg "
+        opts.calibration_reweighting_initial_extra_args += " --use_local_cal_files "
+    if opts.calibration_reweighting_initial_extra_args:
+        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_initial_extra_args)
 elif opts.calibration_reweighting and opts.bilby_pickle_file:
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-pickle-file {} ".format(str(opts.bilby_pickle_file))
     if opts.calibration_reweighting_count:
@@ -1554,6 +1574,9 @@ elif opts.calibration_reweighting and opts.bilby_pickle_file:
         cmd += " --calibration-reweighting-extra-args '{}' ".format(opts.calibration_reweighting_extra_args)
     if opts.calibration_reweighting_osg:
         cmd += " --calibration-reweighting-osg "
+        opts.calibration_reweighting_initial_extra_args += " --use_local_cal_files "
+    if opts.calibration_reweighting_initial_extra_args:
+        cmd += " --calibration-reweighting-initial-extra-args '{}' ".format(opts.calibration_reweighting_initial_extra_args)
 if opts.internal_tabular_eos_file:
     cmd += " --use-tabular-eos-file "
 if opts.distance_reweighting:
@@ -1747,6 +1770,8 @@ if opts.calibration_reweighting:
         my_extra_string += ' --fref {} '.format(fref)
     if (opts.internal_mitigate_fd_J_frame =="L_frame"):
         my_extra_string += ' --internal-waveform-fd-L-frame '
+    if opts.calibration_reweighting_initial_extra_args:
+        my_extra_string+= ' {} '.format(opts.calibration_reweighting_initial_extra_args) # make sure to add spaces/padding
     cmd +=" --calibration-reweighting-initial-extra-args='  {}' ".format(my_extra_string)
 #if opts.internal_mitigate_fd_J_frame =="L_frame" and opts.use_gwsignal and not(opts.manual_extra_ile_args):
 #    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
@@ -1762,6 +1787,13 @@ if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_tran
     os.system("paste local_stripped.cache base_paths.dat > local_relative.cache ")
     os.system("cp local_relative.cache local.cache")
 
+if not(ile_condor_commands is None):
+    # create file
+    with open("ile_condor_commands.txt", 'w') as f:
+        for key, val in ile_condor_commands:
+            f.write(key+ '  ' + val + '\n')
+    cmd += " --ile-condor-commands `pwd`/ile_condor_commands.txt "
+    
 print(cmd)
 os.system(cmd)
 

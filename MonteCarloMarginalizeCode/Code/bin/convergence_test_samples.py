@@ -23,6 +23,7 @@ import numpy.linalg as la
 import sys
 
 from RIFT.misc.samples_utils import add_field
+import RIFT.misc.samples_utils
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--samples", action='append', help="Samples used in convergence test")
@@ -35,6 +36,7 @@ parser.add_argument("--always-succeed",action='store_true',help="Test output is 
 parser.add_argument("--iteration-threshold",default=0,type=int,help="Test is applied if iteration >= iteration-threshold. Default is 0")
 parser.add_argument("--iteration",default=0,type=int,help="Current reported iteration. Default is 0.")
 parser.add_argument("--write-file-on-success",type=str,default="INTRINSIC_CONVERGED",help="Produces an (empty) file with this name if the convergence tests passes.  Note you should pass the FULL PATH to this file if you want it to occur in the run directory for example")
+parser.add_argument("--verbose", action='store_true')
 opts=  parser.parse_args()
 
 if len(opts.samples)<2:
@@ -132,7 +134,17 @@ def test_js_additive(dat1,dat2):
 
 samples1 = np.genfromtxt(opts.samples[0], names=True)
 samples2 = np.genfromtxt(opts.samples[1], names=True)
-  
+
+# Add necessary parameterys
+if 'm1' in samples1.dtype.names:
+    samples1 = RIFT.misc.samples_utils.standard_expand_samples(samples1)
+    if opts.verbose:
+        print(" Samples 1 expanded fields ", samples1.dtype.names)
+if 'm2' in samples2.dtype.names:
+    samples2 = RIFT.misc.samples_utils.standard_expand_samples(samples2)
+    if opts.verbose:
+        print(" Samples 2 expanded fields ", samples2.dtype.names)
+
 # sanity check: is this a result for PE?
 if 'm1' in samples1.dtype.names:
     # Add missing fields needed for some tests

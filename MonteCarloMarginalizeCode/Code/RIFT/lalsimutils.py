@@ -275,6 +275,7 @@ try:
    lalIMRPhenomXP = lalsim.IMRPhenomXP
    lalIMRPhenomXPHM = lalsim.IMRPhenomXPHM
    lalIMRPhenomXO4a = lalsim.IMRPhenomXO4a
+   lalIMRPhenomXPNR = lalsim.IMRPhenomXPNR
    
 except:
    lalIMRPhenomXP = -11
@@ -283,6 +284,7 @@ except:
    lalSEOBNRv4HM_ROM = -16
    lalIMRPhenomXPHM = -17
    lalIMRPhenomXO4a = -18
+   lalIMRPhenomXPNR = -19
 
 pending_FD_approx = ['IMRPhenomXP_NRTidalv2','IMRPhenomXP_NRTidalv3']
 pending_approx_code = {}
@@ -3599,7 +3601,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     sign_factor = 1
     if nr_polarization_convention or (P.approx==lalsim.SpinTaylorT1 or P.approx==lalsim.SpinTaylorT2 or P.approx==lalsim.SpinTaylorT3 or P.approx==lalsim.SpinTaylorT4):
         sign_factor = -1
-    if (P.approx == lalIMRPhenomHM or P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomXPHM or P.approx == lalIMRPhenomXO4a or P.approx == lalSEOBNRv4HM_ROM and is_ChooseFDModes_present):
+    if (P.approx == lalIMRPhenomHM or P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomXPHM or P.approx == lalIMRPhenomXO4a or P.approx == lalSEOBNRv4HM_ROM or P.approx == lalIMRPhenomXPNR and is_ChooseFDModes_present):
        is_precessing=True
        if np.sqrt(P.s1x**2 + P.s1y**2 + P.s2x**2+P.s2y**2)<1e-10:  # only perform if really precessing, otherwise skip. Really only for XP variants
            is_precessing=False
@@ -4605,7 +4607,7 @@ def hoft_from_hlm(hlms,P, return_complex=False, extra_phase_shift=0):
         hc = lal.CreateREAL8TimeSeries("hT", h22.epoch, h22.f0,
             h22.deltaT, h22.sampleUnits, h22.data.length)
         hp.data.data = np.real(hT.data.data)
-        hc.data.data = np.imag(hT.data.data)
+        hc.data.data = (-1)*np.imag(hT.data.data)
         hp.epoch = hp.epoch + P.tref
         hc.epoch = hc.epoch + P.tref
         h_real = lalsim.SimDetectorStrainREAL8TimeSeries(hp, hc, 
@@ -5143,7 +5145,7 @@ def frame_data_to_hoft_old(fname, channel, start=None, stop=None, window_shape=0
     return tmp
 
 def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
-                       verbose=True,deltaT=None,use_gwpy=False,**kwargs):
+                       verbose=True,deltaT=None,deltaT_internal=None,upsample_method='cubic',use_gwpy=False,**kwargs):
     """
     Function to read in data in the frame format and convert it to 
     a REAL8TimeSeries. fname is the path to a LIGO cache file.
@@ -5205,6 +5207,26 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
     # Resample the timeries as requested
     if (not (deltaT is None)) and deltaT > tmp.deltaT:
         lal.ResampleREAL8TimeSeries(tmp,deltaT)
+
+    # Upsample if requested. We do *after* the above, so the correct filter is applied for any low pass.
+    #   -  last points in upsampling aren't defined since they is not an interior point. Set to zero
+    if not deltaT_internal is None:
+        if deltaT_internal < deltaT:
+            fac = int(deltaT/deltaT_internal) # upsampling factor, needs to be INTEGER for now
+            if fac < 1:
+                raise Exception(" frame_data_to_hoft: deltaT_internal resampling not a valid multiple of deltaT ")
+            xvals = np.arange(tmp.data.length)*fac
+            xvals_resampled = np.arange(fac*tmp.data.length)
+            tmp2 = lal.CreateREAL8TimeSeries("hoft", tmp.epoch, 0, tmp.deltaT/fac, lsu_DimensionlessUnit, fac*tmp.data.length)
+            tmp2.data.data *= 0 # zero out
+            if upsample_method == 'cubic':
+                cs = interpolate.CubicSpline(xvals, tmp.data.data,extrapolate='periodic')
+                tmp2.data.data = cs(xvals_resampled)
+                # zero out last chunk where we extrapolated; it will be tapered anyways
+                tmp2.data.data[-fac:] =0
+            else:
+                tmp2.data.data = np.interp(xvals_resampled,xvals,   tmp.data.data)
+            tmp = tmp2
 
     return tmp
 
