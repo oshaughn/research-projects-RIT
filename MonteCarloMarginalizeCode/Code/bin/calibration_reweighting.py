@@ -537,7 +537,7 @@ if args.dump_cal_realization:
         # now add cal results, based on cal index.
         for name in cal_names_for[ifo_name]:
             values = recal_file_dict[ifo.name]["CalParams"]["table"][name][    recal_indx_array]
-            bad_indexes = recal_indx_array == -1
+            bad_indexes = (recal_indx_array == -1)
             values[bad_indexes] = float('nan')  # these will not be selected anyways
             new_posterior[name] = values
             #for indx_event in range(len(result.posterior)):
@@ -545,9 +545,9 @@ if args.dump_cal_realization:
 
     # remove events with no cal sample generated 
     if has_bad:
-       print(" WARNING: Removing samples because no cal realization generated ", len(bad_indexes_array))
-       new_posterior.drop(index=bad_indexes_array,inplace=True)
-
+       print(" WARNING: Some samples have no cal realization generated ", len(bad_indexes_array))
+       print(" WARNING: These will be retained nominally to preserve shape for later recombination ")
+       
     # Re-insert RIFT key names if needed
     if args.use_rift_samples:
         new_posterior.rename(columns=key_swap_dict_backwards,inplace=True)
