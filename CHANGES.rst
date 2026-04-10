@@ -21,6 +21,8 @@ https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
    - (rc9) OSG-safe operation missing cherry-pick from O4d for allinone_convert; minor arg label fix calmarg+OSG
    - (rc10) OSG-safe operation make sure weight_files created early to avoid hold on evict/fail; remove unused columns
      that were empty and caused downstream pesummary parsing problems; safety protect calmarg against draw failures
+   - (rc11) fix shape inconsitency in cal draw - eliminate rare failures at end not immediately to preserve
+     shape. Stronger safety checks and warnings.
      
 0.0.17.7
 ------------
