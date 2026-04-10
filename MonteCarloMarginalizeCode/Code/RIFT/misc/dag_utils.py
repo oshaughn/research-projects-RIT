@@ -29,8 +29,8 @@ import configparser
 __author__ = "Evan Ochsner <evano@gravity.phys.uwm.edu>, Chris Pankow <pankow@gravity.phys.uwm.edu>"
 
 # getenv=True deprecated, will need workaround to explicitly pull extra environment variables
-default_getenv_value='True'
-default_getenv_osg_value='True'
+default_getenv_value='*'
+default_getenv_osg_value='*'
 if 'RIFT_GETENV' in os.environ:
     default_getenv_value = os.environ['RIFT_GETENV']
 if 'RIFT_GETENV_OSG' in os.environ:
