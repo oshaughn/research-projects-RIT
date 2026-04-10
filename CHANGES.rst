@@ -19,6 +19,8 @@ https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
      evidence fix
    - (rc8) calmarg+OSG miscellaneous missing cherry-picks, plus swap order of writing submit files so cal_envelopes made first.
    - (rc9) OSG-safe operation missing cherry-pick from O4d for allinone_convert; minor arg label fix calmarg+OSG
+   - (rc10) OSG-safe operation make sure weight_files created early to avoid hold on evict/fail; remove unused columns
+     that were empty and caused downstream pesummary parsing problems; safety protect calmarg against draw failures
      
 0.0.17.7
 ------------
