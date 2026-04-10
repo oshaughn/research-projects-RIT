@@ -433,6 +433,14 @@ if  opts.input_eos_index and not(opts.tabular_eos_file):
     print(" warning: input EOS index, but not using it; presumably you are doing a model-free test ")
 if  not(opts.input_eos_index) and (opts.tabular_eos_file):
     raise Exception(" Fail: must process EOS input to be able to use it ")
+# ensure using_eos_index valid for eos file length
+if opts.using_eos and opts.using_eos.startswith('file:') and not(opts.using_eos_index is None):
+    fname = opts.using_eos.replace('file:', '')
+    try:
+        dat = np.loadtxt(fname)[opts.using_eos_index]
+    except Exception as e:
+        print(" Fail: EOS index out of range:\n   ",e)
+        sys.exit(0)
 
 my_eos=None
 #option to be used if gridded values not calculated assuming EOS
@@ -671,7 +679,8 @@ if not('chi1' in downselect_dict):
 if not('chi2' in downselect_dict):
     downselect_dict['chi2'] = [0,chi_small_max]
 if opts.input_tides:
-    # only insert these cuts if we are using a composite file with tides!  
+    # only insert these cuts if we are using a composite file with tides!
+    # do not downselect if lambda1 is not in ! allows NSBH
     if not('lambda1' in downselect_dict) and ('lambda1' in opts.parameter):
         downselect_dict['lambda1'] = [lambda_min,lambda_max]
     if not('lambda2' in downselect_dict):

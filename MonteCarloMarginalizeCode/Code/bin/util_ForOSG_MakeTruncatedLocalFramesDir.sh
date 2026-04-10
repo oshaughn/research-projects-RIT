@@ -11,11 +11,21 @@ cd $1
 mkdir ${OUT}
 #cat local.cache | awk '{print $NF}'  | tr -d '\r' > my_temp_files
 #switcheroo file://localhost ' ' my_temp_files
-if [ ! -e ILE.sub ]; then 
-   echo " CANNOT IDENTIFY EVENT TIME; failing convert attempt "
+if [ ! -e ILE.sub ]; then
+   echo " Truncation script: no ILE.sub, trying for args_ile.txt "
+   if [ ! -e args_ile.txt ]; then 
+       echo " CANNOT IDENTIF$Y EVENT TIME; failing nicely (just in case you fix this later)  "
+       exit 0
+   else
+  # get args from args_ile.txt 
+  grep arguments args_ile.txt | sed s/--/\\n/g | grep time > my_time_args
+  grep arguments args_ile.txt | sed s/--/\\n/g  | grep channel  | tr '=' ' '  | awk '{print $2,$3}' > my_channel_pairs
+  fi
+else
+  # get args from ILE
+  grep arguments ILE.sub | sed s/--/\\n/g | grep time > my_time_args
+  grep arguments ILE.sub | sed s/--/\\n/g  | grep channel  | tr '=' ' '  | awk '{print $2,$3}' > my_channel_pairs
 fi
-grep arguments ILE.sub | sed s/--/\\n/g | grep time > my_time_args
-grep arguments ILE.sub | sed s/--/\\n/g  | grep channel  | tr '=' ' '  | awk '{print $2,$3}' > my_channel_pairs
 TSTART=`grep data-start-time my_time_args | awk '{print $NF}' | xargs printf '%.*f\n' 0 `
 TSTART=`echo ${TSTART} - 1 | bc `
 TEND=`grep data-end-time my_time_args | awk '{print $NF}' | xargs printf '%.*f\n' 0 `

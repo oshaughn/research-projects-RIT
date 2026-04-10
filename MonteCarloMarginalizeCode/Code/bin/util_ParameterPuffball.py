@@ -53,6 +53,7 @@ parser.add_argument("--eta-range",default=None,help="Eta range. Important if we 
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points. Note mc-range, eta-range,mtot-range are syntactic sugar for this usage ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
+parser.add_argument("--reflect-parameter",action='append',type=str)
 parser.add_argument("--enforce-duration-bound",default=None,type=float,help="If present, enforce a duration bound. Used to prevent grid placement for obscenely long signals, when the window size is prescribed")
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
 parser.add_argument('--force-scatter',default=False,action='store_true',help='For hyperbolic analyses forces only scatter grid points.')
@@ -95,6 +96,7 @@ if not(opts.no_correlation is None):
 #    print opts.no_correlation, coord_names, corr_list
 
 downselect_dict = {}
+reflect_dict={}
 
 # Add some pre-built downselects, to avoid common out-of-range-error problems
 # Don't add full spin constraint unless called for. If so, we need to retain transverse values!  That will be done AT END
@@ -122,6 +124,20 @@ if len(dlist) != len(dlist_ranges):
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
+indx_reflect=[]
+rlist=[]
+if opts.reflect_parameter:
+    rlist  = opts.reflect_parameter
+    indx_reflect = [coord_names.index(param) for param in opts.reflect_parameter]
+if len(rlist) > len(coord_names):
+    print(" reflection parameters inconsistent", rlist, coord_names)
+    raise Exception(" Reflection only allowed for coordinates ")
+for indx in np.arange(len(rlist)):
+    if not(rlist[indx] in coord_names):
+        raise Exception(" Reflection only allowed for coordinates (--parameter) ")
+    if not(rlist[indx] in downselect_dict):
+        raise Exception(" Reflection requires parameter range specified as a downselection ")
+    reflect_dict[rlist[indx]] = downselect_dict[rlist[indx]]
 
 
 
@@ -186,6 +202,18 @@ if len(coord_names) >1:
     rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov,allow_singular=True)  # they are just complaining about dynamic range of parameters, usually
     delta_X = rv.rvs(size=len(X))
     X_out = X+delta_X
+    # Reflection
+    for indx in indx_reflect:
+        param = coord_names[indx]
+        # put in range [0,2 L]
+        tmp = reflect_dict[param][0] + np.mod(X_out[:,indx] - reflect_dict[param][0], 2*(reflect_dict[param][1] - reflect_dict[param][0]) )
+        # final reflection
+        tmp = np.where( tmp > reflect_dict[param][1], 2*reflect_dict[param][1] - tmp, tmp)
+        X_out[:,indx] = tmp
+        # DELETE parameter from downselet_dict : no longer needed
+        del downselect_dict[param]
+
+    # perform manual requirement
     if 'eta' in coord_names:
         indx_eta = coord_names.index('eta')
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/2- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
@@ -199,7 +227,7 @@ else:
         indx_eta = coord_names.index('eta')
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] > 1/4, 1/2- X_out[:,indx_eta], X_out[:,indx_eta]) # reflection boundary condition, preserve points
         X_out[:,indx_eta] = np.where(X_out[:,indx_eta] < 0, -X_out[:,indx_eta], X_out[:,indx_eta]) # reflection on other side
-
+        
 # Undo natural logarithm
 for indx, name  in enumerate(coord_names):
     if name in log_coord_names:
@@ -218,7 +246,7 @@ for indx, name  in enumerate(coord_names):
 
 # Apply downselect constraints, using conversion utility for speed
 #   WARNING: For spin, we are NOT retaining transverse DOF by default!
-names_downselect = list(downselect_dict.keys())
+names_downselect = list(set(downselect_dict.keys()) - set(rlist)) # make sure to remove the unneeded conversions
 x_out_down = lalsimutils.convert_waveform_coordinates(X_out, coord_names=names_downselect, low_level_coord_names=coord_names)
 indx_ok = np.ones(len(x_out_down),dtype=bool)
 for indx, name in enumerate(names_downselect):

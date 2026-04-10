@@ -51,6 +51,8 @@ import pickle
 import bilby
 import bilby_pipe
 
+import h5py
+
 # So I can import the RIFT source while not making this some setup.py-able package
 # TODO this should not be a hardcoded path!
 
@@ -177,6 +179,12 @@ def alt_reweight(result, label=None, new_likelihood=None, new_prior=None,
 
 parser = argparse.ArgumentParser(description='calibration marginalization via reweighting of posterior samples')
 parser.add(
+    "--dump_cal_realization", action='store_true',
+    help="Dumps output file (in same location as weights) ")
+parser.add(
+    "--use_local_cal_files", action='store_true',
+    help="Assume cal files have been transferred to the current working directory, without name conflicts!")
+parser.add(
     "--posterior_sample_file", default=None,
     help="Bilby result file or text file with posterior samples to reweight")
 parser.add(
@@ -230,6 +238,7 @@ with open(args.data_dump_file, "rb") as data_file:
 start_index = args.start_index
 end_index = args.end_index
 
+result=None # scoping requirement
 # read in the posterior samples for reweighting
 if args.posterior_sample_file.split(".")[-1] == 'json':
     result = bilby.core.result.read_in_result(args.posterior_sample_file)
@@ -277,6 +286,8 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
             else:
               result.posterior['lambda_1'] = np.zeros(len(result.posterior['mass_1']))
               result.posterior['lambda_2'] = np.zeros(len(result.posterior['mass_1']))
+else:
+  raise Exception(" Unknown posterior_sample_file format ")          
 
 outdir = os.path.dirname(os.path.abspath(args.posterior_sample_file))
 
@@ -348,6 +359,8 @@ waveform_generator = bilby.gw.waveform_generator.WaveformGenerator(
 priors = bilby.core.prior.PriorDict()
 for ifo in ifos_for_reweighting:
     calibration_file_path = f'{spline_calibration_envelope_dict[ifo.name]}'
+    if args.use_local_cal_files:
+        calibration_file_path = os.path.basename(calibration_file_path) # force local
     ifo_calibration_priors = bilby.gw.prior.CalibrationPriorDict.from_envelope_file(
         calibration_file_path, ifo.minimum_frequency, ifo.maximum_frequency, 10, ifo.name)
 
@@ -442,11 +455,51 @@ else:
         resume_file=resume_file, n_checkpoint=5000,
         use_nested_samples=args.use_nested_samples)
 
+
+
+    
 # Save the weights to a file, with the sample index in the name
 if not os.path.exists(f'{outdir}/weight_files/'):
     os.makedirs(f'{outdir}/weight_files/')
-
 np.savetxt(weights_file, weights)
+
+if args.dump_cal_realization:
+    # Save callibration realization
+    extended_posterior_file = weights_file[:-4]+'.extended_posterior'
+    recal_indx_array = np.zeros(len(result.posterior),dtype=int)
+    new_posterior = copy(result.posterior)  # includes existing fields
+    recal_file_dict={}; cal_names_for = {}
+    # DRAW CAL REALIZATIONS FOR EACH SAMPLE
+    for indx in range(len(result.posterior)):
+        dict_samples = {key: result.posterior[key][indx] for key in result.posterior}
+        calibration_likelihood.parameters = dict_samples
+        recal_indx_array[indx] = int(calibration_likelihood.generate_calibration_sample_from_marginalized_likelihood())
+    #  ADD THEM TO THE RESULT OBJECT
+    for ifo in ifos:
+        ifo_name = ifo.name
+        # add cal parameters to result file
+        recal_file_dict[ifo.name] = h5py.File(calibration_lookup_table[ifo.name], 'r')
+        cal_param_names = recal_file_dict[ifo.name]["CalParams"]["table"].dtype.names
+        cal_param_names = [x for x in cal_param_names if 'recalib' in x]
+        cal_param_names_freq = [x for x in cal_param_names if 'frequency' in x]
+        cal_param_names_rest = list( set(cal_param_names) - set(cal_param_names_freq) )
+        cal_names_for[ifo_name] =  cal_param_names_rest
+        # assign blank entries for remaining parameters
+        args = dict(zip( cal_param_names_rest, [ np.zeros(len(new_posterior))  for x in cal_param_names_rest] ) )
+        new_posterior = new_posterior.assign(**args) # empty arrays
+        freq_values = [ recal_file_dict[ifo.name]["CalParams"]["table"][name][0]  for name in cal_param_names_freq]
+        args = dict(zip( cal_param_names_freq, [ freq_values[indx]*np.ones(len(new_posterior))  for indx in range(len(freq_values))] )) # frequency values
+        new_posterior = new_posterior.assign(**args)
+
+        # now add cal results, based on cal index.
+        for name in cal_names_for[ifo_name]:
+            new_posterior[name] = recal_file_dict[ifo.name]["CalParams"]["table"][name][    recal_indx_array]
+            #for indx_event in range(len(result.posterior)):
+            #    new_posterior.loc[indx_event,name] = recal_file_dict[ifo.name]["CalParams"]["table"][name][    recal_indx_array[indx_event]]
+
+    # WRITE TO FILE
+    new_posterior.to_csv(extended_posterior_file,sep=' ',index=False)
+
 
 if (start_index == None) and (end_index == None):
     result_reweighted.save_posterior_samples(filename=outdir+'/reweighted_posterior_samples.dat', outdir=outdir)

@@ -256,6 +256,8 @@ parser.add_argument("--eccentricity", action="store_true", help="Read sample fil
 parser.add_argument("--meanPerAno", action="store_true", help="Read sample files in format including meanPerAno - assumes eccentricity also present")
 parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Relies entirely on user to set plot options for plot styles from matplotlibrc")
 parser.add_argument("--no-mod-psi",action="store_true",help="Default is to take psi mod pi. If present, does not do this")
+parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
+parser.add_argument("--downselect-parameter-range",action='append',type=str)
 parser.add_argument("--verbose",action='store_true',help='print matplotlibrc data')
 parser.add_argument("--no-special-param-ranges",action='store_true',help='Wipe all artifical param ranges; let samples guide the ranges')
 opts=  parser.parse_args()
@@ -291,6 +293,23 @@ if opts.posterior_file is None:
 if opts.pdf:
     fig_extension='.pdf'
 
+
+downselect_dict = {}
+dlist = []
+dlist_ranges=[]
+if opts.downselect_parameter:
+    dlist = opts.downselect_parameter
+    dlist_ranges  = list(map(eval,opts.downselect_parameter_range))
+else:
+    dlist = []
+    dlist_ranges = []
+if len(dlist) != len(dlist_ranges):
+    print(" downselect parameters inconsistent", dlist, dlist_ranges)
+for indx in np.arange(len(dlist_ranges)):
+    downselect_dict[dlist[indx]] = dlist_ranges[indx]
+if opts.downselect_parameter:
+    print("Parameter downselect " , downselect_dict)
+    
 truth_P_list = None
 P_ref = None
 truth_dat = None
@@ -456,6 +475,18 @@ if opts.posterior_file:
             new_samples[name] = samples[name][indx_ok]
         samples = new_samples
 
+    # impose downselect on samples
+    if len(downselect_dict.keys()) > 0:
+        indx_ok = np.ones(len(samples),dtype=bool)
+        print(" Downselecting input samples for file ", fname, len(samples))
+        for param in downselect_dict:
+            if not param in samples.dtype.names:
+                print(" FAILURE TO DOWNSELECT ON  ", param)
+                continue
+            indx_ok = np.logical_and(indx_ok, np.logical_and(samples[param] > downselect_dict[param][0], samples[param]<=downselect_dict[param][1]))
+            print("   {} : {} ", param, np.sum(indx_ok))
+        samples = samples[indx_ok]
+        
 
     # Save samples
     posterior_list.append(samples)
@@ -559,11 +590,14 @@ if opts.composite_file:
     # If no record names
     # Add mtotal, q, 
     if 'm1' in samples.dtype.names and not 'q' in samples.dtype.names:
-        samples=add_field(samples,[('mtotal',float)]); samples["mtotal"]= samples["m1"]+samples["m2"]; 
-        samples=add_field(samples,[('q',float)]); samples["q"]= samples["m2"]/samples["m1"]; 
-        samples=add_field(samples,[('mc',float)]); samples["mc"] = lalsimutils.mchirp(samples["m1"], samples["m2"])
+        samples=add_field(samples,[('mtotal',float)]); samples["mtotal"]= samples["m1"]+samples["m2"];
+        if not 'q' in samples.dtype.names:
+            samples=add_field(samples,[('q',float)]); samples["q"]= samples["m2"]/samples["m1"];
+        if not 'mc' in samples.dtype.names:
+            samples=add_field(samples,[('mc',float)]); samples["mc"] = lalsimutils.mchirp(samples["m1"], samples["m2"])
         samples=add_field(samples,[('eta',float)]); samples["eta"] = lalsimutils.symRatio(samples["m1"], samples["m2"])
-        samples=add_field(samples,[('chi_eff',float)]); samples["chi_eff"]= (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["mtotal"]); 
+        if not 'chi_eff' in samples.dtype.names:
+            samples=add_field(samples,[('chi_eff',float)]); samples["chi_eff"]= (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["mtotal"]); 
         chi1_perp = np.sqrt(samples['a1x']*samples["a1x"] + samples['a1y']**2)
         chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
         samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
@@ -575,6 +609,11 @@ if opts.composite_file:
         samples['phi1'] = phi1
         samples['phi2'] = phi2
         samples['phi12'] = phi2 - phi1
+        
+        chi1 = np.sqrt(samples['a1x']**2 + samples['a1y']**2+samples['a1z']**2)
+        chi2 = np.sqrt(samples['a2x']**2 + samples['a2y']**2+samples['a2z']**2)
+        samples = add_field(samples, [('chi1',float), ('chi2',float)])
+
 
         if ('lambda1' in samples.dtype.names):
             Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
@@ -623,6 +662,16 @@ if opts.composite_file:
                 new_samples[name] = samples[name][indx_ok]
             samples = new_samples
             print(" Stripped samples  from ", fname , len(np.atleast_1d(samples["m1"])))
+
+    # impose downselect on composite file
+    if len(downselect_dict.keys()) < 1:
+        indx_ok = np.ones(len(samples),dtype=bool)
+        for param in downselect_dict:
+            if not param in samples.dtype.names:
+                print(" FAILURE TO DOWNSELECT ON  ", param)
+                continue
+            indx_ok = np.logical_and(indx_ok, np.logical_and(samples[param] > downselect_dict[param][0], samples[param]<=downselect_dict[param][1]))
+        samples = samples[indx_ok]
 
 
     composite_list.append(samples)

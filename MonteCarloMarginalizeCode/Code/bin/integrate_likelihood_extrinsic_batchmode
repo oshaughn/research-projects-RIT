@@ -179,7 +179,8 @@ optp.add_option("-C", "--channel-name", action="append", help="instrument=channe
 optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
 optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS file.")
 optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
-optp.add_option("-I", "--sim-xml", help="XML file containing mass grid to be evaluated")
+optp.add_option("-I", "--sim-xml", help="XML file containing parameter grid to be evaluated")
+optp.add_option( "--sim-grid", help="ascii file with labels containing parameter grid to be evaluated, potentially including parameters passed to external libraries or to the waveform generator/cal/systematics as extra arguments.  ")
 optp.add_option("-E", "--event", default=0,type=int, help="Event number used for this run")
 optp.add_option( "--random-event", action='store_true', help="Pick a RANDOM event from the file. Dangerous - watch out for oversampling fast events")
 optp.add_option("--n-events-to-analyze", default=1,type=int, help="Number of events to analyze from this XML")
@@ -267,6 +268,7 @@ integration_params = OptionGroup(optp, "Integration Parameters", "Control the in
 integration_params.add_option("--n-max", type=int, help="Total number of samples points to draw. If this number is hit before n_eff, then the integration will terminate. Default is 'infinite'.",default=1e7)
 integration_params.add_option("--n-eff", type=int, default=100, help="Total number of effective samples points to calculate before the integration will terminate. Default is 100")
 integration_params.add_option("--fairdraw-extrinsic-output", action='store_true' , help="Output is fair draw, rather than being comprehensive")
+integration_params.add_option("--fairdraw-extrinsic-output-n-max", default=5, type=int, help="Maximum number of fair draws per ILE evaluation.")
 integration_params.add_option("--n-chunk", type=int, help="Chunk'.",default=10000)
 integration_params.add_option("--convergence-tests-on",default=False,action='store_true')
 integration_params.add_option("--seed", type=int, help="Random seed to use. Default is to not seed the RNG.")
@@ -547,6 +549,7 @@ fiducial_epoch = event_time.seconds + 1e-9*event_time.nanoseconds   # no more di
 # Struct to hold template parameters
 P_list = None
 P=None # force allocation so I can use the preferred event later
+grid_in = None
 if opts.sim_xml:
     print( "====Loading injection XML:", opts.sim_xml, opts.event, " =======")
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
@@ -581,6 +584,43 @@ if opts.sim_xml:
             P.phaseO = 3
 
     P = P_list[0]  # Load in the physical parameters of the injection.  
+elif opts.sim_grid:
+  print( "====Loading injection grid file:", opts.sim_grid, opts.event, " =======")
+  grid_in = np.genfromtxt(opts.sim_grid,names=True)
+  grid_names = grid_in.dtype.names
+  grid_names_params = list(set(grid_names).intersection(set(lalsimutils.valid_params))) # only do internal loop over valid parameters
+  grid_indx_params = [grid_names.index(x) for x in grid_names_params]
+  if len(grid_in) < opts.event:
+    print(" No events lft to analyze, out of ramge")
+    sys.exit(0)
+  n_event_max= np.min([len(grid_in), opts.event+opts.n_events_to_analyze])
+  grid_in = grid_in[opts.event:n_event_max]
+  P_list = []
+  # Should call a convert_vector_coordinates call to get m1, m2, etc all in a grid, to make it faster. Assume user is friendly/sane
+  for indx in range(opts.n_events_to_analyze):
+    P = lalsimutils.ChooseWaveformParams()
+    for indx, name  in enumerate(grid_names_params):
+      if hasattr(P, name): # fast version
+        setattr(P,name,  float(grid_in[grid_names_params[indx]]))
+      else: # slightly slower version
+        P.assign_param(name, grid_in[grid_names_params[indx]])
+    # Set required properties for all - note distance must be fixed here !
+    P.radec =False  # do NOT propagate the epoch later
+    P.fref = opts.reference_freq
+    P.fmin = template_min_freq
+    P.tref = fiducial_epoch  # the XML table
+    # fix mass scale
+    if P.m1 < 1e15:  # 
+      P.m1 *= lal.MSUN_SI
+      P.m2 *= lal.MSUN_SI
+    m1 = P.m1/lal.MSUN_SI
+    m2 =P.m2/lal.MSUN_SI
+    lambda1, lambda2 = P.lambda1,P.lambda2
+    P.dist = factored_likelihood.distMpcRef * 1.e6 * lal.PC_SI   # use *nonstandard* distance
+
+    P_list.append(P)
+  P = P_list[0]
+  P.print_params()
 else:
  if opts.mass1 is not None and opts.mass2 is not None:
     m1, m2 = opts.mass1, opts.mass2
@@ -1234,7 +1274,7 @@ pinned_params.update({
     "igrand_threshold_deltalnL": opts.save_deltalnL, # Threshold on distance from max L to save sample
     "igrand_threshold_p": opts.save_P, # Threshold on cumulative probability contribution to cache sample
     "igrand_fairdraw_samples": opts.fairdraw_extrinsic_output,
-    "igrand_fairdraw_samples_max": opts.n_eff
+    "igrand_fairdraw_samples_max": np.min([opts.fairdraw_extrinsic_output_n_max,opts.n_eff])
 })
 if opts.sampler_method == "adaptive_cartesian_gpu":
   pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!  
@@ -1906,6 +1946,22 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       sqrt_var_over_res =  numpy.exp(var/2 - log_res)
 
     # Report results
+    if opts.output_file and opts.sim_grid:
+      fname_output_txt = opts.output_file +"_"+str(indx_event)+"_" + ".grid"
+      from  RIFT.misc.samples_utils import add_field
+      # grid file output: use preserved columns
+      grid_out =grid_in.copy()
+      if not('lnL' in grid_out.dtype.names):
+        grid_out = add_field(grid_out, [('lnL',float)])
+      if not('sigma_lnL' in grid_out.dtype.names):
+        grid_out = add_field(grid_out, [('sigma_lnL',float)])
+      grid_out['lnL'][indx_event] = log_res + manual_avoid_overflow_logarithm
+      grid_out['sigma_lnL'][indx_event] = log_res + manual_avoid_overflow_logarithm
+      line_out = np.array(list(grid_out[indx_event])) # convert tuple to list then to array - very silly
+#      print(grid_out[indx_event], line_out, type(line_out))
+      np.savetxt(fname_output_txt, [line_out], header=' '.join(grid_out.dtype.names) )
+      
+    # Report results (standard. Note this is BEFORE TIME RESAMPLING)    
     if opts.output_file:
         fname_output_txt = opts.output_file +"_"+str(indx_event)+"_" + ".dat"
         m1 =P.m1/lal.MSUN_SI
@@ -2220,7 +2276,7 @@ lnL_sofar = -np.inf
 no_adapt_sky = False
 
 for indx in numpy.arange(len(P_list)):
- try:
+ if True: #try:
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   # abort if horrible (nan event) - done with 'raise'
   lnL_sofar = np.max([lnL_sofar,res])
@@ -2246,7 +2302,7 @@ for indx in numpy.arange(len(P_list)):
       # Disable saving of the integrand -- saves on memory and will reduce speed. 
       # Note this needs to be done in a few places
       pinned_params.update({"force_no_adapt":True,"save_intg":False, "igrand_threshold_deltalnL":20})  # massively reduce memory usage in logic branch, don't save all. Highly redundant sequence to self-document all related logic branches
- except Exception as exception_failure:
+ else: #except Exception as exception_failure:
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
   if opts.internal_make_empty_file_on_error:

@@ -165,6 +165,7 @@ parser.add_argument("--tripwire-fraction",default=0.05,type=float,help="Fraction
 parser.add_argument("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., imposing alternate EOS priors)")
 parser.add_argument("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external likelihood. EXPERTS ONLY")
 parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
+parser.add_argument("--supplementary-coordinate-code", default=None,type=str,help="Coordinate conversion/prior code. Note the string 'rift_default' will use convert_vector_coordinates, and deploy RIFT-standard priors")
 opts=  parser.parse_args()
 
 #print(" WARNING: Always use internal_use_lnL for now ")
@@ -309,8 +310,14 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
       # Call the ini file, tell it what coordinates we are using by name
       supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=coord_names)
 
-
-
+supplemental_coordinate_convert = None
+if opts.supplementary_coordinate_code =='rift_default':
+    # define coordinate converter. Field names must conform to RIFT names
+    supplemental_coordinate_convert = RIFT.lalsimutils.convert_waveform_coordinates
+    # update prior_map
+    print(" PRIORS NOT YET DEPLOYED WITH FLEXIBLE RANGES - be careful!")
+    # Update parameters using arguments: NOT YET DEPLOYED
+    prior_map.update(RIFT.misc.likelihood.rift_priors.prior_map) # provide priors from default
 
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as C
@@ -444,26 +451,40 @@ n_params = -1
  ### Convert data.   RIGHT NOW JUST DOWNSELECTING, no intermediate fitting parameters defined
  ###
 
-indx_of_orig_names =  np.array([ dat_orig_names.index(coord_names[k]) for k in range(len(coord_names))])
+# Naive convert: no downselect.
+if (supplemental_coordinate_convert ==None):
 
-dat_out = []
-for line in dat:
-  dat_here= np.zeros(len(coord_names)+2)
-  if line[col_lnL+1] > opts.sigma_cut:
-      print("skipping", line)
-      continue
-  dat_here[:-2] = line[indx_of_orig_names+2]#line[2:len(coord_names)+2]  # modify to use names!
-  dat_here[-2] = line[0]
-  dat_here[-1] = line[1]
-  dat_out.append(dat_here)
-dat_out= np.array(dat_out)
+    indx_of_orig_names =  np.array([ dat_orig_names.index(coord_names[k]) for k in range(len(coord_names))])
+    dat_out = []
+    for line in dat:
+        dat_here= np.zeros(len(coord_names)+2)
+        if line[col_lnL+1] > opts.sigma_cut:
+            print("skipping", line)
+            continue
+        dat_here[:-2] = line[indx_of_orig_names+2]#line[2:len(coord_names)+2]  # modify to use names!
+        dat_here[-2] = line[0]
+        dat_here[-1] = line[1]
+        dat_out.append(dat_here)
+    dat_out= np.array(dat_out)
 
-# Repack data
-X =dat_out[:,0:len(coord_names)]
-Y = dat_out[:,-2]
-if np.max(Y)<0 and lnL_shift ==0: 
-    lnL_shift  = -100 - np.max(Y)   # force it to be offset/positive -- may help some configurations. Remember our adaptivity is silly.
-Y_err = dat_out[:,-1]
+    # Repack data, WHOLE SET
+    X =dat_out[:,0:len(coord_names)]
+    Y = dat_out[:,-2]
+    if np.max(Y)<0 and lnL_shift ==0: 
+        lnL_shift  = -100 - np.max(Y)   # force it to be offset/positive -- may help some configurations. Remember our adaptivity is silly.
+    Y_err = dat_out[:,-1]
+    def convert_coords(x):
+        return x
+
+else:
+    # Pack data, using coordinate converter. Note later calculations MUST use the converter
+    X = supplemental_coordinate_convert(dat[:,2:], coord_names=coord_names, low_level_coord_names=dat_orig_names) # convert and generate X
+    Y = dat[:,0]
+    Y_err = dat[:,1]
+    if np.max(Y)<0 and lnL_shift ==0: 
+        lnL_shift  = -100 - np.max(Y)   # force it to be offset/positive -- may help some configurations. Remember our adaptivity is silly.
+    def convert_coords(x_in):
+        return supplemental_coordinate_convert(x_in, coord_names=coord_names, low_level_coord_names=dat_orig_names) # convert and generate X
 # Save copies for later (plots)
 X_orig = X.copy()
 Y_orig = Y.copy()
@@ -492,6 +513,8 @@ elif n_ok < 10: # and max_lnL > 30:
     indx_ok = list(map(int,indx_list[:10,0]))
     print(" Revised number of points for fit: ", np.sum(indx_ok), len(indx_ok), indx_list[:10])
 X_raw = X.copy()
+
+
 
 my_fit= None
 if opts.fit_method =='gp':
@@ -602,8 +625,6 @@ for p in coord_names:
 
 likelihood_function = None
 log_likelihood_function = None
-def convert_coords(x):
-    return x
 def log_likelihood_function(*args):
     return my_fit(convert_coords(np.array([*args]).T ))
 
@@ -821,7 +842,16 @@ if len(coord_names) < len(dat_orig_names): # not needed if all params are in fit
 
     if len(dat) < opts.n_output_samples:
         print(" NOTE: original data shorter than  requested output; adding",opts.n_output_samples-len(dat),"duplicate fill lines from original data.")
-        newlines = dat[:opts.n_output_samples-len(dat)] #duplicate lines to fill
+        newlines = None
+        if opts.n_output_samples > 2*len(dat):
+            newlines = dat[:]
+            newlen = len(newlines)
+            while newlen < opts.n_output_samples:
+                newerlines = dat[:opts.n_output_samples-newlen] #will only get up to len(dat) lines
+                newlines = np.concatenate((newlines,newerlines), axis=0)
+                newlen = len(newlines)
+        else:
+            newlines = dat[:opts.n_output_samples-len(dat)] #duplicate lines to fill
         dat = np.concatenate((dat,newlines), axis=0) #should be fine since dat isn't used after this
         
     for c in np.arange(len(dat_orig_names)):
@@ -839,5 +869,15 @@ for indx in np.arange(len(coord_names)):
     outindx = name_index_dict[ coord_names[indx]]   # write in correct place
     dat_out[:,outindx] = vals
 
+# NOTE: if m1 or m2 is "constant" (i.e., not in samples), the possibility for m2 > m1 arises! Re-sort masses here to avoid; use below code.
+#if ("m1" not in coord_names) or ("m2" not in coord_names):
+#    print(" NOTE: re-sorting masses so m1 > m2 (precaution)")
+#    m1dx = name_index_dict["m1"]
+#    m1 = np.maximum(dat_out[:,m1dx], dat_out[:,m1dx+1]) #N.B.: assumes m2 col index after m1 col
+#    m2 = np.minimum(dat_out[:,m1dx], dat_out[:,m1dx+1])
+#    dat_out[:,m1dx] = m1
+#    dat_out[:,m1dx+1] = m2
+
 print(" Saving to ", opts.fname_output_samples+".dat")
 np.savetxt(opts.fname_output_samples+".dat",dat_out,header=" lnL sigma_lnL " + ' '.join(dat_orig_names))
+

@@ -16,6 +16,8 @@ from asimov.pipeline import PESummaryPipeline
 
 from asimov.utils import update
 
+import numpy as np
+
 try: 
     from asimov import auth
     my_auth_decorator = auth.refresh_scitoken
@@ -172,6 +174,8 @@ class Rift(Pipeline):
                         import sys, glob
 #                        print(config_files,config_file_dir,file=sys.stderr)
                         bilby_ini_list = glob.glob(config_file_dir+"/*bilby*ini")
+                        # check that files have nonzero length !  Failure mode in past
+                        bilby_ini_list = [fname for fname in list(bilby_ini_list) if os.path.getsize(fname)>0 ]
                         if len(bilby_ini_list) ==0:
                             raise PipelineException(" Cannot find bilby ini file needed to prepare RIFT calmarg postprocessing - try again or fix dependencies ",production=self.production.name)
                         bilby_ini = bilby_ini_list[0]
@@ -369,10 +373,10 @@ class Rift(Pipeline):
                         "C01_offline",
                         f"{self.production.name}_bootstrap.xml.gz",
                     )
+                bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
                 # test if bootstrap file already exists
                 if not(os.path.exists(bootstrap_file)):
                        import RIFT.misc.samples_utils
-                       bootstrap_file_ascii = str(bootstrap_file) + "_ascii"
                        RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift(posterior_file, self.production.meta['dataset'], bootstrap_file_ascii)
                        extra_args =''
                        # bootstrap eccentricity from samples
@@ -384,10 +388,16 @@ class Rift(Pipeline):
                        if 'nonprecessing' in self.production.meta['likelihood']['assume']:
                            extra_args += " --use-aligned-spin "
                        if 'bootstrap size' in self.production.meta['scheduler']:
-                           bootstrap_size = int(self.production.meta['scheduler']['bootstrap size'])
-                           extra_args += " --target-size {} ".format(bootstrap_size)
+                               bootstrap_size = int(self.production.meta['scheduler']['bootstrap size'])
+                               extra_args += " --target-size {} ".format(bootstrap_size)
                        os.system("convert_output_format_inference2ile --posterior-samples {} --output {} {} ".format(bootstrap_file_ascii, bootstrap_file, extra_args) )
                 self.bootstrap="manual"
+                # as needed, parse bootstrap file for signal
+                if 'bootstrap amplitude' in self.production.meta['scheduler']:
+                           dat = np.genfromtxt(bootstrap_file_ascii,names=True)
+                           if 'lnL' in dat.dtype.names: # remember, cast to RIFT format ! name change !
+                               if np.max(dat['lnL']) >   500:   # threshold,
+                                   command +=[ "--internal-ile-force-adapt-all"]   # force 
 
                 # bootstrap coinc file !  note the intention will be to OVERWRITE the existing coinc (or to deal with the absence of one for this event)
                 if  'bootstrap coinc' in self.production.meta['scheduler']:

@@ -159,6 +159,7 @@ parser.add_argument("--calibration-reweighting",action='store_true',help="Option
 parser.add_argument("--calibration-reweighting-batchsize",type=int,default=None,help="If not 'None', tries to group the final set of points based on jobs of a fixed size")
 parser.add_argument("--calibration-reweighting-count",type=int,default=None,help="If not 'None', the number of calibration curves to request when marginalizing. Default is 100")
 parser.add_argument("--calibration-reweighting-extra-args",type=str,default=None,help="If not 'None', pass through. One argument targets effective sample size, other duplicates inoutput")
+parser.add_argument("--calibration-reweighting-osg",action='store_true',help="Attempt to use settings for OSG for cal reweighting. Remove after developed")
 parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
@@ -293,6 +294,7 @@ parser.add_argument("--cip-sigma-cut",default=None,type=float,help="sigma-cut is
 parser.add_argument("--n-output-samples",type=int,default=5000,help="Number of output samples generated in the interim iteration")
 parser.add_argument("--n-output-samples-last",type=int,default=20000,help="Number of output samples generated in the final iteration")
 parser.add_argument("--internal-last-iteration-extrinsic-samples-per-ile",default=5,type=int,help="Draw this many samples from each ILE job")
+parser.add_argument("--internal-last-iteration-extrinsic-samples-per-ile-internal",default=10,type=int,help="Draw this many samples from each ILE job")
 parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
 parser.add_argument('--internal-cip-tripwire',type=float,help="Passed to CIP")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
@@ -312,6 +314,7 @@ parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
 parser.add_argument("--manual-initial-grid-supplements",action='store_true', help="Manual inital grid used to SUPPLEMENT output of the default helper grid.")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
+parser.add_argument("--internal-ile-force-adapt-all",action='store_true', help="Syntactic sugar to prevent need to add manual-extra-ile-args for this: easier on user")
 parser.add_argument("--internal-puff-transverse",action='store_true', help=" appends the following arguments: --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u ")
 parser.add_argument("--manual-extra-puff-args",default=None,type=str,help="Avenue to adjoin extra PUFF arguments.  ")
 parser.add_argument("--manual-extra-test-args",default=None,type=str,help="Avenue to adjoin extra TEST arguments.  ")
@@ -352,11 +355,13 @@ bolic!")
 if sum(bool(x) for x in force_grids) > 1:
     parser.error("CANNOT use multiple --force-X-grids options at the same time!")
 
+config_stored=None; config_dict=None
 if (opts.use_ini):
     # Attempt to lazy-parse all command line arguments from ini file
     config = ConfigParser.ConfigParser()
     config.optionxform=str # force preserve case! Important for --choose-data-LI-seglen
     config.read(opts.use_ini)
+    config_stored=config
     if 'rift-pseudo-pipe' in config:
         # get the list of items
         rift_items = dict(config["rift-pseudo-pipe"])
@@ -388,6 +393,8 @@ if (opts.use_ini):
                 else:
                     config_dict[item_renamed] = True
         print(config_dict)
+
+
 
 
 if opts.use_osg:
@@ -678,13 +685,22 @@ if not(opts.skip_reproducibility): # not(assume_lowlatency):
         import shutil, json
         if opts.use_ini:
             shutil.copyfile(opts.use_ini, "local.ini") # copy into current directory
-        os.mkdir("reproducibility")
+        if not(os.path.exists("reproducibility")):
+            os.mkdir("reproducibility")
         # Write this script and its arguments
 #        thisfile = os.path.realpath(__file__)
 #        shutil.copyfile(thisfile, "reproducibility/the_script_used.py")
         argparse_dict = vars(opts)
+        # arguments in json form
         with open("reproducibility/the_arguments_used.json",'w') as f:
                 json.dump(argparse_dict,f)
+        # config parsing
+        if opts.use_ini and not(config_dict is None):
+            for name in argparse_dict:
+                config_stored['rift-pseudo-pipe'][name] = str(argparse_dict[name]) # add info
+            with open("reproducibility/local_real.ini",'w') as f:
+                config.write(f) # the actual arguments used!  (Not yet tested it works as input)
+            
         # Write commits
 #        cmd = "(cd ${ILE_CODE_PATH}; git rev-parse HEAD) > reproducibility/RIFT.commit"
 #        os.system(cmd)
@@ -1009,7 +1025,9 @@ if opts.internal_ile_reset_adapt or ((opts.ile_sampler_method =='adaptive_cartes
 if not(opts.manual_extra_ile_args is None):
     line += " {} ".format(opts.manual_extra_ile_args)  # embed with space on each side, avoid collisions
     if '--declination ' in opts.manual_extra_ile_args:   # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.
-        line = line.replace('--declination-cosine-sampler', '')  
+        line = line.replace('--declination-cosine-sampler', '')
+if opts.internal_ile_force_adapt_all:
+    line += " --force-adapt-all "
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 if opts.internal_ile_sky_network_coordinates:
@@ -1024,7 +1042,7 @@ if opts.internal_mitigate_fd_J_frame == 'L_frame':
     line += " --internal-waveform-fd-L-frame "
 if opts.internal_ile_inv_spec_trunc_time:
     line = line.replace("inv-spec-trunc-time 0 ","inv-spec-trunc-time {} ".format(opts.internal_ile_inv_spec_trunc_time))
-if not(opts.internal_ile_modify_taper):
+if (opts.internal_ile_modify_taper):
     line += " --internal-waveform-taper SIM_INSPIRAL_TAPER_START " # taper start of waveform by default, overrides any settings in the grids
 with open('args_ile.txt','w') as f:
         f.write(line)
@@ -1375,7 +1393,7 @@ instructions_puff = np.loadtxt("helper_puff_args.txt", dtype=str)  # should be o
 puff_params = ' '.join(instructions_puff)
 if opts.internal_puff_transverse:
     puff_params = puff_params.replace('--parameter chieff_aligned', '--parameter s1z_bar --parameter s2z_bar ')
-    puff_params +=  ' --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u '
+    puff_params +=  ' --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u --reflect-parameter chi1_perp_u --downselect-parameter chi1_perp_u  --downselect-parameter-range [0,1]  --reflect-parameter chi2_perp_u --downselect-parameter chi2_perp_u  --downselect-parameter-range [0,1] '
 if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
@@ -1526,12 +1544,16 @@ if opts.calibration_reweighting and (not opts.bilby_pickle_file):
         cmd += " --calibration-reweighting-batchsize {} ".format(opts.calibration_reweighting_batchsize)
     if opts.calibration_reweighting_extra_args:
         cmd += " --calibration-reweighting-extra-args '{}' ".format(opts.calibration_reweighting_extra_args)
+    if opts.calibration_reweighting_osg:
+        cmd += " --calibration-reweighting-osg "
 elif opts.calibration_reweighting and opts.bilby_pickle_file:
     cmd += " --calibration-reweighting --calibration-reweighting-exe `which calibration_reweighting.py` --bilby-pickle-file {} ".format(str(opts.bilby_pickle_file))
     if opts.calibration_reweighting_count:
         cmd+= " --calibration-reweighting-count {} ".format(opts.calibration_reweighting_count)
     if opts.calibration_reweighting_extra_args:
         cmd += " --calibration-reweighting-extra-args '{}' ".format(opts.calibration_reweighting_extra_args)
+    if opts.calibration_reweighting_osg:
+        cmd += " --calibration-reweighting-osg "
 if opts.internal_tabular_eos_file:
     cmd += " --use-tabular-eos-file "
 if opts.distance_reweighting:
@@ -1612,6 +1634,8 @@ if opts.add_extrinsic:
     cmd += " --last-iteration-extrinsic --last-iteration-extrinsic-nsamples {} ".format(opts.n_output_samples_last)
     if opts.internal_last_iteration_extrinsic_samples_per_ile:
         cmd += " --last-iteration-extrinsic-samples-per-ile {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile)
+    if opts.internal_last_iteration_extrinsic_samples_per_ile_internal:
+        cmd += " --last-iteration-extrinsic-samples-per-ile-internal {}".format(opts.internal_last_iteration_extrinsic_samples_per_ile_internal)        
     if opts.add_extrinsic_time_resampling:
         cmd+= " --last-iteration-extrinsic-time-resampling "
 if opts.batch_extrinsic:
@@ -1640,7 +1664,11 @@ if opts.use_osg:
     if not(opts.use_osg_file_transfer):
         cmd += " --use-cvmfs-frames "
     elif (opts.internal_truncate_files_for_osg_file_transfer):  # attempt to make copies of frame files, and set up to transfer them with *every* job (!)
-        os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
+        if os.path.exists('local.cache'):
+            os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
+        else:
+            print(" --- WARNING --- ")
+            print(" File truncation not yet performed")
         # if environment variable active, check that frames were created! Fail otherwise
         if 'RIFT_TRUNCATE_CHECK' in os.environ:
             fnames_gwf = os.listdir('./frames_dir/')
@@ -1724,6 +1752,16 @@ if opts.calibration_reweighting:
 #    cmd +=" --calibration-reweighting-initial-extra-args='--internal-waveform-fd-L-frame --use-gwsignal' "
 if opts.condor_local_nonworker_igwn_prefix:
     cmd += " --condor-local-nonworker-igwn-prefix "
+
+# Make copy of local.cache for use in file transfer
+if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_transfer and os.path.exists('local.cache'):
+    shutil.copyfile('local.cache', 'local_orig.cache')
+    # Move contents of ile_pre.sh here
+    os.system("cat local.cache > awk '{print $1, $2, $3, $4}' > local_stripped.cache")
+    os.system('for i in `ls frames_dir/*.gwf`; do echo frames_local/${i} ; done > base_paths.dat') # yes probably easier to do the ls myself
+    os.system("paste local_stripped.cache base_paths.dat > local_relative.cache ")
+    os.system("cp local_relative.cache local.cache")
+
 print(cmd)
 os.system(cmd)
 
@@ -1736,7 +1774,11 @@ if opts.use_osg_file_transfer and opts.internal_truncate_files_for_osg_file_tran
     if opts.fake_data_cache:
         shutil.copyfile(opts.fake_data_cache, 'local.cache')
     # build truncated frames.  Note this parses ILE arguments, so must be done last
-    os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
+    if os.path.exists('local.cache'):
+        os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
+
+
+    
 
 ## RUNMON
 try:

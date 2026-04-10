@@ -67,7 +67,7 @@ plot_gaussian_single:
 # eighth line : leave as it is. This is the job run command line.
 # ninth line : leave as it is.
 ### NOTE: Before running this you need to do 'source setup.sh' in your bash terminal to set the right python path.
-Gaussian_adaptive_unimodal:
+Gaussian_adaptive_unimodal: blind_gaussian_3d_xy_plus.dat
 	mkdir $@
 	echo "empty_event_file" > $@/my_event_A.txt
 	echo ${HERE}/example_gaussian.py  > $@/args_marg_eos_exe.txt
@@ -133,3 +133,9 @@ Gaussian_adaptive_bimodal:
 #other arguments such as --eos_start_index and --eos_end_index are not necessary for the adaptive code, but might be useful for running a single grid in a non-adaptive way. Hence recommended to have.
 
 # Refer to the technical_document for a complete description of how the pipeline works
+
+
+# ALTERNATIVE PIPELINE IMPLEMENTATION
+#    - This approach has configuration in 'hyperpipe_conf.yaml'
+rundir:
+	python util_RIFT_hyperpipe.py

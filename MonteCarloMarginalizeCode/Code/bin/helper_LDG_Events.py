@@ -94,6 +94,8 @@ def ldg_datafind(ifo_base, types, server, data_start,data_end,datafind_exe='gw_d
     fname_out = ifo_base[0]+"_local.cache"
     print([ifo_base, types, server, data_start, data_end])
     cmd = datafind_exe + ' -u file --gaps -o ' + ifo_base[0] + ' -t ' + types + ' --server ' + server + ' -s ' + str(data_start) + ' -e ' + str(data_end) + " > " +fname_out_raw
+    print(" Datafind command ")
+    print(cmd)
     os.system(cmd)
 
     if not retrieve:
@@ -451,7 +453,7 @@ if opts.verbose:
 datafind_server = None
 try:
    if 'GWDATAFIND_SERVER' in os.environ:
-       datafind_server = os.environ['LIGO_DATAFIND_SERVER']
+       datafind_server = os.environ['GWDATAFIND_SERVER']
        print(" GWDATAFIND_SERVER ", datafind_server)
    elif 'LIGO_DATAFIND_SERVER' in os.environ:
        datafind_server = os.environ['LIGO_DATAFIND_SERVER']

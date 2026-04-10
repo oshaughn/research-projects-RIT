@@ -95,7 +95,29 @@ def add_batch_ILE_nodes_to_dag(my_dag,my_ile_job,my_parent_node, my_child_node, 
                 node_list_dict[it].append(ile_node)
 
 
+def parse_ile_args_flexible(my_arg_str):
+    """
+    Narrower-scope parser with flexible arguments, to target
+    """
+    import argparse
+    import shlex
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--n-eff",type=int)
+    parser.add_argument("--cache-file",type=str)
+    parser.add_argument('other', nargs=argparse.REMAINDER)
+    args  = parser.parse_args(shlex.split(my_arg_str))
+    return args
+
+def parse_ile_args_lazy(my_arg_str,key_target):
+    str_split = my_arg_str.split('--')
+    matches = [x for x in str_split if x.startswith(key_target)]
+    print(matches)
+    return matches[-1].split(' ')[1]
+                
 def parse_ile_args_for_bw(my_arg_str):
+    """
+    this is HARD TO MAINTAIN since it needs to match ILE exactly
+    """
     # Copied verbatim from ILE
     from optparse import OptionParser, OptionGroup
     optp = OptionParser()
@@ -219,6 +241,7 @@ parser.add_argument("--first-iteration-jumpstart",action='store_true',help="No I
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Configure last iteration to extract *one* set of extrinsic parameters from each intrinsic point. [This is highly inefficient, but people like having one extrinsic point per intrinsic point.]  Requires --convert-args")
 parser.add_argument("--last-iteration-extrinsic-nsamples",default=3000,type=int,help="Construct this number of extrinsic samples")
 parser.add_argument("--last-iteration-extrinsic-samples-per-ile",default=5,type=int,help="Draw this many samples from each ILE job")
+parser.add_argument("--last-iteration-extrinsic-samples-per-ile-internal",default=10,type=int,help="Draw this many samples from each ILE job")
 parser.add_argument("--last-iteration-extrinsic-batched-convert",action='store_true',help="Used batched converter for output of extrinsic samples")
 parser.add_argument("--last-iteration-extrinsic-time-resampling",action='store_true',help="Last iterations use time resampling (+ the fairdraw is done inside ILE itself), so different code path for final stages")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
@@ -254,6 +277,7 @@ parser.add_argument("--calibration-reweighting-batchsize",type=int,default=None,
 parser.add_argument("--calibration-reweighting-initial-extra-args",type=str,default='',help="Passed to reweighting script as extra args")
 parser.add_argument("--calibration-reweighting-extra-args",type=str,default='',help="Passed to the combination script as extra arguments. ")
 parser.add_argument("--calibration-reweighting-count",type=int,default=100,help="Number of calibration marginalization realizations. Default is 100")
+parser.add_argument("--calibration-reweighting-osg",action='store_true',help="Attempt to use settings for OSG for cal reweighting. Remove after developed")
 parser.add_argument("--convert-ascii2h5-exe",default=None,help="Converting ascii to h5 file script")
 parser.add_argument("--comov-distance-reweighting-exe",default=None,help="Comoving distance reweighting script")
 parser.add_argument("--comov-distance-reweighting",action='store_true',help="Run comoving distance reweighting on final posterior samples")
@@ -718,13 +742,23 @@ if not (fetch_args is None):
 
 if  (opts.last_iteration_extrinsic):
     n_points_per_ILE = opts.last_iteration_extrinsic_samples_per_ile
-    # ILE job with modified output format
-    #  - note we *double* the memory request, because we need space to save samples
-    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(np.min([2*n_points_per_ILE,4]))  # modify convergence criteria so output of reasonable size
+    neff_orig = parse_ile_args_lazy(ile_args_orig,'n-eff') # parse to get originally requested n_eff, as string
+    print(" Orig n_eff ", neff_orig, n_points_per_ILE)
+    n_eff_last = np.min([2*n_points_per_ILE,opts.last_iteration_extrinsic_samples_per_ile])  # make n_eff large enough to get all samples requested. Provide cap in case user requests very vew extrinsic workers.
+    if isinstance(neff_orig,str):
+        n_eff_last  = np.max([n_eff_last, int(neff_orig)]) 
+    # # ILE job with modified output format
+    # #  - note we *double* the memory request, because we need space to save samples
+    # #  - note
+    # opts_ile = parse_ile_args_flexible(ile_args_orig) # parse to get originally requested n_eff, cache-file
+    # n_eff_last = np.min([2*n_points_per_ILE,opts.last_iteration_extrinsic_samples_per_ile])  # make n_eff large enough to get all samples requested. Provide cap in case user requests very vew extrinsic workers.
+    # if hasattr(opts_ile, 'n_eff'):
+    #     n_eff_last  = np.max([n_eff_last, opts_ile.n_eff]) # NEVER USE FEWER n_eff THAN WAS USED FOR intrinsic run. Fallback to no change in case (never happens) not in arg list
+    ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(n_eff_last)  # modify convergence criteria so output of reasonable size/matching needs of extrinsic output
     #  - note we *disable* --no-adapt-after-first (if present), so each point is independent (e.g., in sky location)
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
     if opts.last_iteration_extrinsic_time_resampling:
-        ile_args_extr += " --resample-time-marginalization --fairdraw-extrinsic-output "
+        ile_args_extr += " --resample-time-marginalization --fairdraw-extrinsic-output --fairdraw-extrinsic-output-n-max {} ".format(n_points_per_ILE)
         print(" Time resampling in extraction iteration: **DISABLING** distance marginalization if present ")
         ile_args_extr = ile_args_extr.replace("--distance-marginalization ", ' ')  # *currently* cannot use distance marginalization in the last step if we want fairdraw output.  Note the *unfairdraw* output can ignore this ...
     ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_extr',log_dir=None,arg_str=ile_args_extr,output_file="EXTR_out.xml",simple_unique=True,ncopies=1,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE*2,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_cvmfs_frames=opts.use_cvmfs_frames,request_disk=request_disk,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,use_oauth_files=opts.use_oauth_files,frames_dir=opts.frames_dir,cache_file=opts.cache_file)
@@ -748,14 +782,23 @@ if  (opts.last_iteration_extrinsic):
         relevant_path_2 = dag_utils.which('convert_output_format_ile2inference')
         if opts.condor_local_nonworker_igwn_prefix:
             # we are in igwn environment
-            relevant_path = 'util_HyperCombine.py'  
+            relevant_path = 'util_JoinExtrXML.py'  
             relevant_path_2 = 'convert_output_format_ile2inference'
+        # randomization: 'shuf' is preferred, but otherwise use ' sort -R'. Note performed locally, so local filesystem/os is fine.
+        extra_shuffle_command = ' | cat'
+        which_shuf = which('shuf'); which_sort = which('sort')
+        if isinstance(which_shuf, str):
+            extra_shuffle_command = ' | {} '.format(which_shuf)
+        elif isinstance(which_short,str):
+            extra_shuffle_command  = ' | {} -R '.format(which_sort)
         with open("allinone_convert.sh",'w') as f:
-            f.write("""#! /bin/bash
-{}
-{} {}/iteration_$1_ile/'EXTR_out-*.xml_*_.xml.gz' --output {}/tmp_converted.xml.gz
-{} {} {}/tmp_converted.xml.gz > {}/extrinsic_posterior_samples.dat
-""".format(extra_text,relevant_path,'.','.',relevant_path_2,convert_args_extr,opts.working_directory,opts.working_directory))
+            f.write(f"""#! /bin/bash
+{extra_text}
+{relevant_path} ./iteration_$1_ile/'EXTR_out-*.xml_*_.xml.gz' --output ./tmp_converted.xml.gz
+{relevant_path_2} {convert_args_extr} ./tmp_converted.xml.gz  > ./tmp_converted.dat
+head -n 1 ./tmp_converted.dat > ./extrinsic_posterior_samples.dat
+sed 1d ./tmp_converted.dat  {extra_shuffle_command} >> ./extrinsic_posterior_samples.dat
+""")#.format(extra_text,relevant_path,'.','.',relevant_path_2,convert_args_extr,opts.working_directory,extra_shuffle_command,opts.working_directory))
         os.system("chmod a+x allinone_convert.sh")
         # Create job submit file
         batchConvertExtr_job, batchConvertExtr_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/allinone_convert.sh",tag='convert_extr',log_dir=None,arg_str='',file_input="$(macroiteration) ",file_output="/dev/null", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
@@ -890,6 +933,19 @@ if opts.condor_containerize_nonworker and singularity_image:
 unify_job.write_sub_file()
 
 
+exe_evidence = which('util_CIPDirSummarizeEvidence.py')
+evidence_job, evidence_job_name = dag_utils.write_convert_sub(tag='evidence', exe=exe_evidence, log_dir='', file_input='',  arg_str=" --cip-dir iteration_$(macroiteration)_cip --output evidence_$(macroiteration) ",  universe=local_worker_universe, no_grid=True)
+evidence_job.add_condor_cmd("initialdir",opts.working_directory)
+evidence_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-$(cluster)-$(process).log")
+evidence_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-$(cluster)-$(process).err")
+evidence_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/evidence-$(cluster)-$(process).out")
+evidence_job.add_condor_cmd('request_disk',opts.general_request_disk)
+if opts.use_full_submit_paths:
+    fname = opts.working_directory+"/"+evidence_job.get_sub_file()
+    evidence_job.set_sub_file(fname)
+if opts.condor_containerize_nonworker and singularity_image:
+    evidence_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+evidence_job.write_sub_file()
 
 
 ##   Fit job: default case
@@ -1196,20 +1252,33 @@ fi;
     rotate_job.write_sub_file()
 
 if opts.calibration_reweighting:
-    if opts.last_iteration_extrinsic_time_resampling and opts.bilby_pickle_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=False,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args,n_cal=opts.calibration_reweighting_count)
-    elif opts.last_iteration_extrinsic_time_resampling and opts.bilby_ini_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=False,pickle_file=opts.working_directory+"/calmarg/data/calmarg_data_dump.pickle",exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args,n_cal=opts.calibration_reweighting_count)
-    elif (not opts.last_iteration_extrinsic_time_resampling) and opts.bilby_ini_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.working_directory+"/calmarg/data/calmarg_data_dump.pickle",exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args,n_cal=opts.calibration_reweighting_count)
-    elif (not opts.last_iteration_extrinsic_time_resampling) and opts.bilby_pickle_file:
-        calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",time_marg=True,pickle_file=opts.bilby_pickle_file,exe=opts.calibration_reweighting_exe,universe=local_worker_universe,no_grid=no_worker_grid,ile_args=ile_args,n_cal=opts.calibration_reweighting_count)
+    extra_args_dict = {}
+    extra_args_dict['time_marg'] = not (opts.last_iteration_extrinsic)   # pass time_marg=False if we are resampling in time
+    if opts.bilby_pickle_file:
+        extra_args_dict['pickle_file'] = opts.bilby_pickle_file
+    else:
+        extra_args_dict['pickle_file'] =opts.working_directory+"/calmarg/data/calmarg_data_dump.pickle"
+    # OSG options
+    if opts.calibration_reweighting_osg:
+        extra_args_dict['use_osg'] =  opts.use_osg
+        extra_args_dict['use_singularity'] =  opts.use_singularity
+        extra_args_dict['singularity_image'] = singularity_image
+        extra_args_dict['universe'] = 'vanilla'
+    else:
+        extra_args_dict['no_grid']  = no_worker_grid
+        extra_args_dict['universe'] = local_worker_universe
+    if opts.transfer_file_list:
+        # Handle scenario where h5 file needed by calmarg job. Note arranged as transfer because we don't know if execute nodes have the file, even if local
+        any_h5_needed_list = [x for x in transfer_file_names if x.endswith('.h5')]  # NRSur, etc h5 files we need for lalsuite
+        extra_args_dict['transfer_files'] = any_h5_needed_list
+        
+    calibration_job, calibration_job_name = dag_utils.write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight',log_dir=None,posterior_file=opts.working_directory+"/extrinsic_posterior_samples.dat",exe=opts.calibration_reweighting_exe,ile_args=ile_args,n_cal=opts.calibration_reweighting_count, **extra_args_dict)
         
     if opts.calibration_reweighting_initial_extra_args:
         # properly handle quoted extra arguments, such as dictionaries of waveform arguments
         add_str = opts.calibration_reweighting_initial_extra_args
         if '"' in add_str:
-            add_str = RIFT.misc.dag_utils.safely_quote_arg_str(add_str)
+            add_str = dag_utils.safely_quote_arg_str(add_str)
         calibration_job.add_arg(add_str)
     if not(opts.calibration_reweighting_batchsize): # single run
         calibration_job.set_log_file(opts.working_directory+"/calmarg/logs/calibration-$(cluster)-$(process).log")
@@ -1222,19 +1291,14 @@ if opts.calibration_reweighting:
         calibration_job.set_log_file(opts.working_directory+"/calmarg/logs/calibration-$(macrostartidx)-$(cluster)-$(process).log")
         calibration_job.set_stderr_file(opts.working_directory+"/calmarg/logs/calibration-$(macrostartidx)-$(cluster)-$(process).err")
         calibration_job.set_stdout_file(opts.working_directory+"/calmarg/logs/calibration-$(macrostartidx)-$(cluster)-$(process).out")
-    calibration_job.add_condor_cmd('request_disk',opts.general_request_disk)
+    if opts.use_singularity and opts.calibration_reweighting_osg:
+        calibration_job.add_condor_cmd('request_disk',opts.ile_request_disk)  # similar task, so use similar request
+    else:
+        calibration_job.add_condor_cmd('request_disk',opts.general_request_disk)
 
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+calibration_job.get_sub_file()
         calibration_job.set_sub_file(fname)
-    if opts.transfer_file_list:
-        # Handle scenario where h5 file needed by calmarg job. Note arranged as transfer because we don't know if execute nodes have the file, even if local
-        any_h5_needed_list = [x for x in transfer_file_names if x.endswith('.h5')]  # NRSur, etc h5 files we need for lalsuite
-        if len(any_h5_needed_list)>0:
-            fname_str = ','.join(any_h5_needed_list)
-            fname_str = fname_str.strip()
-            calibration_job.add_condor_cmd('transfer_input_files',fname_str)
-            calibration_job.add_condor_cmd('should_transfer_files','YES')
     calibration_job.write_sub_file()
 
     # job to combine things. Write here to make logic human-readable
@@ -1378,6 +1442,7 @@ n_group_first = opts.ile_n_events_to_analyze
 if opts.ile_n_events_to_analyze_first:
     n_group_first= opts.ile_n_events_to_analyze_first
 
+con_node_list = []
 unify_node_list = []
 ile_node_list_per_iteration={}
 ile_target_worklevel_per_iteration={}
@@ -1392,12 +1457,21 @@ for it in np.arange(it_start,opts.n_iterations):
     con_node = pipeline.CondorDAGNode(con_job)
     con_node.add_macro("macroiteration",it)
     con_node.set_retry(opts.general_retries)
+    con_node_list.append(con_node)
     # Create unify job
     unify_node = pipeline.CondorDAGNode(unify_job)
     unify_node.add_macro("macroiteration",it)
     unify_node.add_parent(con_node)
     unify_node.set_retry(opts.general_retries)
     unify_node_list.append(unify_node)
+    # Create evidence job. ALWAYS HAS con_node as parent, guarantees it happens at the right time, same time as unify, NO CHILDREN.
+    # It is also *backward looking*
+    evidence_node = pipeline.CondorDAGNode(evidence_job)
+    evidence_node.add_macro("macroiteration",it-1)  # LAST ITERATION being analyzed, not this one
+    evidence_node.set_retry(opts.general_retries)
+    if it > it_start:
+        evidence_node.add_parent(parent_fit_node)  # run evidence after previous iteration, on previous
+        dag.add_node(evidence_node)
 
     n_group_here = n_group
     if it ==0 and n_group_first:
@@ -1491,7 +1565,7 @@ for it in np.arange(it_start,opts.n_iterations):
     # add con job
     dag.add_node(con_node)
     dag.add_node(unify_node)
-
+    
     # Create fit node, which depends on consolidate node
     cip_job = cip_job_list[it]
 #    print(it, cip_job,creating_subdag_arg_list)
@@ -1650,9 +1724,12 @@ for it in np.arange(it_start,opts.n_iterations):
     fit_node.set_category("CIP")
     fit_node.add_parent(unify_node)  # only fit if we have results from the previous iteration
     fit_node.set_retry(opts.general_retries)
-    dag.add_node(fit_node) 
-    parent_fit_node = fit_node
-
+    # skip CIP node creation if we have worker nodes! Note this will BREAK GP, so also use it for GP
+    if (opts.cip_explode_jobs is None) or (last_cip_subdag) or ('fit-method gp' in cip_args_base):
+        dag.add_node(fit_node) 
+        parent_fit_node = fit_node
+    else:
+        parent_fit_node = unify_node
     if not(opts.cip_explode_jobs is None) and not(last_cip_subdag): # don't explode if we just made a subdag!
         print(" Exploding workers out ")
         # Create job to consolidate worker outputs
@@ -1915,6 +1992,7 @@ if opts.test_args:
         for name in my_names:
             f.write("ABORT-DAG-ON "+ name + " 1 RETURN 0 \n")
 
+my_names_con = [x._CondorDAGNode__md5name for x in con_node_list]
 my_names_unify = [x._CondorDAGNode__md5name for x in unify_node_list]
 indx =0 # start with consolidated_0
 if opts.first_iteration_jumpstart:
@@ -1926,9 +2004,10 @@ with open("confirm_exist.sh",'w') as f:
 """)
 st=os.stat("confirm_exist.sh"); os.chmod("confirm_exist.sh", st.st_mode | stat.S_IEXEC)
 with open(dag_name+".dag",'a') as f:
-    for name in my_names_unify:
-        f.write("SCRIPT POST "+ name + " {}/confirm_exist.sh {}/consolidated_{}.composite \n".format(opts.working_directory,opts.working_directory,indx))
-        indx+=1
+    for indx_here, name in my_names_con:
+        f.write("SCRIPT POST "+ name + " {}/confirm_exist.sh {}/consolidated_{}.composite \n".format(opts.working_directory,opts.working_directory,indx_here+indx))
+    for indx_here, name in my_names_unify:
+        f.write("SCRIPT POST "+ name + " {}/confirm_exist.sh {}/all.net \n".format(opts.working_directory,opts.working_directory))
     # add dot file, for dag visualization
     f.write('DOT my_dag_vis.dot \n')
 

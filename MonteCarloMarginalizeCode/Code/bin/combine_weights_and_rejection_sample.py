@@ -32,14 +32,29 @@ if len(sys.argv) > 4:
 
 outdir = os.path.dirname(os.path.abspath(sample_file))
 
-# Load the sample file
-if sample_file.split(".")[-1] == 'json':
-    result = bilby.core.result.read_in_result(sample_file)
-elif (sample_file.split(".")[-1] == 'txt') or (sample_file.split(".")[-1] == 'dat'):
+# test if cal samples are present,and of the correct length of filesa
+fnames_extended_post = glob.glob(weights_file_directory+"/weights*extended_posterior")
+have_extended = len(fnames_extended_post)>0
+if have_extended and len(fnames_extended_post) ==len(glob.glob(weights_file_directory+"/weights*dat")):
+    # important to import them IN ORDER -- see above
+    fnames_extended_post.sort(key=sortKeyFunc)
+    # import all the data, then concatenate
+    dat_individual =[]
+    for name in fnames_extended_post:
+        dat_individual.append(np.genfromtxt(name, names=True))
+
     result = bilby.core.result.Result()
-    result.posterior = pd.DataFrame(np.genfromtxt(sample_file, names=True))
-    result.posterior = result.posterior
+    result.posterior = pd.DataFrame(np.concatenate(dat_individual))
     result.meta_data = {}
+else:
+    # Load the sample file. Note we are reading from a file that has the same entries as the extrinsic samples
+    if sample_file.split(".")[-1] == 'json':
+        result = bilby.core.result.read_in_result(sample_file)
+    elif (sample_file.split(".")[-1] == 'txt') or (sample_file.split(".")[-1] == 'dat'):
+        result = bilby.core.result.Result()
+        result.posterior = pd.DataFrame(np.genfromtxt(sample_file, names=True))
+        result.posterior = result.posterior
+        result.meta_data = {}
 
 # create the weight list
 weights_individual_list = []

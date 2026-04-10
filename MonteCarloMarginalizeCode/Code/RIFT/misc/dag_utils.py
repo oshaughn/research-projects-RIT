@@ -18,7 +18,7 @@
 A collection of routines to manage Condor workflows (DAGs).
 """
 
-import os, sys, re
+import os, sys, re, shutil
 import numpy as np
 from time import time
 from hashlib import md5
@@ -515,15 +515,16 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     exe = exe or which("util_ConstructIntrinsicPosterior_GenericCoordinates.py")
     if use_singularity:
-        path_split = exe.split("/")
-        print((" Executable: name breakdown ", path_split, " from ", exe))
+        exe_base = os.path.basename(exe)
+#        path_split = exe.split("/")
+#        print((" Executable: name breakdown ", path_split, " from ", exe))
         singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
         if 'SINGULARITY_BASE_EXE_DIR_HYPERPIPE' in list(os.environ.keys()) : # allow a DIFFERENT exe to be used here for hyperpipe : CIP used for remote
             singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR_HYPERPIPE']
         elif 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()) :
             singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
-        exe=singularity_base_exe_path + path_split[-1]
-        if path_split[-1] == 'true':  # special universal path for /bin/true, don't override it!
+        exe=singularity_base_exe_path + exe_base
+        if exe_base == 'true':  # special universal path for /bin/true, don't override it!
             exe = "/usr/bin/true"
     ile_job = pipeline.CondorDAGJob(universe=universe, executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
@@ -832,22 +833,21 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     exe = exe or which("integrate_likelihood_extrinsic")
     frames_local = None
     if use_singularity:
-        path_split = exe.split("/")
-        print((" Executable: name breakdown ", path_split, " from ", exe))
+        exe_base = os.path.basename(exe)
+#        print((" Executable: name breakdown ", path_split, " from ", exe))
         singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
         if 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()) :
             singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
         else:
 #            singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
             singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
-        exe=singularity_base_exe_path + path_split[-1]
+        exe=singularity_base_exe_path + exe_base
         if not(frames_dir is None):
             frames_local = frames_dir.split("/")[-1]
     elif use_osg:  # NOT using singularity!
         if not(frames_dir is None):
             frames_local = frames_dir.split("/")[-1]
-        path_split = exe.split("/")
-        exe=path_split[-1]  # pull out basename
+        exe = os.path.basename(exe)
         exe_here = 'my_wrapper.sh'
         if transfer_files is None:
             transfer_files = []
@@ -987,6 +987,7 @@ echo Starting ...
         ile_job.add_condor_cmd('transfer_executable', 'False')
         ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
         ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        ile_job.add_condor_cmd("MY.flock_local",'true')  # jobs can match to local pool !
         requirements.append("HAS_SINGULARITY=?=TRUE")
 #               if not(use_simple_osg_requirements):
 #                requirements.append("HAS_CVMFS_LIGO_CONTAINERS=?=TRUE")
@@ -1051,8 +1052,24 @@ echo Starting ...
         cmdname = 'ile_pre.sh'
         if transfer_files is None:
             transfer_files = []
-        transfer_files += ["../ile_pre.sh", frames_dir]  # assuming default working directory setup
-        with open(cmdname,'w') as f:
+        transfer_files += [frames_dir]
+        # Test if we *need* ile_pre.sh : are path names already relative? DOES NOT WORK
+        pre_needed = True
+        if False: # try:
+          with open('local.cache', 'r') as f:
+            lines = f.readlines()
+            fnames = [x.split()[-1] for x in lines]
+            fnames_no_prefix = [x.replace('file:/','').replace('osdf:/','') for x in fnames]
+            for name in fnames_no_prefix:
+                if name[0] == '/':
+                    pre_needed =True
+        else: # except:
+            print(" WARNING: local.cache file not present, reverting to ile_pre.sh ")
+        if not(pre_needed):
+            transfer_files += ['../local.cache']
+        else:            
+          transfer_files += ["../ile_pre.sh"]  # assuming default working directory setup
+          with open(cmdname,'w') as f:
             f.write("#! /bin/bash -xe \n")
             f.write( "ls "+frames_local+" | {lalapps_path2cache} 1> local.cache \n".format(lalapps_path2cache=lalapps_path2cache))  # Danger: need user to correctly specify local.cache directory
             # Rewrite cache file to use relative paths, not a file:// operation
@@ -1061,7 +1078,7 @@ echo Starting ...
             f.write("paste local_stripped.cache base_paths.dat > local_relative.cache \n")
             f.write("cp local_relative.cache local.cache \n")
             os.system("chmod a+x ile_pre.sh")
-        ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
+          ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
 
 
 #    if use_osg:
@@ -1144,9 +1161,12 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     exe = exe or which("util_ILEdagPostprocess.sh")
 
     # Create executable if needed  (using extra_text as flag for now)
+    # Note 'base' refers to the working diretory here, so we need to back up
     if len(extra_text) > 0:
         if not (base is None):
-            base_str = ' ' + base +"/"
+            base_0 = base[0]
+            remove_last_path = '/'.join(base.split('/')[:-1])
+            base_str = ' ' + remove_last_path +"/"
 
         cmdname = "con_sub.sh"
         
@@ -1225,8 +1245,6 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     if no_grid:
         ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
         ile_job.add_condor_cmd("MY.flock_local",'true')
-
-
 
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
@@ -1383,13 +1401,20 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
-    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
-
     # no grid
-    if no_grid:
-        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"nogrid"')
+    if no_grid:  # very aggressively enforce staying on the current filesystem!
+        ile_job.add_condor_cmd("MY.DESIRED_SITES",'"none"')
         ile_job.add_condor_cmd("MY.flock_local",'true')
+        try:
+            os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
+            with open("uid_domain.txt", 'r') as f:
+                uid_domain = f.readline()
+                requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
+        except:
+            True
 
+    ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+        
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
@@ -2224,7 +2249,7 @@ def write_subdagILE_sub(tag='subdag_ile', full_path_name=True, exe=None, univers
     return ile_job, ile_sub_name
 
 
-def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',no_grid=False,ile_args=None,n_cal=100,**kwargs):
+def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None, log_dir=None, ncopies=1,request_memory=8192,time_marg=True,pickle_file=None,posterior_file=None,universe='vanilla',no_grid=False,ile_args=None,n_cal=100,use_osg=False,use_oauth_files=False,use_singularity=False,singularity_image=None,transfer_files=None,**kwargs):
     """
     Write a submit file for launching jobs to reweight final posterior samples due to calibration uncertainty 
 
@@ -2233,10 +2258,36 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     Outputs:
      - reweighted samples due to calibration uncertainty and corresponding weights
     """
+    if use_singularity and (singularity_image == None)  :
+        print(" FAIL : Need to specify singularity_image to use singularity ")
+        sys.exit(0)
+    if use_singularity and (transfer_files == None)  :
+        print(" FAIL : Need to specify transfer_files to use singularity at present!  (we will append the prescript; you should transfer any PSDs as well as the grid file ")
+        sys.exit(0)
+
+    singularity_image_used = "{}".format(singularity_image) # make copy
+    extra_files = []
+    if singularity_image:
+            if 'osdf:' in singularity_image:
+                singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
+                extra_files += [singularity_image]
+
+
+    
     exe = exe or which("calibration_reweighting.py")
     if exe is None:
         print(" Calibration Reweighting code not available. ")
         sys.exit(0)
+    if use_singularity:
+        exe_base = os.path.basename(exe)
+#        print((" Executable: name breakdown ", path_split, " from ", exe))
+        singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
+        if 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()) :
+            singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
+        else:
+#            singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
+            singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
+        exe=singularity_base_exe_path + exe_base
 
     ile_job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
@@ -2249,6 +2300,26 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
 
 
     requirements =[]
+    # Containerization basics
+    if use_singularity:
+        # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+        ile_job.add_condor_cmd('request_CPUs', str(1))
+        ile_job.add_condor_cmd('transfer_executable', 'False')
+        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        requirements.append("HAS_SINGULARITY=?=TRUE")
+        print(" WARNING: cal reweighting requires bilby -- currently configured to use LOCAL PATHS via pickle lookup. Locking cal reweighting to to current UID_DOMAIN, so files can be found. THIS WILL STOP WORKING WHEN HOME DIRECTORIES ARE NO LONGER ACCESSIBLE. Need to identify and transfer cal envelopes at runtime or extract from pickle better")
+        os.system("condor_config_val UID_DOMAIN > uid_domain.txt")
+        with open("uid_domain.txt", 'r') as f:
+            uid_domain = f.readline()
+            requirements.append(' UidDomain =?= "{}"'.format(uid_domain))
+    if use_oauth_files:
+        # we are using some authentication to retrieve files from the file transfer list, for example, from distributed hosts, not just submit. eg urls provided
+            ile_job.add_condor_cmd('use_oauth_services',use_oauth_files)
+    if use_singularity or use_osg:
+            # Set up file transfer options
+           ile_job.add_condor_cmd("when_to_transfer_output",'ON_EXIT')
+
     #
     # Logging options
     #
@@ -2259,8 +2330,14 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
 
     #
     # Add mandatory options
-    ile_job.add_opt('data_dump_file', str(pickle_file))
-    ile_job.add_opt('posterior_sample_file', str(posterior_file))
+    pickle_file_arg = str(pickle_file)
+    post_file_arg = str(posterior_file)
+    if use_osg:
+        transfer_files = pickle_file_arg + ',' + post_file_arg
+        pickle_file_arg = os.path.basename(pickle_file_arg)
+        post_file_arg = os.path.basename(post_file_arg)
+    ile_job.add_opt('data_dump_file', str(pickle_file_arg))
+    ile_job.add_opt('posterior_sample_file', str(post_file_arg))
     ile_job.add_opt('number_of_calibration_curves', str(n_cal))
     ile_job.add_opt('reevaluate_likelihood', 'True')
     ile_job.add_opt('use_rift_samples', 'True')
@@ -2322,6 +2399,21 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
     # Write requirements
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
+    # Write transfer file list.  Will handle any surrogates + pickle/container files.
+    if not transfer_files is None:
+        if not isinstance(transfer_files, list):
+            fname_str=transfer_files  + ' '.join(extra_files)
+        else:
+            fname_str = ','.join(transfer_files+extra_files)
+        fname_str=fname_str.strip()
+        ile_job.add_condor_cmd('transfer_input_files', fname_str)
+        ile_job.add_condor_cmd('should_transfer_files','YES')
+
+    # Stream log info
+    if not ('RIFT_NOSTREAM_LOG' in os.environ):
+        ile_job.add_condor_cmd("stream_error",'True')
+        ile_job.add_condor_cmd("stream_output",'True')
+    
     try:
         ile_job.add_condor_cmd('accounting_group',os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user',os.environ['LIGO_USER_NAME'])
@@ -2411,11 +2503,25 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
                 ifo = cache_lines[0] + '1'
                 bilby_data_dict[ifo] = cache_lines[-1].replace('file://localhost','')
             else:
-                if len(cache_lines) > len(ifo_list):
-                        raise Exception(" Pipeline failure: cache file must contain one line per IFO to identify files in this approach")
-                for indx in np.arange(len(cache_lines)):
+                if len(cache_lines) <= len(ifo_list):
+                    for indx in np.arange(len(cache_lines)):
                         ifo = cache_lines[indx][0]+"1"
                         bilby_data_dict[ifo] = cache_lines[indx][-1].replace('file://localhost','')
+                else:
+                    import glob
+                    print(" WARNING: cache file ideallly contain one line per IFO to identify files in this approach")
+                    if  not(frames_dir) or not os.path.exists('./frames_dir'):
+                        print(" WARNING: Backstop method being applied - regenerating frames into frames_dir")
+                        shutil.copyfile(cache_file, 'local.cache')
+                        os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
+                    fnames_gwf = list(glob.glob(frames_dir+"/*.gwf")  )
+                    # get dictionary matching files
+                    for name in fnames_gwf:
+                        this_frame_ifo = None
+                        for ifo in ifo_list:
+                            if name.startswith(frames_dir+"/{}-".format(ifo)):
+                                this_frame_ifo=ifo
+                        bilby_data_dict[ifo] = this_frame_ifo
         elif frames_dir:  # Danger : this directory might be EMPTY and generated at runtile
             import glob
             print(" calmarg: bilby ini file does not have data_dict, attempting to identify data from directory: {} ".format(frames_dir))
@@ -2531,7 +2637,17 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
             ile_job.add_opt(opt.replace("_", "-"), str(param))
 
 
-    ile_job.add_condor_cmd('getenv', default_getenv_value)
+    # getenv: use default, BUT want to check for datafind so it is passed!
+    #
+    pickle_getenv_value = str(default_getenv_value) # force re-create
+    if not(pickle_getenv_value == 'True') and not('DATAFIND' in pickle_getenv_value):
+        names_datafind = []
+        for name in os.environ:
+            if 'DATAFIND' in name:
+                names_datafind.append(name)
+        if len(names_datafind)>0:
+            pickle_getenv_value= default_getenv_value +',' + ",".join(names_datafind)
+    ile_job.add_condor_cmd('getenv', pickle_getenv_value)
     ile_job.add_condor_cmd('request_memory', str(request_memory)+"M")
 
     # no grid
