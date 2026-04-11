@@ -23,6 +23,7 @@ https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
      that were empty and caused downstream pesummary parsing problems; safety protect calmarg against draw failures
    - (rc11) fix shape inconsitency in cal draw - eliminate rare failures at end not immediately to preserve
      shape. Stronger safety checks and warnings.
+   - (rc12) patch puzzling calmarg side effect where bilby internals were changing geocenter_time from inputs
      
 0.0.17.7
 ------------
