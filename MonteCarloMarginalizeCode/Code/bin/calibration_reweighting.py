@@ -248,6 +248,7 @@ if not os.path.exists(f'{outdir}/weight_files/'):
 
 result=None # scoping requirement
 # read in the posterior samples for reweighting
+rift_time_samples=None # save b/c bilby somehow distorts them?
 if args.posterior_sample_file.split(".")[-1] == 'json':
     result = bilby.core.result.read_in_result(args.posterior_sample_file)
     if start_index is not None:
@@ -272,6 +273,7 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
     result.meta_data = {}
 
     if args.use_rift_samples:
+        rift_time_samples = np.array(result.posterior['time']) # save copy of original samples
         result.posterior  = result.posterior.drop(columns=['lnL','ps'])
         result.posterior['p'] = np.log(result.posterior['p'])  # not sure if used, but if so define correctly
         # The key_sap_dict does not have an 'eccentricity' key since both RIFT and Bilby use "eccentricity" as the key.
@@ -559,6 +561,9 @@ if args.dump_cal_realization:
         for name in undesired_fields:          
             if name in new_posterior.columns:
                 new_posterior.drop(columns=name,inplace=True)
+
+        # rewrite time field: bilby internally distorts it somehow, restore actual values from input
+        new_posterior['time'] = rift_time_samples
 
             
     # WRITE TO FILE
