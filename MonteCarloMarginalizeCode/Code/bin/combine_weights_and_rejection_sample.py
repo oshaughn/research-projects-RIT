@@ -33,10 +33,16 @@ def index_of(sub_str, my_list):
         if sub_str in my_list[indx]:
             return int(indx)
 saved_dtype=None
-def check_valid_import(fname):
+def check_valid_import(fname,size=None):
     try:
         #dat = np.genfromtxt(fname,names=True)
-        pd.read_csv(fname, sep=' ')
+        my_in = pd.read_csv(fname, sep=' ')
+        # size check
+        if not(size is None):
+            if len(my_in) == size:
+                return True
+            else:
+                return False
     except:
         return False
     return True
@@ -58,10 +64,13 @@ fnames_extended_post = list(glob(weights_file_directory+"/weights*extended_poste
 fnames_weights = list(glob(weights_file_directory+"/weights*dat"))
 have_extended = len(fnames_extended_post)>0
 indx_result_to_downselect=None
+k_low, k_high  = key_to_bounds(name_to_key(fnames_weights[0]))
+n_stride = k_high - k_low # HARDCODE COMMON SIZE
+
 if have_extended:
     # perform safety check, downselect
     keys_weights = [name_to_key(s) for s in fnames_weights] # key list
-    keys_post = [name_to_key(s) for s in fnames_extended_post if check_valid_import(s)] # key list
+    keys_post = [name_to_key(s) for s in fnames_extended_post if check_valid_import(s,size=n_stride)] # key list
     v = set(keys_weights).intersection(set(keys_post)); print(v)
     keys_common = list(v) # remove duplicates
     print(keys_weights, keys_common, keys_post)
@@ -143,4 +152,17 @@ if not(allow_alternate):
 else:
     n_est = int(len(weights)*np.sum(weights_for_diagnostics)**2/np.sum(weights_for_diagnostics**2)/len(weights_for_diagnostics))+1  # effective sample size used to draw
     result.posterior = result.posterior.sample(n=n_est,weights=weights/np.sum(weights),replace=allow_duplicates)
+
+# remove samples with nan or empty entries
+result.posterior.dropna(inplace=True)
+# field_names_with_cal = [x for x in list(result.posterior.columns) if 'recalib' in x and 'phase' in x]   # warning, hardcodes names
+# one_field_name_with_cal = field_names_with_cal[0]
+# vals = result.posterior[one_field_name_with_cal]
+# bool_bad = np.logical_not(vals.notna())
+# vals[bool_bad]= 0 # clean empty items so they process in 
+# bool_bad = np.logical_or( bool_bad, np.isinf(vals))
+# bool_bad = np.logical_or(bool_bad, np.isnan(vals))
+# indx_bad = np.arange(len(bool_bad))[bool_bad]
+# result.posterior.drop(indx_bad, inplace=True)
+
 result.save_posterior_samples(filename=outdir+'/reweighted_posterior_samples.dat', outdir=outdir)

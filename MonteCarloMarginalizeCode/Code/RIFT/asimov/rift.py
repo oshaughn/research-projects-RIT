@@ -317,6 +317,12 @@ class Rift(Pipeline):
                 "SINGULARITY_BASE_EXE_DIR"
             ] = f"{self.production.meta['scheduler']['singularity base exe directory']}"
 
+        if 'environment variables' in self.production.meta['scheduler']:
+            dict_like = self.production.meta['scheduler']['environment variables']
+            print(" rift.py :adding environment variables before starting pipeline ", dict_like,type(dict_like))
+            for key in dict_like:
+                os.environ[key] = '{}'.format(dict_like[key])
+                        
         try:
             calibration = config.get("general", "calibration")
         except configparser.NoOptionError:
