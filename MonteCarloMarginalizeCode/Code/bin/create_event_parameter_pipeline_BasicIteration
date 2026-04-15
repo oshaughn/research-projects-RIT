@@ -361,10 +361,13 @@ if opts.use_singularity or opts.use_osg:
 singularity_image = None
 if opts.use_singularity:
     print(" === USING SINGULARITY === ")
+    print(" === container MUST have lal_path2cache ")
     singularity_image = os.environ["SINGULARITY_RIFT_IMAGE"]  # must be present to use singularity
     # SINGULARITY IMAGES ARE ON CVMFS, SO WE CAN AVOID THE SINGULARITY EXEC CALL
     # hardcoding a fiducial copy of lalapps_path2cache; beware about the executable name change
-    os.environ['LALAPPS_PATH2CACHE'] = "/cvmfs/oasis.opensciencegrid.org/ligo/sw/conda/envs/igwn-py39/bin/lalapps_path2cache" #"singularity exec {singularity_image} lalapps_path2cache".format(singularity_image=singularity_image)
+    #os.environ['LALAPPS_PATH2CACHE'] = "/cvmfs/oasis.opensciencegrid.org/ligo/sw/conda/envs/igwn-py39/bin/lal_path2cache" #"singularity exec {singularity_image} lalapps_path2cache".format(singularity_image=singularity_image)
+    # REQUIRE CONTAINER HAS THIS ROUTINE ! Watch out
+    os.environ['LALAPPS_PATH2CACHE'] = os.environ['SINGULARITY_BASE_EXE_DIR'] + "/lal_path2cache" #"singularity exec {singularity_image} lalapps_path2cache".format(singularity_image=singularity_image)
     print(singularity_image)
 
     # see https://computing.docs.ligo.org/guide/htcondor/credentials/
