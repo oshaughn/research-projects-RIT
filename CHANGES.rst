@@ -1,3 +1,11 @@
+0.0.17.9
+------------
+development tree is rift_O4c_staging -> rift_O4c; draft MR notes at
+https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
+   - (rc0) write_bilby_pickle: shutil.copyfile threw error if cache file already existed (copy into same file error) in
+     code that protected against duplicate IFO entries.
+
+
 0.0.17.8
 ------------
 development tree is rift_O4c_staging -> rift_O4c; draft MR notes at
