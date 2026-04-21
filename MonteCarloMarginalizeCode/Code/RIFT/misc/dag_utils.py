@@ -2509,7 +2509,8 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
                     print(" WARNING: cache file ideallly contain one line per IFO to identify files in this approach")
                     if  not(frames_dir) or not os.path.exists('./frames_dir'):
                         print(" WARNING: Backstop method being applied - regenerating frames into frames_dir")
-                        shutil.copyfile(cache_file, 'local.cache')
+                        if not(os.path.samefile(cache_file,'local.cache')):
+                               shutil.copyfile(cache_file, 'local.cache')
                         os.system("util_ForOSG_MakeTruncatedLocalFramesDir.sh .")
                     fnames_gwf = list(glob.glob(frames_dir+"/*.gwf")  )
                     # get dictionary matching files
