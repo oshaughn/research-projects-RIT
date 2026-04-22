@@ -1,3 +1,40 @@
+0.0.17.9
+------------
+development tree is rift_O4c_staging -> rift_O4c; draft MR notes at
+https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
+   - (rc0) write_bilby_pickle: shutil.copyfile threw error if cache file already existed (copy into same file error) in
+     code that protected against duplicate IFO entries.
+
+
+0.0.17.8
+------------
+development tree is rift_O4c_staging -> rift_O4c; draft MR notes at
+https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
+
+   - (rc0) extrinsic output shuffle; datafind parsing contemporary environement; evidence files collected in one place
+     for humans; asimov SNR bootstrap; asimov safety protection for calmarg/bilby ini parsing; condor_commands
+     capability; calmarg output includes calibratio parameters in workflow, along with script to add postprocessing
+   - (rc1) data upsampling support (--srate-internal); time output interpolation to higher sampling rates
+     (--srate-resample-time-marginalization); calmarg output for cal  parameters safety and function improved; fix bugs
+     introduced cherry-picking for last release.
+   - (rc2) calparam_attempt review feedback; calibration_reweighting lessons learned from review; lalsimutils fix
+     cherry-picking error in last release frame_data_to ...
+   - (rc3) evidence calculation doesn't fail on subdags; calmarg nan protection.
+   - (rc4) calmarg+cal params: fix concatenation
+   - (rc5) typo in last commit/port
+   - (rc6) calmarg: fix export using rift field names
+   - (rc7) calmarg+OSG operation, combine_weights uses pandas consistently for safety, delete cal files after run, minor
+     evidence fix
+   - (rc8) calmarg+OSG miscellaneous missing cherry-picks, plus swap order of writing submit files so cal_envelopes made first.
+   - (rc9) OSG-safe operation missing cherry-pick from O4d for allinone_convert; minor arg label fix calmarg+OSG
+   - (rc10) OSG-safe operation make sure weight_files created early to avoid hold on evict/fail; remove unused columns
+     that were empty and caused downstream pesummary parsing problems; safety protect calmarg against draw failures
+   - (rc11) fix shape inconsitency in cal draw - eliminate rare failures at end not immediately to preserve
+     shape. Stronger safety checks and warnings.
+   - (rc12) patch puzzling calmarg side effect where bilby internals were changing geocenter_time from inputs
+
+Release is rc12
+     
 0.0.17.7
 ------------
 development tree is rift_O4c.
