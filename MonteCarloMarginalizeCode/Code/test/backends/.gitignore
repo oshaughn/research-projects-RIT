@@ -1,0 +1,11 @@
+# Test artefacts produced by the demo drivers and the pipeline-output
+# synthesizer.  These are regenerated on every run and must not be
+# committed -- a single demo run produces hundreds of submit / sbatch /
+# DAG files plus per-backend driver logs.
+outputs/
+
+# Also ignore __pycache__ and per-run caches that some demos create
+# alongside the per-backend trees.
+__pycache__/
+*.pyc
+empty.cache

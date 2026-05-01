@@ -29,7 +29,7 @@ else:
     assume_lowlatency=False
 
 # Backward compatibility
-from RIFT.misc.dag_utils import which
+from RIFT.misc.dag_utils_generic import which
 ligolw_prefix = 'igwn_'
 if not(which(ligolw_prefix + "ligolw_add")):
     ligolw_prefix = ''
@@ -495,7 +495,7 @@ elif opts.use_coinc and opts.fake_data_cache:
     # if gracedb id is NOT none, but if we have a coinc and cache file, do nothing/no warnings
    print("  pseudo_pipe: no authenticated lookup needed, coinc and cache file provided as ", opts.use_coinc, opts.fake_data_cache)     
 else:
-    from RIFT.misc.dag_utils import which
+    from RIFT.misc.dag_utils_generic import which
     # https://computing.docs.ligo.org/guide/htcondor/credentials/#scitokens
     print(" ===> WARNING <=== ")
     print(" gracedb id provided but either missing coinc file or cache file; lookup necessary, possibly requiring authentication ")

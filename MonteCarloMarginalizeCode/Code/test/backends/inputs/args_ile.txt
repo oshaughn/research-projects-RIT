@@ -1,0 +1,1 @@
+--cache-file UNUSED.cache --psd-file H1=psd_H1.xml.gz --psd-file L1=psd_L1.xml.gz --channel-name H1=GWOSC --channel-name L1=GWOSC --fmin-template 20 --fmax 1700 --reference-freq 20 --time-marginalization --inclination-cosine-sampler --declination-cosine-sampler --n-events-to-analyze 1 --d-max 1000 --save-P 0.1 --internal-use-lnL --no-adapt-after-first --vectorized

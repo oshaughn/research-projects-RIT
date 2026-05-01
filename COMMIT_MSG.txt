@@ -1,0 +1,125 @@
+RIFT.misc: dag_utils_generic fixes from end-to-end demo testing
+
+Follow-up to the initial pluggable-backend commit.  These changes are all
+driven by running the three new demo drivers (BasicIteration, EOS,
+util_RIFT_pseudo_pipe) under the htcondor / glue / slurm backends on a
+real RIFT install and fixing every site that crashed.
+
+Backend abstraction
+-------------------
+
+* _GenericNode now generates globally-unique node names of the form
+  "<exe-basename>-<md5>" using the same generate_job_id() recipe as
+  glue.pipeline.CondorDAGNode.  This avoids identifier collisions when
+  multiple workflows are merged into a single .dag file.  The legacy
+  private attribute _CondorDAGNode__md5name is exposed and mirrors
+  node.name verbatim, so RIFT consumers that hard-code that attribute
+  (e.g. when wiring up custom SCRIPT POST items) keep working.  A new
+  set_name() helper keeps name and _CondorDAGNode__md5name in sync if a
+  caller wants a more legible override.
+
+* HTCondorBackend is now *always* registered.  Its emit_job() already had
+  a self-contained submit-file text renderer for environments without the
+  htcondor python bindings (macOS in particular), so gating the
+  registration on `import htcondor` produced spurious warnings
+  ("RIFT_DAG_BACKEND='htcondor' not registered") and silently rerouted to
+  whichever backend auto-detection happened to find.  GluePipelineBackend
+  is still gated on `from glue import pipeline`, since it strictly needs
+  glue at emit time.  SlurmBackend has no python-level dependency and
+  always registers.
+
+* GluePipelineBackend supplies default log / stdout / stderr file paths
+  derived from the sub-file when the caller didn't set them, instead of
+  letting glue.pipeline raise CondorSubmitError("Log file not specified.")
+  / "Error file not specified." / "Output file not specified.".  Other
+  backends already tolerated their absence.
+
+* GluePipelineBackend.emit_dag() strips a trailing ".dag" before passing
+  the path to glue.pipeline.CondorDAG.set_dag_file(), since glue itself
+  appends ".dag" and would otherwise produce "wf.dag.dag".
+
+Test suite (test/backends/)
+---------------------------
+
+* test_backends_lowlevel.py: explicit `import importlib.util` (the
+  submodule is not auto-loaded on all Python versions / startup paths);
+  open(...).read() patterns rewritten with `with` blocks to silence
+  Python 3.14+ ResourceWarnings; `--input=x.txt` assertion relaxed to
+  also accept the space-separated `--input x.txt` form that real
+  glue.pipeline emits; node-name test now asserts the new "<exe>-<md5>"
+  format and that _CondorDAGNode__md5name mirrors .name.
+
+* run_all_backends.sh + each demo_*.sh: prepend
+  MonteCarloMarginalizeCode/Code to PYTHONPATH and bin/ to PATH so the
+  in-tree RIFT package is discoverable without `pip install -e .`.  The
+  command-v / fallback resolution for the pipeline-driver path captures
+  the absolute path returned by command-v (so the existence check is
+  meaningful).  Tolerant `rm -rf 2>/dev/null || true` instead of bare
+  `rm -rf` so cleanup never aborts the run on FUSE / restrictive
+  filesystems.
+
+* The three demos no longer falsely report PASS when their child python
+  invocations crashed.  Each backend run captures the python exit code
+  via PIPESTATUS (so tee doesn't swallow it) and treats the run as
+  failed if the exit code is non-zero *or* the driver log contains a
+  "Traceback (most recent call last):" line; failed backends are
+  collected in BACKEND_FAILURES and the demo exits non-zero at the end
+  if any failed.
+
+Fixture and invocation fixes
+----------------------------
+
+* demo_create_event_parameter_pipeline_BasicIteration.sh: switched to
+  the actual argument names accepted by the script
+  (--ile-n-events-to-analyze, --general-request-disk); removed
+  --skip-reproducibility (only valid on pseudo_pipe); added a sanitize
+  step on the input grid (see below).
+
+* demo_create_eos_posterior_pipeline.sh: switched from the single-args
+  --marg-event-args path (which leaves marg_event_nchunk_list = None
+  and crashes the multi-event loop) to the list-file path with
+  --marg-event-args-list-file, --marg-event-exe-list-file, and
+  --marg-event-nchunk-list-file.  Uses a plain-text inputs/eos-grid.dat
+  for --input-grid (np.loadtxt cannot read a gzipped XML).  Added
+  inputs/args_marg_event_list.txt, inputs/marg_event_exe_list.txt,
+  inputs/marg_event_nchunk_list.txt.
+
+* demo_util_RIFT_pseudo_pipe.sh: rewritten to mirror
+  .travis/test-build.sh -- uses --use-ini + --use-coinc which is the
+  only path through pseudo_pipe that populates event_dict["IFOs"]
+  without contacting GraceDb.  Copied the in-tree
+  .travis/ref_ini/GW150914.ini and .travis/ref_ini/coinc.xml into
+  inputs/ (overridable via PSEUDO_INI / PSEUDO_COINC env vars).  Sets
+  RIFT_LOWLATENCY / SINGULARITY_RIFT_IMAGE / SINGULARITY_BASE_EXE_DIR
+  exactly as the travis driver does.  Wipes the rundir before the run
+  but does NOT pre-create it (pseudo_pipe.py does its own os.mkdir on
+  --use-rundir and aborts with FileExistsError otherwise); the driver
+  log goes to a sibling path and is moved into the rundir after
+  pseudo_pipe creates it.  Artefact-listing block tolerates a missing
+  rundir.
+
+* inputs/overlap-grid.xml.gz: replaced the comment-only placeholder
+  (which trivially failed expat parsing) with a real LIGO_LW
+  sim_inspiral table copied from
+  MonteCarloMarginalizeCode/data/zero_noise_mdc/mdc-bns.xml.gz.
+
+* inputs/sanitize_grid.py: new helper.  Modern igwn_ligolw rejects both
+  Type="ilwd:char" Column declarations and the `process_id` /
+  `simulation_id` columns on sim_inspiral.  The helper prefers the
+  ligo.lw / igwn_ligolw API (running ligolw_no_ilwdchar.process_document
+  and removing the rejected columns).  The stdlib-only text fallback
+  walks each <Table>, identifies columns to drop and ilwd:char columns
+  to rewrite, parses the comma-separated <Stream> body via Python's csv
+  module, drops the corresponding column values from each data row, and
+  rewrites ilwd-format string values like "process:process_id:0" to the
+  bare integer 0.  The BasicIteration demo invokes this as a
+  preprocessing step.
+
+Upstream bug fixes
+------------------
+
+* bin/create_event_parameter_pipeline_BasicIteration line 803:
+  `which_short` was a typo for `which_sort` (introduced in upstream
+  commit 8ef16ec9 "cepp: add 'shuf' to output, to randomize extrinsic
+  order at creation time").  Triggered when running with
+  --last-iteration-extrinsic-time-resampling.  Fixed in place.

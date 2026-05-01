@@ -4,7 +4,8 @@ import argparse
 import sys
 import os
 import shutil
-from glue import pipeline # https://github.com/lscsoft/lalsuite-archive/blob/5a47239a877032e93b1ca34445640360d6c3c990/glue/glue/pipeline.py
+# Backend-neutral pipeline namespace (htcondor/glue/slurm) provided by dag_utils_generic
+from RIFT.misc.dag_utils_generic import pipeline
 from igwn_ligolw import utils, ligolw, lsctables
 import RIFT.lalsimutils as  lsu
 import numpy as np

@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 # install reuires hydra-core
 from omegaconf import DictConfig, OmegaConf
 import hydra
-import RIFT.misc.dag_utils as dag_utils
+import RIFT.misc.dag_utils_generic as dag_utils
 
 
 base_dir =None

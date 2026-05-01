@@ -1,0 +1,8 @@
+# Placeholder EOS grid: columns are EOS parameter values.  np.loadtxt-friendly.
+# Real production runs use a properly-sampled grid; for the demo we just need
+# something parseable.
+1.0 0.10
+1.5 0.15
+2.0 0.20
+2.5 0.25
+3.0 0.30

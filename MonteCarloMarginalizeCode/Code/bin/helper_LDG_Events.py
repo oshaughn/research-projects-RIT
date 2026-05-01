@@ -27,7 +27,7 @@ import configparser as ConfigParser
 import gzip
 
 # Backward compatibility
-from RIFT.misc.dag_utils import which
+from RIFT.misc.dag_utils_generic import which
 lalapps_path2cache = which('lal_path2cache')
 ligolw_add = 'igwn_ligolw_add'
 if not(which(ligolw_add)):

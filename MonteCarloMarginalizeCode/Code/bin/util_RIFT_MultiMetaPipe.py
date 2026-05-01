@@ -44,9 +44,13 @@ import os
 #     exit(0)
 #from htcondor import dags
 
-from glue import pipeline
-import RIFT.misc.dag_utils as dag_utils
-#from RIFT.misc.dag_utils import which
+# Use the backend-neutral dag_utils_generic in place of the legacy
+# glue.pipeline interface.  `pipeline` here is a thin namespace that exposes
+# CondorDAG/CondorDAGJob/CondorDAGNode classes routed to either the htcondor
+# python bindings or the original glue.pipeline implementation.
+import RIFT.misc.dag_utils_generic as dag_utils
+from RIFT.misc.dag_utils_generic import pipeline
+#from RIFT.misc.dag_utils_generic import which
 
 
 

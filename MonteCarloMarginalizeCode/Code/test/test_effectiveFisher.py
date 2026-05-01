@@ -3,7 +3,7 @@ import lal
 import lalsimulation as lalsim
 import lalsimutils as lsu
 import effectiveFisher as eff
-import dag_utils
+import RIFT.misc.dag_utils_generic as dag_utils
 import numpy as np
 import matplotlib.pyplot as plt
 from time import clock
