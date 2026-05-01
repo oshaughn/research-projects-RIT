@@ -1,0 +1,201 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Asimov Interface Overview &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Asimov Use Cases and Mapping" href="use_cases.html" />
+    <link rel="prev" title="Asimov Interface" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../simulation_manager/index.html">Simulation Manager</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">Asimov Interface</a><ul class="current">
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Asimov Interface Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="use_cases.html">Asimov Use Cases and Mapping</a></li>
+<li class="toctree-l3"><a class="reference internal" href="workflows.html">Asimov + RIFT Workflows</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../calmarg/index.html">Calibration Marginalization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../misc/index.html">Misc Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../lalsimutils.html">LALSimUtils</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API Reference</a></li>
+          <li class="breadcrumb-item"><a href="index.html">Asimov Interface</a></li>
+      <li class="breadcrumb-item active">Asimov Interface Overview</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api_reference/asimov/overview.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="asimov-interface-overview">
+<h1>Asimov Interface Overview<a class="headerlink" href="#asimov-interface-overview" title="Link to this heading"></a></h1>
+<nav class="contents local" id="contents">
+<ul class="simple">
+<li><p><a class="reference internal" href="#overview" id="id1">Overview</a></p></li>
+<li><p><a class="reference internal" href="#api-reference" id="id2">API Reference</a></p></li>
+<li><p><a class="reference internal" href="#asimov-use-case-production-pe" id="id3">Asimov Use Case: Production PE</a></p></li>
+<li><p><a class="reference internal" href="#mapping-the-ledger-to-rift" id="id4">Mapping the Ledger to RIFT</a></p></li>
+<li><p><a class="reference internal" href="#configuration-file-note" id="id5">Configuration File Note</a></p></li>
+<li><p><a class="reference internal" href="#deployment-workflow" id="id6">Deployment Workflow</a></p></li>
+</ul>
+</nav>
+<p>This section describes the integration of the RIFT pipeline into the <code class="docutils literal notranslate"><span class="pre">asimov</span></code> production framework.</p>
+<section id="overview">
+<h2><a class="toc-backref" href="#id1" role="doc-backlink">Overview</a><a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">asimov</span></code> interface allows RIFT to be deployed as a production pipeline. This involves a Python wrapper (<code class="docutils literal notranslate"><span class="pre">rift.py</span></code>) and a configuration template (<code class="docutils literal notranslate"><span class="pre">rift.ini</span></code>) that map <code class="docutils literal notranslate"><span class="pre">asimov</span></code> ledger metadata to RIFT-specific execution arguments.</p>
+</section>
+<section id="api-reference">
+<h2><a class="toc-backref" href="#id2" role="doc-backlink">API Reference</a><a class="headerlink" href="#api-reference" title="Link to this heading"></a></h2>
+<p>The core integration is handled by:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">RIFT/asimov/rift.py</span></code>: The pipeline class that manages DAG construction, submission, and monitoring.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">RIFT/asimov/rift.ini</span></code>: The Jinja2 template used to generate the runtime configuration.</p></li>
+</ul>
+</section>
+<section id="asimov-use-case-production-pe">
+<h2><a class="toc-backref" href="#id3" role="doc-backlink">Asimov Use Case: Production PE</a><a class="headerlink" href="#asimov-use-case-production-pe" title="Link to this heading"></a></h2>
+<p>To run RIFT through <code class="docutils literal notranslate"><span class="pre">asimov</span></code>, a user typically defines a production specification in a YAML file (the “ledger”). This specification is then mapped by <code class="docutils literal notranslate"><span class="pre">rift.py</span></code> and <code class="docutils literal notranslate"><span class="pre">rift.ini</span></code> into the final command line arguments for <a class="reference internal" href="../../executables/util_RIFT_pseudo_pipe.html"><span class="doc">util_RIFT_pseudo_pipe.py</span></a>.</p>
+</section>
+<section id="mapping-the-ledger-to-rift">
+<h2><a class="toc-backref" href="#id4" role="doc-backlink">Mapping the Ledger to RIFT</a><a class="headerlink" href="#mapping-the-ledger-to-rift" title="Link to this heading"></a></h2>
+<p>The mapping process determines which RIFT flags are set based on the ledger’s <code class="docutils literal notranslate"><span class="pre">meta</span></code> section.</p>
+<p><strong>Key Mapping Examples:</strong></p>
+<ul class="simple">
+<li><p><strong>Waveform Approximant</strong>: The <code class="docutils literal notranslate"><span class="pre">waveform:</span> <span class="pre">approximant</span></code> field in the ledger maps to the <code class="docutils literal notranslate"><span class="pre">--approx</span></code> flag in RIFT.</p></li>
+<li><p><strong>Physics Assumptions</strong>: Fields under <code class="docutils literal notranslate"><span class="pre">likelihood:</span> <span class="pre">assume</span></code> (e.g., <code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">spin</span></code>, <code class="docutils literal notranslate"><span class="pre">precessing</span></code>, <code class="docutils literal notranslate"><span class="pre">eccentric</span></code>) map to corresponding <code class="docutils literal notranslate"><span class="pre">--assume-xxx</span></code> flags.</p></li>
+<li><p><strong>Sampling Settings</strong>: Fields under <code class="docutils literal notranslate"><span class="pre">sampler:</span> <span class="pre">cip</span></code> (e.g., <code class="docutils literal notranslate"><span class="pre">sampling</span> <span class="pre">method</span></code>) map to <code class="docutils literal notranslate"><span class="pre">cip-sampler-method</span></code> in the <code class="docutils literal notranslate"><span class="pre">ini</span></code> file.</p></li>
+<li><p><strong>Priors</strong>: Prior ranges defined in the ledger are mapped to specific <code class="docutils literal notranslate"><span class="pre">ile-xxx-prior</span></code> settings in the <code class="docutils literal notranslate"><span class="pre">ini</span></code> file.</p></li>
+</ul>
+</section>
+<section id="configuration-file-note">
+<h2><a class="toc-backref" href="#id5" role="doc-backlink">Configuration File Note</a><a class="headerlink" href="#configuration-file-note" title="Link to this heading"></a></h2>
+<p>It is important to note that the <code class="docutils literal notranslate"><span class="pre">RIFT/asimov/rift.ini</span></code> file contains many legacy or placeholder entries. The actual behavior of the pipeline is determined by which values are explicitly parsed by <a class="reference internal" href="../../executables/util_RIFT_pseudo_pipe.html"><span class="doc">util_RIFT_pseudo_pipe.py</span></a> and <span class="xref std std-doc">../../executables/helper_LDG_Events</span>.</p>
+<p>Users should focus on the <strong>actionable items</strong>—the flags and configuration keys that the low-level RIFT code actually reads—rather than the entirety of the <code class="docutils literal notranslate"><span class="pre">ini</span></code> template.</p>
+</section>
+<section id="deployment-workflow">
+<h2><a class="toc-backref" href="#id6" role="doc-backlink">Deployment Workflow</a><a class="headerlink" href="#deployment-workflow" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Define Production</strong>: Create a YAML production spec in the <code class="docutils literal notranslate"><span class="pre">asimov</span></code> ledger.</p></li>
+<li><p><strong>Build</strong>: Run <code class="docutils literal notranslate"><span class="pre">asimov</span> <span class="pre">manage</span> <span class="pre">build</span></code>. The <code class="docutils literal notranslate"><span class="pre">Rift</span></code> pipeline class identifies the production and uses <code class="docutils literal notranslate"><span class="pre">rift.ini</span></code> to generate a specific configuration.</p></li>
+<li><p><strong>Submit</strong>: The <code class="docutils literal notranslate"><span class="pre">Rift</span></code> pipeline calls <code class="docutils literal notranslate"><span class="pre">util_RIFT_pseudo_pipe.py</span></code> to build a Condor DAG and then submits it to the cluster.</p></li>
+<li><p><strong>Monitor</strong>: <code class="docutils literal notranslate"><span class="pre">asimov</span></code> monitors the job status via <code class="docutils literal notranslate"><span class="pre">detect_completion()</span></code>, which looks for the final posterior sample files.</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="Asimov Interface" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="use_cases.html" class="btn btn-neutral float-right" title="Asimov Use Cases and Mapping" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

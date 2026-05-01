@@ -1,0 +1,205 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>spokes &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">spokes</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/RIFT/misc/spokes.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="spokes">
+<h1>spokes<a class="headerlink" href="#spokes" title="Link to this heading"></a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">RIFT.misc.spokes</span></code> module implements the “Spoke” system, a specialized framework for managing and refining 1D slices of the parameter space. In RIFT, a “spoke” typically refers to a grid of simulations where the total mass is varied while all other intrinsic parameters (mass ratio, spins, and eccentricity) are held constant.</p>
+<section id="the-spoke-concept">
+<h2>The Spoke Concept<a class="headerlink" href="#the-spoke-concept" title="Link to this heading"></a></h2>
+<p>The spoke system is used to efficiently find the maximum likelihood for a specific set of intrinsic parameters. Instead of sampling the entire multi-dimensional space at high resolution, RIFT identifies a “spoke” (a 1D line in parameter space) and iteratively refines the grid along that line to pinpoint the peak of the likelihood.</p>
+</section>
+<section id="likelihood-refinement">
+<h2>Likelihood Refinement<a class="headerlink" href="#likelihood-refinement" title="Link to this heading"></a></h2>
+<p>The module provides tools to analyze 1D likelihood grids and suggest higher-resolution sampling regions:</p>
+<ol class="arabic simple">
+<li><p><strong>Peak Fitting</strong>: The <code class="docutils literal notranslate"><span class="pre">FitSpokeNearPeak</span></code> function identifies the region surrounding the likelihood maximum and fits a quadratic polynomial to the data. This allows for a sub-grid estimate of the peak position and value.</p></li>
+<li><p><strong>Iterative Refinement</strong>: The <code class="docutils literal notranslate"><span class="pre">Refine</span></code> function implements the logic for grid adaptation. It can:
+- <strong>Extend</strong>: If the peak is found at the edge of the current grid, it extends the grid in that direction.
+- <strong>Narrow</strong>: If the peak is interior, it suggests a new, denser grid centered on the peak.
+- <strong>Fallback</strong>: If the data is too sparse or flat, it provides safe fallback behavior to avoid numerical instability.</p></li>
+</ol>
+</section>
+<section id="spoke-identification-and-i-o">
+<h2>Spoke Identification and I/O<a class="headerlink" href="#spoke-identification-and-i-o" title="Link to this heading"></a></h2>
+<p>To manage thousands of spokes, the module uses a labeling system:
+- <strong>Spoke Labels</strong>: The <code class="docutils literal notranslate"><span class="pre">ChooseWaveformParams_to_spoke_label</span></code> function creates a unique identifier based on the intrinsic parameters. This allows RIFT to group simulations belonging to the same spoke across different files.
+- <strong>Data Loading</strong>: <code class="docutils literal notranslate"><span class="pre">LoadSpokeDAT</span></code> and <code class="docutils literal notranslate"><span class="pre">LoadSpokeXML</span></code> handle the ingestion of likelihood results and simulation parameters, automatically grouping them into their respective spokes.</p>
+</section>
+<section id="consolidation-and-cleaning">
+<h2>Consolidation and Cleaning<a class="headerlink" href="#consolidation-and-cleaning" title="Link to this heading"></a></h2>
+<p>When multiple simulations are performed at the same total mass within a single spoke, the results must be combined. The <code class="docutils literal notranslate"><span class="pre">CleanSpokeEntries</span></code> function performs this consolidation by:
+1. Grouping entries by total mass.
+2. Applying simulation weights (via <code class="docutils literal notranslate"><span class="pre">RIFT.misc.weight_simulations</span></code>) to calculate a weighted average of the log-likelihoods.
+3. Computing a net uncertainty ($sigma$) for the consolidated entry.</p>
+</section>
+<section id="module-RIFT.misc.spokes">
+<span id="api-reference"></span><h2>API Reference<a class="headerlink" href="#module-RIFT.misc.spokes" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.spokes.ChooseWaveformParams_to_spoke_label">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.spokes.</span></span><span class="sig-name descname"><span class="pre">ChooseWaveformParams_to_spoke_label</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">digits</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_eccentric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.spokes.ChooseWaveformParams_to_spoke_label" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.spokes.ChooseWaveformParams_to_spoke_mass">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.spokes.</span></span><span class="sig-name descname"><span class="pre">ChooseWaveformParams_to_spoke_mass</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">digits</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.spokes.ChooseWaveformParams_to_spoke_mass" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.spokes.CleanSpokeEntries">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.spokes.</span></span><span class="sig-name descname"><span class="pre">CleanSpokeEntries</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">spoke_entries</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">digits</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.spokes.CleanSpokeEntries" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.spokes.FitSpokeNearPeak">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.spokes.</span></span><span class="sig-name descname"><span class="pre">FitSpokeNearPeak</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">xvals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnLVals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaLogL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refinement_scale_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.2</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.spokes.FitSpokeNearPeak" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.spokes.Line_to_spoke_entry">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.spokes.</span></span><span class="sig-name descname"><span class="pre">Line_to_spoke_entry</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">line</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">digits</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_eccentric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.spokes.Line_to_spoke_entry" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.spokes.Line_to_spoke_label">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.spokes.</span></span><span class="sig-name descname"><span class="pre">Line_to_spoke_label</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">line</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">digits</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_eccentric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.spokes.Line_to_spoke_label" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.spokes.LoadSpokeDAT">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.spokes.</span></span><span class="sig-name descname"><span class="pre">LoadSpokeDAT</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_eccentric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.spokes.LoadSpokeDAT" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.spokes.LoadSpokeXML">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.spokes.</span></span><span class="sig-name descname"><span class="pre">LoadSpokeXML</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_eccentric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.spokes.LoadSpokeXML" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.spokes.Refine">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.spokes.</span></span><span class="sig-name descname"><span class="pre">Refine</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">xvals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnLVals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xmin</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaLogL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">npts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">refinement_scale_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.2</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.spokes.Refine" title="Link to this definition"></a></dt>
+<dd><p>Refine(xvals,lnLVals) takes a 1d grid of lnL(x) and returns a simple grid refinement guess.
+If the maximum is at or very near an edge (1 or two samples).
+Refinement by default fits to top 30%</p>
+</dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

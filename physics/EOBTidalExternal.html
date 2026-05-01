@@ -1,0 +1,212 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EOB Tidal Waveforms (External) &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="EOB Tidal Waveforms (C++ Implementation)" href="EOBTidalExternalC.html" />
+    <link rel="prev" title="ROM Waveform Manager" href="ROMWaveformManager.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../executables/index.html">Executables</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Waveform Generation</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="LALSimUtils.html">LALSimulation Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="GWSignal.html">GWSignal Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ROMWaveformManager.html">ROM Waveform Manager</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">EOB Tidal Waveforms (External)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="EOBTidalExternalC.html">EOB Tidal Waveforms (C++ Implementation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="MonotonicSpline.html">Monotonic Spline Interpolation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="PrecessingFisherMatrix.html">Precessing Fisher Matrix</a></li>
+<li class="toctree-l2"><a class="reference internal" href="effectiveFisher.html">Effective Fisher Matrix</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Waveform Generation</a></li>
+      <li class="breadcrumb-item active">EOB Tidal Waveforms (External)</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/physics/EOBTidalExternal.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="eob-tidal-waveforms-external">
+<h1>EOB Tidal Waveforms (External)<a class="headerlink" href="#eob-tidal-waveforms-external" title="Link to this heading"></a></h1>
+<p>This module provides an interface to the Bernuzzi EOB (Effective-One-Body) model for generating tidal gravitational-wave waveforms. It acts as a wrapper around an external MATLAB-based implementation, allowing RIFT to incorporate high-fidelity tidal effects into its inference pipelines.</p>
+<section id="requirements">
+<h2>Requirements<a class="headerlink" href="#requirements" title="Link to this heading"></a></h2>
+<p>Because this module interfaces with external code, the following dependencies must be configured on the system:</p>
+<ol class="arabic simple">
+<li><p><strong>MATLAB</strong>: The core EOB tidal model is implemented in MATLAB.</p></li>
+<li><p><strong>Execution Script</strong>: The <code class="docutils literal notranslate"><span class="pre">run_goeob_standalone.sh</span></code> script must be present in the EOB base directory.</p></li>
+<li><dl class="simple">
+<dt><strong>Environment Variables</strong>:</dt><dd><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">EOB_BASE</span></code>: Path to the directory containing the EOB source code and execution scripts.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">EOB_ARCHIVE</span></code>: Path to the directory where generated waveforms are archived to avoid redundant computations.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MATLAB_BASE</span></code>: Path to the MATLAB executable or base installation.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+</ol>
+</section>
+<section id="core-functionality-waveformmodecatalog">
+<h2>Core Functionality: WaveformModeCatalog<a class="headerlink" href="#core-functionality-waveformmodecatalog" title="Link to this heading"></a></h2>
+<p>The primary interface is the <code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog</span></code> class, which handles the generation, caching, and manipulation of tidal harmonic modes.</p>
+<section id="initialization">
+<h3>Initialization<a class="headerlink" href="#initialization" title="Link to this heading"></a></h3>
+<p>When initialized, the catalog:
+1. Checks for existing archived waveforms in <code class="docutils literal notranslate"><span class="pre">EOB_ARCHIVE</span></code> based on the waveform parameters (masses, tidal lambdas, and minimum frequency).
+2. If no archive exists, it invokes the external MATLAB script via <code class="docutils literal notranslate"><span class="pre">run_goeob_standalone.sh</span></code>.
+3. Loads the resulting harmonic modes from disk (e.g., <code class="docutils literal notranslate"><span class="pre">test_h22.dat</span></code>).
+4. Applies necessary scaling factors (e.g., symmetric mass ratio $nu$) and performs phase unwinding.</p>
+</section>
+<section id="key-methods">
+<h3>Key Methods<a class="headerlink" href="#key-methods" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">hlmoft(force_T=False,</span> <span class="pre">deltaT=1./16384,</span> <span class="pre">...)</span></code>:</dt><dd><p>Generates a dictionary of complex-valued time-domain modes $h_{lm}(t)$. It interpolates the raw EOB data onto a uniform time grid and applies physical scaling based on the source distance.</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">hlmoff(...)</span></code>:</dt><dd><p>Performs a Fourier transform on the time-domain modes to provide frequency-domain representations $h_{lm}(f)$.</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">real_hoft(...)</span></code>:</dt><dd><p>Projects the harmonic modes onto a specific detector’s strain, producing a real-valued time series $h(t)$ based on the detector’s orientation ($theta, phi, psi$).</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">complex_hoft(...)</span></code>:</dt><dd><p>Combines the $h_{lm}$ modes into a single complex time series $Psi_4$ using spin-weighted spherical harmonics.</p>
+</dd>
+</dl>
+</li>
+</ul>
+</section>
+</section>
+<section id="tidal-mode-support">
+<h2>Tidal Mode Support<a class="headerlink" href="#tidal-mode-support" title="Link to this heading"></a></h2>
+<p>The interface supports a range of harmonic modes, typically including:
+- $(2, pm 2), (2, pm 1), (2, 0)$
+- $(3, pm 3), (3, pm 2), (3, pm 1)$</p>
+</section>
+<section id="workflow-summary">
+<h2>Workflow Summary<a class="headerlink" href="#workflow-summary" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Parameter Input</strong>: Pass a parameter object containing $m_1, m_2, lambda_1, lambda_2$.</p></li>
+<li><p><strong>External Generation</strong>: The module converts $lambda$ to $kappa$ and calls the Bernuzzi MATLAB code.</p></li>
+<li><p><strong>Data Retrieval</strong>: Raw data files are read from the archive or the current run directory.</p></li>
+<li><p><strong>Physical Scaling</strong>: Dimensionless outputs are scaled by $M_{total}$ and $1/d_L$.</p></li>
+<li><p><strong>Projection</strong>: Modes are combined into a detector-specific strain for likelihood evaluation.</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="ROMWaveformManager.html" class="btn btn-neutral float-left" title="ROM Waveform Manager" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="EOBTidalExternalC.html" class="btn btn-neutral float-right" title="EOB Tidal Waveforms (C++ Implementation)" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

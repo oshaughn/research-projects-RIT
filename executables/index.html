@@ -1,0 +1,248 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Executables &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="util_RIFT_pseudo_pipe.py" href="util_RIFT_pseudo_pipe.html" />
+    <link rel="prev" title="Samples Utilities" href="../api_samples_utils.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Executables</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="util_RIFT_pseudo_pipe.html">util_RIFT_pseudo_pipe.py</a></li>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html">create_event_parameter_pipeline_BasicIteration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html">integrate_likelihood_extrinsic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html">integrate_likelihood_extrinsic_batchmode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html">util_ConstructIntrinsicPosterior_GenericCoordinates</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html">plot_posterior_corner</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html">util_ManualOverlapGrid</a></li>
+<li class="toctree-l2"><a class="reference internal" href="convergence_test_samples.html">convergence_test_samples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ParameterPuffball.html">util_ParameterPuffball</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Executables</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/executables/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="executables">
+<h1>Executables<a class="headerlink" href="#executables" title="Link to this heading"></a></h1>
+<p>This section documents the core user-facing command-line executables in RIFT.</p>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="util_RIFT_pseudo_pipe.html">util_RIFT_pseudo_pipe.py</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="util_RIFT_pseudo_pipe.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_RIFT_pseudo_pipe.html#location">Location</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_RIFT_pseudo_pipe.html#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_RIFT_pseudo_pipe.html#command-line-arguments">Command-Line Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_RIFT_pseudo_pipe.html#examples">Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_RIFT_pseudo_pipe.html#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html">create_event_parameter_pipeline_BasicIteration</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html#location">Location</a></li>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html#command-line-arguments">Command-Line Arguments</a></li>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html#examples">Examples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html#workflow-structure">Workflow Structure</a></li>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="integrate_likelihood_extrinsic.html">integrate_likelihood_extrinsic</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html#data-and-psds">Data and PSDs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html#waveform-configuration">Waveform Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html#integration-controls">Integration Controls</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html#intrinsic-parameters">Intrinsic Parameters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html#output">Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html#functional-logic">Functional Logic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html#id1">Functional Logic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html#output-details">Output Details</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html">integrate_likelihood_extrinsic_batchmode</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html#functional-logic">Functional Logic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html#id1">Functional Logic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html#output-details">Output Details</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html">util_ConstructIntrinsicPosterior_GenericCoordinates</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html#input-output">Input/Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html#fitting-configuration">Fitting Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html#parameter-and-prior-configuration">Parameter and Prior Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html#advanced-analysis">Advanced Analysis</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html#functional-logic">Functional Logic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html#output-details">Output Details</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="plot_posterior_corner.html">plot_posterior_corner</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html#input-data">Input Data</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html#parameter-selection">Parameter Selection</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html#plotting-controls">Plotting Controls</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html#bounds-and-cuts">Bounds and Cuts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html#functional-logic">Functional Logic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html#output-details">Output Details</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="util_ManualOverlapGrid.html">util_ManualOverlapGrid</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html#base-point-configuration">Base Point Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html#grid-definition">Grid Definition</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html#waveform-and-overlap-settings">Waveform and Overlap Settings</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html#analysis-and-tuning">Analysis and Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html#output">Output</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html#functional-logic">Functional Logic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html#output-details">Output Details</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="convergence_test_samples.html">convergence_test_samples</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="convergence_test_samples.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="convergence_test_samples.html#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="convergence_test_samples.html#functional-logic">Functional Logic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="convergence_test_samples.html#output-details">Output Details</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="util_ParameterPuffball.html">util_ParameterPuffball</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="util_ParameterPuffball.html#overview">Overview</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ParameterPuffball.html#usage">Usage</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ParameterPuffball.html#functional-logic">Functional Logic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ParameterPuffball.html#output-details">Output Details</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<section id="core-executables-overview">
+<h2>Core Executables Overview<a class="headerlink" href="#core-executables-overview" title="Link to this heading"></a></h2>
+<p>The following executables form the core user interface for RIFT:</p>
+<ol class="arabic simple">
+<li><p><strong>util_RIFT_pseudo_pipe.py</strong> - Primary user interface for setting up RIFT analyses</p></li>
+<li><p><strong>create_event_parameter_pipeline_BasicIteration</strong> - Pipeline writer for condor DAG workflows</p></li>
+</ol>
+</section>
+<section id="related-documentation">
+<h2>Related Documentation<a class="headerlink" href="#related-documentation" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="../api_reference/index.html"><span class="doc">API Reference</span></a> - API Reference</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../api_samples_utils.html" class="btn btn-neutral float-left" title="Samples Utilities" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="util_RIFT_pseudo_pipe.html" class="btn btn-neutral float-right" title="util_RIFT_pseudo_pipe.py" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

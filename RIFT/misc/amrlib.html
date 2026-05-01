@@ -1,0 +1,390 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>&lt;no title&gt; &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">&lt;no title&gt;</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/RIFT/misc/amrlib.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <dl class="py class" id="module-RIFT.misc.amrlib">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.Cell">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">Cell</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">boundaries</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">center</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.Cell" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.Cell.area">
+<span class="sig-name descname"><span class="pre">area</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.Cell.area" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.Cell.divide">
+<span class="sig-name descname"><span class="pre">divide</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.Cell.divide" title="Link to this definition"></a></dt>
+<dd><p>Subdivide once along each dimension, recursively.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.Cell.divide_if">
+<span class="sig-name descname"><span class="pre">divide_if</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">testfunc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">depth</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.Cell.divide_if" title="Link to this definition"></a></dt>
+<dd><p>Subdivide once along each dimension, recursively.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.Cell.intersects">
+<span class="sig-name descname"><span class="pre">intersects</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">other</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.Cell.intersects" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.Cell.make_cell_from_boundaries">
+<em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">make_cell_from_boundaries</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">inpt_pt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">symmetric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.Cell.make_cell_from_boundaries" title="Link to this definition"></a></dt>
+<dd><p>Construct a ‘virtual cell’ from the extent of the points, centered on inpt_pt. If symmetric is True, the boundaries will be symmetric about the input point, if False, the cell will follow the extent of the points on either side.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.Cell.refine">
+<span class="sig-name descname"><span class="pre">refine</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.Cell.refine" title="Link to this definition"></a></dt>
+<dd><p>Refine each cell such that 2*dim new cells are created. In contrast to divide, refine will place the center of each new cell at the midpoint along the boundary of the mother cell. Its dimensions will be the half width from the center to the edge on each side, except for the dimension along the splitting axis, where the dimension will be twice the half width of the original cell in that dimension (and on that side).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.Cell.refine_full">
+<span class="sig-name descname"><span class="pre">refine_full</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">return_cntr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.Cell.refine_full" title="Link to this definition"></a></dt>
+<dd><p>Refine each cell such that new cells are created along all permutations of a displacement vector with unit vectors in each dimension and the 0 vector.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.Cell.translate">
+<span class="sig-name descname"><span class="pre">translate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">offset</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.Cell.translate" title="Link to this definition"></a></dt>
+<dd><p>Translate this cell’s position and extent by offset.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.GriddingException">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">GriddingException</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.GriddingException" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Exception</span></code></p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.apply_inv_transform">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">apply_inv_transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">intr_prms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mass_transform</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spin_transform</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.apply_inv_transform" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.apply_transform">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">apply_transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">intr_prms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mass_transform</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spin_transform</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.apply_transform" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.check_grid">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">check_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">grid</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">intr_prms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">distance_coordinates</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mass_lower_bound</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.check_grid" title="Link to this definition"></a></dt>
+<dd><p>Check the validity of points in various coordinate spaces to ensure they are physical.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.check_mchirpeta">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">check_mchirpeta</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mchirp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eta</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.check_mchirpeta" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.check_q">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">check_q</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">q</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.check_q" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.check_spins">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">check_spins</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">spin</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.check_spins" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.check_tau0tau3">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">check_tau0tau3</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tau0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tau3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">flow</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">40</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.check_tau0tau3" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.create_new_grid">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">create_new_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cell</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_level</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">6</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.create_new_grid" title="Link to this definition"></a></dt>
+<dd><p>Subdivide until all cells are self contained - e.g. every cell contains no more than one pt from pts. If the number of divisions exceeds max_level, stop dividing.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.create_regular_grid_from_cell">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">create_regular_grid_from_cell</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cell</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">side_pts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_cells</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.create_regular_grid_from_cell" title="Link to this definition"></a></dt>
+<dd><p>Given a region (amrlib.Cell), grid it with side_pts to a dimension. If return_cells is given, the divided cells will be returned rather than the grid points.
+&gt;&gt;&gt; import numpy
+&gt;&gt;&gt; region = Cell(numpy.array([(-1., 1.), (-2., 2.)]))
+&gt;&gt;&gt; grid, spacing = create_regular_grid_from_cell(region, side_pts=2)
+&gt;&gt;&gt; print(grid)
+[[-1. -2.]</p>
+<blockquote>
+<div><p>[-1.  2.]
+[ 1. -2.]
+[ 1.  2.]]</p>
+</div></blockquote>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">spacing</span><span class="p">)</span>
+<span class="go">[ 2.  4.]</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.deserialize_grid_cells">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">deserialize_grid_cells</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.deserialize_grid_cells" title="Link to this definition"></a></dt>
+<dd><p>Unpacks a numpy file of level grid points and returns a cell collection.
+FIXME: This can’t yet distinguish the level of refinement. Need to teach it to pay attention to the resolution.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.grid_to_cells">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">grid_to_cells</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">grid</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid_spacing</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.grid_to_cells" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.grid_to_indices">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">grid_to_indices</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">region</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid_spacing</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">check</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.grid_to_indices" title="Link to this definition"></a></dt>
+<dd><p>Convert points in a grid to their 1-D indices according to the grid extent in region, and grid spacing. If ‘check’ is True, ensure that all points exist within the expanded region before indexing — this tends to avoid more cryptic errors about indexing later on.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.init_grid_hdf">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">init_grid_hdf</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">init_region</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h5file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">overlap_thresh</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crd_sys</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">intr_prms</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">base_grp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'rapidpe_grids'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.init_grid_hdf" title="Link to this definition"></a></dt>
+<dd><p>Set up a new HDF5 file (h5file), truncating any existing file with this name. A new ‘folder’ called ‘base_grp’ is set up and the initial region with attribute ‘overlap_thresh’ is set up under it.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.load_grid_level">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">load_grid_level</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h5file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">level</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_labels</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">base_grp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'rapidpe_grids'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.load_grid_level" title="Link to this definition"></a></dt>
+<dd><p>Load a set grid points (in the form of cells) from h5file. If level is None, return the base_grp, if level is -1, return the highest resolution available, otherwise an ArgumentError is raised if ‘level’ is not represented in the attributes of one of the levels stored under base_grp/’grids’</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.load_init_region">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">load_init_region</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h5file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">get_labels</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">base_grp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'rapidpe_grids'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.load_init_region" title="Link to this definition"></a></dt>
+<dd><p>Load the initial region for a set grid points (in the form of cells) from h5file.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.midpoint">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">midpoint</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pt1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pt2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.midpoint" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.ndim_offsets">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">ndim_offsets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ndim</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.ndim_offsets" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.pack_grid_cells">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">pack_grid_cells</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cells</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolution</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.pack_grid_cells" title="Link to this definition"></a></dt>
+<dd><p>Pack the cell centers (grid points) into a convienient numpy array. The resolution of the grid is prepended for later use.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.prune_duplicate_pts">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">prune_duplicate_pts</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">region</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid_spacing</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.prune_duplicate_pts" title="Link to this definition"></a></dt>
+<dd><p>Remove identical points from list.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.refine_regular_grid">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">refine_regular_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">grid</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid_spacing</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_cntr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.refine_regular_grid" title="Link to this definition"></a></dt>
+<dd><p>Given a regular grid in N dimensions with spacing given by grid_spacing, refine the grid by bisection along all dimensions. Returns the new grid and new spacing. The grid will not contain the center point by default (since it is assumed the point already exists in the unrefined grid, but this behavior can be changed by setting return_cntr to True.
+&gt;&gt;&gt; region = Cell(numpy.array([(-1., 1.), (-2., 2.)]))
+&gt;&gt;&gt; grid, spacing = create_regular_grid_from_cell(region, side_pts=2)
+&gt;&gt;&gt; grid, spacing = refine_regular_grid(grid, spacing)
+&gt;&gt;&gt; print(grid)
+[array([-2., -4.]), array([-2., -2.]), array([-1., -4.]), array([-1., -2.]), array([-2.,  0.]), array([-2.,  2.]), array([-1.,  0.]), array([-1.,  2.]), array([ 0., -4.]), array([ 0., -2.]), array([ 1., -4.]), array([ 1., -2.]), array([ 0.,  0.]), array([ 0.,  2.]), array([ 1.,  0.]), array([ 1.,  2.])]
+&gt;&gt;&gt; print(spacing)
+[ 1.  2.]</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.save_grid_cells_hdf">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">save_grid_cells_hdf</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base_grp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cells</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crd_sys</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">intr_prms</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">check</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.save_grid_cells_hdf" title="Link to this definition"></a></dt>
+<dd><p>Under the base_grp, a new level of grid points is saved. It will create a subgroup called “grids” if it does not already exist. Under this subgroup, levels are created sequentially, the function looks for the last level (e.g. the subsubgroup with the largest “level” attribute, and appends a new level with +1 to that number. If check is enabled (that is the default), a safety check against the new level versus the last level is made to ensure the resolution is a factor of two smaller.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.serialize_grid_cells">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">serialize_grid_cells</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">level_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fname</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.serialize_grid_cells" title="Link to this definition"></a></dt>
+<dd><p>Given a dictionary of refinement levels, pack it up and save it to a numpy file.
+FIXME: This can’t yet distinguish the level of refinement. Need to teach it to pay attention to the resolution.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.transform_chi_eff_chi_a_s1zs2z">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">transform_chi_eff_chi_a_s1zs2z</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mass1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mass2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chi_eff</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chi_a</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.transform_chi_eff_chi_a_s1zs2z" title="Link to this definition"></a></dt>
+<dd><p>Returns spin1z.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.transform_m1m2_mcdelta">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">transform_m1m2_mcdelta</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.transform_m1m2_mcdelta" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.transform_m1m2_mceta">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">transform_m1m2_mceta</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.transform_m1m2_mceta" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.transform_m1m2_mcq">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">transform_m1m2_mcq</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.transform_m1m2_mcq" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.transform_m1m2_tau0tau3">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">transform_m1m2_tau0tau3</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">flow</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">40.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.transform_m1m2_tau0tau3" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.transform_mcdelta_m1m2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">transform_mcdelta_m1m2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delta</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.transform_mcdelta_m1m2" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.transform_mceta_m1m2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">transform_mceta_m1m2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eta</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.transform_mceta_m1m2" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.transform_mcq_m1m2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">transform_mcq_m1m2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">q</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.transform_mcq_m1m2" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.transform_s1zs2z_chi">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">transform_s1zs2z_chi</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2z</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.transform_s1zs2z_chi" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.transform_s1zs2z_chi_eff_chi_a">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">transform_s1zs2z_chi_eff_chi_a</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mass1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mass2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spin1z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spin2z</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.transform_s1zs2z_chi_eff_chi_a" title="Link to this definition"></a></dt>
+<dd><p>Returns the aligned mass-weighted spin difference from mass1, mass2,
+spin1z, and spin2z.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.transform_tau0tau3_m1m2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">transform_tau0tau3_m1m2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tau0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tau3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">flow</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">40.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.transform_tau0tau3_m1m2" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.amrlib.unpack_grid_cells">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.amrlib.</span></span><span class="sig-name descname"><span class="pre">unpack_grid_cells</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">npy_cells</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.amrlib.unpack_grid_cells" title="Link to this definition"></a></dt>
+<dd><p>Unpack the cell centers (grid points), the cell collection is returned.</p>
+</dd></dl>
+
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

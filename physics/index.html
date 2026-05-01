@@ -1,0 +1,197 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Waveform Generation &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="LALSimulation Utilities" href="LALSimUtils.html" />
+    <link rel="prev" title="util_ParameterPuffball" href="../executables/util_ParameterPuffball.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../executables/index.html">Executables</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Waveform Generation</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="LALSimUtils.html">LALSimulation Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="GWSignal.html">GWSignal Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ROMWaveformManager.html">ROM Waveform Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="EOBTidalExternal.html">EOB Tidal Waveforms (External)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="EOBTidalExternalC.html">EOB Tidal Waveforms (C++ Implementation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="MonotonicSpline.html">Monotonic Spline Interpolation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="PrecessingFisherMatrix.html">Precessing Fisher Matrix</a></li>
+<li class="toctree-l2"><a class="reference internal" href="effectiveFisher.html">Effective Fisher Matrix</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Waveform Generation</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/physics/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="waveform-generation">
+<h1>Waveform Generation<a class="headerlink" href="#waveform-generation" title="Link to this heading"></a></h1>
+<p>This section describes the tools RIFT uses to generate gravitational-wave signals. The primary objective is to provide a conceptual and workflow-oriented guide to how waveforms are produced, specifically focusing on the generation of spin-weighted spherical harmonic decompositions $h_{lm}Y_{lm}$.</p>
+<section id="waveform-interfaces">
+<h2>Waveform Interfaces<a class="headerlink" href="#waveform-interfaces" title="Link to this heading"></a></h2>
+<p>The RIFT physics module provides a set of interfaces to external waveform generators. RIFT utilizes several interfaces to produce waveforms, depending on the required speed and accuracy:</p>
+<ol class="arabic simple">
+<li><p><strong>LALSimulation Utilities</strong>: The base layer for many waveform calls, providing low-level access to the LAL library.</p></li>
+<li><p><strong>GWSignal Interface</strong>: A wrapper around the <code class="docutils literal notranslate"><span class="pre">gwsignal</span></code> library, providing a clean interface for high-fidelity waveforms.</p></li>
+<li><p><strong>ROM Waveform Manager</strong>: A specialized interface for Reduced Order Models (ROMs) used in high-performance iterative pipelines.</p></li>
+<li><p><strong>EOB Tidal External</strong>: Interface to the Bernuzzi EOB model for tidal waveforms, providing high-fidelity tidal effects via external MATLAB code.</p></li>
+<li><p><strong>EOB Tidal External C</strong>: C-based implementation of EOB tidal waveforms, offering faster generation without MATLAB dependencies.</p></li>
+<li><p><strong>Monotonic Spline</strong>: Utility for creating and evaluating monotonic interpolating splines, used throughout RIFT for waveform and EOS interpolation.</p></li>
+<li><p><strong>Precessing Fisher Matrix</strong>: Tools for computing the Fisher information matrix in the presence of precessing spin configurations.</p></li>
+<li><p><strong>Effective Fisher</strong>: Efficient Fisher matrix calculations for rapid parameter estimation and covariance estimation.</p></li>
+</ol>
+</section>
+<section id="conceptual-overview">
+<h2>Conceptual Overview<a class="headerlink" href="#conceptual-overview" title="Link to this heading"></a></h2>
+<section id="waveform-characterization">
+<h3>Waveform Characterization<a class="headerlink" href="#waveform-characterization" title="Link to this heading"></a></h3>
+<p>Waveforms in RIFT are primarily characterized by their spin-weighted spherical harmonic decompositions $h_{lm}(t)$. Most operations are performed in the time domain, characterizing the signal versus time ($t$).</p>
+</section>
+<section id="data-format">
+<h3>Data Format<a class="headerlink" href="#data-format" title="Link to this heading"></a></h3>
+<p>The standard representation for these waveforms is a Python dictionary (often referred to as an <code class="docutils literal notranslate"><span class="pre">hlmoft</span></code> dictionary):</p>
+<ul class="simple">
+<li><p><strong>Key</strong>: A tuple $(l, m)$ representing the harmonic mode.</p></li>
+<li><p><strong>Value</strong>: A <code class="docutils literal notranslate"><span class="pre">lal.COMPLEX16TimeSeries</span></code> object.</p></li>
+</ul>
+<p>The <code class="docutils literal notranslate"><span class="pre">COMPLEX16TimeSeries</span></code> stores the complex amplitude of the mode at discrete time steps, typically handled in dimensionless units using <code class="docutils literal notranslate"><span class="pre">lalsimutils.lsu_DimensionlessUnit</span></code>.</p>
+</section>
+<section id="key-functional-operations">
+<h3>Key Functional Operations<a class="headerlink" href="#key-functional-operations" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p><strong>Time-Domain Generation (``hlmoft``)</strong>: The primary operation to produce the $h_{lm}(t)$ dictionary.</p></li>
+<li><p><strong>Fourier Transformation (``hlmoff``)</strong>: Converting time-domain modes to frequency-domain modes.</p></li>
+<li><p><strong>Projection (``hoft``)</strong>: Projecting harmonic modes onto a specific detector strain (producing a real-valued time series).</p></li>
+</ul>
+<p><strong>Post-processing</strong></p>
+<ul class="simple">
+<li><p><strong>Tapering</strong>: Application of cosine tapers to avoid spectral leakage.</p></li>
+<li><p><strong>Epoch Alignment</strong>: Shifting the time axis (e.g., aligning to the peak of total power) to ensure consistent signal windowing.</p></li>
+</ul>
+<p>For detailed guides on each generator interface, see the following:</p>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="LALSimUtils.html">LALSimulation Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="GWSignal.html">GWSignal Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ROMWaveformManager.html">ROM Waveform Manager</a></li>
+<li class="toctree-l1"><a class="reference internal" href="EOBTidalExternal.html">EOB Tidal Waveforms (External)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="EOBTidalExternalC.html">EOB Tidal Waveforms (C++ Implementation)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="MonotonicSpline.html">Monotonic Spline Interpolation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="PrecessingFisherMatrix.html">Precessing Fisher Matrix</a></li>
+<li class="toctree-l1"><a class="reference internal" href="effectiveFisher.html">Effective Fisher Matrix</a></li>
+</ul>
+</div>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../executables/util_ParameterPuffball.html" class="btn btn-neutral float-left" title="util_ParameterPuffball" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="LALSimUtils.html" class="btn btn-neutral float-right" title="LALSimulation Utilities" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

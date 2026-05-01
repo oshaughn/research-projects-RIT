@@ -1,0 +1,229 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>plot_posterior_corner &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="util_ManualOverlapGrid" href="util_ManualOverlapGrid.html" />
+    <link rel="prev" title="util_ConstructIntrinsicPosterior_GenericCoordinates" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Executables</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="util_RIFT_pseudo_pipe.html">util_RIFT_pseudo_pipe.py</a></li>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html">create_event_parameter_pipeline_BasicIteration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html">integrate_likelihood_extrinsic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html">integrate_likelihood_extrinsic_batchmode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html">util_ConstructIntrinsicPosterior_GenericCoordinates</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">plot_posterior_corner</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html">util_ManualOverlapGrid</a></li>
+<li class="toctree-l2"><a class="reference internal" href="convergence_test_samples.html">convergence_test_samples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ParameterPuffball.html">util_ParameterPuffball</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Executables</a></li>
+      <li class="breadcrumb-item active">plot_posterior_corner</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/executables/plot_posterior_corner.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="plot-posterior-corner">
+<h1>plot_posterior_corner<a class="headerlink" href="#plot-posterior-corner" title="Link to this heading"></a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">plot_posterior_corner</span></code> executable generates “corner plots” (also known as triangle plots) to visualize the posterior probability distributions of intrinsic parameters.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>This tool takes posterior samples (typically produced by <code class="docutils literal notranslate"><span class="pre">util_ConstructIntrinsicPosterior_GenericCoordinates</span></code>) or intermediate grid data (composite files) and creates multi-panel figures showing:
+1. <strong>1D Marginal Distributions</strong>: Histograms/KDEs on the diagonal.
+2. <strong>2D Joint Distributions</strong>: Contour plots or scatter plots on the off-diagonal.</p>
+<p>It is used to assess parameter correlations and the constraints placed on the physical properties of the gravitational wave source.</p>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
+<section id="basic-command-line">
+<h3>Basic Command Line<a class="headerlink" href="#basic-command-line" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>plot_posterior_corner.py<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+</pre></div>
+</div>
+</section>
+<section id="primary-options">
+<h3>Primary Options<a class="headerlink" href="#primary-options" title="Link to this heading"></a></h3>
+</section>
+</section>
+<section id="input-data">
+<h2>Input Data<a class="headerlink" href="#input-data" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--posterior-file</span></code>: Filename of the posterior samples <code class="docutils literal notranslate"><span class="pre">*.dat</span></code> file. Can be specified multiple times to compare different runs.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--posterior-label</span></code>: Label for each corresponding posterior file.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--composite-file</span></code>: Filename of an intermediate grid file (composite).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--truth-file</span></code>: File containing the true parameters to be plotted as reference lines.</p></li>
+</ul>
+</section>
+<section id="parameter-selection">
+<h2>Parameter Selection<a class="headerlink" href="#parameter-selection" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--parameter</span></code>: List of parameters to include in the plot (e.g., <code class="docutils literal notranslate"><span class="pre">mc</span></code>, <code class="docutils literal notranslate"><span class="pre">eta</span></code>, <code class="docutils literal notranslate"><span class="pre">lambda1</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--parameter-log-scale</span></code>: Parameters to be plotted on a $log_{10}$ scale.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--change-parameter-label</span></code>: Custom label for a parameter (format <code class="docutils literal notranslate"><span class="pre">name=string</span></code>).</p></li>
+</ul>
+</section>
+<section id="plotting-controls">
+<h2>Plotting Controls<a class="headerlink" href="#plotting-controls" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--use-legend</span></code>: Display a legend for multiple posterior files.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--use-title</span></code>: Add a title to the figure.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--pdf</span></code>: Export the plot to PDF instead of PNG.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--publication</span></code>: Use specific figure sizes optimized for journals (e.g., PRD).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--use-smooth-1d</span></code>: Enable smoothed 1D distributions.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--plot-1d-extra</span></code>: Generate separate 1D PDF and CDF plots for each parameter.</p></li>
+</ul>
+</section>
+<section id="bounds-and-cuts">
+<h2>Bounds and Cuts<a class="headerlink" href="#bounds-and-cuts" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--bind-param</span></code> &amp; <code class="docutils literal notranslate"><span class="pre">--param-bound</span></code>: Impose specific bounds on parameters for the plot.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--lnL-cut</span></code>: Cut points with log-likelihood below a certain threshold.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--sigma-cut</span></code>: Eliminate points with high fit error from the plot.</p></li>
+</ul>
+</section>
+<section id="functional-logic">
+<h2>Functional Logic<a class="headerlink" href="#functional-logic" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Data Loading</strong>: Loads the specified posterior or composite files. It handles various formats, including tidal and eccentricity-based files.</p></li>
+<li><dl class="simple">
+<dt><strong>Coordinate Transformation</strong>:</dt><dd><ul class="simple">
+<li><p>Expands samples to include derived quantities (e.g., $chi_{eff}$ from component spins).</p></li>
+<li><p>Applies periodicity (e.g., $psi pmod pi$).</p></li>
+<li><p>Handles log-scaling if requested.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><p><strong>Range Determination</strong>: Automatically calculates the plotting range for each parameter based on the sample distribution or predefined <code class="docutils literal notranslate"><span class="pre">special_param_ranges</span></code>.</p></li>
+<li><dl class="simple">
+<dt><strong>Corner Plot Generation</strong>:</dt><dd><ul class="simple">
+<li><p>Uses the <code class="docutils literal notranslate"><span class="pre">corner</span></code> library to generate the multi-panel figure.</p></li>
+<li><p>For multiple files, it iterates through the lists, assigning colors and linestyles.</p></li>
+<li><p>If composite files are used, it can color-code the points by their log-likelihood.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><p><strong>Reference Lines</strong>: If a truth file is provided, it draws vertical/horizontal lines at the true parameter values.</p></li>
+<li><p><strong>Export</strong>: Saves the resulting figure to a file named <code class="docutils literal notranslate"><span class="pre">corner_&lt;params&gt;.png</span></code> (or <code class="docutils literal notranslate"><span class="pre">.pdf</span></code>).</p></li>
+</ol>
+</section>
+<section id="output-details">
+<h2>Output Details<a class="headerlink" href="#output-details" title="Link to this heading"></a></h2>
+<p>The output is a high-resolution image file. The diagonal panels show the 1D marginalized posterior for each parameter, and the off-diagonal panels show the 2D joint posterior for pairs of parameters.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="util_ConstructIntrinsicPosterior_GenericCoordinates.html" class="btn btn-neutral float-left" title="util_ConstructIntrinsicPosterior_GenericCoordinates" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="util_ManualOverlapGrid.html" class="btn btn-neutral float-right" title="util_ManualOverlapGrid" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,400 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interpolators (Surrogates) &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Likelihood and Priors" href="../likelihood/index.html" />
+    <link rel="prev" title="Integrators (MC Sampling)" href="../integrators/index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../simulation_manager/index.html">Simulation Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../asimov/index.html">Asimov Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../calmarg/index.html">Calibration Marginalization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../misc/index.html">Misc Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../lalsimutils.html">LALSimUtils</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API Reference</a></li>
+      <li class="breadcrumb-item active">Interpolators (Surrogates)</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api_reference/interpolators/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="interpolators-surrogates">
+<h1>Interpolators (Surrogates)<a class="headerlink" href="#interpolators-surrogates" title="Link to this heading"></a></h1>
+<p>Gaussian process and surrogate modeling for efficient parameter inference.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>These modules provide surrogate models and interpolation methods that accelerate
+likelihood evaluation. Instead of computing expensive waveform models for each point,
+the integrators can query these surrogate models for fast approximations.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="../integrators/index.html"><span class="doc">Integrators (MC Sampling)</span></a> - MC integration modules that use these surrogates</p></li>
+<li><p><a class="reference internal" href="../likelihood/index.html"><span class="doc">Likelihood and Priors</span></a> - Full likelihood evaluation (for comparison)</p></li>
+</ul>
+</div>
+</section>
+<section id="module-RIFT.interpolators.BayesianLeastSquares">
+<span id="bayesian-least-squares"></span><h2>Bayesian Least Squares<a class="headerlink" href="#module-RIFT.interpolators.BayesianLeastSquares" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.BayesianLeastSquares.fit_quadratic">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.BayesianLeastSquares.</span></span><span class="sig-name descname"><span class="pre">fit_quadratic</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x0</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">variable_symmetry_list</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gamma_x</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_x_gamma</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_quadratic_gamma</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_digits</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hard_regularize_negative</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hard_regularize_scale</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.BayesianLeastSquares.fit_quadratic" title="Link to this definition"></a></dt>
+<dd><p>Simple least squares to a quadratic.
+Written out in long form so I can impose priors as needed on (a) the fit coefficients [=regularization] and (b) the ‘x’ coordinates.
+INPUT:</p>
+<blockquote>
+<div><p>x = array so x[0] , x[1], x[2] are points.
+y = array of y values</p>
+</div></blockquote>
+<dl class="simple">
+<dt>OUTPUT</dt><dd><p>peak_val_est,
+best_val_est, 
+my_fisher_est, 
+linear_term_est,
+fit_here     : python function providing best fit.  Usually what you want, but cannot be pickled/saved to text</p>
+</dd>
+<dt>OPTIONAL</dt><dd><p>variable_symmetry_list =  list of length x, indicating symmetry under ONE discrete symmetry (so far)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.BayesianLeastSquares.fit_quadratic_and_resample">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.BayesianLeastSquares.</span></span><span class="sig-name descname"><span class="pre">fit_quadratic_and_resample</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">npts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rho_fac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x0</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gamma_x</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_x_gamma</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_quadratic_gamma</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_digits</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hard_regularize_negative</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hard_regularize_scale</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_include_mean</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.BayesianLeastSquares.fit_quadratic_and_resample" title="Link to this definition"></a></dt>
+<dd><p>Simple least squares to a quadratic, <em>and</em> resamples from the quadratic derived from the fit.
+Critical for iterative evaluation of</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>Fisher  matrix</p></li>
+<li><p>lnLmarg (ILE)</p></li>
+</ul>
+</div></blockquote>
+<dl class="simple">
+<dt>TO DO:</dt><dd><ul class="simple">
+<li><p>implement non-stochastic placement as option (e.g., like effectiveFisher.py)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="module-RIFT.interpolators.ConstrainedQuadraticLikelihood">
+<span id="constrained-quadratic-likelihood"></span><h2>Constrained Quadratic Likelihood<a class="headerlink" href="#module-RIFT.interpolators.ConstrainedQuadraticLikelihood" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.ConstrainedQuadraticLikelihood.fit_grid">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.ConstrainedQuadraticLikelihood.</span></span><span class="sig-name descname"><span class="pre">fit_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sample</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extra_guess_mu</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extra_guess_cov</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.ConstrainedQuadraticLikelihood.fit_grid" title="Link to this definition"></a></dt>
+<dd><dl class="simple">
+<dt>Fit multivariate normal object to samples with values.  Note the fit assumes the data is PERFECTLY quadratic,</dt><dd><p>and ENFORCES a nonnegative-definite parameterization, so make sure you curate the data to make that possible</p>
+</dd>
+</dl>
+<section id="parameters">
+<h3>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h3>
+<dl class="simple">
+<dt>sample: array like, shape = (npts, ndim)</dt><dd><p>Input sample locations</p>
+</dd>
+<dt>values: array like, shape = (npts,)</dt><dd><p>Input sample values</p>
+</dd>
+<dt>limits: array like, shape = (ndim, 2)</dt><dd><p>Input bounded interval limits</p>
+</dd>
+<dt>seed: int, optional</dt><dd><p>Input seed for random numbers</p>
+</dd>
+<dt>nwalk: int, optional</dt><dd><p>Input number of random walkers</p>
+</dd>
+<dt>nstep: int, optional</dt><dd><p>Input number of walker steps</p>
+</dd>
+<dt>carryover: float, optional</dt><dd><p>Input fraction of best guesses carried over through genetic algorithm</p>
+</dd>
+<dt>sig_factor: float, optional</dt><dd><p>Input controls jump sizes</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.ConstrainedQuadraticLikelihood.fit_quadratic_alt">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.ConstrainedQuadraticLikelihood.</span></span><span class="sig-name descname"><span class="pre">fit_quadratic_alt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y_err</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x0</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">symmetry_list</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hard_regularize_negative</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.ConstrainedQuadraticLikelihood.fit_quadratic_alt" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.ConstrainedQuadraticLikelihood.quad_residuals">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.ConstrainedQuadraticLikelihood.</span></span><span class="sig-name descname"><span class="pre">quad_residuals</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">yvals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnL_offset</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">icov</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.ConstrainedQuadraticLikelihood.quad_residuals" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.ConstrainedQuadraticLikelihood.quad_residuals_vector">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.ConstrainedQuadraticLikelihood.</span></span><span class="sig-name descname"><span class="pre">quad_residuals_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">yvals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnL_offset</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">icov</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.ConstrainedQuadraticLikelihood.quad_residuals_vector" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</section>
+<section id="module-RIFT.interpolators.efficient_save_sklearn_gp">
+<span id="efficient-sklearn-gp-save"></span><h2>Efficient SKLearn GP Save<a class="headerlink" href="#module-RIFT.interpolators.efficient_save_sklearn_gp" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.efficient_save_sklearn_gp.export_gp_compact">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.efficient_save_sklearn_gp.</span></span><span class="sig-name descname"><span class="pre">export_gp_compact</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname_base</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gp</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.efficient_save_sklearn_gp.export_gp_compact" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.efficient_save_sklearn_gp.gp2json">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.efficient_save_sklearn_gp.</span></span><span class="sig-name descname"><span class="pre">gp2json</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gp</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.efficient_save_sklearn_gp.gp2json" title="Link to this definition"></a></dt>
+<dd><p>Converts gp object to (a) json object and (b) data for <a href="#id1"><span class="problematic" id="id2">X_train_</span></a> and y_train</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.efficient_save_sklearn_gp.load_gp">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.efficient_save_sklearn_gp.</span></span><span class="sig-name descname"><span class="pre">load_gp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname_base</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.efficient_save_sklearn_gp.load_gp" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</section>
+<section id="module-RIFT.interpolators.gp">
+<span id="basic-gp"></span><h2>Basic GP<a class="headerlink" href="#module-RIFT.interpolators.gp" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.interpolators.gp.GaussianProcess1d">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.gp.</span></span><span class="sig-name descname"><span class="pre">GaussianProcess1d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dat1d</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigmab</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.gp.GaussianProcess1d" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Very simple gaussian process model. Does not take into account errors that vary with position.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.interpolators.gp.GaussianProcess1d.predict">
+<span class="sig-name descname"><span class="pre">predict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x_new</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.gp.GaussianProcess1d.predict" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.gp.squared_exponential_kernel">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.gp.</span></span><span class="sig-name descname"><span class="pre">squared_exponential_kernel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dx</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigmab</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.gp.squared_exponential_kernel" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</section>
+<section id="gpytorch-wrapper">
+<h2>GPyTorch Wrapper<a class="headerlink" href="#gpytorch-wrapper" title="Link to this heading"></a></h2>
+</section>
+<section id="module-RIFT.interpolators.internal_GP">
+<span id="internal-gp"></span><h2>Internal GP<a class="headerlink" href="#module-RIFT.interpolators.internal_GP" title="Link to this heading"></a></h2>
+<p>GPR_Fit.py
+python 2.7.13
+Vera Delfavero
+Date updated: 02/02/2019</p>
+<p>The function of this script is to provide the function, “fit_gp” to
+the PE code (utils_ConstructIntrinsicPosterior_GenericCoordinates.py)</p>
+<p>That function will fit training data, using a sparse gaussian proces,
+and return a function which takes only test data as an input, 
+and returns only the estimated mean. 
+(Because that’s all the PE code uses)
+This saves a lot of time, because calculating the covariance
+of the test data is expensive.
+This function is also a sparse gaussian proces, which should make
+it at least an order of magnitude faster than the sklearn 
+gaussian process code.</p>
+<p>The basic algorithm for this can be found on page 88 of R&amp;W’s
+book on Gaussian Processes and Machine Learning.</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.internal_GP.GP_fit_function">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.internal_GP.</span></span><span class="sig-name descname"><span class="pre">GP_fit_function</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x_train</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y_train</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thetas</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">white_noise</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kernel_function=&lt;function</span> <span class="pre">compact_kernel&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.internal_GP.GP_fit_function" title="Link to this definition"></a></dt>
+<dd><dl class="simple">
+<dt>Objective: return a function which can sample the distribution</dt><dd><p>with only the test inputs as an input.
+This function only needs to return a mean.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.internal_GP.compact_kernel">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.internal_GP.</span></span><span class="sig-name descname"><span class="pre">compact_kernel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Xp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Xq</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thetas</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">white_noise</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.internal_GP.compact_kernel" title="Link to this definition"></a></dt>
+<dd><dl>
+<dt>compact_kernel: Return a sparse representation of the </dt><dd><p>compact kernel described on page 88 of R&amp;W.
+Most of the functions which generate the sparse kernel
+involve non-sparse matricies.</p>
+</dd>
+<dt>Inputs:</dt><dd><p>Xp: Dense array containing input vector
+Xq: Dense array containing additional input vector</p>
+<blockquote>
+<div><dl class="simple">
+<dt>Note: if Xq is given, the returned kernel is the</dt><dd><p>transpose of the true kernel</p>
+</dd>
+</dl>
+</div></blockquote>
+<dl class="simple">
+<dt>thetas: Hyperparameters</dt><dd><p>thetas[0]: Scale length used to construct sparse matrix.</p>
+</dd>
+</dl>
+</dd>
+<dt>Outputs:</dt><dd><p>K: Sparse kernel representation (csc matrix)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.interpolators.internal_GP.fit_gp">
+<span class="sig-prename descclassname"><span class="pre">RIFT.interpolators.internal_GP.</span></span><span class="sig-name descname"><span class="pre">fit_gp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x_train</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y_train</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y_errors</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sparse_coeff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">white_noise</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.01</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.interpolators.internal_GP.fit_gp" title="Link to this definition"></a></dt>
+<dd><p>This function can directly replace fit_gp in 
+utils_ConstructIntrinsicPosterior_GenericCoordinates.py</p>
+<p>It is an implimentation of my sparse fitting code,
+however most of this function was copied from the original.</p>
+<dl>
+<dt>Inputs:</dt><dd><dl>
+<dt>x_train (numpy.ndarray): </dt><dd><p>Training data for model
+shape: (m, n) where m is the number of points,</p>
+<blockquote>
+<div><p>and n is the dimensionality</p>
+</div></blockquote>
+</dd>
+<dt>y_train (numpy.ndarray): </dt><dd><p>Training data for model
+shape: (m, ) where m is the number of points</p>
+</dd>
+<dt>sparse_coeff (float):</dt><dd><p>This hyperparameter determines the sparseness of the matrix.
+A sparse_coeff of 1. is not sparse.
+A sparse_coeff of inf is diagonal.
+What value you can use for this is largely dependent on how</p>
+<blockquote>
+<div><p>much training data you have, as well as the dimensionality
+of your data</p>
+</div></blockquote>
+<dl class="simple">
+<dt>About each dimension in parameter space, the scale length is</dt><dd><p>calculated for that dimension as h/hs, where h is the range
+of the training data in that dimension.</p>
+</dd>
+</dl>
+</dd>
+<dt>white_noise (float):</dt><dd><p>The white noise hyperparemeter</p>
+</dd>
+</dl>
+</dd>
+<dt>Outputs:</dt><dd><dl class="simple">
+<dt>my_fit (function(x_sample)):</dt><dd><dl class="simple">
+<dt>A function which will sample our model on x_sample,</dt><dd><p>for an x_sample like x_train</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+<section id="gpu-interpolation">
+<h2>GPU Interpolation<a class="headerlink" href="#gpu-interpolation" title="Link to this heading"></a></h2>
+</section>
+<section id="senni-surrogate-enabled-nested-nested-importance-sampling">
+<h2>SENNI (Surrogate Enabled Nested Nested Importance Sampling)<a class="headerlink" href="#senni-surrogate-enabled-nested-nested-importance-sampling" title="Link to this heading"></a></h2>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../integrators/index.html" class="btn btn-neutral float-left" title="Integrators (MC Sampling)" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../likelihood/index.html" class="btn btn-neutral float-right" title="Likelihood and Priors" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

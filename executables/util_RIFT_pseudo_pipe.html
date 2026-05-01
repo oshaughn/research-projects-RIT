@@ -1,0 +1,397 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>util_RIFT_pseudo_pipe.py &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="create_event_parameter_pipeline_BasicIteration" href="create_event_parameter_pipeline_BasicIteration.html" />
+    <link rel="prev" title="Executables" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Executables</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="#">util_RIFT_pseudo_pipe.py</a></li>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html">create_event_parameter_pipeline_BasicIteration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html">integrate_likelihood_extrinsic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html">integrate_likelihood_extrinsic_batchmode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html">util_ConstructIntrinsicPosterior_GenericCoordinates</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html">plot_posterior_corner</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html">util_ManualOverlapGrid</a></li>
+<li class="toctree-l2"><a class="reference internal" href="convergence_test_samples.html">convergence_test_samples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ParameterPuffball.html">util_ParameterPuffball</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Executables</a></li>
+      <li class="breadcrumb-item active">util_RIFT_pseudo_pipe.py</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/executables/util_RIFT_pseudo_pipe.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="util-rift-pseudo-pipe-py">
+<h1>util_RIFT_pseudo_pipe.py<a class="headerlink" href="#util-rift-pseudo-pipe-py" title="Link to this heading"></a></h1>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">util_RIFT_pseudo_pipe.py</span></code> is the primary user-facing interface for RIFT analyses.
+It provides a command-line interface similar to <code class="docutils literal notranslate"><span class="pre">lalinference_pipe</span></code> for running
+parameter estimation on gravitational wave events.</p>
+<p>This executable sets up RIFT analyses, manages prior configurations, handles
+GraceDB event retrieval, and coordinates the overall analysis workflow.</p>
+</section>
+<section id="location">
+<h2>Location<a class="headerlink" href="#location" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">MonteCarloMarginalizeCode/Code/bin/util_RIFT_pseudo_pipe.py</span></code></p>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
+<p>Run on a GraceDB event:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">util_RIFT_pseudo_pipe</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">gracedb</span><span class="o">-</span><span class="nb">id</span> <span class="n">G329483</span> <span class="o">--</span><span class="n">approx</span> <span class="n">NRHybSur3dq8</span> <span class="o">--</span><span class="n">l</span><span class="o">-</span><span class="nb">max</span> <span class="mi">4</span>
+</pre></div>
+</div>
+<p>Reproduce a previously run analysis using an INI file:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">util_RIFT_pseudo_pipe</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">use</span><span class="o">-</span><span class="n">ini</span> <span class="n">test</span><span class="o">.</span><span class="n">ini</span> <span class="o">--</span><span class="n">use</span><span class="o">-</span><span class="n">coinc</span> <span class="n">coinc</span><span class="o">.</span><span class="n">xml</span> <span class="o">--</span><span class="n">use</span><span class="o">-</span><span class="n">rundir</span> <span class="n">test</span> <span class="o">--</span><span class="n">use</span><span class="o">-</span><span class="n">online</span><span class="o">-</span><span class="n">psd</span><span class="o">-</span><span class="n">file</span> <span class="n">psd</span><span class="o">.</span><span class="n">xml</span><span class="o">.</span><span class="n">gz</span>
+</pre></div>
+</div>
+<p>With online PSD file:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">util_RIFT_pseudo_pipe</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">gracedb</span><span class="o">-</span><span class="nb">id</span> <span class="n">G123456</span> <span class="o">--</span><span class="n">approx</span> <span class="n">IMRPhenomXHM</span> <span class="o">--</span><span class="n">use</span><span class="o">-</span><span class="n">online</span><span class="o">-</span><span class="n">psd</span><span class="o">-</span><span class="n">file</span> <span class="n">psd</span><span class="o">.</span><span class="n">xml</span><span class="o">.</span><span class="n">gz</span>
+</pre></div>
+</div>
+</section>
+<section id="command-line-arguments">
+<h2>Command-Line Arguments<a class="headerlink" href="#command-line-arguments" title="Link to this heading"></a></h2>
+<section id="event-selection">
+<h3>Event Selection<a class="headerlink" href="#event-selection" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-gracedb-id">
+<span class="sig-name descname"><span class="pre">--gracedb-id</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;id&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-gracedb-id" title="Link to this definition"></a></dt>
+<dd><p>GraceDB event ID to analyze. This is the primary way to specify an event.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-event-time">
+<span class="sig-name descname"><span class="pre">--event-time</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;time&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-event-time" title="Link to this definition"></a></dt>
+<dd><p>Event time (GPS). Must be used with <code class="docutils literal notranslate"><span class="pre">--manual-initial-grid</span></code>.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-use-ini">
+<span class="sig-name descname"><span class="pre">--use-ini</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;file&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-use-ini" title="Link to this definition"></a></dt>
+<dd><p>INI file for parsing. Intended to reproduce lalinference_pipe functionality.
+Full path recommended.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-use-rundir">
+<span class="sig-name descname"><span class="pre">--use-rundir</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;path&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-use-rundir" title="Link to this definition"></a></dt>
+<dd><p>Working directory. Must be an absolute path.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-use-coinc">
+<span class="sig-name descname"><span class="pre">--use-coinc</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;file&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-use-coinc" title="Link to this definition"></a></dt>
+<dd><p>Coincidence XML file.</p>
+</dd></dl>
+
+</section>
+<section id="waveform-configuration">
+<h3>Waveform Configuration<a class="headerlink" href="#waveform-configuration" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-approx">
+<span class="sig-name descname"><span class="pre">--approx</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;name&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-approx" title="Link to this definition"></a></dt>
+<dd><p>Waveform approximant (REQUIRED). Examples: <code class="docutils literal notranslate"><span class="pre">NRHybSur3dq8</span></code>, <code class="docutils literal notranslate"><span class="pre">IMRPhenomXHM</span></code>.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-l-max">
+<span class="sig-name descname"><span class="pre">--l-max</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;int&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-l-max" title="Link to this definition"></a></dt>
+<dd><p>Maximum l for spherical harmonics (default: 2).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-use-gwsurrogate">
+<span class="sig-name descname"><span class="pre">--use-gwsurrogate</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-use-gwsurrogate" title="Link to this definition"></a></dt>
+<dd><p>Use gwsurrogate instead of lalsuite.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-use-gwsignal">
+<span class="sig-name descname"><span class="pre">--use-gwsignal</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-use-gwsignal" title="Link to this definition"></a></dt>
+<dd><p>Use gwsignal interface.</p>
+</dd></dl>
+
+</section>
+<section id="spin-configuration">
+<h3>Spin Configuration<a class="headerlink" href="#spin-configuration" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-assume-nospin">
+<span class="sig-name descname"><span class="pre">--assume-nospin</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-assume-nospin" title="Link to this definition"></a></dt>
+<dd><p>Force analysis with zero spin.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-assume-precessing">
+<span class="sig-name descname"><span class="pre">--assume-precessing</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-assume-precessing" title="Link to this definition"></a></dt>
+<dd><p>Force analysis <em>with</em> transverse spins.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-assume-nonprecessing">
+<span class="sig-name descname"><span class="pre">--assume-nonprecessing</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-assume-nonprecessing" title="Link to this definition"></a></dt>
+<dd><p>Force analysis <em>without</em> transverse spins.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-assume-matter">
+<span class="sig-name descname"><span class="pre">--assume-matter</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-assume-matter" title="Link to this definition"></a></dt>
+<dd><p>Force analysis <em>with</em> matter effects (BNS).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-assume-matter-eos">
+<span class="sig-name descname"><span class="pre">--assume-matter-eos</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;eos&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-assume-matter-eos" title="Link to this definition"></a></dt>
+<dd><p>Force analysis <em>with</em> matter and specify EOS.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-assume-highq">
+<span class="sig-name descname"><span class="pre">--assume-highq</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-assume-highq" title="Link to this definition"></a></dt>
+<dd><p>Force high-q strategy, neglecting spin2.</p>
+</dd></dl>
+
+</section>
+<section id="distance-and-marginalization">
+<h3>Distance and Marginalization<a class="headerlink" href="#distance-and-marginalization" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-internal-marginalize-distance">
+<span class="sig-name descname"><span class="pre">--internal-marginalize-distance</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-internal-marginalize-distance" title="Link to this definition"></a></dt>
+<dd><p>Marginalize over distance variable.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-internal-marginalize-distance-file">
+<span class="sig-name descname"><span class="pre">--internal-marginalize-distance-file</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;file&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-internal-marginalize-distance-file" title="Link to this definition"></a></dt>
+<dd><p>Filename for marginalization file.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-internal-distance-max">
+<span class="sig-name descname"><span class="pre">--internal-distance-max</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;value&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-internal-distance-max" title="Link to this definition"></a></dt>
+<dd><p>Upper limit on distance (required for marginalization).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-distance-reweighting">
+<span class="sig-name descname"><span class="pre">--distance-reweighting</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-distance-reweighting" title="Link to this definition"></a></dt>
+<dd><p>Reweight posterior samples due to different distance prior (LVK production prior).</p>
+</dd></dl>
+
+</section>
+<section id="calibration">
+<h3>Calibration<a class="headerlink" href="#calibration" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-calibration-reweighting">
+<span class="sig-name descname"><span class="pre">--calibration-reweighting</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-calibration-reweighting" title="Link to this definition"></a></dt>
+<dd><p>Add job to DAG to reweight posterior samples due to calibration uncertainty.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-calibration-reweighting-count">
+<span class="sig-name descname"><span class="pre">--calibration-reweighting-count</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;int&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-calibration-reweighting-count" title="Link to this definition"></a></dt>
+<dd><p>Number of calibration curves to request when marginalizing (default: 100).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-bilby-ini-file">
+<span class="sig-name descname"><span class="pre">--bilby-ini-file</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;file&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-bilby-ini-file" title="Link to this definition"></a></dt>
+<dd><p>Pass INI file for calibration reweighting.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-bilby-pickle-file">
+<span class="sig-name descname"><span class="pre">--bilby-pickle-file</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;file&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-bilby-pickle-file" title="Link to this definition"></a></dt>
+<dd><p>Bilby pickle file with event settings.</p>
+</dd></dl>
+
+</section>
+<section id="advanced-options">
+<h3>Advanced Options<a class="headerlink" href="#advanced-options" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-add-extrinsic">
+<span class="sig-name descname"><span class="pre">--add-extrinsic</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-add-extrinsic" title="Link to this definition"></a></dt>
+<dd><p>Add extrinsic parameters to analysis.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-add-extrinsic-time-resampling">
+<span class="sig-name descname"><span class="pre">--add-extrinsic-time-resampling</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-add-extrinsic-time-resampling" title="Link to this definition"></a></dt>
+<dd><p>Add time resampling option (for vectorized calculations).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-internal-use-amr">
+<span class="sig-name descname"><span class="pre">--internal-use-amr</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-internal-use-amr" title="Link to this definition"></a></dt>
+<dd><p>Use adaptive mesh refinement strategy.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-internal-force-iterations">
+<span class="sig-name descname"><span class="pre">--internal-force-iterations</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;n&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-internal-force-iterations" title="Link to this definition"></a></dt>
+<dd><p>Override internal guidance on number of iterations.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-util_RIFT_pseudo_pipe.py-internal-test-convergence-threshold">
+<span class="sig-name descname"><span class="pre">--internal-test-convergence-threshold</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;value&gt;</span></span><a class="headerlink" href="#cmdoption-util_RIFT_pseudo_pipe.py-internal-test-convergence-threshold" title="Link to this definition"></a></dt>
+<dd><p>Convergence test threshold (default: 0.02).</p>
+</dd></dl>
+
+</section>
+</section>
+<section id="examples">
+<h2>Examples<a class="headerlink" href="#examples" title="Link to this heading"></a></h2>
+<section id="basic-bns-analysis">
+<h3>Basic BNS Analysis<a class="headerlink" href="#basic-bns-analysis" title="Link to this heading"></a></h3>
+<p>Run a basic BNS analysis on a GraceDB event:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">util_RIFT_pseudo_pipe</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">gracedb</span><span class="o">-</span><span class="nb">id</span> <span class="n">G329483</span> <span class="o">--</span><span class="n">approx</span> <span class="n">NRHybSur3dq8</span> <span class="o">--</span><span class="n">l</span><span class="o">-</span><span class="nb">max</span> <span class="mi">4</span>
+</pre></div>
+</div>
+</section>
+<section id="analysis-with-calibration-reweighting">
+<h3>Analysis with Calibration Reweighting<a class="headerlink" href="#analysis-with-calibration-reweighting" title="Link to this heading"></a></h3>
+<p>Run with calibration uncertainty marginalization:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">util_RIFT_pseudo_pipe</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">gracedb</span><span class="o">-</span><span class="nb">id</span> <span class="n">G329483</span> <span class="o">--</span><span class="n">approx</span> <span class="n">NRHybSur3dq8</span> <span class="o">--</span><span class="n">calibration</span><span class="o">-</span><span class="n">reweighting</span> <span class="o">--</span><span class="n">calibration</span><span class="o">-</span><span class="n">reweighting</span><span class="o">-</span><span class="n">count</span> <span class="mi">200</span>
+</pre></div>
+</div>
+</section>
+<section id="precessing-binary-analysis">
+<h3>Precessing Binary Analysis<a class="headerlink" href="#precessing-binary-analysis" title="Link to this heading"></a></h3>
+<p>Run with precessing spins:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">util_RIFT_pseudo_pipe</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">gracedb</span><span class="o">-</span><span class="nb">id</span> <span class="n">G329483</span> <span class="o">--</span><span class="n">approx</span> <span class="n">IMRPhenomXHM</span> <span class="o">--</span><span class="n">assume</span><span class="o">-</span><span class="n">precessing</span>
+</pre></div>
+</div>
+</section>
+<section id="distance-marginalization">
+<h3>Distance Marginalization<a class="headerlink" href="#distance-marginalization" title="Link to this heading"></a></h3>
+<p>Run with distance marginalization:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">util_RIFT_pseudo_pipe</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">gracedb</span><span class="o">-</span><span class="nb">id</span> <span class="n">G329483</span> <span class="o">--</span><span class="n">approx</span> <span class="n">NRHybSur3dq8</span> <span class="o">--</span><span class="n">internal</span><span class="o">-</span><span class="n">marginalize</span><span class="o">-</span><span class="n">distance</span> <span class="o">--</span><span class="n">internal</span><span class="o">-</span><span class="n">distance</span><span class="o">-</span><span class="nb">max</span> <span class="mi">200</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="see-also">
+<h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html"><span class="doc">create_event_parameter_pipeline_BasicIteration</span></a> - Pipeline generator</p></li>
+<li><p><a class="reference internal" href="../api_reference/index.html"><span class="doc">API Reference</span></a> - API Reference</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="Executables" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="create_event_parameter_pipeline_BasicIteration.html" class="btn btn-neutral float-right" title="create_event_parameter_pipeline_BasicIteration" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,283 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Returns &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Returns</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/RIFT/misc/our_corner.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <dl class="py function" id="module-RIFT.misc.our_corner">
+<dt class="sig sig-object py" id="RIFT.misc.our_corner.corner">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.our_corner.</span></span><span class="sig-name descname"><span class="pre">corner</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">xs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bins</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">range</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weights</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'k'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">smooth</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">smooth1d</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_1d</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">labels</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">label_kwargs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_titles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title_fmt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'.2f'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title_kwargs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">truths</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">truth_color</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'#4682b4'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scale_hist</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quantiles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fig</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_n_ticks</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">top_ticks</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_math_text</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reverse</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hist_kwargs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">hist2d_kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.our_corner.corner" title="Link to this definition"></a></dt>
+<dd><p>Make a <em>sick</em> corner plot showing the projections of a data set in a
+multi-dimensional space. kwargs are passed to hist2d() or used for
+<cite>matplotlib</cite> styling.
+Parameters
+———-
+xs : array_like[nsamples, ndim]</p>
+<blockquote>
+<div><p>The samples. This should be a 1- or 2-dimensional array. For a 1-D
+array this results in a simple histogram. For a 2-D array, the zeroth
+axis is the list of samples and the next axis are the dimensions of
+the space.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>bins<span class="classifier">int or array_like[ndim,]</span></dt><dd><p>The number of bins to use in histograms, either as a fixed value for
+all dimensions, or as a list of integers for each dimension.</p>
+</dd>
+<dt>weights<span class="classifier">array_like[nsamples,]</span></dt><dd><p>The weight of each sample. If <cite>None</cite> (default), samples are given
+equal weight.</p>
+</dd>
+<dt>color<span class="classifier">str</span></dt><dd><p>A <code class="docutils literal notranslate"><span class="pre">matplotlib</span></code> style color for all histograms.</p>
+</dd>
+<dt>smooth, smooth1d<span class="classifier">float</span></dt><dd><p>The standard deviation for Gaussian kernel passed to
+<cite>scipy.ndimage.gaussian_filter</cite> to smooth the 2-D and 1-D histograms
+respectively. If <cite>None</cite> (default), no smoothing is applied.</p>
+</dd>
+<dt>labels<span class="classifier">iterable (ndim,)</span></dt><dd><p>A list of names for the dimensions. If a <code class="docutils literal notranslate"><span class="pre">xs</span></code> is a
+<code class="docutils literal notranslate"><span class="pre">pandas.DataFrame</span></code>, labels will default to column names.</p>
+</dd>
+<dt>label_kwargs<span class="classifier">dict</span></dt><dd><p>Any extra keyword arguments to send to the <cite>set_xlabel</cite> and
+<cite>set_ylabel</cite> methods.</p>
+</dd>
+<dt>show_titles<span class="classifier">bool</span></dt><dd><p>Displays a title above each 1-D histogram showing the 0.5 quantile
+with the upper and lower errors supplied by the quantiles argument.</p>
+</dd>
+<dt>title_fmt<span class="classifier">string</span></dt><dd><p>The format string for the quantiles given in titles. If you explicitly
+set <code class="docutils literal notranslate"><span class="pre">show_titles=True</span></code> and <code class="docutils literal notranslate"><span class="pre">title_fmt=None</span></code>, the labels will be
+shown as the titles. (default: <code class="docutils literal notranslate"><span class="pre">.2f</span></code>)</p>
+</dd>
+<dt>title_kwargs<span class="classifier">dict</span></dt><dd><p>Any extra keyword arguments to send to the <cite>set_title</cite> command.</p>
+</dd>
+<dt>range<span class="classifier">iterable (ndim,)</span></dt><dd><p>A list where each element is either a length 2 tuple containing
+lower and upper bounds or a float in range (0., 1.)
+giving the fraction of samples to include in bounds, e.g.,
+[(0.,10.), (1.,5), 0.999, etc.].
+If a fraction, the bounds are chosen to be equal-tailed.</p>
+</dd>
+<dt>truths<span class="classifier">iterable (ndim,)</span></dt><dd><p>A list of reference values to indicate on the plots.  Individual
+values can be omitted by using <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+</dd>
+<dt>truth_color<span class="classifier">str</span></dt><dd><p>A <code class="docutils literal notranslate"><span class="pre">matplotlib</span></code> style color for the <code class="docutils literal notranslate"><span class="pre">truths</span></code> makers.</p>
+</dd>
+<dt>scale_hist<span class="classifier">bool</span></dt><dd><p>Should the 1-D histograms be scaled in such a way that the zero line
+is visible?</p>
+</dd>
+<dt>quantiles<span class="classifier">iterable</span></dt><dd><p>A list of fractional quantiles to show on the 1-D histograms as
+vertical dashed lines.</p>
+</dd>
+<dt>verbose<span class="classifier">bool</span></dt><dd><p>If true, print the values of the computed quantiles.</p>
+</dd>
+<dt>plot_contours<span class="classifier">bool</span></dt><dd><p>Draw contours for dense regions of the plot.</p>
+</dd>
+<dt>use_math_text<span class="classifier">bool</span></dt><dd><p>If true, then axis tick labels for very large or small exponents will
+be displayed as powers of 10 rather than using <cite>e</cite>.</p>
+</dd>
+<dt>reverse<span class="classifier">bool</span></dt><dd><p>If true, plot the corner plot starting in the upper-right corner instead 
+of the usual bottom-left corner</p>
+</dd>
+<dt>max_n_ticks: int</dt><dd><p>Maximum number of ticks to try to use</p>
+</dd>
+<dt>top_ticks<span class="classifier">bool</span></dt><dd><p>If true, label the top ticks of each axis</p>
+</dd>
+<dt>fig<span class="classifier">matplotlib.Figure</span></dt><dd><p>Overplot onto the provided figure object.</p>
+</dd>
+<dt>hist_kwargs<span class="classifier">dict</span></dt><dd><p>Any extra keyword arguments to send to the 1-D histogram plots.</p>
+</dd>
+<dt><a href="#id1"><span class="problematic" id="id2">**</span></a>hist2d_kwargs</dt><dd><p>Any remaining keyword arguments are sent to <cite>corner.hist2d</cite> to generate
+the 2-D histogram plots.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.our_corner.hist2d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.our_corner.</span></span><span class="sig-name descname"><span class="pre">hist2d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bins</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">range</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weights</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">levels</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">smooth</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot_datapoints</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot_density</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot_contours</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_fill_contours</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fill_contours</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contour_kwargs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contourf_kwargs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_kwargs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.our_corner.hist2d" title="Link to this definition"></a></dt>
+<dd><p>Plot a 2-D histogram of samples.
+Parameters
+———-
+x : array_like[nsamples,]</p>
+<blockquote>
+<div><p>The samples.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>y<span class="classifier">array_like[nsamples,]</span></dt><dd><p>The samples.</p>
+</dd>
+<dt>levels<span class="classifier">array_like</span></dt><dd><p>The contour levels to draw.</p>
+</dd>
+<dt>ax<span class="classifier">matplotlib.Axes</span></dt><dd><p>A axes instance on which to add the 2-D histogram.</p>
+</dd>
+<dt>plot_datapoints<span class="classifier">bool</span></dt><dd><p>Draw the individual data points.</p>
+</dd>
+<dt>plot_density<span class="classifier">bool</span></dt><dd><p>Draw the density colormap.</p>
+</dd>
+<dt>plot_contours<span class="classifier">bool</span></dt><dd><p>Draw the contours.</p>
+</dd>
+<dt>no_fill_contours<span class="classifier">bool</span></dt><dd><p>Add no filling at all to the contours (unlike setting
+<code class="docutils literal notranslate"><span class="pre">fill_contours=False</span></code>, which still adds a white fill at the densest
+points).</p>
+</dd>
+<dt>fill_contours<span class="classifier">bool</span></dt><dd><p>Fill the contours.</p>
+</dd>
+<dt>contour_kwargs<span class="classifier">dict</span></dt><dd><p>Any additional keyword arguments to pass to the <cite>contour</cite> method.</p>
+</dd>
+<dt>contourf_kwargs<span class="classifier">dict</span></dt><dd><p>Any additional keyword arguments to pass to the <cite>contourf</cite> method.</p>
+</dd>
+<dt>data_kwargs<span class="classifier">dict</span></dt><dd><p>Any additional keyword arguments to pass to the <cite>plot</cite> method when
+adding the individual data points.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.our_corner.quantile">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.our_corner.</span></span><span class="sig-name descname"><span class="pre">quantile</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">q</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weights</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.our_corner.quantile" title="Link to this definition"></a></dt>
+<dd><p>Compute sample quantiles with support for weighted samples.
+Note
+—-
+When <code class="docutils literal notranslate"><span class="pre">weights</span></code> is <code class="docutils literal notranslate"><span class="pre">None</span></code>, this method simply calls numpy’s percentile
+function with the values of <code class="docutils literal notranslate"><span class="pre">q</span></code> multiplied by 100.
+Parameters
+———-
+x : array_like[nsamples,]</p>
+<blockquote>
+<div><p>The samples.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>q<span class="classifier">array_like[nquantiles,]</span></dt><dd><p>The list of quantiles to compute. These should all be in the range
+<code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">1]</span></code>.</p>
+</dd>
+<dt>weights<span class="classifier">Optional[array_like[nsamples,]]</span></dt><dd><p>An optional weight corresponding to each sample. These</p>
+</dd>
+</dl>
+<section id="returns">
+<h1>Returns<a class="headerlink" href="#returns" title="Link to this heading"></a></h1>
+<dl class="simple">
+<dt>quantiles<span class="classifier">array_like[nquantiles,]</span></dt><dd><p>The sample quantiles computed at <code class="docutils literal notranslate"><span class="pre">q</span></code>.</p>
+</dd>
+</dl>
+</section>
+<section id="raises">
+<h1>Raises<a class="headerlink" href="#raises" title="Link to this heading"></a></h1>
+<dl class="simple">
+<dt>ValueError</dt><dd><p>For invalid quantiles; <code class="docutils literal notranslate"><span class="pre">q</span></code> not in <code class="docutils literal notranslate"><span class="pre">[0,</span> <span class="pre">1]</span></code> or dimension mismatch
+between <code class="docutils literal notranslate"><span class="pre">x</span></code> and <code class="docutils literal notranslate"><span class="pre">weights</span></code>.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

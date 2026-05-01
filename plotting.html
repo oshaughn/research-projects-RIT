@@ -1,0 +1,176 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Plotting with RIFT &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=82021441" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=911654a9"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="HyperPipe" href="hyperpipe.html" />
+    <link rel="prev" title="Signal Injections" href="injections.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="injections.html">Signal Injections</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Plotting with RIFT</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/plotting.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="plotting-with-rift">
+<h1>Plotting with RIFT<a class="headerlink" href="#plotting-with-rift" title="Link to this heading"></a></h1>
+<p>Once you have run RIFT on your data, the next step is to plot the results.</p>
+<section id="corner-plots">
+<h2>Corner Plots<a class="headerlink" href="#corner-plots" title="Link to this heading"></a></h2>
+<p>Corner plots are useful for visualizing multidimensional samples and examining the relationships between key parameters. Corner plots show the marginalized posteriors of the user selected parameters along the left diagonal. The peak of the marginalized posteriors represents RIFT’s best approximation of the value of that parameter at the end of the run. Two-dimensional posteriors are shown as scatter/contour plots in the other positions on the corner plot.</p>
+<p>It is common to use corner plots to compare the results when different waveform models were used, but they have also been used to compare changes to RIFT initial settings as well as configurations used in previous searches.</p>
+<p>Corner plots can be made using <a class="reference external" href="https://github.com/oshaughn/research-projects-RIT/blob/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/bin/plot_posterior_corner.py">this script</a>. The most basic way to use this script is to make a corner plot of just one iteration, probably the final iteration, to look at the posterior distributions of the parameters you might be interested in. For example:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">plot_posterior_corner.py --posterior-file posterior_samples-5.dat --parameter mc --parameter q</span>
+</pre></div>
+</div>
+<p>This would make a corner plot that includes chirp mass (mc) and mass ratio (q). The points represent individual samples whose color represents the likelihood of the point. A contour is drawn around the user specified confidence interval for the 2D posteriors. You may choose whether not to display the quantiles on the marginalized posteriors using the options below.</p>
+<p>It is common to include the results from multiple <code class="docutils literal notranslate"><span class="pre">posterior_samples-*.dat</span></code> on the corner plot. This may be multiple iterations of the same run (which shows convergence over the course the run) or to compare the results of recovery of the same signal using different waveforms.</p>
+<p>This script, <code class="code docutils literal notranslate"><span class="pre">plot_posterior_corner.py</span></code>, currently includes the following parameters as long as they have been saved in the output files <code class="docutils literal notranslate"><span class="pre">posterior_samples-*.dat</span></code>:</p>
+<p>There are also many arguments that can be added to the command line call to customize the corner plots. Open the pull down “optional arguments” below to see the additional options and their descriptions.</p>
+</section>
+<section id="p-p-plots">
+<h2>P-P Plots<a class="headerlink" href="#p-p-plots" title="Link to this heading"></a></h2>
+<p>Probability-probability plots</p>
+<p>This driver performs the steps necessary to generate “PP plots”: consistency tests of the code using injections and recovery from a known prior. These plots show whether the recovered parameters follow the same distribution they are generated with. The data is plotted against the theoretical distribution and should follow approximately a straight line. Too much variation from a straight line indicates that the data is departed from the intended distribution.</p>
+<p>Since these plots are created when testing code updates, the goal is to ensure that the changes do not disrupt the recovered data from the initial intended distribution. Following usual RIFT convention, we adopt uniform priors in (redshifted/detector-frame) m1,m2, bounded by specific ranges in mc, q. Spin priors are either uniform in magnitude (if aligned or precessing), with ranges controlled by chi_max. Lambda priors are uniform up to lambda_max. Eccentricity priors are uniform.</p>
+<p>There are two useful scripts for creating pp plots after running RIFT on injections:  <a class="reference external" href="https://github.com/oshaughn/research-projects-RIT/blob/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/test/pp/pp_plot_dataproduct.py">pp_plot_dataproduct.py</a> and  <a class="reference external" href="https://github.com/oshaughn/research-projects-RIT/blob/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/test/pp/pp_plot.py">pp_plot.py</a> .</p>
+<p>For each injection j, extract <span class="math notranslate nohighlight">\(P_{j,\alpha}(&lt;x_{j,alpha})\)</span>, the empirical CDF evaluated for the jth injection and parameter <span class="math notranslate nohighlight">\(\alpha\)</span> at the true value value <span class="math notranslate nohighlight">\(x_{j,\alpha}\)</span> of that parameter.</p>
+<p>This script <code class="docutils literal notranslate"><span class="pre">pp_plot_dataproduct.py</span></code> uses the last iteration output posterior file for the run to calculate a p-value for the user specified parameters and the highest value of log-likelihood for the best point in the final posterior samples file. For example, if the user specifies parameter chirp mass, mass ratio, and spins, the script reports data in a format</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp"># </span>p<span class="o">(</span>mc<span class="o">)</span><span class="w"> </span>p<span class="o">(</span>q<span class="o">)</span><span class="w"> </span>p<span class="o">(</span>a1z<span class="o">)</span><span class="w"> </span>p<span class="o">(</span>a2z<span class="o">)</span><span class="w"> </span>lnL
+</pre></div>
+</div>
+<p>PP plots require information from each injection, so it is easiest to make a script to loop over your data files that includes the following:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">PATH</span><span class="o">=</span><span class="si">${</span><span class="nv">PATH</span><span class="si">}</span>:path_to_file
+<span class="nv">HERE</span><span class="o">=</span><span class="w"> </span><span class="sb">`</span><span class="nb">pwd</span><span class="sb">`</span>
+<span class="k">for</span><span class="w">  </span>i<span class="w"> </span><span class="k">in</span><span class="w">  </span><span class="sb">`</span>seq<span class="w"> </span><span class="m">0</span><span class="w"> </span><span class="m">5</span><span class="sb">`</span><span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot; ++&quot;</span><span class="w"> </span><span class="nv">$i</span><span class="p">;</span>
+<span class="w">    </span><span class="nb">export</span><span class="w"> </span><span class="nv">HIGHEST_SAMPLE_FILE</span><span class="o">=</span><span class="w"> </span><span class="sb">`</span>ls<span class="w">  </span>analysis_event_<span class="si">${</span><span class="nv">i</span><span class="si">}</span>/posterior_samples*.dat<span class="w"> </span><span class="p">|</span><span class="w"> </span>sort<span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-n<span class="w"> </span><span class="m">1</span><span class="sb">`</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span>Sample<span class="w"> </span>file:<span class="w"> </span><span class="si">${</span><span class="nv">HIGHEST_SAMPLE_FILE</span><span class="si">}</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="sb">`</span>python<span class="w"> </span>pp_plot_dataproduct.py<span class="w"> </span>--posterior-file<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">HIGHEST_SAMPLE_FILE</span><span class="si">}</span><span class="s2">&quot;</span><span class="w"> </span>--truth-file<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/mdc.xml.gz<span class="w"> </span>--truth-event<span class="w"> </span><span class="si">${</span><span class="nv">i</span><span class="si">}</span><span class="w">  </span>--parameter<span class="w"> </span>mc<span class="w"> </span>--parameter<span class="w"> </span>q<span class="w"> </span>--parameter<span class="w"> </span>a1z<span class="w"> </span>--parameter<span class="w"> </span>a2z<span class="w"> </span>--composite-file<span class="w"> </span>analysis_event_<span class="si">${</span><span class="nv">i</span><span class="si">}</span>/all.net<span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-n<span class="w"> </span><span class="m">1</span><span class="sb">`</span>
+<span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="sb">`</span>cat<span class="w"> </span>analysis_event_<span class="si">${</span><span class="nv">i</span><span class="si">}</span>/iteration*/logs/test*.out<span class="w"> </span><span class="p">|</span><span class="w"> </span>tail<span class="w"> </span>-n<span class="w"> </span><span class="m">1</span><span class="sb">`</span><span class="p">;</span>
+<span class="k">done</span><span class="w"> </span>&gt;<span class="w"> </span>net_pp.dat
+<span class="c1"># grab number-only entries, don&#39;t remove floating point</span>
+grep<span class="w"> </span>-v<span class="w"> </span>++<span class="w"> </span>net_pp.dat<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-v<span class="w"> </span><span class="o">[</span>a-df-z<span class="o">]</span><span class="w"> </span>&gt;<span class="w"> </span>net_pp.dat_clean
+</pre></div>
+</div>
+<p>This gathers the information from above (the parameter p-values for each injection, the maximum log-likelihood, as well as the convergence statistic) into a single file called <code class="docutils literal notranslate"><span class="pre">net_pp.dat_clean</span></code>. Load in the data and make a cumulative CDF plot for each variable, with your favorite plotting code. For lightweight tests, we provide <code class="docutils literal notranslate"><span class="pre">pp_plot.py</span></code></p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">pp_plot.py net_pp.dat_clean 2 [&#39;mc&#39;, &#39;q&#39;]</span>
+</pre></div>
+</div>
+<p>This script orders and plots the p-values for all the injections for each parameter. In the above example, the p-values for chirp mass and mass ratio will be plotted together on a PP plot. The points are displayed with an ellipse representing the <span class="math notranslate nohighlight">\(90%\)</span> confidence interval. Ideally, the points for each parameter should for a diagonal line on the pp-plot, indicating that the distribution of the recovered parameters matches the injected distribution. If your PP plot is <em>not</em> diagonal, there was likely some issue with your run.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="injections.html" class="btn btn-neutral float-left" title="Signal Injections" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="hyperpipe.html" class="btn btn-neutral float-right" title="HyperPipe" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

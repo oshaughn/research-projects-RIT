@@ -1,0 +1,181 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Data Formats &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=82021441" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=911654a9"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Using the pipeline" href="using-pipeline.html" />
+    <link rel="prev" title="Getting data for RIFT" href="getting-data.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Data Formats</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/data_formats.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="data-formats">
+<h1>Data Formats<a class="headerlink" href="#data-formats" title="Link to this heading"></a></h1>
+<p>This section describes the data formats used throughout the RIFT pipeline for parameter grids, samples, and result files.</p>
+<section id="conventional-ascii-tabular-data">
+<h2>Conventional ASCII Tabular Data<a class="headerlink" href="#conventional-ascii-tabular-data" title="Link to this heading"></a></h2>
+<p>The most common format for providing parameter grids and recording results is labeled ASCII tabular data.</p>
+<p><strong>Characteristics:</strong>
+- <strong>Labelled</strong>: The first line (header) contains the names of the parameters/columns.
+- <strong>Tabular</strong>: Data is organized in columns and rows.
+- <strong>Compatibility</strong>: This format is designed to be natively compatible with standard Python data analysis tools:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">numpy.genfromtxt</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pandas.read_csv</span></code></p></li>
+</ul>
+</div></blockquote>
+<p><strong>Usage Example:</strong>
+A typical parameter grid file might look like this:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>mass1  mass2  chi_eff  dist
+30.5   28.2   0.05     400
+31.0   27.5   0.04     410
+30.8   28.0   0.06     390
+</pre></div>
+</div>
+<p>This simplicity ensures that RIFT outputs can be easily processed by external scripts and that input grids can be generated using any text editor or spreadsheet software.</p>
+</section>
+<section id="composite-format">
+<h2>Composite Format<a class="headerlink" href="#composite-format" title="Link to this heading"></a></h2>
+<p>The composite format is used for high-efficiency data transfer between specific pipeline stages.</p>
+<p><strong>Characteristics:</strong>
+- <strong>Unlabelled</strong>: Data contains no header.
+- <strong>Context-Dependent</strong>: The number of columns depends on the context of the analysis.
+- <strong>Pipeline Role</strong>:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><strong>Input</strong>: Used as input data for <code class="docutils literal notranslate"><span class="pre">util_ConstructIntrinsicPosterior.py</span></code> (abbreviated as <strong>CIP</strong>).</p></li>
+<li><p><strong>Output</strong>: Used as output data from <code class="docutils literal notranslate"><span class="pre">integrate_likelihood_extrinsic_*</span></code> (abbreviated as <strong>ILE</strong>).</p></li>
+</ul>
+</div></blockquote>
+</section>
+<section id="xml-format">
+<h2>XML Format<a class="headerlink" href="#xml-format" title="Link to this heading"></a></h2>
+<p>RIFT utilizes standard <code class="docutils literal notranslate"><span class="pre">ligolw</span></code> XML files for structured data storage, event metadata, and coincidence information. This ensures compatibility with the broader LIGO/Virgo/KAGRA software ecosystem.</p>
+</section>
+<section id="hyperpipe-style-format">
+<h2>Hyperpipe-style Format<a class="headerlink" href="#hyperpipe-style-format" title="Link to this heading"></a></h2>
+<p>The Hyperpipe-style format is a specialized version of the labeled ASCII format designed to maintain a consistent column order throughout a complex analysis.</p>
+<p><strong>Characteristics:</strong>
+- <strong>Labelled</strong>: Follows the same labeled ASCII structure as the conventional format.
+- <strong>Strict Column Order</strong>: Enforces a consistent column order to prevent randomization during data processing.
+- <strong>Required Fields</strong>: The first two fields are always <code class="docutils literal notranslate"><span class="pre">lnL</span></code> (log-likelihood) and <code class="docutils literal notranslate"><span class="pre">sigma_lnL</span></code> (uncertainty in log-likelihood).</p>
+<p>This format is critical for pipelines where downstream tools expect a fixed schema regardless of the specific parameters being analyzed.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="getting-data.html" class="btn btn-neutral float-left" title="Getting data for RIFT" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="using-pipeline.html" class="btn btn-neutral float-right" title="Using the pipeline" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

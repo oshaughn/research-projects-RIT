@@ -1,0 +1,217 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Signal Injections &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=82021441" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=911654a9"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Plotting with RIFT" href="plotting.html" />
+    <link rel="prev" title="Using the OSG" href="osg.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osg.html">Using the OSG</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Signal Injections</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/injections.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="signal-injections">
+<h1>Signal Injections<a class="headerlink" href="#signal-injections" title="Link to this heading"></a></h1>
+<p>There is a useful tool for creating and analyzing CBC injections with RIFT called <code class="code docutils literal notranslate"><span class="pre">pp_RIFT</span></code>. This script is located in the <a class="reference external" href="https://github.com/oshaughn/research-projects-RIT/tree/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/test/pp">pp directory</a>. Currently, the script creates fake signals, injects them into noise frames, and performs a RIFT analysis with user specified arguments. These arguments are most easily changed and passed into <code class="code docutils literal notranslate"><span class="pre">pp_RIFT</span></code> using an <code class="code docutils literal notranslate"><span class="pre">.ini</span></code> file located in the same directory.</p>
+<section id="pp-rift">
+<h2>pp_RIFT<a class="headerlink" href="#pp-rift" title="Link to this heading"></a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">usage</span><span class="p">:</span> <span class="n">pp_RIFT</span> <span class="p">[</span><span class="o">-</span><span class="n">h</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">use</span><span class="o">-</span><span class="n">ini</span> <span class="n">USE_INI</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">use</span><span class="o">-</span><span class="n">osg</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">add</span><span class="o">-</span><span class="n">extrinsic</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">test</span><span class="p">]</span>
+
+<span class="n">optional</span> <span class="n">arguments</span><span class="p">:</span>
+<span class="o">-</span><span class="n">h</span><span class="p">,</span> <span class="o">--</span><span class="n">help</span>         <span class="n">show</span> <span class="n">this</span> <span class="n">help</span> <span class="n">message</span> <span class="ow">and</span> <span class="n">exit</span>
+<span class="o">--</span><span class="n">use</span><span class="o">-</span><span class="n">ini</span> <span class="n">USE_INI</span>  <span class="n">Pass</span> <span class="n">ini</span> <span class="n">file</span> <span class="k">for</span> <span class="n">parsing</span><span class="o">.</span> <span class="n">Intended</span> <span class="n">to</span> <span class="n">reproduce</span> <span class="n">lalinference_pipe</span> <span class="n">functionality</span><span class="o">.</span> <span class="n">Overrides</span> <span class="n">most</span> <span class="n">other</span> <span class="n">arguments</span><span class="o">.</span> <span class="n">Full</span> <span class="n">path</span> <span class="n">recommended</span>
+<span class="o">--</span><span class="n">use</span><span class="o">-</span><span class="n">osg</span>          <span class="n">Attempt</span> <span class="n">OSG</span> <span class="n">operation</span><span class="o">.</span> <span class="n">Command</span><span class="o">-</span><span class="n">line</span> <span class="n">level</span> <span class="n">option</span><span class="p">,</span> <span class="ow">not</span> <span class="n">at</span> <span class="n">ini</span> <span class="n">level</span> <span class="n">to</span> <span class="n">make</span> <span class="n">portable</span> <span class="n">results</span>
+<span class="o">--</span><span class="n">add</span><span class="o">-</span><span class="n">extrinsic</span>    <span class="n">Add</span> <span class="n">extrinsic</span> <span class="n">posterior</span><span class="o">.</span> <span class="n">Corresponds</span> <span class="n">to</span> <span class="o">--</span><span class="n">add</span><span class="o">-</span><span class="n">extrinsic</span> <span class="o">--</span><span class="n">add</span><span class="o">-</span><span class="n">extrinsic</span><span class="o">-</span><span class="n">time</span><span class="o">-</span><span class="n">resampling</span> <span class="o">--</span><span class="n">batch</span><span class="o">-</span><span class="n">extrinsic</span> <span class="k">for</span> <span class="n">pipeline</span>
+<span class="o">--</span><span class="n">test</span>             <span class="n">Used</span> <span class="n">to</span> <span class="n">test</span> <span class="n">the</span> <span class="n">pipeline</span> <span class="p">:</span> <span class="n">prints</span> <span class="n">out</span> <span class="n">commands</span><span class="p">,</span> <span class="n">generates</span> <span class="n">workflows</span> <span class="k">as</span> <span class="n">much</span> <span class="k">as</span> <span class="n">possible</span> <span class="n">without</span> <span class="n">high</span><span class="o">-</span><span class="n">cost</span> <span class="n">steps</span>
+</pre></div>
+</div>
+<p>pp_RIFT builds the analysis directory for a set of injections based on
+user-specified inputs from an <code class="code docutils literal notranslate"><span class="pre">ini</span></code> file. The user then submits the
+analysis using condor. The basic set of commands looks something like:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span># ensure necessary script add_frames.py is in your path
+export PATH=${PATH}:`pwd`
+
+# generate the workflow from ini
+pp_RIFT --use-ini sample_pp_config.ini
+
+# submit the generated workflow
+cd test_pp; condor_submit_dag master.dag
+</pre></div>
+</div>
+<p>For more information about the <code class="code docutils literal notranslate"><span class="pre">ini</span></code> file, see <a class="reference internal" href="#below">below</a>. To learn more about the directory structure, see <a class="reference internal" href="using-pipeline.html"><span class="doc">Using the pipeline</span></a>.</p>
+</section>
+<section id="workflow">
+<h2>Workflow<a class="headerlink" href="#workflow" title="Link to this heading"></a></h2>
+<p><code class="code docutils literal notranslate"><span class="pre">pp_RIFT</span></code> is a script that take user input options from an ini file and performs the set up required to run a RIFT analysis on fake data with injected signals. The script writes and runs the necessary command lines for standard RIFT scripts.</p>
+<p>For a user starting from scratch, <code class="code docutils literal notranslate"><span class="pre">pp_RIFT</span></code> first creates signals using <a class="reference external" href="https://github.com/oshaughn/research-projects-RIT/blob/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/RIFT/lalsimutils.py">lalsimutils.py</a>. This python script creates a list of signal waveform parameters based on the user’s defined parameter ranges and priors from the <cite>.ini</cite> file. It saves the signal parameters in a waveform table of arrays, which then get written to a RIFT compatible <cite>.xml</cite> file called <code class="code docutils literal notranslate"><span class="pre">mdc.xml.gz</span></code>.</p>
+<p>Next, <code class="code docutils literal notranslate"><span class="pre">pp_RIFT</span></code> writes the signals to frame files using <a class="reference external" href="https://github.com/oshaughn/research-projects-RIT/blob/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/bin/util_LALWriteFrame.py">util_LALWriteFrame.py</a>. This script takes the candidate waveforms and writes them to frame files that can then be injected into noise. The synthetic signals are joined to fiducial noise frames (the path to which is specified in the <cite>.ini</cite> file) using <a class="reference external" href="https://github.com/oshaughn/research-projects-RIT/blob/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/test/pp/add_frames.py">add_frames.py</a> which is in the <code class="code docutils literal notranslate"><span class="pre">pp_RIFT</span></code> directory. The script depends on <cite>pycbc.frame</cite> to join signals and noise into combined frames.</p>
+<p>Once the combined frames are created, the full RIFT workflow is built. <a class="reference external" href="https://github.com/oshaughn/research-projects-RIT/blob/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/bin/helper_LDG_Events.py">helper_LDG_Events.py</a> does the bulk of the work to properly set the arguments for ILE, CIP, and PUFF. <code class="code docutils literal notranslate"><span class="pre">pp_RIFT</span></code> takes user options set by the <cite>.ini</cite> file and passes them to the helper. The helper writes the appropriate arguments to text files that get passed to the pipeline constructor. The helper creates the following files:</p>
+<ul class="simple">
+<li><p>helper_ile_args.txt</p></li>
+<li><p>helper_cip_args.txt</p></li>
+<li><p>helper_cip_arg_list.txt</p></li>
+<li><p>helper_test_args.txt</p></li>
+<li><p>helper_convert_args.txt</p></li>
+<li><p>helper_puff_args.txt</p></li>
+</ul>
+<p>Then, <code class="code docutils literal notranslate"><span class="pre">pp_RIFT</span></code> opens and reads the arguments from these files, adds to them if necessary, and creates:</p>
+<ul class="simple">
+<li><p>args_ile.txt</p></li>
+<li><p>args_cip_list.txt</p></li>
+<li><p>args_puff.txt</p></li>
+<li><p>args_test.txt</p></li>
+</ul>
+<p>These “args” files are the ones that finally get passed to <a class="reference external" href="https://github.com/oshaughn/research-projects-RIT/blob/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/bin/create_event_parameter_pipeline_BasicIteration">create_event_parameter_pipeline_BasicIteration</a>. This script creates a directory for each signal event to analyze, and fills it with the proper structure for RIFT. Each iteration has output directories for ILE, CIP, and convergence test tasks. The directory will also contain scripts to join files containing points at the appropriate time. For more information on the directory structure, see <a class="reference internal" href="using-pipeline.html"><span class="doc">Using the pipeline</span></a>. An example command line for <code class="code docutils literal notranslate"><span class="pre">create_event_parameter_pipeline_BasicIteration</span></code>, which is automatically run
+when the user runs <code class="code docutils literal notranslate"><span class="pre">pp_RIFT</span></code>, might look like the following:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>create_event_parameter_pipeline_BasicIteration --input-grid proposed-grid.xml.gz --start-iteration 0 --ile-n-events-to-analyze 20 --ile-exe  `which integrate_likelihood_extrinsic_batchmode`  --ile-args args_ile.txt --request-memory-ILE 4096 --cip-args-list args_cip_list.txt  --test-args args_test.txt --request-memory-CIP 30000  --n-samples-per-job 1000 --working-directory `pwd` --n-iterations 12 --n-copies 2  --puff-exe `which util_ParameterPuffball.py` --puff-max-it 10 --puff-cadence 1 --puff-args args_puff.txt  --convert-args helper_convert_args.txt  --cip-explode-jobs  10 --cip-explode-jobs-dag  --cip-explode-jobs-flat  --cache-file `pwd`/local.cache
+</pre></div>
+</div>
+</section>
+<section id="the-ini-file">
+<h2>The .ini File<a class="headerlink" href="#the-ini-file" title="Link to this heading"></a></h2>
+<p id="below"><strong>[pp]</strong></p>
+<p>Specified in this section are the general settings for the injection study you wish to perform. Some arguments include</p>
+<ul class="simple">
+<li><p><code class="code docutils literal notranslate"><span class="pre">n_events</span></code> - the number of signal injection/recovery events you would like to have</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">working_directory</span></code> - what you would like to call the directory containing your event directories. Number of event subdirectories corresponds to <code class="code docutils literal notranslate"><span class="pre">n_events</span></code></p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">test_convergence</span></code> - this gets set to False automatically, but can be changed in the .ini file</p></li>
+</ul>
+<p><strong>[priors]</strong></p>
+<p>The priors for the signal parameters are specified in this section of the <code class="code docutils literal notranslate"><span class="pre">.ini</span></code> file. These represent the desired parameter ranges. Prior ranges
+<strong>must</strong> match the ranges in your analysis <code class="code docutils literal notranslate"><span class="pre">.SUB</span></code> files.</p>
+<p>For parameters with supported prior specification in the main version of the
+code, see <a class="reference external" href="https://git.ligo.org/rapidpe-rift/rift/-/blob/rift_O4b/MonteCarloMarginalizeCode/Code/test/pp/pp_RIFT?ref_type=heads#L107">lines 107-160</a> in <code class="code docutils literal notranslate"><span class="pre">pp_RIFT</span></code>.</p>
+<p><strong>[data]</strong></p>
+<p>The data section contains basic information that <code class="code docutils literal notranslate"><span class="pre">pp_RIFT</span></code> needs to call
+<code class="code docutils literal notranslate"><span class="pre">util_LALWriteFrame.py</span></code> to create the injection frames on which the user will perform the analysis. This requires names for the <code class="code docutils literal notranslate"><span class="pre">ifos</span></code>, channel names, frequency range, segment length, and sampling rate. In general you should not need to change these values that much.</p>
+<p><strong>[waveform]</strong></p>
+<p>The waveform section allows the user to specify the waveform used for both injection and recovery. At this time, <code class="code docutils literal notranslate"><span class="pre">pp_RIFT</span></code> is only set up to inject and recover with the same waveform (<a class="reference external" href="Fornow,toperformrecoveryonframeswithadifferentwaveform,theframesmustexistinthedirectorywiththecorrectstructure-meaningthatthecombinedframesresideina:code:`combine_frames/`directory.Ifyouhavepreviouslyused:code:`pp_RIFT`togeneratetheframes,youcancopythemtoanewdirectory,changethedrectorynameanddesiredrecoverywaveforminyour:code:`.ini`file,andrun:code:`pp_RIFT`.Beforegeneratingframes,itcheckswhetherframesexist.Thisisaworkaroundthatwillberesolvedinfutureversionsof:code:`pp_RIFT`.">note</a>). Some waveforms allow or require extra arguments that may be specified in this section. An example is extra parameters (group and param) may be specified for NRSur models. Before using additional paramaters, ensure that <code class="code docutils literal notranslate"><span class="pre">pp_RIFT</span></code> is capable of reading them.</p>
+<ul class="simple">
+<li><p><code class="code docutils literal notranslate"><span class="pre">approx</span></code> - the user specified waveform. Using non-lalsimulation waveforms may require extra setup (for example <code class="code docutils literal notranslate"><span class="pre">TEOBResumS</span></code>)</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">fmin_template</span></code> - minimum frequency for generating waveform</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">lmax</span></code> - how many higher order modes</p></li>
+</ul>
+<p><strong>[make_injections]</strong></p>
+<p>Just specifies filename to store injection parameters in, with the structure as required by <code class="code docutils literal notranslate"><span class="pre">lalsimutils</span></code> (RIFT) and <code class="code docutils literal notranslate"><span class="pre">ligolw.lsctables</span></code> (lalsuite)</p>
+<p><strong>[make_data]</strong></p>
+<p><strong>[make_psd]</strong></p>
+<p>Must have psds in your working directory with naming convention matching your <code class="code docutils literal notranslate"><span class="pre">.ini</span></code> file in order to generate frames.</p>
+<p><strong>[make_workflow]</strong></p>
+<p>These settings are important for generating the settings in the <code class="code docutils literal notranslate"><span class="pre">.SUB</span></code> files that are the foundation of your analysis.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="osg.html" class="btn btn-neutral float-left" title="Using the OSG" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="plotting.html" class="btn btn-neutral float-right" title="Plotting with RIFT" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

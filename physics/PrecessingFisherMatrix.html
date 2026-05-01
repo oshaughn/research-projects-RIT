@@ -1,0 +1,217 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Precessing Fisher Matrix &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Effective Fisher Matrix" href="effectiveFisher.html" />
+    <link rel="prev" title="Monotonic Spline Interpolation" href="MonotonicSpline.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../executables/index.html">Executables</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Waveform Generation</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="LALSimUtils.html">LALSimulation Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="GWSignal.html">GWSignal Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ROMWaveformManager.html">ROM Waveform Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="EOBTidalExternal.html">EOB Tidal Waveforms (External)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="EOBTidalExternalC.html">EOB Tidal Waveforms (C++ Implementation)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="MonotonicSpline.html">Monotonic Spline Interpolation</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Precessing Fisher Matrix</a></li>
+<li class="toctree-l2"><a class="reference internal" href="effectiveFisher.html">Effective Fisher Matrix</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Waveform Generation</a></li>
+      <li class="breadcrumb-item active">Precessing Fisher Matrix</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/physics/PrecessingFisherMatrix.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="precessing-fisher-matrix">
+<h1>Precessing Fisher Matrix<a class="headerlink" href="#precessing-fisher-matrix" title="Link to this heading"></a></h1>
+<p>This module provides tools for computing the Fisher information matrix in the context of precessing gravitational-wave signals. The Fisher matrix is used to estimate the covariance of parameter estimates and their uncertainties.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>For precessing binaries, the Fisher matrix calculation is complicated by the fact that the waveform depends on multiple angles (inclination, spin orientations) in a coupled way. This module provides:</p>
+<ol class="arabic simple">
+<li><p><strong>Numerical Fisher Matrix</strong>: Full finite-difference calculation using waveform derivatives</p></li>
+<li><p><strong>Approximate Precessing Fisher</strong>: Fast approximation using phase derivatives</p></li>
+<li><p><strong>Effective Fisher</strong>: Fitting-based approach for diagonal elements</p></li>
+<li><p><strong>Overlap Utilities</strong>: Functions for computing match/MATCH as a function of parameter variation</p></li>
+</ol>
+</section>
+<section id="matrix-operations">
+<h2>Matrix Operations<a class="headerlink" href="#matrix-operations" title="Link to this heading"></a></h2>
+<section id="fisherproject">
+<h3>FisherProject<a class="headerlink" href="#fisherproject" title="Link to this heading"></a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">FisherProject(mtx,</span> <span class="pre">indx_list_preserve)</span></code> projects a Fisher matrix onto a subset of parameters using matrix algebra. It computes:</p>
+<p>$$Gamma_{AA} - Gamma_{AB} cdot Gamma_{BB}^{-1} cdot Gamma_{BA}$$</p>
+<p>This is useful for marginalizing over nuisance parameters.</p>
+</section>
+</section>
+<section id="phase-derivative-framework">
+<h2>Phase Derivative Framework<a class="headerlink" href="#phase-derivative-framework" title="Link to this heading"></a></h2>
+<p>The precessing Fisher calculation relies on decomposing the phase into components:</p>
+<ul class="simple">
+<li><p>$Psi_{2F}$: Orbital phase contribution</p></li>
+<li><p>$alpha_F$: Precession angle</p></li>
+<li><p>$gamma_F$: Secondary precession angle</p></li>
+</ul>
+<section id="phasederivativeseries">
+<h3>PhaseDerivativeSeries<a class="headerlink" href="#phasederivativeseries" title="Link to this heading"></a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">PhaseDerivativeSeries(P,</span> <span class="pre">p1)</span></code> computes derivatives of these phase components with respect to waveform parameters. This is cached for efficiency when computing multiple Fisher matrix elements.</p>
+</section>
+</section>
+<section id="numerical-fisher-matrix">
+<h2>Numerical Fisher Matrix<a class="headerlink" href="#numerical-fisher-matrix" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">NumericalFisherMatrixElement(P,</span> <span class="pre">p1,</span> <span class="pre">p2,</span> <span class="pre">psd,</span> <span class="pre">...)</span></code> performs a full finite-difference calculation of the Fisher matrix element:</p>
+<p>$$Gamma_{ij} = langle frac{partial h}{partial theta_i} | frac{partial h}{partial theta_j} rangle$$</p>
+<p>This uses the inner product defined by the noise PSD.</p>
+</section>
+<section id="approximate-precessing-fisher">
+<h2>Approximate Precessing Fisher<a class="headerlink" href="#approximate-precessing-fisher" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">ApproximatePrecessingFisherMatrixElement(P,</span> <span class="pre">p1,</span> <span class="pre">p2,</span> <span class="pre">psd)</span></code> provides a faster approximation that:</p>
+<ol class="arabic simple">
+<li><p>Computes phase derivatives analytically/semi-analytically</p></li>
+<li><p>Weights by the one-sided PSD integral</p></li>
+<li><p>Accounts for the geometric factors from spin-weighted spherical harmonics</p></li>
+</ol>
+<p>The approximation is valid when the waveform is dominated by the $(2, pm 2)$ modes.</p>
+</section>
+<section id="effective-fisher-diagonal-elements">
+<h2>Effective Fisher (Diagonal Elements)<a class="headerlink" href="#effective-fisher-diagonal-elements" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">EffectiveFisherMatrixElement(P,</span> <span class="pre">p1,</span> <span class="pre">p1,</span> <span class="pre">psd)</span></code> fits a quadratic to the overlap function:</p>
+<p>$$|langle h(theta_0) | h(theta_0 + deltatheta) rangle|^2 approx 1 - frac{1}{2} Gamma_{ii} (deltatheta)^2$$</p>
+<p>This is used for diagonal elements where $p_1 = p_2$.</p>
+</section>
+<section id="overlap-utilities">
+<h2>Overlap Utilities<a class="headerlink" href="#overlap-utilities" title="Link to this heading"></a></h2>
+<p>These functions compute the inner product as a function of parameter variation:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">OverlapVersusChangingParameter</span></code>: 1D scan over a single parameter</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">OverlapGridVersusChangingParameter</span></code>: 2D grid scan over two parameters</p></li>
+</ul>
+</section>
+<section id="supported-parameters">
+<h2>Supported Parameters<a class="headerlink" href="#supported-parameters" title="Link to this heading"></a></h2>
+<p>The module uses tolerance scales for numerical derivatives of:</p>
+</section>
+<section id="use-cases">
+<h2>Use Cases<a class="headerlink" href="#use-cases" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Rapid Uncertainty Estimation</strong>: Use the approximate Fisher for quick covariance estimates during pipeline development</p></li>
+<li><p><strong>Injection Recovery</strong>: Validate parameter estimation accuracy by comparing Fisher predictions to actual recovery results</p></li>
+<li><p><strong>Parameter Space Exploration</strong>: Identify which parameters are most/least well-constrained</p></li>
+<li><p><strong>Pipeline Comparison</strong>: Compare different waveform approximants by their Fisher matrix structure</p></li>
+</ol>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="MonotonicSpline.html" class="btn btn-neutral float-left" title="Monotonic Spline Interpolation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="effectiveFisher.html" class="btn btn-neutral float-right" title="Effective Fisher Matrix" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

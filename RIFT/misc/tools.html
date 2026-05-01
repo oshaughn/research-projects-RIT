@@ -1,0 +1,296 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tools &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">tools</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/RIFT/misc/tools.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="tools">
+<h1>tools<a class="headerlink" href="#tools" title="Link to this heading"></a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">RIFT.misc.tools</span></code> module provides a suite of utilities for transforming gravitational wave source parameters between different coordinate systems. These transformations are critical for linearizing the likelihood surface and optimizing the sampling process.</p>
+<section id="mass-parameter-conversions">
+<h2>Mass Parameter Conversions<a class="headerlink" href="#mass-parameter-conversions" title="Link to this heading"></a></h2>
+<p>The module provides standard conversions between different mass representations:
+- <strong>Component Masses ($mathbf{m_1, m_2}$)</strong>: The individual masses of the binary components.
+- <strong>Chirp Mass ($mathbf{mathcal{M}_c}$)</strong>: The leading-order parameter determining the frequency evolution of the signal.
+- <strong>Symmetric Mass Ratio ($mathbf{eta}$)</strong>: A measure of the mass asymmetry of the binary.
+- <strong>Mass Ratio ($mathbf{q}$)</strong>: Defined as $m_2 / m_1$.</p>
+<p>Key functions include <code class="docutils literal notranslate"><span class="pre">m1m2ToMc</span></code>, <code class="docutils literal notranslate"><span class="pre">qToeta</span></code>, and <code class="docutils literal notranslate"><span class="pre">McqTom1m2</span></code>.</p>
+</section>
+<section id="pn-phase-and-mu-parameters">
+<h2>PN Phase and Mu-Parameters<a class="headerlink" href="#pn-phase-and-mu-parameters" title="Link to this heading"></a></h2>
+<p>A central feature of RIFT is the transformation of physical parameters into a more “linear” space based on Post-Newtonian (PN) phase coefficients.</p>
+<ol class="arabic simple">
+<li><p><strong>PN Phase Coefficients</strong>: Functions like <code class="docutils literal notranslate"><span class="pre">psi0</span></code>, <code class="docutils literal notranslate"><span class="pre">psi2</span></code>, and <code class="docutils literal notranslate"><span class="pre">psi3</span></code> calculate the phase coefficients at 0PN, 1PN, and 1.5PN orders, respectively.</p></li>
+<li><p><strong>The $mathbf{U}$ Matrix</strong>: RIFT uses a linear transformation matrix $mathbf{U}$ to map these phase coefficients to a set of parameters denoted as $mu_1, mu_2, mu_3$. This mapping is designed to decouple the parameters and make the likelihood surface more Gaussian, which significantly improves the efficiency of interpolators and samplers.</p></li>
+<li><p><strong>Inversion</strong>: Since the mapping from physical parameters to $mu$ parameters is non-linear, the module implements numerical inversion (e.g., using bisection search in <code class="docutils literal notranslate"><span class="pre">mu1mu2etaToMc</span></code>) to recover physical parameters from $mu$ values.</p></li>
+</ol>
+</section>
+<section id="high-level-converters">
+<h2>High-Level Converters<a class="headerlink" href="#high-level-converters" title="Link to this heading"></a></h2>
+<p>For ease of use, the module provides dictionary-based converters that can be integrated directly into the sampling pipeline:
+- <code class="docutils literal notranslate"><span class="pre">convert_m1m2chi1chi2_to_Mcqmu1mu2</span></code>: Transforms a set of component masses and spins into chirp mass, mass ratio, and $mu$ parameters.
+- <code class="docutils literal notranslate"><span class="pre">convert_Mcqchi1chi2_to_mu1mu2</span></code>: Specifically targets the $mu$-parameter mapping.</p>
+</section>
+<section id="sampling-and-jacobians">
+<h2>Sampling and Jacobians<a class="headerlink" href="#sampling-and-jacobians" title="Link to this heading"></a></h2>
+<p>When changing coordinate systems during sampling, the prior volume must be preserved. The function <code class="docutils literal notranslate"><span class="pre">m1m2chi1chi2Tomu1mu2qchi2Jacobian</span></code> computes the determinant of the transformation Jacobian, allowing the sampler to correctly weight the prior in the $mu$-coordinate space.</p>
+</section>
+<section id="module-RIFT.misc.tools">
+<span id="api-reference"></span><h2>API Reference<a class="headerlink" href="#module-RIFT.misc.tools" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.McqToMtot">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">McqToMtot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">q</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.McqToMtot" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.McqTom1m2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">McqTom1m2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">q</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.McqTom1m2" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.Mcqchi1chi2Tomu1mu2mu3">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">Mcqchi1chi2Tomu1mu2mu3</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">q</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chi1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chi2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.Mcqchi1chi2Tomu1mu2mu3" title="Link to this definition"></a></dt>
+<dd><p>chirpmass, q, chi1, chi2 to mu1, mu2, mu3</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.convert_Mcqchi1chi2_to_mu1mu2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">convert_Mcqchi1chi2_to_mu1mu2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">parameters</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.convert_Mcqchi1chi2_to_mu1mu2" title="Link to this definition"></a></dt>
+<dd><p>Convert Mc, q, chi1, chi2 to mu1, mu2 and add them to parameters.</p>
+<section id="parameters">
+<h3>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h3>
+<p>parameters: dict</p>
+</section>
+<section id="returns">
+<h3>Returns<a class="headerlink" href="#returns" title="Link to this heading"></a></h3>
+<p>converted_parameters: dict</p>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.convert_m1m2chi1chi2_to_Mcqmu1mu2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">convert_m1m2chi1chi2_to_Mcqmu1mu2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">parameters</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.convert_m1m2chi1chi2_to_Mcqmu1mu2" title="Link to this definition"></a></dt>
+<dd><p>Convert m1, m2, chi1, chi2 to Mc, q, mu1, mu2 and add them to parameters.</p>
+<section id="id1">
+<h3>Parameters<a class="headerlink" href="#id1" title="Link to this heading"></a></h3>
+<p>parameters: dict</p>
+</section>
+<section id="id2">
+<h3>Returns<a class="headerlink" href="#id2" title="Link to this heading"></a></h3>
+<p>converted_parameters: dict</p>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.convert_mu1mu2qchi2_to_Mcchi1">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">convert_mu1mu2qchi2_to_Mcchi1</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">parameters</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.convert_mu1mu2qchi2_to_Mcchi1" title="Link to this definition"></a></dt>
+<dd><p>Convert mu1, mu2, q, chi2 to Mc, chi1 and add them to parameters.</p>
+<section id="id3">
+<h3>Parameters<a class="headerlink" href="#id3" title="Link to this heading"></a></h3>
+<p>parameters: dict</p>
+</section>
+<section id="id4">
+<h3>Returns<a class="headerlink" href="#id4" title="Link to this heading"></a></h3>
+<p>converted_parameters: dict</p>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.etaToq">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">etaToq</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eta</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.etaToq" title="Link to this definition"></a></dt>
+<dd><p>eta=m1*m2/(m1+m2)**2 to q=m2/m1</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.m1m2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">m1m2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eta</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.m1m2" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.m1m2ToMc">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">m1m2ToMc</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.m1m2ToMc" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.m1m2chi1chi2Tomu1mu2qchi2Jacobian">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">m1m2chi1chi2Tomu1mu2qchi2Jacobian</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">q</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.m1m2chi1chi2Tomu1mu2qchi2Jacobian" title="Link to this definition"></a></dt>
+<dd><p>Jacobian of the transformation from m1, m2, chi1, chi2 to mu1, mu2, q, chi2</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.mu1mu2etaToMc">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">mu1mu2etaToMc</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mu1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eta</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.mu1mu2etaToMc" title="Link to this definition"></a></dt>
+<dd><p>Convert mu1, mu2, eta=m1*m2/(m1+m2)**2 into chirpmass using bisection
+search.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.mu1mu2qchi2ToMcqchi1chi2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">mu1mu2qchi2ToMcqchi1chi2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mu1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">q</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chi2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.mu1mu2qchi2ToMcqchi1chi2" title="Link to this definition"></a></dt>
+<dd><p>mu1, mu2, q=m2/m1, chi2 to chirpmass, q, chi1, chi2</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.mu2Mcetachi2Tochi1">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">mu2Mcetachi2Tochi1</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mu2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chi2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.mu2Mcetachi2Tochi1" title="Link to this definition"></a></dt>
+<dd><p>mu2, chirpmass, eta=m1*m2/(m1+m2)**2, chi2 to chi1</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.psi0">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">psi0</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Mc</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.psi0" title="Link to this definition"></a></dt>
+<dd><p>chirpmass to the 0PN phase coefficient</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.psi2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">psi2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eta</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.psi2" title="Link to this definition"></a></dt>
+<dd><p>chirpmass and eta=m1*m2/(m1+m2)**2 to the 1PN phase coefficient</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.psi3">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">psi3</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">q</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a1z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a2z</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.psi3" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.qToeta">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">qToeta</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">q</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.qToeta" title="Link to this definition"></a></dt>
+<dd><p>q=m2/m1 to eta=m1*m2/(m1+m2)**2</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.qa1za2zTobeta">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">qa1za2zTobeta</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">q</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a1z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a2z</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.qa1za2zTobeta" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.transform_m1m2s1zs2z_mu1mu2qs2z">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">transform_m1m2s1zs2z_mu1mu2qs2z</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2z</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.transform_m1m2s1zs2z_mu1mu2qs2z" title="Link to this definition"></a></dt>
+<dd><p>component masses: m1, m2 and z-components of spins: s1z, s2z to mu1, mu2, q=m2/m1, s2z</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.tools.transform_mu1mu2qs2z_m1m2s1zs2z">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.tools.</span></span><span class="sig-name descname"><span class="pre">transform_mu1mu2qs2z_m1m2s1zs2z</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mu1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mu2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">q</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2z</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.tools.transform_mu1mu2qs2z_m1m2s1zs2z" title="Link to this definition"></a></dt>
+<dd><p>mu1, mu2, q=m2/m1, z-component of secondary spin to component masses: m1, m2 and z-components of spins: s1z, s2z</p>
+</dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

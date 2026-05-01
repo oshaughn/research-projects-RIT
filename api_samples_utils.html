@@ -1,0 +1,246 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Samples Utilities &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=82021441" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=911654a9"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Executables" href="executables/index.html" />
+    <link rel="prev" title="General Troubleshooting" href="troubleshooting.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Samples Utilities</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/api_samples_utils.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-RIFT.misc.samples_utils">
+<span id="samples-utilities"></span><h1>Samples Utilities<a class="headerlink" href="#module-RIFT.misc.samples_utils" title="Link to this heading"></a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.samples_utils.add_field">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.samples_utils.</span></span><span class="sig-name descname"><span class="pre">add_field</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">descr</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.samples_utils.add_field" title="Link to this definition"></a></dt>
+<dd><p>Returns a new structured array with additional fields.</p>
+<p>The contents of “a” are copied over to the appropriate fields in the new array,
+while the new fields are left uninitialized. The original array “a” is not modified.</p>
+<dl>
+<dt>Args:</dt><dd><p>a (np.ndarray): A structured numpy array.
+descr (list): A numpy type description of the new fields to add</p>
+<blockquote>
+<div><p>(e.g., <cite>[(‘field_name’, float)]</cite>).</p>
+</div></blockquote>
+</dd>
+<dt>Returns:</dt><dd><p>np.ndarray: A new structured array containing the original fields and the new fields.</p>
+</dd>
+<dt>Raises:</dt><dd><p>ValueError: If the input array <cite>a</cite> is not a structured numpy array.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.samples_utils.</span></span><span class="sig-name descname"><span class="pre">dump_pesummary_samples_to_file_as_rift</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname_h5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fname_out</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_drop</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_rename</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.samples_utils.dump_pesummary_samples_to_file_as_rift" title="Link to this definition"></a></dt>
+<dd><p>Converts posterior samples from a pesummary HDF5 file to the RIFT text format.</p>
+<p>Reads samples from the specified key in the HDF5 file, renames fields based on 
+<cite>remap_bilby_to_rift</cite>, and optionally drops metadata fields (e.g., SNR, recalib).</p>
+<dl>
+<dt>Args:</dt><dd><p>fname_h5 (str): Path to the input pesummary HDF5 file.
+key (str): The key within the HDF5 file where the samples are stored.
+fname_out (str): Path to the output text file.
+no_drop (bool, optional): If True, does not drop ‘recalib’ or ‘snr’ fields. Defaults to False.
+no_rename (bool, optional): If True, does not rename fields using <cite>remap_bilby_to_rift</cite>. Defaults to False.</p>
+</dd>
+<dt>Raises:</dt><dd><p>Exception: If the provided key is not found in the HDF5 file.</p>
+</dd>
+<dt>Example:</dt><dd><div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">samples_utils</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">samples_utils</span><span class="o">.</span><span class="n">dump_pesummary_samples_to_file_as_rift</span><span class="p">(</span><span class="s2">&quot;metafile.h5&quot;</span><span class="p">,</span> <span class="s2">&quot;bilby-IMRPhenomXPHM-SpinTaylor-3&quot;</span><span class="p">,</span><span class="s1">&#39;test.dat&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>$ convert_output_format_inference2ile –posterior-samples test.dat –output-xml my.xml.gz</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.samples_utils.extract_combination_from_LI">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.samples_utils.</span></span><span class="sig-name descname"><span class="pre">extract_combination_from_LI</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">samples_LI</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.samples_utils.extract_combination_from_LI" title="Link to this definition"></a></dt>
+<dd><p>Extracts a specific parameter or computed combination from posterior samples.</p>
+<p>This function reads known columns from the posterior samples. If the requested
+parameter <cite>p</cite> is not directly available, it attempts to compute it from standard
+quantities using predefined remapping and physics formulas (e.g., computing
+effective spin <cite>chi_eff</cite> from individual spin components).</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>samples_LI (np.recarray): A structured numpy array containing posterior samples.
+p (str): The name of the parameter or combination to extract.</p>
+</dd>
+<dt>Returns:</dt><dd><dl class="simple">
+<dt>np.ndarray: An array containing the extracted or computed values for parameter <cite>p</cite>.</dt><dd><p>Returns an array of zeros if the parameter cannot be accessed to avoid
+hard failures.</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.samples_utils.fchip">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.samples_utils.</span></span><span class="sig-name descname"><span class="pre">fchip</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sample</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.samples_utils.fchip" title="Link to this definition"></a></dt>
+<dd><p>Helper function to compute the effective spin chi_p for a single sample.</p>
+<p>Designed for use with <cite>multiprocessing.Pool.map</cite>.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>sample (tuple): A tuple containing [m1, m2, s1x, s1y, s1z, s2x, s2y, s2z].</p>
+</dd>
+<dt>Returns:</dt><dd><p>float: The computed chi_p value.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.samples_utils.fchipavg">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.samples_utils.</span></span><span class="sig-name descname"><span class="pre">fchipavg</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sample</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.samples_utils.fchipavg" title="Link to this definition"></a></dt>
+<dd><p>Helper function to compute the average effective spin chi_pavg for a single sample.</p>
+<p>Designed for use with <cite>multiprocessing.Pool.map</cite>.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>sample (tuple): A tuple containing [m1, m2, s1x, s1y, s1z, s2x, s2y, s2z].</p>
+</dd>
+<dt>Returns:</dt><dd><p>float: The computed chi_pavg value.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.samples_utils.standard_expand_samples">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.samples_utils.</span></span><span class="sig-name descname"><span class="pre">standard_expand_samples</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">samples</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.samples_utils.standard_expand_samples" title="Link to this definition"></a></dt>
+<dd><p>Expands a sample set by adding standard derived parameters.</p>
+<p>This function checks for the presence of certain base parameters and computes
+derived quantities if they are missing. This is commonly used for preparing
+samples for plotting (e.g., in <cite>plot_posterior_corner.py</cite>).</p>
+<p>Added fields may include:
+- Mass parameters: <cite>mtotal</cite>, <cite>eta</cite>, <cite>m1</cite>, <cite>m2</cite> (computed from <cite>mc</cite> and <cite>q</cite>).
+- Spin parameters: <cite>a1x</cite>, <cite>a1y</cite>, <cite>a2x</cite>, <cite>a2y</cite>, <cite>chi1_perp</cite>, <cite>chi2_perp</cite>, <cite>chi_eff</cite></p>
+<blockquote>
+<div><p>(computed from <cite>a1</cite>, <cite>theta1</cite>, <cite>phi1</cite>, etc.).</p>
+</div></blockquote>
+<ul class="simple">
+<li><p>Angles: <cite>phi1</cite>, <cite>phi2</cite>, <cite>phi12</cite>.</p></li>
+<li><p>Tidal parameters: <cite>lambdat</cite>, <cite>dlambdat</cite> (computed from <cite>lambda1</cite>, <cite>lambda2</cite>).</p></li>
+</ul>
+<dl class="simple">
+<dt>Args:</dt><dd><p>samples (np.recarray): A structured numpy array of posterior samples.</p>
+</dd>
+<dt>Returns:</dt><dd><p>np.recarray: The expanded structured array containing the original and derived fields.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="troubleshooting.html" class="btn btn-neutral float-left" title="General Troubleshooting" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="executables/index.html" class="btn btn-neutral float-right" title="Executables" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,246 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>util_ManualOverlapGrid &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="convergence_test_samples" href="convergence_test_samples.html" />
+    <link rel="prev" title="plot_posterior_corner" href="plot_posterior_corner.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Executables</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="util_RIFT_pseudo_pipe.html">util_RIFT_pseudo_pipe.py</a></li>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html">create_event_parameter_pipeline_BasicIteration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html">integrate_likelihood_extrinsic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html">integrate_likelihood_extrinsic_batchmode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html">util_ConstructIntrinsicPosterior_GenericCoordinates</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html">plot_posterior_corner</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">util_ManualOverlapGrid</a></li>
+<li class="toctree-l2"><a class="reference internal" href="convergence_test_samples.html">convergence_test_samples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ParameterPuffball.html">util_ParameterPuffball</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Executables</a></li>
+      <li class="breadcrumb-item active">util_ManualOverlapGrid</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/executables/util_ManualOverlapGrid.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="util-manualoverlapgrid">
+<h1>util_ManualOverlapGrid<a class="headerlink" href="#util-manualoverlapgrid" title="Link to this heading"></a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">util_ManualOverlapGrid</span></code> executable generates a grid of waveform overlaps (matches) between a reference signal (the “base point”) and a set of templates varying over a specified parameter space.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>This tool is used to generate a grid of points covering a targeted region, in the data format needed by our codes. It supports variable dimensionality and the same coordinate charts as our main code.</p>
+<p>Historically, this tool was used for exploring the likelihood surface and estimating the Fisher information matrix. By calculating the overlap (inner product) between a reference signal and a grid of templates, the tool can determine how the match varies with changes in intrinsic parameters (like mass or spin). Because it computes overlaps between a reference signal h0 and h(lambda) over a target grid lambda, these match calculations can be used to estimate measurement accuracy via an empirical Fisher matrix; or to qualitatively characterize expected waveform systematics.</p>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
+<section id="basic-command-line">
+<h3>Basic Command Line<a class="headerlink" href="#basic-command-line" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>util_ManualOverlapGrid.py<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+</pre></div>
+</div>
+</section>
+<section id="primary-options">
+<h3>Primary Options<a class="headerlink" href="#primary-options" title="Link to this heading"></a></h3>
+</section>
+</section>
+<section id="base-point-configuration">
+<h2>Base Point Configuration<a class="headerlink" href="#base-point-configuration" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--inj</span></code>: Path to an inspiral XML file containing the reference signal parameters.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--event</span></code>: Event ID of the injection to use from the XML file.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mass1</span></code>, <code class="docutils literal notranslate"><span class="pre">--mass2</span></code>: Manual specification of component masses (if <code class="docutils literal notranslate"><span class="pre">--inj</span></code> is not used).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--s1z</span></code>: Manual specification of the first component’s z-spin.</p></li>
+</ul>
+</section>
+<section id="grid-definition">
+<h2>Grid Definition<a class="headerlink" href="#grid-definition" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--parameter</span></code>: List of parameters to vary across the grid (e.g., <code class="docutils literal notranslate"><span class="pre">LambdaTilde</span></code>, <code class="docutils literal notranslate"><span class="pre">eta</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--parameter-range</span></code>: Range for each specified parameter (e.g., <code class="docutils literal notranslate"><span class="pre">'[0,</span> <span class="pre">1000]'</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--random-parameter</span></code>: Parameters to be sampled randomly rather than on a cartesian grid.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--random-parameter-range</span></code>: Ranges for the random parameters.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--grid-cartesian-npts</span></code>: Number of points per dimension for the cartesian grid.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--latin-hypercube-sampling</span></code>: Use LHS instead of a regular cartesian grid.</p></li>
+</ul>
+</section>
+<section id="waveform-and-overlap-settings">
+<h2>Waveform and Overlap Settings<a class="headerlink" href="#waveform-and-overlap-settings" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--approx</span></code>: Waveform approximant to use (e.g., <code class="docutils literal notranslate"><span class="pre">SpinTaylorT4</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--fmin</span></code>, <code class="docutils literal notranslate"><span class="pre">--fmax</span></code>: Lower and upper frequency limits for the overlap integral.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--psd-file</span></code>: Path to a PSD file to use for the inner product.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--seglen</span></code>: Window size for processing.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--use-external-EOB</span></code> / <code class="docutils literal notranslate"><span class="pre">--use-external-NR</span></code>: Use external EOB or NR waveform generators for templates.</p></li>
+</ul>
+</section>
+<section id="analysis-and-tuning">
+<h2>Analysis and Tuning<a class="headerlink" href="#analysis-and-tuning" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--use-fisher</span></code>: Perform a quadratic fit to the overlaps to estimate the Fisher matrix.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--reset-grid-via-match</span></code>: Automatically tune the parameter ranges so that the grid boundaries correspond to a specific match value.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--match-value</span></code>: The match threshold used for range tuning or filtering (default: 0.01).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--skip-overlap</span></code>: Generate the grid without actually performing the expensive overlap calculations.</p></li>
+</ul>
+</section>
+<section id="output">
+<h2>Output<a class="headerlink" href="#output" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--fname</span></code>: Base filename for the output (produces both <code class="docutils literal notranslate"><span class="pre">.dat</span></code> and <code class="docutils literal notranslate"><span class="pre">.xml.gz</span></code> files).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--verbose</span></code>: Enable detailed logging of the grid generation process.</p></li>
+</ul>
+</section>
+<section id="functional-logic">
+<h2>Functional Logic<a class="headerlink" href="#functional-logic" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Base Point Setup</strong>: Initializes the reference signal using either an injection XML file or manual parameter inputs.</p></li>
+<li><dl class="simple">
+<dt><strong>Grid Generation</strong>:</dt><dd><ul class="simple">
+<li><p>Creates a coordinate grid based on the <code class="docutils literal notranslate"><span class="pre">--parameter</span></code> and <code class="docutils literal notranslate"><span class="pre">--parameter-range</span></code> specifications.</p></li>
+<li><p>Optionally incorporates random parameters or uses Latin Hypercube Sampling.</p></li>
+<li><p>Applies “downselection” to remove unphysical points (e.g., violating the Kerr bound $a le 1$ or requiring $m_1 ge m_2$).</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt><strong>Overlap Calculation</strong>:</dt><dd><ul class="simple">
+<li><p>For each point in the grid, generates a template waveform.</p></li>
+<li><p>Computes the inner product (overlap) between the template and the reference signal, normalized by their norms.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt><strong>Fisher Analysis (Optional)</strong>:</dt><dd><ul class="simple">
+<li><p>If <code class="docutils literal notranslate"><span class="pre">--use-fisher</span></code> is enabled, fits a quadratic surface to the matches.</p></li>
+<li><p>Extracts the Fisher information matrix from the quadratic coefficients.</p></li>
+<li><p>Optionally resamples the grid using the Fisher matrix to better capture the peak.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><p><strong>Output</strong>: Saves the grid coordinates and their corresponding overlaps to a text file and the template parameters to an XML file.</p></li>
+</ol>
+</section>
+<section id="output-details">
+<h2>Output Details<a class="headerlink" href="#output-details" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">.dat</span></code> file: A text file where each row contains the parameter values and the resulting match (inner product).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">.xml.gz</span></code> file: An inspiral XML file containing the parameters of the templates that were generated.</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="plot_posterior_corner.html" class="btn btn-neutral float-left" title="plot_posterior_corner" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="convergence_test_samples.html" class="btn btn-neutral float-right" title="convergence_test_samples" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

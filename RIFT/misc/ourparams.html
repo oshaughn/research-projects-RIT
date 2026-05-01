@@ -1,0 +1,207 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ourparams &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">ourparams</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/RIFT/misc/ourparams.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="ourparams">
+<h1>ourparams<a class="headerlink" href="#ourparams" title="Link to this heading"></a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">RIFT.misc.ourparams</span></code> module serves as the central configuration hub for the RIFT pipeline. It manages the transition from command-line arguments to internal software settings, ensuring consistency across different modules.</p>
+<section id="main-functionalities">
+<h2>Main Functionalities<a class="headerlink" href="#main-functionalities" title="Link to this heading"></a></h2>
+<p>The module provides two primary entry points:
+1. <code class="docutils literal notranslate"><span class="pre">ParseStandardArguments()</span></code>: Processes command-line inputs using <code class="docutils literal notranslate"><span class="pre">argparse</span></code> and returns a namespace of options along with a debugging message dictionary.
+2. <code class="docutils literal notranslate"><span class="pre">PopulatePrototypeSignal()</span></code>: Uses the parsed options to construct a fiducial signal (<code class="docutils literal notranslate"><span class="pre">Psig</span></code>), which is used as a reference for sampling and likelihood calculations.</p>
+</section>
+<section id="configuration-categories">
+<h2>Configuration Categories<a class="headerlink" href="#configuration-categories" title="Link to this heading"></a></h2>
+<p>The parameters managed by this module can be grouped into several logical categories:</p>
+<section id="pipeline-control">
+<h3>Pipeline Control<a class="headerlink" href="#pipeline-control" title="Link to this heading"></a></h3>
+<p>These settings determine the effort and precision of the inference process.
+- <strong>Iterations (``–Niter``)</strong>: Total number of MC iterations.
+- <strong>Effective Samples (``–Neff``)</strong>: The target number of independent samples to be achieved.
+- <strong>Convergence Tests (``–convergence-tests-on``)</strong>: Enables automated checks for sampler convergence.</p>
+</section>
+<section id="likelihood-approximation">
+<h3>Likelihood &amp; Approximation<a class="headerlink" href="#likelihood-approximation" title="Link to this heading"></a></h3>
+<p>RIFT allows users to switch between different likelihood computation strategies.
+- <strong>Likelihood Type</strong>: Options include <code class="docutils literal notranslate"><span class="pre">MargTdisc_array</span></code> (default), <code class="docutils literal notranslate"><span class="pre">vectorized</span></code>, and <code class="docutils literal notranslate"><span class="pre">vectorized_noloops</span></code> (GPU optimized).
+- <strong>Interpolation Control (``–skip-interpolation``)</strong>: Allows bypassing the interpolation layer for diagnostic purposes.</p>
+</section>
+<section id="astrophysical-waveform-physics">
+<h3>Astrophysical &amp; Waveform Physics<a class="headerlink" href="#astrophysical-waveform-physics" title="Link to this heading"></a></h3>
+<p>Settings that define the signal model.
+- <strong>Approximants (``–approx``)</strong>: Specifies the waveform model (e.g., <code class="docutils literal notranslate"><span class="pre">TaylorT4</span></code>).
+- <strong>Physical Bounds</strong>: Defines the range for mass, spin, and distance.
+- <strong>Fixed Parameters</strong>: Using flags like <code class="docutils literal notranslate"><span class="pre">--fix-distance</span></code>, users can pin specific parameters to injected values to reduce the dimensionality of the search.</p>
+</section>
+<section id="data-infrastructure">
+<h3>Data &amp; Infrastructure<a class="headerlink" href="#data-infrastructure" title="Link to this heading"></a></h3>
+<p>Handles the loading of external data and environment setup.
+- <strong>LIGO Cache (``–cache-file``)</strong>: Path to the GWOSC or internal cache file.
+- <strong>PSDs (``–psd-name``, ``–psd-file``)</strong>: Configuration for the Power Spectral Density of the detectors.
+- <strong>NR Catalogs</strong>: Integration with Numerical Relativity (NR) catalogs via <code class="docutils literal notranslate"><span class="pre">--NR-signal-group</span></code>.</p>
+</section>
+<section id="sampling-priors">
+<h3>Sampling &amp; Priors<a class="headerlink" href="#sampling-priors" title="Link to this heading"></a></h3>
+<p>Controls how the parameter space is explored.
+- <strong>Sky Location</strong>: Support for uniform sampling, injected locations, or external skymaps (via <code class="docutils literal notranslate"><span class="pre">--sampling-prior-use-skymap</span></code>).
+- <strong>Distance Priors</strong>: Implements specific distance sampling distributions (e.g., quadratic priors).</p>
+</section>
+</section>
+<section id="module-RIFT.misc.ourparams">
+<span id="api-reference"></span><h2>API Reference<a class="headerlink" href="#module-RIFT.misc.ourparams" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>ourparams.py</dt><dd><ul class="simple">
+<li><dl class="simple">
+<dt>Intended to hold all standard arguments, either in </dt><dd><ul>
+<li><p>default command line settings OR</p></li>
+<li><p>via  hardcoded defaults</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><p>Provides command line parsing</p></li>
+<li><p>Provides explicit settings for sampler parameters</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.ourparams.ParseStandardArguments">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.ourparams.</span></span><span class="sig-name descname"><span class="pre">ParseStandardArguments</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ourparams.ParseStandardArguments" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.ourparams.PopulatePrototypeSignal">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.ourparams.</span></span><span class="sig-name descname"><span class="pre">PopulatePrototypeSignal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">opts</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ourparams.PopulatePrototypeSignal" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.ourparams.PopulateSamplerParameters">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.ourparams.</span></span><span class="sig-name descname"><span class="pre">PopulateSamplerParameters</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sampler</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theEpochFiducial</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tEventFiducial</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">distBoundGuess</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Psig</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">opts</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ourparams.PopulateSamplerParameters" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.ourparams.PopulateTriggerSNRs">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.ourparams.</span></span><span class="sig-name descname"><span class="pre">PopulateTriggerSNRs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">opts</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ourparams.PopulateTriggerSNRs" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

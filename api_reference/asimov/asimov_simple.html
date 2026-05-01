@@ -1,0 +1,366 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RIFT+Asimov: Simple Workflow &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="RIFT+Asimov: Production Workflow" href="asimov_production.html" />
+    <link rel="prev" title="Asimov + RIFT Workflows" href="workflows.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../simulation_manager/index.html">Simulation Manager</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">Asimov Interface</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="overview.html">Asimov Interface Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="use_cases.html">Asimov Use Cases and Mapping</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="workflows.html">Asimov + RIFT Workflows</a><ul class="current">
+<li class="toctree-l4 current"><a class="current reference internal" href="#">RIFT+Asimov: Simple Workflow</a></li>
+<li class="toctree-l4"><a class="reference internal" href="asimov_production.html">RIFT+Asimov: Production Workflow</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../calmarg/index.html">Calibration Marginalization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../misc/index.html">Misc Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../lalsimutils.html">LALSimUtils</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API Reference</a></li>
+          <li class="breadcrumb-item"><a href="index.html">Asimov Interface</a></li>
+          <li class="breadcrumb-item"><a href="workflows.html">Asimov + RIFT Workflows</a></li>
+      <li class="breadcrumb-item active">RIFT+Asimov: Simple Workflow</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api_reference/asimov/asimov_simple.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="rift-asimov-simple-workflow">
+<h1>RIFT+Asimov: Simple Workflow<a class="headerlink" href="#rift-asimov-simple-workflow" title="Link to this heading"></a></h1>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is a living document. RIFT and Asimov interfaces evolve on few-month timescales.
+Always cross-check with the latest authoritative references linked in the <a class="reference internal" href="#references">References</a> section.</p>
+</div>
+<p>This section describes the practical processes for deploying RIFT analyses using the <code class="docutils literal notranslate"><span class="pre">asimov</span></code> framework.</p>
+<section id="rift-asimov-workflow">
+<h2>RIFT+Asimov Workflow<a class="headerlink" href="#rift-asimov-workflow" title="Link to this heading"></a></h2>
+<p>The deployment of a RIFT analysis in <code class="docutils literal notranslate"><span class="pre">asimov</span></code> follows a hierarchical “Blueprint” pattern. Instead of defining every single parameter for every event, settings are split into <strong>Common Defaults</strong> and <strong>Analysis-Specific Specifications</strong>.</p>
+<p>The final configuration applied to <code class="docutils literal notranslate"><span class="pre">rift.ini</span></code> is a merge of these two layers. <code class="docutils literal notranslate"><span class="pre">rift.ini</span></code> is a Jinja2 template (see <a class="reference internal" href="#rift-ini-mapping"><span class="std std-ref">Label to Argument Mapping (rift.ini)</span></a>) that maps Asimov YAML labels to RIFT command-line arguments.</p>
+<section id="the-common-defaults-infrastructure-layer">
+<h3>1. The Common Defaults (Infrastructure Layer)<a class="headerlink" href="#the-common-defaults-infrastructure-layer" title="Link to this heading"></a></h3>
+<p>The Common Defaults define the environment and hardware requirements that remain constant across different physics models. These are typically stored in a global configuration file, such as <code class="docutils literal notranslate"><span class="pre">production-pe-o4b.yaml</span></code>.</p>
+<p><strong>Example Configuration Block:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">configuration</span>
+<span class="nt">pipelines</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">rift</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">scheduler</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">osg</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
+<span class="w">      </span><span class="nt">accounting group</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ligo.dev.o4.cbc.pe.rift</span>
+<span class="w">      </span><span class="nt">request memory</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1024</span>
+<span class="w">      </span><span class="nt">singularity image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/cvmfs/singularity.opensciencegrid.org/james-clark/research-projects-rit/rift:test</span>
+<span class="w">      </span><span class="nt">gpu architectures</span><span class="p">:</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Tesla K10.G1.8GB</span>
+<span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Tesla P100-PCIE-16GB</span>
+<span class="w">    </span><span class="nt">sampler</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">cip</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">fitting method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rf</span>
+<span class="w">        </span><span class="nt">explode jobs auto</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
+<span class="w">      </span><span class="nt">ile</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">n eff</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">        </span><span class="nt">jobs per worker</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span>
+</pre></div>
+</div>
+<p><strong>What this defines:</strong></p>
+<ul class="simple">
+<li><p><strong>Cluster Access</strong>: Tells <code class="docutils literal notranslate"><span class="pre">asimov</span></code> to use OSG and which accounting group to bill.</p></li>
+<li><p><strong>Environment</strong>: Specifies the base Singularity image that contains the RIFT binaries.</p></li>
+<li><p><strong>Hardware Target</strong>: Ensures the jobs are scheduled on nodes with compatible GPUs.</p></li>
+<li><p><strong>Global Sampler Logic</strong>: Sets the default fitting method (Random Forest) and effective sample target.</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">cip</span></code> label maps to command-line arguments for the <code class="docutils literal notranslate"><span class="pre">cip</span></code> sampler tool. See <a class="reference internal" href="../../executables/util_ConstructIntrinsicPosterior_GenericCoordinates.html"><span class="doc">util_ConstructIntrinsicPosterior_GenericCoordinates</span></a>.
+The <code class="docutils literal notranslate"><span class="pre">ile</span></code> label maps to command-line arguments for <code class="docutils literal notranslate"><span class="pre">integrate_likelihood_extrinsic_batchmode</span></code>. See <a class="reference internal" href="../../executables/integrate_likelihood_extrinsic_batchmode.html"><span class="doc">integrate_likelihood_extrinsic_batchmode</span></a>.</p>
+</div>
+</section>
+<section id="the-analysis-specification-physics-layer">
+<h3>2. The Analysis Specification (Physics Layer)<a class="headerlink" href="#the-analysis-specification-physics-layer" title="Link to this heading"></a></h3>
+<p id="cip-section">The Analysis Specification describes the specific physics, waveform model, and analysis strategy. These are defined in analysis-specific files (e.g., <code class="docutils literal notranslate"><span class="pre">analysis_rift_SEOBNRv5PHM.yaml</span></code>).</p>
+<p><strong>Example Configuration Block:</strong></p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">analysis</span>
+<span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rift-v5EHM-calmarg</span>
+<span class="nt">pipeline</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RIFT</span>
+<span class="nt">waveform</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">approximant</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">SEOBNRv5EHM</span>
+<span class="w">    </span><span class="nt">reference frequency</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="nt">likelihood</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">start frequency</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
+<span class="w">    </span><span class="nt">assume</span><span class="p">:</span>
+<span class="w">         </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">eccentric</span>
+<span class="w">         </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nonprecessing</span>
+<span class="nt">scheduler</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">osg</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">True</span>
+<span class="w">    </span><span class="nt">singularity image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osdf:///igwn/cit/staging/richard.oshaughnessy/rift_containers/rift_container_ros_seobnr_20250527.sif</span>
+<span class="nt">sampler</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">cip</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">sampling method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">AV</span>
+<span class="w">        </span><span class="nt">request disk</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;4G&quot;</span>
+<span class="w">      </span><span class="nt">ile</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">sampling method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">AV</span>
+<span class="w">        </span><span class="nt">manual extra args</span><span class="p">:</span>
+<span class="w">                </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">--use-gwsignal</span>
+</pre></div>
+</div>
+<p><strong>What this defines:</strong></p>
+<ul class="simple">
+<li><p><strong>Physics Model</strong>: Switches the approximant to <code class="docutils literal notranslate"><span class="pre">SEOBNRv5EHM</span></code> and sets the start frequency.</p></li>
+<li><p><strong>Analysis Constraints</strong>: Explicitly enables eccentricity and disables precession.</p></li>
+<li><p><strong>Specialized Resources</strong>: Overrides the base image with a model-specific container (e.g., from <cite>osdf:///</cite>).</p></li>
+<li><p><strong>Sampler Refinement</strong>: Switches the sampling method to <code class="docutils literal notranslate"><span class="pre">AV</span></code> and increases requested disk space to accommodate the specific model’s requirements.</p></li>
+</ul>
+</section>
+<section id="the-merge-process">
+<h3>The Merge Process<a class="headerlink" href="#the-merge-process" title="Link to this heading"></a></h3>
+<p>When a user executes the <code class="docutils literal notranslate"><span class="pre">asimov</span> <span class="pre">apply</span></code> command, the framework merges these two blueprints. The <strong>Analysis Specification</strong> takes precedence over the <strong>Common Defaults</strong>.</p>
+<p><strong>Pedagogical Example of the Merge:</strong></p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Setting</p></th>
+<th class="head"><p>Common Default</p></th>
+<th class="head"><p>Analysis Spec</p></th>
+<th class="head"><p>Final Result (Applied to <code class="docutils literal notranslate"><span class="pre">rift.ini</span></code>)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osg</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">True</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">True</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">True</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">singularity</span> <span class="pre">image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">/cvmfs/.../rift:test</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osdf:///.../rift_container_ros...</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osdf:///.../rift_container_ros...</span></code> (Override)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sampling</span> <span class="pre">method</span></code></p></td>
+<td><p>(Not Specified)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">AV</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">AV</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">n</span> <span class="pre">eff</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10</span></code></p></td>
+<td><p>(Not Specified)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">10</span></code> (Inherited)</p></td>
+</tr>
+</tbody>
+</table>
+<section id="label-to-argument-mapping-rift-ini">
+<span id="rift-ini-mapping"></span><h4>Label to Argument Mapping (rift.ini)<a class="headerlink" href="#label-to-argument-mapping-rift-ini" title="Link to this heading"></a></h4>
+<p><code class="docutils literal notranslate"><span class="pre">rift.ini</span></code> uses Jinja2 templating to map Asimov YAML labels to RIFT command-line arguments. For example:</p>
+<ul class="simple">
+<li><p>YAML <code class="docutils literal notranslate"><span class="pre">sampler:</span> <span class="pre">ile:</span> <span class="pre">n</span> <span class="pre">eff:</span> <span class="pre">10</span></code> → <code class="docutils literal notranslate"><span class="pre">rift.ini</span></code> <code class="docutils literal notranslate"><span class="pre">[ile]</span> <span class="pre">n-eff=10</span></code> → passed as <code class="docutils literal notranslate"><span class="pre">--n-eff</span> <span class="pre">10</span></code> to <code class="docutils literal notranslate"><span class="pre">integrate_likelihood_extrinsic_batchmode</span></code></p></li>
+<li><p>YAML <code class="docutils literal notranslate"><span class="pre">sampler:</span> <span class="pre">cip:</span> <span class="pre">fitting</span> <span class="pre">method:</span> <span class="pre">rf</span></code> → <code class="docutils literal notranslate"><span class="pre">rift.ini</span></code> <code class="docutils literal notranslate"><span class="pre">[cip]</span> <span class="pre">fitting-method=rf</span></code> → passed as <code class="docutils literal notranslate"><span class="pre">--fitting-method</span> <span class="pre">rf</span></code> to <code class="docutils literal notranslate"><span class="pre">cip</span></code></p></li>
+</ul>
+<p>The authoritative <code class="docutils literal notranslate"><span class="pre">rift.ini</span></code> template is located at:</p>
+<p><a class="reference external" href="https://github.com/oshaughnessy-junior/research-projects-rit/blob/main/MonteCarloMarginalizeCode/Code/RIFT/asimov/rift.ini">MonteCarloMarginalizeCode/Code/RIFT/asimov/rift.ini</a> in this repository.</p>
+</section>
+</section>
+</section>
+<section id="example-of-asimov-rift-full-project-analysis-setup">
+<span id="asimov-rift-example"></span><h2>Example of Asimov+RIFT: Full project + analysis setup<a class="headerlink" href="#example-of-asimov-rift-full-project-analysis-setup" title="Link to this heading"></a></h2>
+<p>To deploy a full analysis for a specific event (e.g., <code class="docutils literal notranslate"><span class="pre">S240426s</span></code>), follow this complete sequence adapted from the <a class="reference external" href="https://asimov.docs.ligo.org/asimov/master/tutorials/analysing-gw150914.html">Asimov GW150914 tutorial</a>.</p>
+<section id="pre-analysis-setup-mandatory-prerequisites">
+<h3>Pre-Analysis Setup (Mandatory Prerequisites)<a class="headerlink" href="#pre-analysis-setup-mandatory-prerequisites" title="Link to this heading"></a></h3>
+<ol class="arabic">
+<li><p><strong>Create project directory</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mkdir<span class="w"> </span>S240426s-analysis
+<span class="nb">cd</span><span class="w"> </span>S240426s-analysis
+</pre></div>
+</div>
+</li>
+<li><p><strong>Initialize Asimov project</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>init<span class="w"> </span><span class="s2">&quot;S240426s RIFT Analysis&quot;</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Apply infrastructure blueprint</strong> (defaults for all analyses):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>https://git.ligo.org/asimov/data/-/raw/main/defaults/production-pe.yaml
+</pre></div>
+</div>
+</li>
+<li><p><strong>Apply priors blueprint</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>https://git.ligo.org/asimov/data/-/raw/main/defaults/production-pe-priors.yaml
+</pre></div>
+</div>
+</li>
+<li><p><strong>Add event metadata</strong> (using event blueprint):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>https://git.ligo.org/asimov/data/-/raw/main/events/gwtc-2-1/GW150914_095045.yaml
+</pre></div>
+</div>
+</li>
+<li><p><strong>Apply physics/analysis blueprint</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>analyses/rift-bbh/analysis_rift_SEOBNRv5PHM.yaml<span class="w"> </span>-e<span class="w"> </span>S240426s
+</pre></div>
+</div>
+</li>
+</ol>
+</section>
+<section id="asimov-workflow-execution">
+<h3>Asimov Workflow Execution<a class="headerlink" href="#asimov-workflow-execution" title="Link to this heading"></a></h3>
+<ol class="arabic" start="7">
+<li><p><strong>Build the analysis</strong> (generate configuration and DAG):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>manage<span class="w"> </span>build
+</pre></div>
+</div>
+</li>
+<li><p><strong>Submit to cluster</strong>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>manage<span class="w"> </span>submit
+</pre></div>
+</div>
+</li>
+<li><p><strong>Monitor progress</strong> (or use <code class="docutils literal notranslate"><span class="pre">asimov</span> <span class="pre">start</span></code> for automated monitoring):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>monitor
+<span class="c1"># OR for automated monitoring:</span>
+asimov<span class="w"> </span>start
+</pre></div>
+</div>
+</li>
+</ol>
+<p>This process ensures that infrastructure changes (like upgrading a base container) can be applied globally across all analyses by editing a single defaults file, while physics changes remain isolated to their respective analysis blueprints.</p>
+</section>
+</section>
+<section id="references">
+<h2>References<a class="headerlink" href="#references" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>RIFT GitHub Repository</strong>: <a class="reference external" href="https://github.com/oshaughnessy-junior/research-projects-rit">oshaughnessy-junior/research-projects-rit</a></p></li>
+<li><p><strong>ILE (Integrate Likelihood Extrinsic) Documentation</strong>: <a class="reference internal" href="../../executables/integrate_likelihood_extrinsic_batchmode.html"><span class="doc">integrate_likelihood_extrinsic_batchmode</span></a></p></li>
+<li><p><strong>CIP Sampler Documentation</strong>: <a class="reference internal" href="../../executables/util_ConstructIntrinsicPosterior_GenericCoordinates.html"><span class="doc">util_ConstructIntrinsicPosterior_GenericCoordinates</span></a></p></li>
+<li><p><strong>cbcflow Documentation</strong>: <a class="reference external" href="https://cbc.docs.ligo.org/projects/cbcflow/index.html">cbcflow</a></p></li>
+<li><p><strong>Asimov Documentation</strong>: <a class="reference external" href="https://asimov.docs.ligo.org/asimov/master/index.html">asimov</a></p></li>
+<li><p><strong>Example YAML Configs</strong>: Refer to Asimov configuration directories for infrastructure and physics blueprints</p></li>
+<li><p><strong>rift.ini Template</strong>: <a class="reference external" href="https://github.com/oshaughnessy-junior/research-projects-rit/blob/rift_O4d_junior/MonteCarloMarginalizeCode/Code/RIFT/asimov/rift.ini">MonteCarloMarginalizeCode/Code/RIFT/asimov/rift.ini</a></p></li>
+<li><p><strong>Authoritative YAML Examples</strong>: <a class="reference external" href="https://git.ligo.org/asimov/data/-/tree/main/defaults">defaults/</a>, <a class="reference external" href="https://git.ligo.org/asimov/data/-/tree/main/events">analyses/</a>, and <a class="reference external" href="https://git.ligo.org/asimov/data/-/tree/main/precursors">precursors/</a> directories</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="workflows.html" class="btn btn-neutral float-left" title="Asimov + RIFT Workflows" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="asimov_production.html" class="btn btn-neutral float-right" title="RIFT+Asimov: Production Workflow" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

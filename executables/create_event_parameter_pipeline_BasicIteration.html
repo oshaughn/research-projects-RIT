@@ -1,0 +1,465 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>create_event_parameter_pipeline_BasicIteration &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="integrate_likelihood_extrinsic" href="integrate_likelihood_extrinsic.html" />
+    <link rel="prev" title="util_RIFT_pseudo_pipe.py" href="util_RIFT_pseudo_pipe.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Executables</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="util_RIFT_pseudo_pipe.html">util_RIFT_pseudo_pipe.py</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">create_event_parameter_pipeline_BasicIteration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html">integrate_likelihood_extrinsic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html">integrate_likelihood_extrinsic_batchmode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html">util_ConstructIntrinsicPosterior_GenericCoordinates</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html">plot_posterior_corner</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html">util_ManualOverlapGrid</a></li>
+<li class="toctree-l2"><a class="reference internal" href="convergence_test_samples.html">convergence_test_samples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ParameterPuffball.html">util_ParameterPuffball</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Executables</a></li>
+      <li class="breadcrumb-item active">create_event_parameter_pipeline_BasicIteration</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/executables/create_event_parameter_pipeline_BasicIteration.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="create-event-parameter-pipeline-basiciteration">
+<h1>create_event_parameter_pipeline_BasicIteration<a class="headerlink" href="#create-event-parameter-pipeline-basiciteration" title="Link to this heading"></a></h1>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">create_event_parameter_pipeline_BasicIteration</span></code> is the core pipeline writer for RIFT.
+It creates condor DAG (Directed Acyclic Graph) workflows for parameter estimation,
+generating ILE (Inference Library Engine) jobs combined with fitting/iteration jobs.</p>
+<p>This executable manages the overall workflow structure, creating workspaces for each
+task and iteration, handling job dependencies, and coordinating the analysis pipeline.</p>
+</section>
+<section id="location">
+<h2>Location<a class="headerlink" href="#location" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">MonteCarloMarginalizeCode/Code/bin/create_event_parameter_pipeline_BasicIteration</span></code></p>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
+<p>Basic pipeline creation:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">create_event_parameter_pipeline_BasicIteration</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">ile</span><span class="o">-</span><span class="n">args</span> <span class="n">args_ile</span><span class="o">.</span><span class="n">txt</span> <span class="o">--</span><span class="n">cip</span><span class="o">-</span><span class="n">args</span> <span class="n">args_cip</span><span class="o">.</span><span class="n">txt</span> <span class="o">--</span><span class="n">working</span><span class="o">-</span><span class="n">directory</span> <span class="n">output</span><span class="o">/</span>
+</pre></div>
+</div>
+<p>With calibration reweighting:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">create_event_parameter_pipeline_BasicIteration</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">ile</span><span class="o">-</span><span class="n">args</span> <span class="n">args_ile</span><span class="o">.</span><span class="n">txt</span> <span class="o">--</span><span class="n">cip</span><span class="o">-</span><span class="n">args</span> <span class="n">args_cip</span><span class="o">.</span><span class="n">txt</span> <span class="o">--</span><span class="n">working</span><span class="o">-</span><span class="n">directory</span> <span class="n">output</span><span class="o">/</span> <span class="o">--</span><span class="n">calibration</span><span class="o">-</span><span class="n">reweighting</span>
+</pre></div>
+</div>
+<p>With puffball refinement:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">create_event_parameter_pipeline_BasicIteration</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">ile</span><span class="o">-</span><span class="n">args</span> <span class="n">args_ile</span><span class="o">.</span><span class="n">txt</span> <span class="o">--</span><span class="n">cip</span><span class="o">-</span><span class="n">args</span> <span class="n">args_cip</span><span class="o">.</span><span class="n">txt</span> <span class="o">--</span><span class="n">working</span><span class="o">-</span><span class="n">directory</span> <span class="n">output</span><span class="o">/</span> <span class="o">--</span><span class="n">puff</span><span class="o">-</span><span class="n">exe</span> <span class="n">util_ParameterPuffball</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">puff</span><span class="o">-</span><span class="n">cadence</span> <span class="mi">2</span>
+</pre></div>
+</div>
+</section>
+<section id="command-line-arguments">
+<h2>Command-Line Arguments<a class="headerlink" href="#command-line-arguments" title="Link to this heading"></a></h2>
+<section id="i-o-configuration">
+<h3>I/O Configuration<a class="headerlink" href="#i-o-configuration" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-working-directory">
+<span class="sig-name descname"><span class="pre">--working-directory</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;path&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-working-directory" title="Link to this definition"></a></dt>
+<dd><p>Output directory for DAG. All pipeline outputs will be written here.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-input-grid">
+<span class="sig-name descname"><span class="pre">--input-grid</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;file&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-input-grid" title="Link to this definition"></a></dt>
+<dd><p>Initial overlap grid file (default: <code class="docutils literal notranslate"><span class="pre">overlap-grid.xml.gz</span></code>).</p>
+</dd></dl>
+
+</section>
+<section id="ile-configuration">
+<h3>ILE Configuration<a class="headerlink" href="#ile-configuration" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-ile-args">
+<span class="sig-name descname"><span class="pre">--ile-args</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;file&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-ile-args" title="Link to this definition"></a></dt>
+<dd><p>Filename of args_ile.txt file which holds ILE arguments.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-ile-exe">
+<span class="sig-name descname"><span class="pre">--ile-exe</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;path&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-ile-exe" title="Link to this definition"></a></dt>
+<dd><p>ILE executable. Will default to <code class="docutils literal notranslate"><span class="pre">integrate_likelihood_extrinsic</span></code>.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-ile-retries">
+<span class="sig-name descname"><span class="pre">--ile-retries</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;n&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-ile-retries" title="Link to this definition"></a></dt>
+<dd><p>Number of retry attempts for ILE jobs.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-ile-group-subdag">
+<span class="sig-name descname"><span class="pre">--ile-group-subdag</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-ile-group-subdag" title="Link to this definition"></a></dt>
+<dd><p>Group ILE jobs in a subdag.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-ile-n-events-to-analyze">
+<span class="sig-name descname"><span class="pre">--ile-n-events-to-analyze</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;n&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-ile-n-events-to-analyze" title="Link to this definition"></a></dt>
+<dd><p>Number of events to analyze (for ILE batchmode).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-ile-runtime-max-minutes">
+<span class="sig-name descname"><span class="pre">--ile-runtime-max-minutes</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;n&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-ile-runtime-max-minutes" title="Link to this definition"></a></dt>
+<dd><p>Maximum runtime for ILE jobs in minutes.</p>
+</dd></dl>
+
+</section>
+<section id="cip-conditional-inference-pipeline-configuration">
+<h3>CIP (Conditional Inference Pipeline) Configuration<a class="headerlink" href="#cip-conditional-inference-pipeline-configuration" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-cip-args">
+<span class="sig-name descname"><span class="pre">--cip-args</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;file&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-cip-args" title="Link to this definition"></a></dt>
+<dd><p>Filename of args_cip.txt file which holds CIP arguments.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-cip-args-list">
+<span class="sig-name descname"><span class="pre">--cip-args-list</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;file&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-cip-args-list" title="Link to this definition"></a></dt>
+<dd><p>_filename of args_cip_list.file with CIP arguments. One CIP_n.sub file per line.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-cip-exe">
+<span class="sig-name descname"><span class="pre">--cip-exe</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;path&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-cip-exe" title="Link to this definition"></a></dt>
+<dd><p>CIP executable. Defaults to <code class="docutils literal notranslate"><span class="pre">util_ConstructIntrinsicPosterior_GenericCoordinates</span></code>.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-cip-exe-G">
+<span class="sig-name descname"><span class="pre">--cip-exe-G</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;path&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-cip-exe-G" title="Link to this definition"></a></dt>
+<dd><p>Alternate CIP executable for ‘G’ iterations.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-cip-explode-jobs">
+<span class="sig-name descname"><span class="pre">--cip-explode-jobs</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;n&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-cip-explode-jobs" title="Link to this definition"></a></dt>
+<dd><p>Number of CIP jobs to run in parallel to produce posterior samples.</p>
+</dd></dl>
+
+</section>
+<section id="puffball-configuration">
+<h3>Puffball Configuration<a class="headerlink" href="#puffball-configuration" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-puff-exe">
+<span class="sig-name descname"><span class="pre">--puff-exe</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;path&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-puff-exe" title="Link to this definition"></a></dt>
+<dd><p>Puffball executable (default: <code class="docutils literal notranslate"><span class="pre">util_ParameterPuffball.py</span></code>).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-puff-args">
+<span class="sig-name descname"><span class="pre">--puff-args</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;args&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-puff-args" title="Link to this definition"></a></dt>
+<dd><p>Puffball arguments. If not specified, puffball is not performed.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-puff-cadence">
+<span class="sig-name descname"><span class="pre">--puff-cadence</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;n&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-puff-cadence" title="Link to this definition"></a></dt>
+<dd><p>Puffball frequency: every n iterations (not including 0).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-puff-max-it">
+<span class="sig-name descname"><span class="pre">--puff-max-it</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;n&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-puff-max-it" title="Link to this definition"></a></dt>
+<dd><p>Maximum iteration number for puffball.</p>
+</dd></dl>
+
+</section>
+<section id="calibration-reweighting">
+<h3>Calibration Reweighting<a class="headerlink" href="#calibration-reweighting" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-calibration-reweighting">
+<span class="sig-name descname"><span class="pre">--calibration-reweighting</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-calibration-reweighting" title="Link to this definition"></a></dt>
+<dd><p>Run calibration reweighting on final posterior samples.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-calibration-reweighting-count">
+<span class="sig-name descname"><span class="pre">--calibration-reweighting-count</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;n&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-calibration-reweighting-count" title="Link to this definition"></a></dt>
+<dd><p>Number of calibration marginalization realizations (default: 100).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-calibration-reweighting-batchsize">
+<span class="sig-name descname"><span class="pre">--calibration-reweighting-batchsize</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;n&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-calibration-reweighting-batchsize" title="Link to this definition"></a></dt>
+<dd><p>Group calibration reweighting jobs by fixed size.</p>
+</dd></dl>
+
+</section>
+<section id="workflow-control">
+<h3>Workflow Control<a class="headerlink" href="#workflow-control" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-first-iteration-jumpstart">
+<span class="sig-name descname"><span class="pre">--first-iteration-jumpstart</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-first-iteration-jumpstart" title="Link to this definition"></a></dt>
+<dd><p>No ILE jobs on first iteration. Assumes composite files already exist.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-last-iteration-extrinsic">
+<span class="sig-name descname"><span class="pre">--last-iteration-extrinsic</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-last-iteration-extrinsic" title="Link to this definition"></a></dt>
+<dd><p>Extract one set of extrinsic parameters from each intrinsic point (last iteration).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-last-iteration-extrinsic-nsamples">
+<span class="sig-name descname"><span class="pre">--last-iteration-extrinsic-nsamples</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;n&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-last-iteration-extrinsic-nsamples" title="Link to this definition"></a></dt>
+<dd><p>Number of extrinsic samples to construct (default: 3000).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-frame-rotation">
+<span class="sig-name descname"><span class="pre">--frame-rotation</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-frame-rotation" title="Link to this definition"></a></dt>
+<dd><p>Rotate from J frame to L frame (for extrinsic samples).</p>
+</dd></dl>
+
+</section>
+<section id="plotting-and-testing">
+<h3>Plotting and Testing<a class="headerlink" href="#plotting-and-testing" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-plot-exe">
+<span class="sig-name descname"><span class="pre">--plot-exe</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;path&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-plot-exe" title="Link to this definition"></a></dt>
+<dd><p>Plot code executable (default: <code class="docutils literal notranslate"><span class="pre">plot_posterior_corner.py</span></code>).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-test-exe">
+<span class="sig-name descname"><span class="pre">--test-exe</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;path&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-test-exe" title="Link to this definition"></a></dt>
+<dd><p>Test code for convergence testing.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-gridinit-exe">
+<span class="sig-name descname"><span class="pre">--gridinit-exe</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;path&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-gridinit-exe" title="Link to this definition"></a></dt>
+<dd><p>Initial grid creation executable (default: <code class="docutils literal notranslate"><span class="pre">util_ManualOverlapGrid.py</span></code>).</p>
+</dd></dl>
+
+</section>
+<section id="disk-and-memory">
+<h3>Disk and Memory<a class="headerlink" href="#disk-and-memory" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-general-request-disk">
+<span class="sig-name descname"><span class="pre">--general-request-disk</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;size&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-general-request-disk" title="Link to this definition"></a></dt>
+<dd><p>Request disk for general jobs (default: 10M).</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-ile-request-disk">
+<span class="sig-name descname"><span class="pre">--ile-request-disk</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;size&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-ile-request-disk" title="Link to this definition"></a></dt>
+<dd><p>Request disk for ILE jobs.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-cip-request-disk">
+<span class="sig-name descname"><span class="pre">--cip-request-disk</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;size&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-cip-request-disk" title="Link to this definition"></a></dt>
+<dd><p>Request disk for CIP jobs.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-ile-request-memory">
+<span class="sig-name descname"><span class="pre">--ile-request-memory</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;size&gt;</span></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-ile-request-memory" title="Link to this definition"></a></dt>
+<dd><p>Request memory for ILE jobs in Mb.</p>
+</dd></dl>
+
+</section>
+<section id="eccentricity">
+<h3>Eccentricity<a class="headerlink" href="#eccentricity" title="Link to this heading"></a></h3>
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-use-eccentricity">
+<span class="sig-name descname"><span class="pre">--use-eccentricity</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-use-eccentricity" title="Link to this definition"></a></dt>
+<dd><p>Enable eccentricity in the analysis.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-use-meanPerAno">
+<span class="sig-name descname"><span class="pre">--use-meanPerAno</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-use-meanPerAno" title="Link to this definition"></a></dt>
+<dd><p>Use mean anomaly parameterization.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-create_event_parameter_pipeline_BasicIteration-use-eccentricity-squared-sampling">
+<span class="sig-name descname"><span class="pre">--use-eccentricity-squared-sampling</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-create_event_parameter_pipeline_BasicIteration-use-eccentricity-squared-sampling" title="Link to this definition"></a></dt>
+<dd><p>Sample in eccentricity squared.</p>
+</dd></dl>
+
+</section>
+</section>
+<section id="examples">
+<h2>Examples<a class="headerlink" href="#examples" title="Link to this heading"></a></h2>
+<section id="basic-pipeline">
+<h3>Basic Pipeline<a class="headerlink" href="#basic-pipeline" title="Link to this heading"></a></h3>
+<p>Create a basic pipeline:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">create_event_parameter_pipeline_BasicIteration</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">ile</span><span class="o">-</span><span class="n">args</span> <span class="n">args_ile</span><span class="o">.</span><span class="n">txt</span> <span class="o">--</span><span class="n">cip</span><span class="o">-</span><span class="n">args</span> <span class="n">args_cip</span><span class="o">.</span><span class="n">txt</span> <span class="o">--</span><span class="n">working</span><span class="o">-</span><span class="n">directory</span> <span class="n">output</span><span class="o">/</span>
+</pre></div>
+</div>
+</section>
+<section id="with-puffball-refinement">
+<h3>With Puffball Refinement<a class="headerlink" href="#with-puffball-refinement" title="Link to this heading"></a></h3>
+<p>Add puffball refinement every 2 iterations:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">create_event_parameter_pipeline_BasicIteration</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">ile</span><span class="o">-</span><span class="n">args</span> <span class="n">args_ile</span><span class="o">.</span><span class="n">txt</span> <span class="o">--</span><span class="n">cip</span><span class="o">-</span><span class="n">args</span> <span class="n">args_cip</span><span class="o">.</span><span class="n">txt</span> <span class="o">--</span><span class="n">working</span><span class="o">-</span><span class="n">directory</span> <span class="n">output</span><span class="o">/</span> <span class="o">--</span><span class="n">puff</span><span class="o">-</span><span class="n">exe</span> <span class="n">util_ParameterPuffball</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">puff</span><span class="o">-</span><span class="n">cadence</span> <span class="mi">2</span>
+</pre></div>
+</div>
+</section>
+<section id="with-calibration-marginalization">
+<h3>With Calibration Marginalization<a class="headerlink" href="#with-calibration-marginalization" title="Link to this heading"></a></h3>
+<p>Add calibration uncertainty marginalization with 200 realizations:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">create_event_parameter_pipeline_BasicIteration</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">ile</span><span class="o">-</span><span class="n">args</span> <span class="n">args_ile</span><span class="o">.</span><span class="n">txt</span> <span class="o">--</span><span class="n">cip</span><span class="o">-</span><span class="n">args</span> <span class="n">args_cip</span><span class="o">.</span><span class="n">txt</span> <span class="o">--</span><span class="n">working</span><span class="o">-</span><span class="n">directory</span> <span class="n">output</span><span class="o">/</span> <span class="o">--</span><span class="n">calibration</span><span class="o">-</span><span class="n">reweighting</span> <span class="o">--</span><span class="n">calibration</span><span class="o">-</span><span class="n">reweighting</span><span class="o">-</span><span class="n">count</span> <span class="mi">200</span>
+</pre></div>
+</div>
+</section>
+<section id="jumpstart-first-iteration">
+<h3>Jumpstart First Iteration<a class="headerlink" href="#jumpstart-first-iteration" title="Link to this heading"></a></h3>
+<p>Skip ILE jobs on first iteration (use existing composite files):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="n">create_event_parameter_pipeline_BasicIteration</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">ile</span><span class="o">-</span><span class="n">args</span> <span class="n">args_ile</span><span class="o">.</span><span class="n">txt</span> <span class="o">--</span><span class="n">cip</span><span class="o">-</span><span class="n">args</span> <span class="n">args_cip</span><span class="o">.</span><span class="n">txt</span> <span class="o">--</span><span class="n">working</span><span class="o">-</span><span class="n">directory</span> <span class="n">output</span><span class="o">/</span> <span class="o">--</span><span class="n">first</span><span class="o">-</span><span class="n">iteration</span><span class="o">-</span><span class="n">jumpstart</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="workflow-structure">
+<h2>Workflow Structure<a class="headerlink" href="#workflow-structure" title="Link to this heading"></a></h2>
+<p>The pipeline creates the following directory structure:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>working_directory/
+├── iteration_0/
+│   ├── output-ILE-0.xml.gz
+│   ├── *.composite files
+│   └── logs/
+├── iteration_1/
+│   ├── output-ILE-1.xml.gz
+│   ├── *.composite files
+│   └── logs/
+...
+├── all.net (union of all composite files)
+├── args_ile.txt
+├── args_cip.txt
+└── *.dag files
+</pre></div>
+</div>
+<p>Each iteration produces:
+- <code class="docutils literal notranslate"><span class="pre">output-ILE-&lt;n&gt;.xml.gz</span></code> - ILE output for that iteration
+- <code class="docutils literal notranslate"><span class="pre">*.composite</span></code> files - Consolidated samples
+- <code class="docutils literal notranslate"><span class="pre">all.net</span></code> - Union of all composite files</p>
+</section>
+<section id="see-also">
+<h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="util_RIFT_pseudo_pipe.html"><span class="doc">util_RIFT_pseudo_pipe.py</span></a> - Main user interface</p></li>
+<li><p><a class="reference internal" href="../api_reference/index.html"><span class="doc">API Reference</span></a> - API Reference</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="util_RIFT_pseudo_pipe.html" class="btn btn-neutral float-left" title="util_RIFT_pseudo_pipe.py" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="integrate_likelihood_extrinsic.html" class="btn btn-neutral float-right" title="integrate_likelihood_extrinsic" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

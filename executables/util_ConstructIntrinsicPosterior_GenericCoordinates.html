@@ -1,0 +1,243 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>util_ConstructIntrinsicPosterior_GenericCoordinates &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="plot_posterior_corner" href="plot_posterior_corner.html" />
+    <link rel="prev" title="integrate_likelihood_extrinsic_batchmode" href="integrate_likelihood_extrinsic_batchmode.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Executables</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="util_RIFT_pseudo_pipe.html">util_RIFT_pseudo_pipe.py</a></li>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html">create_event_parameter_pipeline_BasicIteration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html">integrate_likelihood_extrinsic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html">integrate_likelihood_extrinsic_batchmode</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">util_ConstructIntrinsicPosterior_GenericCoordinates</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html">plot_posterior_corner</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html">util_ManualOverlapGrid</a></li>
+<li class="toctree-l2"><a class="reference internal" href="convergence_test_samples.html">convergence_test_samples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ParameterPuffball.html">util_ParameterPuffball</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Executables</a></li>
+      <li class="breadcrumb-item active">util_ConstructIntrinsicPosterior_GenericCoordinates</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/executables/util_ConstructIntrinsicPosterior_GenericCoordinates.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="util-constructintrinsicposterior-genericcoordinates">
+<h1>util_ConstructIntrinsicPosterior_GenericCoordinates<a class="headerlink" href="#util-constructintrinsicposterior-genericcoordinates" title="Link to this heading"></a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">util_ConstructIntrinsicPosterior_GenericCoordinates</span></code> executable loads marginalized likelihood data (typically from <code class="docutils literal notranslate"><span class="pre">integrate_likelihood_extrinsic</span></code>), fits the peak using various interpolation methods, and generates posterior samples for the intrinsic parameters.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>This tool represents the “Construct Intrinsic Posterior” (CIP) stage of the RIFT pipeline. After <code class="docutils literal notranslate"><span class="pre">integrate_likelihood_extrinsic</span></code> has computed the marginalized likelihood for a grid of intrinsic parameters, <code class="docutils literal notranslate"><span class="pre">util_ConstructIntrinsicPosterior_GenericCoordinates</span></code> takes that grid and:
+1. Fits a continuous surface to the discrete log-likelihood ($ln mathcal{L}$) data.
+2. Uses a Monte Carlo sampler to draw posterior samples based on the fit and a specified prior.
+3. Performs coordinate transformations and adds derived quantities to the resulting samples.</p>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
+<section id="basic-command-line">
+<h3>Basic Command Line<a class="headerlink" href="#basic-command-line" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>util_ConstructIntrinsicPosterior_GenericCoordinates<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+</pre></div>
+</div>
+</section>
+<section id="primary-options">
+<h3>Primary Options<a class="headerlink" href="#primary-options" title="Link to this heading"></a></h3>
+</section>
+</section>
+<section id="input-output">
+<h2>Input/Output<a class="headerlink" href="#input-output" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--fname</span></code>: Filename of the <code class="docutils literal notranslate"><span class="pre">*.dat</span></code> file containing the marginalized likelihood data (standard ILE output).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--fname-output-samples</span></code>: Filename for the resulting posterior samples (default: <code class="docutils literal notranslate"><span class="pre">output-ILE-samples</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--fname-output-integral</span></code>: Filename for the resulting integral result (default: <code class="docutils literal notranslate"><span class="pre">integral_result</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--n-output-samples</span></code>: Number of posterior samples to generate (default: 3000).</p></li>
+</ul>
+</section>
+<section id="fitting-configuration">
+<h2>Fitting Configuration<a class="headerlink" href="#fitting-configuration" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">--fit-method</span></code>: Method used to interpolate the likelihood surface. Options include:</dt><dd><ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">rf</span></code>: Random Forest (default)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gp</span></code>: Gaussian Process</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">quadratic</span></code>: Quadratic fit to the peak</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">polynomial</span></code>: General polynomial fit</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">kde</span></code>: Kernel Density Estimation</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--fit-order</span></code>: Order of the polynomial fit (default: 2 for quadratic).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--lnL-offset</span></code>: Threshold relative to the peak ($ln mathcal{L}_{max} - text{offset}$) used to filter data points for the fit.</p></li>
+</ul>
+</section>
+<section id="parameter-and-prior-configuration">
+<h2>Parameter and Prior Configuration<a class="headerlink" href="#parameter-and-prior-configuration" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--parameter</span></code>: List of parameters to be used as fitting parameters and varied for the posterior.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--parameter-implied</span></code>: Parameters used in the fit but not independently varied for MC.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mc-range</span></code>, <code class="docutils literal notranslate"><span class="pre">--eta-range</span></code>, <code class="docutils literal notranslate"><span class="pre">--mtot-range</span></code>: Manual ranges for the Monte Carlo sampling to avoid wasting time in low-probability regions.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--aligned-prior</span></code>: Prior for aligned spins (<code class="docutils literal notranslate"><span class="pre">uniform</span></code>, <code class="docutils literal notranslate"><span class="pre">volumetric</span></code>, <code class="docutils literal notranslate"><span class="pre">alignedspin-zprior</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--transverse-prior</span></code>: Prior for transverse spins (<code class="docutils literal notranslate"><span class="pre">uniform</span></code>, <code class="docutils literal notranslate"><span class="pre">uniform-mag</span></code>, <code class="docutils literal notranslate"><span class="pre">taper-down</span></code>, <code class="docutils literal notranslate"><span class="pre">sqrt-prior</span></code>, etc.).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--prior-gaussian-mass-ratio</span></code>: Applies a Gaussian mass ratio prior.</p></li>
+</ul>
+</section>
+<section id="advanced-analysis">
+<h2>Advanced Analysis<a class="headerlink" href="#advanced-analysis" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--downselect-parameter</span></code> &amp; <code class="docutils literal notranslate"><span class="pre">--downselect-parameter-range</span></code>: Used to eliminate grid points that fall outside specified ranges.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--fname-lalinference</span></code>: Filename of LALInference posterior samples to overlay on corner plots for comparison.</p></li>
+</ul>
+</section>
+<section id="functional-logic">
+<h2>Functional Logic<a class="headerlink" href="#functional-logic" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Data Loading</strong>: Reads the marginalized likelihood grid from the input file.</p></li>
+<li><p><strong>Downselection</strong>: Filters out points based on the <code class="docutils literal notranslate"><span class="pre">--downselect-parameter</span></code> criteria or EOS-based constraints.</p></li>
+<li><dl class="simple">
+<dt><strong>Fitting</strong>:</dt><dd><ul class="simple">
+<li><p>Applies the chosen <code class="docutils literal notranslate"><span class="pre">--fit-method</span></code> (e.g., Gaussian Process or Random Forest) to create a continuous representation of the $ln mathcal{L}$ surface.</p></li>
+<li><p>Optionally shifts the $ln mathcal{L}$ values to prevent numerical overflow.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt><strong>Sample Generation</strong>:</dt><dd><ul class="simple">
+<li><p>Uses an integrator (like <code class="docutils literal notranslate"><span class="pre">adaptive_cartesian</span></code> or <code class="docutils literal notranslate"><span class="pre">GMM</span></code>) to draw samples proportional to $mathcal{L}_{fit}(theta) times text{Prior}(theta)$.</p></li>
+<li><p>This converts the fitted surface into a set of posterior samples.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt><strong>Post-Processing</strong>:</dt><dd><ul class="simple">
+<li><p>Transforms samples into requested coordinate systems.</p></li>
+<li><p>Calculates derived parameters (e.g., $chi_{eff}$, $chi_{minus}$).</p></li>
+<li><p>Writes the samples to the output file and computes the total evidence (integral).</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+</ol>
+</section>
+<section id="output-details">
+<h2>Output Details<a class="headerlink" href="#output-details" title="Link to this heading"></a></h2>
+<p>The primary output is a structured numpy array (or XML/HDF5 file) containing the posterior samples of the intrinsic parameters. It also produces an integral result representing the marginalized likelihood over the intrinsic space.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="integrate_likelihood_extrinsic_batchmode.html" class="btn btn-neutral float-left" title="integrate_likelihood_extrinsic_batchmode" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="plot_posterior_corner.html" class="btn btn-neutral float-right" title="plot_posterior_corner" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

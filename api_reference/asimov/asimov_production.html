@@ -1,0 +1,642 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RIFT+Asimov: Production Workflow &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Calibration Marginalization" href="../calmarg/index.html" />
+    <link rel="prev" title="RIFT+Asimov: Simple Workflow" href="asimov_simple.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../simulation_manager/index.html">Simulation Manager</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">Asimov Interface</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="overview.html">Asimov Interface Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="use_cases.html">Asimov Use Cases and Mapping</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="workflows.html">Asimov + RIFT Workflows</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="asimov_simple.html">RIFT+Asimov: Simple Workflow</a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#">RIFT+Asimov: Production Workflow</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../calmarg/index.html">Calibration Marginalization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../misc/index.html">Misc Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../lalsimutils.html">LALSimUtils</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API Reference</a></li>
+          <li class="breadcrumb-item"><a href="index.html">Asimov Interface</a></li>
+          <li class="breadcrumb-item"><a href="workflows.html">Asimov + RIFT Workflows</a></li>
+      <li class="breadcrumb-item active">RIFT+Asimov: Production Workflow</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api_reference/asimov/asimov_production.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="rift-asimov-production-workflow">
+<h1>RIFT+Asimov: Production Workflow<a class="headerlink" href="#rift-asimov-production-workflow" title="Link to this heading"></a></h1>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This is a living document. RIFT and Asimov interfaces evolve on few-month timescales.
+Always cross-check with the latest authoritative references linked in the <a class="reference internal" href="#references">References</a> section.</p>
+</div>
+<p>This section describes the production workflow for deploying RIFT analyses using the <code class="docutils literal notranslate"><span class="pre">asimov</span></code> framework. Unlike the <a class="reference internal" href="asimov_simple.html"><span class="doc">RIFT+Asimov: Simple Workflow</span></a> workflow, which processes a single event with a minimal configuration, the production workflow handles <strong>multiple events</strong> and integrates <strong>multiple pipelines</strong> (RIFT, bilby, cbcflow, bayeswave) in a coordinated fashion.</p>
+<section id="production-vs-simple-workflow">
+<h2>Production vs Simple Workflow<a class="headerlink" href="#production-vs-simple-workflow" title="Link to this heading"></a></h2>
+<p>The key differences between the simple and production workflows:</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 33.3%" />
+<col style="width: 33.3%" />
+<col style="width: 33.3%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Aspect</p></th>
+<th class="head"><p>Simple (asimov_simple.rst)</p></th>
+<th class="head"><p>Production (asimov_production.rst)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Number of events</p></td>
+<td><p>Single event</p></td>
+<td><p>Multiple events (loop)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Pipelines</p></td>
+<td><p>RIFT only</p></td>
+<td><p>RIFT + bilby + cbcflow + bayeswave</p></td>
+</tr>
+<tr class="row-even"><td><p>Configuration layers</p></td>
+<td><p>2 (defaults + analysis)</p></td>
+<td><p>6+ (infrastructure, priors, cbcflow, localization, physics, bilby)</p></td>
+</tr>
+<tr class="row-odd"><td><p>Environment</p></td>
+<td><p>Default Singularity container</p></td>
+<td><p>Local conda environment + cvmfs</p></td>
+</tr>
+<tr class="row-even"><td><p>Output</p></td>
+<td><p>Basic asimov commands</p></td>
+<td><p>cbcflow + webroot</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="multi-event-pattern">
+<h2>Multi-Event Pattern<a class="headerlink" href="#multi-event-pattern" title="Link to this heading"></a></h2>
+<p>The production workflow centers on the <strong>multi-event pattern</strong>. Instead of running a single analysis, production workflows typically process multiple events in a coordinated loop.</p>
+<p><strong>Why Multiple Events?</strong></p>
+<ul class="simple">
+<li><p><strong>Efficiency</strong>: Process many events with the same configuration</p></li>
+<li><p><strong>Consistency</strong>: Ensure uniform treatment across events</p></li>
+<li><p><strong>Automation</strong>: Reduce manual steps for each new event</p></li>
+<li><p><strong>Cross-validation</strong>: Compare results across different waveforms</p></li>
+</ul>
+<p><strong>Event Naming Convention</strong></p>
+<p>Events in production are identified by their gracedb ID. The standard naming format is <code class="docutils literal notranslate"><span class="pre">SYYMMDDx</span></code>, where:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">YY</span></code>: Year (e.g., 24 for 2024)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">MM</span></code>: Month (e.g., 04 for April)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DD</span></code>: Day (e.g., 26 for 26th)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">x</span></code>: Letter suffix assigned by gracedb (varies)</p></li>
+</ul>
+<p>See <a class="reference external" href="https://gracedb.ligo.org">gracedb</a> for details on event naming and IDs.</p>
+<p>Examples: <code class="docutils literal notranslate"><span class="pre">S240426s</span></code>, <code class="docutils literal notranslate"><span class="pre">S240618ah</span></code></p>
+</section>
+<section id="stage-by-stage-guide">
+<h2>Stage-by-Stage Guide<a class="headerlink" href="#stage-by-stage-guide" title="Link to this heading"></a></h2>
+<p>This section explains each stage of the production workflow, referencing the script in <a class="reference internal" href="#production-script"><span class="std std-ref">Full Production Script</span></a>.</p>
+<section id="stage-1-project-setup">
+<h3>Stage 1: Project Setup<a class="headerlink" href="#stage-1-project-setup" title="Link to this heading"></a></h3>
+<p>Create the project directory and initialize an Asimov project:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>mkdir<span class="w"> </span>-p<span class="w"> </span><span class="nv">$1</span>
+<span class="nb">cd</span><span class="w"> </span><span class="nv">$1</span>
+asimov<span class="w"> </span>init<span class="w"> </span>my-project-<span class="nv">$1</span>
+</pre></div>
+</div>
+<p>This creates a new Asimov project with a unique name. The project directory will store all configurations and outputs.</p>
+</section>
+<section id="stage-2-environment-configuration">
+<h3>Stage 2: Environment Configuration<a class="headerlink" href="#stage-2-environment-configuration" title="Link to this heading"></a></h3>
+<p>Configure the RIFT environment. In production, this typically points to a specific conda environment rather than the default Singularity container:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>configuration<span class="w"> </span>update<span class="w"> </span>rift/environment<span class="w"> </span>/path/to/your/rift-environment
+asimov<span class="w"> </span>configuration<span class="w"> </span>update<span class="w"> </span>pipelines/environment<span class="w"> </span>/path/to/your/rift-environment
+</pre></div>
+</div>
+<p><strong>Why specify the environment?</strong></p>
+<ul class="simple">
+<li><p>Use a specific RIFT version for reproducibility</p></li>
+<li><p>Access to local build tools and debugging</p></li>
+<li><p>Consistent environment across all jobs</p></li>
+</ul>
+</section>
+<section id="stage-3-infrastructure-blueprints">
+<h3>Stage 3: Infrastructure Blueprints<a class="headerlink" href="#stage-3-infrastructure-blueprints" title="Link to this heading"></a></h3>
+<p>Apply the base infrastructure configuration. These define the cluster, accounting, and hardware requirements:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/defaults/production-pe.yaml
+asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>https://git.ligo.org/asimov/data/-/raw/main/defaults/cbcflow/testing.yaml
+asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/defaults/production-pe-priors.yaml
+</pre></div>
+</div>
+<p><strong>Key blueprints:</strong></p>
+<ol class="arabic simple">
+<li><p><strong>production-pe.yaml</strong>: Infrastructure defaults
+- OSG (Open Science Grid) configuration
+- Accounting group (e.g., <code class="docutils literal notranslate"><span class="pre">ligo.dev.o4.cbc.pe.rift</span></code>)
+- GPU requirements
+- Base Singularity image</p></li>
+<li><p><strong>cbcflow/testing.yaml</strong>: cbcflow configuration
+- Workflow manager settings</p></li>
+<li><p><strong>production-pe-priors.yaml</strong>: Prior distributions
+- Default prior settings for mass, spin, etc.</p></li>
+</ol>
+</section>
+<section id="stage-4-cbcflow-integration">
+<h3>Stage 4: cbcflow Integration<a class="headerlink" href="#stage-4-cbcflow-integration" title="Link to this heading"></a></h3>
+<p>cbcflow manages the overall workflow for production PE. It coordinates multiple pipelines and handles result aggregation:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>git@git.ligo.org:michael.williams/cbc-workflow-er16-o4b.git<span class="w"> </span>cbcflow-library
+<span class="o">(</span><span class="nb">cd</span><span class="w"> </span>cbcflow-library<span class="p">;</span><span class="w"> </span>./setup-cbcflow-merge-strategy.sh<span class="o">)</span>
+asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/cbcflow.yaml
+</pre></div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">cbcflow-library</span></code> repository is <strong>internal-use-only</strong> and restricted to LVK personnel.</p>
+</div>
+<p><strong>What cbcflow does:</strong></p>
+<ul class="simple">
+<li><p>Coordinates data retrieval (graceDB)</p></li>
+<li><p>Manages multiple PE pipelines</p></li>
+<li><p>Handles result merging and aggregation</p></li>
+<li><p>Generates summary pages</p></li>
+</ul>
+</section>
+<section id="stage-5-output-configuration">
+<h3>Stage 5: Output Configuration<a class="headerlink" href="#stage-5-output-configuration" title="Link to this heading"></a></h3>
+<p>Configure the webroot for output files:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>configuration<span class="w"> </span>update<span class="w"> </span>condor/user<span class="w"> </span><span class="si">${</span><span class="nv">USER</span><span class="si">}</span>
+asimov<span class="w"> </span>configuration<span class="w"> </span>update<span class="w"> </span>general/webroot<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/<span class="nv">$1</span>/web_output/
+</pre></div>
+</div>
+<p>This defines:
+- The condor user for accounting
+- The web directory for results</p>
+</section>
+<section id="stage-6-localization-configuration">
+<h3>Stage 6: Localization Configuration<a class="headerlink" href="#stage-6-localization-configuration" title="Link to this heading"></a></h3>
+<p>Apply bayeswave localization settings:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/localize_bw.yaml
+</pre></div>
+</div>
+<p>This allows bayeswave (the localization pipeline) to run on OSG.</p>
+</section>
+<section id="stage-7-event-addition-function">
+<h3>Stage 7: Event Addition Function<a class="headerlink" href="#stage-7-event-addition-function" title="Link to this heading"></a></h3>
+<p>Define a function to add events. This is the core of the multi-event pattern:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="k">function</span><span class="w"> </span>add_event<span class="w"> </span><span class="o">()</span><span class="w"> </span><span class="o">{</span>
+<span class="w">    </span><span class="c1"># Add the event using cbcflow</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-p<span class="w"> </span>cbcflow<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+
+<span class="w">    </span><span class="c1"># Apply analysis blueprints</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/get-data/o4b-production.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/pe-configurator/standard.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/bayeswave-psd/standard-settings.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+
+<span class="w">    </span><span class="c1"># RIFT analyses</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/rift-bbh/analysis_rift_SEOBNRv5PHM.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/rift-bbh/analysis_rift_NRSur7dq4.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+
+<span class="w">    </span><span class="c1"># Bilby analyses</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/bilby-bbh/analysis_bilby_IMRPhenomXPHM-SpinTaylor.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/bilby-bbh/analysis_bilby_SEOBNRv5PHM.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/bilby-bbh/analysis_bilby_NRSur7Dq4.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="o">}</span>
+</pre></div>
+</div>
+<p><strong>What each blueprint provides:</strong></p>
+<ul class="simple">
+<li><p><strong>o4b-production.yaml</strong>: Data retrieval from graceDB</p></li>
+<li><p><strong>standard.yaml</strong>: PE configurator settings</p></li>
+<li><p><strong>standard-settings.yaml</strong>: Bayeswave PSD settings</p></li>
+<li><p><strong>analysis_rift_SEOBNRv5PHM.yaml</strong>: RIFT with SEOBNRv5PHM waveform</p></li>
+<li><p><strong>analysis_rift_NRSur7dq4.yaml</strong>: RIFT with NRSur7dq4 waveform</p></li>
+<li><p><strong>bilby analyses</strong>: Bilby with various waveforms (for cross-validation)</p></li>
+</ul>
+</section>
+<section id="stage-8-event-loop">
+<h3>Stage 8: Event Loop<a class="headerlink" href="#stage-8-event-loop" title="Link to this heading"></a></h3>
+<p>Process multiple events in a loop:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="k">for</span><span class="w"> </span>i<span class="w"> </span><span class="k">in</span><span class="w"> </span>S240426s<span class="w"> </span>S240618ah
+<span class="k">do</span>
+<span class="w">    </span><span class="nv">SID_HERE</span><span class="o">=</span><span class="nv">$i</span>
+<span class="w">    </span>add_event<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="k">done</span>
+</pre></div>
+</div>
+<p>Each event is processed with all the configurations from Stage 7.</p>
+</section>
+</section>
+<section id="multi-pipeline-integration">
+<h2>Multi-Pipeline Integration<a class="headerlink" href="#multi-pipeline-integration" title="Link to this heading"></a></h2>
+<p>The production workflow integrates multiple parameter estimation pipelines to ensure robust and validated results.</p>
+<section id="pipeline-roles">
+<h3>Pipeline Roles<a class="headerlink" href="#pipeline-roles" title="Link to this heading"></a></h3>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 30.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Pipeline</p></th>
+<th class="head"><p>Role</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>RIFT</strong></p></td>
+<td><p>Primary PE</p></td>
+<td><p>Main parameter estimation. Supports SEOBNRv5PHM, NRSur7dq4.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>bilby</strong></p></td>
+<td><p>Cross-validation</p></td>
+<td><p>Independent PE for validation and systematic errors.</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>bayeswave</strong></p></td>
+<td><p>Detection &amp; Localization</p></td>
+<td><p>GW detection and sky localization.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>cbcflow</strong></p></td>
+<td><p>Workflow Manager</p></td>
+<td><p>Coordinates data, pipelines, and result aggregation.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="waveform-comparison">
+<h3>Waveform Comparison<a class="headerlink" href="#waveform-comparison" title="Link to this heading"></a></h3>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 25.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Waveform</p></th>
+<th class="head"><p>Pipeline</p></th>
+<th class="head"><p>Use Case</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>SEOBNRv5PHM</p></td>
+<td><p>RIFT + bilby</p></td>
+<td><p>Standard effective Hamiltonian model</p></td>
+</tr>
+<tr class="row-odd"><td><p>NRSur7dq4</p></td>
+<td><p>RIFT + bilby</p></td>
+<td><p>Numerical relativity surrogate</p></td>
+</tr>
+<tr class="row-even"><td><p>IMRPhenomXPHM</p></td>
+<td><p>bilby</p></td>
+<td><p>Phenomenological model</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="configuration-layering">
+<h2>Configuration Layering<a class="headerlink" href="#configuration-layering" title="Link to this heading"></a></h2>
+<p>The production workflow uses multiple configuration layers that are merged in a specific order. Later layers override earlier ones.</p>
+<section id="layer-order">
+<h3>Layer Order<a class="headerlink" href="#layer-order" title="Link to this heading"></a></h3>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 75.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Layer</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Infrastructure (production-pe.yaml)</p></td>
+<td><p>Base hardware, cluster, accounting settings</p></td>
+</tr>
+<tr class="row-odd"><td><p>Priors (production-pe-priors.yaml)</p></td>
+<td><p>Default mass/spin prior distributions</p></td>
+</tr>
+<tr class="row-even"><td><p>cbcflow</p></td>
+<td><p>Workflow manager settings</p></td>
+</tr>
+<tr class="row-odd"><td><p>Localization (localize_bw.yaml)</p></td>
+<td><p>Bayeswave OSG settings</p></td>
+</tr>
+<tr class="row-even"><td><p>Physics (analysis_rift_*.yaml)</p></td>
+<td><p>Waveform-specific settings</p></td>
+</tr>
+<tr class="row-odd"><td><p>bilby</p></td>
+<td><p>bilby-specific settings</p></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Merge Precedence</strong>: Later layers override earlier ones. For example, the physics layer overrides the infrastructure layer.</p>
+</section>
+<section id="local-vs-web-blueprints">
+<h3>Local vs Web Blueprints<a class="headerlink" href="#local-vs-web-blueprints" title="Link to this heading"></a></h3>
+<p>Blueprints can come from:</p>
+<ol class="arabic simple">
+<li><p><strong>Web (URL)</strong>: <code class="docutils literal notranslate"><span class="pre">https://git.ligo.org/asimov/data/-/raw/main/defaults/production-pe.yaml</span></code></p></li>
+<li><p><strong>Local (file)</strong>: <code class="docutils literal notranslate"><span class="pre">${HERE}/../asimov-rift-data/defaults/production-pe.yaml</span></code></p></li>
+</ol>
+<p><strong>When to use each:</strong>
+- Web: Latest official defaults
+- Local: Custom or event-specific configurations</p>
+</section>
+</section>
+<section id="environment-setup">
+<h2>Environment Setup<a class="headerlink" href="#environment-setup" title="Link to this heading"></a></h2>
+<p>Production workflows often require environments beyond the default asimov containers to support specific RIFT versions or local build tools.</p>
+<section id="conda-environments">
+<h3>Conda Environments<a class="headerlink" href="#conda-environments" title="Link to this heading"></a></h3>
+<p>In many production cases, RIFT is run within a dedicated Conda environment. This is configured via the <code class="docutils literal notranslate"><span class="pre">rift/environment</span></code> and <code class="docutils literal notranslate"><span class="pre">pipelines/environment</span></code> settings in asimov.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>configuration<span class="w"> </span>update<span class="w"> </span>rift/environment<span class="w"> </span>/path/to/your/conda/env
+asimov<span class="w"> </span>configuration<span class="w"> </span>update<span class="w"> </span>pipelines/environment<span class="w"> </span>/path/to/your/conda/env
+</pre></div>
+</div>
+<p>Using a local Conda environment allows for:
+- <strong>Rapid Iteration</strong>: Testing new code changes without rebuilding a container image.
+- <strong>Version Control</strong>: Pinning exactly which version of RIFT and its dependencies are used for a specific production run.
+- <strong>Local Tooling</strong>: Access to site-specific binaries or libraries.</p>
+</section>
+<section id="cvmfs-and-singularity">
+<h3>CVMFS and Singularity<a class="headerlink" href="#cvmfs-and-singularity" title="Link to this heading"></a></h3>
+<p>While local environments are useful for development, production results are typically validated using containers stored on CVMFS (CernVM-FS).</p>
+<ul class="simple">
+<li><p><strong>Singularity Images</strong>: Asimov can be configured to pull images from CVMFS paths (e.g., <code class="docutils literal notranslate"><span class="pre">/cvmfs/singularity.opensciencegrid.org/...</span></code>).</p></li>
+<li><p><strong>Containerization</strong>: Ensures that the environment is identical across all OSG nodes, eliminating “it works on my machine” issues.</p></li>
+</ul>
+</section>
+<section id="output-and-webroot">
+<h3>Output and Webroot<a class="headerlink" href="#output-and-webroot" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">general/webroot</span></code> setting defines where the final analysis results, plots, and summary pages are stored. In production, this is typically a public-facing directory on an IGWN cluster.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>configuration<span class="w"> </span>update<span class="w"> </span>general/webroot<span class="w"> </span>/home/<span class="si">${</span><span class="nv">USER</span><span class="si">}</span>/public_html/asimov_results/project_name/
+</pre></div>
+</div>
+<p>This allows collaborators to view the progress and results of the production run via a web browser without needing direct shell access to the cluster.</p>
+</section>
+</section>
+<section id="building-and-submitting">
+<h2>Building and Submitting<a class="headerlink" href="#building-and-submitting" title="Link to this heading"></a></h2>
+<p>Once the project is initialized and all event blueprints have been applied, the analysis must be built and submitted to the cluster.</p>
+<ol class="arabic">
+<li><p><strong>Build the Analysis</strong>:
+The <code class="docutils literal notranslate"><span class="pre">asimov</span> <span class="pre">manage</span> <span class="pre">build</span></code> command generates the necessary configuration files (e.g., <code class="docutils literal notranslate"><span class="pre">rift.ini</span></code>) and constructs the Condor DAGs for all events and pipelines.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>manage<span class="w"> </span>build
+</pre></div>
+</div>
+</li>
+<li><p><strong>Submit to Cluster</strong>:
+The <code class="docutils literal notranslate"><span class="pre">asimov</span> <span class="pre">manage</span> <span class="pre">submit</span></code> command submits the generated DAGs to the Condor cluster.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>asimov<span class="w"> </span>manage<span class="w"> </span>submit
+</pre></div>
+</div>
+</li>
+</ol>
+<section id="monitoring-and-aggregation">
+<h3>Monitoring and Aggregation<a class="headerlink" href="#monitoring-and-aggregation" title="Link to this heading"></a></h3>
+<p>In a production environment, monitoring multiple events and pipelines requires coordinated tracking.</p>
+<p><strong>Asimov Monitoring</strong>
+Asimov provides built-in tools to track the status of jobs:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">asimov</span> <span class="pre">monitor</span></code>: Manually check the status of the current project’s jobs.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">asimov</span> <span class="pre">start</span></code>: An automated monitoring mode that tracks progress and handles certain failures.</p></li>
+</ul>
+<p><strong>cbcflow Integration</strong>
+For production-scale runs, <code class="docutils literal notranslate"><span class="pre">cbcflow</span></code> is used to manage the overall state and aggregate results. It provides:</p>
+<ul class="simple">
+<li><p><strong>Centralized Tracking</strong>: Tracks the completion of multiple pipelines (RIFT, bilby, bayeswave) across multiple events.</p></li>
+<li><p><strong>Result Aggregation</strong>: Automatically gathers posterior samples and logs from various nodes.</p></li>
+<li><p><strong>Summary Pages</strong>: Generates HTML summary pages for the entire production run, accessible via the configured <code class="docutils literal notranslate"><span class="pre">webroot</span></code>.</p></li>
+</ul>
+<p><strong>Multi-Event Result Analysis</strong>
+After completion, results from multiple events can be analyzed collectively (e.g., for population studies) using the aggregated datasets provided by the <code class="docutils literal notranslate"><span class="pre">cbcflow</span></code> integration.</p>
+</section>
+</section>
+<section id="full-production-script">
+<span id="production-script"></span><h2>Full Production Script<a class="headerlink" href="#full-production-script" title="Link to this heading"></a></h2>
+<p>This is the generalized production script used in this documentation. It is based on <code class="docutils literal notranslate"><span class="pre">demo_multiple_o4b_HL.sh</span></code> from the integration testing directory.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/bin/bash</span>
+<span class="c1"># =============================================================================</span>
+<span class="c1"># demo_multiple_o4b_HL.sh - Production Workflow for Multiple Events</span>
+<span class="c1"># =============================================================================</span>
+<span class="c1"># This script demonstrates the production workflow for running RIFT analyses</span>
+<span class="c1"># on multiple events using the asimov framework.</span>
+<span class="c1">#</span>
+<span class="c1"># IMPORTANT: This is a generalized prototype. The actual production workflow may differ.</span>
+<span class="c1"># Refer to the latest asimov documentation for up-to-date commands.</span>
+<span class="c1">#</span>
+<span class="c1"># Usage: ./demo_multiple_o4b_HL.sh &lt;project_directory&gt;</span>
+<span class="c1"># Example: ./demo_multiple_o4b_HL.sh my-production-project</span>
+<span class="c1"># =============================================================================</span>
+
+<span class="c1"># Variables</span>
+<span class="c1"># --------</span>
+<span class="c1"># HERE: Current directory (where the script is run from)</span>
+<span class="c1"># $1: Project directory name (passed as argument)</span>
+<span class="c1"># USER: Current user (for accounting)</span>
+<span class="nv">HERE</span><span class="o">=</span><span class="sb">`</span><span class="nb">pwd</span><span class="sb">`</span>
+
+<span class="c1"># -----------------------------------------------------------------------------</span>
+<span class="c1"># Stage 1: Project Setup</span>
+<span class="c1"># -----------------------------------------------------------------------------</span>
+mkdir<span class="w"> </span>-p<span class="w"> </span><span class="nv">$1</span>
+<span class="nb">cd</span><span class="w"> </span><span class="nv">$1</span>
+asimov<span class="w"> </span>init<span class="w"> </span>my-project-<span class="nv">$1</span>
+
+<span class="c1"># -----------------------------------------------------------------------------</span>
+<span class="c1"># Stage 2: Environment Configuration</span>
+<span class="c1"># -----------------------------------------------------------------------------</span>
+asimov<span class="w"> </span>configuration<span class="w"> </span>update<span class="w"> </span>rift/environment<span class="w"> </span>/path/to/your/rift-environment
+asimov<span class="w"> </span>configuration<span class="w"> </span>update<span class="w"> </span>pipelines/environment<span class="w"> </span>/path/to/your/rift-environment
+
+<span class="c1"># -----------------------------------------------------------------------------</span>
+<span class="c1"># Stage 3: Infrastructure Blueprints</span>
+<span class="c1"># -----------------------------------------------------------------------------</span>
+asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/defaults/production-pe.yaml
+asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>https://git.ligo.org/asimov/data/-/raw/main/defaults/cbcflow/testing.yaml
+asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/defaults/production-pe-priors.yaml
+
+<span class="c1"># -----------------------------------------------------------------------------</span>
+<span class="c1"># Stage 4: cbcflow Integration</span>
+<span class="c1"># -----------------------------------------------------------------------------</span>
+git<span class="w"> </span>clone<span class="w"> </span>git@git.ligo.org:michael.williams/cbc-workflow-er16-o4b.git<span class="w"> </span>cbcflow-library
+<span class="o">(</span><span class="nb">cd</span><span class="w"> </span>cbcflow-library<span class="p">;</span><span class="w"> </span>./setup-cbcflow-merge-strategy.sh<span class="o">)</span>
+asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/cbcflow.yaml
+asimov<span class="w"> </span>configuration<span class="w"> </span>update<span class="w"> </span>condor/user<span class="w"> </span><span class="si">${</span><span class="nv">USER</span><span class="si">}</span>
+
+<span class="c1"># -----------------------------------------------------------------------------</span>
+<span class="c1"># Stage 5: Output Configuration</span>
+<span class="c1"># -----------------------------------------------------------------------------</span>
+asimov<span class="w"> </span>configuration<span class="w"> </span>update<span class="w"> </span>general/webroot<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/<span class="nv">$1</span>/web_output/
+
+<span class="c1"># -----------------------------------------------------------------------------</span>
+<span class="c1"># Stage 6: Localization Configuration</span>
+<span class="c1"># -----------------------------------------------------------------------------</span>
+asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/localize_bw.yaml
+
+<span class="c1"># -----------------------------------------------------------------------------</span>
+<span class="c1"># Stage 7: Event Addition Function</span>
+<span class="c1"># -----------------------------------------------------------------------------</span>
+<span class="k">function</span><span class="w"> </span>add_event<span class="w"> </span><span class="o">()</span><span class="w"> </span><span class="o">{</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-p<span class="w"> </span>cbcflow<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/get-data/o4b-production.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/pe-configurator/standard.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/bayeswave-psd/standard-settings.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/rift-bbh/analysis_rift_SEOBNRv5PHM.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/rift-bbh/analysis_rift_NRSur7dq4.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/bilby-bbh/analysis_bilby_IMRPhenomXPHM-SpinTaylor.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/bilby-bbh/analysis_bilby_SEOBNRv5PHM.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="w">    </span>asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/../asimov-rift-data/analyses/bilby-bbh/analysis_bilby_NRSur7Dq4.yaml<span class="w"> </span>-e<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="w">    </span><span class="nv">GID_HERE</span><span class="o">=</span><span class="sb">`</span>grep<span class="w"> </span>coinc.xml<span class="w"> </span>cbcflow-library/<span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>*.json<span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-n<span class="w"> </span><span class="m">1</span><span class="p">|</span><span class="w"> </span>tr<span class="w"> </span><span class="s1">&#39;/&#39;</span><span class="w"> </span><span class="s1">&#39; &#39;</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>awk<span class="w"> </span><span class="s1">&#39;{print $6}&#39;</span><span class="w"> </span><span class="sb">`</span>
+<span class="o">}</span>
+
+<span class="c1"># -----------------------------------------------------------------------------</span>
+<span class="c1"># Stage 8: Event Loop</span>
+<span class="c1"># -----------------------------------------------------------------------------</span>
+<span class="k">for</span><span class="w"> </span>i<span class="w"> </span><span class="k">in</span><span class="w"> </span>S240426s<span class="w"> </span>S240618ah<span class="w">  </span><span class="c1"># Add more events here</span>
+<span class="k">do</span>
+<span class="w">    </span><span class="nv">SID_HERE</span><span class="o">=</span><span class="nv">$i</span>
+<span class="w">    </span>add_event<span class="w"> </span><span class="si">${</span><span class="nv">SID_HERE</span><span class="si">}</span>
+<span class="k">done</span>
+</pre></div>
+</div>
+</section>
+<section id="references">
+<h2>References<a class="headerlink" href="#references" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>RIFT GitHub Repository</strong>: <a class="reference external" href="https://github.com/oshaughnessy-junior/research-projects-rit">oshaughnessy-junior/research-projects-rit</a></p></li>
+<li><p><strong>cbcflow Documentation</strong>: <a class="reference external" href="https://cbc.docs.ligo.org/projects/cbcflow/index.html">cbcflow</a></p></li>
+<li><p><strong>Asimov Documentation</strong>: <a class="reference external" href="https://asimov.docs.ligo.org/asimov/master/index.html">asimov</a></p></li>
+<li><p><strong>Production Script Source</strong>: <cite>/Users/rossma/LVK/O4/rapidpe_rift_review_o4/o4b/integration_testing/demo_multiple_o4b_HL.sh</cite></p></li>
+<li><p><strong>Simple Workflow</strong>: <a class="reference internal" href="asimov_simple.html"><span class="doc">RIFT+Asimov: Simple Workflow</span></a></p></li>
+<li><p><strong>RIFT Asimov API</strong>: <span class="xref std std-doc">../executables/rift_asimov</span></p></li>
+<li><p><strong>ILE Documentation</strong>: <a class="reference internal" href="../../executables/integrate_likelihood_extrinsic_batchmode.html"><span class="doc">integrate_likelihood_extrinsic_batchmode</span></a></p></li>
+<li><p><strong>CIP Documentation</strong>: <a class="reference internal" href="../../executables/util_ConstructIntrinsicPosterior_GenericCoordinates.html"><span class="doc">util_ConstructIntrinsicPosterior_GenericCoordinates</span></a></p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="asimov_simple.html" class="btn btn-neutral float-left" title="RIFT+Asimov: Simple Workflow" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../calmarg/index.html" class="btn btn-neutral float-right" title="Calibration Marginalization" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

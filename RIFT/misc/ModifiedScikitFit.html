@@ -1,0 +1,1405 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Notes &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Notes</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/RIFT/misc/ModifiedScikitFit.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <dl class="py class" id="module-RIFT.misc.ModifiedScikitFit">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.Binarizer">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">Binarizer</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">threshold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.Binarizer" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseEstimator</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">TransformerMixin</span></code></p>
+<p>Binarize data (set feature values to 0 or 1) according to a threshold
+Values greater than the threshold map to 1, while values less than
+or equal to the threshold map to 0. With the default threshold of 0,
+only positive values map to 1.
+Binarization is a common operation on text count data where the
+analyst can decide to only consider the presence or absence of a
+feature rather than a quantified number of occurrences for instance.
+It can also be used as a pre-processing step for estimators that
+consider boolean random variables (e.g. modelled using the Bernoulli
+distribution in a Bayesian setting).
+Read more in the <span class="xref std std-ref">User Guide</span>.
+Parameters
+———-
+threshold : float, optional (0.0 by default)</p>
+<blockquote>
+<div><p>Feature values below or equal to this are replaced by 0, above it by 1.
+Threshold may not be less than 0 for operations on sparse matrices.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>copy<span class="classifier">boolean, optional, default True</span></dt><dd><p>set to False to perform inplace binarization and avoid a copy (if
+the input is already a numpy array or a scipy.sparse CSR matrix).</p>
+</dd>
+</dl>
+<section id="notes">
+<h1>Notes<a class="headerlink" href="#notes" title="Link to this heading"></a></h1>
+<p>If the input is a sparse matrix, only the non-zero values are subject
+to update by the Binarizer class.
+This estimator is stateless (besides constructor parameters), the
+fit method does nothing but is useful when used in a pipeline.
+See also
+——–
+binarize: Equivalent function without the object oriented API.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.Binarizer.fit">
+<span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.Binarizer.fit" title="Link to this definition"></a></dt>
+<dd><p>Do nothing and return the estimator unchanged
+This method is just there to implement the usual API and hence
+work in pipelines.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.Binarizer.set_transform_request">
+<span class="sig-name descname"><span class="pre">set_transform_request</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'$UNCHANGED$'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="../../api_reference/misc/index.html#RIFT.misc.ModifiedScikitFit.Binarizer" title="RIFT.misc.ModifiedScikitFit.Binarizer"><span class="pre">Binarizer</span></a></span></span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.Binarizer.set_transform_request" title="Link to this definition"></a></dt>
+<dd><p>Configure whether metadata should be requested to be passed to the <code class="docutils literal notranslate"><span class="pre">transform</span></code> method.</p>
+<p>Note that this method is only relevant when this estimator is used as a
+sub-estimator within a <span class="xref std std-term">meta-estimator</span> and metadata routing is enabled
+with <code class="docutils literal notranslate"><span class="pre">enable_metadata_routing=True</span></code> (see <code class="xref py py-func docutils literal notranslate"><span class="pre">sklearn.set_config()</span></code>).
+Please check the <span class="xref std std-ref">User Guide</span> on how the routing
+mechanism works.</p>
+<p>The options for each parameter are:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">True</span></code>: metadata is requested, and passed to <code class="docutils literal notranslate"><span class="pre">transform</span></code> if provided. The request is ignored if metadata is not provided.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">False</span></code>: metadata is not requested and the meta-estimator will not pass it to <code class="docutils literal notranslate"><span class="pre">transform</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">None</span></code>: metadata is not requested, and the meta-estimator will raise an error if the user provides it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">str</span></code>: metadata should be passed to the meta-estimator with this given alias instead of the original name.</p></li>
+</ul>
+<p>The default (<code class="docutils literal notranslate"><span class="pre">sklearn.utils.metadata_routing.UNCHANGED</span></code>) retains the
+existing request. This allows you to change the request for some
+parameters and not others.</p>
+<div class="versionadded">
+<p><span class="versionmodified added">Added in version 1.3.</span></p>
+</div>
+<section id="parameters">
+<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>copy<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">copy</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">transform</span></code>.</p>
+</dd>
+</dl>
+</section>
+<section id="returns">
+<h2>Returns<a class="headerlink" href="#returns" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.Binarizer.transform">
+<span class="sig-name descname"><span class="pre">transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.Binarizer.transform" title="Link to this definition"></a></dt>
+<dd><p>Binarize each element of X
+Parameters
+———-
+X : {array-like, sparse matrix}, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>The data to binarize, element by element.
+scipy.sparse matrices should be in CSR format to avoid an
+un-necessary copy.</p>
+</div></blockquote>
+</dd></dl>
+
+</section>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.KernelCenterer">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">KernelCenterer</span></span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.KernelCenterer" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseEstimator</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">TransformerMixin</span></code></p>
+<p>Center a kernel matrix
+Let K(x, z) be a kernel defined by phi(x)^T phi(z), where phi is a
+function mapping x to a Hilbert space. KernelCenterer centers (i.e.,
+normalize to have zero mean) the data without explicitly computing phi(x).
+It is equivalent to centering phi(x) with
+sklearn.preprocessing.StandardScaler(with_std=False).
+Read more in the <span class="xref std std-ref">User Guide</span>.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.KernelCenterer.fit">
+<span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">K</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.KernelCenterer.fit" title="Link to this definition"></a></dt>
+<dd><p>Fit KernelCenterer
+Parameters
+———-
+K : numpy array of shape [n_samples, n_samples]</p>
+<blockquote>
+<div><p>Kernel matrix.</p>
+</div></blockquote>
+<section id="id1">
+<h1>Returns<a class="headerlink" href="#id1" title="Link to this heading"></a></h1>
+<p>self : returns an instance of self.</p>
+</section>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.KernelCenterer.set_fit_request">
+<span class="sig-name descname"><span class="pre">set_fit_request</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">K</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'$UNCHANGED$'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="../../api_reference/misc/index.html#RIFT.misc.ModifiedScikitFit.KernelCenterer" title="RIFT.misc.ModifiedScikitFit.KernelCenterer"><span class="pre">KernelCenterer</span></a></span></span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.KernelCenterer.set_fit_request" title="Link to this definition"></a></dt>
+<dd><p>Configure whether metadata should be requested to be passed to the <code class="docutils literal notranslate"><span class="pre">fit</span></code> method.</p>
+<p>Note that this method is only relevant when this estimator is used as a
+sub-estimator within a <span class="xref std std-term">meta-estimator</span> and metadata routing is enabled
+with <code class="docutils literal notranslate"><span class="pre">enable_metadata_routing=True</span></code> (see <code class="xref py py-func docutils literal notranslate"><span class="pre">sklearn.set_config()</span></code>).
+Please check the <span class="xref std std-ref">User Guide</span> on how the routing
+mechanism works.</p>
+<p>The options for each parameter are:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">True</span></code>: metadata is requested, and passed to <code class="docutils literal notranslate"><span class="pre">fit</span></code> if provided. The request is ignored if metadata is not provided.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">False</span></code>: metadata is not requested and the meta-estimator will not pass it to <code class="docutils literal notranslate"><span class="pre">fit</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">None</span></code>: metadata is not requested, and the meta-estimator will raise an error if the user provides it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">str</span></code>: metadata should be passed to the meta-estimator with this given alias instead of the original name.</p></li>
+</ul>
+<p>The default (<code class="docutils literal notranslate"><span class="pre">sklearn.utils.metadata_routing.UNCHANGED</span></code>) retains the
+existing request. This allows you to change the request for some
+parameters and not others.</p>
+<div class="versionadded">
+<p><span class="versionmodified added">Added in version 1.3.</span></p>
+</div>
+<section id="id2">
+<h1>Parameters<a class="headerlink" href="#id2" title="Link to this heading"></a></h1>
+<dl class="simple">
+<dt>K<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">K</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">fit</span></code>.</p>
+</dd>
+</dl>
+</section>
+<section id="id3">
+<h1>Returns<a class="headerlink" href="#id3" title="Link to this heading"></a></h1>
+<dl class="simple">
+<dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.KernelCenterer.set_transform_request">
+<span class="sig-name descname"><span class="pre">set_transform_request</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">K</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'$UNCHANGED$'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'$UNCHANGED$'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="../../api_reference/misc/index.html#RIFT.misc.ModifiedScikitFit.KernelCenterer" title="RIFT.misc.ModifiedScikitFit.KernelCenterer"><span class="pre">KernelCenterer</span></a></span></span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.KernelCenterer.set_transform_request" title="Link to this definition"></a></dt>
+<dd><p>Configure whether metadata should be requested to be passed to the <code class="docutils literal notranslate"><span class="pre">transform</span></code> method.</p>
+<p>Note that this method is only relevant when this estimator is used as a
+sub-estimator within a <span class="xref std std-term">meta-estimator</span> and metadata routing is enabled
+with <code class="docutils literal notranslate"><span class="pre">enable_metadata_routing=True</span></code> (see <code class="xref py py-func docutils literal notranslate"><span class="pre">sklearn.set_config()</span></code>).
+Please check the <span class="xref std std-ref">User Guide</span> on how the routing
+mechanism works.</p>
+<p>The options for each parameter are:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">True</span></code>: metadata is requested, and passed to <code class="docutils literal notranslate"><span class="pre">transform</span></code> if provided. The request is ignored if metadata is not provided.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">False</span></code>: metadata is not requested and the meta-estimator will not pass it to <code class="docutils literal notranslate"><span class="pre">transform</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">None</span></code>: metadata is not requested, and the meta-estimator will raise an error if the user provides it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">str</span></code>: metadata should be passed to the meta-estimator with this given alias instead of the original name.</p></li>
+</ul>
+<p>The default (<code class="docutils literal notranslate"><span class="pre">sklearn.utils.metadata_routing.UNCHANGED</span></code>) retains the
+existing request. This allows you to change the request for some
+parameters and not others.</p>
+<div class="versionadded">
+<p><span class="versionmodified added">Added in version 1.3.</span></p>
+</div>
+<section id="id4">
+<h1>Parameters<a class="headerlink" href="#id4" title="Link to this heading"></a></h1>
+<dl class="simple">
+<dt>K<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">K</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">transform</span></code>.</p>
+</dd>
+<dt>copy<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">copy</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">transform</span></code>.</p>
+</dd>
+</dl>
+</section>
+<section id="id5">
+<h1>Returns<a class="headerlink" href="#id5" title="Link to this heading"></a></h1>
+<dl class="simple">
+<dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.KernelCenterer.transform">
+<span class="sig-name descname"><span class="pre">transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">K</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.KernelCenterer.transform" title="Link to this definition"></a></dt>
+<dd><p>Center kernel matrix.
+Parameters
+———-
+K : numpy array of shape [n_samples1, n_samples2]</p>
+<blockquote>
+<div><p>Kernel matrix.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>copy<span class="classifier">boolean, optional, default True</span></dt><dd><p>Set to False to perform inplace computation.</p>
+</dd>
+</dl>
+<section id="id6">
+<h1>Returns<a class="headerlink" href="#id6" title="Link to this heading"></a></h1>
+<p>K_new : numpy array of shape [n_samples1, n_samples2]</p>
+</section>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.MaxAbsScaler">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">MaxAbsScaler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.MaxAbsScaler" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseEstimator</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">TransformerMixin</span></code></p>
+<p>Scale each feature by its maximum absolute value.
+This estimator scales and translates each feature individually such
+that the maximal absolute value of each feature in the
+training set will be 1.0. It does not shift/center the data, and
+thus does not destroy any sparsity.
+This scaler can also be applied to sparse CSR or CSC matrices.
+.. versionadded:: 0.17
+Parameters
+———-
+copy : boolean, optional, default is True</p>
+<blockquote>
+<div><p>Set to False to perform inplace scaling and avoid a copy (if the input
+is already a numpy array).</p>
+</div></blockquote>
+<section id="attributes">
+<h1>Attributes<a class="headerlink" href="#attributes" title="Link to this heading"></a></h1>
+<dl>
+<dt><a href="#id33"><span class="problematic" id="id34">scale_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature relative scaling of the data.
+.. versionadded:: 0.17</p>
+<blockquote>
+<div><p><em>scale_</em> attribute.</p>
+</div></blockquote>
+</dd>
+<dt><a href="#id35"><span class="problematic" id="id36">max_abs_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature maximum absolute value.</p>
+</dd>
+<dt><a href="#id37"><span class="problematic" id="id38">n_samples_seen_</span></a><span class="classifier">int</span></dt><dd><p>The number of samples processed by the estimator. Will be reset on
+new calls to fit, but increments across <code class="docutils literal notranslate"><span class="pre">partial_fit</span></code> calls.</p>
+</dd>
+</dl>
+</section>
+<section id="see-also">
+<h1>See also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h1>
+<p>maxabs_scale: Equivalent function without the object oriented API.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.MaxAbsScaler.fit">
+<span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.MaxAbsScaler.fit" title="Link to this definition"></a></dt>
+<dd><p>Compute the maximum absolute value to be used for later scaling.
+Parameters
+———-
+X : {array-like, sparse matrix}, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>The data used to compute the per-feature minimum and maximum
+used for later scaling along the features axis.</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.MaxAbsScaler.inverse_transform">
+<span class="sig-name descname"><span class="pre">inverse_transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.MaxAbsScaler.inverse_transform" title="Link to this definition"></a></dt>
+<dd><p>Scale back the data to the original representation
+Parameters
+———-
+X : {array-like, sparse matrix}</p>
+<blockquote>
+<div><p>The data that should be transformed back.</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.MaxAbsScaler.partial_fit">
+<span class="sig-name descname"><span class="pre">partial_fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.MaxAbsScaler.partial_fit" title="Link to this definition"></a></dt>
+<dd><p>Online computation of max absolute value of X for later scaling.
+All of X is processed as a single batch. This is intended for cases
+when <cite>fit</cite> is not feasible due to very large number of <cite>n_samples</cite>
+or because X is read from a continuous stream.
+Parameters
+———-
+X : {array-like, sparse matrix}, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>The data used to compute the mean and standard deviation
+used for later scaling along the features axis.</p>
+</div></blockquote>
+<p>y: Passthrough for <code class="docutils literal notranslate"><span class="pre">Pipeline</span></code> compatibility.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.MaxAbsScaler.transform">
+<span class="sig-name descname"><span class="pre">transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.MaxAbsScaler.transform" title="Link to this definition"></a></dt>
+<dd><p>Scale the data
+Parameters
+———-
+X : {array-like, sparse matrix}</p>
+<blockquote>
+<div><p>The data that should be scaled.</p>
+</div></blockquote>
+</dd></dl>
+
+</section>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.MinMaxScaler">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">MinMaxScaler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">feature_range</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(0,</span> <span class="pre">1)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.MinMaxScaler" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseEstimator</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">TransformerMixin</span></code></p>
+<p>Transforms features by scaling each feature to a given range.
+This estimator scales and translates each feature individually such
+that it is in the given range on the training set, i.e. between
+zero and one.
+The transformation is given by:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">X_std</span> <span class="o">=</span> <span class="p">(</span><span class="n">X</span> <span class="o">-</span> <span class="n">X</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span> <span class="o">/</span> <span class="p">(</span><span class="n">X</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span> <span class="o">-</span> <span class="n">X</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span>
+<span class="n">X_scaled</span> <span class="o">=</span> <span class="n">X_std</span> <span class="o">*</span> <span class="p">(</span><span class="nb">max</span> <span class="o">-</span> <span class="nb">min</span><span class="p">)</span> <span class="o">+</span> <span class="nb">min</span>
+</pre></div>
+</div>
+<p>where min, max = feature_range.
+This transformation is often used as an alternative to zero mean,
+unit variance scaling.
+Read more in the <span class="xref std std-ref">User Guide</span>.
+Parameters
+———-
+feature_range : tuple (min, max), default=(0, 1)</p>
+<blockquote>
+<div><p>Desired range of transformed data.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>copy<span class="classifier">boolean, optional, default True</span></dt><dd><p>Set to False to perform inplace row normalization and avoid a
+copy (if the input is already a numpy array).</p>
+</dd>
+</dl>
+<section id="id7">
+<h1>Attributes<a class="headerlink" href="#id7" title="Link to this heading"></a></h1>
+<dl>
+<dt><a href="#id39"><span class="problematic" id="id40">min_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature adjustment for minimum.</p>
+</dd>
+<dt><a href="#id41"><span class="problematic" id="id42">scale_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature relative scaling of the data.
+.. versionadded:: 0.17</p>
+<blockquote>
+<div><p><em>scale_</em> attribute.</p>
+</div></blockquote>
+</dd>
+<dt><a href="#id43"><span class="problematic" id="id44">data_min_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature minimum seen in the data
+.. versionadded:: 0.17</p>
+<blockquote>
+<div><p><em>data_min_</em> instead of deprecated <em>data_min</em>.</p>
+</div></blockquote>
+</dd>
+<dt><a href="#id45"><span class="problematic" id="id46">data_max_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature maximum seen in the data
+.. versionadded:: 0.17</p>
+<blockquote>
+<div><p><em>data_max_</em> instead of deprecated <em>data_max</em>.</p>
+</div></blockquote>
+</dd>
+<dt><a href="#id47"><span class="problematic" id="id48">data_range_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature range <code class="docutils literal notranslate"><span class="pre">(data_max_</span> <span class="pre">-</span> <span class="pre">data_min_)</span></code> seen in the data
+.. versionadded:: 0.17</p>
+<blockquote>
+<div><p><em>data_range_</em> instead of deprecated <em>data_range</em>.</p>
+</div></blockquote>
+</dd>
+</dl>
+</section>
+<section id="id8">
+<h1>See also<a class="headerlink" href="#id8" title="Link to this heading"></a></h1>
+<p>minmax_scale: Equivalent function without the object oriented API.</p>
+<dl class="py property">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.MinMaxScaler.data_min">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">data_min</span></span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.MinMaxScaler.data_min" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.MinMaxScaler.data_range">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">data_range</span></span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.MinMaxScaler.data_range" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.MinMaxScaler.fit">
+<span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.MinMaxScaler.fit" title="Link to this definition"></a></dt>
+<dd><p>Compute the minimum and maximum to be used for later scaling.
+Parameters
+———-
+X : array-like, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>The data used to compute the per-feature minimum and maximum
+used for later scaling along the features axis.</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.MinMaxScaler.inverse_transform">
+<span class="sig-name descname"><span class="pre">inverse_transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.MinMaxScaler.inverse_transform" title="Link to this definition"></a></dt>
+<dd><p>Undo the scaling of X according to feature_range.
+Parameters
+———-
+X : array-like, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>Input data that will be transformed. It cannot be sparse.</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.MinMaxScaler.partial_fit">
+<span class="sig-name descname"><span class="pre">partial_fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.MinMaxScaler.partial_fit" title="Link to this definition"></a></dt>
+<dd><p>Online computation of min and max on X for later scaling.
+All of X is processed as a single batch. This is intended for cases
+when <cite>fit</cite> is not feasible due to very large number of <cite>n_samples</cite>
+or because X is read from a continuous stream.
+Parameters
+———-
+X : array-like, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>The data used to compute the mean and standard deviation
+used for later scaling along the features axis.</p>
+</div></blockquote>
+<p>y : Passthrough for <code class="docutils literal notranslate"><span class="pre">Pipeline</span></code> compatibility.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.MinMaxScaler.transform">
+<span class="sig-name descname"><span class="pre">transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.MinMaxScaler.transform" title="Link to this definition"></a></dt>
+<dd><p>Scaling features of X according to feature_range.
+Parameters
+———-
+X : array-like, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>Input data that will be transformed.</p>
+</div></blockquote>
+</dd></dl>
+
+</section>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.Normalizer">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">Normalizer</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">norm</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'l2'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.Normalizer" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseEstimator</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">TransformerMixin</span></code></p>
+<p>Normalize samples individually to unit norm.
+Each sample (i.e. each row of the data matrix) with at least one
+non zero component is rescaled independently of other samples so
+that its norm (l1 or l2) equals one.
+This transformer is able to work both with dense numpy arrays and
+scipy.sparse matrix (use CSR format if you want to avoid the burden of
+a copy / conversion).
+Scaling inputs to unit norms is a common operation for text
+classification or clustering for instance. For instance the dot
+product of two l2-normalized TF-IDF vectors is the cosine similarity
+of the vectors and is the base similarity metric for the Vector
+Space Model commonly used by the Information Retrieval community.
+Read more in the <span class="xref std std-ref">User Guide</span>.
+Parameters
+———-
+norm : ‘l1’, ‘l2’, or ‘max’, optional (‘l2’ by default)</p>
+<blockquote>
+<div><p>The norm to use to normalize each non zero sample.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>copy<span class="classifier">boolean, optional, default True</span></dt><dd><p>set to False to perform inplace row normalization and avoid a
+copy (if the input is already a numpy array or a scipy.sparse
+CSR matrix).</p>
+</dd>
+</dl>
+<section id="id9">
+<h1>Notes<a class="headerlink" href="#id9" title="Link to this heading"></a></h1>
+<p>This estimator is stateless (besides constructor parameters), the
+fit method does nothing but is useful when used in a pipeline.
+See also
+——–
+normalize: Equivalent function without the object oriented API.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.Normalizer.fit">
+<span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.Normalizer.fit" title="Link to this definition"></a></dt>
+<dd><p>Do nothing and return the estimator unchanged
+This method is just there to implement the usual API and hence
+work in pipelines.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.Normalizer.set_transform_request">
+<span class="sig-name descname"><span class="pre">set_transform_request</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'$UNCHANGED$'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="../../api_reference/misc/index.html#RIFT.misc.ModifiedScikitFit.Normalizer" title="RIFT.misc.ModifiedScikitFit.Normalizer"><span class="pre">Normalizer</span></a></span></span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.Normalizer.set_transform_request" title="Link to this definition"></a></dt>
+<dd><p>Configure whether metadata should be requested to be passed to the <code class="docutils literal notranslate"><span class="pre">transform</span></code> method.</p>
+<p>Note that this method is only relevant when this estimator is used as a
+sub-estimator within a <span class="xref std std-term">meta-estimator</span> and metadata routing is enabled
+with <code class="docutils literal notranslate"><span class="pre">enable_metadata_routing=True</span></code> (see <code class="xref py py-func docutils literal notranslate"><span class="pre">sklearn.set_config()</span></code>).
+Please check the <span class="xref std std-ref">User Guide</span> on how the routing
+mechanism works.</p>
+<p>The options for each parameter are:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">True</span></code>: metadata is requested, and passed to <code class="docutils literal notranslate"><span class="pre">transform</span></code> if provided. The request is ignored if metadata is not provided.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">False</span></code>: metadata is not requested and the meta-estimator will not pass it to <code class="docutils literal notranslate"><span class="pre">transform</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">None</span></code>: metadata is not requested, and the meta-estimator will raise an error if the user provides it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">str</span></code>: metadata should be passed to the meta-estimator with this given alias instead of the original name.</p></li>
+</ul>
+<p>The default (<code class="docutils literal notranslate"><span class="pre">sklearn.utils.metadata_routing.UNCHANGED</span></code>) retains the
+existing request. This allows you to change the request for some
+parameters and not others.</p>
+<div class="versionadded">
+<p><span class="versionmodified added">Added in version 1.3.</span></p>
+</div>
+<section id="id10">
+<h2>Parameters<a class="headerlink" href="#id10" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>copy<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">copy</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">transform</span></code>.</p>
+</dd>
+</dl>
+</section>
+<section id="id11">
+<h2>Returns<a class="headerlink" href="#id11" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.Normalizer.transform">
+<span class="sig-name descname"><span class="pre">transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.Normalizer.transform" title="Link to this definition"></a></dt>
+<dd><p>Scale each non zero row of X to unit norm
+Parameters
+———-
+X : {array-like, sparse matrix}, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>The data to normalize, row by row. scipy.sparse matrices should be
+in CSR format to avoid an un-necessary copy.</p>
+</div></blockquote>
+</dd></dl>
+
+</section>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.OneHotEncoder">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">OneHotEncoder</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_values='auto'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">categorical_features='all'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dtype=&lt;class</span> <span class="pre">'numpy.float64'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sparse=True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">handle_unknown='error'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.OneHotEncoder" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseEstimator</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">TransformerMixin</span></code></p>
+<p>Encode categorical integer features using a one-hot aka one-of-K scheme.
+The input to this transformer should be a matrix of integers, denoting
+the values taken on by categorical (discrete) features. The output will be
+a sparse matrix where each column corresponds to one possible value of one
+feature. It is assumed that input features take on values in the range
+[0, n_values).
+This encoding is needed for feeding categorical data to many scikit-learn
+estimators, notably linear models and SVMs with the standard kernels.
+Note: a one-hot encoding of y labels should use a LabelBinarizer
+instead.
+Read more in the <span class="xref std std-ref">User Guide</span>.
+Parameters
+———-
+n_values : ‘auto’, int or array of ints</p>
+<blockquote>
+<div><p>Number of values per feature.
+- ‘auto’ : determine value range from training data.
+- int : number of categorical values per feature.</p>
+<blockquote>
+<div><p>Each feature value should be in <code class="docutils literal notranslate"><span class="pre">range(n_values)</span></code></p>
+</div></blockquote>
+<ul>
+<li><dl>
+<dt>array<span class="classifier"><code class="docutils literal notranslate"><span class="pre">n_values[i]</span></code> is the number of categorical values in</span></dt><dd><p><code class="docutils literal notranslate"><span class="pre">X[:,</span> <span class="pre">i]</span></code>. Each feature value should be
+in <code class="docutils literal notranslate"><span class="pre">range(n_values[i])</span></code></p>
+</dd>
+</dl>
+</li>
+</ul>
+</div></blockquote>
+<dl class="simple">
+<dt>categorical_features<span class="classifier">“all” or array of indices or mask</span></dt><dd><p>Specify what features are treated as categorical.
+- ‘all’ (default): All features are treated as categorical.
+- array of indices: Array of categorical feature indices.
+- mask: Array of length n_features and with dtype=bool.
+Non-categorical features are always stacked to the right of the matrix.</p>
+</dd>
+<dt>dtype<span class="classifier">number type, default=np.float</span></dt><dd><p>Desired dtype of output.</p>
+</dd>
+<dt>sparse<span class="classifier">boolean, default=True</span></dt><dd><p>Will return sparse matrix if set True else will return an array.</p>
+</dd>
+<dt>handle_unknown<span class="classifier">str, ‘error’ or ‘ignore’</span></dt><dd><p>Whether to raise an error or ignore if a unknown categorical feature is
+present during transform.</p>
+</dd>
+</dl>
+<section id="id12">
+<h1>Attributes<a class="headerlink" href="#id12" title="Link to this heading"></a></h1>
+<dl class="simple">
+<dt><a href="#id49"><span class="problematic" id="id50">active_features_</span></a><span class="classifier">array</span></dt><dd><p>Indices for active features, meaning values that actually occur
+in the training set. Only available when n_values is <code class="docutils literal notranslate"><span class="pre">'auto'</span></code>.</p>
+</dd>
+<dt><a href="#id51"><span class="problematic" id="id52">feature_indices_</span></a><span class="classifier">array of shape (n_features,)</span></dt><dd><p>Indices to feature ranges.
+Feature <code class="docutils literal notranslate"><span class="pre">i</span></code> in the original data is mapped to features
+from <code class="docutils literal notranslate"><span class="pre">feature_indices_[i]</span></code> to <code class="docutils literal notranslate"><span class="pre">feature_indices_[i+1]</span></code>
+(and then potentially masked by <cite>active_features_</cite> afterwards)</p>
+</dd>
+<dt><a href="#id53"><span class="problematic" id="id54">n_values_</span></a><span class="classifier">array of shape (n_features,)</span></dt><dd><p>Maximum number of values per feature.</p>
+</dd>
+</dl>
+</section>
+<section id="examples">
+<h1>Examples<a class="headerlink" href="#examples" title="Link to this heading"></a></h1>
+<p>Given a dataset with three features and two samples, we let the encoder
+find the maximum value per feature and transform the data to a binary
+one-hot encoding.
+&gt;&gt;&gt; from sklearn.preprocessing import OneHotEncoder
+&gt;&gt;&gt; enc = OneHotEncoder()
+&gt;&gt;&gt; enc.fit([[0, 0, 3], [1, 1, 0], [0, 2, 1], [1, 0, 2]])  # doctest: +ELLIPSIS
+OneHotEncoder(categorical_features=’all’, dtype=&lt;… ‘numpy.float64’&gt;,</p>
+<blockquote>
+<div><p>handle_unknown=’error’, n_values=’auto’, sparse=True)</p>
+</div></blockquote>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">enc</span><span class="o">.</span><span class="n">n_values_</span>
+<span class="go">array([2, 3, 4])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">enc</span><span class="o">.</span><span class="n">feature_indices_</span>
+<span class="go">array([0, 2, 5, 9])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">enc</span><span class="o">.</span><span class="n">transform</span><span class="p">([[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">]])</span><span class="o">.</span><span class="n">toarray</span><span class="p">()</span>
+<span class="go">array([[ 1.,  0.,  0.,  1.,  0.,  0.,  1.,  0.,  0.]])</span>
+<span class="go">See also</span>
+<span class="go">--------</span>
+<span class="go">sklearn.feature_extraction.DictVectorizer : performs a one-hot encoding of</span>
+<span class="go">  dictionary items (also handles string-valued features).</span>
+<span class="go">sklearn.feature_extraction.FeatureHasher : performs an approximate one-hot</span>
+<span class="go">  encoding of dictionary items or strings.</span>
+<span class="go">sklearn.preprocessing.LabelBinarizer : binarizes labels in a one-vs-all</span>
+<span class="go">  fashion.</span>
+<span class="go">sklearn.preprocessing.MultiLabelBinarizer : transforms between iterable of</span>
+<span class="go">  iterables and a multilabel format, e.g. a (samples x classes) binary</span>
+<span class="go">  matrix indicating the presence of a class label.</span>
+<span class="go">sklearn.preprocessing.LabelEncoder : encodes labels with values between 0</span>
+<span class="go">  and n_classes-1.</span>
+</pre></div>
+</div>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.OneHotEncoder.fit">
+<span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.OneHotEncoder.fit" title="Link to this definition"></a></dt>
+<dd><p>Fit OneHotEncoder to X.
+Parameters
+———-
+X : array-like, shape [n_samples, n_feature]</p>
+<blockquote>
+<div><p>Input array of type int.</p>
+</div></blockquote>
+<section id="id13">
+<h2>Returns<a class="headerlink" href="#id13" title="Link to this heading"></a></h2>
+<p>self</p>
+</section>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.OneHotEncoder.fit_transform">
+<span class="sig-name descname"><span class="pre">fit_transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.OneHotEncoder.fit_transform" title="Link to this definition"></a></dt>
+<dd><p>Fit OneHotEncoder to X, then transform X.
+Equivalent to self.fit(X).transform(X), but more convenient and more
+efficient. See fit for the parameters, transform for the return value.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.OneHotEncoder.transform">
+<span class="sig-name descname"><span class="pre">transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.OneHotEncoder.transform" title="Link to this definition"></a></dt>
+<dd><p>Transform X using one-hot encoding.
+Parameters
+———-
+X : array-like, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>Input array of type int.</p>
+</div></blockquote>
+<section id="id14">
+<h2>Returns<a class="headerlink" href="#id14" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>X_out<span class="classifier">sparse matrix if sparse=True else a 2-d array, dtype=int</span></dt><dd><p>Transformed input.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+</section>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.RobustScaler">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">RobustScaler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">with_centering</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">with_scaling</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quantile_range</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(25.0,</span> <span class="pre">75.0)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.RobustScaler" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseEstimator</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">TransformerMixin</span></code></p>
+<p>Scale features using statistics that are robust to outliers.
+This Scaler removes the median and scales the data according to
+the quantile range (defaults to IQR: Interquartile Range).
+The IQR is the range between the 1st quartile (25th quantile)
+and the 3rd quartile (75th quantile).
+Centering and scaling happen independently on each feature (or each
+sample, depending on the <cite>axis</cite> argument) by computing the relevant
+statistics on the samples in the training set. Median and  interquartile
+range are then stored to be used on later data using the <cite>transform</cite>
+method.
+Standardization of a dataset is a common requirement for many
+machine learning estimators. Typically this is done by removing the mean
+and scaling to unit variance. However, outliers can often influence the
+sample mean / variance in a negative way. In such cases, the median and
+the interquartile range often give better results.
+.. versionadded:: 0.17
+Read more in the <span class="xref std std-ref">User Guide</span>.
+Parameters
+———-
+with_centering : boolean, True by default</p>
+<blockquote>
+<div><p>If True, center the data before scaling.
+This does not work (and will raise an exception) when attempted on
+sparse matrices, because centering them entails building a dense
+matrix which in common use cases is likely to be too large to fit in
+memory.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>with_scaling<span class="classifier">boolean, True by default</span></dt><dd><p>If True, scale the data to interquartile range.</p>
+</dd>
+<dt>quantile_range<span class="classifier">tuple (q_min, q_max), 0.0 &lt; q_min &lt; q_max &lt; 100.0</span></dt><dd><p>Default: (25.0, 75.0) = (1st quantile, 3rd quantile) = IQR
+Quantile range used to calculate <code class="docutils literal notranslate"><span class="pre">scale_</span></code>.
+.. versionadded:: 0.18</p>
+</dd>
+<dt>copy<span class="classifier">boolean, optional, default is True</span></dt><dd><p>If False, try to avoid a copy and do inplace scaling instead.
+This is not guaranteed to always work inplace; e.g. if the data is
+not a NumPy array or scipy.sparse CSR matrix, a copy may still be
+returned.</p>
+</dd>
+</dl>
+<section id="id15">
+<h1>Attributes<a class="headerlink" href="#id15" title="Link to this heading"></a></h1>
+<dl>
+<dt><a href="#id55"><span class="problematic" id="id56">center_</span></a><span class="classifier">array of floats</span></dt><dd><p>The median value for each feature in the training set.</p>
+</dd>
+<dt><a href="#id57"><span class="problematic" id="id58">scale_</span></a><span class="classifier">array of floats</span></dt><dd><p>The (scaled) interquartile range for each feature in the training set.
+.. versionadded:: 0.17</p>
+<blockquote>
+<div><p><em>scale_</em> attribute.</p>
+</div></blockquote>
+</dd>
+</dl>
+</section>
+<section id="id16">
+<h1>See also<a class="headerlink" href="#id16" title="Link to this heading"></a></h1>
+<p>robust_scale: Equivalent function without the object oriented API.
+<code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.decomposition.PCA</span></code></p>
+<blockquote>
+<div><p>Further removes the linear correlation across features with
+‘whiten=True’.</p>
+</div></blockquote>
+</section>
+<section id="id17">
+<h1>Notes<a class="headerlink" href="#id17" title="Link to this heading"></a></h1>
+<p>See examples/preprocessing/plot_robust_scaling.py for an example.
+<a class="reference external" href="https://en.wikipedia.org/wiki/Median_(statistics">https://en.wikipedia.org/wiki/Median_(statistics</a>)
+<a class="reference external" href="https://en.wikipedia.org/wiki/Interquartile_range">https://en.wikipedia.org/wiki/Interquartile_range</a></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.RobustScaler.fit">
+<span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.RobustScaler.fit" title="Link to this definition"></a></dt>
+<dd><p>Compute the median and quantiles to be used for scaling.
+Parameters
+———-
+X : array-like, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>The data used to compute the median and quantiles
+used for later scaling along the features axis.</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.RobustScaler.inverse_transform">
+<span class="sig-name descname"><span class="pre">inverse_transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.RobustScaler.inverse_transform" title="Link to this definition"></a></dt>
+<dd><p>Scale back the data to the original representation
+Parameters
+———-
+X : array-like</p>
+<blockquote>
+<div><p>The data used to scale along the specified axis.</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.RobustScaler.transform">
+<span class="sig-name descname"><span class="pre">transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.RobustScaler.transform" title="Link to this definition"></a></dt>
+<dd><p>Center and scale the data
+Parameters
+———-
+X : array-like</p>
+<blockquote>
+<div><p>The data used to scale along the specified axis.</p>
+</div></blockquote>
+</dd></dl>
+
+</section>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.StandardScaler">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">StandardScaler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">with_mean</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">with_std</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.StandardScaler" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseEstimator</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">TransformerMixin</span></code></p>
+<p>Standardize features by removing the mean and scaling to unit variance
+Centering and scaling happen independently on each feature by computing
+the relevant statistics on the samples in the training set. Mean and
+standard deviation are then stored to be used on later data using the
+<cite>transform</cite> method.
+Standardization of a dataset is a common requirement for many
+machine learning estimators: they might behave badly if the
+individual feature do not more or less look like standard normally
+distributed data (e.g. Gaussian with 0 mean and unit variance).
+For instance many elements used in the objective function of
+a learning algorithm (such as the RBF kernel of Support Vector
+Machines or the L1 and L2 regularizers of linear models) assume that
+all features are centered around 0 and have variance in the same
+order. If a feature has a variance that is orders of magnitude larger
+that others, it might dominate the objective function and make the
+estimator unable to learn from other features correctly as expected.
+This scaler can also be applied to sparse CSR or CSC matrices by passing
+<cite>with_mean=False</cite> to avoid breaking the sparsity structure of the data.
+Read more in the <span class="xref std std-ref">User Guide</span>.
+Parameters
+———-
+with_mean : boolean, True by default</p>
+<blockquote>
+<div><p>If True, center the data before scaling.
+This does not work (and will raise an exception) when attempted on
+sparse matrices, because centering them entails building a dense
+matrix which in common use cases is likely to be too large to fit in
+memory.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>with_std<span class="classifier">boolean, True by default</span></dt><dd><p>If True, scale the data to unit variance (or equivalently,
+unit standard deviation).</p>
+</dd>
+<dt>copy<span class="classifier">boolean, optional, default True</span></dt><dd><p>If False, try to avoid a copy and do inplace scaling instead.
+This is not guaranteed to always work inplace; e.g. if the data is
+not a NumPy array or scipy.sparse CSR matrix, a copy may still be
+returned.</p>
+</dd>
+</dl>
+<section id="id18">
+<h1>Attributes<a class="headerlink" href="#id18" title="Link to this heading"></a></h1>
+<dl>
+<dt><a href="#id59"><span class="problematic" id="id60">scale_</span></a><span class="classifier">ndarray, shape (n_features,)</span></dt><dd><p>Per feature relative scaling of the data.
+.. versionadded:: 0.17</p>
+<blockquote>
+<div><p><em>scale_</em> is recommended instead of deprecated <em>std_</em>.</p>
+</div></blockquote>
+</dd>
+<dt><a href="#id61"><span class="problematic" id="id62">mean_</span></a><span class="classifier">array of floats with shape [n_features]</span></dt><dd><p>The mean value for each feature in the training set.</p>
+</dd>
+<dt><a href="#id63"><span class="problematic" id="id64">var_</span></a><span class="classifier">array of floats with shape [n_features]</span></dt><dd><p>The variance for each feature in the training set. Used to compute
+<cite>scale_</cite></p>
+</dd>
+<dt><a href="#id65"><span class="problematic" id="id66">n_samples_seen_</span></a><span class="classifier">int</span></dt><dd><p>The number of samples processed by the estimator. Will be reset on
+new calls to fit, but increments across <code class="docutils literal notranslate"><span class="pre">partial_fit</span></code> calls.</p>
+</dd>
+</dl>
+</section>
+<section id="id19">
+<h1>See also<a class="headerlink" href="#id19" title="Link to this heading"></a></h1>
+<p>scale: Equivalent function without the object oriented API.
+<code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.decomposition.PCA</span></code></p>
+<blockquote>
+<div><p>Further removes the linear correlation across features with ‘whiten=True’.</p>
+</div></blockquote>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.StandardScaler.fit">
+<span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.StandardScaler.fit" title="Link to this definition"></a></dt>
+<dd><p>Compute the mean and std to be used for later scaling.
+Parameters
+———-
+X : {array-like, sparse matrix}, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>The data used to compute the mean and standard deviation
+used for later scaling along the features axis.</p>
+</div></blockquote>
+<p>y: Passthrough for <code class="docutils literal notranslate"><span class="pre">Pipeline</span></code> compatibility.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.StandardScaler.inverse_transform">
+<span class="sig-name descname"><span class="pre">inverse_transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.StandardScaler.inverse_transform" title="Link to this definition"></a></dt>
+<dd><p>Scale back the data to the original representation
+Parameters
+———-
+X : array-like, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>The data used to scale along the features axis.</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.StandardScaler.partial_fit">
+<span class="sig-name descname"><span class="pre">partial_fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.StandardScaler.partial_fit" title="Link to this definition"></a></dt>
+<dd><p>Online computation of mean and std on X for later scaling.
+All of X is processed as a single batch. This is intended for cases
+when <cite>fit</cite> is not feasible due to very large number of <cite>n_samples</cite>
+or because X is read from a continuous stream.
+The algorithm for incremental mean and std is given in Equation 1.5a,b
+in Chan, Tony F., Gene H. Golub, and Randall J. LeVeque. “Algorithms
+for computing the sample variance: Analysis and recommendations.”
+The American Statistician 37.3 (1983): 242-247:
+Parameters
+———-
+X : {array-like, sparse matrix}, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>The data used to compute the mean and standard deviation
+used for later scaling along the features axis.</p>
+</div></blockquote>
+<p>y: Passthrough for <code class="docutils literal notranslate"><span class="pre">Pipeline</span></code> compatibility.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.StandardScaler.set_inverse_transform_request">
+<span class="sig-name descname"><span class="pre">set_inverse_transform_request</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'$UNCHANGED$'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="../../api_reference/misc/index.html#RIFT.misc.ModifiedScikitFit.StandardScaler" title="RIFT.misc.ModifiedScikitFit.StandardScaler"><span class="pre">StandardScaler</span></a></span></span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.StandardScaler.set_inverse_transform_request" title="Link to this definition"></a></dt>
+<dd><p>Configure whether metadata should be requested to be passed to the <code class="docutils literal notranslate"><span class="pre">inverse_transform</span></code> method.</p>
+<p>Note that this method is only relevant when this estimator is used as a
+sub-estimator within a <span class="xref std std-term">meta-estimator</span> and metadata routing is enabled
+with <code class="docutils literal notranslate"><span class="pre">enable_metadata_routing=True</span></code> (see <code class="xref py py-func docutils literal notranslate"><span class="pre">sklearn.set_config()</span></code>).
+Please check the <span class="xref std std-ref">User Guide</span> on how the routing
+mechanism works.</p>
+<p>The options for each parameter are:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">True</span></code>: metadata is requested, and passed to <code class="docutils literal notranslate"><span class="pre">inverse_transform</span></code> if provided. The request is ignored if metadata is not provided.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">False</span></code>: metadata is not requested and the meta-estimator will not pass it to <code class="docutils literal notranslate"><span class="pre">inverse_transform</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">None</span></code>: metadata is not requested, and the meta-estimator will raise an error if the user provides it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">str</span></code>: metadata should be passed to the meta-estimator with this given alias instead of the original name.</p></li>
+</ul>
+<p>The default (<code class="docutils literal notranslate"><span class="pre">sklearn.utils.metadata_routing.UNCHANGED</span></code>) retains the
+existing request. This allows you to change the request for some
+parameters and not others.</p>
+<div class="versionadded">
+<p><span class="versionmodified added">Added in version 1.3.</span></p>
+</div>
+<section id="id20">
+<h2>Parameters<a class="headerlink" href="#id20" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>copy<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">copy</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">inverse_transform</span></code>.</p>
+</dd>
+</dl>
+</section>
+<section id="id21">
+<h2>Returns<a class="headerlink" href="#id21" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.StandardScaler.set_transform_request">
+<span class="sig-name descname"><span class="pre">set_transform_request</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'$UNCHANGED$'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="../../api_reference/misc/index.html#RIFT.misc.ModifiedScikitFit.StandardScaler" title="RIFT.misc.ModifiedScikitFit.StandardScaler"><span class="pre">StandardScaler</span></a></span></span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.StandardScaler.set_transform_request" title="Link to this definition"></a></dt>
+<dd><p>Configure whether metadata should be requested to be passed to the <code class="docutils literal notranslate"><span class="pre">transform</span></code> method.</p>
+<p>Note that this method is only relevant when this estimator is used as a
+sub-estimator within a <span class="xref std std-term">meta-estimator</span> and metadata routing is enabled
+with <code class="docutils literal notranslate"><span class="pre">enable_metadata_routing=True</span></code> (see <code class="xref py py-func docutils literal notranslate"><span class="pre">sklearn.set_config()</span></code>).
+Please check the <span class="xref std std-ref">User Guide</span> on how the routing
+mechanism works.</p>
+<p>The options for each parameter are:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">True</span></code>: metadata is requested, and passed to <code class="docutils literal notranslate"><span class="pre">transform</span></code> if provided. The request is ignored if metadata is not provided.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">False</span></code>: metadata is not requested and the meta-estimator will not pass it to <code class="docutils literal notranslate"><span class="pre">transform</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">None</span></code>: metadata is not requested, and the meta-estimator will raise an error if the user provides it.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">str</span></code>: metadata should be passed to the meta-estimator with this given alias instead of the original name.</p></li>
+</ul>
+<p>The default (<code class="docutils literal notranslate"><span class="pre">sklearn.utils.metadata_routing.UNCHANGED</span></code>) retains the
+existing request. This allows you to change the request for some
+parameters and not others.</p>
+<div class="versionadded">
+<p><span class="versionmodified added">Added in version 1.3.</span></p>
+</div>
+<section id="id22">
+<h2>Parameters<a class="headerlink" href="#id22" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>copy<span class="classifier">str, True, False, or None,                     default=sklearn.utils.metadata_routing.UNCHANGED</span></dt><dd><p>Metadata routing for <code class="docutils literal notranslate"><span class="pre">copy</span></code> parameter in <code class="docutils literal notranslate"><span class="pre">transform</span></code>.</p>
+</dd>
+</dl>
+</section>
+<section id="id23">
+<h2>Returns<a class="headerlink" href="#id23" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>self<span class="classifier">object</span></dt><dd><p>The updated object.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.StandardScaler.std_">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">std_</span></span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.StandardScaler.std_" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.StandardScaler.transform">
+<span class="sig-name descname"><span class="pre">transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.StandardScaler.transform" title="Link to this definition"></a></dt>
+<dd><p>Perform standardization by centering and scaling
+Parameters
+———-
+X : array-like, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>The data used to scale along the features axis.</p>
+</div></blockquote>
+</dd></dl>
+
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.add_dummy_feature">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">add_dummy_feature</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.add_dummy_feature" title="Link to this definition"></a></dt>
+<dd><p>Augment dataset with an additional dummy feature.
+This is useful for fitting an intercept term with implementations which
+cannot otherwise fit it directly.
+Parameters
+———-
+X : {array-like, sparse matrix}, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>Data.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>value<span class="classifier">float</span></dt><dd><p>Value to use for the dummy feature.</p>
+</dd>
+</dl>
+<section id="id24">
+<h1>Returns<a class="headerlink" href="#id24" title="Link to this heading"></a></h1>
+<dl class="simple">
+<dt>X<span class="classifier">{array, sparse matrix}, shape [n_samples, n_features + 1]</span></dt><dd><p>Same data with dummy feature added as first column.</p>
+</dd>
+</dl>
+</section>
+<section id="id25">
+<h1>Examples<a class="headerlink" href="#id25" title="Link to this heading"></a></h1>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.preprocessing</span><span class="w"> </span><span class="kn">import</span> <span class="n">add_dummy_feature</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">add_dummy_feature</span><span class="p">([[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]])</span>
+<span class="go">array([[ 1.,  0.,  1.],</span>
+<span class="go">       [ 1.,  1.,  0.]])</span>
+</pre></div>
+</div>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.binarize">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">binarize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">threshold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.binarize" title="Link to this definition"></a></dt>
+<dd><p>Boolean thresholding of array-like or scipy.sparse matrix
+Read more in the <span class="xref std std-ref">User Guide</span>.
+Parameters
+———-
+X : {array-like, sparse matrix}, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>The data to binarize, element by element.
+scipy.sparse matrices should be in CSR or CSC format to avoid an
+un-necessary copy.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>threshold<span class="classifier">float, optional (0.0 by default)</span></dt><dd><p>Feature values below or equal to this are replaced by 0, above it by 1.
+Threshold may not be less than 0 for operations on sparse matrices.</p>
+</dd>
+<dt>copy<span class="classifier">boolean, optional, default True</span></dt><dd><p>set to False to perform inplace binarization and avoid a copy
+(if the input is already a numpy array or a scipy.sparse CSR / CSC
+matrix and if axis is 1).</p>
+</dd>
+</dl>
+<section id="id26">
+<h1>See also<a class="headerlink" href="#id26" title="Link to this heading"></a></h1>
+<dl class="simple">
+<dt>Binarizer: Performs binarization using the <code class="docutils literal notranslate"><span class="pre">Transformer</span></code> API</dt><dd><p>(e.g. as part of a preprocessing <code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.pipeline.Pipeline</span></code>).</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.maxabs_scale">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">maxabs_scale</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">axis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.maxabs_scale" title="Link to this definition"></a></dt>
+<dd><p>Scale each feature to the [-1, 1] range without breaking the sparsity.
+This estimator scales each feature individually such
+that the maximal absolute value of each feature in the
+training set will be 1.0.
+This scaler can also be applied to sparse CSR or CSC matrices.
+Parameters
+———-
+axis : int (0 by default)</p>
+<blockquote>
+<div><p>axis used to scale along. If 0, independently scale each feature,
+otherwise (if 1) scale each sample.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>copy<span class="classifier">boolean, optional, default is True</span></dt><dd><p>Set to False to perform inplace scaling and avoid a copy (if the input
+is already a numpy array).</p>
+</dd>
+</dl>
+<section id="id27">
+<h1>See also<a class="headerlink" href="#id27" title="Link to this heading"></a></h1>
+<dl class="simple">
+<dt>MaxAbsScaler: Performs scaling to the [-1, 1] range using the``Transformer`` API</dt><dd><p>(e.g. as part of a preprocessing <code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.pipeline.Pipeline</span></code>).</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.minmax_scale">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">minmax_scale</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">feature_range</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(0,</span> <span class="pre">1)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">axis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.minmax_scale" title="Link to this definition"></a></dt>
+<dd><p>Transforms features by scaling each feature to a given range.
+This estimator scales and translates each feature individually such
+that it is in the given range on the training set, i.e. between
+zero and one.
+The transformation is given by:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">X_std</span> <span class="o">=</span> <span class="p">(</span><span class="n">X</span> <span class="o">-</span> <span class="n">X</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span> <span class="o">/</span> <span class="p">(</span><span class="n">X</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span> <span class="o">-</span> <span class="n">X</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span>
+<span class="n">X_scaled</span> <span class="o">=</span> <span class="n">X_std</span> <span class="o">*</span> <span class="p">(</span><span class="nb">max</span> <span class="o">-</span> <span class="nb">min</span><span class="p">)</span> <span class="o">+</span> <span class="nb">min</span>
+</pre></div>
+</div>
+<p>where min, max = feature_range.
+This transformation is often used as an alternative to zero mean,
+unit variance scaling.
+Read more in the <span class="xref std std-ref">User Guide</span>.
+.. versionadded:: 0.17</p>
+<blockquote>
+<div><p><em>minmax_scale</em> function interface
+to <code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.preprocessing.MinMaxScaler</span></code>.</p>
+</div></blockquote>
+<section id="id28">
+<h1>Parameters<a class="headerlink" href="#id28" title="Link to this heading"></a></h1>
+<dl class="simple">
+<dt>feature_range<span class="classifier">tuple (min, max), default=(0, 1)</span></dt><dd><p>Desired range of transformed data.</p>
+</dd>
+<dt>axis<span class="classifier">int (0 by default)</span></dt><dd><p>axis used to scale along. If 0, independently scale each feature,
+otherwise (if 1) scale each sample.</p>
+</dd>
+<dt>copy<span class="classifier">boolean, optional, default is True</span></dt><dd><p>Set to False to perform inplace scaling and avoid a copy (if the input
+is already a numpy array).</p>
+</dd>
+</dl>
+</section>
+<section id="id29">
+<h1>See also<a class="headerlink" href="#id29" title="Link to this heading"></a></h1>
+<dl class="simple">
+<dt>MinMaxScaler: Performs scaling to a given range using the``Transformer`` API</dt><dd><p>(e.g. as part of a preprocessing <code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.pipeline.Pipeline</span></code>).</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.normalize">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">normalize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">norm</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'l2'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">axis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_norm</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.normalize" title="Link to this definition"></a></dt>
+<dd><p>Scale input vectors individually to unit norm (vector length).
+Read more in the <span class="xref std std-ref">User Guide</span>.
+Parameters
+———-
+X : {array-like, sparse matrix}, shape [n_samples, n_features]</p>
+<blockquote>
+<div><p>The data to normalize, element by element.
+scipy.sparse matrices should be in CSR format to avoid an
+un-necessary copy.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>norm<span class="classifier">‘l1’, ‘l2’, or ‘max’, optional (‘l2’ by default)</span></dt><dd><p>The norm to use to normalize each non zero sample (or each non-zero
+feature if axis is 0).</p>
+</dd>
+<dt>axis<span class="classifier">0 or 1, optional (1 by default)</span></dt><dd><p>axis used to normalize the data along. If 1, independently normalize
+each sample, otherwise (if 0) normalize each feature.</p>
+</dd>
+<dt>copy<span class="classifier">boolean, optional, default True</span></dt><dd><p>set to False to perform inplace row normalization and avoid a
+copy (if the input is already a numpy array or a scipy.sparse
+CSR matrix and if axis is 1).</p>
+</dd>
+<dt>return_norm<span class="classifier">boolean, default False</span></dt><dd><p>whether to return the computed norms</p>
+</dd>
+</dl>
+<section id="id30">
+<h1>See also<a class="headerlink" href="#id30" title="Link to this heading"></a></h1>
+<dl class="simple">
+<dt>Normalizer: Performs normalization using the <code class="docutils literal notranslate"><span class="pre">Transformer</span></code> API</dt><dd><p>(e.g. as part of a preprocessing <code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.pipeline.Pipeline</span></code>).</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.robust_scale">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">robust_scale</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">axis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">with_centering</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">with_scaling</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quantile_range</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(25.0,</span> <span class="pre">75.0)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.robust_scale" title="Link to this definition"></a></dt>
+<dd><p>Standardize a dataset along any axis
+Center to the median and component wise scale
+according to the interquartile range.
+Read more in the <span class="xref std std-ref">User Guide</span>.
+Parameters
+———-
+X : array-like</p>
+<blockquote>
+<div><p>The data to center and scale.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>axis<span class="classifier">int (0 by default)</span></dt><dd><p>axis used to compute the medians and IQR along. If 0,
+independently scale each feature, otherwise (if 1) scale
+each sample.</p>
+</dd>
+<dt>with_centering<span class="classifier">boolean, True by default</span></dt><dd><p>If True, center the data before scaling.</p>
+</dd>
+<dt>with_scaling<span class="classifier">boolean, True by default</span></dt><dd><p>If True, scale the data to unit variance (or equivalently,
+unit standard deviation).</p>
+</dd>
+<dt>quantile_range<span class="classifier">tuple (q_min, q_max), 0.0 &lt; q_min &lt; q_max &lt; 100.0</span></dt><dd><p>Default: (25.0, 75.0) = (1st quantile, 3rd quantile) = IQR
+Quantile range used to calculate <code class="docutils literal notranslate"><span class="pre">scale_</span></code>.
+.. versionadded:: 0.18</p>
+</dd>
+<dt>copy<span class="classifier">boolean, optional, default is True</span></dt><dd><p>set to False to perform inplace row normalization and avoid a
+copy (if the input is already a numpy array or a scipy.sparse
+CSR matrix and if axis is 1).</p>
+</dd>
+</dl>
+<section id="id31">
+<h1>Notes<a class="headerlink" href="#id31" title="Link to this heading"></a></h1>
+<p>This implementation will refuse to center scipy.sparse matrices
+since it would make them non-sparse and would potentially crash the
+program with memory exhaustion problems.
+Instead the caller is expected to either set explicitly
+<cite>with_centering=False</cite> (in that case, only variance scaling will be
+performed on the features of the CSR matrix) or to call <cite>X.toarray()</cite>
+if he/she expects the materialized dense array to fit in memory.
+To avoid memory copy the caller should pass a CSR matrix.
+See also
+——–
+RobustScaler: Performs centering and scaling using the <code class="docutils literal notranslate"><span class="pre">Transformer</span></code> API</p>
+<blockquote>
+<div><p>(e.g. as part of a preprocessing <code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.pipeline.Pipeline</span></code>).</p>
+</div></blockquote>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.ModifiedScikitFit.scale">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.ModifiedScikitFit.</span></span><span class="sig-name descname"><span class="pre">scale</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">axis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">with_mean</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">with_std</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">copy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.ModifiedScikitFit.scale" title="Link to this definition"></a></dt>
+<dd><p>Standardize a dataset along any axis
+Center to the mean and component wise scale to unit variance.
+Read more in the <span class="xref std std-ref">User Guide</span>.
+Parameters
+———-
+X : {array-like, sparse matrix}</p>
+<blockquote>
+<div><p>The data to center and scale.</p>
+</div></blockquote>
+<dl class="simple">
+<dt>axis<span class="classifier">int (0 by default)</span></dt><dd><p>axis used to compute the means and standard deviations along. If 0,
+independently standardize each feature, otherwise (if 1) standardize
+each sample.</p>
+</dd>
+<dt>with_mean<span class="classifier">boolean, True by default</span></dt><dd><p>If True, center the data before scaling.</p>
+</dd>
+<dt>with_std<span class="classifier">boolean, True by default</span></dt><dd><p>If True, scale the data to unit variance (or equivalently,
+unit standard deviation).</p>
+</dd>
+<dt>copy<span class="classifier">boolean, optional, default True</span></dt><dd><p>set to False to perform inplace row normalization and avoid a
+copy (if the input is already a numpy array or a scipy.sparse
+CSC matrix and if axis is 1).</p>
+</dd>
+</dl>
+<section id="id32">
+<h1>Notes<a class="headerlink" href="#id32" title="Link to this heading"></a></h1>
+<p>This implementation will refuse to center scipy.sparse matrices
+since it would make them non-sparse and would potentially crash the
+program with memory exhaustion problems.
+Instead the caller is expected to either set explicitly
+<cite>with_mean=False</cite> (in that case, only variance scaling will be
+performed on the features of the CSC matrix) or to call <cite>X.toarray()</cite>
+if he/she expects the materialized dense array to fit in memory.
+To avoid memory copy the caller should pass a CSC matrix.
+See also
+——–
+StandardScaler: Performs scaling to unit variance using the``Transformer`` API</p>
+<blockquote>
+<div><p>(e.g. as part of a preprocessing <code class="xref py py-class docutils literal notranslate"><span class="pre">sklearn.pipeline.Pipeline</span></code>).</p>
+</div></blockquote>
+</section>
+</dd></dl>
+
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

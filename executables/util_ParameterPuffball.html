@@ -1,0 +1,239 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>util_ParameterPuffball &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Waveform Generation" href="../physics/index.html" />
+    <link rel="prev" title="convergence_test_samples" href="convergence_test_samples.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Executables</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="util_RIFT_pseudo_pipe.html">util_RIFT_pseudo_pipe.py</a></li>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html">create_event_parameter_pipeline_BasicIteration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html">integrate_likelihood_extrinsic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html">integrate_likelihood_extrinsic_batchmode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html">util_ConstructIntrinsicPosterior_GenericCoordinates</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html">plot_posterior_corner</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html">util_ManualOverlapGrid</a></li>
+<li class="toctree-l2"><a class="reference internal" href="convergence_test_samples.html">convergence_test_samples</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">util_ParameterPuffball</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Executables</a></li>
+      <li class="breadcrumb-item active">util_ParameterPuffball</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/executables/util_ParameterPuffball.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="util-parameterpuffball">
+<h1>util_ParameterPuffball<a class="headerlink" href="#util-parameterpuffball" title="Link to this heading"></a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">util_ParameterPuffball.py</span></code> executable is used to “puff up” a distribution of parameters. It reads an existing set of parameters, assesses their covariance, and generates a new, expanded set of parameters by adding random noise based on that covariance. This is typically used to create a broader sampling distribution for subsequent integration or testing steps.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>In many RIFT workflows, it is necessary to move from a highly constrained set of parameters (e.g., a maximum likelihood point or a narrow grid) to a wider distribution that still respects the underlying correlations of the parameters. <code class="docutils literal notranslate"><span class="pre">util_ParameterPuffball.py</span></code> achieves this by calculating the covariance matrix of the input parameters and sampling from a multivariate normal distribution to perturb the points.</p>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
+<section id="basic-command-line">
+<h3>Basic Command Line<a class="headerlink" href="#basic-command-line" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>util_ParameterPuffball.py<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+</pre></div>
+</div>
+</section>
+<section id="primary-options">
+<h3>Primary Options<a class="headerlink" href="#primary-options" title="Link to this heading"></a></h3>
+<p><strong>Input and Output</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--inj-file</span></code>: Path to the input XML file containing the parameter set.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--inj-file-out</span></code>: Path to the output XML file (default: <code class="docutils literal notranslate"><span class="pre">output-puffball</span></code>).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--puff-factor</span></code>: Scaling factor for the covariance matrix. A value of 1.0 maintains the original covariance; values &gt; 1.0 “puff up” the distribution (default: 1.0).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--approx-output</span></code>: Waveform approximant to use when writing the output XML (default: <code class="docutils literal notranslate"><span class="pre">SEOBNRv2</span></code>).</p></li>
+</ul>
+<p><strong>Parameter Selection</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--parameter</span></code>: Parameters to be used for covariance assessment and perturbation. These are the “fitting” parameters.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--no-correlation</span></code>: A list of parameter pairs (e.g., <code class="docutils literal notranslate"><span class="pre">&quot;['mc','eta']&quot;</span></code>) whose mutual correlation should be eliminated by zeroing out the corresponding covariance matrix terms.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--random-parameter</span></code>: Parameters to be sampled uniformly at random over a specified range, uncorrelated with others.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--random-parameter-range</span></code>: The ranges for the <code class="docutils literal notranslate"><span class="pre">--random-parameter</span></code> variables (passed as string evaluations of Python lists).</p></li>
+</ul>
+<p><strong>Constraints and Filtering</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--downselect-parameter</span></code>: Parameters used to filter out points that fall outside a specific range.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--downselect-parameter-range</span></code>: The allowed ranges for the downselection parameters.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--mc-range</span></code>, <code class="docutils literal notranslate"><span class="pre">--eta-range</span></code>, <code class="docutils literal notranslate"><span class="pre">--mtot-range</span></code>: Convenient shortcuts for downselecting based on chirp mass, eta, or total mass.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--reflect-parameter</span></code>: Parameters that should be “reflected” back into their allowed range if they exceed the boundaries.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--force-away</span></code>: If &gt; 0, uses the inverse covariance matrix to compute a Mahalanobis distance and discards points that are too close to existing points.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--enforce-duration-bound</span></code>: Maximum allowed waveform duration. Points producing signals longer than this are discarded.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--fail-if-empty</span></code>: Causes the tool to exit with an error if no points survive the filtering process.</p></li>
+</ul>
+</section>
+</section>
+<section id="functional-logic">
+<h2>Functional Logic<a class="headerlink" href="#functional-logic" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Coordinate Extraction</strong>: Reads the input XML and extracts the specified <code class="docutils literal notranslate"><span class="pre">--parameter</span></code> values. Physical masses are scaled to solar masses.</p></li>
+<li><p><strong>Transformation</strong>: Performs a natural log transformation on parameters that are strictly positive (e.g., tidal parameters like <code class="docutils literal notranslate"><span class="pre">lambda1</span></code>, <code class="docutils literal notranslate"><span class="pre">lambda2</span></code>, <code class="docutils literal notranslate"><span class="pre">LambdaTilde</span></code>) to ensure perturbed values remain positive.</p></li>
+<li><dl class="simple">
+<dt><strong>Covariance Calculation</strong>:</dt><dd><ul class="simple">
+<li><p>Computes the covariance matrix of the extracted parameters.</p></li>
+<li><p>Applies the <code class="docutils literal notranslate"><span class="pre">--puff-factor</span></code> scaling.</p></li>
+<li><p>Handles singular matrices by adding a small regularization term to the diagonal of the inverse covariance (pseudo-inverse).</p></li>
+<li><p>Zeroes out correlations for pairs specified via <code class="docutils literal notranslate"><span class="pre">--no-correlation</span></code>.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt><strong>Perturbation</strong>:</dt><dd><ul class="simple">
+<li><p>Samples random offsets from a multivariate normal distribution based on the modified covariance matrix.</p></li>
+<li><p>Adds these offsets to the original parameters.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt><strong>Boundary Handling</strong>:</dt><dd><ul class="simple">
+<li><p><strong>Reflection</strong>: Reflects parameters specified by <code class="docutils literal notranslate"><span class="pre">--reflect-parameter</span></code> back into their defined ranges.</p></li>
+<li><p><strong>Eta Constraint</strong>: Specifically ensures <code class="docutils literal notranslate"><span class="pre">eta</span></code> remains within the physical range [0, 0.25].</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt><strong>Filtering (Downselection)</strong>:</dt><dd><ul class="simple">
+<li><p>Converts parameters to a common coordinate system to check constraints.</p></li>
+<li><p>Discards points that violate <code class="docutils literal notranslate"><span class="pre">--downselect-parameter-range</span></code> or the predefined physical bounds for masses and eta.</p></li>
+<li><p>Discards points that violate the <code class="docutils literal notranslate"><span class="pre">--enforce-duration-bound</span></code> or the unit spin magnitude constraint ($chi le 1$).</p></li>
+<li><p>Optionally discards points too close to the original set using the <code class="docutils literal notranslate"><span class="pre">--force-away</span></code> Mahalanobis distance check.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt><strong>Finalization</strong>:</dt><dd><ul class="simple">
+<li><p>Undoes the log transformations.</p></li>
+<li><p>Applies random values to parameters specified by <code class="docutils literal notranslate"><span class="pre">--random-parameter</span></code>.</p></li>
+<li><p>Writes the resulting parameter set to the output XML.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+</ol>
+</section>
+<section id="output-details">
+<h2>Output Details<a class="headerlink" href="#output-details" title="Link to this heading"></a></h2>
+<p>The tool prints the updated covariance matrix and the final count of exported points. The output is a standard <cite>ligolw</cite> XML file containing the “puffed” parameter set.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="convergence_test_samples.html" class="btn btn-neutral float-left" title="convergence_test_samples" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../physics/index.html" class="btn btn-neutral float-right" title="Waveform Generation" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

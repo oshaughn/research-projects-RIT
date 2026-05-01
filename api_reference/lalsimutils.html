@@ -1,0 +1,1565 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LALSimUtils &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="Misc Utilities" href="misc/index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="integrators/index.html">Integrators (MC Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="likelihood/index.html">Likelihood and Priors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="physics/index.html">Physics Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_utilities/index.html">Plot Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="simulation_manager/index.html">Simulation Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="asimov/index.html">Asimov Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="calmarg/index.html">Calibration Marginalization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="misc/index.html">Misc Utilities</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">LALSimUtils</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">API Reference</a></li>
+      <li class="breadcrumb-item active">LALSimUtils</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/api_reference/lalsimutils.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="lalsimutils">
+<h1>LALSimUtils<a class="headerlink" href="#lalsimutils" title="Link to this heading"></a></h1>
+<p>Top-level utility module for LALSimulation interfacing.</p>
+<p id="module-RIFT.lalsimutils">A collection of useful data analysis routines
+built from the SWIG wrappings of LAL and LALSimulation.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">ChooseWaveformParams</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">phiref</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.000244140625</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m1</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.9884098706980507e+31</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m2</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.9884098706980507e+31</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1x</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s1z</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2x</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s2z</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">40.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fref</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3.085677581491367e+22</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">incl</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda1</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda2</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">waveFlags</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nonGRparams</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ampO</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phaseO</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">7</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">approx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">84</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">radec</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detector</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'H1'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaF</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">taper</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eccentricity</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">meanPerAno</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class containing all the arguments needed for SimInspiralChooseTD/FDWaveform
+plus parameters theta, phi, psi, radec to go from h+, hx to h(t)</p>
+<dl class="simple">
+<dt>if radec==True: (theta,phi) = (DEC,RA) and strain will be computed using</dt><dd><p>XLALSimDetectorStrainREAL8TimeSeries</p>
+</dd>
+<dt>if radec==False: then strain will be computed using a simple routine </dt><dd><p>that assumes (theta,phi) are spherical coord. 
+in a frame centered at the detector</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.FrequencyAtVelocity">
+<span class="sig-name descname"><span class="pre">FrequencyAtVelocity</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">v</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.FrequencyAtVelocity" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.HardAlignedQ">
+<span class="sig-name descname"><span class="pre">HardAlignedQ</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.HardAlignedQ" title="Link to this definition"></a></dt>
+<dd><p>Test if L,S1,S2 all parallel to z</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.OrbitalAngularMomentumAtReference">
+<span class="sig-name descname"><span class="pre">OrbitalAngularMomentumAtReference</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.OrbitalAngularMomentumAtReference" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.OrbitalAngularMomentumAtReferenceOverM2">
+<span class="sig-name descname"><span class="pre">OrbitalAngularMomentumAtReferenceOverM2</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.OrbitalAngularMomentumAtReferenceOverM2" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.SoftAlignedQ">
+<span class="sig-name descname"><span class="pre">SoftAlignedQ</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.SoftAlignedQ" title="Link to this definition"></a></dt>
+<dd><p>Test if L,S1,S2 all parallel to <em>one another</em></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.TotalAngularMomentumAtReference">
+<span class="sig-name descname"><span class="pre">TotalAngularMomentumAtReference</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.TotalAngularMomentumAtReference" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.TotalAngularMomentumAtReferenceOverM2">
+<span class="sig-name descname"><span class="pre">TotalAngularMomentumAtReferenceOverM2</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.TotalAngularMomentumAtReferenceOverM2" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.VelocityAtFrequency">
+<span class="sig-name descname"><span class="pre">VelocityAtFrequency</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">f</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.VelocityAtFrequency" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.Xi">
+<span class="sig-name descname"><span class="pre">Xi</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.Xi" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.assign_param">
+<span class="sig-name descname"><span class="pre">assign_param</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">val</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.assign_param" title="Link to this definition"></a></dt>
+<dd><p>Syntatic sugar to assign parameters to values.
+Provides ability to specify a binary by its values of</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>mchirp, eta</p></li>
+<li><p>system frame parameters</p></li>
+</ul>
+</div></blockquote>
+<p>VERY HELPFUL if you want to change just one parameter at a time (e.g., for Fisher )</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.copy">
+<span class="sig-name descname"><span class="pre">copy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.copy" title="Link to this definition"></a></dt>
+<dd><p>Create a deep copy, so copy and original can be changed separately
+This does NOT work reliably (segfault side effects possible)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.copy_lsctables_sim_inspiral">
+<span class="sig-name descname"><span class="pre">copy_lsctables_sim_inspiral</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">row</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.copy_lsctables_sim_inspiral" title="Link to this definition"></a></dt>
+<dd><p>Fill this ChooseWaveformParams with the fields of a
+row of an lsctables.SimInspiral table
+(i.e. SimInspiral table in the format as read from a file)</p>
+<p>NB: SimInspiral table does not contain deltaT, deltaF, fref, fmax,
+lambda1, lambda2, waveFlags, nonGRparams, or detector fields, but
+ChooseWaveformParams does have these fields.
+This function will not alter these fields, so their values will
+be whatever values the instance previously had.</p>
+<p>Adapted from code by Chris Pankow</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.copy_sim_inspiral">
+<span class="sig-name descname"><span class="pre">copy_sim_inspiral</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">row</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.copy_sim_inspiral" title="Link to this definition"></a></dt>
+<dd><p>Fill this ChooseWaveformParams with the fields of a
+row of a SWIG wrapped lalmetaio.SimInspiral table</p>
+<p>NB: SimInspiral table does not contain deltaT, deltaF, fref, fmax,
+lambda1, lambda2, waveFlags, nonGRparams, or detector fields, but
+ChooseWaveformParams does have these fields.
+This function will not alter these fields, so their values will
+be whatever values the instance previously had.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.create_sim_inspiral">
+<span class="sig-name descname"><span class="pre">create_sim_inspiral</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.create_sim_inspiral" title="Link to this definition"></a></dt>
+<dd><p>Create a sim_inspiral table from P.  <em>One</em> element from it</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.extract_param">
+<span class="sig-name descname"><span class="pre">extract_param</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.extract_param" title="Link to this definition"></a></dt>
+<dd><p>assign_param
+Syntatic sugar to extract parameters to values.
+Necessary to make full use of assign_param on</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>mchirp, eta</p></li>
+<li><p>system frame parameters</p></li>
+</ul>
+</div></blockquote>
+<p>VERY HELPFUL if you want to change just one parameter at a time (e.g., for Fisher )</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.extract_system_frame">
+<span class="sig-name descname"><span class="pre">extract_system_frame</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.extract_system_frame" title="Link to this definition"></a></dt>
+<dd><p>Extract system frame angles. 
+Returned in precisely the format needed for use in init_via_system_frame.
+P.init_via_system_frame(P.extract_system_frame())  should leave the state unchanged.
+CHECK DONE IN : LIGO-Development-UpdatedSpinningWaveforms/KISTI-MCMC/PrecessingFisher/Python/overlap_versus_systemframe
+PROBLEM: Polarization angle isn’t stable (oddly?)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.init_via_system_frame">
+<span class="sig-name descname"><span class="pre">init_via_system_frame</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">thetaJN</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phiJL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta1</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta2</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi12</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chi1</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chi2</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psiJ</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.init_via_system_frame" title="Link to this definition"></a></dt>
+<dd><p>Populate spin directions (and psi_L) using system frame parameters.   Note this is NOT using eta
+Example:
+P.init_via_system_frame(thetaJN=0.1, phiJL=0.1, theta1=0.1, theta2=0.1, phi12=0.1, chi1=1., chi2=1., psiJ=0.)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.manual_copy">
+<span class="sig-name descname"><span class="pre">manual_copy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.manual_copy" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.print_params">
+<span class="sig-name descname"><span class="pre">print_params</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">show_system_frame</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.print_params" title="Link to this definition"></a></dt>
+<dd><p>Print all key-value pairs belonging in the class instance</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.randomize">
+<span class="sig-name descname"><span class="pre">randomize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">zero_spin_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">aligned_spin_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">volumetric_spin_prior_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default_inclination</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default_phase</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default_polarization</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dMax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">500.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dMin</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sMax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.randomize" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.scale_to_snr">
+<span class="sig-name descname"><span class="pre">scale_to_snr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">new_SNR</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psd</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ifo_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analyticPSD_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.scale_to_snr" title="Link to this definition"></a></dt>
+<dd><ul class="simple">
+<li><p>evaluates network SNR in the ifo list provided (assuming <em>constant</em> psd for all..may change)</p></li>
+<li><p>uses network SNR to rescale the distance of the source, so the SNR is now  new_SNR</p></li>
+<li><p>returns current_SNR, for sanity</p></li>
+</ul>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.swap_components">
+<span class="sig-name descname"><span class="pre">swap_components</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.swap_components" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.to_lal_dict">
+<span class="sig-name descname"><span class="pre">to_lal_dict</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.to_lal_dict" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams.to_lal_dict_extended">
+<span class="sig-name descname"><span class="pre">to_lal_dict_extended</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">extra_args_dict</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams.to_lal_dict_extended" title="Link to this definition"></a></dt>
+<dd><dl class="simple">
+<dt>to_lal_dict_extended:</dt><dd><p>Extended implementation, to address massive proliferation of options to control waveform version
+See  <a class="reference external" href="https://git.ligo.org/lscsoft/bilby_pipe/-/merge_requests/371/diffs">https://git.ligo.org/lscsoft/bilby_pipe/-/merge_requests/371/diffs</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams_array_to_hdf5">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">ChooseWaveformParams_array_to_hdf5</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fname</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'injections'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.000244140625</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fref</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">waveFlags</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nonGRparams</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detector</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'H1'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaF</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams_array_to_hdf5" title="Link to this definition"></a></dt>
+<dd><p>HDF5 storage for parameters.
+Compare to lalinference HDF5 i/o <a class="reference external" href="https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/io/hdf5.py">https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/io/hdf5.py</a></p>
+<p>TERRIBLE CODE: Assumes hardcoded order, does not embed metadata with field names
+SHOULD RESTRUCTURE to load into record-array like structure</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ChooseWaveformParams_array_to_xml">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">ChooseWaveformParams_array_to_xml</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fname</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'injections'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">minrow</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">maxrow</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.000244140625</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fref</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">waveFlags</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nonGRparams</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detector</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'H1'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaF</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ChooseWaveformParams_array_to_xml" title="Link to this definition"></a></dt>
+<dd><p>Standard XML storage for parameters.
+Note that lambda values are NOT stored in xml table entries — I have a special hack to do this</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ComplexIP">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">ComplexIP</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fLow=10.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fNyq=2048.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaF=0.125</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psd=&lt;built-in</span> <span class="pre">function</span> <span class="pre">SimNoisePSDaLIGOZeroDetHighPower&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analyticPSD_Q=True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inv_spec_trunc_Q=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_spec=0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">waveform_is_psi4=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ComplexIP" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.lalsimutils.InnerProduct" title="RIFT.lalsimutils.InnerProduct"><code class="xref py py-class docutils literal notranslate"><span class="pre">InnerProduct</span></code></a></p>
+<p>Complex-valued inner product. self.ip(h1,h2) computes</p>
+<blockquote>
+<div><p>fNyq</p>
+</div></blockquote>
+<dl class="simple">
+<dt>2 int      h1(f) h2*(f) / Sn(f) df</dt><dd><p>-fNyq</p>
+</dd>
+</dl>
+<p>And similarly for self.norm(h1)</p>
+<dl class="simple">
+<dt>N.B. DOES NOT assume h1, h2 are Hermitian - they should contain negative</dt><dd><p>and positive freqs. packed as</p>
+</dd>
+</dl>
+<p>[ -N/2 * df, …, -df, 0, df, …, (N/2-1) * df ]
+DOES NOT maximize over time or phase</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ComplexIP.ip">
+<span class="sig-name descname"><span class="pre">ip</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">include_epoch_differences</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ComplexIP.ip" title="Link to this definition"></a></dt>
+<dd><p>Compute inner product between two COMPLEX16Frequency Series
+Accounts for time shfit</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ComplexIP.norm">
+<span class="sig-name descname"><span class="pre">norm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ComplexIP.norm" title="Link to this definition"></a></dt>
+<dd><p>Compute norm of a COMPLEX16Frequency Series</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ComplexOverlap">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">ComplexOverlap</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fLow=10.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fNyq=2048.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaF=0.125</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psd=&lt;built-in</span> <span class="pre">function</span> <span class="pre">SimNoisePSDaLIGOZeroDetHighPower&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analyticPSD_Q=True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inv_spec_trunc_Q=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_spec=0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">full_output=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interpolate_max=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">waveform_is_psi4=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ComplexOverlap" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.lalsimutils.InnerProduct" title="RIFT.lalsimutils.InnerProduct"><code class="xref py py-class docutils literal notranslate"><span class="pre">InnerProduct</span></code></a></p>
+<p>Inner product maximized over time and polarization angle. 
+This inner product does not assume Hermitianity and is therefore
+valid for waveforms that are complex in the TD, e.g. h+(t) + 1j hx(t).
+self.IP(h1,h2) computes:</p>
+<blockquote>
+<div><p>fNyq</p>
+</div></blockquote>
+<dl class="simple">
+<dt>max 2 Abs int      h1*(f,tc) h2(f) / Sn(f) df</dt><dd><p>tc          -fNyq</p>
+</dd>
+</dl>
+<p>h1, h2 must be COMPLEX16FrequencySeries defined in [-fNyq, fNyq-deltaF]
+At least one of which should be non-Hermitian for the maximization
+over phase to work properly.</p>
+<dl class="simple">
+<dt>If self.full_output==False: returns</dt><dd><p>The maximized overlap</p>
+</dd>
+<dt>If self.full_output==True: returns</dt><dd><p>The maximized overlap
+The entire COMPLEX16TimeSeries of overlaps for each possible time shift
+The index of the above time series at which the maximum occurs
+The phase rotation which maximizes the real-valued overlap</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ComplexOverlap.ip">
+<span class="sig-name descname"><span class="pre">ip</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h2</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ComplexOverlap.ip" title="Link to this definition"></a></dt>
+<dd><p>Compute inner product between two non-Hermitian COMPLEX16FrequencySeries</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ComplexOverlap.norm">
+<span class="sig-name descname"><span class="pre">norm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ComplexOverlap.norm" title="Link to this definition"></a></dt>
+<dd><p>Compute norm of a non-Hermitian COMPLEX16FrequencySeries</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.ComplexOverlap.wrap_times">
+<span class="sig-name descname"><span class="pre">wrap_times</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.ComplexOverlap.wrap_times" title="Link to this definition"></a></dt>
+<dd><p>Return a vector of wrap-around time offsets, i.e.
+[ 0, dt, 2 dt, …, N dt, -(N-1) dt, -(N-1) dt, …, -2 dt, -dt ]</p>
+<p>This is useful in conjunction with the ‘full_output’ option to plot
+the overlap vs timeshift. e.g. do:</p>
+<p>IP = ComplexOverlap(full_output=True)
+t = IP.wrap_times()
+rho, ovlp, rhoIdx, rhoPhase = IP.ip(h1, h2)
+plot(t, abs(ovlp))</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.CreateCompatibleComplexIP">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">CreateCompatibleComplexIP</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hlmf</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.CreateCompatibleComplexIP" title="Link to this definition"></a></dt>
+<dd><p>Creates complex IP (no maximization)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.CreateCompatibleComplexOverlap">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">CreateCompatibleComplexOverlap</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hlmf</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.CreateCompatibleComplexOverlap" title="Link to this definition"></a></dt>
+<dd><p>CreateCompatibleComplexOverlap: accepts dictionary or single instance of COMPLEX16FrequencySeries</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.DataFourier">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">DataFourier</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ht</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.DataFourier" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.DataFourierREAL8">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">DataFourierREAL8</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ht</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.DataFourierREAL8" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.DataInverseFourier">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">DataInverseFourier</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hf</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.DataInverseFourier" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.DataInverseFourierREAL8">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">DataInverseFourierREAL8</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hf</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.DataInverseFourierREAL8" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.DataRollBins">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">DataRollBins</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ht</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nL</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.DataRollBins" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.DataRollTime">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">DataRollTime</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ht</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DeltaT</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.DataRollTime" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.Fcross">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">Fcross</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.Fcross" title="Link to this definition"></a></dt>
+<dd><p>Antenna pattern as a function of polar coordinates measured from
+directly overhead a right angle interferometer and polarization angle</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.Fplus">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">Fplus</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.Fplus" title="Link to this definition"></a></dt>
+<dd><p>Antenna pattern as a function of polar coordinates measured from
+directly overhead a right angle interferometer and polarization angle</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.HermitianComplexIP">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">HermitianComplexIP</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fLow=10.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fNyq=2048.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaF=0.125</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psd=&lt;built-in</span> <span class="pre">function</span> <span class="pre">SimNoisePSDaLIGOZeroDetHighPower&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analyticPSD_Q=True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inv_spec_trunc_Q=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_spec=0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">waveform_is_psi4=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.HermitianComplexIP" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.lalsimutils.InnerProduct" title="RIFT.lalsimutils.InnerProduct"><code class="xref py py-class docutils literal notranslate"><span class="pre">InnerProduct</span></code></a></p>
+<p>Complex-valued inner product. self.ip(h1,h2) computes</p>
+<blockquote>
+<div><p>fNyq</p>
+</div></blockquote>
+<dl class="simple">
+<dt>4 int      h1(f) h2*(f) / Sn(f) df</dt><dd><p>fLow</p>
+</dd>
+</dl>
+<p>And similarly for self.norm(h1)</p>
+<dl class="simple">
+<dt>N.B. Assumes h1, h2 are Hermitian - i.e. they store only positive freqs.</dt><dd><p>with negative freqs. given by h(-f) = h*(f)</p>
+</dd>
+</dl>
+<p>DOES NOT maximize over time or phase</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.HermitianComplexIP.ip">
+<span class="sig-name descname"><span class="pre">ip</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.HermitianComplexIP.ip" title="Link to this definition"></a></dt>
+<dd><p>Compute inner product between two COMPLEX16Frequency Series</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.HermitianComplexIP.norm">
+<span class="sig-name descname"><span class="pre">norm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.HermitianComplexIP.norm" title="Link to this definition"></a></dt>
+<dd><p>Compute norm of a COMPLEX16Frequency Series</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.InnerProduct">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">InnerProduct</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fLow=10.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fNyq=2048.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaF=0.125</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psd=&lt;built-in</span> <span class="pre">function</span> <span class="pre">SimNoisePSDaLIGOZeroDetHighPower&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analyticPSD_Q=True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inv_spec_trunc_Q=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_spec=0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">waveform_is_psi4=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.InnerProduct" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Base class for inner products</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.InnerProduct.ip">
+<span class="sig-name descname"><span class="pre">ip</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.InnerProduct.ip" title="Link to this definition"></a></dt>
+<dd><p>Compute inner product between two COMPLEX16Frequency Series</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.InnerProduct.norm">
+<span class="sig-name descname"><span class="pre">norm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.InnerProduct.norm" title="Link to this definition"></a></dt>
+<dd><p>Compute norm of a COMPLEX16Frequency Series</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.Mceta">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">Mceta</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.Mceta" title="Link to this definition"></a></dt>
+<dd><p>Compute chirp mass and symmetric mass ratio from component masses</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.NINJA_data_to_hoff">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">NINJA_data_to_hoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TDlen</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaleT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaleH</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fc</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.NINJA_data_to_hoff" title="Link to this definition"></a></dt>
+<dd><p>Function to read in data in the NINJA format, i.e.
+t_i   h+(t_i)   hx(t_i)
+and convert it to a COMPLEX16FrequencySeries holding the observed
+h(f) = FFT[ Fp*h+(t) + Fc*hx(t) ]</p>
+<p>If TDlen == -1, do not zero-pad the TD waveform before FFTing
+If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
+If TDlen == N, zero-pad the TD waveform to length N before FFTing</p>
+<p>scaleT and scaleH can be used to rescale the time steps and strain resp.
+e.g. to get a waveform appropriate for a total mass M you would scale by
+scaleT = G M / c^3
+scaleH = G M / (D c^2)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.NINJA_data_to_hoft">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">NINJA_data_to_hoft</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TDlen</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaleT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaleH</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fc</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.NINJA_data_to_hoft" title="Link to this definition"></a></dt>
+<dd><p>Function to read in data in the NINJA format, i.e.
+t_i   h+(t_i)   hx(t_i)
+and convert it to a REAL8TimeSeries holding the observed
+h(t) = Fp*h+(t) + Fc*hx(t)</p>
+<p>If TDlen == -1 (default), do not zero-pad the returned waveforms 
+If TDlen == 0, zero-pad returned waveforms to the next power of 2
+If TDlen == N, zero-pad returned waveforms to length N</p>
+<p>scaleT and scaleH can be used to rescale the time steps and strain resp.
+e.g. to get a waveform appropriate for a total mass M you would scale by
+scaleT = G M / c^3
+scaleH = G M / (D c^2)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.NINJA_data_to_hp_hc">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">NINJA_data_to_hp_hc</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TDlen</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaleT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaleH</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.NINJA_data_to_hp_hc" title="Link to this definition"></a></dt>
+<dd><p>Function to read in data in the NINJA format in file ‘fname’, i.e.
+t_i   h+(t_i)   hx(t_i)
+and convert it to two REAL8TimeSeries holding polarizations hp(t) and hc(t)</p>
+<p>If TDlen == -1 (default), do not zero-pad the returned waveforms
+If TDlen == 0, zero-pad returned waveforms to the next power of 2
+If TDlen == N, zero-pad returned waveforms to length N</p>
+<p>scaleT and scaleH can be used to rescale the time steps and strain resp.
+e.g. if the input file provides time steps in t/M
+and the strain has mass and distance scaled out, to get a waveform
+appropriate for a total mass M and distance D you would scale by
+scaleT = G M / c^3
+scaleH = G M / (D c^2)</p>
+<p>Once time is properly scaled into seconds, you can interpolate the waveform
+to a different sample rate deltaT.
+e.g. if the file has time steps of t/M = 1 and you use scaleT to rescale
+for a 100 Msun binary, the time steps will be ~= 0.00049 s.
+If you provide the argument deltaT = 1./4096. ~= 0.00024 s
+the waveform will be interpolated and resampled at 4096 Hz.</p>
+<p>If deltaT==0, then no interpolation will be done</p>
+<p>NOTE: For improved accuracy, we convert
+h+ + i hx –&gt; A e^(i Phi),
+interpolate and resample A and Phi, then convert back to h+, hx</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.NINJA_data_to_norm_hoff">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">NINJA_data_to_norm_hoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">IP</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TDlen</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaleT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scaleH</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fc</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.NINJA_data_to_norm_hoff" title="Link to this definition"></a></dt>
+<dd><p>Function to read in data in the NINJA format, i.e.
+t_i   h+(t_i)   hx(t_i)
+and convert it to a COMPLEX16FrequencySeries holding
+h(f) = FFT[ Fp*h+(t) + Fc*hx(t) ]
+normalized so (h|h)=1 for inner product IP</p>
+<p>If TDlen == -1, do not zero-pad the TD waveform before FFTing
+If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
+If TDlen == N, zero-pad the TD waveform to length N before FFTing</p>
+<p>scaleT and scaleH can be used to rescale the time steps and strain resp.
+e.g. to get a waveform appropriate for a total mass M you would scale by
+scaleT = G M / c^3
+scaleH = G M / (D c^2)</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.Overlap">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">Overlap</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fLow=10.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fNyq=2048.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaF=0.125</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psd=&lt;built-in</span> <span class="pre">function</span> <span class="pre">SimNoisePSDaLIGOZeroDetHighPower&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analyticPSD_Q=True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inv_spec_trunc_Q=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_spec=0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">full_output=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.Overlap" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.lalsimutils.InnerProduct" title="RIFT.lalsimutils.InnerProduct"><code class="xref py py-class docutils literal notranslate"><span class="pre">InnerProduct</span></code></a></p>
+<p>Inner product maximized over time and phase. self.ip(h1,h2) computes:</p>
+<blockquote>
+<div><p>fNyq</p>
+</div></blockquote>
+<dl class="simple">
+<dt>max 4 Abs int      h1*(f,tc) h2(f) / Sn(f) df</dt><dd><p>tc           fLow</p>
+</dd>
+</dl>
+<p>h1, h2 must be COMPLEX16FrequencySeries defined in [0, fNyq]
+(with the negative frequencies implicitly given by Hermitianity)</p>
+<dl class="simple">
+<dt>If self.full_output==False: returns</dt><dd><p>The maximized (real-valued, &gt; 0) overlap</p>
+</dd>
+<dt>If self.full_output==True: returns</dt><dd><p>The maximized overlap
+The entire COMPLEX16TimeSeries of overlaps for each possible time shift
+The index of the above time series at which the maximum occurs
+The phase rotation which maximizes the real-valued overlap</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.Overlap.ip">
+<span class="sig-name descname"><span class="pre">ip</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.Overlap.ip" title="Link to this definition"></a></dt>
+<dd><p>Compute inner product between two Hermitian COMPLEX16Frequency Series</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.Overlap.norm">
+<span class="sig-name descname"><span class="pre">norm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.Overlap.norm" title="Link to this definition"></a></dt>
+<dd><p>Compute norm of a COMPLEX16Frequency Series</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.Overlap.wrap_times">
+<span class="sig-name descname"><span class="pre">wrap_times</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.Overlap.wrap_times" title="Link to this definition"></a></dt>
+<dd><p>Return a vector of wrap-around time offsets, i.e.
+[ 0, dt, 2 dt, …, N dt, -(N-1) dt, -(N-1) dt, …, -2 dt, -dt ]</p>
+<p>This is useful in conjunction with the ‘full_output’ option to plot
+the overlap vs timeshift. e.g. do:</p>
+<p>IP = Overlap(full_output=True)
+t = IP.wrap_times()
+rho, ovlp, rhoIdx, rhoPhase = IP.ip(h1, h2)
+plot(t, abs(ovlp))</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.RangeProtect">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">RangeProtect</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">val</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.RangeProtect" title="Link to this definition"></a></dt>
+<dd><p>RangeProtect(fn) wraps fn, returning  - np.inf in cases where an argument is not finite, and calling the function otherwise.
+Intended to be used with test_coord_output and coordinate conversion routines, to identify range errors, etc.</p>
+<p>This function assumes fn acts on EACH ELEMENT INDIVIDUALLY, and does not reduce the dimension.
+Not to use.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.RangeProtectReduce">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">RangeProtectReduce</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">val</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.RangeProtectReduce" title="Link to this definition"></a></dt>
+<dd><p>RangeProtect(fn) wraps fn, returning  - np.inf in cases where an argument is not finite, and calling the function otherwise.
+Intended to be used with test_coord_output and coordinate conversion routines, to identify range errors, etc.</p>
+<p>This function assumes fn acts to REDUCE the data to one dimension (e.g., a list of points)</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.RealIP">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">RealIP</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fLow=10.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fNyq=2048.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaF=0.125</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psd=&lt;built-in</span> <span class="pre">function</span> <span class="pre">SimNoisePSDaLIGOZeroDetHighPower&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analyticPSD_Q=True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inv_spec_trunc_Q=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_spec=0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">waveform_is_psi4=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.RealIP" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.lalsimutils.InnerProduct" title="RIFT.lalsimutils.InnerProduct"><code class="xref py py-class docutils literal notranslate"><span class="pre">InnerProduct</span></code></a></p>
+<p>Real-valued inner product. self.ip(h1,h2) computes</p>
+<blockquote>
+<div><p>fNyq</p>
+</div></blockquote>
+<dl class="simple">
+<dt>4 Re int      h1(f) h2*(f) / Sn(f) df</dt><dd><p>fLow</p>
+</dd>
+</dl>
+<p>And similarly for self.norm(h1)</p>
+<p>DOES NOT maximize over time or phase</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.RealIP.ip">
+<span class="sig-name descname"><span class="pre">ip</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">h2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.RealIP.ip" title="Link to this definition"></a></dt>
+<dd><p>Compute inner product between two COMPLEX16Frequency Series</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.RealIP.norm">
+<span class="sig-name descname"><span class="pre">norm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">h</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.RealIP.norm" title="Link to this definition"></a></dt>
+<dd><p>Compute norm of a COMPLEX16Frequency Series</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.SphHarmFrequencySeries_to_dict">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">SphHarmFrequencySeries_to_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hlms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.SphHarmFrequencySeries_to_dict" title="Link to this definition"></a></dt>
+<dd><p>Convert a SphHarmFrequencySeries SWIG-wrapped linked list into a dictionary.</p>
+<p>The keys are tuples of integers of the form (l,m)
+and a key-value pair will be created for each (l,m) with
+2 &lt;= l &lt;= Lmax, <a href="#id1"><span class="problematic" id="id2">|m|</span></a> &lt;= l for which
+lalsimulation.SphHarmFrequencySeriesGetMode(hlms, l, m)
+returns a non-null pointer.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.SphHarmTimeSeries_to_dict">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">SphHarmTimeSeries_to_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hlms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.SphHarmTimeSeries_to_dict" title="Link to this definition"></a></dt>
+<dd><p>Convert a SphHarmTimeSeries SWIG-wrapped linked list into a dictionary.</p>
+<p>The keys are tuples of integers of the form (l,m)
+and a key-value pair will be created for each (l,m) with
+2 &lt;= l &lt;= Lmax, <a href="#id3"><span class="problematic" id="id4">|m|</span></a> &lt;= l for which
+lalsimulation.SphHarmTimeSeriesGetMode(hlms, l, m)
+returns a non-null pointer.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.VectorToFrame">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">VectorToFrame</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">vecRef</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.VectorToFrame" title="Link to this definition"></a></dt>
+<dd><p>Convert vector to a frame, by picking relatively arbitrary vectors perp to it.
+Used to convert J to a frame. 
+spin_convention == radiation:</p>
+<blockquote>
+<div><p><strong>Uses the radiation frame conventions to do so.</strong>, so the ‘z’ direction is orthogonal to the 2nd vector and ‘n’ (the line of sight) defines things</p>
+</div></blockquote>
+<dl class="simple">
+<dt>spin_convention == L:</dt><dd><p>Trickier, because we will want to define angles of L relative to J !  Pick a random alternate vector</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.Yagi13_fit_barlamdel">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">Yagi13_fit_barlamdel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">barlam2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ell</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.Yagi13_fit_barlamdel" title="Link to this definition"></a></dt>
+<dd><p>Yagi 2013 fits for multipolar
+$bar{lambda}_ell$ = 2 <a href="#id5"><span class="problematic" id="id6">k_</span></a>ell/(C^{2ell+1} (2ell-1)!!)$
+Eq.(10),(61); Tab.I; Fig.8 <a class="reference external" href="http://arxiv.org/abs/1311.0872">http://arxiv.org/abs/1311.0872</a></p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.Yagi13_fitcoefs">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">Yagi13_fitcoefs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ell</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.Yagi13_fitcoefs" title="Link to this definition"></a></dt>
+<dd><p>Coefficients of Yagi 2013 fits for multipolar
+$bar{lambda}_ell = 2 <a href="#id7"><span class="problematic" id="id8">k_</span></a>ell/(C^{2ell+1} (2ell-1)!!)$
+Tab.I (NS) <a class="reference external" href="http://arxiv.org/abs/1311.0872">http://arxiv.org/abs/1311.0872</a></p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.barlamdel_to_kappal">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">barlamdel_to_kappal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">q</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">barlaml</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ell</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.barlamdel_to_kappal" title="Link to this definition"></a></dt>
+<dd><p>$kappa^{A,B}_ell(bar{lambda}_ell)$
+Assume $q=M_A/M_B&gt;=1$</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.check_FD_pending">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">check_FD_pending</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">code</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.check_FD_pending" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.complex_hoff">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">complex_hoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sgn</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fwdplan</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.complex_hoff" title="Link to this definition"></a></dt>
+<dd><p>CURRENTLY ONLY WORKS WITH TD APPROXIMANTS</p>
+<p>Generate a (non-Hermitian) FD waveform from ChooseWaveformParams P
+by creating a complex TD waveform of the form</p>
+<p>h(t) = h+(t) + 1j sgn hx(t)    where sgn = -1 (default) or 1</p>
+<p>If P.deltaF==None, just pad up to next power of 2
+If P.deltaF = 1/X, will generate a TD waveform, zero-pad to length X seconds</p>
+<blockquote>
+<div><p>and then FFT. Will throw an error if waveform is longer than X seconds</p>
+</div></blockquote>
+<p>If you do not provide a forward FFT plan, one will be created.
+If you are calling this function many times, it is best to create it
+once beforehand and pass it in, e.g.:
+fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)</p>
+<p>Returns a COMPLEX16FrequencySeries object</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.complex_hoft">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">complex_hoft</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sgn</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-1</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.complex_hoft" title="Link to this definition"></a></dt>
+<dd><p>Generate a complex TD waveform from ChooseWaveformParams P
+Returns h(t) = h+(t) + 1j sgn hx(t)
+where sgn = -1 (default) or 1</p>
+<p>Returns a COMPLEX16TimeSeries object</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.complex_hoft_IMRPv2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">complex_hoft_IMRPv2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P_copy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sgn</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.complex_hoft_IMRPv2" title="Link to this definition"></a></dt>
+<dd><p>Generate a complex TD waveform from ChooseWaveformParams P, using SimInspiralTD
+Returns h(t) = h+(t) + 1j sgn hx(t)
+where sgn = -1 (default) or 1</p>
+<p>Returns a COMPLEX16TimeSeries object</p>
+<p>Designed specifically to help interface with IMRPhenomPv2</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.complex_norm_hoff">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">complex_norm_hoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">IP</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sgn</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fwdplan</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.complex_norm_hoff" title="Link to this definition"></a></dt>
+<dd><p>CURRENTLY ONLY WORKS WITH TD APPROXIMANTS</p>
+<p>Generate a (non-Hermitian) FD waveform from ChooseWaveformParams P
+by creating a complex TD waveform of the form</p>
+<p>h(t) = h+(t) + 1j sgn hx(t)    where sgn = -1 (default) or 1</p>
+<p>If P.deltaF==None, just pad up to next power of 2
+If P.deltaF = 1/X, will generate a TD waveform, zero-pad to length X seconds</p>
+<blockquote>
+<div><p>and then FFT. Will throw an error if waveform is longer than X seconds</p>
+</div></blockquote>
+<p>If you do not provide a forward FFT plan, one will be created.
+If you are calling this function many times, it is best to create it
+once beforehand and pass it in, e.g.:
+fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)</p>
+<p>Returns a COMPLEX16FrequencySeries object</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.conj_hlmoff">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">conj_hlmoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.conj_hlmoff" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.convert_waveform_coordinates">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">convert_waveform_coordinates</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x_in</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">coord_names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">['mc',</span> <span class="pre">'eta']</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">low_level_coord_names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">['m1',</span> <span class="pre">'m2']</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enforce_kerr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source_redshift</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.convert_waveform_coordinates" title="Link to this definition"></a></dt>
+<dd><p>A wrapper for ChooseWaveformParams() ‘s coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q).  Note that if ChooseWaveformParam structuers are built ,the loops can be quite slow</p>
+<dl class="simple">
+<dt>Special cases:</dt><dd><ul class="simple">
+<li><p>coordinates in x_out already in x_in are copied over directly</p></li>
+<li><p>xi==chi_eff, chiMinus, mu1,mu2 : transformed directly from mc, delta_mc, s1z,s2z coordinates, using fast vectorized transformations.</p></li>
+<li><p>source_redshift: if nonzero, convert m1 -&gt; m1 (1+z)=m_z, as fit is done in the detector frame.  We are <strong>assuming source-frame sampling</strong></p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.convert_waveform_coordinates_with_eos">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">convert_waveform_coordinates_with_eos</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x_in</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">coord_names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">['mc',</span> <span class="pre">'eta']</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">low_level_coord_names</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">['m1',</span> <span class="pre">'m2']</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enforce_kerr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eos_class</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_matter1</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_matter2</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source_redshift</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backstop_novector</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.convert_waveform_coordinates_with_eos" title="Link to this definition"></a></dt>
+<dd><p>A wrapper for ChooseWaveformParams() ‘s coordinate tools (extract_param, assign_param) providing array-formatted coordinate changes.  BE VERY CAREFUL, because coordinates may be defined inconsistently (e.g., holding different variables constant: M and eta, or mc and q)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.deltalamtilde_of_eta_lam1_lam2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">deltalamtilde_of_eta_lam1_lam2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lam1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lam2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.deltalamtilde_of_eta_lam1_lam2" title="Link to this definition"></a></dt>
+<dd><p>This is the definition found in Les Wade’s paper.
+Les has factored out the quantity sqrt(1-4eta). It is different from Marc Favata’s paper.
+$deltatildeLambda(eta, Lambda_1, Lambda_2)$.
+Lambda_1 is assumed to correspond to the more massive (primary) star m_1.
+Lambda_2 is for the secondary star m_2.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.enforce_swig_psd_fmin">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">enforce_swig_psd_fmin</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">raw_psd</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.enforce_swig_psd_fmin" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.estimateDeltaF">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">estimateDeltaF</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">LmaxEff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.estimateDeltaF" title="Link to this definition"></a></dt>
+<dd><p>Input:  P
+Output:estimated duration (in s) based on Newtonian inspiral from P.fmin to infinite frequency</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.estimateWaveformDuration">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">estimateWaveformDuration</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">LmaxEff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.estimateWaveformDuration" title="Link to this definition"></a></dt>
+<dd><p>Input:  P
+Output:estimated duration (in s) based on Newtonian inspiral from P.fmin to infinite frequency</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.eta_crit">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">eta_crit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m2_min</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.eta_crit" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.evaluate_fvals">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">evaluate_fvals</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lal_2sided_fseries</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.evaluate_fvals" title="Link to this definition"></a></dt>
+<dd><p>Associates frequencies with a 2sided lal complex array.  Compare with ‘self.longweights’ code
+Done by HAND in PrecessingOrbitModesOfFrequency
+Manually <em>reverses</em> convention re sign of omega used in lal!</p>
+<dl>
+<dt>Notes:</dt><dd><ol class="loweralpha">
+<li><p>XXXFrequencySeries  have an f0 and a deltaF, and <em>logically</em> they should run from f0….f0+N*df</p></li>
+<li><dl class="simple">
+<dt>I will always use COMPLEX16FrequencySeries, which should run from -fNyq…fNyq-df </dt><dd><p>with fNyq=fSample/2.=1/(2*deltaT)</p>
+</dd>
+</dl>
+</li>
+<li><p>In practice, I have a REVERSED frequency series associated…WHY? (finish doc review)
+Probably an overall sign difference in omega t vs -omega t in FFT definition? LAL documentation
+isn’t clear with the overall sign.</p>
+<blockquote>
+<div><p>lal:       int dt exp( -i omega t) F(t)  = tilde{F}(omega)  [lal]
+me:      int dt exp(  i omega t) F(t) = tilde{F}(omega)</p>
+<blockquote>
+<div><p>following Poisson and Will, my old ‘DataFourier’ code, etc</p>
+</div></blockquote>
+</div></blockquote>
+</li>
+<li><dl class="simple">
+<dt>The low-level code just rotates the original vector right by half the length – so the usual FFTW</dt><dd><p>code data is mapped right.</p>
+</dd>
+</dl>
+</li>
+</ol>
+</dd>
+<dt>Checks:</dt><dd><p>P=lalsimutils.ChooseWaveformParams()
+hf = lalsimutils.complex_hoff(P)
+lalsimutils.evaluate_fvals(hf)
+hf.f0</p>
+</dd>
+<dt>Notes:</dt><dd><dl class="simple">
+<dt>‘’Physics convention<span class="classifier">&lt;math&gt;  int dt exp(-i omega t) F(t) &lt;/math&gt;</span></dt><dd><ul class="simple">
+<li><p>my notes use -2 pi i f t convention</p></li>
+<li><p>my NR papers <em>text</em> uses int dt exp(-i omega t)  convention</p></li>
+</ul>
+</dd>
+</dl>
+</dd>
+<dt>‘’Other convention (PN-convenient)   &lt;math&gt;  int dt exp(i omega t) F(t) &lt;/math&gt;</dt><dd><ul class="simple">
+<li><p>Prakash notes use opposite convention</p></li>
+<li><p>low-level mathematica code (DataFourier) uses int dt exp(i omega t) convention</p></li>
+<li><p>Poisson and Will uses opposite convention <a class="reference external" href="http://arxiv.org/pdf/gr-qc/9502040v1.pdf">http://arxiv.org/pdf/gr-qc/9502040v1.pdf</a>, as do all subsequent PN work</p></li>
+</ul>
+<blockquote>
+<div><ul class="simple">
+<li><p>Cutler and Flanagan use the opposite convention</p></li>
+</ul>
+</div></blockquote>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.evaluate_tvals">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">evaluate_tvals</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lal_tseries</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.evaluate_tvals" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.extend_swig_psd_series_to_sampling_requirements">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">extend_swig_psd_series_to_sampling_requirements</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">raw_psd</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dfRequired</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fNyqRequired</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.extend_swig_psd_series_to_sampling_requirements" title="Link to this definition"></a></dt>
+<dd><p>extend_psd_series_to_sampling_requirements: 
+Takes a conventional 1-sided PSD and extends into a longer 1-sided PSD array by filling intervening samples.
+Currently only works by ‘interpolating’ between samples.
+<em>Assumes</em> fNyq does not change.
+Assumes the input and output are swig REAL8Timeseries objects</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.extract_JL_angles">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">extract_JL_angles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_inverse</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phase_factor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.extract_JL_angles" title="Link to this definition"></a></dt>
+<dd><p>extract_JL_angles:  finds Euler angles for transformation  see eg C13, C14 in 2004.06503</p>
+<p>Using directly-coded J,L expressions rather than calling the lalsuite routine, to make sure phases agree with what I intend.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.findDeltaF">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">findDeltaF</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.findDeltaF" title="Link to this definition"></a></dt>
+<dd><p>Given ChooseWaveformParams P, generate the TD waveform,
+round the length to the next power of 2,
+and find the frequency bin size corresponding to this length.
+This is useful b/c deltaF is needed to define an inner product
+which is needed for norm_hoft and norm_hoff functions</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.frame_data_to_hoff">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">frame_data_to_hoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">channel</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TDlen</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_shape</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.frame_data_to_hoff" title="Link to this definition"></a></dt>
+<dd><p>Function to read in data in the frame format
+and convert it to a COMPLEX16FrequencySeries holding
+h(f) = FFT[ h(t) ]</p>
+<p>Before the FFT, applies a Tukey window with shape parameter ‘window_shape’.
+N.B. if window_shape=0, the window is the identity function</p>
+<blockquote>
+<div><p>if window_shape=1, the window becomes a Hann window
+if 0&lt;window_shape&lt;1, the data will transition from zero to full</p>
+<blockquote>
+<div><p>strength over that fraction of each end of the data segment.</p>
+</div></blockquote>
+</div></blockquote>
+<p>If TDlen == -1, do not zero-pad the TD waveform before FFTing
+If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
+If TDlen == N, zero-pad the TD waveform to length N before FFTing</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.frame_data_to_hoft">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">frame_data_to_hoft</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">channel</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_shape</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT_internal</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">upsample_method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cubic'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_gwpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.frame_data_to_hoft" title="Link to this definition"></a></dt>
+<dd><p>Function to read in data in the frame format and convert it to 
+a REAL8TimeSeries. fname is the path to a LIGO cache file.</p>
+<p>Applies a Tukey window to the data with shape parameter ‘window_shape’.
+N.B. if window_shape=0, the window is the identity function</p>
+<blockquote>
+<div><p>if window_shape=1, the window becomes a Hann window
+if 0&lt;window_shape&lt;1, the data will transition from zero to full</p>
+<blockquote>
+<div><p>strength over that fraction of each end of the data segment.</p>
+</div></blockquote>
+</div></blockquote>
+<dl class="simple">
+<dt>Modified to rely on the lalframe read_timeseries function</dt><dd><p><a class="reference external" href="https://github.com/lscsoft/lalsuite/blob/master/lalframe/python/lalframe/frread.py">https://github.com/lscsoft/lalsuite/blob/master/lalframe/python/lalframe/frread.py</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.frame_data_to_hoft_old">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">frame_data_to_hoft_old</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">channel</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_shape</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.frame_data_to_hoft_old" title="Link to this definition"></a></dt>
+<dd><p>Function to read in data in the frame format and convert it to 
+a REAL8TimeSeries. fname is the path to a LIGO cache file.</p>
+<p>Applies a Tukey window to the data with shape parameter ‘window_shape’.
+N.B. if window_shape=0, the window is the identity function</p>
+<blockquote>
+<div><p>if window_shape=1, the window becomes a Hann window
+if 0&lt;window_shape&lt;1, the data will transition from zero to full</p>
+<blockquote>
+<div><p>strength over that fraction of each end of the data segment.</p>
+</div></blockquote>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.frame_data_to_non_herm_hoff">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">frame_data_to_non_herm_hoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">channel</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TDlen</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">window_shape</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.frame_data_to_non_herm_hoff" title="Link to this definition"></a></dt>
+<dd><p>Function to read in data in the frame format
+and convert it to a COMPLEX16FrequencySeries 
+h(f) = FFT[ h(t) ]
+Create complex FD data that does not assume Hermitianity - i.e.
+contains positive and negative freq. content</p>
+<p>Before the FFT, applies a Tukey window with shape parameter ‘window_shape’.
+N.B. if window_shape=0, the window is the identity function</p>
+<blockquote>
+<div><p>if window_shape=1, the window becomes a Hann window
+if 0&lt;window_shape&lt;1, the data will transition from zero to full</p>
+<blockquote>
+<div><p>strength over that fraction of each end of the data segment.</p>
+</div></blockquote>
+</div></blockquote>
+<p>If TDlen == -1, do not zero-pad the TD waveform before FFTing
+If TDlen == 0 (default), zero-pad the TD waveform to the next power of 2
+If TDlen == N, zero-pad the TD waveform to length N before FFTing</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.get_intp_psd_series_from_xmldoc">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">get_intp_psd_series_from_xmldoc</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inst</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.get_intp_psd_series_from_xmldoc" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.get_psd_series_from_xmldoc">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">get_psd_series_from_xmldoc</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inst</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.get_psd_series_from_xmldoc" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.guess_mc_range">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">guess_mc_range</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">event_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_mc_range</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.guess_mc_range" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.guess_mc_range_mdc">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">guess_mc_range_mdc</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_mc_range</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.guess_mc_range_mdc" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.hdf5_to_ChooseWaveformParams_array">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">hdf5_to_ChooseWaveformParams_array</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'injections'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.000244140625</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fref</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">waveFlags</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nonGRparams</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detector</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'H1'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaF</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.hdf5_to_ChooseWaveformParams_array" title="Link to this definition"></a></dt>
+<dd><p>HDF5 storage for parameters.
+Compare to lalinference HDF5 i/o <a class="reference external" href="https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/io/hdf5.py">https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/io/hdf5.py</a></p>
+<p>TERRIBLE CODE: Assumes hardcoded order, does not embed metadata with field names
+SHOULD RESTRUCTURE to load into record-array like structure</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.hlmoff">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">hlmoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.hlmoff" title="Link to this definition"></a></dt>
+<dd><p>Generate the FD h_lm -2-spin-weighted spherical harmonic modes of a GW
+with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
+a COMPLEX16TimeSeries and indices l and m for each node.</p>
+<p>The linked list will contain all modes with l &lt;= Lmax
+and all values of m for these l.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.hlmoft">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">hlmoft</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nr_polarization_convention</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fixed_tapering</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">silent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fd_standoff_factor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.964</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_condition</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fd_L_frame</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fd_centering_factor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.9</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fd_alignment_postevent_time</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.hlmoft" title="Link to this definition"></a></dt>
+<dd><p>Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
+with parameters P. Returns a SphHarmTimeSeries, a linked-list of modes with
+a COMPLEX16TimeSeries and indices l and m for each node.</p>
+<p>The linked list will contain all modes with l &lt;= Lmax
+and all values of m for these l.</p>
+<p>nr_polarization_convention : apply a factor -1 to all modes provided by lalsuite</p>
+<dl>
+<dt>fd_standoff_factor: for ChooseFDWaveform, reduce starting frequency P.fmin by this factor internally when generating.</dt><dd><p>FD waveform calculation implicitly assumes fmin is in the inspiral regime (if not you are making bad life choices).
+Normal default value of 0.964 is based on changing inspiral duration by 10% (1.1^(3/8) ~ 1.036). Any constant factor will change
+the inspiral duration by a factor (1./fd_standoff_factor)^(8/3) or so.</p>
+<p>WARNING: internal_hlm_generator will CHANGE this factor to 0.9, to better match complex_hoft.  I’m keeping the default of this function here to match the nominal documentaiton of SimInspiralTD, while internal_hlm_generator has a different factor, chosen to match its actual output.</p>
+</dd>
+</dl>
+<p>no_condition: disable conditioning (for ChooseFDModes specifically). For diagnostic plots on impact of/need for conditioning.
+fd_L_frame: rotate hlmoft to L frame from J frame for return values from ChooseFDModes (XO4/XPHM).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.hlmoft_FromFD_dict">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">hlmoft_FromFD_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.hlmoft_FromFD_dict" title="Link to this definition"></a></dt>
+<dd><p>Uses Chris Pankow’s interface in lalsuite
+Do not redshift the source</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.hlmoft_IMRPv2_dict">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">hlmoft_IMRPv2_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sgn</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.hlmoft_IMRPv2_dict" title="Link to this definition"></a></dt>
+<dd><p>Reconstruct hlm(t) from h(t,nhat) evaluated in 5 different nhat directions, specifically for IMRPhenomPv2
+Using SimInspiralTD evaluated at nhat=zhat  (zhat=Jhat), nhat=-zhat, and at three points in the equatorial plane.
+There is an analytic solution, but for code transparency I do the inverse numerically rather than code it in</p>
+<dl class="simple">
+<dt>ISSUES</dt><dd><ul class="simple">
+<li><p>lots of instability in recovery depending on point set used (e.g., degeneracy in aligned spin case). Need to choose intelligently</p></li>
+<li><p>duration of hlm is <em>longer</em> than deltaF (because of SimInspiralTD) in general.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.hlmoft_SEOB_dict">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">hlmoft_SEOB_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.hlmoft_SEOB_dict" title="Link to this definition"></a></dt>
+<dd><p>Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
+with parameters P. Returns a dictionary of modes.
+Just for SEOBNRv2 SEOBNRv1, and EOBNRv2.  Uses aligned-spin trick to get (2,2) and (2,-2) modes.
+A hack.
+Works for any aligned-spin time-domain waveform with only (2,pm 2) modes though.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.hlmoft_SEOBv3_dict">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">hlmoft_SEOBv3_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.hlmoft_SEOBv3_dict" title="Link to this definition"></a></dt>
+<dd><p>Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
+with parameters P. Returns a dictionary of modes.
+A hack for SEOBNRv3, because there’s not a natural dictionary output</p>
+<p>Will NOT perform the -1 factor correction</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.hlmoft_SpinTaylorManual_dict">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">hlmoft_SpinTaylorManual_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.hlmoft_SpinTaylorManual_dict" title="Link to this definition"></a></dt>
+<dd><p>Generate the TD h_lm -2-spin-weighted spherical harmonic modes of a GW
+with parameters P. Returns a dictionary of modes.
+Just for SpinTaylor, using manual interface provided by Riccardo and Jake.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.hoff">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">hoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fc</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fwdplan</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.hoff" title="Link to this definition"></a></dt>
+<dd><p>Generate a FD waveform from ChooseWaveformParams P.
+Will return a COMPLEX16FrequencySeries object.</p>
+<p>If P.approx is a FD approximant, hoff_FD is called.
+This path calls SimInspiralChooseFDWaveform</p>
+<blockquote>
+<div><p>fwdplan must be None for FD approximants.</p>
+</div></blockquote>
+<p>If P.approx is a TD approximant, hoff_TD is called.
+This path calls ChooseTDWaveform and performs an FFT.</p>
+<blockquote>
+<div><p>The TD waveform will be zero-padded so it’s Fourier transform has
+frequency bins of size P.deltaT.
+If P.deltaF == None, the TD waveform will be zero-padded
+to the next power of 2.</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.hoff_FD">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">hoff_FD</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fc</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.hoff_FD" title="Link to this definition"></a></dt>
+<dd><p>Generate a FD waveform for a FD approximant.
+Note that P.deltaF (which is None by default) must be set</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.hoff_TD">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">hoff_TD</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fc</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fwdplan</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.hoff_TD" title="Link to this definition"></a></dt>
+<dd><p>Generate a FD waveform from ChooseWaveformParams P
+by creating a TD waveform, zero-padding and
+then Fourier transforming with FFTW3 forward FFT plan fwdplan</p>
+<p>If P.deltaF==None, just pad up to next power of 2
+If P.deltaF = 1/X, will generate a TD waveform, zero-pad to length X seconds</p>
+<blockquote>
+<div><p>and then FFT. Will throw an error if waveform is longer than X seconds</p>
+</div></blockquote>
+<p>If you do not provide a forward FFT plan, one will be created.
+If you are calling this function many times, you may to create it
+once beforehand and pass it in, e.g.:
+fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)</p>
+<p>You may pass in antenna patterns Fp, Fc. If none are provided, they will
+be computed from the information in ChooseWaveformParams</p>
+<p>Returns a COMPLEX16FrequencySeries object</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.hoft">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">hoft</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fc</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.hoft" title="Link to this definition"></a></dt>
+<dd><p>Generate a TD waveform from ChooseWaveformParams P
+You may pass in antenna patterns Fp, Fc. If none are provided, they will
+be computed from the information in ChooseWaveformParams.</p>
+<p>Returns a REAL8TimeSeries object</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.hoft_from_hlm">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">hoft_from_hlm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hlms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_complex</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extra_phase_shift</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.hoft_from_hlm" title="Link to this definition"></a></dt>
+<dd><p>hoft_from_hlm(hlm,P,Lmax):  return hoft like output given hlmoft input.
+Important if hoft is not accessible (e.g., not provided by lalsuite)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.hoft_to_frame_data">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">hoft_to_frame_data</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">channel</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hoft</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.hoft_to_frame_data" title="Link to this definition"></a></dt>
+<dd><p>Function to write h(t) to a frame file in a specific channel.
+NOT YET DEBUGGED</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.lam1_lam2_of_pe_params">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">lam1_lam2_of_pe_params</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lamt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dlamt</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.lam1_lam2_of_pe_params" title="Link to this definition"></a></dt>
+<dd><p>lam1 is for the the primary mass m_1.
+lam2 is for the the secondary mass m_2.
+m_1 &gt;= m2.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.lamtilde_of_eta_lam1_lam2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">lamtilde_of_eta_lam1_lam2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lam1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lam2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.lamtilde_of_eta_lam1_lam2" title="Link to this definition"></a></dt>
+<dd><p>$tildeLambda(eta, Lambda_1, Lambda_2)$.
+Lambda_1 is assumed to correspond to the more massive (primary) star m_1.
+Lambda_2 is for the secondary star m_2.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.load_resample_and_clean_psd">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">load_resample_and_clean_psd</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">psd_fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">det</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.load_resample_and_clean_psd" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.lsu_StringFromPNOrder">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">lsu_StringFromPNOrder</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">order</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.lsu_StringFromPNOrder" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.m1m2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">m1m2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eta</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.m1m2" title="Link to this definition"></a></dt>
+<dd><p>Compute component masses from Mc, eta. Returns m1 &gt;= m2</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.mass1">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">mass1</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eta</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.mass1" title="Link to this definition"></a></dt>
+<dd><p>Compute larger component mass from Mc, eta</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.mass2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">mass2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Mc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eta</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.mass2" title="Link to this definition"></a></dt>
+<dd><p>Compute smaller component mass from Mc, eta</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.mchirp">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">mchirp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.mchirp" title="Link to this definition"></a></dt>
+<dd><p>Compute chirp mass from component masses</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.modes_to_k">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">modes_to_k</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">modes</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.modes_to_k" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.nextPow2">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">nextPow2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">length</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.nextPow2" title="Link to this definition"></a></dt>
+<dd><p>Find next power of 2 &lt;= length</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.nhat">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">nhat</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">th</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ph</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.nhat" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.non_herm_hoff">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">non_herm_hoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.non_herm_hoff" title="Link to this definition"></a></dt>
+<dd><p>Generate a FD waveform with two-sided spectrum. i.e. not assuming
+the Hermitian symmetry applies</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.norm_hoff">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">norm_hoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">IP</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fc</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fwdplan</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.norm_hoff" title="Link to this definition"></a></dt>
+<dd><p>Generate a normalized FD waveform from ChooseWaveformParams P.
+Will return a COMPLEX16FrequencySeries object.</p>
+<p>If P.approx is a FD approximant, norm_hoff_FD is called.
+This path calls SimInspiralChooseFDWaveform</p>
+<blockquote>
+<div><p>fwdplan must be None for FD approximants.</p>
+</div></blockquote>
+<p>If P.approx is a TD approximant, norm_hoff_TD is called.
+This path calls ChooseTDWaveform and performs an FFT.</p>
+<blockquote>
+<div><p>The TD waveform will be zero-padded so it’s Fourier transform has
+frequency bins of size P.deltaT.
+If P.deltaF == None, the TD waveform will be zero-padded
+to the next power of 2.</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.norm_hoff_FD">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">norm_hoff_FD</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">IP</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fc</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.norm_hoff_FD" title="Link to this definition"></a></dt>
+<dd><p>Generate a FD waveform for a FD approximant normalized according to IP.
+Note that P.deltaF (which is None by default) must be set.
+IP and the waveform generated from P must have the same deltaF and</p>
+<blockquote>
+<div><p>the waveform must extend to at least the highest frequency of IP’s PSD.</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.norm_hoff_TD">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">norm_hoff_TD</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">IP</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fc</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fwdplan</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.norm_hoff_TD" title="Link to this definition"></a></dt>
+<dd><p>Generate a waveform from ChooseWaveformParams P normalized according
+to inner product IP by creating a TD waveform, zero-padding and
+then Fourier transforming with FFTW3 forward FFT plan fwdplan.
+Returns a COMPLEX16FrequencySeries object.</p>
+<p>If P.deltaF==None, just pad up to next power of 2
+If P.deltaF = 1/X, will generate a TD waveform, zero-pad to length X seconds</p>
+<blockquote>
+<div><p>and then FFT. Will throw an error if waveform is longer than X seconds</p>
+</div></blockquote>
+<p>If you do not provide a forward FFT plan, one will be created.
+If you are calling this function many times, you may to create it
+once beforehand and pass it in, e.g.:
+fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)</p>
+<p>You may pass in antenna patterns Fp, Fc. If none are provided, they will
+be computed from the information in ChooseWaveformParams.</p>
+<dl class="simple">
+<dt>N.B. IP and the waveform generated from P must have the same deltaF and </dt><dd><p>the waveform must extend to at least the highest frequency of IP’s PSD.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.polar_angles_in_frame">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">polar_angles_in_frame</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">frm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">vec</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.polar_angles_in_frame" title="Link to this definition"></a></dt>
+<dd><p>Take a vector in the default frame.
+Evaluate the polar angles of that unit vector in a new (orthonormal) frame ‘frm’.
+Not the fastest solution.  Not naturally vectorizable.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.polar_angles_in_frame_alt">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">polar_angles_in_frame_alt</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">frm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.polar_angles_in_frame_alt" title="Link to this definition"></a></dt>
+<dd><p>Take polar angles in the default frame.
+Evaluate the polar angles of that unit vector in a new (orthonormal) frame ‘frmInverse’.
+Probably easier to vectorize</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.psd_windowing_factor">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">psd_windowing_factor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">window_shape</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">TDlen</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.psd_windowing_factor" title="Link to this definition"></a></dt>
+<dd><p>[Implementing &lt;w^2&gt;, due to <a class="reference external" href="https://dcc.ligo.org/LIGO-T1900249">https://dcc.ligo.org/LIGO-T1900249</a>]
+If a PSD is calculated using repeated instances of windowed data, the PSD will be biased downward (i.e., we have less noise than we expect)
+That’s fine and self-consistent  if we will be analyzing data which has the same windowing applied.   
+But if we’re <em>not</em> applying the same window shape to the data we analyze,  we need to correct for the difference
+in noise <em>actually present</em> to the noise <em>used to create the PSD</em>.</p>
+<p>Ths routine creates &lt;w^2&gt; for w a window shape.
+This could be computed much more efficiently (it is not memory-efficient), but this code is cleaner</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.pylal_psd_to_swig_psd">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">pylal_psd_to_swig_psd</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">raw_pylal_psd</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.pylal_psd_to_swig_psd" title="Link to this definition"></a></dt>
+<dd><p>Why do I do a conversion? I am having trouble returning modified PSDs</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.regularize_swig_psd_series_near_nyquist">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">regularize_swig_psd_series_near_nyquist</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">raw_psd</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DeltaFToZero</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.regularize_swig_psd_series_near_nyquist" title="Link to this definition"></a></dt>
+<dd><p>regularize_psd_series_near_nyquist
+Near nyquist, some PSD bins are insane.  As a <em>temporary measure</em>, I am going to use this routine to
+explicitly zero out those frequency bins, using a 30 Hz window near nyquist</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.resample_psd_series">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">resample_psd_series</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">psd</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">df</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.resample_psd_series" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.rotate_hlm_static">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">rotate_hlm_static</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hlm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">alphaA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">betaA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gammaA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extra_polarization</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.rotate_hlm_static" title="Link to this definition"></a></dt>
+<dd><p>Rotate output hlm by these Euler angles
+Note this is a full system rotation, and therefore should be associated with rotation of the physical quantities (e.g., spin vectors, J,L)</p>
+<p>extra_polarization is applied at the end, as a multiplicative factor, if nonzero</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.rotation_matrix">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">rotation_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">axis</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.rotation_matrix" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.safe_int">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">safe_int</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mystr</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.safe_int" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.sanitize_eta">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">sanitize_eta</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">exception</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'error'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.sanitize_eta" title="Link to this definition"></a></dt>
+<dd><p>If ‘eta’ is slightly outside the physically allowed range for
+symmetric mass ratio, push it back in. If ‘eta’ is further
+outside the physically allowed range, throw an error
+or return a special value.
+Explicitly:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>If ‘eta’ is in [tol, 0.25], return eta.</p></li>
+<li><p>If ‘eta’ is in [0, tol], return tol.</p></li>
+<li><p>If ‘eta’ in is (0.25, 0.25+tol], return 0.25</p></li>
+<li><dl class="simple">
+<dt>If ‘eta’ &lt; 0 OR eta &gt; 0.25+tol,</dt><dd><ul>
+<li><p>if exception==’error’ raise a ValueError</p></li>
+<li><p>if exception is anything else, return exception</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.singleIFOSNR">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">singleIFOSNR</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psd</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fNyq</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.singleIFOSNR" title="Link to this definition"></a></dt>
+<dd><p>Calculate single IFO SNR using inner product class.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.std_and_conj_hlmoff">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">std_and_conj_hlmoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.std_and_conj_hlmoff" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.stringGPSNice">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">stringGPSNice</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tgps</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.stringGPSNice" title="Link to this definition"></a></dt>
+<dd><p>Return a string with nice formatting displaying the value of a LIGOTimeGPS</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.symRatio">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">symRatio</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.symRatio" title="Link to this definition"></a></dt>
+<dd><p>Compute symmetric mass ratio from component masses</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.symmetry_sign_exchange">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">symmetry_sign_exchange</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">coord_names</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.symmetry_sign_exchange" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.test_coord_output">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">test_coord_output</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x_out</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.test_coord_output" title="Link to this definition"></a></dt>
+<dd><p>Checks if any of the x_out are -np.inf.  Returns a boolean array [ True, False, False, …] with True if the corresponding coordinate row is ok, false otherwise</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.tidal_lambda_from_tilde">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">tidal_lambda_from_tilde</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mass1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mass2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lam_til</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dlam_til</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.tidal_lambda_from_tilde" title="Link to this definition"></a></dt>
+<dd><p>Determine physical lambda parameters from effective parameters.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.tidal_lambda_tilde">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">tidal_lambda_tilde</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mass1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mass2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.tidal_lambda_tilde" title="Link to this definition"></a></dt>
+<dd><p>‘Effective’ lambda parameters.
+Lackey et al <a class="reference external" href="https://arxiv.org/pdf/1402.5156.pdf">https://arxiv.org/pdf/1402.5156.pdf</a>, Eq. (5,6).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.unit_frame">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">unit_frame</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.unit_frame" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.unwind_phase">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">unwind_phase</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">phase</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thresh</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.unwind_phase" title="Link to this definition"></a></dt>
+<dd><p>Unwind an array of values of a periodic variable so that it does not jump
+discontinuously when it hits the periodic boundary, but changes smoothly
+outside the periodic range.</p>
+<p>Note: ‘thresh’, which determines if a discontinuous jump occurs, should be
+somewhat less than the periodic interval. Empirically, 5 is usually a safe
+value of thresh for a variable with period 2 pi.</p>
+<p>Fast method: take element-by-element differences, use mod 2 pi, and then add</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.vecCross">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">vecCross</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">v1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.vecCross" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.vecDot">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">vecDot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">v1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">v2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.vecDot" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.vecUnit">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">vecUnit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">v</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.vecUnit" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.lalsimutils.xml_to_ChooseWaveformParams_array">
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">xml_to_ChooseWaveformParams_array</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">minrow</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">maxrow</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.000244140625</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fref</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda1</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda2</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">waveFlags</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nonGRparams</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detector</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'H1'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaF</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.xml_to_ChooseWaveformParams_array" title="Link to this definition"></a></dt>
+<dd><p>Function to read an xml file ‘fname’ containing a SimInspiralTable,
+convert rows of the SimInspiralTable into ChooseWaveformParams instances
+and return an array of the ChooseWaveformParam instances</p>
+<p>Can optionally give ‘minrow’ and ‘maxrow’ to convert only rows
+in the range (starting from zero) [minrow, maxrow). If these arguments
+are not given, this function will convert the whole SimInspiral table.</p>
+<p>The rest of the optional arguments are the fields in ChooseWaveformParams
+that are not present in SimInspiral tables. Any of these arguments not given
+values will use the standard default values of ChooseWaveformParams.</p>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="misc/index.html" class="btn btn-neutral float-left" title="Misc Utilities" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

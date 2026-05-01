@@ -1,0 +1,655 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Plot Utilities &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Simulation Manager" href="../simulation_manager/index.html" />
+    <link rel="prev" title="Physics Utilities" href="../physics/index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics Utilities</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Plot Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../simulation_manager/index.html">Simulation Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../asimov/index.html">Asimov Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../calmarg/index.html">Calibration Marginalization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../misc/index.html">Misc Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../lalsimutils.html">LALSimUtils</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API Reference</a></li>
+      <li class="breadcrumb-item active">Plot Utilities</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api_reference/plot_utilities/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-RIFT.plot_utilities.EOSPlotUtilities">
+<span id="plot-utilities"></span><h1>Plot Utilities<a class="headerlink" href="#module-RIFT.plot_utilities.EOSPlotUtilities" title="Link to this heading"></a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.EOSPlotUtilities.eval_eos_list_vs">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.EOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">eval_eos_list_vs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eos_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xvar</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'energy_density'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xgrid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">yvar</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'pressure'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cgs'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_monotonic</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.plot_utilities.EOSPlotUtilities.eval_eos_list_vs" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.EOSPlotUtilities.render_eos">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.EOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">render_eos</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eos</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xvar</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'energy_density'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">yvar</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'pressure'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cgs'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">npts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">label</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">logscale</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.plot_utilities.EOSPlotUtilities.render_eos" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.EOSPlotUtilities.render_eos_list_quantiles_vs">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.EOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">render_eos_list_quantiles_vs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eos_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quantile_bounds</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xvar</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'energy_density'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xgrid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">yvar</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'pressure'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'cgs'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_monotonic</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_log</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_outvals</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">input_outvals</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">show_traces</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot_kwargs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fill_kwargs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{}</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.plot_utilities.EOSPlotUtilities.render_eos_list_quantiles_vs" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.EOSPlotUtilities.render_reprimand_tovsequence_list_quantiles_vs">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.EOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">render_reprimand_tovsequence_list_quantiles_vs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sequence_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quantile_bounds</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xvar</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'radius'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ygrid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">yvar</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'mass'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">range_mass</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'[0.5,2.0]'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">steps</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_outvals</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">input_outvals</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">percentile_method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'use</span> <span class="pre">nan</span> <span class="pre">percentile'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot_kwargs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fill_kwargs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{}</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.plot_utilities.EOSPlotUtilities.render_reprimand_tovsequence_list_quantiles_vs" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function" id="module-RIFT.plot_utilities.TabularEOSPlotUtilities">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.EOS_data_loader">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">EOS_data_loader</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tabular_eos_file</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_label</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_eos_manager</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.EOS_data_loader" title="Link to this definition"></a></dt>
+<dd><p>Load tabular EOS data from a HDF5 file.</p>
+<section id="parameters">
+<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>tabular_eos_file<span class="classifier">str</span></dt><dd><p>The path to the tabular EOS file. The file should be in the .h5 format.
+The function will automatically get the data label from the file if the format is ‘LCEHL_EOS_posterior_samples_&lt;data_label&gt;.h5’.</p>
+</dd>
+<dt>data_label<span class="classifier">str, optional</span></dt><dd><p>The label of the tabular EOS data that is loaded. If not provided the label will be generated from the file name automatically.</p>
+</dd>
+<dt>verbose<span class="classifier">bool, optional</span></dt><dd><p>If True, the function will print information about the progress.</p>
+</dd>
+<dt>save_eos_manager<span class="classifier">bool, optional</span></dt><dd><p>If True, the function will save the EOSManager object. Default is False.</p>
+</dd>
+</dl>
+</section>
+<section id="returns">
+<h2>Returns<a class="headerlink" href="#returns" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>EOS_data<span class="classifier">dict</span></dt><dd><p>A dictionary containing the necessary tabular EOS data for plotting functions.
+The dictionary contains the following keys:
+- ‘eos_tables’: the tabular EOS data (interpolated by default)
+- ‘tov_tables’: the TOV data (not interpolated)
+- ‘eos_names’: the names of the EOS tables
+- ‘data_label’: the label of the tabular EOS data
+- ‘eos_manager’: the EOSManager object (only if <cite>save_eos_manager</cite> is True)</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.LambdaTilderatio_data_gen">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">LambdaTilderatio_data_gen</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">posterior_samples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">EOSManager_Local</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">EOSSequenceLandry</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_label</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.LambdaTilderatio_data_gen" title="Link to this definition"></a></dt>
+<dd><p>This function generates the data for the Lambda tilde ratio plot. This is a ratio of the tidal deformability Lambda tilde to the ordering statistics S.
+Tidal deformability Lambda tilde is calculated from the individual masses and lambdas of the binary components.
+The ordering statistics S is calculated from the reference mass of the binary and the EOS table index.
+This ratio serves as a test for the credibility of the EOS inference ordering statistics S.
+The data will be generated based on the posterior samples and the EOS tables.
+The posterior samples should be loaded from the posterior samples file. 
+The user can use the ‘posterior_samples_all’ key from the <cite>posterior_data_loader</cite> if <cite>out_all</cite> is set to True in the <cite>posterior_data_loader</cite> function.</p>
+<section id="id1">
+<h2>Parameters<a class="headerlink" href="#id1" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>posterior_samples<span class="classifier">np.ndarray</span></dt><dd><p>The posterior samples. Should be loaded from the posterior samples file. Must contain the following columns: ‘m1’, ‘m2’, ‘mc’, ‘q’, ‘lambda1’, ‘lambda2’, ‘eos_indx’.</p>
+</dd>
+<dt>EOSManager_Local<span class="classifier">EOSManager.EOSSequenceLandry</span></dt><dd><p>The EOS manager object. Load the tabular EOS data separately and provide it as an input to avoid loading it multiple times.</p>
+</dd>
+<dt>data_label<span class="classifier">str</span></dt><dd><p>The label for the data. There are no restrictions on this parameter.</p>
+</dd>
+</dl>
+</section>
+<section id="id2">
+<h2>Returns<a class="headerlink" href="#id2" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>LambdaTilderatio_data<span class="classifier">dict</span></dt><dd><p>The dictionary with the data for the Lambda tilde ratio plot.
+It will contain the following keys:
+- ‘q’: the mass ratio of the binary
+- ‘Lambda_tilde_ratio’: the ratio of the tidal deformability Lambda tilde to the ordering statistics S
+- ‘data_label’: the label for the data (e.g. ‘PSR+GW+NICER’, ‘PSR’, etc.)</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.LambdaTilderatio_plot">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">LambdaTilderatio_plot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">LambdaTilderatio_data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">qlim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">tuple</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ylim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">tuple</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">(0,</span> <span class="pre">2)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.LambdaTilderatio_plot" title="Link to this definition"></a></dt>
+<dd><p>This function generates a plot of the Lambda tilde ratio vs. mass ratio for the given EOS data.</p>
+<section id="id3">
+<h2>Parameters<a class="headerlink" href="#id3" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>LambdaTilderatio_data<span class="classifier">np.ndarray</span></dt><dd><p>The data for the Lambda tilde ratio plot. Should be generated using the LambdaTilderatio_data_gen() function.</p>
+</dd>
+<dt>qlim<span class="classifier">tuple</span></dt><dd><p>The mass ratio limits. Default is None. If None, the limits will be set to (q_min, q_max). 
+If the user provides the limits that do not fit in [0, 1] range, the code will raise a ValueError.</p>
+</dd>
+<dt>ylim<span class="classifier">tuple</span></dt><dd><p>Y-axis limits. Default is (0, 2).</p>
+</dd>
+<dt>title<span class="classifier">str</span></dt><dd><p>Title of the plot. Default is None. If no title has been provided, the title will be set to generic Lambda tilde ratio vs Mass ratio.</p>
+</dd>
+</dl>
+</section>
+<section id="id4">
+<h2>Returns<a class="headerlink" href="#id4" title="Link to this heading"></a></h2>
+<p>None</p>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.generate_posterior_eos_param_grid">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">generate_posterior_eos_param_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">posteriors_eos</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eos_tables</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eos_names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'pressure'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">ndarray</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.generate_posterior_eos_param_grid" title="Link to this definition"></a></dt>
+<dd><p>This function generates a grid of the format (N, M), 
+where N is the number of points in the EOS table, and M is the number of posterior samples.
+Each column of the grid will be the EOS table for a given posterior sample. 
+Each row will be the values of the parameter of interest (e.g. pressure, energy density, etc.) 
+for a given point of the parameter used as the x-axis of the plot (and the interpolation base) respectively.
+By default, the parameter of interest is the pressure and the interpolation base is the baryon density.
+Thus, each row of the grid will correspond to the pressure values at each posterior sample for a given baryon density value.</p>
+<section id="id5">
+<h2>Parameters<a class="headerlink" href="#id5" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>posteriors_eos<span class="classifier">np.ndarray</span></dt><dd><p>Array of EOS table indices for each posterior sample. Should be the ‘eos_indx’ column of the posterior samples.</p>
+</dd>
+<dt>eos_tables<span class="classifier">dict</span></dt><dd><p>Dictionary of EOS tables. The keys should be the EOS names and the values should be the EOS tables.
+Should be generated using the EOSManager.interpolate_eos_tables() method.
+IMPORTANT! The EOS parameter used as the x-axis of the plot should be the same for all EOS tables.
+If this is not true, the percentiles will not make any sense!</p>
+</dd>
+<dt>eos_names<span class="classifier">list</span></dt><dd><p>List of EOS names. Should be generated using the EOSManager.eos_names attribute.</p>
+</dd>
+<dt>param<span class="classifier">str, optional</span></dt><dd><p>Parameter of interest. The default is ‘pressure’. Another options are ‘energy_density’ and ‘baryon_density’.</p>
+</dd>
+<dt>verbose<span class="classifier">bool, optional</span></dt><dd><p>If True, print the progress of the function. The default is False.</p>
+</dd>
+</dl>
+</section>
+<section id="id6">
+<h2>Returns<a class="headerlink" href="#id6" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>posteriors_eos_param_grid<span class="classifier">np.ndarray</span></dt><dd><p>Grid of the format (N, M) where N is the number of points in the EOS table and M is the number of posterior samples.</p>
+</dd>
+</dl>
+</section>
+<section id="raises">
+<h2>Raises<a class="headerlink" href="#raises" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>ValueError</dt><dd><p>If the parameter of interest is not present in the EOS tables.</p>
+</dd>
+<dt>ValueError</dt><dd><p>If the number of points in the EOS table for any EOS is different from the number of points in the EOS tables for other EOSs.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.link_eos_data_to_posterior">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">link_eos_data_to_posterior</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eos_data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">posterior_data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.link_eos_data_to_posterior" title="Link to this definition"></a></dt>
+<dd><p>This function links the EOS data to the posterior data and outputs a dictionary with the linked data suited for the corresponding plot type.</p>
+<section id="id7">
+<h2>Parameters<a class="headerlink" href="#id7" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>eos_data<span class="classifier">dict</span></dt><dd><p>Dictionary containing the EOS data. Should be generated using the function EOS_data_loader. 
+See TabularEOSPlotUtilities.EOS_data_loader for more information on the format of the dictionary.</p>
+</dd>
+<dt>plot_type<span class="classifier">str</span></dt><dd><p>String specifying the type of plot to be generated. Currently supported options are: ‘pressure_density’ and ‘mass_radius’.</p>
+</dd>
+<dt>posterior_data<span class="classifier">dict</span></dt><dd><p>Dictionary containing the posterior data. Should be generated using the function posterior_data_loader. 
+See TabularEOSPlotUtilities.posterior_data_loader for more information on the format of the dictionary.
+If posterior_data is not provided, the function will generate prior data from the EOS data.</p>
+</dd>
+</dl>
+</section>
+<section id="id8">
+<h2>Returns<a class="headerlink" href="#id8" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>plot_data_gen_dict: dict</dt><dd><p>Dictionary containing the linked EOS and posterior data suited for the corresponding plot type.
+The format will fit the input requirements of the plotting functions in TabularEOSPlotUtilities.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.mass_radius_plot">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">mass_radius_plot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">mass_radius_data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xlim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">tuple</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">(8,</span> <span class="pre">17)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ylim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">tuple</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">(1,</span> <span class="pre">1.9)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.mass_radius_plot" title="Link to this definition"></a></dt>
+<dd><p>This function generates a plot of mass vs. radius for the given EOS data.</p>
+<section id="id9">
+<h2>Parameters:<a class="headerlink" href="#id9" title="Link to this heading"></a></h2>
+<dl>
+<dt>mass_radius_data<span class="classifier">dict</span></dt><dd><p>A dictionary with the following structure:</p>
+<blockquote>
+<div><dl class="simple">
+<dt>{‘x_rad_perc’: np.ndarray,</dt><dd><p>‘y_mass_grid’: np.ndarray,
+‘posterior’: bool,
+‘perc_values’: list,
+‘data_label’: str,
+‘custom_color’: str}</p>
+</dd>
+</dl>
+<p><cite>x_rad_perc</cite> : np.ndarray - the percentiles of the radius for each mass point
+IMPORTANT! Make sure that the percentiles were calculated of the radius grids interpolated over the same <cite>y_mass_grid</cite> values.
+Must be of the format (2, N), where N is the number of points in the <cite>y_mass_grid</cite>.
+<cite>x_rad_perc[0, :]</cite> is the lower percentile, <cite>x_rad_perc[1, :]</cite> is the upper percentile.</p>
+<p><cite>y_mass_grid</cite> : np.ndarray - the grid of mass values. 
+If the TOV tables were interpolated, one can use the <cite>M</cite> values from any of the interpolated tables. (tov_interp_tables[‘eos_0’][‘M’])</p>
+<p><cite>posterior</cite> : bool - True if the data is for the posterior samples, False if it is for the prior samples.</p>
+<p><cite>perc_values</cite> : list - the percentiles used in <cite>x_rad_perc</cite>. Default is [5, 95].</p>
+<p><cite>data_label</cite> : str - the label for the data (e.g. ‘PSR+GW+NICER’, ‘PSR’, etc.). There are no restrictions on this parameter.</p>
+<p><cite>custom_color</cite> : color for the percentiles provided in this data entry. If none is provided, the default colormap is used.</p>
+</div></blockquote>
+</dd>
+<dt>xlim<span class="classifier">tuple</span></dt><dd><p>X-axis limits. Default is (8, 17). Corresponds the the km units.</p>
+</dd>
+<dt>ylim<span class="classifier">tuple</span></dt><dd><p>Y-axis limits. Default is (1, 1.9). Corresponds the the solar mass units.</p>
+</dd>
+<dt>title: str</dt><dd><p>Title of the plot. Default is None. If no title has been provided, the title will be set to generic Mass vs Radius.</p>
+</dd>
+</dl>
+</section>
+<section id="id10">
+<h2>Returns:<a class="headerlink" href="#id10" title="Link to this heading"></a></h2>
+<p>None</p>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.mass_radius_plot_data_gen">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">mass_radius_plot_data_gen</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tov_tables</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">posteriors_eos</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eos_names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_label</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">posterior</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tov_interp</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">perc_values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">[5,</span> <span class="pre">95]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">custom_color</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.mass_radius_plot_data_gen" title="Link to this definition"></a></dt>
+<dd><p>This function generates the data dictionary for the mass-radius plot</p>
+<section id="id11">
+<h2>Parameters<a class="headerlink" href="#id11" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>tov_tables<span class="classifier">dict</span></dt><dd><p>The dictionary of TOV tables. Should be generated using the EOSManager.tov_tables attribute.</p>
+</dd>
+<dt>posteriors_eos<span class="classifier">np.ndarray</span></dt><dd><p>The array of posterior samples. Should be the ‘eos_indx’ column from the posterior samples file. 
+If the user wants to generate the data for the prior samples, np.arange(int(len(eos_names))) should be used.</p>
+</dd>
+<dt>eos_names<span class="classifier">list</span></dt><dd><p>The list of EOS names. Should be generated using the EOSManager.eos_names attribute.</p>
+</dd>
+<dt>data_label<span class="classifier">str</span></dt><dd><p>The label for the data (e.g. ‘PSR+GW+NICER’, ‘PSR’, etc.). There are no restrictions on this parameter.</p>
+</dd>
+<dt>posterior<span class="classifier">bool</span></dt><dd><p>True if the data is for the posterior samples, False if it is for the prior samples. Default is True.</p>
+</dd>
+<dt>tov_interp<span class="classifier">bool</span></dt><dd><p>True if the inserted TOV tables are already interpolated. Default is False.
+If False, the code will interpolate the tables using the default settings (linear interpolation, 500 points between 1 and 1.9 Msun, extremum breakpoint at 1.9 Msun).
+See the tov_tables_interpolator() function documentation for more details.</p>
+</dd>
+<dt>perc_values<span class="classifier">list</span></dt><dd><p>The percentiles used. Default is [5, 95]. 
+NOTE! These are percentile values, not quantile values. Should be in the range [0, 100]. 
+The code will raise warning if the values are in [0, 1] range, but will still run, please be aware of this.</p>
+</dd>
+<dt>custom_color<span class="classifier">str</span></dt><dd><p>The color for the plot. If None, the color will be chosen automatically. Default is None.</p>
+</dd>
+</dl>
+</section>
+<section id="id12">
+<h2>Returns<a class="headerlink" href="#id12" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>mass_radius_data<span class="classifier">dict</span></dt><dd><p>The dictionary with the data for the mass-radius plot.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.posterior_data_loader">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">posterior_data_loader</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">posterior_file</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_label</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">out_all</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.posterior_data_loader" title="Link to this definition"></a></dt>
+<dd><p>Load the posterior data from a .dat file</p>
+<section id="id13">
+<h2>Parameters<a class="headerlink" href="#id13" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>posterior_file<span class="classifier">str</span></dt><dd><p>The path to the posterior samples file. The file should be in the .dat format.
+The function will automatically get the data label from the file if the format is ‘posterior_samples_&lt;data_label&gt;.dat’.</p>
+</dd>
+<dt>data_label<span class="classifier">str</span></dt><dd><p>The label of the data. If not provided, the function will try to get it from the file name.</p>
+</dd>
+<dt>verbose<span class="classifier">bool</span></dt><dd><p>If True, the function will print information about the progress.</p>
+</dd>
+<dt>out_all<span class="classifier">bool</span></dt><dd><p>If True, the function will return all the posterior samples. If False, the function will return only the EOS indices posteriors.</p>
+</dd>
+</dl>
+</section>
+<section id="id14">
+<h2>Returns<a class="headerlink" href="#id14" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>posterior_data<span class="classifier">dict</span></dt><dd><p>A dictionary containing the posterior samples.
+The dictionary contains the following keys:
+- ‘posterior_samples_eos’ : The posterior samples for the EOS indices.
+- ‘data_label’ : The label of the data.
+- ‘posterior_samples_all’ : The posterior samples for all the parameters. (Only if <cite>out_all</cite> is True)</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.posterior_hist_data_gen">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">posterior_hist_data_gen</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">posteriors_eos</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">EOSManager_Local</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">EOSSequenceLandry</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_label</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m_ref</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.4</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.posterior_hist_data_gen" title="Link to this definition"></a></dt>
+<dd><p>This function generates the data for the posterior histogram plots. 
+It is designed as an auxiliary function to the <cite>posterior_hist_plot</cite> function and should be used as an input to that function.
+The user has to provide the posterior samples in terms of the EOS table index, the EOSManager object, the data label, and the reference mass (default is 1.4 M_sun).</p>
+<section id="id15">
+<h2>Parameters<a class="headerlink" href="#id15" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>posteriors_eos: np.ndarray</dt><dd><p>The posterior samples in terms of the EOS table index.</p>
+</dd>
+<dt>EOSManager_Local: EOSManager.EOSSequenceLandry</dt><dd><p>The EOSManager object. Load the tabular EOS data separately and provide it as an input to avoid loading it multiple times.</p>
+</dd>
+<dt>data_label: str</dt><dd><p>The data label for the plot.</p>
+</dd>
+<dt>m_ref: float</dt><dd><p>The reference mass for the EOS. Default is 1.4 M_sun. 
+The code will use functions <cite>R_of_m_indx</cite> and <cite>lambda_of_m_indx</cite> from the EOSManager object to calculate the radius and tidal deformability for a given mass m_ref.
+Should be in range [1.0, 2.5]</p>
+</dd>
+</dl>
+</section>
+<section id="id16">
+<h2>Returns<a class="headerlink" href="#id16" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>posterior_hist_data: dict</dt><dd><p>A dictionary containing the data for the posterior histogram plot.
+The dictionary contains the following keys:
+- ‘R’: the radius data of each of the posterior samples
+- ‘<a href="#id27"><span class="problematic" id="id28">Lambda_</span></a>’: the tidal deformability data of each of the posterior samples
+- ‘R_mean_std’: the mean and standard deviation of radius of the posterior samples (tuple) of format (mean, std)
+- ‘Lambda_mean_std’: the mean and standard deviation of tidal deformability of the posterior samples (tuple) of format (mean, std)
+- ‘data_label’: the data label for the plot
+- ‘m_ref’: the reference mass used for the EOS calculations</p>
+</dd>
+</dl>
+</section>
+<section id="id17">
+<h2>Raises<a class="headerlink" href="#id17" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>ValueError</dt><dd><p>If the reference mass is not in range [1.0, 2.5]</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.posterior_hist_plot">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">posterior_hist_plot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">posterior_hist_data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r_lim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">tuple</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">(8,</span> <span class="pre">17)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_lim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">tuple</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">(0,</span> <span class="pre">1000)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.posterior_hist_plot" title="Link to this definition"></a></dt>
+<dd><p>This function generates the posterior histogram plots.</p>
+<section id="id18">
+<h2>Parameters<a class="headerlink" href="#id18" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>posterior_hist_data: dict</dt><dd><p>The data for the posterior histogram plot. 
+The user can provide multiple dictionaries as input, each containing the data for a different posterior sample.
+The dictionaries should be generated using the <cite>posterior_hist_data_gen</cite> function and should contain the following keys:
+- ‘R’: the radius data of each of the posterior samples
+- ‘<a href="#id29"><span class="problematic" id="id30">Lambda_</span></a>’: the tidal deformability data of each of the posterior samples
+- ‘R_mean_std’: the mean and standard deviation of radius of the posterior samples (tuple) of format (mean, std)
+- ‘Lambda_mean_std’: the mean and standard deviation of tidal deformability of the posterior samples (tuple) of format (mean, std)
+- ‘data_label’: the data label for the plot
+- ‘m_ref’: the reference mass used for the EOS calculations</p>
+</dd>
+<dt>r_lim: tuple, optional</dt><dd><p>The limits for the radius axis. Default is (8, 17).</p>
+</dd>
+<dt>lambda_lim: tuple, optional</dt><dd><p>The limits for the tidal deformability axis. Default is (0, 1000).</p>
+</dd>
+<dt>title: str, optional</dt><dd><p>The title for the plots. Default is None.</p>
+</dd>
+</dl>
+</section>
+<section id="id19">
+<h2>Returns<a class="headerlink" href="#id19" title="Link to this heading"></a></h2>
+<p>None</p>
+</section>
+<section id="id20">
+<h2>Raises<a class="headerlink" href="#id20" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>ValueError</dt><dd><p>If the reference masses for the different data entries are not the same.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.pressure_density_plot">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">pressure_density_plot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">density_pressure_data</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_energy_dens</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">units</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'cgs'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xlim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">tuple</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">(100000000000000.0,</span> <span class="pre">1e+16)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ylim</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">tuple</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">(1e+32,</span> <span class="pre">1e+38)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">title</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.pressure_density_plot" title="Link to this definition"></a></dt>
+<dd><p>This function generates a plot of pressure vs. baryon density for the given EOS data.</p>
+<section id="id21">
+<h2>Parameters<a class="headerlink" href="#id21" title="Link to this heading"></a></h2>
+<dl>
+<dt>density_pressure_data<span class="classifier">dict</span></dt><dd><p>A dictionary with the following structure:</p>
+<blockquote>
+<div><dl class="simple">
+<dt>{‘x_dens_grid’: np.ndarray,</dt><dd><p>‘y_pres_perc’: np.ndarray,
+‘posterior’: bool,
+‘perc_values’: list,
+‘data_label’: str,
+‘custom_color’: str}</p>
+</dd>
+</dl>
+<p><cite>x_dens_grid</cite>: np.ndarray - grid of baryon densities. 
+If the EOS tables were interpolated, one can use the <cite>baryon_density</cite> column of any EOS table (<cite>eos_tables[‘eos_0’][‘baryon_density’]</cite>);</p>
+<p><cite>y_pres_perc</cite>: np.ndarray - percentiles of pressure values for each density point.
+IMPORTANT! Make sure that the percentiles were calculated of the pressure grids interpolated over the same <cite>x_dens_grid</cite> values.
+Must be of the format (2, N), where N is the number of points in the <cite>x_dens_grid</cite>.
+<cite>y_pres_perc[0, :]</cite> is the lower percentile, <cite>y_pres_perc[1, :]</cite> is the upper percentile.</p>
+<p><cite>posterior</cite>: bool - if True, the data is considered to be posterior samples. If False, the data is considered to be prior samples.</p>
+<p><cite>perc_values</cite>: list of 2 percentiles corresponding to the <cite>y_pres_perc</cite> array. If none is provided, the default values are [5, 95].</p>
+<p><cite>data_label</cite>: str - label for the data used, i. e. ‘PSR+GW+NICER’, ‘PSR+GW’, etc.</p>
+<p><cite>custom_color</cite>: color for the percentiles provided in this data entry. If none is provided, the default colormap is used.</p>
+</div></blockquote>
+</dd>
+<dt>energy_dens_bool<span class="classifier">bool</span></dt><dd><p>If you are using energy density instead of baryon density, set this to True. Default is False.</p>
+</dd>
+<dt>units<span class="classifier">str</span></dt><dd><p>Units of the data. Default is ‘cgs’.</p>
+</dd>
+<dt>xlim<span class="classifier">tuple</span></dt><dd><p>X-axis limits. Default is (1e14, 1e16). Corresponds the the CGS units.</p>
+</dd>
+<dt>ylim<span class="classifier">tuple</span></dt><dd><p>Y-axis limits. Default is (1e32, 1e38). Corresponds the the CGS units.</p>
+</dd>
+<dt>title: str</dt><dd><p>Title of the plot. Default is None. If no title has been provided, the title will be set to generic Pressure vs Baryon Density.</p>
+</dd>
+</dl>
+</section>
+<section id="id22">
+<h2>Returns<a class="headerlink" href="#id22" title="Link to this heading"></a></h2>
+<p>None</p>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.pressure_density_plot_data_gen">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">pressure_density_plot_data_gen</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eos_tables</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">posteriors_eos</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eos_names</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_label</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">posterior</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">perc_values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">[5,</span> <span class="pre">95]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">custom_color</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_energy_dens</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.pressure_density_plot_data_gen" title="Link to this definition"></a></dt>
+<dd><p>This function generates the data dictionary for the pressure-density plot. 
+It is designed as an auxiliary function for the pressure_density_plot() function, and should be used as input for that function.</p>
+<p>The dictionary will contain the following keys:
+- ‘x_dens_grid’: the grid of baryon densities for the x-axis
+- ‘y_pres_perc’: percentiles of the pressure for each baryon density. 
+This will be a np.ndarray of shape (2, N), where N is the number of points in the EOS table.
+- ‘posterior’: True if the data is for the posterior samples, False if it is for the prior samples.
+- ‘perc_values’: the percentiles used. Default is [5, 95].
+- ‘data_label’: the label for the data (e.g. ‘PSR+GW+NICER’, ‘PSR’, etc.)
+- ‘custom_color’: the color for the plot. If None, the color will be chosen automatically.</p>
+<p>The function will return the data dictionary.</p>
+<section id="id23">
+<h2>Parameters<a class="headerlink" href="#id23" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>eos_tables<span class="classifier">dict</span></dt><dd><p>The dictionary of EOS tables. Should be generated using the EOSManager.interpolate_eos_tables() method.</p>
+</dd>
+<dt>posteriors_eos<span class="classifier">np.ndarray</span></dt><dd><p>The array of posterior samples. Should be the ‘eos_indx’ column from the posterior samples file. 
+If the user wants to generate the data for the prior samples, np.arange(int(len(eos_names))) should be used.</p>
+</dd>
+<dt>eos_names<span class="classifier">list</span></dt><dd><p>The list of EOS names. Should be generated using the EOSManager.eos_names attribute.</p>
+</dd>
+<dt>data_label<span class="classifier">str</span></dt><dd><p>The label for the data (e.g. ‘PSR+GW+NICER’, ‘PSR’, etc.). There are no restrictions on this parameter.</p>
+</dd>
+<dt>posterior<span class="classifier">bool, optional</span></dt><dd><p>True if the data is for the posterior samples, False if it is for the prior samples. Default is True.</p>
+</dd>
+<dt>perc_values<span class="classifier">list, optional</span></dt><dd><p>The percentiles used. Default is [5, 95]. 
+NOTE! These are percentile values, not quantile values. Should be in the range [0, 100]. 
+The code will raise warning if the values are in [0, 1] range, but will still run, please be aware of this.</p>
+</dd>
+<dt>custom_color<span class="classifier">str, optional</span></dt><dd><p>The color for the plot. If None, the color will be chosen automatically. Default is None.</p>
+</dd>
+<dt>use_energy_dens<span class="classifier">bool, optional</span></dt><dd><p>If True, the energy density will be used as the x-axis parameter instead of the baryon density. Default is False.</p>
+</dd>
+</dl>
+</section>
+<section id="id24">
+<h2>Returns<a class="headerlink" href="#id24" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>density_pressure_data<span class="classifier">dict</span></dt><dd><p>The dictionary with the data for the pressure-density plot.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.tov_tables_interpolator">
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">tov_tables_interpolator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tov_tables</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m_interp_range</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">[1,</span> <span class="pre">1.9]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">500</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m_extremum_breakpoint</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.9</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.tov_tables_interpolator" title="Link to this definition"></a></dt>
+<dd><p>This function interpolates inserted TOV tables and removes all the point from each table if the change in gradient occurs after a breakpoint (<cite>m_extremum_breakpoint</cite>).
+This is done to prevent the double counting in percentiles.</p>
+<section id="id25">
+<h2>Parameters<a class="headerlink" href="#id25" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>tov_tables<span class="classifier">dict</span></dt><dd><p>The dictionary of TOV tables. Should be generated using the EOSManager.tov_tables attribute.</p>
+</dd>
+<dt>m_interp_range<span class="classifier">list</span></dt><dd><p>The range of the interpolated mass values. Default is [1, 1.9].</p>
+</dd>
+<dt>n_points<span class="classifier">int</span></dt><dd><p>The number of points in the interpolated mass values. Default is 500.</p>
+</dd>
+<dt>m_extremum_breakpoint<span class="classifier">float</span></dt><dd><p>The breakpoint value for the extremum in the mass-radius curve. Default is 1.9.
+The value 1.9 was established from the previous analysis of the TOV tables. 
+Many EOS have extremums below 1 Msun, but they do not produce double M-R curves in the region 1 - 1.9 Msun.
+EOS that have extremums above the 1.9 Msun (in our previous analysis) would often have the M-R curve that returns to the region 1 - 1.9 Msun.
+This would cause the double counting of the R values in the percentiles. 
+Therefore, we delete the points from the tov_tables after the extremum if it is above 1.9 Msun.
+Only a few EOS (~20 of 10000) have extremums in the region 1 - 1.9 Msun, and their impact on the percentiles is negligible.
+NOTE! This value may be different for different EOS tables. Please analyze your EOS tables before setting this parameter.
+See an example of the analysis in the notebook: 
+<a class="reference external" href="https://github.com/oshaughn/RIT-matters/tree/master/communications/20230613-ROSAV-TabularEOSInference/plotting/EOS_plots.ipynb">https://github.com/oshaughn/RIT-matters/tree/master/communications/20230613-ROSAV-TabularEOSInference/plotting/EOS_plots.ipynb</a></p>
+</dd>
+<dt>verbose<span class="classifier">bool</span></dt><dd><p>If True, the function will print the progress of the interpolation. Default is False.</p>
+</dd>
+</dl>
+</section>
+<section id="id26">
+<h2>Returns<a class="headerlink" href="#id26" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>tov_interp_tables<span class="classifier">dict</span></dt><dd><p>The dictionary of interpolated TOV tables.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../physics/index.html" class="btn btn-neutral float-left" title="Physics Utilities" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../simulation_manager/index.html" class="btn btn-neutral float-right" title="Simulation Manager" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

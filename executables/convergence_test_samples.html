@@ -1,0 +1,227 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>convergence_test_samples &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="util_ParameterPuffball" href="util_ParameterPuffball.html" />
+    <link rel="prev" title="util_ManualOverlapGrid" href="util_ManualOverlapGrid.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Executables</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="util_RIFT_pseudo_pipe.html">util_RIFT_pseudo_pipe.py</a></li>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html">create_event_parameter_pipeline_BasicIteration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html">integrate_likelihood_extrinsic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html">integrate_likelihood_extrinsic_batchmode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html">util_ConstructIntrinsicPosterior_GenericCoordinates</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html">plot_posterior_corner</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html">util_ManualOverlapGrid</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">convergence_test_samples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ParameterPuffball.html">util_ParameterPuffball</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Executables</a></li>
+      <li class="breadcrumb-item active">convergence_test_samples</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/executables/convergence_test_samples.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="convergence-test-samples">
+<h1>convergence_test_samples<a class="headerlink" href="#convergence-test-samples" title="Link to this heading"></a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">convergence_test_samples</span></code> executable compares two sets of posterior samples to determine if the results have converged. It is primarily used in iterative pipelines to signal when further iterations are no longer significantly changing the results.</p>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>In iterative Bayesian analysis, it is crucial to know when the posterior distributions have stabilized. <code class="docutils literal notranslate"><span class="pre">convergence_test_samples</span></code> implements several statistical tests to quantify the difference between two sample sets (e.g., from iteration <span class="math notranslate nohighlight">\(N\)</span> and iteration <span class="math notranslate nohighlight">\(N+1\)</span>). If the difference is below a specified threshold, the tool can trigger a “success” signal to terminate the pipeline.</p>
+</section>
+<section id="usage">
+<h2>Usage<a class="headerlink" href="#usage" title="Link to this heading"></a></h2>
+<section id="basic-command-line">
+<h3>Basic Command Line<a class="headerlink" href="#basic-command-line" title="Link to this heading"></a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>convergence_test_samples.py<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+</pre></div>
+</div>
+</section>
+<section id="primary-options">
+<h3>Primary Options<a class="headerlink" href="#primary-options" title="Link to this heading"></a></h3>
+<p><strong>Input Samples</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--samples</span></code>: Filenames of the two sample sets to compare. Must be provided twice.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--parameter</span></code>: List of parameters to be used in the convergence test.</p></li>
+</ul>
+<p><strong>Test Configuration</strong></p>
+<ul class="simple">
+<li><dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">--method</span></code>: The statistical method used to compare the samples. Options include:</dt><dd><ul>
+<li><p><code class="docutils literal notranslate"><span class="pre">lame</span></code>: Computes a multivariate Gaussian estimate (mean and covariance) for both sets and calculates the Kullback-Leibler (KL) divergence.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">KS_1d</span></code>: Performs a one-dimensional Kolmogorov-Smirnov (KS) test on the first specified parameter.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">JS</span></code>: Calculates the additive Jensen-Shannon (JS) divergence across all specified parameters using KDE estimates.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--threshold</span></code>: The value below which the samples are considered “converged.”</p></li>
+</ul>
+<p><strong>Pipeline Integration</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">--iteration</span></code>: The current iteration number.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--iteration-threshold</span></code>: The iteration number before which the convergence test is skipped.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--write-file-on-success</span></code>: The path to a file (e.g., <code class="docutils literal notranslate"><span class="pre">INTRINSIC_CONVERGED</span></code>) that is created if the test passes.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">--always-succeed</span></code>: Forces the tool to return a success exit code regardless of the test result.</p></li>
+</ul>
+</section>
+</section>
+<section id="functional-logic">
+<h2>Functional Logic<a class="headerlink" href="#functional-logic" title="Link to this heading"></a></h2>
+<ol class="arabic simple">
+<li><p><strong>Sample Loading</strong>: Reads two sets of samples from the provided files.</p></li>
+<li><dl class="simple">
+<dt><strong>Pre-processing</strong>:</dt><dd><ul class="simple">
+<li><p>Expands samples to include standard derived fields (e.g., <span class="math notranslate nohighlight">\(\chi_{eff}\)</span>, <span class="math notranslate nohighlight">\(\chi_{minus}\)</span>).</p></li>
+<li><p>Ensures consistent parameter names across both sets.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt><strong>Divergence Calculation</strong>:</dt><dd><ul class="simple">
+<li><p>Based on the <code class="docutils literal notranslate"><span class="pre">--method</span></code>, it calculates a scalar value representing the “distance” between the two distributions.</p></li>
+<li><p>For <code class="docutils literal notranslate"><span class="pre">lame</span></code>, it uses the closed-form KL divergence for multivariate Gaussians.</p></li>
+<li><p>For <code class="docutils literal notranslate"><span class="pre">JS</span></code>, it uses random resampling and Kernel Density Estimation (KDE) to compute the JS divergence for each parameter.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt><strong>Thresholding</strong>:</dt><dd><ul class="simple">
+<li><p>Compares the calculated distance to the <code class="docutils literal notranslate"><span class="pre">--threshold</span></code>.</p></li>
+<li><p>If <code class="docutils literal notranslate"><span class="pre">distance</span> <span class="pre">&lt;</span> <span class="pre">threshold</span></code>, the samples are considered converged.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt><strong>Exit Codes</strong>:</dt><dd><ul class="simple">
+<li><p>The tool is designed to work with Condor DAGs. In some configurations, it returns a failure exit code (1) when the test succeeds to terminate the DAG.</p></li>
+</ul>
+</dd>
+</dl>
+</li>
+</ol>
+</section>
+<section id="output-details">
+<h2>Output Details<a class="headerlink" href="#output-details" title="Link to this heading"></a></h2>
+<p>The tool prints the calculated divergence value to the standard output. If the convergence criteria are met, it creates the file specified by <code class="docutils literal notranslate"><span class="pre">--write-file-on-success</span></code>.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="util_ManualOverlapGrid.html" class="btn btn-neutral float-left" title="util_ManualOverlapGrid" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="util_ParameterPuffball.html" class="btn btn-neutral float-right" title="util_ParameterPuffball" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

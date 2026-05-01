@@ -1,0 +1,700 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Factored Likelihood &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Factored Likelihood</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/RIFT/likelihood/factored_likelihood.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-RIFT.likelihood.factored_likelihood">
+<span id="factored-likelihood"></span><h1>Factored Likelihood<a class="headerlink" href="#module-RIFT.likelihood.factored_likelihood" title="Link to this heading"></a></h1>
+<p>Code to compute the log likelihood of parameters of a gravitational
+waveform. Precomputes terms that depend only on intrinsic parameters
+and computes the log likelihood for given values of extrinsic parameters</p>
+<p>Requires python SWIG bindings of the LIGO Algorithms Library (LAL)</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.ComplexAntennaFactor">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">ComplexAntennaFactor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">det</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.ComplexAntennaFactor" title="Link to this definition"></a></dt>
+<dd><p>Function to compute the complex-valued antenna pattern function:
+F+ + i Fx</p>
+<p>‘det’ is a detector prefix string (e.g. ‘H1’)
+‘RA’ and ‘DEC’ are right ascension and declination (in radians)
+‘psi’ is the polarization angle
+‘tref’ is the reference GPS time</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.ComputeArrivalTimeAtDetector">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">ComputeArrivalTimeAtDetector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">det</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.ComputeArrivalTimeAtDetector" title="Link to this definition"></a></dt>
+<dd><p>Function to compute the time of arrival at a detector
+from the time of arrival at the geocenter.</p>
+<p>‘det’ is a detector prefix string (e.g. ‘H1’)
+‘RA’ and ‘DEC’ are right ascension and declination (in radians)
+‘tref’ is the reference time at the geocenter.  It can be either a float (in which case the return is a float) or a GPSTime object (in which case it returns a GPSTime)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.ComputeArrivalTimeAtDetectorWithoutShift">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">ComputeArrivalTimeAtDetectorWithoutShift</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">det</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.ComputeArrivalTimeAtDetectorWithoutShift" title="Link to this definition"></a></dt>
+<dd><p>Function to compute the time of arrival at a detector
+from the time of arrival at the geocenter.</p>
+<p>‘det’ is a detector prefix string (e.g. ‘H1’)
+‘RA’ and ‘DEC’ are right ascension and declination (in radians)
+‘tref’ is the reference time at the geocenter.  It can be either a float (in which case the return is a float) or a GPSTime object (in which case it returns a GPSTime)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.ComputeModeCrossTermIP">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">ComputeModeCrossTermIP</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hlmsA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hlmsB</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psd</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fNyq</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analyticPSD_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inv_spec_trunc_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_spec</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'U'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">same_waveform_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.ComputeModeCrossTermIP" title="Link to this definition"></a></dt>
+<dd><p>Compute the ‘cross terms’ between waveform modes, i.e.
+&lt; h_lm | h_l’m’ &gt;.
+The inner product is weighted by power spectral density ‘psd’ and
+integrated over the interval [-fNyq, -fmin] union [fmin, fNyq]</p>
+<p>Returns a dictionary of inner product values keyed by tuples of mode indices
+i.e. ((l,m),(l’,m’))</p>
+<dl class="simple">
+<dt>same_waveform_Q:  if true, it will do a loop that assumes (a) the same keys in both loops and (b) the same waveform in both (i.e., conjugate transpose)</dt><dd><p>Note we WILL use the ‘prefix’ quantity to identify if we are computing ‘V’ and therefore using a different symmetry!</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.ComputeModeIPTimeSeries">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">ComputeModeIPTimeSeries</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hlms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psd</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fNyq</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N_shift</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N_window</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analyticPSD_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inv_spec_trunc_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_spec</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">calibration_realizations</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.ComputeModeIPTimeSeries" title="Link to this definition"></a></dt>
+<dd><p>Compute the complex-valued overlap between
+each member of a SphHarmFrequencySeries ‘hlms’
+and the interferometer data COMPLEX16FrequencySeries ‘data’,
+weighted the power spectral density REAL8FrequencySeries ‘psd’.</p>
+<p>The integrand is non-zero in the range: [-fNyq, -fmin] union [fmin, fNyq].
+This integrand is then inverse-FFT’d to get the inner product
+at a discrete series of time shifts.</p>
+<p>Returns a SphHarmTimeSeries object containing the complex inner product
+for discrete values of the reference time tref.  The epoch of the
+SphHarmTimeSeries object is set to account for the transformation</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.ComputeYlms">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">ComputeYlms</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">selected_modes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.ComputeYlms" title="Link to this definition"></a></dt>
+<dd><p>Return a dictionary keyed by tuples
+(l,m)
+that contains the values of all
+-2Y_lm(theta,phi)
+with
+l &lt;= Lmax
+-l &lt;= m &lt;= l</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.ComputeYlmsArray">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">ComputeYlmsArray</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lookupNK</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.ComputeYlmsArray" title="Link to this definition"></a></dt>
+<dd><p>Returns an array Ylm[k] where lookup(k) = l,m.  Only computes the LM values needed.
+theta, phi arguments are <em>scalars</em></p>
+<p>SHOULD BE DEPRECATED</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.ComputeYlmsArrayVector">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">ComputeYlmsArrayVector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lookupNK</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.ComputeYlmsArrayVector" title="Link to this definition"></a></dt>
+<dd><p>Returns an array Ylm[k] where lookup(k) = l,m.  Only computes the LM values needed.
+theta, phi arguments are <em>vectors</em>.  Shape is (len(th),len(lookup(NK)))</p>
+<p>Should be combined with the previous routine ComputeYlmsArray (redundant)</p>
+<dl class="simple">
+<dt>Example:</dt><dd><p>th = np.linspace(0,np.pi, 5); lookupNK =[[2,-2], [2,2]]  
+factored_likelihood.ComputeYlmsArrayVector(lookupNK,th,th)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.DiscreteFactoredLogLikelihoodViaArray">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">DiscreteFactoredLogLikelihoodViaArray</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tvals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lookupNKDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholmsArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctUArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctVArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">epochDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">array_output</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.DiscreteFactoredLogLikelihoodViaArray" title="Link to this definition"></a></dt>
+<dd><p>DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
+either as an array vs time <em>or</em> marginalized in time. 
+This generally is marginally faster, particularly if Lmax is large.</p>
+<p>The timeseries quantities are computed via discrete shifts of an existing grid</p>
+<dl class="simple">
+<dt>Note ‘P’ must have the <em>sampling rate</em> set to correctly interpret the event time.</dt><dd><p>Note arguments passed are STILL SCALARS</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">DiscreteFactoredLogLikelihoodViaArrayVector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tvals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">P_vec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lookupNKDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholmsArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctUArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctVArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">epochDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax=2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">array_output=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector" title="Link to this definition"></a></dt>
+<dd><p>DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
+either as an array vs time <em>or</em> marginalized in time. 
+This generally is marginally faster, particularly if Lmax is large.</p>
+<p>The timeseries quantities are computed via discrete shifts of an existing grid</p>
+<dl class="simple">
+<dt>Note ‘P’ must have the <em>sampling rate</em> set to correctly interpret the event time.</dt><dd><p>Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have ‘Vector’ postfix</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tvals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">P_vec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lookupNKDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholmsArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctUArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctVArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">epochDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax=2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">array_output=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">loglikelihood=&lt;function</span> <span class="pre">_factored_lnL_helper&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_lnLt=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phase_marginalization=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop" title="Link to this definition"></a></dt>
+<dd><p>DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
+either as an array vs time <em>or</em> marginalized in time. 
+This generally is marginally faster, particularly if Lmax is large.
+The timeseries quantities are computed via discrete shifts of an existing grid
+Note ‘P’ must have the <em>sampling rate</em> set to correctly interpret the event time.</p>
+<blockquote>
+<div><p>Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have ‘Vector’ postfix</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopOrig">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopOrig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tvals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">P_vec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lookupNKDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholmsArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctUArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctVArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">epochDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">array_output</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopOrig" title="Link to this definition"></a></dt>
+<dd><p>DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
+either as an array vs time <em>or</em> marginalized in time. 
+This generally is marginally faster, particularly if Lmax is large.
+The timeseries quantities are computed via discrete shifts of an existing grid
+Note ‘P’ must have the <em>sampling rate</em> set to correctly interpret the event time.</p>
+<blockquote>
+<div><p>Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have ‘Vector’ postfix</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.DiscreteSingleDetectorLogLikelihoodData">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">DiscreteSingleDetectorLogLikelihoodData</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">epoch</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholmsDictionary</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tStart</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nBins</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phiS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">det</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.DiscreteSingleDetectorLogLikelihoodData" title="Link to this definition"></a></dt>
+<dd><dl class="simple">
+<dt>Returns lnLdata array, evaluated at the geocenter, based on a DISCRETE timeshift.</dt><dd><ul class="simple">
+<li><p>At low sampling rates, this procedure will be considerably time offset (~ ms). 
+It will also be undersampled for use in integration.</p></li>
+</ul>
+</dd>
+<dt>Return value is </dt><dd><ul class="simple">
+<li><p>a RAW numpy array</p></li>
+<li><p>associated with nBins following tStart</p></li>
+</ul>
+</dd>
+<dt>Uses ‘tStart’ (a GPSTime) to identify the current detector orientations and hence time of flight delay.  </dt><dd><ul class="simple">
+<li><p>the assumption is that nBins will be very small</p></li>
+</ul>
+</dd>
+<dt>Does NOT </dt><dd><ul class="simple">
+<li><p>resample the  Q array : it is nearest-neighbor timeshifted before computing lnL</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.DiscreteSingleDetectorLogLikelihoodDataViaArray">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">DiscreteSingleDetectorLogLikelihoodDataViaArray</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tvals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extr_params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lookupNK</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholmsArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">det</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'H1'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.DiscreteSingleDetectorLogLikelihoodDataViaArray" title="Link to this definition"></a></dt>
+<dd><p>SingleDetectorLogLikelihoodDataViaArray evaluates everything using <em>arrays</em> for each (l,m) pair.
+Uses discrete arrays.  Compare to  FactoredLogLikelihoodTimeMarginalized</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.FactoredLogLikelihood">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">FactoredLogLikelihood</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">extr_params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholms_intp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTerms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTermsV</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interpolate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.FactoredLogLikelihood" title="Link to this definition"></a></dt>
+<dd><dl class="simple">
+<dt>Compute the log-likelihood = -1/2 &lt; d - h | d - h &gt; from:</dt><dd><ul class="simple">
+<li><p>extr_params is an object containing values of all extrinsic parameters</p></li>
+<li><p>rholms_intp is a dictionary of interpolating functions &lt; h_lm(t) | d &gt;</p></li>
+<li><p>crossTerms is a dictionary of &lt; h_lm | h_l’m’ &gt;</p></li>
+<li><p>Lmax is the largest l-index of any h_lm mode considered</p></li>
+</ul>
+</dd>
+</dl>
+<p>N.B. rholms_intp and crossTerms are the first two outputs of the function
+‘PrecomputeLikelihoodTerms’</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.FactoredLogLikelihoodTimeMarginalized">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">FactoredLogLikelihoodTimeMarginalized</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tvals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extr_params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholms_intp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTerms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTermsV</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interpolate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.FactoredLogLikelihoodTimeMarginalized" title="Link to this definition"></a></dt>
+<dd><dl class="simple">
+<dt>Compute the log-likelihood = -1/2 &lt; d - h | d - h &gt; from:</dt><dd><ul class="simple">
+<li><p>extr_params is an object containing values of all extrinsic parameters</p></li>
+<li><p>rholms_intp is a dictionary of interpolating functions &lt; h_lm(t) | d &gt;</p></li>
+<li><p>crossTerms is a dictionary of &lt; h_lm | h_l’m’ &gt;</p></li>
+<li><p>Lmax is the largest l-index of any h_lm mode considered</p></li>
+</ul>
+</dd>
+</dl>
+<p>tvals is an array of timeshifts relative to the detector,
+used to compute the marginalized integral.
+It provides both the time prior and the sample points used for the integral.</p>
+<p>N.B. rholms_intp and crossTerms are the first two outputs of the function
+‘PrecomputeLikelihoodTerms’</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.FactoredLogLikelihoodViaArray">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">FactoredLogLikelihoodViaArray</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">epoch</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lookupNKDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholms_intpArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctUArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctVArrayDict</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.FactoredLogLikelihoodViaArray" title="Link to this definition"></a></dt>
+<dd><p>FactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood, a single scalar value.
+This generally is marginally faster, particularly if Lmax is large.
+The timeseries quantities are computed via interpolation onto the desired grid</p>
+<p>Speed-wise, because we extract a <em>single</em> scalar value, this code has the same efficiency as FactoredLogLikelihoood</p>
+<p>Note ‘P’ must have the <em>sampling rate</em> set to correctly interpret the event time.
+Note arguments passed are STILL SCALARS</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.IdentifyEffectiveModesForDetector">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">IdentifyEffectiveModesForDetector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">crossTermsOneDetector</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fac</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">det</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.IdentifyEffectiveModesForDetector" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.InterpolateRholm">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">InterpolateRholm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rholm</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.InterpolateRholm" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.InterpolateRholms">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">InterpolateRholms</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rholms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.InterpolateRholms" title="Link to this definition"></a></dt>
+<dd><p>Return a dictionary keyed on mode index tuples, (l,m)
+where each value is an interpolating function of the overlap against data
+as a function of time shift:
+rholm_intp(t) = &lt; h_lm(t) | d &gt;</p>
+<p>‘rholms’ is a dictionary keyed on (l,m) containing discrete time series of
+&lt; h_lm(t_i) | d &gt;
+‘t’ is an array of the discrete times:
+[t_0, t_1, …, t_N]</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.NetworkLogLikelihoodPolarizationMarginalized">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">NetworkLogLikelihoodPolarizationMarginalized</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">epoch</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholmsDictionary</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTerms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTermsV</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phiS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detList</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.NetworkLogLikelihoodPolarizationMarginalized" title="Link to this definition"></a></dt>
+<dd><p>DOCUMENT ME!!!</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.NetworkLogLikelihoodTimeMarginalized">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">NetworkLogLikelihoodTimeMarginalized</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">epoch</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholmsDictionary</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTerms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTermsV</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phiS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detList</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.NetworkLogLikelihoodTimeMarginalized" title="Link to this definition"></a></dt>
+<dd><p>DOCUMENT ME!!!</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.NetworkLogLikelihoodTimeMarginalizedDiscrete">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">NetworkLogLikelihoodTimeMarginalizedDiscrete</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">epoch</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholmsDictionary</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTerms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaTWindow</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phiS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">detList</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">array_output</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.NetworkLogLikelihoodTimeMarginalizedDiscrete" title="Link to this definition"></a></dt>
+<dd><p>Uses DiscreteSingleDetectorLogLikelihoodData to calculate the lnL(t) on a discrete grid.
+- Mode 1: array_output = False</p>
+<blockquote>
+<div><p>Computes int L dt/T over tref+deltaTWindow (GPSTime + pair, with <a href="#id1"><span class="problematic" id="id2">|</span></a>deltaTWindow|=T)</p>
+</div></blockquote>
+<ul class="simple">
+<li><p>Mode 2: array_output = True
+Returns lnL(t) as a raw numpy array.</p></li>
+</ul>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.PackLikelihoodDataStructuresAsArrays">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">PackLikelihoodDataStructuresAsArrays</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pairKeys</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholms_intpDictionaryForDetector</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholmsDictionaryForDetector</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTermsForDetector</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTermsForDetectorV</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.PackLikelihoodDataStructuresAsArrays" title="Link to this definition"></a></dt>
+<dd><p>Accepts list of LM pairs, dictionary for rholms against keys, and cross terms (a dictionary)</p>
+<p>PROBLEM: Different detectors may have different time zeros. User must use the returned arrays with great care.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.PrecomputeLikelihoodTerms">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">PrecomputeLikelihoodTerms</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">event_time_geo</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">t_window</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psd_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analyticPSD_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inv_spec_trunc_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_spec</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quiet</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">internal_fast_precompute</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">NR_group</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">NR_param</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ignore_threshold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0001</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extra_waveform_kwargs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_gwsignal</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_gwsignal_approx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_external_EOB</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nr_lookup</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nr_lookup_valid_groups</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_memory</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">perturbative_extraction</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">perturbative_extraction_full</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hybrid_use</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hybrid_method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'taper_add'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_provided_strain</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ROM_group</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ROM_param</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ROM_use_basis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ROM_limit_basis_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">skip_interpolation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">calibration_realizations</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.PrecomputeLikelihoodTerms" title="Link to this definition"></a></dt>
+<dd><p>Compute &lt; h_lm(t) | d &gt; and &lt; h_lm | h_l’m’ &gt;</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><ul class="simple">
+<li><p>Dictionary of interpolating functions, keyed on detector, then (l,m)
+e.g. rholms_intp[‘H1’][(2,2)]</p></li>
+<li><p>Dictionary of “cross terms” &lt;h_lm | h_l’m’ &gt; keyed on (l,m),(l’,m’)
+e.g. crossTerms[((2,2),(2,1))]</p></li>
+<li><p>Dictionary of discrete time series of &lt; h_lm(t) | d &gt;, keyed the same
+as the interpolating functions.
+Their main use is to validate the interpolating functions</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.ReconstructPrecomputedLikelihoodTermsROM">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">ReconstructPrecomputedLikelihoodTermsROM</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">acat_rom</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rho_intp_rom</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTerms_rom</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTermsV_rom</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rho_rom</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.ReconstructPrecomputedLikelihoodTermsROM" title="Link to this definition"></a></dt>
+<dd><p>Using a set of ROM coefficients for hlm[lm] = coef[l,m,basis] w[basis], reconstructs &lt;h[lm]|data&gt;, &lt;h[lm]|h[l’m’]&gt;
+Requires ROM also be loaded in top level, for simplicity</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.SingleDetectorLogLikelihood">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">SingleDetectorLogLikelihood</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rholm_vals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTerms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTermsV</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Ylms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">F</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.SingleDetectorLogLikelihood" title="Link to this definition"></a></dt>
+<dd><p>Compute the value of the log-likelihood at a single detector from
+several intermediate pieces of data.</p>
+<dl class="simple">
+<dt>Inputs:</dt><dd><ul class="simple">
+<li><dl class="simple">
+<dt>rholm_vals: A dictionary of values of inner product between data</dt><dd><p>and h_lm modes, &lt; h_lm(t*) | d &gt;, at a single time of interest t*</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>crossTerms: A dictionary of inner products between h_lm modes:</dt><dd><p>&lt; h_lm | h_l’m’ &gt;</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>Ylms: Dictionary of values of -2-spin-weighted spherical harmonic modes</dt><dd><p>for a certain inclination and ref. phase, Y_lm(incl, - phiref)</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>F: Complex-valued antenna pattern depending on sky location and</dt><dd><p>polarization angle, F = F_+ + i F_x</p>
+</dd>
+</dl>
+</li>
+<li><p>dist: The distance from the source to detector in meters</p></li>
+</ul>
+</dd>
+</dl>
+<p>Outputs: The value of ln L for a single detector given the inputs.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.SingleDetectorLogLikelihoodData">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">SingleDetectorLogLikelihoodData</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">epoch</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholmsDictionary</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phiS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">det</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.SingleDetectorLogLikelihoodData" title="Link to this definition"></a></dt>
+<dd><p>DOCUMENT ME!!!</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.SingleDetectorLogLikelihoodDataViaArray">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">SingleDetectorLogLikelihoodDataViaArray</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">epoch</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lookupNK</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholms_intpArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phiS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">det</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.SingleDetectorLogLikelihoodDataViaArray" title="Link to this definition"></a></dt>
+<dd><p>SingleDetectorLogLikelihoodDataViaArray evaluates everything using <em>arrays</em> for each (l,m) pair
+Note arguments passed are STILL SCALARS</p>
+<p>DEPRECATED: use DiscreteFactoredLogLikelihoodViaArray for end-to-end uuse
+USED IN : FactoredLogLikelihoodViaArray</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.SingleDetectorLogLikelihoodModel">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">SingleDetectorLogLikelihoodModel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">crossTermsDictionary</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTermsVDictionary</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phiS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">det</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.SingleDetectorLogLikelihoodModel" title="Link to this definition"></a></dt>
+<dd><p>DOCUMENT ME!!!</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.SingleDetectorLogLikelihoodModelViaArray">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">SingleDetectorLogLikelihoodModelViaArray</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lookupNKDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctUArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctVArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">thS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phiS</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dist</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">det</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.SingleDetectorLogLikelihoodModelViaArray" title="Link to this definition"></a></dt>
+<dd><p>DOCUMENT ME!!!</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.constructLMIterator">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">constructLMIterator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.constructLMIterator" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.estimateEventTimeRelative">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">estimateEventTimeRelative</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">theEpochFiducial</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholms_intp</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.estimateEventTimeRelative" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.estimateUpperDistanceBoundInMpc">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">estimateUpperDistanceBoundInMpc</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rholms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTerms</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.estimateUpperDistanceBoundInMpc" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.evaluateFast1dInterpolator">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">evaluateFast1dInterpolator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xlow</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xhigh</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.evaluateFast1dInterpolator" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.internal_hlm_generator">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">internal_hlm_generator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quiet</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">NR_group</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">NR_param</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extra_waveform_kwargs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_gwsignal</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_gwsignal_approx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_external_EOB</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nr_lookup</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nr_lookup_valid_groups</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_memory</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">perturbative_extraction</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">perturbative_extraction_full</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hybrid_use</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hybrid_method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'taper_add'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_provided_strain</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ROM_group</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ROM_param</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ROM_use_basis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ROM_limit_basis_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">skip_interpolation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.internal_hlm_generator" title="Link to this definition"></a></dt>
+<dd><p>internal_hlm_generator: top-level front end to all waveform generators used.
+Needs to be restructured so it works on a ‘hook’ basis, so we are not constantly changing the source code</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.lalF">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">lalF</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">det</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.lalF" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.lalT">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">lalT</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">det</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.lalT" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.lalylm">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">lalylm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">th</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ph</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">l</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.lalylm" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.makeFast1dInterpolator">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">makeFast1dInterpolator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xlow</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xhigh</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.makeFast1dInterpolator" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.non_herm_hoff">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">non_herm_hoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.non_herm_hoff" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.profile">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">profile</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.profile" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">factored_likelihood</span></code> module provides tools to compute the log-likelihood of gravitational waveform parameters. It employs a “factored” approach where terms depending only on intrinsic parameters are precomputed, allowing for efficient evaluation over extrinsic parameters.</p>
+</section>
+<section id="main-driver-functions">
+<h2>Main Driver Functions<a class="headerlink" href="#main-driver-functions" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="id0">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">PrecomputeLikelihoodTerms</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">event_time_geo</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">t_window</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psd_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analyticPSD_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inv_spec_trunc_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_spec</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quiet</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">internal_fast_precompute</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">NR_group</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">NR_param</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ignore_threshold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0001</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extra_waveform_kwargs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_gwsignal</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_gwsignal_approx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_external_EOB</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nr_lookup</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nr_lookup_valid_groups</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_memory</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">perturbative_extraction</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">perturbative_extraction_full</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hybrid_use</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hybrid_method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'taper_add'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_provided_strain</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ROM_group</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ROM_param</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ROM_use_basis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ROM_limit_basis_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">skip_interpolation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">calibration_realizations</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id0" title="Link to this definition"></a></dt>
+<dd><p>Compute &lt; h_lm(t) | d &gt; and &lt; h_lm | h_l’m’ &gt;</p>
+<dl class="simple">
+<dt>Returns:</dt><dd><ul class="simple">
+<li><p>Dictionary of interpolating functions, keyed on detector, then (l,m)
+e.g. rholms_intp[‘H1’][(2,2)]</p></li>
+<li><p>Dictionary of “cross terms” &lt;h_lm | h_l’m’ &gt; keyed on (l,m),(l’,m’)
+e.g. crossTerms[((2,2),(2,1))]</p></li>
+<li><p>Dictionary of discrete time series of &lt; h_lm(t) | d &gt;, keyed the same
+as the interpolating functions.
+Their main use is to validate the interpolating functions</p></li>
+</ul>
+</dd>
+</dl>
+<p>Computes the inner products between waveform modes and data ($langle h_{lm}(t) | d rangle$) and the cross terms between modes ($langle h_{lm} | h_{l’m’} rangle$).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="id3">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">FactoredLogLikelihood</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">extr_params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholms_intp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTerms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTermsV</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interpolate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id3" title="Link to this definition"></a></dt>
+<dd><dl class="simple">
+<dt>Compute the log-likelihood = -1/2 &lt; d - h | d - h &gt; from:</dt><dd><ul class="simple">
+<li><p>extr_params is an object containing values of all extrinsic parameters</p></li>
+<li><p>rholms_intp is a dictionary of interpolating functions &lt; h_lm(t) | d &gt;</p></li>
+<li><p>crossTerms is a dictionary of &lt; h_lm | h_l’m’ &gt;</p></li>
+<li><p>Lmax is the largest l-index of any h_lm mode considered</p></li>
+</ul>
+</dd>
+</dl>
+<p>N.B. rholms_intp and crossTerms are the first two outputs of the function
+‘PrecomputeLikelihoodTerms’</p>
+<p>Computes the log-likelihood for a given set of extrinsic parameters using precomputed terms.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="id4">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">FactoredLogLikelihoodTimeMarginalized</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tvals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extr_params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholms_intp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTerms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">crossTermsV</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interpolate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id4" title="Link to this definition"></a></dt>
+<dd><dl class="simple">
+<dt>Compute the log-likelihood = -1/2 &lt; d - h | d - h &gt; from:</dt><dd><ul class="simple">
+<li><p>extr_params is an object containing values of all extrinsic parameters</p></li>
+<li><p>rholms_intp is a dictionary of interpolating functions &lt; h_lm(t) | d &gt;</p></li>
+<li><p>crossTerms is a dictionary of &lt; h_lm | h_l’m’ &gt;</p></li>
+<li><p>Lmax is the largest l-index of any h_lm mode considered</p></li>
+</ul>
+</dd>
+</dl>
+<p>tvals is an array of timeshifts relative to the detector,
+used to compute the marginalized integral.
+It provides both the time prior and the sample points used for the integral.</p>
+<p>N.B. rholms_intp and crossTerms are the first two outputs of the function
+‘PrecomputeLikelihoodTerms’</p>
+<p>Computes the log-likelihood marginalized over the arrival time.</p>
+</dd></dl>
+
+</section>
+<section id="helper-functions">
+<h2>Helper Functions<a class="headerlink" href="#helper-functions" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="id5">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">ComputeModeIPTimeSeries</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hlms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psd</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fNyq</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N_shift</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">N_window</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analyticPSD_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inv_spec_trunc_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_spec</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">calibration_realizations</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id5" title="Link to this definition"></a></dt>
+<dd><p>Compute the complex-valued overlap between
+each member of a SphHarmFrequencySeries ‘hlms’
+and the interferometer data COMPLEX16FrequencySeries ‘data’,
+weighted the power spectral density REAL8FrequencySeries ‘psd’.</p>
+<p>The integrand is non-zero in the range: [-fNyq, -fmin] union [fmin, fNyq].
+This integrand is then inverse-FFT’d to get the inner product
+at a discrete series of time shifts.</p>
+<p>Returns a SphHarmTimeSeries object containing the complex inner product
+for discrete values of the reference time tref.  The epoch of the
+SphHarmTimeSeries object is set to account for the transformation</p>
+<p>Computes the complex-valued overlap between each waveform mode and the interferometer data, weighted by the power spectral density (PSD).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="id6">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">InterpolateRholms</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rholms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id6" title="Link to this definition"></a></dt>
+<dd><p>Return a dictionary keyed on mode index tuples, (l,m)
+where each value is an interpolating function of the overlap against data
+as a function of time shift:
+rholm_intp(t) = &lt; h_lm(t) | d &gt;</p>
+<p>‘rholms’ is a dictionary keyed on (l,m) containing discrete time series of
+&lt; h_lm(t_i) | d &gt;
+‘t’ is an array of the discrete times:
+[t_0, t_1, …, t_N]</p>
+<p>Returns a dictionary of interpolating functions for the overlap $langle h_{lm}(t) | d rangle$.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="id7">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">ComputeModeCrossTermIP</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hlmsA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hlmsB</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psd</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fMax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fNyq</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">analyticPSD_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inv_spec_trunc_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_spec</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prefix</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'U'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">same_waveform_Q</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id7" title="Link to this definition"></a></dt>
+<dd><p>Compute the ‘cross terms’ between waveform modes, i.e.
+&lt; h_lm | h_l’m’ &gt;.
+The inner product is weighted by power spectral density ‘psd’ and
+integrated over the interval [-fNyq, -fmin] union [fmin, fNyq]</p>
+<p>Returns a dictionary of inner product values keyed by tuples of mode indices
+i.e. ((l,m),(l’,m’))</p>
+<dl class="simple">
+<dt>same_waveform_Q:  if true, it will do a loop that assumes (a) the same keys in both loops and (b) the same waveform in both (i.e., conjugate transpose)</dt><dd><p>Note we WILL use the ‘prefix’ quantity to identify if we are computing ‘V’ and therefore using a different symmetry!</p>
+</dd>
+</dl>
+<p>Computes the inner products (cross terms) between waveform modes $langle h_{lm} | h_{l’m’} rangle$.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="id8">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">ComplexAntennaFactor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">det</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">psi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id8" title="Link to this definition"></a></dt>
+<dd><p>Function to compute the complex-valued antenna pattern function:
+F+ + i Fx</p>
+<p>‘det’ is a detector prefix string (e.g. ‘H1’)
+‘RA’ and ‘DEC’ are right ascension and declination (in radians)
+‘psi’ is the polarization angle
+‘tref’ is the reference GPS time</p>
+<p>Computes the complex-valued antenna pattern function $F_+ + i <a href="#id11"><span class="problematic" id="id12">F_</span></a>times$.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="id9">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">ComputeYlms</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Lmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">selected_modes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id9" title="Link to this definition"></a></dt>
+<dd><p>Return a dictionary keyed by tuples
+(l,m)
+that contains the values of all
+-2Y_lm(theta,phi)
+with
+l &lt;= Lmax
+-l &lt;= m &lt;= l</p>
+<p>Computes the spin-weighted spherical harmonics $-2Y_{lm}(theta, phi)$.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="id10">
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">ComputeArrivalTimeAtDetector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">det</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RA</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DEC</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tref</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#id10" title="Link to this definition"></a></dt>
+<dd><p>Function to compute the time of arrival at a detector
+from the time of arrival at the geocenter.</p>
+<p>‘det’ is a detector prefix string (e.g. ‘H1’)
+‘RA’ and ‘DEC’ are right ascension and declination (in radians)
+‘tref’ is the reference time at the geocenter.  It can be either a float (in which case the return is a float) or a GPSTime object (in which case it returns a GPSTime)</p>
+<p>Computes the time of arrival at a detector from the geocenter reference time.</p>
+</dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

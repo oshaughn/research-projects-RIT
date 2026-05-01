@@ -1,0 +1,191 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>weight_simulations &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">weight_simulations</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/RIFT/misc/weight_simulations.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="weight-simulations">
+<h1>weight_simulations<a class="headerlink" href="#weight-simulations" title="Link to this heading"></a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">RIFT.misc.weight_simulations</span></code> module provides a centralized utility for aggregating results from multiple simulations. When RIFT performs multiple ILE (Inspiral-LAL-Engine) runs—either at the same intrinsic parameters with different draw counts or across different points in the intrinsic parameter space—the results must be combined into a single composite value.</p>
+<section id="the-weighted-average-framework">
+<h2>The Weighted Average Framework<a class="headerlink" href="#the-weighted-average-framework" title="Link to this heading"></a></h2>
+<p>The core of the module is the <code class="docutils literal notranslate"><span class="pre">AverageSimulationWeights</span></code> function, which computes a set of weights $W_k$ such that a composite integral $I$ can be calculated as:</p>
+<p>$$I = sum_{k} W_k I_k$$</p>
+<p>where $I_k$ is the result of the $k$-th simulation.</p>
+</section>
+<section id="weighting-strategies">
+<h2>Weighting Strategies<a class="headerlink" href="#weighting-strategies" title="Link to this heading"></a></h2>
+<p>The module supports different strategies for determining the weights based on the <cite>weight_at_intrinsic</cite> parameter:</p>
+<ol class="arabic simple">
+<li><p><strong>Variance-Minimizing (``sigma``)</strong>:
+Weights are assigned proportional to the inverse of the variance:
+$$W_k propto frac{1}{sigma_k^2}$$
+This is the statistically optimal approach for combining independent measurements with known uncertainties, ensuring that the most precise simulations have the greatest influence on the final result.</p></li>
+<li><p><strong>Uniform (``uniform``)</strong>:
+Each simulation is assigned an equal weight ($W_k = 1/N$), treating all runs as equally reliable regardless of their individual variance.</p></li>
+</ol>
+</section>
+<section id="prior-volume-integration">
+<h2>Prior Volume Integration<a class="headerlink" href="#prior-volume-integration" title="Link to this heading"></a></h2>
+<p>To correctly account for the distribution of simulations across the parameter space, the module can incorporate prior volumes. If a <code class="docutils literal notranslate"><span class="pre">prior_volume_list</span></code> is provided (containing the pre-integrated prior volume $Delta P_k$ for each simulation), the weights are scaled accordingly:</p>
+<p>$$W_{final} = W_{strategy} times Delta P_k$$</p>
+<p>This ensures that simulations covering larger regions of the intrinsic prior volume contribute proportionally more to the composite result, effectively performing a discrete integration over the prior.</p>
+</section>
+<section id="module-RIFT.misc.weight_simulations">
+<span id="api-reference"></span><h2>API Reference<a class="headerlink" href="#module-RIFT.misc.weight_simulations" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.weight_simulations.AverageSimulationWeights">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.weight_simulations.</span></span><span class="sig-name descname"><span class="pre">AverageSimulationWeights</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sigma_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_volume_list</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weight_at_intrinsic</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'sigma'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.weight_simulations.AverageSimulationWeights" title="Link to this definition"></a></dt>
+<dd><p>AverageSimulationWeights returns the factors W_k appearing in a simple average over
+N simulations, for example for the integral value</p>
+<blockquote>
+<div><p>I = sum_k W_k I_k</p>
+</div></blockquote>
+<dl>
+<dt>For backward compatibility, weights can be chosen that depend on</dt><dd><ul class="simple">
+<li><p>the number of draws for each simulation</p></li>
+<li><p>the variance of each simulation</p></li>
+<li><p>the parameter values of each simulation</p></li>
+<li><p>priors,  <em>if</em> the priors are provided as <em>pre-integrated volumes</em> (i.e., an array,
+one member per simulation).  The user is assumed to have already identified volumes surrounding each simulation and 
+integrated the prior accordingly.  The user is responsible for the (in)accuracy of the resulting average, if the prior and likelihood
+vary significantly versus intrinsic parameters.</p></li>
+</ul>
+</dd>
+<dt>Specific implementations and use cases include:</dt><dd><ul>
+<li><dl class="simple">
+<dt>single ILE run at fixed parameters, with different numbers of draws, either by variance-minimizing</dt><dd><p>I = (sum_k  I_k /sigma_k^2) / sum_k 1/sigma_k^2</p>
+</dd>
+<dt>or by a simple average over the N simulations</dt><dd><p>I = (sum_k  I_k)/N         N=# of simulations</p>
+</dd>
+</dl>
+</li>
+<li><p>multiple ILE runs at different parameters, accounting for an intrinsic prior volume Delta P_k for each simulation
+(normalized relative to the intrinsic prior: sum_k Delta P_k = (prior probability of lying in ellipsoid) &lt;&lt; 1)</p>
+<blockquote>
+<div><p>I =( sum_k I_k Delta P_k /sigma_k^2)/ sum_k 1/sigma_k^2</p>
+</div></blockquote>
+</li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

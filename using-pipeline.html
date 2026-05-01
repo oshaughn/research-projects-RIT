@@ -1,0 +1,267 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Using the pipeline &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=82021441" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=911654a9"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="RIFT pipeline examples: the ini file" href="examples-ini.html" />
+    <link rel="prev" title="Data Formats" href="data_formats.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data_formats.html">Data Formats</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Using the pipeline</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/using-pipeline.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="using-the-pipeline">
+<h1>Using the pipeline<a class="headerlink" href="#using-the-pipeline" title="Link to this heading"></a></h1>
+<section id="basics">
+<h2>Basics<a class="headerlink" href="#basics" title="Link to this heading"></a></h2>
+<p>The primary user-interface for this code is a command line tool
+<code class="code docutils literal notranslate"><span class="pre">util_RIFT_pseudo_pipe.py</span></code> which is available after following the <a class="reference external" href="installation.txt">installation
+instructions</a>. For detailed documentation, see <a class="reference internal" href="executables/util_RIFT_pseudo_pipe.html"><span class="doc">util_RIFT_pseudo_pipe.py</span></a>. To see the help for this tool, run</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>util_RIFT_pseudo_pipe.py<span class="w"> </span>--help
+</pre></div>
+</div>
+<p>If you leave options unspecified, the pipeline will often try to make guesses about the options you want to use, based
+on previous experience performing real GW inference.  We strongly recommend most users fully specify the options
+involved via an ini file. To compare the options for ini file use versus command line specified:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>util_RIFT_pseudo_pipe.py<span class="w"> </span>--use-ini<span class="w"> </span>my.ini<span class="w"> </span>--use-coinc<span class="w"> </span>coinc.xml
+<span class="gp"># </span>or,<span class="w"> </span><span class="k">for</span><span class="w"> </span>a<span class="w"> </span>freestanding<span class="w"> </span>example
+<span class="gp">$ </span>util_RIFT_pseudo_pipe.py<span class="w"> </span>--gracedb-id<span class="w"> </span>G329473<span class="w"> </span>--approx<span class="w"> </span>IMRPhenomD<span class="w"> </span>--calibration<span class="w"> </span>C01<span class="w"> </span>--make-bw-psds<span class="w"> </span>--l-max<span class="w"> </span><span class="m">2</span><span class="w"> </span>--choose-data-LI-seglen
+</pre></div>
+</div>
+<p>Note that the code will use selected environment variables to identify optional external dependencies necessary
+for various features.  The most important feature for most users is their accounting access information</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">export LIGO_USER_NAME=albert.einstein</span>
+<span class="go">export LIGO_ACCOUNTING=ligo.dev.o4.rift</span>
+</pre></div>
+</div>
+<p>When you run <code class="code docutils literal notranslate"><span class="pre">util_RIFT_psuedo_pipe.py</span></code>, the pipeline will create a directory structure as follows:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">long_directory_name_here/</span>
+<span class="go">   -&gt; local.cache</span>
+<span class="go">   -&gt; iteration_0_ile/</span>
+<span class="go">   -&gt; iteration_0_cip/</span>
+<span class="go">   -&gt; iteration_0_con/</span>
+<span class="go">   -&gt; iteration_0_test/</span>
+<span class="go">   -&gt; iteration_1_ile/</span>
+<span class="go">   -&gt; ...</span>
+<span class="go">   -&gt; ILE.sub</span>
+<span class="go">   -&gt; CIP*.sub</span>
+<span class="go">   -&gt; marginalize_intrinsic_parameters_BasicIterationWorkflow.dag</span>
+</pre></div>
+</div>
+<p>The directory structure and DAG workflow are created by the <a class="reference internal" href="executables/create_event_parameter_pipeline_BasicIteration.html"><span class="doc">create_event_parameter_pipeline_BasicIteration</span></a> executable, which is called internally by <code class="docutils literal notranslate"><span class="pre">util_RIFT_pseudo_pipe.py</span></code>. For detailed documentation on this pipeline generator, see <a class="reference internal" href="executables/create_event_parameter_pipeline_BasicIteration.html"><span class="doc">create_event_parameter_pipeline_BasicIteration</span></a>.</p>
+<p>Inside each iteration file is a <cite>logs</cite> subdirectory.  The various iterations will be initially be empty, except for the
+logfile locations.  The top level directory contains several <cite>*.sub</cite> submission scripts, along with the top-level dag
+submission script.</p>
+<p>The standard RIFT pipeline only works within an HTCondor scheduling environment. To submit the workflow, use</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>condor_submit_dag<span class="w"> </span>marginalize_intrinsic_parameters_BasicIterationWorkflow.dag
+</pre></div>
+</div>
+<p>Before you submit a workflow, however, we recommend you first confirm you’ve set it up correctly by running one of the worker jobs interactively from the command line. This is a great way to catch common configuration errors. Within the directory, there should be a script called <code class="code docutils literal notranslate"><span class="pre">command-single.sh</span></code>. This contains a single worker job, so you can simply run this script to confirm that your worker jobs will proceed smoothly.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>./command-single.sh
+</pre></div>
+</div>
+<p>This command will run anywhere; however, it will only test the GPU configuration if you run it on a machine with a GPU, like pcdev13 or pcdev11 at CIT. You’ll see a lot of output about reading in data, defining parameters, et cetera.  Wait until you start seeing large arrays of numbers interspersed with the words <code class="docutils literal notranslate"><span class="pre">Weight</span> <span class="pre">entropy</span> <span class="pre">(after</span> <span class="pre">histogram)</span></code>. At this point you may kill the script and submit the DAG as described above. Feel free to watch the job progress by:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>watch<span class="w"> </span>condor_q
+</pre></div>
+</div>
+<p>The workflow loosely consists of two parts: worker ILE jobs, which evaluate the marginalized likelihood; and fitting/posterior jobs, which fit the marginalized likelihood and estimate the posterior distribution.  Other nodes help group the output of individual jobs and iterations together.</p>
+<p>As your run proceeds, files will begin to appear in your directory. A description of some of the files is as follows:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">overlap-grid-0.xml.gz</span></code>: The initial grid used in the iterative analysis. You’re free to use any grid you want (e.g., the output of some previous analysis), and the workflow can also do the initial grid creation.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ILE.sub</span></code>: The submit file for the individual worker ILE jobs. This contains the command line arguments passed to <code class="code docutils literal notranslate"><span class="pre">integrate_likelihood_extrinsic</span></code>. If something is going wrong when your ILE jobs run, this file is a good place to check to ensure the code is using the settings you intended.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">CIP.sub</span></code>: The submit file for the individual fitting jobs.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">iteration_*</span></code>: Directories holding the output of each iteration, including log files.</p></li>
+</ul>
+<p>As the workflow progresses, you’ll see the following additional files</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">consolidated_*</span></code>: These files (particularly those ending in .composite) are the output of each iteration’s ILE jobs. Each file is a list of intrinsic parameters and the value of the marginalized likelihood at those parameters.  (The remaining files provide provenance for  how the .composite file was produced.)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">output-grid-?.xml.gz</span></code>: These files are inferred intrinsic, detector-frame posterior distributions from that iteration, expressed as an XML file.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">posterior-samples-*.dat</span></code>: These files are reformatted versions of the corresponding XML file, using the command convert_output_format_ile2inference.  This data format should be compatible with LALInference and related postprocessing tools. The final output posterior samples are used to create PP plots. Corner plots for a user specified number of iterations are also created using these files.</p></li>
+</ul>
+</section>
+<section id="understanding-ile-and-cip">
+<h2>Understanding ILE and CIP<a class="headerlink" href="#understanding-ile-and-cip" title="Link to this heading"></a></h2>
+<section id="ile-sub">
+<h3>ILE.sub<a class="headerlink" href="#ile-sub" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">ILE.sub</span></code> file contains the call to and arguments for <a class="reference external" href="https://git.ligo.org/rapidpe-rift/rift/-/blob/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/bin/integrate_likelihood_extrinsic_batchmode">integrate_likelihood_extrinsic_batchmode</a>. This step integrates the extrinsic parameters of the prefactored likelihood function. The marginalized likelihood is calculated during individual parallel worker jobs to be passed to the next (CIP) step.</p>
+</section>
+<section id="cip-sub">
+<h3>CIP.sub<a class="headerlink" href="#cip-sub" title="Link to this heading"></a></h3>
+<p>The file called <code class="docutils literal notranslate"><span class="pre">CIP.sub</span></code> contains the call to and arguments for <a class="reference external" href="https://git.ligo.org/rapidpe-rift/rift/-/blob/temp-RIT-Tides-port_python3_restructure_package/MonteCarloMarginalizeCode/Code/bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py">util_ConstructIntrinsicPosterior_GenericCoordinates.py</a>. During this step, the log-likelihoof data is loaded in and the peak is fitted using some particular coordinate system. This is passed as an input to the Monte Carlo sampler where samples are drawn from the posterior distribution. These samples become the inputs for the successive iteration.</p>
+</section>
+</section>
+<section id="initialization-psds-and-grids">
+<h2>Initialization: PSDs and grids<a class="headerlink" href="#initialization-psds-and-grids" title="Link to this heading"></a></h2>
+<p>The RIFT pipeline by default can attempt to generate a PSD using existing tools.  However, most users will want to supply a contemporary PSD for analysis on real GW events. RIFT uses an XML format, requiring some conversion for the input PSDs.</p>
+</section>
+<section id="strongly-recommended-dependencies">
+<h2>Strongly recommended dependencies<a class="headerlink" href="#strongly-recommended-dependencies" title="Link to this heading"></a></h2>
+<p>We strongly recommend you install <cite>cuda</cite> and <cite>cupy</cite>, and properly define your environment variables for such an install</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp"># </span>should<span class="w"> </span>be<span class="w"> </span>provided<span class="w"> </span>by<span class="w"> </span>igwn
+<span class="go">export CUDA_DIR=/usr/local/cuda  # only needed for GPU code</span>
+<span class="go">export PATH=${PATH}:${CUDA_DIR}/bin  # only needed for GPU code</span>
+</pre></div>
+</div>
+<p>Additional environment variables are needed if you want to use waveforms through a non-lalsimulation interface.   Such
+waveforms include the python implementation of surrogate waveforms;  NR waveforms; or the C++ implementation of
+TEOBResumS.   While we provide the necessary environment variables below, please contact one of the developers for
+appropriate settings, and keep in mind some surrogates and/or simulations and/or waveforms may be provided in advance of
+publication or release to the broader community.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="go">export NR_BASE=/home/oshaughn/unixhome/PersonalNRArchive/Archives/</span>
+<span class="go">export GW_SURROGATE= # your installation of gwsurrogate goes here</span>
+<span class="go">export PYTHONPATH=${PYTHONPATH}:${GW_SURROGATE}</span>
+</pre></div>
+</div>
+</section>
+<section id="util-rift-pseudo-pipe-py-help">
+<h2>util_RIFT_pseudo_pipe.py help<a class="headerlink" href="#util-rift-pseudo-pipe-py-help" title="Link to this heading"></a></h2>
+<p>For reference, here is the full output of</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>util_RIFT_pseudo_pipe.py<span class="w"> </span>--help
+</pre></div>
+</div>
+<div class="highlight-none notranslate"><div class="highlight"><pre><span></span>usage: util_RIFT_pseudo_pipe.py [-h] [--use-production-defaults] [--use-subdags] [--use-ini USE_INI] [--use-rundir USE_RUNDIR]
+                             [--use-online-psd-file USE_ONLINE_PSD_FILE] [--use-coinc USE_COINC] [--manual-ifo-list MANUAL_IFO_LIST] [--online]
+                             [--extra-args-helper EXTRA_ARGS_HELPER] [--manual-postfix MANUAL_POSTFIX] [--gracedb-id GRACEDB_ID] [--gracedb-exe GRACEDB_EXE]
+                             [--use-legacy-gracedb] [--internal-use-gracedb-bayestar] [--event-time EVENT_TIME] [--calibration CALIBRATION] [--playground-data]
+                             [--approx APPROX] [--use-gwsurrogate] [--l-max L_MAX] [--no-matter] [--assume-nospin] [--assume-precessing]
+                             [--assume-nonprecessing] [--assume-matter] [--assume-lowlatency-tradeoffs] [--assume-highq] [--assume-well-placed]
+                             [--internal-marginalize-distance] [--internal-marginalize-distance-file INTERNAL_MARGINALIZE_DISTANCE_FILE]
+                             [--internal-distance-max INTERNAL_DISTANCE_MAX] [--internal-correlate-default]
+                             [--internal-force-iterations INTERNAL_FORCE_ITERATIONS] [--internal-flat-strategy] [--internal-use-amr]
+                             [--internal-use-amr-bank INTERNAL_USE_AMR_BANK] [--internal-use-amr-puff] [--internal-use-aligned-phase-coordinates]
+                             [--external-fetch-native-from EXTERNAL_FETCH_NATIVE_FROM] [--internal-propose-converge-last-stage] [--add-extrinsic]
+                             [--batch-extrinsic] [--fmin FMIN] [--fmin-template FMIN_TEMPLATE] [--data-LI-seglen DATA_LI_SEGLEN] [--choose-data-LI-seglen]
+                             [--fix-bns-sky] [--ile-sampler-method ILE_SAMPLER_METHOD] [--ile-n-eff ILE_N_EFF] [--cip-sampler-method CIP_SAMPLER_METHOD]
+                             [--cip-fit-method CIP_FIT_METHOD] [--cip-internal-use-eta-in-sampler] [--ile-jobs-per-worker ILE_JOBS_PER_WORKER] [--ile-no-gpu]
+                             [--ile-force-gpu] [--fake-data-cache FAKE_DATA_CACHE] [--spin-magnitude-prior SPIN_MAGNITUDE_PRIOR]
+                             [--force-chi-max FORCE_CHI_MAX] [--force-mc-range FORCE_MC_RANGE] [--force-eta-range FORCE_ETA_RANGE]
+                             [--force-hint-snr FORCE_HINT_SNR] [--force-initial-grid-size FORCE_INITIAL_GRID_SIZE] [--hierarchical-merger-prior-1g]
+                             [--hierarchical-merger-prior-2g] [--link-reference-pe] [--link-reference-psds] [--make-bw-psds] [--link-bw-psds]
+                             [--use-online-psd] [--ile-retries ILE_RETRIES] [--general-retries GENERAL_RETRIES]
+                             [--ile-runtime-max-minutes ILE_RUNTIME_MAX_MINUTES] [--fit-save-gp] [--cip-explode-jobs CIP_EXPLODE_JOBS]
+                             [--cip-explode-jobs-last CIP_EXPLODE_JOBS_LAST] [--cip-quadratic-first] [--n-output-samples N_OUTPUT_SAMPLES]
+                             [--internal-cip-cap-neff INTERNAL_CIP_CAP_NEFF] [--internal-cip-temper-log] [--internal-ile-sky-network-coordinates]
+                             [--internal-ile-freezeadapt] [--internal-ile-adapt-log] [--manual-initial-grid MANUAL_INITIAL_GRID]
+                             [--manual-extra-ile-args MANUAL_EXTRA_ILE_ARGS] [--verbose] [--use-quadratic-early] [--use-gp-early] [--use-cov-early] [--use-osg]
+                             [--use-osg-file-transfer] [--condor-local-nonworker] [--condor-nogrid-nonworker] [--use-osg-simple-requirements]
+                             [--archive-pesummary-label ARCHIVE_PESUMMARY_LABEL] [--archive-pesummary-event-label ARCHIVE_PESUMMARY_EVENT_LABEL]
+</pre></div>
+</div>
+<p>Expand below for a description of each of the optional arguments:</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="data_formats.html" class="btn btn-neutral float-left" title="Data Formats" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="examples-ini.html" class="btn btn-neutral float-right" title="RIFT pipeline examples: the ini file" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
