@@ -1842,6 +1842,11 @@ Expectation-Maximization algorithm.</p>
 <dt class="sig sig-object py" id="RIFT.integrators.gaussian_mixture_model.gmm.sample">
 <span class="sig-name descname"><span class="pre">sample</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_bounds</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.gaussian_mixture_model.gmm.sample" title="Link to this definition"></a></dt>
 <dd><p>Draw samples from the current model.</p>
+<p>Note the model’s means/covariances are stored in <em>normalized</em> coordinates
+(the [-1, 1] image of self.bounds under self._normalize). Samples are
+therefore drawn in normalized coordinates and then unnormalized back to
+the original coordinate frame before being returned, matching the
+pre-port behavior expected by MonteCarloEnsemble._sample().</p>
 </dd></dl>
 
 <dl class="py method">
@@ -1865,6 +1870,10 @@ Expectation-Maximization algorithm.</p>
 x: (n, d) array
 mean: (d,) array
 cov: (d, d) array</p>
+<p>Uses Cholesky + a generic linear solve (xpy.linalg.solve) so the same
+code path works for both numpy and cupy. Note: solve_triangular is
+NOT in numpy.linalg or cupy.linalg (only in scipy.linalg /
+cupyx.scipy.linalg), so we deliberately use the generic solver here.</p>
 </dd></dl>
 
 <dl class="py function">
