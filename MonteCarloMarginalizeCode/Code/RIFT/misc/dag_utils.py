@@ -2159,7 +2159,15 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 
     working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
 
-    fname_out =target_dir + "/" +output_base + ".xml.gz"
+    # Hyperpipeline mode: emit a .dat composite via the EOS-style
+    # head-line + cat | sort | uniq | shuf shell pattern (mirrors
+    # join_post.sh in create_eos_posterior_pipeline).  XML helpers
+    # (igwn_ligolw_add) are not used.
+    import os as _os_join
+    _hpip_join = str(_os_join.environ.get("RIFT_HYPERPIPELINE_FORMAT", "")).strip().lower() in ("1","true","yes","on")
+    _suffix_join = "dat" if _hpip_join else "xml.gz"
+
+    fname_out =target_dir + "/" +output_base + "." + _suffix_join
     if n_explode ==1:   # we are really doing a glob match
         fname_out = fname_out.replace('$(macroiteration)','$1')
         fname_out = fname_out.replace('$(macroiterationnext)','$2')
@@ -2169,11 +2177,33 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
         if old_add:
             extra_arg = " --ilwdchar-compat "  # should never be used anymore
         with open("join_grids.sh",'w') as f:
-            f.write("#! /bin/bash  \n")
-            f.write(r"""
+            if _hpip_join:
+                # Pick any one shard to source the column header from, then
+                # concatenate every shard's data rows (skipping `#` lines)
+                # and shuffle so spokes are interleaved.
+                f.write("#! /bin/bash  \n")
+                f.write(r"""
+# merge hyperpipeline ASCII shards
+{extra}
+set -e
+shopt -s nullglob
+SHARDS=({work}/{out}*.{suf})
+if [ ${{#SHARDS[@]}} -eq 0 ]; then
+  echo "join_grids.sh: no input shards matched {work}/{out}*.{suf}" >&2
+  exit 1
+fi
+# Header: take the first comment block from the first shard.
+grep -E '^#' "${{SHARDS[0]}}" > {out_path}
+# Body: every non-comment line from every shard, deduped + shuffled.
+grep -hE -v '^#' "${{SHARDS[@]}}" | sort -u | shuf >> {out_path}
+""".format(extra=extra_text, work=alt_work_dir, out=alt_out,
+           suf=_suffix_join, out_path=fname_out))
+            else:
+                f.write("#! /bin/bash  \n")
+                f.write(r"""
 # merge using glob command called from shell
 {}
-{}  {} --output {}  {}/{}*.xml.gz 
+{}  {} --output {}  {}/{}*.xml.gz
 """.format(extra_text,exe,extra_arg,fname_out,alt_work_dir,alt_out))
         os.system("chmod a+x join_grids.sh")
         exe = target_dir + "/join_grids.sh"

@@ -588,38 +588,75 @@ if opts.sim_xml:
     P = P_list[0]  # Load in the physical parameters of the injection.  
 elif opts.sim_grid:
   print( "====Loading injection grid file:", opts.sim_grid, opts.event, " =======")
-  grid_in = np.genfromtxt(opts.sim_grid,names=True)
-  grid_names = grid_in.dtype.names
-  grid_names_params = list(set(grid_names).intersection(set(lalsimutils.valid_params))) # only do internal loop over valid parameters
-  grid_indx_params = [grid_names.index(x) for x in grid_names_params]
-  if len(grid_in) < opts.event:
+  # ----------------------------------------------------------------------
+  # Hyperpipeline-format grid (opt-in via env var or auto-detected).
+  # The legacy --sim-grid reader does setattr(P, 'm1', val) with no unit
+  # conversion, relying on the heuristic `if P.m1 < 1e15: P.m1 *= MSUN_SI`
+  # below to recover.  Hyperpipeline mode dispatches to hyperpipeline_io's
+  # reader instead, which applies the on-disk -> SI conversion declared in
+  # PARAM_DISK_TO_SI (m1, m2: solar mass -> kg; distance: Mpc -> m).  The
+  # < 1e15 heuristic is preserved as a no-op safety net for both paths.
+  # The legacy genfromtxt branch is kept byte-identical for backward
+  # compatibility with existing --sim-grid files.
+  # ----------------------------------------------------------------------
+  from RIFT.misc import hyperpipeline_io as _hpio
+  _hpip_grid = _hpio.is_active() or _hpio.sniff(opts.sim_grid)
+  if _hpip_grid:
+      print(" Hyperpipeline ASCII grid detected for ", opts.sim_grid)
+      _all_arr, _hdr = _hpio.read_table(opts.sim_grid)
+      grid_in_full = _all_arr
+      grid_names = _hdr
+      grid_names_params = list(set(grid_names).intersection(set(lalsimutils.valid_params)))
+      grid_indx_params = [grid_names.index(x) for x in grid_names_params]
+      if len(grid_in_full) <= opts.event:
+          print(" No events left to analyze, out of range")
+          sys.exit(0)
+      n_event_max = np.min([len(grid_in_full), opts.event+opts.n_events_to_analyze])
+      grid_in = grid_in_full[opts.event:n_event_max]
+      _all_P, _ = _hpio.read_grid_to_P_list(
+          opts.sim_grid,
+          P_factory=lalsimutils.ChooseWaveformParams,
+          lal_module=lal,
+          valid_params=lalsimutils.valid_params)
+      P_list_seed = _all_P[opts.event:n_event_max]
+  else:
+   grid_in = np.genfromtxt(opts.sim_grid,names=True)
+   grid_names = grid_in.dtype.names
+   grid_names_params = list(set(grid_names).intersection(set(lalsimutils.valid_params))) # only do internal loop over valid parameters
+   grid_indx_params = [grid_names.index(x) for x in grid_names_params]
+   if len(grid_in) < opts.event:
     print(" No events lft to analyze, out of ramge")
     sys.exit(0)
-  n_event_max= np.min([len(grid_in), opts.event+opts.n_events_to_analyze])
-  grid_in = grid_in[opts.event:n_event_max]
-  P_list = []
-  # Should call a convert_vector_coordinates call to get m1, m2, etc all in a grid, to make it faster. Assume user is friendly/sane
-  for indx in range(opts.n_events_to_analyze):
+   n_event_max= np.min([len(grid_in), opts.event+opts.n_events_to_analyze])
+   grid_in = grid_in[opts.event:n_event_max]
+   P_list_seed = []
+   # Should call a convert_vector_coordinates call to get m1, m2, etc all in a grid, to make it faster. Assume user is friendly/sane
+   for indx in range(opts.n_events_to_analyze):
     P = lalsimutils.ChooseWaveformParams()
     for indx, name  in enumerate(grid_names_params):
       if hasattr(P, name): # fast version
         setattr(P,name,  float(grid_in[grid_names_params[indx]]))
       else: # slightly slower version
         P.assign_param(name, grid_in[grid_names_params[indx]])
+    P_list_seed.append(P)
+  # Common per-P setup (formerly inlined in the legacy for-loop; both
+  # paths now share it so hyperpipeline-loaded P_lists get the same
+  # radec / fref / fmin / tref / distance overrides).
+  P_list = []
+  for P in P_list_seed:
     # Set required properties for all - note distance must be fixed here !
     P.radec =False  # do NOT propagate the epoch later
     P.fref = opts.reference_freq
     P.fmin = template_min_freq
     P.tref = fiducial_epoch  # the XML table
     # fix mass scale
-    if P.m1 < 1e15:  # 
+    if P.m1 < 1e15:  #
       P.m1 *= lal.MSUN_SI
       P.m2 *= lal.MSUN_SI
     m1 = P.m1/lal.MSUN_SI
     m2 =P.m2/lal.MSUN_SI
     lambda1, lambda2 = P.lambda1,P.lambda2
     P.dist = factored_likelihood.distMpcRef * 1.e6 * lal.PC_SI   # use *nonstandard* distance
-
     P_list.append(P)
   P = P_list[0]
   P.print_params()
@@ -1982,22 +2019,59 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 #      print(grid_out[indx_event], line_out, type(line_out))
       np.savetxt(fname_output_txt, [line_out], header=' '.join(grid_out.dtype.names) )
       
-    # Report results (standard. Note this is BEFORE TIME RESAMPLING)    
+    # Report results (standard. Note this is BEFORE TIME RESAMPLING)
     if opts.output_file:
         fname_output_txt = opts.output_file +"_"+str(indx_event)+"_" + ".dat"
         m1 =P.m1/lal.MSUN_SI
         m2 =P.m2/lal.MSUN_SI
-        if opts.sim_xml: 
+        if opts.sim_xml:
             event_id = opts.event
         else:
             event_id = -1
         if opts.event == None:
             event_id = -1
-        if opts.save_eccentricity:
+        # ------------------------------------------------------------------
+        # Hyperpipeline ASCII output path (opt-in via env var).
+        # When RIFT_HYPERPIPELINE_FORMAT is truthy we emit a self-describing
+        # header-bearing file with `lnL sigma_lnL` as columns 0/1, followed
+        # by parameter columns.  All legacy branches below are bypassed so
+        # the file layout is determined by hyperpipeline_io.build_column_list.
+        # ------------------------------------------------------------------
+        from RIFT.misc import hyperpipeline_io as _hpio
+        if _hpio.is_active():
+            _use_ecc = bool(opts.save_eccentricity)
+            _use_mpa = bool(_use_ecc and opts.save_meanPerAno)
+            _use_tides = bool(P.lambda1>0 or P.lambda2>0)
+            _use_eos_index = bool(_use_tides and opts.export_eos_index)
+            _use_distance = bool(opts.pin_distance_to_sim and not _use_tides and not _use_ecc)
+            _cols = _hpio.build_column_list(
+                use_eccentricity=_use_ecc, use_meanPerAno=_use_mpa,
+                use_tides=_use_tides, use_eos_index=_use_eos_index,
+                use_distance=_use_distance)
+            _vals = {
+                "lnL": log_res+manual_avoid_overflow_logarithm,
+                "sigma_lnL": sqrt_var_over_res,
+                "m1": m1, "m2": m2,
+                "a1x": P.s1x, "a1y": P.s1y, "a1z": P.s1z,
+                "a2x": P.s2x, "a2y": P.s2y, "a2z": P.s2z,
+            }
+            if _use_ecc:
+                _vals["eccentricity"] = P.eccentricity
+                if _use_mpa:
+                    _vals["meanPerAno"] = P.meanPerAno
+            if _use_tides:
+                _vals["lambda1"] = P.lambda1
+                _vals["lambda2"] = P.lambda2
+                if _use_eos_index:
+                    _vals["eos_table_index"] = P.eos_table_index
+            if _use_distance:
+                _vals["distance"] = pinned_params["distance"]
+            _hpio.write_row(fname_output_txt, _cols, [_vals[c] for c in _cols])
+        elif opts.save_eccentricity:
           if opts.save_meanPerAno:
-            # output format when eccentricity & meanPerAno are being used                                                                                   
+            # output format when eccentricity & meanPerAno are being used
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, P.meanPerAno,  log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
-          else:  
+          else:
             # output format when only eccentricity is being used
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.eccentricity, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
         elif not (P.lambda1>0 or P.lambda2>0):
