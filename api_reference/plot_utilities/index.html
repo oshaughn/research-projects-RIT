@@ -21,7 +21,7 @@
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
     <link rel="next" title="Simulation Manager" href="../simulation_manager/index.html" />
-    <link rel="prev" title="Physics Utilities" href="../physics/index.html" /> 
+    <link rel="prev" title="Effective Fisher API Reference" href="../physics/effectiveFisher.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -68,11 +68,11 @@
 <li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics API Reference</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Plot Utilities</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../simulation_manager/index.html">Simulation Manager</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../asimov/index.html">Asimov Interface</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../calmarg/index.html">Calibration Marginalization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../calmarg.html">Calibration Marginalization API Reference</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../misc/index.html">Misc Utilities</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../lalsimutils.html">LALSimUtils</a></li>
 </ul>
@@ -162,7 +162,7 @@ The dictionary contains the following keys:
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.LambdaTilderatio_data_gen">
-<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">LambdaTilderatio_data_gen</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">posterior_samples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">EOSManager_Local</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">EOSSequenceLandry</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_label</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.LambdaTilderatio_data_gen" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">LambdaTilderatio_data_gen</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">posterior_samples</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">EOSManager_Local</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry" title="RIFT.physics.EOSManager.EOSSequenceLandry"><span class="pre">EOSSequenceLandry</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_label</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.LambdaTilderatio_data_gen" title="Link to this definition"></a></dt>
 <dd><p>This function generates the data for the Lambda tilde ratio plot. This is a ratio of the tidal deformability Lambda tilde to the ordering statistics S.
 Tidal deformability Lambda tilde is calculated from the individual masses and lambdas of the binary components.
 The ordering statistics S is calculated from the reference mass of the binary and the EOS table index.
@@ -407,7 +407,7 @@ The dictionary contains the following keys:
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.plot_utilities.TabularEOSPlotUtilities.posterior_hist_data_gen">
-<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">posterior_hist_data_gen</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">posteriors_eos</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">EOSManager_Local</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">EOSSequenceLandry</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_label</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m_ref</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.4</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.posterior_hist_data_gen" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.plot_utilities.TabularEOSPlotUtilities.</span></span><span class="sig-name descname"><span class="pre">posterior_hist_data_gen</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">posteriors_eos</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">EOSManager_Local</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry" title="RIFT.physics.EOSManager.EOSSequenceLandry"><span class="pre">EOSSequenceLandry</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_label</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m_ref</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.4</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">dict</span></span></span><a class="headerlink" href="#RIFT.plot_utilities.TabularEOSPlotUtilities.posterior_hist_data_gen" title="Link to this definition"></a></dt>
 <dd><p>This function generates the data for the posterior histogram plots. 
 It is designed as an auxiliary function to the <cite>posterior_hist_plot</cite> function and should be used as an input to that function.
 The user has to provide the posterior samples in terms of the EOS table index, the EOSManager object, the data label, and the reference mass (default is 1.4 M_sun).</p>
@@ -625,7 +625,7 @@ See an example of the analysis in the notebook:
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="../physics/index.html" class="btn btn-neutral float-left" title="Physics Utilities" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../physics/effectiveFisher.html" class="btn btn-neutral float-left" title="Effective Fisher API Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="../simulation_manager/index.html" class="btn btn-neutral float-right" title="Simulation Manager" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 

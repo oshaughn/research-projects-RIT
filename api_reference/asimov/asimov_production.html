@@ -20,7 +20,7 @@
     <script src="../../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Calibration Marginalization" href="../calmarg/index.html" />
+    <link rel="next" title="Calibration Marginalization API Reference" href="../calmarg.html" />
     <link rel="prev" title="RIFT+Asimov: Simple Workflow" href="asimov_simple.html" /> 
 </head>
 
@@ -68,7 +68,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics API Reference</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../simulation_manager/index.html">Simulation Manager</a></li>
 <li class="toctree-l2 current"><a class="reference internal" href="index.html">Asimov Interface</a><ul class="current">
@@ -81,7 +81,7 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../calmarg/index.html">Calibration Marginalization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../calmarg.html">Calibration Marginalization API Reference</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../misc/index.html">Misc Utilities</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../lalsimutils.html">LALSimUtils</a></li>
 </ul>
@@ -226,15 +226,14 @@ asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </
 - Accounting group (e.g., <code class="docutils literal notranslate"><span class="pre">ligo.dev.o4.cbc.pe.rift</span></code>)
 - GPU requirements
 - Base Singularity image</p></li>
-<li><p><strong>cbcflow/testing.yaml</strong>: cbcflow configuration
-- Workflow manager settings</p></li>
+<li><p><strong>cbcflow/testing.yaml</strong>: cbcflow configuration</p></li>
 <li><p><strong>production-pe-priors.yaml</strong>: Prior distributions
 - Default prior settings for mass, spin, etc.</p></li>
 </ol>
 </section>
 <section id="stage-4-cbcflow-integration">
 <h3>Stage 4: cbcflow Integration<a class="headerlink" href="#stage-4-cbcflow-integration" title="Link to this heading"></a></h3>
-<p>cbcflow manages the overall workflow for production PE. It coordinates multiple pipelines and handles result aggregation:</p>
+<p>cbcflow provides metadata about identified event candidates and internal understanding of them, recording state about previous investigations:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>git@git.ligo.org:michael.williams/cbc-workflow-er16-o4b.git<span class="w"> </span>cbcflow-library
 <span class="o">(</span><span class="nb">cd</span><span class="w"> </span>cbcflow-library<span class="p">;</span><span class="w"> </span>./setup-cbcflow-merge-strategy.sh<span class="o">)</span>
 asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span><span class="si">${</span><span class="nv">HERE</span><span class="si">}</span>/cbcflow.yaml
@@ -245,11 +244,10 @@ asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </
 <p>The <code class="docutils literal notranslate"><span class="pre">cbcflow-library</span></code> repository is <strong>internal-use-only</strong> and restricted to LVK personnel.</p>
 </div>
 <p><strong>What cbcflow does:</strong></p>
+<p><a class="reference external" href="https://cbc.docs.ligo.org/projects/cbcflow/index.html">cbcflow documentation</a> provides:</p>
 <ul class="simple">
-<li><p>Coordinates data retrieval (graceDB)</p></li>
-<li><p>Manages multiple PE pipelines</p></li>
-<li><p>Handles result merging and aggregation</p></li>
-<li><p>Generates summary pages</p></li>
+<li><p><strong>Metadata for superevents</strong>, stored in a standardized format.</p></li>
+<li><p><strong>A Python API</strong> for interacting with that metadata.</p></li>
 </ul>
 </section>
 <section id="stage-5-output-configuration">
@@ -296,12 +294,12 @@ asimov<span class="w"> </span>configuration<span class="w"> </span>update<span c
 </div>
 <p><strong>What each blueprint provides:</strong></p>
 <ul class="simple">
-<li><p><strong>o4b-production.yaml</strong>: Data retrieval from graceDB</p></li>
-<li><p><strong>standard.yaml</strong>: PE configurator settings</p></li>
-<li><p><strong>standard-settings.yaml</strong>: Bayeswave PSD settings</p></li>
-<li><p><strong>analysis_rift_SEOBNRv5PHM.yaml</strong>: RIFT with SEOBNRv5PHM waveform</p></li>
-<li><p><strong>analysis_rift_NRSur7dq4.yaml</strong>: RIFT with NRSur7dq4 waveform</p></li>
-<li><p><strong>bilby analyses</strong>: Bilby with various waveforms (for cross-validation)</p></li>
+<li><p><a class="reference external" href="https://git.ligo.org/asimov/data/-/blob/main/analyses/get-data/o4b-production.yaml?ref_type=heads">o4b-production.yaml</a>: This blueprint provides analyses to retrieve calibration and the online PE results (needed to set priors)</p></li>
+<li><p><a class="reference external" href="https://git.ligo.org/asimov/data/-/blob/main/analyses/pe-configurator/standard.yaml">pe-configurator/standard.yaml</a>: PE configurator settings needed to set the priors</p></li>
+<li><p><a class="reference external" href="https://git.ligo.org/asimov/data/-/blob/main/analyses/bayeswave-psd/standard-settings.yaml">bayeswave-psd/standard-settings.yaml</a>: Bayeswave PSD settings</p></li>
+<li><p><cite>analysis_rift_SEOBNRv5PHM.yaml</cite>: RIFT with SEOBNRv5PHM waveform</p></li>
+<li><p><cite>analysis_rift_NRSur7dq4.yaml</cite>: RIFT with NRSur7dq4 waveform</p></li>
+<li><p><cite>bilby analyses</cite>: Bilby with various waveforms (for cross-validation)</p></li>
 </ul>
 </section>
 <section id="stage-8-event-loop">
@@ -613,7 +611,7 @@ asimov<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="asimov_simple.html" class="btn btn-neutral float-left" title="RIFT+Asimov: Simple Workflow" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="../calmarg/index.html" class="btn btn-neutral float-right" title="Calibration Marginalization" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="../calmarg.html" class="btn btn-neutral float-right" title="Calibration Marginalization API Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

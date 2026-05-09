@@ -68,11 +68,11 @@
 <li class="toctree-l2"><a class="reference internal" href="integrators/index.html">Integrators (MC Sampling)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="interpolators/index.html">Interpolators (Surrogates)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="likelihood/index.html">Likelihood and Priors</a></li>
-<li class="toctree-l2"><a class="reference internal" href="physics/index.html">Physics Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="physics/index.html">Physics API Reference</a></li>
 <li class="toctree-l2"><a class="reference internal" href="plot_utilities/index.html">Plot Utilities</a></li>
 <li class="toctree-l2"><a class="reference internal" href="simulation_manager/index.html">Simulation Manager</a></li>
 <li class="toctree-l2"><a class="reference internal" href="asimov/index.html">Asimov Interface</a></li>
-<li class="toctree-l2"><a class="reference internal" href="calmarg/index.html">Calibration Marginalization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="calmarg.html">Calibration Marginalization API Reference</a></li>
 <li class="toctree-l2"><a class="reference internal" href="misc/index.html">Misc Utilities</a></li>
 <li class="toctree-l2"><a class="reference internal" href="lalsimutils.html">LALSimUtils</a></li>
 </ul>
@@ -242,8 +242,6 @@
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.delta_func_samp"><code class="docutils literal notranslate"><span class="pre">delta_func_samp()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.gauss_samp"><code class="docutils literal notranslate"><span class="pre">gauss_samp()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.gauss_samp_withfloor"><code class="docutils literal notranslate"><span class="pre">gauss_samp_withfloor()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.identity_convert"><code class="docutils literal notranslate"><span class="pre">identity_convert()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.identity_convert_togpu"><code class="docutils literal notranslate"><span class="pre">identity_convert_togpu()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.inv_uniform_cdf"><code class="docutils literal notranslate"><span class="pre">inv_uniform_cdf()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.pseudo_dist_samp"><code class="docutils literal notranslate"><span class="pre">pseudo_dist_samp()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.q_cdf_inv_vector"><code class="docutils literal notranslate"><span class="pre">q_cdf_inv_vector()</span></code></a></li>
@@ -308,8 +306,6 @@
 <li class="toctree-l2"><a class="reference internal" href="integrators/index.html#normalizing-flows-mc-sampler">Normalizing Flows MC Sampler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="integrators/index.html#module-RIFT.integrators.MonteCarloEnsemble">Monte Carlo Ensemble</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#monte-carlo-integrator">Monte Carlo Integrator</a></li>
-<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.MonteCarloEnsemble.identity_convert"><code class="docutils literal notranslate"><span class="pre">identity_convert()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.MonteCarloEnsemble.identity_convert_togpu"><code class="docutils literal notranslate"><span class="pre">identity_convert_togpu()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.MonteCarloEnsemble.integrator"><code class="docutils literal notranslate"><span class="pre">integrator</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.MonteCarloEnsemble.integrator.integrate"><code class="docutils literal notranslate"><span class="pre">integrator.integrate()</span></code></a></li>
 </ul>
@@ -350,7 +346,7 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="integrators/index.html#module-RIFT.integrators.gaussian_mixture_model">Gaussian Mixture Model</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#id31">Gaussian Mixture Model</a></li>
+<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#id32">Gaussian Mixture Model</a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.estimator"><code class="docutils literal notranslate"><span class="pre">estimator</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.estimator.fit"><code class="docutils literal notranslate"><span class="pre">estimator.fit()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.estimator.print_params"><code class="docutils literal notranslate"><span class="pre">estimator.print_params()</span></code></a></li>
@@ -364,9 +360,6 @@
 <li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.gmm.update"><code class="docutils literal notranslate"><span class="pre">gmm.update()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.gpu_logpdf"><code class="docutils literal notranslate"><span class="pre">gpu_logpdf()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.identity_convert"><code class="docutils literal notranslate"><span class="pre">identity_convert()</span></code></a></li>
-<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.identity_convert_togpu"><code class="docutils literal notranslate"><span class="pre">identity_convert_togpu()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.mvnun"><code class="docutils literal notranslate"><span class="pre">mvnun()</span></code></a></li>
 </ul>
 </li>
@@ -535,7 +528,176 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="physics/index.html">Physics Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="physics/index.html">Physics API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="physics/EOBTidalExternal.html">EOBTidalExternal API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="physics/EOBTidalExternalC.html">EOBTidalExternalC API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="physics/EOSManager.html">EOSManager API Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete"><code class="docutils literal notranslate"><span class="pre">EOSConcrete</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.estimate_baryon_mass_from_mg"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.estimate_baryon_mass_from_mg()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.lambda_from_m"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.lambda_from_m()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.lambda_from_m_vector"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.lambda_from_m_vector()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.pressure_density_on_grid"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.pressure_density_on_grid()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.pressure_density_on_grid_alternate"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.pressure_density_on_grid_alternate()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.test_speed_of_sound_causal"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.test_speed_of_sound_causal()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.test_speed_of_sound_causal_builtin"><code class="docutils literal notranslate"><span class="pre">EOSConcrete.test_speed_of_sound_causal_builtin()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSFromDataFile"><code class="docutils literal notranslate"><span class="pre">EOSFromDataFile</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSFromDataFile.eos_ls"><code class="docutils literal notranslate"><span class="pre">EOSFromDataFile.eos_ls()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSFromDataFile.interp_eos_nb_of_p"><code class="docutils literal notranslate"><span class="pre">EOSFromDataFile.interp_eos_nb_of_p()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSFromDataFile.interp_eos_p_of_rho"><code class="docutils literal notranslate"><span class="pre">EOSFromDataFile.interp_eos_p_of_rho()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSFromDataFile.interp_eos_rho_of_p"><code class="docutils literal notranslate"><span class="pre">EOSFromDataFile.interp_eos_rho_of_p()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSFromDataFile.p_rho_arrays"><code class="docutils literal notranslate"><span class="pre">EOSFromDataFile.p_rho_arrays()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSFromTabularData"><code class="docutils literal notranslate"><span class="pre">EOSFromTabularData</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSLALSimulation"><code class="docutils literal notranslate"><span class="pre">EOSLALSimulation</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSLindblomSpectral"><code class="docutils literal notranslate"><span class="pre">EOSLindblomSpectral</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSLindblomSpectral.make_spec_param_eos"><code class="docutils literal notranslate"><span class="pre">EOSLindblomSpectral.make_spec_param_eos()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSLindblomSpectral.test_bounded_adiabatic_index"><code class="docutils literal notranslate"><span class="pre">EOSLindblomSpectral.test_bounded_adiabatic_index()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure"><code class="docutils literal notranslate"><span class="pre">EOSLindblomSpectralSoundSpeedVersusPressure</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure.make_spec_param_eos"><code class="docutils literal notranslate"><span class="pre">EOSLindblomSpectralSoundSpeedVersusPressure.make_spec_param_eos()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSPiecewisePolytrope"><code class="docutils literal notranslate"><span class="pre">EOSPiecewisePolytrope</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSReprimand"><code class="docutils literal notranslate"><span class="pre">EOSReprimand</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSReprimand.baryon_mass_from_mg"><code class="docutils literal notranslate"><span class="pre">EOSReprimand.baryon_mass_from_mg()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSReprimand.lambda_from_m"><code class="docutils literal notranslate"><span class="pre">EOSReprimand.lambda_from_m()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSReprimand.update"><code class="docutils literal notranslate"><span class="pre">EOSReprimand.update()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry"><code class="docutils literal notranslate"><span class="pre">EOSSequenceLandry</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry.R_of_m_indx"><code class="docutils literal notranslate"><span class="pre">EOSSequenceLandry.R_of_m_indx()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry.extract_one_eos_object"><code class="docutils literal notranslate"><span class="pre">EOSSequenceLandry.extract_one_eos_object()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry.interpolate_eos_tables"><code class="docutils literal notranslate"><span class="pre">EOSSequenceLandry.interpolate_eos_tables()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry.lambda_of_m_indx"><code class="docutils literal notranslate"><span class="pre">EOSSequenceLandry.lambda_of_m_indx()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry.lookup_closest"><code class="docutils literal notranslate"><span class="pre">EOSSequenceLandry.lookup_closest()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry.m_max_of_indx"><code class="docutils literal notranslate"><span class="pre">EOSSequenceLandry.m_max_of_indx()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.LookupCrustEpsilonAtPressure"><code class="docutils literal notranslate"><span class="pre">LookupCrustEpsilonAtPressure()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.QueryLS_EOS"><code class="docutils literal notranslate"><span class="pre">QueryLS_EOS</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.QueryLS_EOS.convert"><code class="docutils literal notranslate"><span class="pre">QueryLS_EOS.convert()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.QueryLS_EOS.extract_param"><code class="docutils literal notranslate"><span class="pre">QueryLS_EOS.extract_param()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.check_monotonic"><code class="docutils literal notranslate"><span class="pre">check_monotonic()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.check_sound_speed_causal"><code class="docutils literal notranslate"><span class="pre">check_sound_speed_causal()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.eos_monotonic_parts_and_causal_sound_speed"><code class="docutils literal notranslate"><span class="pre">eos_monotonic_parts_and_causal_sound_speed()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.epsilon"><code class="docutils literal notranslate"><span class="pre">epsilon()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.gamma_of_x"><code class="docutils literal notranslate"><span class="pre">gamma_of_x()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.just_check_monotonicity_and_causality"><code class="docutils literal notranslate"><span class="pre">just_check_monotonicity_and_causality()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.make_compactness_from_lambda_approximate"><code class="docutils literal notranslate"><span class="pre">make_compactness_from_lambda_approximate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.make_mr_lambda"><code class="docutils literal notranslate"><span class="pre">make_mr_lambda()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.make_mr_lambda_lal"><code class="docutils literal notranslate"><span class="pre">make_mr_lambda_lal()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.make_mr_lambda_reprimand"><code class="docutils literal notranslate"><span class="pre">make_mr_lambda_reprimand()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.mu"><code class="docutils literal notranslate"><span class="pre">mu()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="physics/GWSignal.html">GWSignal API Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="physics/GWSignal.html#overview">Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/GWSignal.html#functions">Functions</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="physics/GWSignal.html#GWSignal.hlmoft"><code class="docutils literal notranslate"><span class="pre">hlmoft()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/GWSignal.html#GWSignal.hlmoff"><code class="docutils literal notranslate"><span class="pre">hlmoff()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/GWSignal.html#GWSignal.std_and_conj_hlmoff"><code class="docutils literal notranslate"><span class="pre">std_and_conj_hlmoff()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="physics/GWSignal.html#see-also">See Also</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="physics/MonotonicSpline.html">MonotonicSpline API Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="physics/MonotonicSpline.html#RIFT.physics.MonotonicSpline.interp_func"><code class="docutils literal notranslate"><span class="pre">interp_func()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/MonotonicSpline.html#RIFT.physics.MonotonicSpline.interpolate"><code class="docutils literal notranslate"><span class="pre">interpolate()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/MonotonicSpline.html#RIFT.physics.MonotonicSpline.lin_extrapolate"><code class="docutils literal notranslate"><span class="pre">lin_extrapolate()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="physics/PrecessingFisherMatrix.html">PrecessingFisherMatrix API Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="physics/PrecessingFisherMatrix.html#RIFT.physics.PrecessingFisherMatrix.ApproximatePrecessingFisherMatrixElement"><code class="docutils literal notranslate"><span class="pre">ApproximatePrecessingFisherMatrixElement()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/PrecessingFisherMatrix.html#RIFT.physics.PrecessingFisherMatrix.ApproximatePrecessingFisherMatrixElementFactor"><code class="docutils literal notranslate"><span class="pre">ApproximatePrecessingFisherMatrixElementFactor()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/PrecessingFisherMatrix.html#RIFT.physics.PrecessingFisherMatrix.EffectiveFisherMatrixElement"><code class="docutils literal notranslate"><span class="pre">EffectiveFisherMatrixElement()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/PrecessingFisherMatrix.html#RIFT.physics.PrecessingFisherMatrix.FisherProject"><code class="docutils literal notranslate"><span class="pre">FisherProject()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/PrecessingFisherMatrix.html#RIFT.physics.PrecessingFisherMatrix.NumericalFisherMatrixElement"><code class="docutils literal notranslate"><span class="pre">NumericalFisherMatrixElement()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/PrecessingFisherMatrix.html#RIFT.physics.PrecessingFisherMatrix.OverlapGridVersusChangingParameter"><code class="docutils literal notranslate"><span class="pre">OverlapGridVersusChangingParameter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/PrecessingFisherMatrix.html#RIFT.physics.PrecessingFisherMatrix.OverlapVersusChangingParameter"><code class="docutils literal notranslate"><span class="pre">OverlapVersusChangingParameter()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/PrecessingFisherMatrix.html#RIFT.physics.PrecessingFisherMatrix.PhaseDerivativeSeries"><code class="docutils literal notranslate"><span class="pre">PhaseDerivativeSeries()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/PrecessingFisherMatrix.html#RIFT.physics.PrecessingFisherMatrix.PhaseSequenceLeadingOrder"><code class="docutils literal notranslate"><span class="pre">PhaseSequenceLeadingOrder()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/PrecessingFisherMatrix.html#RIFT.physics.PrecessingFisherMatrix.array_to_symmetric_matrix"><code class="docutils literal notranslate"><span class="pre">array_to_symmetric_matrix()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/PrecessingFisherMatrix.html#RIFT.physics.PrecessingFisherMatrix.effectiveFisher"><code class="docutils literal notranslate"><span class="pre">effectiveFisher()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/PrecessingFisherMatrix.html#RIFT.physics.PrecessingFisherMatrix.residuals2d"><code class="docutils literal notranslate"><span class="pre">residuals2d()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="physics/ROMWaveformManager.html">ROMWaveformManager API Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.ConvertWPtoSurrogateParams"><code class="docutils literal notranslate"><span class="pre">ConvertWPtoSurrogateParams()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.ConvertWPtoSurrogateParamsAligned"><code class="docutils literal notranslate"><span class="pre">ConvertWPtoSurrogateParamsAligned()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.ConvertWPtoSurrogateParamsPrecessing"><code class="docutils literal notranslate"><span class="pre">ConvertWPtoSurrogateParamsPrecessing()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.ConvertWPtoSurrogateParamsPrecessingFull"><code class="docutils literal notranslate"><span class="pre">ConvertWPtoSurrogateParamsPrecessingFull()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.CreateCompatibleComplexIP"><code class="docutils literal notranslate"><span class="pre">CreateCompatibleComplexIP()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.CreateCompatibleComplexOverlap"><code class="docutils literal notranslate"><span class="pre">CreateCompatibleComplexOverlap()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.DataFourierNumpy"><code class="docutils literal notranslate"><span class="pre">DataFourierNumpy()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.DataInverseFourierNumpy"><code class="docutils literal notranslate"><span class="pre">DataInverseFourierNumpy()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.ModeToString"><code class="docutils literal notranslate"><span class="pre">ModeToString()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.NRError"><code class="docutils literal notranslate"><span class="pre">NRError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.NRNoSimulation"><code class="docutils literal notranslate"><span class="pre">NRNoSimulation</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.RangeWrap1d"><code class="docutils literal notranslate"><span class="pre">RangeWrap1d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.RawGetModePeakTime"><code class="docutils literal notranslate"><span class="pre">RawGetModePeakTime()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.SurrogateDimensionlessBasisFunction"><code class="docutils literal notranslate"><span class="pre">SurrogateDimensionlessBasisFunction()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformMode"><code class="docutils literal notranslate"><span class="pre">WaveformMode</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog"><code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.basis_off"><code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog.basis_off()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.basis_oft"><code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog.basis_oft()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.coefficients"><code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog.coefficients()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.complex_hoff"><code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog.complex_hoff()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.complex_hoft"><code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog.complex_hoft()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.conj_hlmoff"><code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog.conj_hlmoff()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.estimateDurationSec"><code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog.estimateDurationSec()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.estimateFminHz"><code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog.estimateFminHz()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.hlmoff"><code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog.hlmoff()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.hlmoft"><code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog.hlmoft()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.non_herm_hoff"><code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog.non_herm_hoff()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.print_params"><code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog.print_params()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.real_hoft"><code class="docutils literal notranslate"><span class="pre">WaveformModeCatalog.real_hoft()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.myzero"><code class="docutils literal notranslate"><span class="pre">myzero()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.sur_conj"><code class="docutils literal notranslate"><span class="pre">sur_conj()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.sur_identity"><code class="docutils literal notranslate"><span class="pre">sur_identity()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="physics/effectiveFisher.html">Effective Fisher API Reference</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.array_to_symmetric_matrix"><code class="docutils literal notranslate"><span class="pre">array_to_symmetric_matrix()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.effectiveFisher"><code class="docutils literal notranslate"><span class="pre">effectiveFisher()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.eigensystem"><code class="docutils literal notranslate"><span class="pre">eigensystem()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.evalfit2d"><code class="docutils literal notranslate"><span class="pre">evalfit2d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.evalfit3d"><code class="docutils literal notranslate"><span class="pre">evalfit3d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.evalfit4d"><code class="docutils literal notranslate"><span class="pre">evalfit4d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.evalfit5d"><code class="docutils literal notranslate"><span class="pre">evalfit5d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.evaluate_ip_on_grid"><code class="docutils literal notranslate"><span class="pre">evaluate_ip_on_grid()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.find_effective_Fisher_region"><code class="docutils literal notranslate"><span class="pre">find_effective_Fisher_region()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.linear_spoked_ellipsoid"><code class="docutils literal notranslate"><span class="pre">linear_spoked_ellipsoid()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.linear_spoked_ellipsoid2d"><code class="docutils literal notranslate"><span class="pre">linear_spoked_ellipsoid2d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.make_regular_1d_grids"><code class="docutils literal notranslate"><span class="pre">make_regular_1d_grids()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.multi_dim_flatgrid"><code class="docutils literal notranslate"><span class="pre">multi_dim_flatgrid()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.multi_dim_grid"><code class="docutils literal notranslate"><span class="pre">multi_dim_grid()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.multi_dim_meshgrid"><code class="docutils literal notranslate"><span class="pre">multi_dim_meshgrid()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.residuals2d"><code class="docutils literal notranslate"><span class="pre">residuals2d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.residuals3d"><code class="docutils literal notranslate"><span class="pre">residuals3d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.residuals4d"><code class="docutils literal notranslate"><span class="pre">residuals4d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.residuals5d"><code class="docutils literal notranslate"><span class="pre">residuals5d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.uniform_random_ellipsoid"><code class="docutils literal notranslate"><span class="pre">uniform_random_ellipsoid()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.uniform_random_ellipsoid2d"><code class="docutils literal notranslate"><span class="pre">uniform_random_ellipsoid2d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.uniform_random_ellipsoid3d"><code class="docutils literal notranslate"><span class="pre">uniform_random_ellipsoid3d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.uniform_random_ellipsoid4d"><code class="docutils literal notranslate"><span class="pre">uniform_random_ellipsoid4d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.uniform_random_ellipsoid5d"><code class="docutils literal notranslate"><span class="pre">uniform_random_ellipsoid5d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.uniform_spoked_ellipsoid"><code class="docutils literal notranslate"><span class="pre">uniform_spoked_ellipsoid()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.uniform_spoked_ellipsoid2d"><code class="docutils literal notranslate"><span class="pre">uniform_spoked_ellipsoid2d()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.update_params_ip"><code class="docutils literal notranslate"><span class="pre">update_params_ip()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/effectiveFisher.html#RIFT.physics.effectiveFisher.update_params_norm_hoff"><code class="docutils literal notranslate"><span class="pre">update_params_norm_hoff()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="plot_utilities/index.html">Plot Utilities</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="plot_utilities/index.html#RIFT.plot_utilities.EOSPlotUtilities.eval_eos_list_vs"><code class="docutils literal notranslate"><span class="pre">eval_eos_list_vs()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="plot_utilities/index.html#RIFT.plot_utilities.EOSPlotUtilities.render_eos"><code class="docutils literal notranslate"><span class="pre">render_eos()</span></code></a></li>
@@ -580,7 +742,15 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l1"><a class="reference internal" href="calmarg/index.html">Calibration Marginalization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="calmarg.html">Calibration Marginalization API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.generate_realizations.create_realizations"><code class="docutils literal notranslate"><span class="pre">create_realizations()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.generate_realizations.nodes_to_spline_coefficients_matrix"><code class="docutils literal notranslate"><span class="pre">nodes_to_spline_coefficients_matrix()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.generate_realizations.retrieve_envelope_from_file"><code class="docutils literal notranslate"><span class="pre">retrieve_envelope_from_file()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.rift_source.RIFT_lal_binary_black_hole"><code class="docutils literal notranslate"><span class="pre">RIFT_lal_binary_black_hole()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.rift_source.RIFT_lal_binary_black_hole_orig"><code class="docutils literal notranslate"><span class="pre">RIFT_lal_binary_black_hole_orig()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.rift_source.RIFT_lal_eccentric_binary_black_hole"><code class="docutils literal notranslate"><span class="pre">RIFT_lal_eccentric_binary_black_hole()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="misc/index.html">Misc Utilities</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="misc/index.html#module-RIFT.misc.ourparams">Configuration</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.ourparams.ParseStandardArguments"><code class="docutils literal notranslate"><span class="pre">ParseStandardArguments()</span></code></a></li>

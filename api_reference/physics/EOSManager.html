@@ -1,0 +1,587 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EOSManager API Reference &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="GWSignal API Reference" href="GWSignal.html" />
+    <link rel="prev" title="EOBTidalExternalC API Reference" href="EOBTidalExternalC.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">Physics API Reference</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="EOBTidalExternal.html">EOBTidalExternal API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="EOBTidalExternalC.html">EOBTidalExternalC API Reference</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">EOSManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="GWSignal.html">GWSignal API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="MonotonicSpline.html">MonotonicSpline API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="PrecessingFisherMatrix.html">PrecessingFisherMatrix API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ROMWaveformManager.html">ROMWaveformManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="effectiveFisher.html">Effective Fisher API Reference</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../simulation_manager/index.html">Simulation Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../asimov/index.html">Asimov Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../calmarg.html">Calibration Marginalization API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../misc/index.html">Misc Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../lalsimutils.html">LALSimUtils</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API Reference</a></li>
+          <li class="breadcrumb-item"><a href="index.html">Physics API Reference</a></li>
+      <li class="breadcrumb-item active">EOSManager API Reference</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api_reference/physics/EOSManager.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-RIFT.physics.EOSManager">
+<span id="eosmanager-api-reference"></span><h1>EOSManager API Reference<a class="headerlink" href="#module-RIFT.physics.EOSManager" title="Link to this heading"></a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSConcrete</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl>
+<dt>Class characterizing a specific EOS solution.  This structure <em>SHOULD</em> </dt><dd><ul class="simple">
+<li><p>auto-build the mass-radius via a TOV solve</p></li>
+</ul>
+<blockquote>
+<div><ul class="simple">
+<li><p>provides ability to query the lambda(m) relationship and (in the future) higher-order multipole moments; etc</p></li>
+</ul>
+</div></blockquote>
+</dd>
+</dl>
+<p>As many of these features are already provided by lalsimulation, we just front-end them</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete.estimate_baryon_mass_from_mg">
+<span class="sig-name descname"><span class="pre">estimate_baryon_mass_from_mg</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.estimate_baryon_mass_from_mg" title="Link to this definition"></a></dt>
+<dd><p>Estimate m_b = m_g + m_g^2/(R_{1.4}/km) based on <a class="reference external" href="https://arxiv.org/pdf/1905.03784.pdf">https://arxiv.org/pdf/1905.03784.pdf</a> Eq. (6)
+Note baryon mass can be computed exactly with a TOV solution integral (e.g., Eq. 6.21 of Haensel’s book)</p>
+<blockquote>
+<div><p>N_b = 4pi (1+z_{surf}) int_0^R e^{Phi} (rho + P/c^2)/m_b sqrt(1-2 G m(r)/r c^2)</p>
+</div></blockquote>
+<p>but lalsuite doesn’t provide access to this low-level info
+!! This function is only for use when LALEOS is created. Use RePrimAnd’s baryon_mass_from_mg preferably for most other purposes!!</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete.lambda_from_m">
+<span class="sig-name descname"><span class="pre">lambda_from_m</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.lambda_from_m" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete.lambda_from_m_vector">
+<span class="sig-name descname"><span class="pre">lambda_from_m_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.lambda_from_m_vector" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete.pressure_density_on_grid">
+<span class="sig-name descname"><span class="pre">pressure_density_on_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">logrho_grid</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reference_pair</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enforce_causal</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.pressure_density_on_grid" title="Link to this definition"></a></dt>
+<dd><p>pressure_density_on_grid.
+Input and output grid units are in SI (rho: kg/m^3; p = N/m^2)
+POTENTIAL PROBLEMS OF USING LALSUITE</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>lalinference_o2 / master: Unless patched, the <em>rest mass</em> density is not reliable.  
+To test with the unpatched LI version, use reference_pair to specify a low-density EOS.
+This matching is highly suboptimal, so preferably test either (a) a patched code or (b) the alternative code below</p></li>
+</ul>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete.pressure_density_on_grid_alternate">
+<span class="sig-name descname"><span class="pre">pressure_density_on_grid_alternate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">logrho_grid</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enforce_causal</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.pressure_density_on_grid_alternate" title="Link to this definition"></a></dt>
+<dd><p>pressure_density_on_grid.
+Input and output grid units are in SI (rho: kg/m^3; p = N/m^2)
+Pressure provided by lalsuite (=EOM integration)
+Density computed by m*n = (epsilon+p)/c^2mn exp(-h), which does NOT rely on lalsuite implementation</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete.test_speed_of_sound_causal">
+<span class="sig-name descname"><span class="pre">test_speed_of_sound_causal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">test_only_under_mmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fast_test</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.test_speed_of_sound_causal" title="Link to this definition"></a></dt>
+<dd><p>Test if EOS satisfies speed of sound.
+Relies on low-level lalsimulation interpolation routines to get v(h) and as such is not very reliable</p>
+<dl class="simple">
+<dt>By DEFAULT, we are testing the part of the EOS that is</dt><dd><ul class="simple">
+<li><p>at the largest pressure (assuming monotonic sound speed)</p></li>
+<li><p>associated with the maximum mass NS that is stable</p></li>
+</ul>
+</dd>
+</dl>
+<p>We can also test the full table that is provided to us.
+<a class="reference external" href="https://git.ligo.org/lscsoft/lalsuite/blob/lalinference_o2/lalinference/src/LALInference.c#L2513">https://git.ligo.org/lscsoft/lalsuite/blob/lalinference_o2/lalinference/src/LALInference.c#L2513</a></p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSConcrete.test_speed_of_sound_causal_builtin">
+<span class="sig-name descname"><span class="pre">test_speed_of_sound_causal_builtin</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSConcrete.test_speed_of_sound_causal_builtin" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSFromDataFile">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSFromDataFile</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fname</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSFromDataFile" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.physics.EOSManager.EOSConcrete" title="RIFT.physics.EOSManager.EOSConcrete"><code class="xref py py-class docutils literal notranslate"><span class="pre">EOSConcrete</span></code></a></p>
+<p>FromDataFileEquationOfState
+(just accepts filename…not attempting to parse a catalog)</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSFromDataFile.eos_ls">
+<span class="sig-name descname"><span class="pre">eos_ls</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSFromDataFile.eos_ls" title="Link to this definition"></a></dt>
+<dd><p>EOS tables described by Ozel <a class="reference external" href="https://arxiv.org/pdf/1603.02698.pdf">here</a> and downloadable <a class="reference external" href="http://xtreme.as.arizona.edu/NeutronStars/data/eos_tables.tar">here</a>. LALSim utilizes this tables, but needs some interfacing (i.e. conversion to SI units, and conversion from non monotonic to monotonic pressure density tables)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSFromDataFile.interp_eos_nb_of_p">
+<span class="sig-name descname"><span class="pre">interp_eos_nb_of_p</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSFromDataFile.interp_eos_nb_of_p" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSFromDataFile.interp_eos_p_of_rho">
+<span class="sig-name descname"><span class="pre">interp_eos_p_of_rho</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSFromDataFile.interp_eos_p_of_rho" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSFromDataFile.interp_eos_rho_of_p">
+<span class="sig-name descname"><span class="pre">interp_eos_rho_of_p</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSFromDataFile.interp_eos_rho_of_p" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSFromDataFile.p_rho_arrays">
+<span class="sig-name descname"><span class="pre">p_rho_arrays</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSFromDataFile.p_rho_arrays" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSFromTabularData">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSFromTabularData</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eos_data</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eos_units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reject_phase_transitions</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">debug</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">add_low_density</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">skip_family</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSFromTabularData" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.physics.EOSManager.EOSConcrete" title="RIFT.physics.EOSManager.EOSConcrete"><code class="xref py py-class docutils literal notranslate"><span class="pre">EOSConcrete</span></code></a></p>
+<dl class="simple">
+<dt>Input: </dt><dd><ul class="simple">
+<li><p>Tabular data (baryon_density = n , pressure = p, energy density = rho)</p></li>
+<li><dl class="simple">
+<dt>method for primitives: this information is partially redundant, in that ln n_b/n_ref = int   c^2 [d rho] / (P(rho) + rho c^2), etc</dt><dd><p>Need some specific choice for inter-edge interpolation (and redundance resolution)</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>Low-density approximation (if desired) for filling down to surface density.  </dt><dd><p>WARNING: Will generally match imperfectly, need some resolution to that procedure</p>
+</dd>
+</dl>
+</li>
+</ul>
+</dd>
+<dt>Creates</dt><dd><ul class="simple">
+<li><p>LALSimulation data structure as desired</p></li>
+</ul>
+</dd>
+<dt>Warning: </dt><dd><ul class="simple">
+<li><p>Currently generates intermediate data file by writing to disk</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSLALSimulation">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSLALSimulation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSLALSimulation" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.physics.EOSManager.EOSConcrete" title="RIFT.physics.EOSManager.EOSConcrete"><code class="xref py py-class docutils literal notranslate"><span class="pre">EOSConcrete</span></code></a></p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSLindblomSpectral">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSLindblomSpectral</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spec_params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_lal_spec_eos</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">check_cs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">check_cs_builtin</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_eos_fam</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSLindblomSpectral" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.physics.EOSManager.EOSConcrete" title="RIFT.physics.EOSManager.EOSConcrete"><code class="xref py py-class docutils literal notranslate"><span class="pre">EOSConcrete</span></code></a></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSLindblomSpectral.make_spec_param_eos">
+<span class="sig-name descname"><span class="pre">make_spec_param_eos</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">npts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">500</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_dat</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ligo_units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interpolate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eosname_lalsuite</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'SLY4'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSLindblomSpectral.make_spec_param_eos" title="Link to this definition"></a></dt>
+<dd><p>Load values from table of spectral parameterization values
+Table values taken from <a class="reference external" href="https://arxiv.org/pdf/1009.0738.pdf">https://arxiv.org/pdf/1009.0738.pdf</a>
+Comments:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>eos_vals is recorded as <em>pressure,density</em> pairs, because the spectral representation is for energy density vs pressure</p></li>
+<li><p>units swap between geometric and CGS</p></li>
+<li><p>eosname_lalsuite is used for the low-density EOS</p></li>
+</ul>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSLindblomSpectral.test_bounded_adiabatic_index">
+<span class="sig-name descname"><span class="pre">test_bounded_adiabatic_index</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bounds</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">[0.6,</span> <span class="pre">4.5]</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSLindblomSpectral.test_bounded_adiabatic_index" title="Link to this definition"></a></dt>
+<dd><p>Gamma(p) in bounds
+Uses xmax and other parameters from spectral result</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSLindblomSpectralSoundSpeedVersusPressure</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spec_params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_lal_spec_eos</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_eos_fam</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.physics.EOSManager.EOSConcrete" title="RIFT.physics.EOSManager.EOSConcrete"><code class="xref py py-class docutils literal notranslate"><span class="pre">EOSConcrete</span></code></a></p>
+<p>Based on <a class="reference external" href="https://journals.aps.org/prd/abstract/10.1103/PhysRevD.105.063031">https://journals.aps.org/prd/abstract/10.1103/PhysRevD.105.063031</a>  &lt;-&gt; <a class="reference external" href="https://arxiv.org/pdf/2202.12285.pdf">https://arxiv.org/pdf/2202.12285.pdf</a></p>
+<p>EOS spectral representation of sound speed versus pressure, as expansion of Upsilon(p): see Eq. (11).
+Uses function call to lalsuite to implement low-level interface</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure.make_spec_param_eos">
+<span class="sig-name descname"><span class="pre">make_spec_param_eos</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">xvar</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'energy_density'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">yvar</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'pressure'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">npts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">500</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_dat</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ligo_units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interpolate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eosname_lalsuite</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'SLY4'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure.make_spec_param_eos" title="Link to this definition"></a></dt>
+<dd><p>Load values from table of spectral parameterization values
+from separate calculations.
+Comments:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>eos_vals is recorded as <em>pressure,density</em> pairs, because the spectral representation is for energy density vs pressure</p></li>
+<li><p>units swap between geometric and CGS</p></li>
+<li><p>eosname_lalsuite is used for the low-density EOS</p></li>
+</ul>
+</div></blockquote>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSPiecewisePolytrope">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSPiecewisePolytrope</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param_dict</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSPiecewisePolytrope" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.physics.EOSManager.EOSConcrete" title="RIFT.physics.EOSManager.EOSConcrete"><code class="xref py py-class docutils literal notranslate"><span class="pre">EOSConcrete</span></code></a></p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSReprimand">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSReprimand</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param_dict</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lalsim_eos</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_eos</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">specific_internal_energy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m_b_units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.672621923684145e-27</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RePrimAnd_scale</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-06</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSReprimand" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.physics.EOSManager.EOSConcrete" title="RIFT.physics.EOSManager.EOSConcrete"><code class="xref py py-class docutils literal notranslate"><span class="pre">EOSConcrete</span></code></a></p>
+<p>Pass param_dict as the dictionary of ‘pseudo_enthalpy’,’rest_mass_density’,’energy_density’,’pressure’,’sound_speed_over_c’ for being resolved into a TOV sequence. CGS Units only except sound_speed_over_c.
+Instead you can send a lalsim_eos which processes lalsim eos object type and produces a TOV sequence.
+load_eos takes a 2D array with pressure, energy_density and rest_mass_density (not tested).</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSReprimand.baryon_mass_from_mg">
+<span class="sig-name descname"><span class="pre">baryon_mass_from_mg</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mg</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSReprimand.baryon_mass_from_mg" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSReprimand.lambda_from_m">
+<span class="sig-name descname"><span class="pre">lambda_from_m</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mg</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSReprimand.lambda_from_m" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSReprimand.update">
+<span class="sig-name descname"><span class="pre">update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">specific_internal_energy</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RePrimAnd_scale</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-06</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSReprimand.update" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceLandry">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSSequenceLandry</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fname</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_eos</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_ns</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">oned_order_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">oned_order_mass</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_sort</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eos_tables_units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceLandry" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class characterizing a sequence of specific EOS solutions, using the Landry format.
+Assumes user provides (a) EOS realization, (b) precomputed results from TOV solve; and (c) discrete ID</p>
+<dl class="simple">
+<dt>PENDING</dt><dd><ul class="simple">
+<li><p>mMax access</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceLandry.R_of_m_indx">
+<span class="sig-name descname"><span class="pre">R_of_m_indx</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m_Msun</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">indx</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceLandry.R_of_m_indx" title="Link to this definition"></a></dt>
+<dd><p>R(m) evaluated for a <em>single</em> m_Msun value (almost always), for a specific indexed EOS</p>
+<p>Generally we assume the value is UNIQUE and associated with a single stable phase; should FIX?</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceLandry.extract_one_eos_object">
+<span class="sig-name descname"><span class="pre">extract_one_eos_object</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">indx</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name_eos</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fail_if</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceLandry.extract_one_eos_object" title="Link to this definition"></a></dt>
+<dd><p>Extract EOS using either the EOS <em>index</em> or the  EOS <em>name</em>. Requires the EOS is available</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceLandry.interpolate_eos_tables">
+<span class="sig-name descname"><span class="pre">interpolate_eos_tables</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">interp_base</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_points</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">bool</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceLandry.interpolate_eos_tables" title="Link to this definition"></a></dt>
+<dd><p>Interpolates all EOS tables to the same grid. User can choose the base for interpolation, and the number of points on the output grid. 
+User must load the EOS tables when initializing <cite>EOSSequenceLandry</cite> class. (<cite>EOSSequenceLandry(load_eos=True)</cite>)</p>
+<section id="parameters">
+<h2>Parameters<a class="headerlink" href="#parameters" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>interp_base<span class="classifier">str</span></dt><dd><p>The column name to be used as a base for interpolation. 
+Should be one of ‘pressure’, ‘energy_density, ‘baryon_density’, if units are GGS or SI!
+If no unit conversion applied (<cite>EOSSequenceLandry(eos_tables_units=None)</cite>), should be one of ‘pressurec2’, ‘energy_densityc2’, ‘baryon_density’.</p>
+</dd>
+<dt>n_points<span class="classifier">int</span></dt><dd><p>The number of points on the output grid. Default is 1000.</p>
+</dd>
+<dt>verbose<span class="classifier">bool</span></dt><dd><p>If True, prints the progress of the interpolation. Default is self.verbose. (verbose from the class initialization)</p>
+</dd>
+</dl>
+</section>
+<section id="returns">
+<h2>Returns<a class="headerlink" href="#returns" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>eos_tables_interp<span class="classifier">dict</span></dt><dd><p>A dictionary with the same keys as self.eos_tables, but with the values being the interpolated tables.</p>
+</dd>
+</dl>
+</section>
+<section id="raises">
+<h2>Raises<a class="headerlink" href="#raises" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>ValueError</dt><dd><p>If the EOS tables are not loaded.</p>
+</dd>
+<dt>KeyError</dt><dd><p>If the interp_base is not one of the allowed column names.</p>
+</dd>
+</dl>
+</section>
+<section id="developer-notes">
+<h2>Developer Notes<a class="headerlink" href="#developer-notes" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>This is a simple interpolation, and can be extended to thermodynamical interpolation in the future.</p></li>
+<li><p>The interpolation is done in log-space, so the output grid is logarithmically spaced.</p></li>
+<li><p>The interpolation base is returned as the uniformly spaced grid in log-scale. Can be extended to interpolate the base grid as well in the future.</p></li>
+<li><p>The interpolated columns remain in their original limits. Might need to add extrapolation in the future.</p></li>
+<li><p>Visualization of the progress using tqdm can be added in the future.</p></li>
+</ul>
+</section>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceLandry.lambda_of_m_indx">
+<span class="sig-name descname"><span class="pre">lambda_of_m_indx</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m_Msun</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">indx</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceLandry.lambda_of_m_indx" title="Link to this definition"></a></dt>
+<dd><p>lambda(m) evaluated for a <em>single</em> m_Msun value (almost always), for a specific indexed EOS</p>
+<p>Generally we assume the value is UNIQUE and associated with a single stable phase</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceLandry.lookup_closest">
+<span class="sig-name descname"><span class="pre">lookup_closest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">order_val</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceLandry.lookup_closest" title="Link to this definition"></a></dt>
+<dd><p>Given a proposed ordering statistic value, provides the <em>index</em> of the closest value.  Assumes <em>scalar</em> input
+Does not require ordering</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceLandry.m_max_of_indx">
+<span class="sig-name descname"><span class="pre">m_max_of_indx</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">indx</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceLandry.m_max_of_indx" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.LookupCrustEpsilonAtPressure">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">LookupCrustEpsilonAtPressure</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p_ref</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eosname_lalsuite</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'SLY4'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.LookupCrustEpsilonAtPressure" title="Link to this definition"></a></dt>
+<dd><p>Tool for spectral EOS manager to find epsilon(p) via lookup tables from the lalsuite data files.
+Units are <em>CGS</em>
+Uses linear interpolation in the log.</p>
+<p>Warning: lalsuite files use lal units (epsilon, p in 1/m^2), but we will presume p and epsilon are in energy density</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.QueryLS_EOS">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">QueryLS_EOS</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eos</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.QueryLS_EOS" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<dl class="simple">
+<dt>ExtractorFromEOS</dt><dd><p>Class to repeatedly query a single lalsuite EOS object, using a common interface (e.g., to extract array outputs by name, unit conversions, etc)</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.QueryLS_EOS.convert">
+<span class="sig-name descname"><span class="pre">convert</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">var</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">var_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.QueryLS_EOS.convert" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.QueryLS_EOS.extract_param">
+<span class="sig-name descname"><span class="pre">extract_param</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pseudo_enthalpy</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.QueryLS_EOS.extract_param" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.check_monotonic">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">check_monotonic</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">monotonic_params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">other_params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preserve_same_length</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.check_monotonic" title="Link to this definition"></a></dt>
+<dd><p>Checks monotonicity of monotonic_params and removes non-monotonic parts in it for both monotonic_params and other_params.
+By default this will reduce the length of data due to deletion of non-monotonic patches, but preserve_same_length can be turned true to keep length of data intact.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.check_sound_speed_causal">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">check_sound_speed_causal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preserve_same_length</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.check_sound_speed_causal" title="Link to this definition"></a></dt>
+<dd><p>Checks if sound speed exceeds 1 anywhere, and depending on the option <cite>preserve_same_length</cite> removes that region or forces it =1.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.eos_monotonic_parts_and_causal_sound_speed">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">eos_monotonic_parts_and_causal_sound_speed</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preserve_same_length</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.eos_monotonic_parts_and_causal_sound_speed" title="Link to this definition"></a></dt>
+<dd><p>rest_mass_density , energy_density, pressure, pseudo_enthalpy, and sound_speed_over_c are the dictionary parameters that this function expects.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.epsilon">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">epsilon</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eps0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">coeffs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_ode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.epsilon" title="Link to this definition"></a></dt>
+<dd><p>Eq. 7 from <a class="reference external" href="https://arxiv.org/pdf/1009.0738.pdf">https://arxiv.org/pdf/1009.0738.pdf</a></p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.gamma_of_x">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">gamma_of_x</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">coeffs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.gamma_of_x" title="Link to this definition"></a></dt>
+<dd><p>Eq 6 from <a class="reference external" href="https://arxiv.org/pdf/1009.0738.pdf">https://arxiv.org/pdf/1009.0738.pdf</a></p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.just_check_monotonicity_and_causality">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">just_check_monotonicity_and_causality</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param_dict</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.just_check_monotonicity_and_causality" title="Link to this definition"></a></dt>
+<dd><p>To be used for only checking monotonicity and causality
+True means good. False means violation.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.make_compactness_from_lambda_approximate">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">make_compactness_from_lambda_approximate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lambda_vals</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.make_compactness_from_lambda_approximate" title="Link to this definition"></a></dt>
+<dd><p>Eq (B1) from <a class="reference external" href="https://arxiv.org/pdf/1812.04803.pdf">https://arxiv.org/pdf/1812.04803.pdf</a>, based on Maselli et al 2013, Yagi and Yunes 2017</p>
+<p>Note this will yield <em>extreme</em> compactnesses for poorly-constrained GW observations, as the ‘lambda’ inferred will be wildly large/prior-dominated</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.make_mr_lambda">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">make_mr_lambda</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eos</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_lal</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.make_mr_lambda" title="Link to this definition"></a></dt>
+<dd><p>construct mass-radius curve from EOS    
+DOES NOT YET WORK RELIABLY</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.make_mr_lambda_lal">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">make_mr_lambda_lal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eos</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_bins</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.make_mr_lambda_lal" title="Link to this definition"></a></dt>
+<dd><p>Construct mass-radius curve from EOS
+Based on modern code resources (<a class="reference external" href="https://git.ligo.org/publications/gw170817/bns-eos/blob/master/scripts/eos-params.py">https://git.ligo.org/publications/gw170817/bns-eos/blob/master/scripts/eos-params.py</a>) which access low-level structures</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.make_mr_lambda_reprimand">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">make_mr_lambda_reprimand</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">eos</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_bins</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">800</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_tov_sequence</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">read_tov_sequence</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_eos_object</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">m_b_units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.672621923684145e-27</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">RePrimAnd_scale</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-06</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.make_mr_lambda_reprimand" title="Link to this definition"></a></dt>
+<dd><p>Construct mass-radius curve from EOS using RePrimAnd (<a class="reference external" href="https://wokast.github.io/RePrimAnd/tov_solver.html">https://wokast.github.io/RePrimAnd/tov_solver.html</a>).
+Parameter <cite>eos</cite> should be in RePrimAnd’s eos object format, made with something like <cite>make_eos_barotr_spline</cite> (<a class="reference external" href="https://wokast.github.io/RePrimAnd/eos_barotr_ref.html">https://wokast.github.io/RePrimAnd/eos_barotr_ref.html</a>).
+By default this returns the Mass_g-Radius-Lambda-Mass_b. But if <cite>return_eos_object</cite> is True, this will also return the RePrimAnd EOS object.
+Wolfgang Kastaun, Jay Vijay Kalinani, and Riccardo Ciolfi. Robust recovery of primitive variables in relativistic ideal magnetohydrodynamics. Phys. Rev. D, 103(2):023018, 2021. doi:10.1103/PhysRevD.103.023018.
+Roland Haas and Wolfgang Kastaun. (2023). wokast/RePrimAnd: Release 1.6 (v1.6). Zenodo. https://doi.org/10.5281/zenodo.7700296</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.mu">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">mu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">coeffs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.mu" title="Link to this definition"></a></dt>
+<dd><p>Eq 8 from <a class="reference external" href="https://arxiv.org/pdf/1009.0738.pdf">https://arxiv.org/pdf/1009.0738.pdf</a></p>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="EOBTidalExternalC.html" class="btn btn-neutral float-left" title="EOBTidalExternalC API Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="GWSignal.html" class="btn btn-neutral float-right" title="GWSignal API Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

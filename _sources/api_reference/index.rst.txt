@@ -14,7 +14,7 @@ Core RIFT Modules
    plot_utilities/index
    simulation_manager/index
    asimov/index
-   calmarg/index
+   calmarg
    misc/index
    lalsimutils
 

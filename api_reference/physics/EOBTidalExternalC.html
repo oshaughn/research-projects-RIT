@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Asimov Interface &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+  <title>EOBTidalExternalC API Reference &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
       <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
       <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
@@ -20,8 +20,8 @@
     <script src="../../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Asimov Interface Overview" href="overview.html" />
-    <link rel="prev" title="Simulation Manager" href="../simulation_manager/index.html" /> 
+    <link rel="next" title="EOSManager API Reference" href="EOSManager.html" />
+    <link rel="prev" title="EOBTidalExternal API Reference" href="EOBTidalExternal.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -68,15 +68,20 @@
 <li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics API Reference</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../simulation_manager/index.html">Simulation Manager</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Asimov Interface</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="overview.html">Asimov Interface Overview</a></li>
-<li class="toctree-l3"><a class="reference internal" href="use_cases.html">Asimov Use Cases and Mapping</a></li>
-<li class="toctree-l3"><a class="reference internal" href="workflows.html">Asimov + RIFT Workflows</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">Physics API Reference</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="EOBTidalExternal.html">EOBTidalExternal API Reference</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">EOBTidalExternalC API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="EOSManager.html">EOSManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="GWSignal.html">GWSignal API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="MonotonicSpline.html">MonotonicSpline API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="PrecessingFisherMatrix.html">PrecessingFisherMatrix API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ROMWaveformManager.html">ROMWaveformManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="effectiveFisher.html">Effective Fisher API Reference</a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../simulation_manager/index.html">Simulation Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../asimov/index.html">Asimov Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../calmarg.html">Calibration Marginalization API Reference</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../misc/index.html">Misc Utilities</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../lalsimutils.html">LALSimUtils</a></li>
@@ -100,9 +105,10 @@
   <ul class="wy-breadcrumbs">
       <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
           <li class="breadcrumb-item"><a href="../index.html">API Reference</a></li>
-      <li class="breadcrumb-item active">Asimov Interface</li>
+          <li class="breadcrumb-item"><a href="index.html">Physics API Reference</a></li>
+      <li class="breadcrumb-item active">EOBTidalExternalC API Reference</li>
       <li class="wy-breadcrumbs-aside">
-            <a href="../../_sources/api_reference/asimov/index.rst.txt" rel="nofollow"> View page source</a>
+            <a href="../../_sources/api_reference/physics/EOBTidalExternalC.rst.txt" rel="nofollow"> View page source</a>
       </li>
   </ul>
   <hr/>
@@ -110,23 +116,16 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="asimov-interface">
-<h1>Asimov Interface<a class="headerlink" href="#asimov-interface" title="Link to this heading"></a></h1>
-<div class="toctree-wrapper compound">
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="overview.html">Asimov Interface Overview</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use_cases.html">Asimov Use Cases and Mapping</a></li>
-<li class="toctree-l1"><a class="reference internal" href="workflows.html">Asimov + RIFT Workflows</a></li>
-</ul>
-</div>
+  <section id="eobtidalexternalc-api-reference">
+<h1>EOBTidalExternalC API Reference<a class="headerlink" href="#eobtidalexternalc-api-reference" title="Link to this heading"></a></h1>
 </section>
 
 
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="../simulation_manager/index.html" class="btn btn-neutral float-left" title="Simulation Manager" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="overview.html" class="btn btn-neutral float-right" title="Asimov Interface Overview" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="EOBTidalExternal.html" class="btn btn-neutral float-left" title="EOBTidalExternal API Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="EOSManager.html" class="btn btn-neutral float-right" title="EOSManager API Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

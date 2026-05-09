@@ -1,0 +1,577 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Effective Fisher API Reference &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Plot Utilities" href="../plot_utilities/index.html" />
+    <link rel="prev" title="ROMWaveformManager API Reference" href="ROMWaveformManager.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">Physics API Reference</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="EOBTidalExternal.html">EOBTidalExternal API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="EOBTidalExternalC.html">EOBTidalExternalC API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="EOSManager.html">EOSManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="GWSignal.html">GWSignal API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="MonotonicSpline.html">MonotonicSpline API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="PrecessingFisherMatrix.html">PrecessingFisherMatrix API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="ROMWaveformManager.html">ROMWaveformManager API Reference</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Effective Fisher API Reference</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../simulation_manager/index.html">Simulation Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../asimov/index.html">Asimov Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../calmarg.html">Calibration Marginalization API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../misc/index.html">Misc Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../lalsimutils.html">LALSimUtils</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API Reference</a></li>
+          <li class="breadcrumb-item"><a href="index.html">Physics API Reference</a></li>
+      <li class="breadcrumb-item active">Effective Fisher API Reference</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api_reference/physics/effectiveFisher.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-RIFT.physics.effectiveFisher">
+<span id="effective-fisher-api-reference"></span><h1>Effective Fisher API Reference<a class="headerlink" href="#module-RIFT.physics.effectiveFisher" title="Link to this heading"></a></h1>
+<p>Module of routines to compute an effective Fisher matrix and related utilities,
+such as finding a region of interest and laying out a grid over it</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.array_to_symmetric_matrix">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">array_to_symmetric_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gamma</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.array_to_symmetric_matrix" title="Link to this definition"></a></dt>
+<dd><p>Given a flat array of length N*(N+1)/2 consisting of
+the upper right triangle of a symmetric matrix,
+return an NxN numpy array of the symmetric matrix</p>
+<dl>
+<dt>Example:</dt><dd><p>gamma = [1, 2, 3, 4, 5, 6]
+array_to_symmetric_matrix(gamma)</p>
+<blockquote>
+<div><dl class="simple">
+<dt>array([[1,2,3],</dt><dd><p>[2,4,5],
+[3,5,6]])</p>
+</dd>
+</dl>
+</div></blockquote>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.effectiveFisher">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">effectiveFisher</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">residual_func</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">flat_grids</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.effectiveFisher" title="Link to this definition"></a></dt>
+<dd><p>Fit a quadratic to the ambiguity function tabulated on a grid.
+Inputs:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>a pointer to a function to compute residuals, e.g.
+z(x1, …, xN) - fit
+for N-dimensions, this is called ‘residualsNd’</p></li>
+<li><p>N+1 flat arrays of length K. N arrays for each on N parameters,
+plus 1 array of values of the overlap</p></li>
+</ul>
+</div></blockquote>
+<dl class="simple">
+<dt>Returns:</dt><dd><ul class="simple">
+<li><p>flat array of upper-triangular elements of the effective Fisher matrix</p></li>
+</ul>
+</dd>
+</dl>
+<p>Example:
+x1s = [x1_1, …, x1_K]
+x2s = [x2_1, …, x2_K]
+…
+xNs = [xN_1, …, xN_K]</p>
+<p>gamma = effectiveFisher(residualsNd, x1s, x2s, …, xNs, rhos)
+gamma</p>
+<blockquote>
+<div><p>[g_11, g_12, …, g_1N, g_22, …, g_2N, g_33, …, g_3N, …, g_NN]</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.eigensystem">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">eigensystem</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">matrix</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.eigensystem" title="Link to this definition"></a></dt>
+<dd><dl>
+<dt>Given an array-like ‘matrix’, returns:</dt><dd><ul class="simple">
+<li><p>An array of eigenvalues</p></li>
+<li><p>An array of eigenvectors</p></li>
+<li><dl class="simple">
+<dt>A rotation matrix that rotates the eigenbasis</dt><dd><p>into the original basis</p>
+</dd>
+</dl>
+</li>
+</ul>
+</dd>
+<dt>Example:</dt><dd><p>mat = [[1,2,3],[2,4,5],[3,5,6]]
+evals, evecs, rot = eigensystem(mat)
+evals</p>
+<blockquote>
+<div><p>array([ 11.34481428+0.j,  -0.51572947+0.j,   0.17091519+0.j]</p>
+</div></blockquote>
+<dl class="simple">
+<dt>evecs</dt><dd><dl class="simple">
+<dt>array([[-0.32798528, -0.59100905, -0.73697623],</dt><dd><p>[-0.73697623, -0.32798528,  0.59100905],
+[ 0.59100905, -0.73697623,  0.32798528]])</p>
+</dd>
+</dl>
+</dd>
+<dt>rot</dt><dd><dl class="simple">
+<dt>array([[-0.32798528, -0.73697623,  0.59100905],</dt><dd><p>[-0.59100905, -0.32798528, -0.73697623],
+[-0.73697623,  0.59100905,  0.32798528]]))</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</dd>
+</dl>
+<p>This allows you to translate between original and eigenbases:</p>
+<blockquote>
+<div><p>If [v1, v2, v3] are the components of a vector in eigenbasis e1, e2, e3
+Then:</p>
+<blockquote>
+<div><p>rot.dot([v1,v2,v3]) = [vx,vy,vz]</p>
+</div></blockquote>
+<p>Will give the components in the original basis x, y, z</p>
+<p>If [wx, wy, wz] are the components of a vector in original basis z, y, z
+Then:</p>
+<blockquote>
+<div><p>inv(rot).dot([wx,wy,wz]) = [w1,w2,w3]</p>
+</div></blockquote>
+<p>Will give the components in the eigenbasis e1, e2, e3</p>
+<dl class="simple">
+<dt>inv(rot).dot(mat).dot(rot)</dt><dd><dl class="simple">
+<dt>array([[evals[0], 0,        0]</dt><dd><p>[0,        evals[1], 0]
+[0,        0,        evals[2]]])</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</div></blockquote>
+<p>Note: For symmetric input ‘matrix’, inv(rot) == evecs</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.evalfit2d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">evalfit2d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gamma</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.evalfit2d" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.evalfit3d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">evalfit3d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gamma</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.evalfit3d" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.evalfit4d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">evalfit4d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x4</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gamma</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.evalfit4d" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.evalfit5d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">evalfit5d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x4</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gamma</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.evalfit5d" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.evaluate_ip_on_grid">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">evaluate_ip_on_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hfSIG</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">IP</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.evaluate_ip_on_grid" title="Link to this definition"></a></dt>
+<dd><p>Evaluate IP.ip(hsig, htmplt) everywhere on a multidimensional grid</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.find_effective_Fisher_region">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">find_effective_Fisher_region</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">IP</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_match</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param_bounds</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.find_effective_Fisher_region" title="Link to this definition"></a></dt>
+<dd><dl class="simple">
+<dt>Example Usage:</dt><dd><p>find_effective_Fisher_region(P, IP, 0.9, [‘Mc’, ‘eta’], [[mchirp(P.m1,P.m2)-lal.LAL_MSUN_SI,mchirp(P.m1,P.m2)+lal.LAL_MSUN_SI], [0.05, 0.25]])</p>
+</dd>
+<dt>Arguments:</dt><dd><ul class="simple">
+<li><p>P: a ChooseWaveformParams object describing a target signal</p></li>
+<li><dl class="simple">
+<dt>IP: An inner product class to compute overlaps.</dt><dd><p>Should have deltaF and length consistent with P</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>target_match: find parameter variation where overlap is target_match.</dt><dd><p>Should be a real number in [0,1]</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>param_names: array of string names for members of P to vary.</dt><dd><p>Should have length N for N params to be varied
+e.g. [‘Mc’, ‘eta’]</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>param_bounds: array of max variations of each param in param_names</dt><dd><p>Should be an Nx2 array for N params to be varied</p>
+</dd>
+</dl>
+</li>
+</ul>
+</dd>
+<dt>Returns:</dt><dd><dl class="simple">
+<dt>Array of boundaries of a hypercube meant to encompass region where</dt><dd><p>match is &gt;= target_match.
+e.g. [ [3.12,3.16] , [0.12, 0.18] ]</p>
+</dd>
+</dl>
+</dd>
+</dl>
+<p>N.B. Only checks variations along parameter axes. If params are correlated,
+may get better matches off-axis, and the hypercube won’t fully encompass
+region where target_match is achieved. Therefore, allow a generous
+safety factor in your value of ‘target_match’.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.linear_spoked_ellipsoid">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">linear_spoked_ellipsoid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Nrad</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Nspokes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_angles</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">radii</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.linear_spoked_ellipsoid" title="Link to this definition"></a></dt>
+<dd><p>Return an array of pts distributed uniformly inside a
+D-dimensional ellipsoid. D is determined by the number of radii args given.</p>
+<dl class="simple">
+<dt>Output:</dt><dd><ul class="simple">
+<li><p>cart_pts: array of pts in Cartesian coordinates</p></li>
+<li><dl class="simple">
+<dt>sph_pts: array of points in spherical coordinates</dt><dd><p>(r, zenith_1, .., zenith_N-2, azimuth)</p>
+</dd>
+</dl>
+</li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.linear_spoked_ellipsoid2d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">linear_spoked_ellipsoid2d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Nrad</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Nspokes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">th0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.linear_spoked_ellipsoid2d" title="Link to this definition"></a></dt>
+<dd><p>2D case of function linear_spoked_ellipsoid</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.make_regular_1d_grids">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">make_regular_1d_grids</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">param_ranges</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pts_per_dim</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.make_regular_1d_grids" title="Link to this definition"></a></dt>
+<dd><dl>
+<dt>Inputs: </dt><dd><ul class="simple">
+<li><p>param_ranges is an array of parameter bounds, e.g.:</p></li>
+</ul>
+<p>[ [p1_min, p1_max], [p2_min, p2_max], …, [pN_min, pN_max] ]
+- pts_per_dim is either:</p>
+<blockquote>
+<div><ol class="loweralpha simple">
+<li><p>an integer - use that many pts for every parameter</p></li>
+<li><dl class="simple">
+<dt>an array of integers of same length as param_ranges, e.g.</dt><dd><p>[ N1, N2, …, NN ]
+the n-th entry is the number of pts for the n-th parameter</p>
+</dd>
+</dl>
+</li>
+</ol>
+</div></blockquote>
+</dd>
+<dt>Outputs:</dt><dd><p>outputs N separate 1d arrays of evenly spaced values of that parameter,
+where N = len(param_ranges)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.multi_dim_flatgrid">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">multi_dim_flatgrid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">arrs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.multi_dim_flatgrid" title="Link to this definition"></a></dt>
+<dd><p>Creates flattened versions of meshgrids.
+Returns a tuple of arrays of values of individual parameters
+at each point in a grid, returned in a flat array structure.</p>
+<p>e.g.
+x = [1,3,5]
+y = [2,4,6]
+X, Y = multi_dim_flatgrid(x, y)
+returns:
+X</p>
+<blockquote>
+<div><p>[1,1,1,3,3,3,5,5,5]</p>
+</div></blockquote>
+<dl class="simple">
+<dt>Y</dt><dd><p>[2,4,6,2,4,6,2,4,6]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.multi_dim_grid">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">multi_dim_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">arrs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.multi_dim_grid" title="Link to this definition"></a></dt>
+<dd><p>Creates an array of values of all pts on a multidimensional grid.</p>
+<p>e.g.
+x = [1,3,5]
+y = [2,4,6]
+multi_dim_grid(x, y)
+returns:
+[[1,2], [1,4], [1,6],</p>
+<blockquote>
+<div><p>[3,2], [3,4], [3,6],
+[5,2], [5,4], [5,6]]</p>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.multi_dim_meshgrid">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">multi_dim_meshgrid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">arrs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.multi_dim_meshgrid" title="Link to this definition"></a></dt>
+<dd><p>Version of np.meshgrid generalized to arbitrary number of dimensions.
+Taken from: <a class="reference external" href="http://stackoverflow.com/questions/1827489/numpy-meshgrid-in-3d">http://stackoverflow.com/questions/1827489/numpy-meshgrid-in-3d</a></p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.residuals2d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">residuals2d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gamma</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.residuals2d" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.residuals3d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">residuals3d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gamma</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x3</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.residuals3d" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.residuals4d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">residuals4d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gamma</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x4</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.residuals4d" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.residuals5d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">residuals5d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">gamma</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x4</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x5</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.residuals5d" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.uniform_random_ellipsoid">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">uniform_random_ellipsoid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Npts</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">radii</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.uniform_random_ellipsoid" title="Link to this definition"></a></dt>
+<dd><p>Return an array of pts distributed randomly and uniformly inside an
+D-dimensional ellipsoid. D is determined by the number of radii args given.</p>
+<dl class="simple">
+<dt>Output:</dt><dd><ul class="simple">
+<li><p>cart_pts: array of pts in Cartesian coordinates</p></li>
+<li><dl class="simple">
+<dt>sph_pts: array of points in spherical coordinates</dt><dd><p>(r, zenith_1, .., zenith_N-2, azimuth)</p>
+</dd>
+</dl>
+</li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.uniform_random_ellipsoid2d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">uniform_random_ellipsoid2d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Npts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.uniform_random_ellipsoid2d" title="Link to this definition"></a></dt>
+<dd><p>2D case of uniform_random_ellipsoid</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.uniform_random_ellipsoid3d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">uniform_random_ellipsoid3d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Npts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r3</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.uniform_random_ellipsoid3d" title="Link to this definition"></a></dt>
+<dd><p>3D case of uniform_random_ellipsoid</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.uniform_random_ellipsoid4d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">uniform_random_ellipsoid4d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Npts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r4</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.uniform_random_ellipsoid4d" title="Link to this definition"></a></dt>
+<dd><p>4D case of uniform_random_ellipsoid</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.uniform_random_ellipsoid5d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">uniform_random_ellipsoid5d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Npts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r4</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r5</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.uniform_random_ellipsoid5d" title="Link to this definition"></a></dt>
+<dd><p>5D case of uniform_random_ellipsoid</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.uniform_spoked_ellipsoid">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">uniform_spoked_ellipsoid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Nrad</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Nspokes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_angles</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">radii</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.uniform_spoked_ellipsoid" title="Link to this definition"></a></dt>
+<dd><p>Return an array of pts distributed uniformly inside a
+D-dimensional ellipsoid. D is determined by the number of radii args given.</p>
+<dl class="simple">
+<dt>Output:</dt><dd><ul class="simple">
+<li><p>cart_pts: array of pts in Cartesian coordinates</p></li>
+<li><dl class="simple">
+<dt>sph_pts: array of points in spherical coordinates</dt><dd><p>(r, zenith_1, .., zenith_N-2, azimuth)</p>
+</dd>
+</dl>
+</li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.uniform_spoked_ellipsoid2d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">uniform_spoked_ellipsoid2d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">Nrad</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Nspokes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">th0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">r2</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.uniform_spoked_ellipsoid2d" title="Link to this definition"></a></dt>
+<dd><p>2D case of function uniform_spoked_ellipsoid</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.update_params_ip">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">update_params_ip</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hfSIG</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">IP</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">vals</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.update_params_ip" title="Link to this definition"></a></dt>
+<dd><p>Update the values of 1 or more member of P, recompute norm_hoff(P),
+and return IP.ip(hfSIG, norm_hoff(P))</p>
+<dl class="simple">
+<dt>Inputs:</dt><dd><ul class="simple">
+<li><p>hfSIG: A COMPLEX16FrequencySeries of a fixed, unchanging signal</p></li>
+<li><p>P: A ChooseWaveformParams object describing a varying template</p></li>
+<li><p>IP: An InnerProduct object</p></li>
+<li><dl class="simple">
+<dt>param_names: An array of strings of parameters to be updated.</dt><dd><p>e.g. [ ‘m1’, ‘m2’, ‘incl’ ]</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>vals: update P to have these parameter values. Must have as many</dt><dd><p>vals as length of param_names, ordered the same way</p>
+</dd>
+</dl>
+</li>
+</ul>
+</dd>
+<dt>Outputs:</dt><dd><ul class="simple">
+<li><p>A COMPLEX16FrequencySeries, same as norm_hoff(P, IP)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.effectiveFisher.update_params_norm_hoff">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.effectiveFisher.</span></span><span class="sig-name descname"><span class="pre">update_params_norm_hoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">IP</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">vals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.effectiveFisher.update_params_norm_hoff" title="Link to this definition"></a></dt>
+<dd><p>Update the values of 1 or more member of P and recompute norm_hoff(P).</p>
+<dl class="simple">
+<dt>Inputs:</dt><dd><ul class="simple">
+<li><p>P: A ChooseWaveformParams object</p></li>
+<li><p>IP: An InnerProduct object</p></li>
+<li><dl class="simple">
+<dt>param_names: An array of strings of parameters to be updated.</dt><dd><p>e.g. [ ‘m1’, ‘m2’, ‘incl’ ]</p>
+</dd>
+</dl>
+</li>
+<li><dl class="simple">
+<dt>vals: update P to have these parameter values. Must be array-like</dt><dd><p>with same length as param_names, ordered the same way</p>
+</dd>
+</dl>
+</li>
+</ul>
+</dd>
+<dt>Outputs:</dt><dd><ul class="simple">
+<li><p>A COMPLEX16FrequencySeries, same as norm_hoff(P, IP)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="ROMWaveformManager.html" class="btn btn-neutral float-left" title="ROMWaveformManager API Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../plot_utilities/index.html" class="btn btn-neutral float-right" title="Plot Utilities" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

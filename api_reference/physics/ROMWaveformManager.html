@@ -1,0 +1,475 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ROMWaveformManager API Reference &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Effective Fisher API Reference" href="effectiveFisher.html" />
+    <link rel="prev" title="PrecessingFisherMatrix API Reference" href="PrecessingFisherMatrix.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">Physics API Reference</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="EOBTidalExternal.html">EOBTidalExternal API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="EOBTidalExternalC.html">EOBTidalExternalC API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="EOSManager.html">EOSManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="GWSignal.html">GWSignal API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="MonotonicSpline.html">MonotonicSpline API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="PrecessingFisherMatrix.html">PrecessingFisherMatrix API Reference</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">ROMWaveformManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="effectiveFisher.html">Effective Fisher API Reference</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../simulation_manager/index.html">Simulation Manager</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../asimov/index.html">Asimov Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../calmarg.html">Calibration Marginalization API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../misc/index.html">Misc Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../lalsimutils.html">LALSimUtils</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API Reference</a></li>
+          <li class="breadcrumb-item"><a href="index.html">Physics API Reference</a></li>
+      <li class="breadcrumb-item active">ROMWaveformManager API Reference</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api_reference/physics/ROMWaveformManager.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-RIFT.physics.ROMWaveformManager">
+<span id="romwaveformmanager-api-reference"></span><h1>ROMWaveformManager API Reference<a class="headerlink" href="#module-RIFT.physics.ROMWaveformManager" title="Link to this heading"></a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.ConvertWPtoSurrogateParams">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">ConvertWPtoSurrogateParams</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.ConvertWPtoSurrogateParams" title="Link to this definition"></a></dt>
+<dd><p>Takes P, returns arguments of the form usually used in gwsurrogate.
+(currently, just returns 1/q = P.m1/P.m1, the mass ratio parameter usually accepted)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.ConvertWPtoSurrogateParamsAligned">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">ConvertWPtoSurrogateParamsAligned</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.ConvertWPtoSurrogateParamsAligned" title="Link to this definition"></a></dt>
+<dd><p>Takes P, returns arguments of the form used in gwsurrogate for a nonprecessing binary</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.ConvertWPtoSurrogateParamsPrecessing">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">ConvertWPtoSurrogateParamsPrecessing</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.ConvertWPtoSurrogateParamsPrecessing" title="Link to this definition"></a></dt>
+<dd><p>Takes P, returns arguments of the form usually used in gwsurrogate.
+(currently, just returns 1/q = P.m1/P.m1, the mass ratio parameter usually accepted)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.ConvertWPtoSurrogateParamsPrecessingFull">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">ConvertWPtoSurrogateParamsPrecessingFull</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.ConvertWPtoSurrogateParamsPrecessingFull" title="Link to this definition"></a></dt>
+<dd><p>Takes P, returns arguments of the form usually used in gwsurrogate.
+(currently, just returns 1/q = P.m1/P.m1, the mass ratio parameter usually accepted)</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.CreateCompatibleComplexIP">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">CreateCompatibleComplexIP</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hlmf</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.CreateCompatibleComplexIP" title="Link to this definition"></a></dt>
+<dd><p>Creates a complex Inner Product (IP) object compatible with the provided harmonic modes.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>hlmf (dict): A dictionary of harmonic modes.
+<a href="#id1"><span class="problematic" id="id2">**</span></a>kwargs: Additional arguments for ComplexIP.</p>
+</dd>
+<dt>Returns:</dt><dd><p>lalsimutils.ComplexIP: A compatible inner product object.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.CreateCompatibleComplexOverlap">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">CreateCompatibleComplexOverlap</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hlmf</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.CreateCompatibleComplexOverlap" title="Link to this definition"></a></dt>
+<dd><p>Creates a ComplexOverlap object compatible with the provided harmonic modes.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>hlmf (dict): A dictionary of harmonic modes.
+<a href="#id3"><span class="problematic" id="id4">**</span></a>kwargs: Additional arguments for ComplexOverlap.</p>
+</dd>
+<dt>Returns:</dt><dd><p>lalsimutils.ComplexOverlap: A compatible overlap object.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.DataFourierNumpy">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">DataFourierNumpy</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wfComplex</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.DataFourierNumpy" title="Link to this definition"></a></dt>
+<dd><p>Performs a NumPy-based Fast Fourier Transform (FFT) on a complex waveform.
+Assumes the input is an (n, 2) array of [time_values, waveform_values].</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>wfComplex (np.ndarray): Array of shape (n, 2) containing time and complex signal.</p>
+</dd>
+<dt>Returns:</dt><dd><p>np.ndarray: Array of shape (n, 2) containing frequency values and the FFT result.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.DataInverseFourierNumpy">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">DataInverseFourierNumpy</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wfComplex</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.DataInverseFourierNumpy" title="Link to this definition"></a></dt>
+<dd><p>Performs a NumPy-based Inverse Fast Fourier Transform (IFFT) on frequency-domain data.
+Assumes the input is an (n, 2) array of [frequency_values, waveform_values].</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>wfComplex (np.ndarray): Array of shape (n, 2) containing frequencies and complex signal.</p>
+</dd>
+<dt>Returns:</dt><dd><p>np.ndarray: Array of shape (n, 2) containing time values and the reconstructed signal.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.ModeToString">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">ModeToString</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pair</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.ModeToString" title="Link to this definition"></a></dt>
+<dd><p>Converts a harmonic mode pair (l, m) into a string representation (e.g., ‘l2_m2’).</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>pair (tuple): A tuple containing (l, m) integers.</p>
+</dd>
+<dt>Returns:</dt><dd><p>str: The formatted mode string.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.NRError">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">NRError</span></span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.NRError" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Exception</span></code></p>
+<p>Base exception class for ROMWaveformManager module.</p>
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.NRNoSimulation">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">NRNoSimulation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">msg</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.NRNoSimulation" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.physics.ROMWaveformManager.NRError" title="RIFT.physics.ROMWaveformManager.NRError"><code class="xref py py-class docutils literal notranslate"><span class="pre">NRError</span></code></a></p>
+<p>Exception raised when no known simulation is found for the given parameters.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.RangeWrap1d">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">RangeWrap1d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bound</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">val</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fn</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.RangeWrap1d" title="Link to this definition"></a></dt>
+<dd><p>RangeWrap1d: Uses np.piecewise to construct a piecewise function which is =fn inside the boundary, and 0 outside.
+SHOULD be syntactic sugar, but depending on the python version the language needed to implement this changes.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.RawGetModePeakTime">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">RawGetModePeakTime</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">wfMode</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.RawGetModePeakTime" title="Link to this definition"></a></dt>
+<dd><p>Finds the time of the maximum absolute magnitude for a given complex waveform mode.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>wfMode (np.ndarray): A complex data sequence (usually an (n, 2) array).</p>
+</dd>
+<dt>Returns:</dt><dd><p>float: The real-valued time of the peak magnitude.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.SurrogateDimensionlessBasisFunction">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">SurrogateDimensionlessBasisFunction</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sur</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.SurrogateDimensionlessBasisFunction" title="Link to this definition"></a></dt>
+<dd><p>Creates a basis function w(t) for a surrogate model.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>sur: The surrogate model object containing fit functions.
+k (int): The index of the basis function.</p>
+</dd>
+<dt>Returns:</dt><dd><p>function: A function w(t) that returns the basis function value at time t.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformMode">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">WaveformMode</span></span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformMode" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class representing a dimensionless timeseries X(    au=t/M)</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformModeCatalog">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">WaveformModeCatalog</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">group</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">strain_basis_functions_dimensionless</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode_list_to_load</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">build_fourier_time_window</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reflection_symmetric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_nbasis_per_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">coord_names_internal</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">['q']</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformModeCatalog" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Manager for Reduced Order Model (ROM) waveforms.</p>
+<p>This class handles the loading of surrogate models, coordinate transformation 
+between RIFT and surrogate parameters, and the reconstruction of waveforms 
+using a reduced basis of functions.</p>
+<dl class="simple">
+<dt>Attributes:</dt><dd><p>group (str): The surrogate group name.
+param (str): The surrogate parameter identifier.
+lmax (int): Maximum harmonic mode l to load.
+reflection_symmetric (bool): Whether to use reflection symmetry for modes.
+sur_dict (dict): Mapping of (l, m) to the loaded surrogate model.
+modes_available (list): List of available (l, m) modes.</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformModeCatalog.basis_off">
+<span class="sig-name descname"><span class="pre">basis_off</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">6.103515625e-05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_over_M_zero</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.basis_off" title="Link to this definition"></a></dt>
+<dd><p>basis_off takes fourier transforms of LAL timeseries generated from basis_oft.
+All modes have physical units, appropriate to a physical signal.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformModeCatalog.basis_oft">
+<span class="sig-name descname"><span class="pre">basis_oft</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">6.103515625e-05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_over_M_zero</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_numpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.basis_oft" title="Link to this definition"></a></dt>
+<dd><p>Generates the ROM basis functions in the time domain, resampled to a physical grid.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>P (ChooseWaveformParams): Waveform parameters.
+force_T (float/bool): If float, forces a specific time length.
+deltaT (float): Time step.
+time_over_M_zero (float): Reference time offset.
+return_numpy (bool): If True, returns NumPy arrays instead of LAL time series.</p>
+</dd>
+<dt>Returns:</dt><dd><dl class="simple">
+<dt>dict or tuple: A dictionary mapping (l, m, index) to LAL time series, </dt><dd><p>or a tuple of (tvals, basis_grid) if return_numpy is True.</p>
+</dd>
+</dl>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformModeCatalog.coefficients">
+<span class="sig-name descname"><span class="pre">coefficients</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.coefficients" title="Link to this definition"></a></dt>
+<dd><p>Returns the values of the ROM coefficients for the parameter P.  
+Usees the key-value pairing convention described in basis_oft.
+Note that the coefficients are created on a mode by mode basis, so the conversion call is VERY redundant.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformModeCatalog.complex_hoff">
+<span class="sig-name descname"><span class="pre">complex_hoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.complex_hoff" title="Link to this definition"></a></dt>
+<dd><p>Generates a complex-valued frequency-domain waveform using the FFT of complex_hoft.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>P (ChooseWaveformParams): Waveform parameters.
+force_T (float/bool): If float, forces a specific time length.</p>
+</dd>
+<dt>Returns:</dt><dd><p>lal.COMPLEX16FrequencySeries: The complex frequency-domain waveform.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformModeCatalog.complex_hoft">
+<span class="sig-name descname"><span class="pre">complex_hoft</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">6.103515625e-05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_over_M_zero</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sgn</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.complex_hoft" title="Link to this definition"></a></dt>
+<dd><p>Generates a complex-valued time-domain waveform h(t) summed over available modes.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>P (ChooseWaveformParams): Waveform parameters.
+force_T (float/bool): If float, forces a specific time length.
+deltaT (float): Time step.
+time_over_M_zero (float): Reference time offset.
+sgn (int): Sign of the imaginary part (usually -1).</p>
+</dd>
+<dt>Returns:</dt><dd><p>lal.COMPLEX16TimeSeries: The complex waveform.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformModeCatalog.conj_hlmoff">
+<span class="sig-name descname"><span class="pre">conj_hlmoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">6.103515625e-05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_over_M_zero</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_basis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">inf</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.conj_hlmoff" title="Link to this definition"></a></dt>
+<dd><p>conj_hlmoff takes fourier transforms of LAL timeseries generated from hlmoft, but after complex conjugation.
+All modes have physical units, appropriate to a physical signal.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformModeCatalog.estimateDurationSec">
+<span class="sig-name descname"><span class="pre">estimateDurationSec</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.estimateDurationSec" title="Link to this definition"></a></dt>
+<dd><p>estimateDuration uses fmin*M from the (2,2) mode to estimate the waveform duration from the <em>well-posed</em>
+part.  By default it uses the <em>entire</em> waveform duration.
+CURRENTLY DOES NOT IMPLEMENT frequency-dependent duration</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformModeCatalog.estimateFminHz">
+<span class="sig-name descname"><span class="pre">estimateFminHz</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.estimateFminHz" title="Link to this definition"></a></dt>
+<dd><p>Estimate the minimum frequency for the ROM based on the 2,2 mode.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>P (ChooseWaveformParams): Waveform parameters.
+fmin (float): Nominal fmin. Default is 10 Hz.</p>
+</dd>
+<dt>Returns:</dt><dd><p>float: Estimated minimum frequency.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformModeCatalog.hlmoff">
+<span class="sig-name descname"><span class="pre">hlmoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">6.103515625e-05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_over_M_zero</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_basis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">inf</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.hlmoff" title="Link to this definition"></a></dt>
+<dd><p>hlmoff takes fourier transforms of LAL timeseries generated from hlmoft.
+All modes have physical units, appropriate to a physical signal.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformModeCatalog.hlmoft">
+<span class="sig-name descname"><span class="pre">hlmoft</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_T</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltaT</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">6.103515625e-05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">time_over_M_zero</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_basis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">inf</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hybrid_time</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hybrid_use</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hybrid_method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'taper_add'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hybrid_frequency</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rom_taper_start</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rom_taper_end</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_reference_spins</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.hlmoft" title="Link to this definition"></a></dt>
+<dd><p>hlmoft uses the dimensionless ROM basis functions to extract hlm(t) in physical units, in a LAL array.
+The argument ‘P’ is a ChooseWaveformParaams object
+FIXME: Add tapering option!</p>
+<p>rom_taper_start  # use manual tapering in this routine.  Should taper if this is true, OR the P.taper includes start tapering
+rom_taper_end  # use gwsurrogate built-in tapering as appropriate (HybSur only), with hard-coded taper time from scott (40M out of 140 M)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformModeCatalog.non_herm_hoff">
+<span class="sig-name descname"><span class="pre">non_herm_hoff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.non_herm_hoff" title="Link to this definition"></a></dt>
+<dd><p>Generates the 2-sided frequency-domain waveform h(f) for a real instrument.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>P (ChooseWaveformParams): Waveform parameters.</p>
+</dd>
+<dt>Returns:</dt><dd><p>lal.COMPLEX16FrequencySeries: The frequency-domain waveform.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformModeCatalog.print_params">
+<span class="sig-name descname"><span class="pre">print_params</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.print_params" title="Link to this definition"></a></dt>
+<dd><p>Prints the available modes and their associated basis sizes for the current ROM.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.WaveformModeCatalog.real_hoft">
+<span class="sig-name descname"><span class="pre">real_hoft</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">P</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Fc</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.real_hoft" title="Link to this definition"></a></dt>
+<dd><p>Generates a real-valued time-domain waveform projected onto a detector.</p>
+<dl class="simple">
+<dt>Args:</dt><dd><p>P (ChooseWaveformParams): Waveform parameters.
+Fp (float/array, optional): Antenna pattern F+.
+Fc (float/array, optional): Antenna pattern Fx.</p>
+</dd>
+<dt>Returns:</dt><dd><p>lal.REAL8TimeSeries: The real-valued detector strain.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.myzero">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">myzero</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">arg</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.myzero" title="Link to this definition"></a></dt>
+<dd><p>Returns zero. Used as a helper for RangeWrap1d boundary conditions.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.sur_conj">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">sur_conj</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hc</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.sur_conj" title="Link to this definition"></a></dt>
+<dd><p>Conjugation transformation for surrogate output (negates hc).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.ROMWaveformManager.sur_identity">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.ROMWaveformManager.</span></span><span class="sig-name descname"><span class="pre">sur_identity</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hc</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.ROMWaveformManager.sur_identity" title="Link to this definition"></a></dt>
+<dd><p>Identity transformation for surrogate output.</p>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="PrecessingFisherMatrix.html" class="btn btn-neutral float-left" title="PrecessingFisherMatrix API Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="effectiveFisher.html" class="btn btn-neutral float-right" title="Effective Fisher API Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
