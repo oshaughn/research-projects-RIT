@@ -44,8 +44,8 @@ def _get_new_bounds(bounds, q):
         index += 1
     new_bounds = np.empty((d, 2))
     for dim in range(d):
-        new_bounds[dim][0] = min(new_points[:,[dim]])
-        new_bounds[dim][1] = max(new_points[:,[dim]])
+        new_bounds[dim][0] = min(new_points[:, dim])
+        new_bounds[dim][1] = max(new_points[:, dim])
     return new_bounds
 
 

@@ -1,1 +1,1 @@
-__all__ = ['BaseManager', 'CondorManager', 'SlurmManager']
+__all__ = ['BaseManager', 'CondorManager', 'PBSManager', 'SlurmManager']
