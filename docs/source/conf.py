@@ -14,6 +14,8 @@ import os
 import sys
 # Add RIFT module path for autodoc
 sys.path.insert(0, os.path.abspath('../../MonteCarloMarginalizeCode/Code'))
+# Add current source path to allow importing md_converter
+sys.path.insert(0, os.path.abspath('.'))
 
 import sphinx_rtd_theme
 
@@ -80,3 +82,21 @@ html_static_path = ['_static']
 html_css_files = [
     'custom.css',
 ]
+
+import md_converter
+
+def setup(app):
+    # Dynamically convert DESIGN.md to RST before the build
+    source_dir = os.path.dirname(__file__)
+    md_file = os.path.abspath(os.path.join(source_dir, '../../MonteCarloMarginalizeCode/Code/RIFT/simulation_manager/DESIGN.md'))
+    rst_file = os.path.abspath(os.path.join(source_dir, 'api_reference/simulation_manager/design_overview.rst'))
+    
+    if os.path.exists(md_file):
+        # Prefer pandoc if available for a high‑quality conversion
+        try:
+            import subprocess, shlex
+            subprocess.run(shlex.split(f"pandoc {md_file} -f markdown -t rst -o {rst_file}"), check=True)
+        except Exception:
+            # Fallback to the simple Python converter
+            md_converter.convert_md_to_rst(md_file, rst_file)
+
