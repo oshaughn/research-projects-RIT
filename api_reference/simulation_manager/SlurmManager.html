@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Physics API Reference &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+  <title>SlurmManager API Reference &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
       <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
       <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
@@ -20,8 +20,8 @@
     <script src="../../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="EOBTidalExternal API Reference" href="EOBTidalExternal.html" />
-    <link rel="prev" title="Likelihood and Priors" href="../likelihood/index.html" /> 
+    <link rel="next" title="Simulation Database API Reference" href="database.html" />
+    <link rel="prev" title="PBSManager API Reference" href="PBSManager.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -68,19 +68,19 @@
 <li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Physics API Reference</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="EOBTidalExternal.html">EOBTidalExternal API Reference</a></li>
-<li class="toctree-l3"><a class="reference internal" href="EOBTidalExternalC.html">EOBTidalExternalC API Reference</a></li>
-<li class="toctree-l3"><a class="reference internal" href="EOSManager.html">EOSManager API Reference</a></li>
-<li class="toctree-l3"><a class="reference internal" href="GWSignal.html">GWSignal API Reference</a></li>
-<li class="toctree-l3"><a class="reference internal" href="MonotonicSpline.html">MonotonicSpline API Reference</a></li>
-<li class="toctree-l3"><a class="reference internal" href="PrecessingFisherMatrix.html">PrecessingFisherMatrix API Reference</a></li>
-<li class="toctree-l3"><a class="reference internal" href="ROMWaveformManager.html">ROMWaveformManager API Reference</a></li>
-<li class="toctree-l3"><a class="reference internal" href="effectiveFisher.html">Effective Fisher API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">Simulation Manager API Reference</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="BaseManager.html">BaseManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="CondorManager.html">CondorManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="PBSManager.html">PBSManager API Reference</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">SlurmManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="database.html">Simulation Database API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="glue_compat.html">Glue Compatibility API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="design_overview.html">Simulation archive design</a></li>
+<li class="toctree-l3"><a class="reference internal" href="backends/index.html">Simulation Manager Backends</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../simulation_manager/index.html">Simulation Manager API Reference</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../asimov/index.html">Asimov Interface</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../calmarg.html">Calibration Marginalization API Reference</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../misc/index.html">Misc Utilities</a></li>
@@ -105,9 +105,10 @@
   <ul class="wy-breadcrumbs">
       <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
           <li class="breadcrumb-item"><a href="../index.html">API Reference</a></li>
-      <li class="breadcrumb-item active">Physics API Reference</li>
+          <li class="breadcrumb-item"><a href="index.html">Simulation Manager API Reference</a></li>
+      <li class="breadcrumb-item active">SlurmManager API Reference</li>
       <li class="wy-breadcrumbs-aside">
-            <a href="../../_sources/api_reference/physics/index.rst.txt" rel="nofollow"> View page source</a>
+            <a href="../../_sources/api_reference/simulation_manager/SlurmManager.rst.txt" rel="nofollow"> View page source</a>
       </li>
   </ul>
   <hr/>
@@ -115,28 +116,16 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <section id="physics-api-reference">
-<h1>Physics API Reference<a class="headerlink" href="#physics-api-reference" title="Link to this heading"></a></h1>
-<div class="toctree-wrapper compound">
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="EOBTidalExternal.html">EOBTidalExternal API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="EOBTidalExternalC.html">EOBTidalExternalC API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="EOSManager.html">EOSManager API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="GWSignal.html">GWSignal API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="MonotonicSpline.html">MonotonicSpline API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="PrecessingFisherMatrix.html">PrecessingFisherMatrix API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="ROMWaveformManager.html">ROMWaveformManager API Reference</a></li>
-<li class="toctree-l1"><a class="reference internal" href="effectiveFisher.html">Effective Fisher API Reference</a></li>
-</ul>
-</div>
+  <section id="module-RIFT.simulation_manager.SlurmManager">
+<span id="slurmmanager-api-reference"></span><h1>SlurmManager API Reference<a class="headerlink" href="#module-RIFT.simulation_manager.SlurmManager" title="Link to this heading"></a></h1>
 </section>
 
 
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="../likelihood/index.html" class="btn btn-neutral float-left" title="Likelihood and Priors" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="EOBTidalExternal.html" class="btn btn-neutral float-right" title="EOBTidalExternal API Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="PBSManager.html" class="btn btn-neutral float-left" title="PBSManager API Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="database.html" class="btn btn-neutral float-right" title="Simulation Database API Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

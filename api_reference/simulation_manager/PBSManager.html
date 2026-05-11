@@ -1,0 +1,200 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PBSManager API Reference &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="SlurmManager API Reference" href="SlurmManager.html" />
+    <link rel="prev" title="CondorManager API Reference" href="CondorManager.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">Simulation Manager API Reference</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="BaseManager.html">BaseManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="CondorManager.html">CondorManager API Reference</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">PBSManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="SlurmManager.html">SlurmManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="database.html">Simulation Database API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="glue_compat.html">Glue Compatibility API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="design_overview.html">Simulation archive design</a></li>
+<li class="toctree-l3"><a class="reference internal" href="backends/index.html">Simulation Manager Backends</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../asimov/index.html">Asimov Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../calmarg.html">Calibration Marginalization API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../misc/index.html">Misc Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../lalsimutils.html">LALSimUtils</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API Reference</a></li>
+          <li class="breadcrumb-item"><a href="index.html">Simulation Manager API Reference</a></li>
+      <li class="breadcrumb-item active">PBSManager API Reference</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api_reference/simulation_manager/PBSManager.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-RIFT.simulation_manager.PBSManager">
+<span id="pbsmanager-api-reference"></span><h1>PBSManager API Reference<a class="headerlink" href="#module-RIFT.simulation_manager.PBSManager" title="Link to this heading"></a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.simulation_manager.PBSManager.SimulationArchiveOnLocalDiskIntegratedPBSQueue">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.simulation_manager.PBSManager.</span></span><span class="sig-name descname"><span class="pre">SimulationArchiveOnLocalDiskIntegratedPBSQueue</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.simulation_manager.PBSManager.SimulationArchiveOnLocalDiskIntegratedPBSQueue" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="BaseManager.html#RIFT.simulation_manager.BaseManager.SimulationArchiveOnLocalDiskExternalQueue" title="RIFT.simulation_manager.BaseManager.SimulationArchiveOnLocalDiskExternalQueue"><code class="xref py py-class docutils literal notranslate"><span class="pre">SimulationArchiveOnLocalDiskExternalQueue</span></code></a></p>
+<p>Simulation archive whose entries are queued and run via PBS/Larus.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.simulation_manager.PBSManager.SimulationArchiveOnLocalDiskIntegratedPBSQueue.build_array_job">
+<span class="sig-name descname"><span class="pre">build_array_job</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">array_range</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'1-10'</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.simulation_manager.PBSManager.SimulationArchiveOnLocalDiskIntegratedPBSQueue.build_array_job" title="Link to this definition"></a></dt>
+<dd><p>Builds and writes a PBS array job submit script.
+array_range: PBS array job specification, e.g., ‘1-10’ or ‘1-10:2’</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.simulation_manager.PBSManager.SimulationArchiveOnLocalDiskIntegratedPBSQueue.build_single_job">
+<span class="sig-name descname"><span class="pre">build_single_job</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.simulation_manager.PBSManager.SimulationArchiveOnLocalDiskIntegratedPBSQueue.build_single_job" title="Link to this definition"></a></dt>
+<dd><p>Builds and writes a single PBS submit script.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.simulation_manager.PBSManager.SimulationArchiveOnLocalDiskIntegratedPBSQueue.generate_simulation">
+<span class="sig-name descname"><span class="pre">generate_simulation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sim_params</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.simulation_manager.PBSManager.SimulationArchiveOnLocalDiskIntegratedPBSQueue.generate_simulation" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.simulation_manager.PBSManager.SimulationArchiveOnLocalDiskIntegratedPBSQueue.refresh_status_from_pbs">
+<span class="sig-name descname"><span class="pre">refresh_status_from_pbs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">job_id</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.simulation_manager.PBSManager.SimulationArchiveOnLocalDiskIntegratedPBSQueue.refresh_status_from_pbs" title="Link to this definition"></a></dt>
+<dd><p>Checks the status of a PBS job using qstat.
+Returns ‘running’ if job is in queue/running, ‘complete’ if gone (and output exists).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.simulation_manager.PBSManager.SimulationArchiveOnLocalDiskIntegratedPBSQueue.submit_job">
+<span class="sig-name descname"><span class="pre">submit_job</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">script_path</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.simulation_manager.PBSManager.SimulationArchiveOnLocalDiskIntegratedPBSQueue.submit_job" title="Link to this definition"></a></dt>
+<dd><p>Submits a PBS script via qsub and captures the job ID.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.simulation_manager.PBSManager.default_pbs_build_job">
+<span class="sig-prename descclassname"><span class="pre">RIFT.simulation_manager.PBSManager.</span></span><span class="sig-name descname"><span class="pre">default_pbs_build_job</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'job_tag_default_pbs'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">exe</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">arg_str</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sim_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pbs_args</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">array_range</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.simulation_manager.PBSManager.default_pbs_build_job" title="Link to this definition"></a></dt>
+<dd><p>Builds a PBS submit script.
+pbs_args: dict of PBS options, e.g., {‘queue’: ‘workq’, ‘walltime’: ‘01:00:00’, ‘nodes’: ‘1:ppn=1’}
+array_range: PBS array job specification, e.g., ‘1-10’ or ‘1-10:2’ (step size)</p>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="CondorManager.html" class="btn btn-neutral float-left" title="CondorManager API Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="SlurmManager.html" class="btn btn-neutral float-right" title="SlurmManager API Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,734 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simulation archive design &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=82021441" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Simulation Manager Backends" href="backends/index.html" />
+    <link rel="prev" title="Glue Compatibility API Reference" href="glue_compat.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="index.html">Simulation Manager API Reference</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="BaseManager.html">BaseManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="CondorManager.html">CondorManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="PBSManager.html">PBSManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="SlurmManager.html">SlurmManager API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="database.html">Simulation Database API Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="glue_compat.html">Glue Compatibility API Reference</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Simulation archive design</a></li>
+<li class="toctree-l3"><a class="reference internal" href="backends/index.html">Simulation Manager Backends</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../asimov/index.html">Asimov Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../calmarg.html">Calibration Marginalization API Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../misc/index.html">Misc Utilities</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../lalsimutils.html">LALSimUtils</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API Reference</a></li>
+          <li class="breadcrumb-item"><a href="index.html">Simulation Manager API Reference</a></li>
+      <li class="breadcrumb-item active">Simulation archive design</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api_reference/simulation_manager/design_overview.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="simulation-archive-design">
+<h1>Simulation archive design<a class="headerlink" href="#simulation-archive-design" title="Link to this heading"></a></h1>
+<p>This document describes the on-disk format and core abstractions for a
+RIFT simulation archive. The goals are:</p>
+<ol class="arabic simple">
+<li><p><strong>Self-contained.</strong> An archive is a directory you can copy, ship, and
+read months later without access to the originating source tree.</p></li>
+<li><p><strong>Cheap to query.</strong> Listing what’s in the archive, what’s complete,
+and basic per-sim summaries should not require opening every output
+file. There is a single <cite>index.jsonl</cite> for that.</p></li>
+<li><p><strong>Two-tier queueing.</strong> The queue used to <em>request</em> simulations is
+independent of the queue used to <em>run</em> them. A typical OSG setup is
+“Condor DAG on the submit host requests sims; a Slurm cluster runs
+them.” A test setup might be “local request, local run.” The archive
+does not care.</p></li>
+<li><p><strong>Frozen code.</strong> The user-supplied generator is captured at archive
+creation time and stored under <cite>code/</cite>. Workers <cite>exec</cite> the frozen
+copy. The archive is portable without the original repository.</p></li>
+</ol>
+<p>The existing classes in <cite>BaseManager.py</cite> / <cite>CondorManager.py</cite> /
+<cite>SlurmManager.py</cite> evolve toward this design; the new schemas live
+alongside them in <cite>database.py</cite> (stub, this commit) and can be adopted
+incrementally.</p>
+<section id="on-disk-layout">
+<h2>On-disk layout<a class="headerlink" href="#on-disk-layout" title="Link to this heading"></a></h2>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>&lt;base_location&gt;/
+  manifest.json                 # archive-level metadata (schema, name, code refs, queue config)
+  code/                         # frozen interfaces — required to *run* workers, not to read summaries
+    generator.py                # entrypoint: generator.run(params, sim_dir) -&gt; writes output
+    summarizer.py               # OPTIONAL: summarize(sim_dir) -&gt; dict (used post-completion)
+    requirements.txt            # OPTIONAL: package versions known at archive creation
+    README                      # human note: what this archive is, how it was built
+  index.jsonl                   # one JSON object per line, one line per sim — canonical and cheap
+  sims/
+    &lt;sim_name&gt;/                 # one subdirectory per sim (sim_name is the archive&#39;s internal id)
+      params.json               # canonical input parameters
+      status.json               # FSM state + per-queue tracking + history
+      summary.json              # summarizer output (written when status -&gt; complete)
+      output.&lt;ext&gt;              # raw output written by the worker; format up to the generator
+      logs/
+        worker.stdout
+        worker.stderr
+        run.log                 # generator-internal logging if any
+  request_queue/                # workspace for the queue that *requests* sims
+    dags/                       # condor DAGs (when request_queue.kind == &#39;condor&#39;)
+    *.sub
+  run_queue/                    # workspace for the queue that *runs* sims
+    workers/                    # generated per-sim worker scripts
+    submit_files/
+  state.json                    # cached cluster ids, last-poll timestamps, etc.
+</pre></div>
+</div>
+<p>Anything that’s “configuration we may want to overwrite atomically”
+lives at the archive root; anything per-sim lives under
+<cite>sims/&lt;sim_name&gt;/</cite>. Anything queue-system-specific lives under
+<cite>request_queue/</cite> or <cite>run_queue/</cite> — the archive itself stays neutral.</p>
+</section>
+<section id="manifest">
+<h2>Manifest<a class="headerlink" href="#manifest" title="Link to this heading"></a></h2>
+<p><cite>manifest.json</cite> at the archive root, written once at archive creation
+and updated only when archive-level configuration changes (e.g. a queue
+swap). Schema:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;schema_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;GW190521_grid_v3&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;created_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-04-26T15:00:00Z&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;rift_version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;0.0.18.0&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;generator&quot;</span><span class="p">:</span><span class="w">            </span><span class="s2">&quot;code/generator.py&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;generator_entrypoint&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;generator:run&quot;</span><span class="p">,</span><span class="w">       </span><span class="c1">// module:callable</span>
+<span class="w">    </span><span class="nt">&quot;summarizer&quot;</span><span class="p">:</span><span class="w">           </span><span class="s2">&quot;code/summarizer.py&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;summarizer_entrypoint&quot;</span><span class="p">:</span><span class="s2">&quot;summarizer:summarize&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;requirements&quot;</span><span class="p">:</span><span class="w">         </span><span class="s2">&quot;code/requirements.txt&quot;</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;request_queue&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;condor&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;extra&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;run_queue&quot;</span><span class="p">:</span><span class="w">     </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;slurm&quot;</span><span class="p">,</span><span class="w">  </span><span class="nt">&quot;extra&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;partition&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;compute&quot;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;params_schema&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;scalar&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;dtype&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;float&quot;</span><span class="w"> </span><span class="p">},</span><span class="w">   </span><span class="c1">// hint only</span>
+<span class="w">  </span><span class="nt">&quot;summary_schema&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;fields&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;float&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;wall_time_s&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;float&quot;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The split between <cite>code.generator_entrypoint</cite> (“module:callable”)
+matches the <cite>setuptools</cite> convention and works equally well for a
+single-file generator and a multi-file package frozen under <cite>code/</cite>.</p>
+</section>
+<section id="index">
+<h2>Index<a class="headerlink" href="#index" title="Link to this heading"></a></h2>
+<p><cite>index.jsonl</cite> is one record per sim. It is the <strong>fast, canonical view</strong>:
+listing the archive, filtering by status, computing aggregate summaries
+all use this file and never touch <cite>sims/&lt;sim_name&gt;/</cite> directly. The full
+per-sim story lives in <cite>status.json</cite> + <cite>summary.json</cite>; the index is a
+projection.</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="s2">&quot;1&quot;</span><span class="p">,</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="s2">&quot;complete&quot;</span><span class="p">,</span><span class="nt">&quot;params&quot;</span><span class="p">:</span><span class="mf">0.5</span><span class="p">,</span><span class="nt">&quot;summary&quot;</span><span class="p">:{</span><span class="nt">&quot;value&quot;</span><span class="p">:</span><span class="mf">0.7071</span><span class="p">}}</span>
+<span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="s2">&quot;2&quot;</span><span class="p">,</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="s2">&quot;running&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;params&quot;</span><span class="p">:</span><span class="mf">1.5</span><span class="p">,</span><span class="nt">&quot;summary&quot;</span><span class="p">:</span><span class="kc">null</span><span class="p">}</span>
+<span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="s2">&quot;3&quot;</span><span class="p">,</span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="s2">&quot;ready&quot;</span><span class="p">,</span><span class="w">   </span><span class="nt">&quot;params&quot;</span><span class="p">:</span><span class="mf">2.5</span><span class="p">,</span><span class="nt">&quot;summary&quot;</span><span class="p">:</span><span class="kc">null</span><span class="p">}</span>
+</pre></div>
+</div>
+<p>Append-only with periodic compaction. A run that registers many sims
+appends one line per sim under a single index lock; status updates
+compact (rewrite) the file under the same lock. Compaction is cheap
+because the file is JSON-lines and rarely larger than a few MB even
+for 100k sims.</p>
+</section>
+<section id="per-sim-status">
+<h2>Per-sim status<a class="headerlink" href="#per-sim-status" title="Link to this heading"></a></h2>
+<p><cite>sims/&lt;sim_name&gt;/status.json</cite>. Contains the FSM state plus per-queue
+tracking and a transition log. The FSM is the same as today’s
+<cite>QUEUE_STATES</cite>:
+<cite>ready -&gt; submit_ready -&gt; running -&gt; complete | stuck</cite>.</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;params&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;running&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;history&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ready&quot;</span><span class="p">,</span><span class="w">        </span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-04-26T15:00:00Z&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;submit_ready&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-04-26T15:00:05Z&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;running&quot;</span><span class="p">,</span><span class="w">      </span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2026-04-26T15:00:30Z&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;request_queue&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;condor&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;cluster_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">12345</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;proc_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;dag_node&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sim_1&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;run_queue&quot;</span><span class="p">:</span><span class="w">     </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;slurm&quot;</span><span class="p">,</span><span class="w">  </span><span class="nt">&quot;job_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">98765</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;host&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;compute-7&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;output&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sims/1/output.npy&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;size&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;sha256&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;started_at&quot;</span><span class="p">:</span><span class="w">   </span><span class="s2">&quot;2026-04-26T15:00:30Z&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;completed_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The <cite>request_queue</cite> and <cite>run_queue</cite> blocks are independent — the same
+sim can be tracked in two systems at once. <cite>kind</cite> matches the value in
+the manifest’s queue spec.</p>
+</section>
+<section id="frozen-code">
+<h2>Frozen code<a class="headerlink" href="#frozen-code" title="Link to this heading"></a></h2>
+<p>At archive creation, the user supplies one of:</p>
+<ol class="arabic simple">
+<li><p><strong>A Python callable.</strong> The archive captures <cite>inspect.getsource(fn)</cite>
+and writes <cite>code/generator.py</cite> with a <cite>run(params, sim_dir)</cite>
+entrypoint. Closure captures and unusual import scopes are <em>not</em>
+supported; the function must be self-contained.</p></li>
+<li><p><strong>A path to a `.py` file.</strong> Copied verbatim. The user is responsible
+for naming the entrypoint per the manifest.</p></li>
+<li><p><strong>A spec dict.</strong> <cite>{ “module_path”: “…”, “entrypoint”: “mod:fn”,
+“extra_files”: [“aux.py”, “data.csv”] }</cite>. All listed files are copied
+into <cite>code/</cite>; <cite>module_path</cite> becomes <cite>code/generator.py</cite> (or whatever
+the spec names).</p></li>
+</ol>
+<p>A worker invocation is then approximately:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import sys; sys.path.insert(0, &#39;code&#39;); \</span>
+<span class="s2">  from generator import run; run(params=..., sim_dir=&#39;sims/1&#39;)&quot;</span>
+</pre></div>
+</div>
+<p>— so the archive is runnable without RIFT being installed, given a
+Python interpreter and whatever the generator’s own deps are. The
+optional <cite>code/requirements.txt</cite> documents those.</p>
+<p>Reading <strong>summaries</strong> does not need <cite>code/</cite> at all — <cite>summary.json</cite> is
+plain JSON. Reading <strong>outputs</strong> may need <cite>code/</cite> if the format is
+opaque (e.g. pickled objects), so a generator that writes <cite>.npy</cite>/<cite>.h5</cite>/
+JSON is preferred.</p>
+</section>
+<section id="similarity-dedup">
+<h2>Similarity / dedup<a class="headerlink" href="#similarity-dedup" title="Link to this heading"></a></h2>
+<p>Users come back. They request “the same” sim again. Sometimes “the
+same” means bit-identical params; sometimes it means “the same up to
+floating-point noise”; sometimes it means “the same up to a domain-
+specific tolerance” (mass within 1e-6 solar masses, spin within 1e-3,
+etc.). The archive should not redo work in any of these cases.</p>
+<p>Two user-supplied callables, both optional, both frozen alongside the
+generator under <cite>code/</cite>:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">same_q</span><span class="p">(</span><span class="n">params_a</span><span class="p">,</span> <span class="n">params_b</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Reflexive, symmetric, transitive equality on parameters.</span>
+<span class="sd">    Defaults to exact equality (params_a == params_b).&quot;&quot;&quot;</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">lookup_key</span><span class="p">(</span><span class="n">params</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Hashable</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Maps params to a coarse hashable bucket for fast dedup.</span>
+<span class="sd">    Must be consistent with same_q: same_q(a, b) == True implies</span>
+<span class="sd">    lookup_key(a) == lookup_key(b). Defaults to str(params).&quot;&quot;&quot;</span>
+</pre></div>
+</div>
+<p>These together give O(1) average lookup: bucket by <cite>lookup_key</cite>, then
+run <cite>same_q</cite> against only the (typically zero or one) entries in that
+bucket. The archive keeps an in-memory <cite>{lookup_key: [sim_name, …]}</cite>
+map, rebuilt from <cite>index.jsonl</cite> on rehydration.</p>
+<p>Each row in <cite>index.jsonl</cite> carries its <cite>lookup_key</cite> so the dedup index
+can be rebuilt without ever calling the user’s code (useful when
+inspecting an archive on a machine that doesn’t have the generator’s
+runtime deps).</p>
+<p><cite>Archive.register(params)</cite> becomes idempotent under same_q: it returns
+the existing sim’s name when a match is found, registers a fresh sim
+otherwise. <cite>Archive.find_existing(params) -&gt; Optional[str]</cite> is exposed
+for callers that want to look without registering.</p>
+<p>The manifest grows two optional <cite>code.*</cite> entries:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;generator&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;code/generator.py&quot;</span><span class="p">,</span><span class="w">         </span><span class="nt">&quot;generator_entrypoint&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;generator:run&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;same_q&quot;</span><span class="p">:</span><span class="w">    </span><span class="s2">&quot;code/same_q.py&quot;</span><span class="p">,</span><span class="w">            </span><span class="nt">&quot;same_q_entrypoint&quot;</span><span class="p">:</span><span class="w">    </span><span class="s2">&quot;same_q:same_q&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;lookup_key&quot;</span><span class="p">:</span><span class="s2">&quot;code/lookup_key.py&quot;</span><span class="p">,</span><span class="w">        </span><span class="nt">&quot;lookup_key_entrypoint&quot;</span><span class="p">:</span><span class="s2">&quot;lookup_key:lookup_key&quot;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Typical usage, gravitational-wave style:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">lookup_key</span><span class="p">(</span><span class="n">p</span><span class="p">):</span>
+    <span class="c1"># Round into a coarse grid; tolerance below same_q&#39;s threshold.</span>
+    <span class="k">return</span> <span class="p">(</span><span class="nb">round</span><span class="p">(</span><span class="n">p</span><span class="p">[</span><span class="s2">&quot;mtotal&quot;</span><span class="p">],</span> <span class="mi">4</span><span class="p">),</span>
+            <span class="nb">round</span><span class="p">(</span><span class="n">p</span><span class="p">[</span><span class="s2">&quot;q&quot;</span><span class="p">],</span>      <span class="mi">4</span><span class="p">),</span>
+            <span class="nb">round</span><span class="p">(</span><span class="n">p</span><span class="p">[</span><span class="s2">&quot;chi1z&quot;</span><span class="p">],</span>  <span class="mi">3</span><span class="p">),</span>
+            <span class="nb">round</span><span class="p">(</span><span class="n">p</span><span class="p">[</span><span class="s2">&quot;chi2z&quot;</span><span class="p">],</span>  <span class="mi">3</span><span class="p">))</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">same_q</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+    <span class="k">return</span> <span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="s2">&quot;mtotal&quot;</span><span class="p">]</span> <span class="o">-</span> <span class="n">b</span><span class="p">[</span><span class="s2">&quot;mtotal&quot;</span><span class="p">])</span> <span class="o">&lt;</span> <span class="mf">1e-3</span> <span class="ow">and</span>
+            <span class="nb">abs</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="s2">&quot;q&quot;</span><span class="p">]</span>      <span class="o">-</span> <span class="n">b</span><span class="p">[</span><span class="s2">&quot;q&quot;</span><span class="p">])</span>      <span class="o">&lt;</span> <span class="mf">1e-3</span> <span class="ow">and</span>
+            <span class="nb">abs</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="s2">&quot;chi1z&quot;</span><span class="p">]</span>  <span class="o">-</span> <span class="n">b</span><span class="p">[</span><span class="s2">&quot;chi1z&quot;</span><span class="p">])</span>  <span class="o">&lt;</span> <span class="mf">1e-2</span> <span class="ow">and</span>
+            <span class="nb">abs</span><span class="p">(</span><span class="n">a</span><span class="p">[</span><span class="s2">&quot;chi2z&quot;</span><span class="p">]</span>  <span class="o">-</span> <span class="n">b</span><span class="p">[</span><span class="s2">&quot;chi2z&quot;</span><span class="p">])</span>  <span class="o">&lt;</span> <span class="mf">1e-2</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="refinement-iterative-improvement">
+<h2>Refinement (iterative improvement)<a class="headerlink" href="#refinement-iterative-improvement" title="Link to this heading"></a></h2>
+<p>A simulation is rarely “done” in a binary sense. For GW parameter
+inference the lnL at a single (mc, eta) is computed via a Monte Carlo
+integral; the answer can always be made tighter by running more
+samples. A user might come back and say “this point doesn’t have the
+precision I need — improve it.”</p>
+<p>The archive models this as a <cite>level</cite> counter per sim:</p>
+<ul class="simple">
+<li><p>Each sim has a <cite>target_level</cite> (what’s been requested) and a
+<cite>current_level</cite> (what’s been computed). They’re both integers,
+starting at 0.</p></li>
+<li><p>A sim’s output is a sequence of per-level files:
+<cite>sims/&lt;name&gt;/level_1.json</cite>, <cite>level_2.json</cite>, … Each level is
+self-contained (or builds on its predecessors — that’s the
+generator’s choice).</p></li>
+<li><p>The summarizer can fold all completed levels into a single rolling
+summary (e.g. weighted average of lnL across levels with errors that
+shrink with sample count).</p></li>
+</ul>
+<p>The FSM extends:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>ready          -&gt; never run, target_level &gt;= 1, current_level == 0
+submit_ready   -&gt; queued for the run system (next level to compute is current_level + 1)
+running        -&gt; a level is being computed
+complete       -&gt; current_level == target_level
+refine_ready   -&gt; output exists (current_level &gt;= 1) but target_level &gt; current_level
+stuck          -&gt; failure
+</pre></div>
+</div>
+<p><cite>Archive.register(params, target_level=N)</cite> is <em>idempotent on bump</em>:
+- doesn’t exist: register fresh with <cite>target_level=N</cite>
+- exists at <cite>current_level &gt;= N</cite>: return name, no work
+- exists at <cite>current_level &lt; N</cite>: bump <cite>target_level</cite> to <cite>max(existing, N)</cite>,</p>
+<blockquote>
+<div><p>transition to <cite>refine_ready</cite>, return name</p>
+</div></blockquote>
+<p><cite>Archive.refine(name, target_level=N)</cite> is the explicit form for
+callers that already know the sim_name.</p>
+<p>The generator signature is <cite>(params, sim_dir, level, prev_levels)</cite>:
+- <cite>level</cite>: integer, the level being computed right now
+- <cite>prev_levels</cite>: list of paths to outputs from levels 1..level-1, so</p>
+<blockquote>
+<div><p>the generator can read prior work and extend it (e.g. a Monte Carlo
+generator can accumulate samples from earlier levels)</p>
+</div></blockquote>
+<p>Each <cite>register_simulation</cite> invocation in the run queue may compute one
+or many levels. The simplest run queue computes one level per submit
+and re-submits the sim for the next level. A smarter run queue might
+batch level-1-through-N for a sim into a single condor job to amortize
+startup cost.</p>
+<p>Status records grow a <cite>levels[]</cite> list:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;params&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;mc&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">25.0</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;eta&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.22</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;complete&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;target_level&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;current_level&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;levels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;output_path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sims/1/level_1.json&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;completed_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;output_path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sims/1/level_2.json&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;completed_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">3</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;output_path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sims/1/level_3.json&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;completed_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;output_path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sims/1/level_4.json&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;completed_at&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;summary&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;lnL_mean&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-123.4</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;lnL_stderr&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.05</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;n_samples&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">4000</span><span class="w"> </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</section>
+<section id="two-tier-queueing">
+<h2>Two-tier queueing<a class="headerlink" href="#two-tier-queueing" title="Link to this heading"></a></h2>
+<p>Two interfaces, composed by the archive. The same archive can mix and
+match: <cite>(LocalRequestQueue, LocalRunQueue)</cite> for tests,
+<cite>(CondorRequestQueue, SlurmRunQueue)</cite> for an OSG-fed cluster,
+<cite>(CondorRequestQueue, CondorRunQueue)</cite> if the request and run queues
+are the same condor pool, etc.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">RequestQueue</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Decides which sims should next be sent to the run queue, and</span>
+<span class="sd">    tracks their state in the request system. The request queue does</span>
+<span class="sd">    NOT execute sims; it forwards them to the run queue.&quot;&quot;&quot;</span>
+    <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">submit_pending</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">archive</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span> <span class="o">...</span>   <span class="c1"># &#39;ready&#39;   -&gt; &#39;submit_ready&#39;/&#39;running&#39;</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">poll</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">archive</span><span class="p">)</span>            <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span> <span class="o">...</span> <span class="c1"># name -&gt; request-side status</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">RunQueue</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Actually runs sims (writes the output file).&quot;&quot;&quot;</span>
+    <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">build_worker</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">archive</span><span class="p">,</span> <span class="n">sim_name</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span> <span class="o">...</span>      <span class="c1"># path to per-sim worker script</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">submit</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">archive</span><span class="p">,</span> <span class="n">sim_names</span><span class="p">)</span>      <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span> <span class="o">...</span>   <span class="c1"># (name, run_queue_id)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">poll</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">archive</span><span class="p">,</span> <span class="n">sim_names</span><span class="p">)</span>        <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span> <span class="o">...</span> <span class="c1"># name -&gt; run-side status</span>
+</pre></div>
+</div>
+<p>In a production OSG setup the implementations look like:
+- <cite>CondorRequestQueue.submit_pending</cite>: builds a DAG over all <cite>ready</cite></p>
+<blockquote>
+<div><p>sims, calls <cite>condor_submit_dag</cite>, stamps <cite>submit_ready</cite>.</p>
+</div></blockquote>
+<ul class="simple">
+<li><p><cite>CondorRequestQueue.poll</cite>: queries the schedd via <cite>_htcondor_module</cite>
+(htcondor or htcondor2), updates <cite>request_queue.cluster_id</cite> etc.</p></li>
+<li><p><cite>SlurmRunQueue.build_worker</cite>: writes <cite>run_queue/workers/&lt;name&gt;.sh</cite>
+that loads <cite>code/generator.py</cite> and calls <cite>run(params, sim_dir)</cite>.</p></li>
+<li><p><cite>SlurmRunQueue.submit</cite>: <cite>sbatch</cite> per worker, capture job ids.</p></li>
+<li><p><cite>SlurmRunQueue.poll</cite>: <cite>squeue –json</cite> parse → status.</p></li>
+</ul>
+<p>The archive composes them and owns the FSM transitions: queue
+implementations <em>report</em> state, the archive <em>applies</em> it.</p>
+</section>
+<section id="topology-dual-condor">
+<h2>Topology: dual condor<a class="headerlink" href="#topology-dual-condor" title="Link to this heading"></a></h2>
+<p>A common production setup at OSG is <em>two condor pools</em>: a “request”
+pool on a dedicated submit host that runs the long-lived planner DAG,
+and a “run” pool (typically OSG itself, or a remote site) that runs
+the actual workers. The archive doesn’t care that both happen to be
+condor — they’re configured as two separate <cite>(RequestQueue, RunQueue)</cite>
+instances. Concretely:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>+-------------------------------+        +---------------------------------+
+| request pool (e.g. CIT submit)|        | run pool (e.g. OSG / remote site)|
+|                               |        |                                  |
+|   meta-DAG                    |        |   sub-DAG (one per scout pass)  |
+|   ┌─────────────┐             |        |   ┌─────────────┐               |
+|   │ scout       │             |        |   │ sim_a lvl 1 │               |
+|   │ (read       │             |        |   │ sim_b lvl 1 │               |
+|   │  archive,   │             |        |   │ sim_c lvl 2 │  (refine)     |
+|   │  pick work) │             |        |   │ sim_a lvl 2 │  (refine)     |
+|   └─────┬───────┘             |        |   └─────┬───────┘               |
+|         │                     |        |         │                       |
+|   ┌─────▼───────┐ -- submit ──┼────────┼──&gt; writes outputs to shared FS  |
+|   │ submit_run  │  via        |        |         │                       |
+|   │ (condor_    │ condor_     |        |   ┌─────▼───────┐               |
+|   │  submit_dag │ submit_dag  |        |   │ workers     │               |
+|   │  -name run) │ -name run   |        |   │ (run gen)   │               |
+|   └─────┬───────┘             |        |   └─────────────┘               |
+|         │                     |        |                                  |
+|   ┌─────▼───────┐             |        +---------------------------------+
+|   │ wait/poll   │ &lt;-- htcondor.Schedd(run_pool).query(...)
+|   │ collect     │
+|   └─────┬───────┘
+|         │
+|   ┌─────▼───────┐
+|   │ iterate     │ -- back to scout
+|   └─────────────┘
++-------------------------------+
+
+                shared filesystem (the archive)
+            &lt;base&gt;/manifest.json, index.jsonl, sims/...
+</pre></div>
+</div>
+<p>The shared filesystem typically only spans the <em>submit</em> nodes of each
+pool (and is most often the same machine for both pools, or two
+machines NFS-cross-mounted). Execute hosts on the run pool — OSG
+machines, leased EC2 nodes, etc. — generally have no view of the
+archive directory. The framework’s job is to ferry exactly the files
+each (sim, level) worker needs onto the execute host, run there, and
+ferry the level output back.</p>
+<section id="file-transfer-model-no-shared-fs-at-execute-hosts">
+<h3>File-transfer model (no shared FS at execute hosts)<a class="headerlink" href="#file-transfer-model-no-shared-fs-at-execute-hosts" title="Link to this heading"></a></h3>
+<p>Each (sim, level) worker is a self-contained condor job that:</p>
+<ol class="arabic">
+<li><p><strong>Receives</strong> these files via <cite>transfer_input_files</cite>:
+* <cite>code/</cite> — the entire frozen code directory (generator,</p>
+<blockquote>
+<div><p>summarizer, etc.). Condor preserves the directory name in the
+sandbox.</p>
+</div></blockquote>
+<ul class="simple">
+<li><p><cite>sims/&lt;name&gt;/params.json</cite> — flattened by condor to <cite>params.json</cite>
+in the sandbox cwd.</p></li>
+<li><p><cite>sims/&lt;name&gt;/level_1.json</cite>, …, <cite>sims/&lt;name&gt;/level_&lt;N-1&gt;.json</cite> —
+prior levels needed by an accumulating generator. Condor flattens
+these to <cite>level_&lt;i&gt;.json</cite> in cwd.</p></li>
+</ul>
+</li>
+<li><p><strong>Runs</strong> a small bootstrap script (also transferred in <cite>code/</cite> or
+composed inline) that does:</p>
+<blockquote>
+<div><p>sys.path.insert(0, ‘code’); from generator import run
+params = json.load(open(‘params.json’))
+run(params, sim_dir=os.getcwd(), level=N, prev_levels=[‘level_1.json’, …])</p>
+</div></blockquote>
+</li>
+<li><p><strong>Writes</strong> <cite>level_&lt;N&gt;.json</cite> in cwd.</p></li>
+<li><p><strong>Ships</strong> that file back via <cite>transfer_output_files = level_&lt;N&gt;.json</cite>
+plus <cite>transfer_output_remaps = “level_&lt;N&gt;.json = &lt;abs_path&gt;/sims/&lt;name&gt;/level_&lt;N&gt;.json”</cite>
+so the file lands at the correct location in the archive on the
+submit node.</p></li>
+</ol>
+<p>The submit-side helper <cite>Archive.transfer_input_files_for(sim_name,
+level)</cite> returns the input list; <cite>Archive.expected_output(sim_name,
+level)</cite> returns the output basename + remap target.</p>
+<p>For very large inputs (NR catalogs, conditioned data) condor’s
+<cite>osdf://</cite> URLs are the right escape hatch — same pattern as the
+existing CondorManager’s <cite>singularity_image</cite> handling. The framework
+should treat anything beyond a small <cite>params.json + level files</cite> budget
+as a hint to push it through OSDF rather than <cite>transfer_input_files</cite>.</p>
+<p>Neither pool talks to the other directly. The submit-side queue
+implementations are responsible for assembling the input set, naming
+the remap, and parsing condor events to know when transfer-back is
+complete. Once the level file exists at its remapped location, the
+archive’s existing <cite>refresh_status_from_disk</cite> style sweep promotes the
+sim to <cite>complete</cite> (or to <cite>refine_ready</cite> if more levels remain).</p>
+<p>Implementation notes for the dual-condor queue classes:</p>
+<ul>
+<li><p><cite>DualCondorRequestQueue</cite> runs on the request pool. Its
+<cite>submit_pending(archive)</cite> writes a sub-DAG file under
+<cite>&lt;base&gt;/request_queue/dags/</cite>, the sub-DAG’s nodes target the <em>run</em>
+pool via condor’s <cite>-name &lt;run_schedd&gt;</cite> argument, and returns the
+cluster id of the spawned <cite>condor_submit_dag</cite> process.</p></li>
+<li><p><cite>DualCondorRunQueue</cite> runs on the run pool. Its <cite>build_worker(sim,
+level)</cite> writes a per-(sim,level) submit description under
+<cite>&lt;base&gt;/run_queue/submit_files/&lt;sim&gt;_lvl&lt;N&gt;.sub</cite>, with the executable
+set to a small bootstrap that does:</p>
+<blockquote>
+<div><p><cite>python -c “from generator import run; run(&lt;params&gt;, &lt;sim_dir&gt;, &lt;level&gt;, &lt;prev&gt;)”</cite></p>
+</div></blockquote>
+<p>(<cite>generator</cite> is loaded from the frozen <cite>code/</cite> dir).</p>
+</li>
+<li><p>Polling on the request side queries the run pool’s schedd:
+<cite>htcondor.Schedd(&lt;run_pool_collector&gt;).query(…)</cite>. The
+<cite>_htcondor_module</cite> caching machinery from <cite>CondorManager.py</cite> is
+reusable as-is.</p></li>
+</ul>
+<p>The <cite>kind</cite> discriminator in the manifest stays as <cite>“condor”</cite> for both
+queue records; the <cite>extra</cite> dict carries the <cite>pool</cite> / <cite>schedd</cite> / DAG
+template differences.</p>
+</section>
+</section>
+<section id="topology-slurm">
+<h2>Topology: SLURM<a class="headerlink" href="#topology-slurm" title="Link to this heading"></a></h2>
+<p>The SLURM equivalent of <cite>DualCondorRunQueue</cite> is <cite>SlurmRunQueue</cite> (paired
+with <cite>SlurmRequestQueue</cite>). Two important differences from condor:</p>
+<ul class="simple">
+<li><p><strong>Shared filesystem at compute nodes is assumed.</strong> SLURM has no
+built-in <cite>transfer_input_files</cite>/<cite>transfer_output_files</cite> analog. The
+framework treats the archive directory as visible from the worker
+(the standard HPC model with NFS-mounted home/scratch). Sites
+without that property should arrange a Singularity container with
+bind-mounts (<cite>singularity exec -B &lt;archive&gt;:&lt;archive&gt; … python3 …</cite>)
+in the queue’s <cite>prelude</cite> snippet, or use <cite>sbcast</cite> to broadcast a
+manifest to <cite>/tmp</cite> on the workers.</p></li>
+<li><p><strong>Inter-job dependencies use `–dependency=afterok:&lt;jobid&gt;`</strong> rather
+than DAGMan’s PARENT/CHILD edges. <cite>SlurmRunQueue.submit</cite> chains each
+sim’s level submissions; level N’s sbatch waits for level N-1 to
+exit cleanly.</p></li>
+</ul>
+<p>The per-(sim, level) submit script is a normal <cite>#!/bin/bash</cite> script
+with <cite>#SBATCH</cite> directives at the top, a <cite>prelude</cite> shell snippet (e.g.
+<cite>module load python/3.11</cite>, virtualenv activate), <cite>cd &lt;sim_dir&gt;</cite>, and a
+final <cite>exec python3 &lt;archive&gt;/run_queue/workers/bootstrap.py …</cite>. The
+bootstrap is the same one condor uses; the only adaptation is the
+<cite>–code-dir</cite> argument (passed as the absolute path to <cite>&lt;archive&gt;/code</cite>
+because the worker’s cwd is <cite>&lt;sim_dir&gt;</cite>, not a flattened sandbox).</p>
+<p>OOM auto-recovery is not built into the SLURM submit description.
+SLURM’s standard idiom is <cite>–requeue</cite> plus operator-driven <cite>scontrol
+update jobid=… ReqMem=…</cite>; the archive’s <cite>Archive.unstick(name,
+bump_memory=True)</cite> covers this from the framework side. For sites that
+want fully automatic retry, wrap the sbatch in a re-submit harness in
+the queue’s <cite>prelude</cite>.</p>
+<p>Configuration in the manifest’s <cite>run_queue.extra</cite>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">partition</span><span class="p">:</span><span class="w">           </span><span class="l l-Scalar l-Scalar-Plain">compute</span><span class="w">        </span><span class="c1"># required</span>
+<span class="nt">time_limit</span><span class="p">:</span><span class="w">          </span><span class="s">&quot;02:00:00&quot;</span><span class="w">     </span><span class="c1"># default 01:00:00</span>
+<span class="nt">nodes</span><span class="p">:</span><span class="w">               </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="nt">ntasks</span><span class="p">:</span><span class="w">              </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="nt">cpus_per_task</span><span class="p">:</span><span class="w">       </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<span class="nt">request_memory</span><span class="p">:</span><span class="w">      </span><span class="l l-Scalar l-Scalar-Plain">4096</span><span class="w">           </span><span class="c1"># MB</span>
+<span class="nt">account</span><span class="p">:</span><span class="w">             </span><span class="l l-Scalar l-Scalar-Plain">ligo-research</span><span class="w">  </span><span class="c1"># or env SLURM_ACCOUNT</span>
+<span class="nt">qos</span><span class="p">:</span><span class="w">                 </span><span class="l l-Scalar l-Scalar-Plain">normal</span><span class="w">         </span><span class="c1"># or env SLURM_QOS</span>
+<span class="nt">prelude</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<span class="w">  </span><span class="no">module load python/3.11</span>
+<span class="w">  </span><span class="no">source /home/me/rift-env/bin/activate</span>
+<span class="nt">partition_extra</span><span class="p">:</span><span class="w">                    </span><span class="c1"># extra `--key=value` directives</span>
+<span class="w">  </span><span class="nt">gres</span><span class="p">:</span><span class="w">              </span><span class="l l-Scalar l-Scalar-Plain">gpu:1</span>
+<span class="w">  </span><span class="nt">exclusive</span><span class="p">:</span><span class="w">         </span><span class="s">&quot;&quot;</span>
+</pre></div>
+</div>
+<p>Per-sim overrides supported via <cite>Archive.set_resources(name, …)</cite>:
+<cite>request_memory</cite>, <cite>time_limit</cite>, <cite>partition</cite>, plus
+<cite>extra_sbatch_directives</cite> (a dict; merged into the queue’s
+<cite>partition_extra</cite>).</p>
+<section id="configuration-defaults">
+<h3>Configuration defaults<a class="headerlink" href="#configuration-defaults" title="Link to this heading"></a></h3>
+<p><cite>DualCondorRunQueue</cite> reads the following from the constructor first,
+then falls back to environment variables, then to hard-coded defaults:</p>
+<p>The <cite>getenv</cite> default is an <em>allowlist</em> rather than <cite>True</cite> because
+<cite>getenv = True</cite> is blocked by many sites (CIT among them). The
+allowlist is the OSG-blessed convention from <cite>docs/source/osg.rst</cite>.
+Sites that permit blanket env forwarding can set <cite>RIFT_GETENV=True</cite>
+in the submit-side environment, pass <cite>getenv=’True’</cite> to the
+<cite>DualCondorRunQueue</cite> constructor, or set <cite>run_queue.extra.getenv</cite> in
+the manifest.</p>
+<p>The env-var fallback matches the legacy <cite>CondorManager</cite> behavior, so
+existing LIGO/IGWN submit hosts that already export <cite>LIGO_ACCOUNTING</cite>
+and <cite>LIGO_USER_NAME</cite> work without manifest changes. Manifest values in
+<cite>run_queue.extra</cite> override constructor defaults, which override env
+vars — manifest &gt; constructor &gt; env &gt; hard-coded.</p>
+<p>OSG site-selection knobs (<cite>+DESIRED_SITES</cite>, <cite>+UNDESIRED_SITES</cite>,
+<cite>Requirements</cite>, etc.) are passed via the constructor’s
+<cite>extra_condor_cmds</cite> dict (or <cite>run_queue.extra.extra_condor_cmds</cite> in
+the manifest). The bindings appear verbatim as additional <cite>key =
+value</cite> lines in every per-(sim, level) submit description.</p>
+</section>
+</section>
+<section id="hyperpipeline-glue-pipeline-integration">
+<h2>Hyperpipeline / glue.pipeline integration<a class="headerlink" href="#hyperpipeline-glue-pipeline-integration" title="Link to this heading"></a></h2>
+<p>Many existing RIFT workflows are built with <cite>glue.pipeline.CondorDAG</cite>
+(see <cite>RIFT/misc/dag_utils.py</cite>, the various <cite>bin/create_*_pipeline*</cite>
+scripts, and the hyperpipeline). The simulation archive must drop into
+that ecosystem without forcing a top-level rewrite: the user adds <em>one
+node</em> to their DAG that says “ensure simulation X is present at level
+N”, and downstream nodes simply add it as a parent.</p>
+<p>The integration is two pieces:</p>
+<ol class="arabic simple">
+<li><p><strong>`request_sim` CLI</strong> (<cite>RIFT.simulation_manager.cli.request_sim</cite>).
+A small executable that opens an archive, calls <cite>Archive.register</cite>,
+dispatches run-pool work via the configured request_queue if
+needed, and (in <cite>–ensure</cite> mode) blocks until the requested level
+is satisfied. Three modes: <cite>–ensure</cite> (the DAGMan-friendly default),
+<cite>–check</cite> (poll-once and exit), <cite>–submit-async</cite> (dispatch and
+return). Exit code drives DAGMan node success.</p></li>
+<li><p><strong>`RequestSimulationJob`</strong> (<cite>RIFT.simulation_manager.glue_compat</cite>).
+A <cite>glue.pipeline.CondorDAGJob</cite> subclass whose executable is the CLI
+above. Construct once per archive/profile; call <cite>make_node(params,
+target_level)</cite> to get a <cite>CondorDAGNode</cite> that the user attaches to
+their existing DAG. Per-node values arrive as standard glue macros
+(<cite>$(macro_params)</cite>, <cite>$(macro_target_level)</cite>).</p></li>
+</ol>
+<p>A consumer’s hyperpipeline-style flow looks like:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">glue</span><span class="w"> </span><span class="kn">import</span> <span class="n">pipeline</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">RIFT.simulation_manager.glue_compat</span><span class="w"> </span><span class="kn">import</span> <span class="n">RequestSimulationJob</span>
+
+<span class="n">dag</span> <span class="o">=</span> <span class="n">pipeline</span><span class="o">.</span><span class="n">CondorDAG</span><span class="p">(</span><span class="n">log</span><span class="o">=</span><span class="s1">&#39;hyperpipe.dag.log&#39;</span><span class="p">)</span>
+
+<span class="n">sim_job</span> <span class="o">=</span> <span class="n">RequestSimulationJob</span><span class="p">(</span>
+    <span class="n">archive_path</span><span class="o">=</span><span class="s1">&#39;/data/archives/lnL_grid&#39;</span><span class="p">,</span>
+    <span class="n">accounting_group</span><span class="o">=</span><span class="s1">&#39;ligo.dev.o4.cbc.pe.lalinferencerapid&#39;</span><span class="p">,</span>
+    <span class="n">accounting_group_user</span><span class="o">=</span><span class="s1">&#39;albert.einstein&#39;</span><span class="p">,</span>
+    <span class="n">timeout</span><span class="o">=</span><span class="mi">3600</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">sim_job</span><span class="o">.</span><span class="n">set_sub_file</span><span class="p">(</span><span class="s1">&#39;request_sim.sub&#39;</span><span class="p">)</span>
+<span class="n">sim_job</span><span class="o">.</span><span class="n">write_sub_file</span><span class="p">()</span>
+
+<span class="k">for</span> <span class="n">params</span> <span class="ow">in</span> <span class="n">points_of_interest</span><span class="p">:</span>
+    <span class="n">sim_node</span> <span class="o">=</span> <span class="n">sim_job</span><span class="o">.</span><span class="n">make_node</span><span class="p">(</span><span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">target_level</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+    <span class="n">dag</span><span class="o">.</span><span class="n">add_node</span><span class="p">(</span><span class="n">sim_node</span><span class="p">)</span>
+    <span class="n">downstream_node</span><span class="o">.</span><span class="n">add_parent</span><span class="p">(</span><span class="n">sim_node</span><span class="p">)</span>   <span class="c1"># blocks until ready</span>
+
+<span class="n">dag</span><span class="o">.</span><span class="n">set_dag_file</span><span class="p">(</span><span class="s1">&#39;hyperpipe&#39;</span><span class="p">)</span>
+<span class="n">dag</span><span class="o">.</span><span class="n">write_concrete_dag</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>The CLI runs on the <em>submit node</em> (where the archive lives). The
+parent DAG can therefore live on a different pool from the run pool;
+the request-sim node only needs the archive’s submit-node filesystem.
+When the CLI dispatches further work via the configured request_queue,
+the file-transfer machinery from the previous section ferries the
+inputs out to execute hosts and the outputs back.</p>
+<p><cite>glue.pipeline</cite> is treated as an optional dependency of the
+simulation_manager package: importing <cite>glue_compat</cite> is safe without it
+(only the <cite>RequestSimulationJob</cite> constructor raises a clear error if
+glue is actually missing). The CLI itself has no glue dependency.</p>
+</section>
+<section id="lightweight-example">
+<h2>Lightweight example<a class="headerlink" href="#lightweight-example" title="Link to this heading"></a></h2>
+<p><cite>examples/sim_database_hello.py</cite> registers three sims (params 0.5,
+1.5, 2.5), uses <cite>LocalRequestQueue + LocalRunQueue</cite> (which run the
+generator inline, no schedd), inspects <cite>manifest.json</cite> and
+<cite>index.jsonl</cite>, and reloads the archive in a fresh <cite>Archive(…)</cite> call
+to confirm everything round-trips. This is the smallest end-to-end
+exercise of the design and should always pass without any cluster.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="glue_compat.html" class="btn btn-neutral float-left" title="Glue Compatibility API Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="backends/index.html" class="btn btn-neutral float-right" title="Simulation Manager Backends" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
