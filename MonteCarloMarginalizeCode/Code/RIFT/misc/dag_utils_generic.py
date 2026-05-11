@@ -807,6 +807,16 @@ class HTCondorBackend(WorkflowBackend):
             sub["executable"] = str(job.executable)
         args = self._build_argument_string(job, self._var_ref)
         if args:
+            # Condor "new arguments syntax": the entire argument string must
+            # be wrapped in double quotes.  glue.pipeline.CondorDAGJob's
+            # write_sub_file() does this, so the legacy implementation
+            # emitted `arguments = "..."`.  Without the outer quotes Condor
+            # falls back to the old arguments syntax, which parses brackets,
+            # commas, and embedded single-quoted tokens differently -- e.g.
+            # `'[0.2,0.2499]'` reaches the executable as a different argv
+            # string.  Re-wrap here so we exactly match the glue behaviour.
+            if not (args.startswith('"') and args.endswith('"')):
+                args = '"' + args + '"'
             sub["arguments"] = args
         if job.log_file:
             sub["log"] = job.log_file

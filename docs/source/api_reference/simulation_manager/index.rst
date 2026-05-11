@@ -1,7 +1,15 @@
-Simulation Manager
-===================
+Simulation Manager API Reference
+=================================
 
-.. automodule:: RIFT.simulation_manager
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. toctree::
+   :maxdepth: 1
+
+   BaseManager
+   CondorManager
+   PBSManager
+   SlurmManager
+   database
+   glue_compat
+   cli
+   design_overview
+   backends/index
