@@ -34,6 +34,7 @@ parser.add_argument("--samples",default='extrinsic_posterior_samples.dat',type=s
 parser.add_argument("--downselect", action="store_true", help="Downselect number of waveforms to generate. Try 1000")
 parser.add_argument("--draws",default=None,type=int,help="MUST be set if using downselect. Try 1000")
 parser.add_argument("--event-name", default='GW',type=str,help="event name for plot titles and filenames")
+parser.add_argument("--psd-file", action="append", help="instrument=psd-file, e.g. H1=H1_PSD.xml.gz. Can be given multiple times for different instruments.")
 opts=  parser.parse_args()
 
 # defaults - can this be read in from anywhere??
@@ -81,7 +82,23 @@ waveform_filename = "waveform_realizations.npz"
 
 # as in pesummary, bandpass/filter the data
 # see gwosc tutorial
-def whiten_strain(data, bp_freqs=[50,250], srate=4096.0, notches=[60., 120.,180.]):
+def whiten_strain(data, lal_psd=None, ifo=None,bp_freqs=[50,250], srate=4096.0, notches=[60., 120.,180.]):
+    if psd_file:
+        gwpy_psd = FrequencySeries(
+            lal_psd.data.data, 
+            df=lal_psd.deltaF, 
+            f0=lal_psd.f0
+        )
+        # 3. Whiten using the explicit PSD
+        # GWpy's whiten can take a FrequencySeries as the 'psd' argument
+        # It will interpolate the PSD to match the strain data's deltaF
+        whitened = data.whiten(psd=gwpy_psd)
+    
+        # 4. Bandpass and Crop
+        _strain = whitened.bandpass(bp_freqs[0], bp_freqs[1])
+        return _strain.crop(*_strain.span.contract(1))
+
+    # otherwise
     bp = filter_design.bandpass(*bp_freqs, srate)
     zpks = [filter_design.notch(line, srate) for line in notches]
     zpk = filter_design.concatenate_zpks(bp, *zpks)
@@ -90,7 +107,7 @@ def whiten_strain(data, bp_freqs=[50,250], srate=4096.0, notches=[60., 120.,180.
     return _strain
 
 # make param list from sample file AND generate tvals/hoft PER detector - store them
-def generate_waveform_realizations(samples_file, tevent, fmin=10., fref=10., approx=set_approx_str):
+def generate_waveform_realizations(samples_file,tevent,  psd_dict=None, fmin=10., fref=10., approx=set_approx_str):
     samples = np.genfromtxt(samples_file, names=True, replace_space=None)
     P_list = []
     # so manual :( but it works
@@ -132,6 +149,7 @@ def generate_waveform_realizations(samples_file, tevent, fmin=10., fref=10., app
     tvals_H_list, ht_H_list, tvals_L_list, ht_L_list = [], [], [], []
     for param in P_list:
 
+        # Hack: should have a 'use_gwsignal' argument !
         if param.approx.startswith('SEOBNR'):
             hoft_H = gws.hoft(param, approx_string=param.approx)
             param.detector = "L1"
@@ -146,7 +164,7 @@ def generate_waveform_realizations(samples_file, tevent, fmin=10., fref=10., app
         indx_ok = np.logical_and(tvals_H > -0.5, tvals_H < 0.2)
         tvals_H = tvals_H[indx_ok]
         hoft_H = TimeSeries(hoft_H.data.data[indx_ok], name='Strain', t0=tvals_H[0], unit='dimensionless', dt=tvals_H[1] - tvals_H[0])
-        hoft_H = whiten_strain(hoft_H)
+        hoft_H = whiten_strain(hoft_H, lal_psd=psd_dict['H1'])
         tvals_H_list.append(tvals_H)
         ht_H_list.append(hoft_H)
 
@@ -154,7 +172,7 @@ def generate_waveform_realizations(samples_file, tevent, fmin=10., fref=10., app
         indx_ok = np.logical_and(tvals_L > -0.5, tvals_L < 0.2)
         tvals_L = tvals_L[indx_ok]
         hoft_L = TimeSeries(hoft_L.data.data[indx_ok], name='Strain', t0=tvals_L[0], unit='dimensionless', dt=tvals_L[1] - tvals_L[0])
-        hoft_L = whiten_strain(hoft_L)
+        hoft_L = whiten_strain(hoft_L,lal_psd=psd_dict['L1'])
         tvals_L_list.append(tvals_L)
         ht_L_list.append(hoft_L)
 
@@ -179,13 +197,20 @@ def compute_ci(tvals, waveform_realizations):
 ### get data and call functions to get waveforms ###
 ####################################################
 
+# Retrieve PSD input, if provided. Add defaults
+psd_dict = {'H1': None, 'L1': None, 'V1': None}
+for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
+    print( "Reading PSD for instrument %s from %s" % (inst, psdf))
+    psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
+
+
 # fetch open data, pesummary
 H1_data = StrainData.fetch_open_data('H1', tevent - 20, tevent + 5)
 L1_data = StrainData.fetch_open_data('L1', tevent - 20, tevent + 5)
 # whiten
-_strain_H = whiten_strain(H1_data)
+_strain_H = whiten_strain(H1_data,lal_psd=psd_dict['H1'])
 times_H = [t-tevent for t in np.array(_strain_H.times)]
-_strain_L = whiten_strain(L1_data)
+_strain_L = whiten_strain(L1_data, lal_psd=psd_dict['L1'])
 times_L = [t-tevent for t in np.array(_strain_L.times)]
 
 # do not rebuild waveforms for CI unless you have to
