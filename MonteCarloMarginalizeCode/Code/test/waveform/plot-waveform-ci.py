@@ -83,7 +83,7 @@ waveform_filename = "waveform_realizations.npz"
 # as in pesummary, bandpass/filter the data
 # see gwosc tutorial
 def whiten_strain(data, lal_psd=None, ifo=None,bp_freqs=[50,250], srate=4096.0, notches=[60., 120.,180.]):
-    if psd_file:
+    if lal_psd:
         gwpy_psd = FrequencySeries(
             lal_psd.data.data, 
             df=lal_psd.deltaF, 
