@@ -155,7 +155,7 @@ def _stage_event_file(
     base_dir: str,
     run_dir: str,
 ) -> Tuple[str, bool]:
-    """Materialize this entry's event file at run_dir/event-<indx>.net.
+    """Materialize this entry's event file at base_dir/event-<indx>.net.
 
     Returns ``(abs_path, is_empty_sentinel)``. If the entry has no
     ``event-file`` set, we write a sentinel file with the single token
@@ -167,7 +167,7 @@ def _stage_event_file(
         src = entry.get("event-file") or entry.get("event_file")
     elif "event-file" in entry:
         src = entry["event-file"]
-    dest = os.path.join(run_dir, f"event-{indx}.net")
+    dest = os.path.join(base_dir, f"event-{indx}.net")
     if src:
         src = os.path.expanduser(src)
         if not os.path.isabs(src):
