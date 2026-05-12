@@ -120,6 +120,8 @@ import shlex
 from time import time
 from hashlib import md5
 
+import shutil
+
 import numpy as np
 import configparser
 
