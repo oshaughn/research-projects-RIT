@@ -1,0 +1,84 @@
+# Default hyperpipe configuration consumed by util_RIFT_hyperpipe.py.
+#
+# Hydra finds this file because it lives next to util_RIFT_hyperpipe.py.
+# Users can:
+#   * override fields on the CLI with Hydra syntax:
+#        util_RIFT_hyperpipe.py arch.n-iterations=10 general.use-osg=true
+#   * point Hydra at their own file with --config-name <name>
+#        (placed next to this file) or --config-path <dir>
+#   * compose from the in-package defaults exposed via
+#        RIFT.hyperpipe.config.DEFAULT_CONFIG_YAML
+#
+# The schema is documented in RIFT/hyperpipe/config.py.
+
+arch:
+  method: default
+  n-iterations: 5
+  n-samples-per-job: 1000
+  explode-marg-jobs: 5
+  explode-marg-jobs-last: null
+  start-iteration: 0
+
+post:
+  exe: null
+  coord-module: null
+  coords-fit: "x y z"
+  coords-sample: "x:[-8,8] y:[-8,8] z:[-8,8]"
+  coords-implied: ""
+  coords-nofit: ""
+  likelihood-factor-module: null
+  likelihood-factor-function: null
+  likelihood-factor-ini: null
+  extra-args: ""
+  settings:
+    n-max: null
+    n-step: null
+    n-eff: null
+    sampler-method: null
+    fit-method: null
+    sigma-cut: null
+
+marg-list:
+  - name: gaussian
+    exe: util_HyperMargGaussian.py
+    args: "--outdir gaussian_out --conforming-output-name"
+    event-file: null
+    n-chunk: 100
+    coord-module: null
+    extra-args: ""
+
+puff:
+  exe: null
+  puff-factor: 0.5
+  force-away: 0.03
+  extra-args: ""
+
+test:
+  exe: convergence_test_samples
+  method: JS
+  threshold: 0.05
+  extra-args: ""
+
+init:
+  file: null
+  generation:
+    placement-method: null
+    params-and-ranges: null
+    npts: null
+    external-code: null
+    external-args: null
+
+general:
+  rundir: null
+  retries: 0
+  request-disk: 10M
+  request-memory: 16384
+  use-osg: false
+  use-singularity: false
+  use-singularity-local: false
+  condor-local-nonworker: false
+  condor-local-nonworker-igwn-prefix: false
+  condor-nogrid-nonworker: false
+  use-full-submit-paths: true
+  transfer-files: []
+  dry-run: false
