@@ -5,7 +5,20 @@ development tree is rift_O4d.
   - CIP hyperpipe improvements (initialize_me; enable population and EOS params in using_eos file with arbitrary
     labelled parameters); CIP xgboost gp fit (from Aasim); install make 'precession' optional; see also 0.0.17.4rc0
     igwn-ligolw
-    
+  - parsimonious placement (preview): new RIFT.misc.tracer_placement engine package (SMC+MALA / birth-death /
+    SMC-MALA+BD samplers with pluggable RF / RBF / polynomial / quadratic surrogate fits) plus two thin
+    command-line drivers, bin/util_HyperparameterTracerUpdate.py (hyperpipe, .dat I/O) and
+    bin/util_ParameterTracerUpdate.py (event-level, XML I/O via lalsimutils). Both are drop-in alternatives to
+    util_HyperparameterPuffball.py / util_ParameterPuffball.py: legacy default behavior is unchanged --- the new
+    tools are only invoked when --puff-exe points at them. create_eos_posterior_pipeline gains
+    --tracer-only-marg and --tracer-final-marg-iterations to optionally skip MARG_* (posterior) nodes in
+    intermediate iterations and rely on MARG_PUFF (placement) jobs alone, recovering MARG only for the final N
+    iterations. util_RIFT_hyperpipe.py forwards the same flags via arch.tracer-only-marg /
+    arch.tracer-final-marg-iterations and exposes a puff.settings: block mirroring post.settings: so tracer
+    sampler hyperparameters can be set declaratively in Hydra. See
+    20260513-Me-ParsimoniousPlacementOptions/parsimonious_placement_plan.md for theory, prototype results,
+    rollout plan, and references.
+
 0.0.17.9
 ------------
 development tree is rift_O4c_staging -> rift_O4c; draft MR notes at
