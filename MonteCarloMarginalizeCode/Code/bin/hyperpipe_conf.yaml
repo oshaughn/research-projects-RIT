@@ -18,6 +18,13 @@ arch:
   explode-marg-jobs: 5
   explode-marg-jobs-last: null
   start-iteration: 0
+  # Parsimonious-placement workflow (set tracer-only-marg: true to enable).
+  # Skips MARG_* (posterior) nodes in intermediate iterations and relies on
+  # MARG_PUFF (placement) jobs alone. Final N iterations still run MARG_* to
+  # produce a clean posterior. Requires puff.exe to be a tracer-aware updater
+  # (e.g. util_HyperparameterTracerUpdate.py).
+  tracer-only-marg: false
+  tracer-final-marg-iterations: 1
 
 post:
   exe: null
@@ -52,6 +59,21 @@ puff:
   puff-factor: 0.5
   force-away: 0.03
   extra-args: ""
+  # Tracer-placement sampler hyperparameters (only used when exe is a
+  # tracer-aware updater; ignored by the legacy util_HyperparameterPuffball.py).
+  # Leave keys null to take the updater's built-in defaults.
+  settings:
+    update-method: null        # smc-mala-bd | smc-mala | birth-death | puffball
+    tracer-fit-method: null    # rf | rbf | polynomial | quadratic
+    n-mala-steps: null         # int
+    target-ess-frac: null      # float in (0,1]
+    birth-death-rate: null     # float
+    inj-file-prev: null        # path to previous-iteration .dat (enables SMC bridging)
+    no-union-refit: false      # opt out of union refit when inj-file-prev is given
+    regularize: false
+    rng-seed: null             # int; deterministic when given
+    state-in: null
+    state-out: null
 
 test:
   exe: convergence_test_samples

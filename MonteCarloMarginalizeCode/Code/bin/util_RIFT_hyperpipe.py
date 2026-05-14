@@ -209,11 +209,45 @@ def _build_post_args(cfg, coord_spec) -> str:
 
 
 def _build_puff_args(cfg, coord_spec) -> str:
+    """Compose args_puff.txt from the coord spec + puff.settings + extras.
+
+    The legacy puffball (util_HyperparameterPuffball.py) accepts only the
+    coord-spec flags + force-away/puff-factor. The tracer drop-ins
+    (util_HyperparameterTracerUpdate.py / util_ParameterTracerUpdate.py)
+    accept those plus a handful of sampler hyperparameters; we expose those
+    declaratively here so users can stay in Hydra rather than escaping into
+    extra-args strings.
+    """
     puff = _cfg_get(cfg, "puff") or {}
     args = coord_spec.to_puff_args(
         force_away=_cfg_get(puff, "force-away", 0.03),
         puff_factor=_cfg_get(puff, "puff-factor", 0.5),
     )
+    settings = _cfg_get(puff, "settings") or {}
+    # Value-bearing flags. Each pair is (yaml key, CLI flag). Empty / null is skipped.
+    setting_flags = [
+        ("update-method", "--update-method"),
+        ("tracer-fit-method", "--tracer-fit-method"),
+        ("n-mala-steps", "--n-mala-steps"),
+        ("target-ess-frac", "--target-ess-frac"),
+        ("birth-death-rate", "--birth-death-rate"),
+        ("inj-file-prev", "--inj-file-prev"),
+        ("rng-seed", "--rng-seed"),
+        ("state-in", "--state-in"),
+        ("state-out", "--state-out"),
+    ]
+    for key, flag in setting_flags:
+        val = _cfg_get(settings, key)
+        if val is not None and val != "":
+            args += f" {flag} {val}"
+    # Bool flags. Each pair is (yaml key, CLI flag).
+    setting_bool_flags = [
+        ("no-union-refit", "--no-union-refit"),
+        ("regularize", "--regularize"),
+    ]
+    for key, flag in setting_bool_flags:
+        if hyper_config.truthy(_cfg_get(settings, key, False)):
+            args += f" {flag}"
     extra = (_cfg_get(puff, "extra-args") or "").strip()
     if extra:
         args += " " + extra
@@ -340,6 +374,14 @@ def my_app(cfg: DictConfig) -> None:
     start_iter = int(_cfg_get(arch, "start-iteration", 0) or 0)
     if start_iter:
         cmd_parts.append(f"--start-iteration {start_iter}")
+    # Parsimonious-placement workflow: skip MARG_* in intermediate iterations
+    # when the puff grid is sufficient for placement (requires --puff-exe to be
+    # a tracer-aware updater such as util_HyperparameterTracerUpdate.py).
+    if hyper_config.truthy(_cfg_get(arch, "tracer-only-marg", False)):
+        cmd_parts.append("--tracer-only-marg")
+        n_final = _cfg_get(arch, "tracer-final-marg-iterations")
+        if n_final is not None:
+            cmd_parts.append(f"--tracer-final-marg-iterations {int(n_final)}")
 
     # general
     bool_flag_pairs = [
