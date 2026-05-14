@@ -2,6 +2,16 @@
 0.0.18.0
 ------------
 development tree is rift_O4d.
+  - parsimonious-placement (preview): new RIFT.misc.tracer_placement engine (SMC+MALA, birth-death,
+    and SMC-MALA+BD samplers; pluggable RF / RBF / polynomial / quadratic fits) plus two
+    opt-in CLI tools that mirror the existing puffball tools' I/O contract:
+    util_HyperparameterTracerUpdate.py (hyperpipe drop-in for util_HyperparameterPuffball.py)
+    and util_ParameterTracerUpdate.py (event-level drop-in for util_ParameterPuffball.py).
+    Default behavior preserves the existing pipelines (the new tools are not invoked unless
+    the user points --puff-exe at them); both also accept --update-method puffball as an
+    exact-regression fallback. See
+    https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/ (TBD) and the project notes at
+    20260513-Me-ParsimoniousPlacementOptions/parsimonious_placement_plan.md.
   - CIP hyperpipe improvements (initialize_me; enable population and EOS params in using_eos file with arbitrary
     labelled parameters); CIP xgboost gp fit (from Aasim); install make 'precession' optional; see also 0.0.17.4rc0
     igwn-ligolw
