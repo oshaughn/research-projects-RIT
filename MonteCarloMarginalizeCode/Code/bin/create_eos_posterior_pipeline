@@ -42,15 +42,12 @@ parser.add_argument("--request-memory-marg",default=16384,type=int,help="Memory 
 parser.add_argument("--puff-exe",default=None,help="similar to PUFF, but cannot be the same executable since format different")
 parser.add_argument("--puff-args",default=None,help=" argumetns")
 parser.add_argument("--puff-max-it",default=np.inf,type=int,help="Maximum iteration number that puffball is applied.  default to infinity ")
-<<<<<<< HEAD
 parser.add_argument("--tracer-only-marg", action='store_true',
-                    help="Tracer-placement workflow: skip MARG (grid-X.dat) jobs on non-final iterations and only run MARG_PUFF (grid_puff-X.dat). Use only when --puff-exe points at a tracer-aware grid update tool (util_HyperparameterTracerUpdate.py / util_ParameterTracerUpdate.py). See workflow_tracer_only_marg.md in the parsimonious-placement project notes for the rationale.")
+                    help="Tracer-placement workflow: on non-final iterations skip the regular MARG_* (grid-X.dat) jobs and rely only on the puff/tracer node to produce the next grid. The final --tracer-final-marg-iterations iterations still run MARG_* so the posterior diagnostic stays clean. Requires --puff-exe to point at a tracer-aware grid update tool (util_HyperparameterTracerUpdate.py / util_ParameterTracerUpdate.py). See workflow_tracer_only_marg.md.")
 parser.add_argument("--tracer-final-marg-iterations", type=int, default=1,
-                    help="Number of trailing iterations on which MARG still runs even with --tracer-only-marg (needed for a clean posterior diagnostic on the final iteration). Default 1; set 0 to use only accumulated MARG_PUFF outputs throughout.")
-=======
-parser.add_argument("--tracer-only-marg",action='store_true',help="Parsimonious-placement workflow: only run MARG_PUFF (placement) jobs in intermediate iterations and skip MARG_* (posterior) jobs. The final --tracer-final-marg-iterations iterations still run MARG_* to produce a clean posterior. Cuts marginalisation cost roughly in half for N=5-6 iterations. Requires --puff-exe to be a tracer-aware updater (e.g. util_HyperparameterTracerUpdate.py) since the puff grid drives placement on its own.")
-parser.add_argument("--tracer-final-marg-iterations",default=1,type=int,help="When --tracer-only-marg is set, the last N iterations still run MARG_* nodes for posterior generation. Default 1.")
->>>>>>> rift_O4d_parsimonious_v2
+                    help="Number of trailing iterations on which MARG still runs even with --tracer-only-marg. Default 1; set 0 to use only accumulated puff/tracer outputs throughout.")
+parser.add_argument("--puff-input-source", default="posterior", choices=("posterior", "marg_net"),
+                    help="Which file feeds the puff/tracer node. 'posterior' (default, legacy) reads grid-{k+1}.dat (EOS_POST posterior samples) and writes grid_puff-{k+1}.dat which MARG_PUFF then evaluates. 'marg_net' wires the puff/tracer node to consume all.marg_net (the cumulative ILE-evaluated (lambda, lnL, sigma) table) and write grid-{k+1}.dat directly, suppressing the MARG_PUFF lane entirely; use with --puff-exe util_*TracerUpdate.py.")
 parser.add_argument("--eos-post-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--eos-post-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--eos-post-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
@@ -178,7 +175,12 @@ if opts.marg_event_args:
 puff_args=None
 puff_cadence = None
 puff_max_it = opts.puff_max_it
-if opts.puff_args:
+# Gate on --puff-exe: if the user did not provide a puff executable, we do not
+# write puff/MARG_PUFF nodes at all. Holding --puff-args without --puff-exe is
+# an obvious mistake; refuse to proceed silently.
+if opts.puff_args and not opts.puff_exe:
+    sys.exit(" --puff-args given without --puff-exe: refusing to write puff nodes without a puff executable. Pass --puff-exe or drop --puff-args.")
+if opts.puff_args and opts.puff_exe:
     puff_cadence = 1
     # Load args.txt. Remove first item.  Store
     with open(opts.puff_args) as f:
@@ -191,6 +193,15 @@ if opts.puff_args:
     puff_args=puff_args.rstrip()
     print("PUFF", puff_args)
     print("PUFF CADENCE", puff_cadence)
+
+# Tracer-aware puff input plumbing. In 'marg_net' mode the puff/tracer node
+# consumes all.marg_net (the cumulative ILE-evaluated table emitted by UNIFY)
+# and writes grid-{k+1}.dat directly. EOS_POST output is redirected to
+# posterior-{k+1}.dat for diagnostics, and the MARG_PUFF lane is suppressed --
+# the tracer's output IS the next iteration's grid.
+puff_uses_marg_net = (opts.puff_input_source == "marg_net") and bool(puff_args)
+if puff_uses_marg_net:
+    print("PUFF INPUT SOURCE: marg_net (tracer-aware grid update)")
 
 
 test_args=None
@@ -490,7 +501,13 @@ head -n 1 grid-0.dat > $2
 cat $1/output*.dat  | sort -r | uniq | shuf >> $2
 """)
     os.system("chmod a+x join_post.sh")
-join_post_job, join_post_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/join_post.sh",tag='JOIN_POST',log_dir=None,arg_str='',file_input=opts.working_directory+"/iteration_$(macroiteration)_post/    "+opts.working_directory+"/grid-$(macroiterationnext).dat", out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
+# In tracer mode the tracer node owns grid-{k+1}.dat; EOS_POST output goes to a
+# parallel posterior-{k+1}.dat file (diagnostic only). In legacy mode EOS_POST
+# still produces grid-{k+1}.dat directly.
+_join_post_output_path = opts.working_directory + (
+    "/posterior-$(macroiterationnext).dat" if puff_uses_marg_net
+    else "/grid-$(macroiterationnext).dat")
+join_post_job, join_post_job_name = dag_utils.write_convert_sub(exe=opts.working_directory+"/join_post.sh",tag='JOIN_POST',log_dir=None,arg_str='',file_input=opts.working_directory+"/iteration_$(macroiteration)_post/    "+_join_post_output_path, out_dir=opts.working_directory,universe=local_worker_universe,no_grid=no_worker_grid)
 join_post_job.add_condor_cmd("initialdir",opts.working_directory)
 join_post_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(macroevent).log")
 join_post_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_con/logs/unify-$(macroevent).out")
@@ -520,7 +537,16 @@ if puff_args and puff_cadence:
 {} $@
 """.format(extra_text,relevant_path))
             os.system("chmod a+x local_puff.sh")
-    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_marg,input_net=opts.working_directory+'/grid-$(macroiterationnext).dat',output=opts.working_directory+'/grid_puff-$(macroiterationnext).dat',out_dir=opts.working_directory,exe=exe_here,universe=local_worker_universe,no_grid=no_worker_grid)
+    # Tracer mode: consume all.marg_net (ILE-evaluated table) and write
+    # grid-{k+1}.dat directly. Legacy mode: consume grid-{k+1}.dat (posterior
+    # samples from JOIN_POST) and write grid_puff-{k+1}.dat for MARG_PUFF.
+    if puff_uses_marg_net:
+        _puff_input_net = opts.working_directory + '/all.marg_net'
+        _puff_output    = opts.working_directory + '/grid-$(macroiterationnext).dat'
+    else:
+        _puff_input_net = opts.working_directory + '/grid-$(macroiterationnext).dat'
+        _puff_output    = opts.working_directory + '/grid_puff-$(macroiterationnext).dat'
+    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_marg,input_net=_puff_input_net,output=_puff_output,out_dir=opts.working_directory,exe=exe_here,universe=local_worker_universe,no_grid=no_worker_grid)
     # Modify: set 'initialdir' to CIP WORKING DIR 
     puff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_post")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -619,7 +645,9 @@ for it in np.arange(it_start,opts.n_iterations):
                     con_node.add_parent(cip_node) # consolidate depends on all of the individual jobs
                     dag.add_node(cip_node)
                 # if PUFF is done for this event, also add MARG_PUFF nodes.  Note grid size assumed identical, so don't need another loop over 'id'/row
-                if puff_args and puff_cadence:
+                # In tracer mode (puff_uses_marg_net) the tracer writes grid-{k+1}.dat
+                # directly -- MARG already evaluates that grid, so no MARG_PUFF lane.
+                if puff_args and puff_cadence and not puff_uses_marg_net:
                     if it>it_start and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
                         if opts.marg_event_args:
                             cipPuff_node = pipeline.CondorDAGNode(cipPuff_job)
@@ -696,10 +724,16 @@ for it in np.arange(it_start,opts.n_iterations):
         puff_node.add_macro("macroiterationnext", it+1)
         puff_node.set_category("PUFF")
         puff_node.set_retry(opts.general_retries)
-        if not (parent_fit_node is None):
-            puff_node.add_parent(parent_fit_node)  # only fit if we have results from the previous iteration
-        dag.add_node(puff_node) 
-        
+        if puff_uses_marg_net:
+            # Tracer reads all.marg_net (output of UNIFY). Run in parallel with
+            # EOS_POST -- the tracer's own grid output drives the next iteration,
+            # EOS_POST is now a downstream-free posterior diagnostic.
+            puff_node.add_parent(unify_node)
+        else:
+            if not (parent_fit_node is None):
+                puff_node.add_parent(parent_fit_node)  # only fit if we have results from the previous iteration
+        dag.add_node(puff_node)
+
         parent_fit_node = puff_node
 
 

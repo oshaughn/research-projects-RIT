@@ -13,5 +13,6 @@ provided form.
 from .smc_mala import iterate as smc_mala
 from .birth_death import iterate as birth_death
 from .smc_mala_bd import iterate as smc_mala_bd
+from .ucb import iterate as ucb_place
 
-__all__ = ["smc_mala", "birth_death", "smc_mala_bd"]
+__all__ = ["smc_mala", "birth_death", "smc_mala_bd", "ucb_place"]

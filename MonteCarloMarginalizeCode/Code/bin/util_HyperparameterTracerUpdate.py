@@ -20,15 +20,21 @@
 #       same semantics. --update-method puffball reproduces puffball exactly.
 #
 # NEW
-#   --update-method {smc-mala-bd, smc-mala, birth-death, puffball}     default smc-mala-bd
+#   --update-method {smc-mala-bd, smc-mala, birth-death, ucb, puffball}  default smc-mala-bd
 #   --tracer-fit-method {rf, rbf, quadratic, polynomial}               default rf
 #   --inj-file-prev      OPTIONAL previous-iteration .dat (enables SMC bridging)
 #   --no-union-refit     opt out of union refit when --inj-file-prev is given
 #   --n-mala-steps INT                  default 8
 #   --target-ess-frac FLOAT             default 0.5
 #   --birth-death-rate FLOAT            default 1.0
+#   --ucb-kappa FLOAT                   default 2.0  (UCB exploration weight)
+#   --ucb-n-candidates INT              default 20000
 #   --rng-seed INT                      deterministic when given
 #   --state-in / --state-out            tiny state file (~100 bytes)
+#
+# --force-away K (inherited from puffball semantics): after the engine returns
+# X_out, drop any point within Mahalanobis distance K of an already-kept point
+# (covariance from the input grid, ridge-stabilized). K=0 disables.
 #
 # I/O FORMAT
 #   Input/output is the same as util_HyperparameterPuffball.py: a text file with a
@@ -92,7 +98,7 @@ def build_parser():
     p.add_argument("--regularize", action="store_true")
     # Tracer-specific
     p.add_argument("--update-method",
-                   choices=("smc-mala-bd", "smc-mala", "birth-death", "puffball"),
+                   choices=("smc-mala-bd", "smc-mala", "birth-death", "ucb", "puffball"),
                    default="smc-mala-bd")
     p.add_argument("--tracer-fit-method",
                    choices=("rf", "rbf", "quadratic", "polynomial"),
@@ -103,10 +109,50 @@ def build_parser():
     p.add_argument("--n-mala-steps", default=8, type=int)
     p.add_argument("--target-ess-frac", default=0.5, type=float)
     p.add_argument("--birth-death-rate", default=1.0, type=float)
+    # UCB (super-conservative GP-style placement)
+    p.add_argument("--ucb-kappa", default=2.0, type=float,
+                   help="UCB exploration weight: score = mu(lambda) + kappa * sigma(lambda). "
+                        "Larger => more explorative. Used only when --update-method ucb.")
+    p.add_argument("--ucb-n-candidates", default=20000, type=int,
+                   help="Size of the candidate pool from which UCB greedily selects.")
     p.add_argument("--rng-seed", default=None, type=int)
     p.add_argument("--state-in", default=None)
     p.add_argument("--state-out", default=None)
     return p
+
+
+# ---------------- Mahalanobis self-avoidance (--force-away) --------------- #
+
+def _force_away_decimate(X_kept, X_pool, cov, threshold):
+    """Greedy: keep first len(X_kept) rows of X_pool subject to a minimum
+    Mahalanobis distance `threshold` from every previously-kept row. Returns
+    (X_out, mask). X_kept is the preferred-order list; X_pool is the (possibly
+    larger) candidate set to fall back to when a preferred row is rejected.
+    Mirrors util_ParameterPuffball.py's --force-away semantics."""
+    if threshold <= 0 or len(X_kept) == 0:
+        return X_kept, np.ones(len(X_kept), dtype=bool)
+    # Regularize cov for stability
+    cov_r = cov + 1e-10 * np.eye(cov.shape[0])
+    icov = np.linalg.inv(cov_r)
+    target_n = len(X_kept)
+    queue = list(X_pool)  # candidate list (input order matters: preferred first)
+    out = []
+    for x in queue:
+        if not out:
+            out.append(x)
+            continue
+        diffs = np.asarray(out) - x
+        d2 = np.einsum("ij,jk,ik->i", diffs, icov, diffs)
+        if (d2 >= threshold ** 2).all():
+            out.append(x)
+        if len(out) >= target_n:
+            break
+    if len(out) < target_n:
+        # Couldn't fill the budget under the constraint; relax to keep what we have.
+        sys.stderr.write(
+            f"util_HyperparameterTracerUpdate: --force-away {threshold} could only "
+            f"place {len(out)}/{target_n} points; returning the kept subset.\n")
+    return np.asarray(out), None
 
 
 # ----------------------- .dat <-> arrays ----------------------------------- #
@@ -225,13 +271,19 @@ def main(argv=None):
         with open(opts.state_in, "rb") as f:
             state = pickle.load(f)
 
-    sampler = {
+    sampler_map = {
         "smc-mala-bd": _tracer_samplers.smc_mala_bd,
         "smc-mala":    _tracer_samplers.smc_mala,
         "birth-death": _tracer_samplers.birth_death,
-    }[method]
+    }
+    if hasattr(_tracer_samplers, "ucb_place"):
+        sampler_map["ucb"] = _tracer_samplers.ucb_place
+    if method not in sampler_map:
+        sys.exit(f"util_HyperparameterTracerUpdate: --update-method {method!r} "
+                 f"not available in installed engine (have: {sorted(sampler_map)}).")
+    sampler = sampler_map[method]
 
-    X_out, info = sampler(
+    sampler_kw = dict(
         particles=X,
         surrogate=fit_now,
         surrogate_prev=fit_prev,
@@ -242,6 +294,24 @@ def main(argv=None):
         birth_death_rate=opts.birth_death_rate,
         state=state,
     )
+    if method == "ucb":
+        sampler_kw.update(
+            kappa=opts.ucb_kappa,
+            n_candidates=opts.ucb_n_candidates,
+        )
+    X_out, info = sampler(**sampler_kw)
+
+    # --- self-avoidance (--force-away) ----------------------------------- #
+    if opts.force_away and opts.force_away > 0 and len(X_out) > 1:
+        # Use the input grid's covariance as the Mahalanobis metric (stable,
+        # independent of where the engine moved particles to).
+        if X.shape[1] > 1:
+            cov_in = np.cov(X.T)
+        else:
+            cov_in = np.array([[float(X.std() ** 2) + 1e-12]])
+        cov_in = np.atleast_2d(cov_in)
+        X_out, _ = _force_away_decimate(
+            X_kept=X_out, X_pool=X_out, cov=cov_in, threshold=opts.force_away)
 
     if opts.state_out:
         with open(opts.state_out, "wb") as f:
