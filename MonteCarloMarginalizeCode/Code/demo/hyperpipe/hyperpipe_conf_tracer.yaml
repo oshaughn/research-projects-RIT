@@ -1,0 +1,65 @@
+# Example hyperpipe configuration that enables the parsimonious-placement
+# tracer workflow.
+#
+# Differences from the baseline hyperpipe_conf.yaml in this directory:
+#
+#   * puff.exe         -> util_HyperparameterTracerUpdate.py
+#                         (the tracer drop-in for util_HyperparameterPuffball.py)
+#   * puff.settings    -> sampler hyperparameters (smc-mala-bd / RF surrogate)
+#   * arch.tracer-only-marg = true
+#                         skips MARG_* (posterior) nodes in iterations
+#                         1 ... n_iterations - tracer-final-marg-iterations - 1
+#                         and relies on MARG_PUFF (placement) jobs alone.
+#                         Cuts marginalisation cost ~1.7-1.8x for N=5-6.
+#
+# Run with:
+#     util_RIFT_hyperpipe.py --config-name hyperpipe_conf_tracer
+#
+# Override any field on the command line with Hydra syntax, e.g.:
+#     util_RIFT_hyperpipe.py --config-name hyperpipe_conf_tracer \
+#         arch.n-iterations=6 puff.settings.update-method=birth-death
+
+arch:
+  method: default
+  n-iterations: 5
+  n-samples-per-job: 1000
+  explode-marg-jobs: 5
+  start-iteration: 0
+  # Parsimonious-placement workflow. Iteration 0 always runs MARG (no
+  # grid_puff-0.dat yet); iterations 1 ... 3 run MARG_PUFF only; the last
+  # iteration (n-iterations-1 == 4) runs MARG again for the final posterior.
+  tracer-only-marg: true
+  tracer-final-marg-iterations: 1
+
+post:
+  coords-fit: "x y z"
+  coords-sample: "x:[-7,7] y:[-7,7] z:[-7,7]"
+  settings:
+    fit-method: rf
+
+marg-list:
+  - name: Gaussian
+    exe: example_gaussian.py
+    args: "--outdir Gaussian_example --conforming-output-name"
+    n-chunk: 100
+
+puff:
+  # Tracer-aware updater. Falls back to puffball automatically if
+  # RIFT.misc.tracer_placement is not importable (e.g. mismatched RIFT
+  # version), so this config remains usable even on older worker images.
+  exe: util_HyperparameterTracerUpdate.py
+  puff-factor: 0.5
+  force-away: 0.03
+  settings:
+    update-method: smc-mala-bd   # primary recommendation (Tier-1 results)
+    tracer-fit-method: rf        # production default; cheap to rebuild
+    n-mala-steps: 8
+    target-ess-frac: 0.5
+    birth-death-rate: 1.0
+    rng-seed: null               # set to an int for deterministic runs
+
+init:
+  file: blind_gaussian_3d_xy_plus.dat
+
+general:
+  rundir: rundir_tracer

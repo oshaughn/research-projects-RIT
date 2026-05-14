@@ -42,10 +42,15 @@ parser.add_argument("--request-memory-marg",default=16384,type=int,help="Memory 
 parser.add_argument("--puff-exe",default=None,help="similar to PUFF, but cannot be the same executable since format different")
 parser.add_argument("--puff-args",default=None,help=" argumetns")
 parser.add_argument("--puff-max-it",default=np.inf,type=int,help="Maximum iteration number that puffball is applied.  default to infinity ")
+<<<<<<< HEAD
 parser.add_argument("--tracer-only-marg", action='store_true',
                     help="Tracer-placement workflow: skip MARG (grid-X.dat) jobs on non-final iterations and only run MARG_PUFF (grid_puff-X.dat). Use only when --puff-exe points at a tracer-aware grid update tool (util_HyperparameterTracerUpdate.py / util_ParameterTracerUpdate.py). See workflow_tracer_only_marg.md in the parsimonious-placement project notes for the rationale.")
 parser.add_argument("--tracer-final-marg-iterations", type=int, default=1,
                     help="Number of trailing iterations on which MARG still runs even with --tracer-only-marg (needed for a clean posterior diagnostic on the final iteration). Default 1; set 0 to use only accumulated MARG_PUFF outputs throughout.")
+=======
+parser.add_argument("--tracer-only-marg",action='store_true',help="Parsimonious-placement workflow: only run MARG_PUFF (placement) jobs in intermediate iterations and skip MARG_* (posterior) jobs. The final --tracer-final-marg-iterations iterations still run MARG_* to produce a clean posterior. Cuts marginalisation cost roughly in half for N=5-6 iterations. Requires --puff-exe to be a tracer-aware updater (e.g. util_HyperparameterTracerUpdate.py) since the puff grid drives placement on its own.")
+parser.add_argument("--tracer-final-marg-iterations",default=1,type=int,help="When --tracer-only-marg is set, the last N iterations still run MARG_* nodes for posterior generation. Default 1.")
+>>>>>>> rift_O4d_parsimonious_v2
 parser.add_argument("--eos-post-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--eos-post-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--eos-post-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")

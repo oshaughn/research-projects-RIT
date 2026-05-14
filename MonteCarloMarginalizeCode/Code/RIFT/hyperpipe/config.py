@@ -50,6 +50,13 @@ arch:
   explode-marg-jobs: 5          # -> --eos-post-explode-jobs
   explode-marg-jobs-last: null  # -> --eos-post-explode-jobs-last (default = same)
   start-iteration: 0
+  # Parsimonious-placement workflow (set tracer-only-marg: true to enable).
+  # When true, only the final ``tracer-final-marg-iterations`` iterations
+  # spawn MARG_* (posterior) nodes; intermediate iterations rely on
+  # MARG_PUFF (placement) jobs alone, recovering most of a CIP iteration's
+  # cost. Requires puff.exe to be a tracer-aware updater.
+  tracer-only-marg: false       # -> --tracer-only-marg
+  tracer-final-marg-iterations: 1  # -> --tracer-final-marg-iterations
 
 post:
   # Final posterior-construction stage (CIP-family executable).
@@ -97,6 +104,22 @@ puff:
   puff-factor: 0.5
   force-away: 0.03
   extra-args: ""
+  # Tracer-placement sampler hyperparameters. These are only consumed when
+  # exe points at a tracer-aware updater (e.g. util_HyperparameterTracerUpdate.py
+  # or util_ParameterTracerUpdate.py); the legacy puffball binaries ignore them.
+  # Null values fall through to the updater's built-in defaults.
+  settings:
+    update-method: null         # smc-mala-bd | smc-mala | birth-death | puffball
+    tracer-fit-method: null     # rf | rbf | polynomial | quadratic
+    n-mala-steps: null          # -> --n-mala-steps
+    target-ess-frac: null       # -> --target-ess-frac
+    birth-death-rate: null      # -> --birth-death-rate
+    inj-file-prev: null         # -> --inj-file-prev (SMC bridging input)
+    no-union-refit: false       # -> --no-union-refit
+    regularize: false           # -> --regularize (passes through to puffball-compat code)
+    rng-seed: null              # -> --rng-seed (deterministic when set)
+    state-in: null              # -> --state-in
+    state-out: null             # -> --state-out
 
 test:
   exe: convergence_test_samples
