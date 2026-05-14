@@ -42,6 +42,8 @@ parser.add_argument("--request-memory-marg",default=16384,type=int,help="Memory 
 parser.add_argument("--puff-exe",default=None,help="similar to PUFF, but cannot be the same executable since format different")
 parser.add_argument("--puff-args",default=None,help=" argumetns")
 parser.add_argument("--puff-max-it",default=np.inf,type=int,help="Maximum iteration number that puffball is applied.  default to infinity ")
+parser.add_argument("--tracer-only-marg",action='store_true',help="Parsimonious-placement workflow: only run MARG_PUFF (placement) jobs in intermediate iterations and skip MARG_* (posterior) jobs. The final --tracer-final-marg-iterations iterations still run MARG_* to produce a clean posterior. Cuts marginalisation cost roughly in half for N=5-6 iterations. Requires --puff-exe to be a tracer-aware updater (e.g. util_HyperparameterTracerUpdate.py) since the puff grid drives placement on its own.")
+parser.add_argument("--tracer-final-marg-iterations",default=1,type=int,help="When --tracer-only-marg is set, the last N iterations still run MARG_* nodes for posterior generation. Default 1.")
 parser.add_argument("--eos-post-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--eos-post-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--eos-post-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
@@ -581,20 +583,33 @@ for it in np.arange(it_start,opts.n_iterations):
             con_node.add_macro("macroiteration",it)
             con_node.add_macro("macroevent",int(event))
             con_node.set_retry(opts.general_retries)
+            # tracer-only-marg gate: skip MARG_* (posterior) nodes in intermediate
+            # iterations when the puff grid is sufficient for placement. Iteration 0
+            # always runs MARG (no grid_puff-0.dat yet), and the last N iterations
+            # still run MARG to produce a clean posterior.
+            _n_final_marg = max(0, int(getattr(opts, "tracer_final_marg_iterations", 1)))
+            _skip_marg_this_iter = (
+                getattr(opts, "tracer_only_marg", False)
+                and it > it_start
+                and it < (opts.n_iterations - _n_final_marg)
+            )
+            if _skip_marg_this_iter:
+                print(" tracer-only-marg: skipping MARG_* nodes for iteration", it)
             for row in np.arange(indx_max_event): #np.arange(n_jobs_this_time):
                 # Add task per MARG operation
-                if opts.marg_event_args:
-                    cip_node = pipeline.CondorDAGNode(cip_job)
-                else:
-                    cip_node = pipeline.CondorDAGNode(cip_job_list[event])
-                cip_node.set_retry(opts.general_retries)
-                cip_node.add_macro("macroid",event)
-                cip_node.add_macro("macroevent", int(row*n_chunk_here))
-                cip_node.add_macro("macroiteration", it)
-                if not(parent_fit_node is None):
-                    cip_node.add_parent(parent_fit_node)
-                con_node.add_parent(cip_node) # consolidate depends on all of the individual jobs
-                dag.add_node(cip_node)
+                if not _skip_marg_this_iter:
+                    if opts.marg_event_args:
+                        cip_node = pipeline.CondorDAGNode(cip_job)
+                    else:
+                        cip_node = pipeline.CondorDAGNode(cip_job_list[event])
+                    cip_node.set_retry(opts.general_retries)
+                    cip_node.add_macro("macroid",event)
+                    cip_node.add_macro("macroevent", int(row*n_chunk_here))
+                    cip_node.add_macro("macroiteration", it)
+                    if not(parent_fit_node is None):
+                        cip_node.add_parent(parent_fit_node)
+                    con_node.add_parent(cip_node) # consolidate depends on all of the individual jobs
+                    dag.add_node(cip_node)
                 # if PUFF is done for this event, also add MARG_PUFF nodes.  Note grid size assumed identical, so don't need another loop over 'id'/row
                 if puff_args and puff_cadence:
                     if it>it_start and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
