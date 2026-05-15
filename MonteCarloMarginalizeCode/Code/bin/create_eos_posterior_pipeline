@@ -446,7 +446,16 @@ if opts.test_args:
     else:
         _test_curr = opts.working_directory + '/grid-$(macroiteration).dat'
         _test_prev = opts.working_directory + '/grid-$(macroiterationlast).dat'
-    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[_test_curr, _test_prev] ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+    # Resolve --test-exe to a full path matching how eospost_exe / the
+    # patched puff_exe are handled: bare names get resolved via `which`;
+    # absolute paths pass through. Condor on some test machines does not
+    # search PATH for local-universe jobs.
+    test_exe_resolved = opts.test_exe
+    if test_exe_resolved and not os.path.isabs(test_exe_resolved):
+        _r = dag_utils.which(test_exe_resolved)
+        if _r:
+            test_exe_resolved = os.path.abspath(_r)
+    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[_test_curr, _test_prev] ,out_dir=opts.working_directory,exe=test_exe_resolved,universe=local_worker_universe,no_grid=no_worker_grid)
     # Modify: set 'initialdir'
     test_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_test")
     # Modify output argument: change logs and working directory to be subdirectory for the run
