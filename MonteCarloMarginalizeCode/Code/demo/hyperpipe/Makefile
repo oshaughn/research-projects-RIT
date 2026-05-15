@@ -139,3 +139,9 @@ Gaussian_adaptive_bimodal:
 #    - This approach has configuration in 'hyperpipe_conf.yaml'
 rundir:
 	util_RIFT_hyperpipe.py
+
+rundir_tracer:
+	util_RIFT_hyperpipe.py --config hyperpipe_conf_tracer.yaml
+
+rundir_tracer_plots:
+	(cd rundir_tracer_plots; plot_posterior_corner.py --posterior-file posterior-3.dat  --composite-file all.marg_net --composite-file-has-labels --parameter x --parameter y --parameter z --lnL-cut 15 --use-all-composite-but-grayscale)
