@@ -270,20 +270,18 @@ dag = pipeline.CondorDAG(log=os.getcwd())
 
 
 # Make directories for all iterations
-for indx in np.arange(it_start,opts.n_iterations+1):
-    ile_dir = opts.working_directory+"/iteration_"+str(indx)+"_marg"
-    cip_dir = opts.working_directory+"/iteration_"+str(indx)+"_post"
-    consolidate_dir = opts.working_directory+"/iteration_"+str(indx)+"_con"
+for it_indx in np.arange(it_start,opts.n_iterations+1):
+    ile_dir = opts.working_directory+"/iteration_"+str(it_indx)+"_marg"
+    cip_dir = opts.working_directory+"/iteration_"+str(it_indx)+"_post"
+    consolidate_dir = opts.working_directory+"/iteration_"+str(it_indx)+"_con"
     mkdir(ile_dir); mkdir(ile_dir+"/logs")
-    indx=0
-    for event in opts.event_file:
-        mkdir(ile_dir + "/event_{}".format(indx))
-        indx+=1
+    for event_indx, _event in enumerate(opts.event_file):
+        mkdir(ile_dir + "/event_{}".format(event_indx))
     mkdir(cip_dir);  mkdir(cip_dir+"/logs")
     mkdir(consolidate_dir); mkdir(consolidate_dir+"/logs")
 
     if opts.test_args:
-        test_dir = opts.working_directory+"/iteration_"+str(indx)+"_test"
+        test_dir = opts.working_directory+"/iteration_"+str(it_indx)+"_test"
         mkdir(test_dir); mkdir(test_dir+'/logs')
 
 
