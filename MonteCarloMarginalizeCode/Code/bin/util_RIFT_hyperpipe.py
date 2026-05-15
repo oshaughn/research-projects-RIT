@@ -351,12 +351,18 @@ def my_app(cfg: DictConfig) -> None:
     marg.write_exe_file(args_marg_exe_path)
     marg.write_nchunk_file(event_nchunk_path)
 
+    # create_eos_posterior_pipeline reads these via --eos-post-args /
+    # --puff-args / --test-args and discards the first whitespace-separated
+    # token (see split(' ')[1:] in create_eos_posterior_pipeline). We prepend
+    # a dummy "X" so the real first flag survives. The marg-list args file is
+    # read line-by-line and does NOT get this treatment.
+    _PIPELINE_DUMMY = "X"
     with open(args_post_path, "w") as f:
-        f.write(_build_post_args(cfg, coord_spec) + "\n")
+        f.write(_PIPELINE_DUMMY + " " + _build_post_args(cfg, coord_spec) + "\n")
     with open(args_puff_path, "w") as f:
-        f.write(_build_puff_args(cfg, coord_spec) + "\n")
+        f.write(_PIPELINE_DUMMY + " " + _build_puff_args(cfg, coord_spec) + "\n")
     with open(args_test_path, "w") as f:
-        f.write(_build_test_args(cfg, coord_spec) + "\n")
+        f.write(_PIPELINE_DUMMY + " " + _build_test_args(cfg, coord_spec) + "\n")
 
     # ----- initial grid ---------------------------------------------------
     initial_grid = _maybe_generate_initial_grid(cfg["init"], base_dir, run_dir)
