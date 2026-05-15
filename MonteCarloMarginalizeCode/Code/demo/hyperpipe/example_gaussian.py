@@ -70,8 +70,8 @@ def likelihood_evaluation():
     # Sanity check on ranges : standard, do no work if not needed
     if opts.eos_start_index > len(eoss):
         sys.exit(0) # nothing to do
-    if opts.eos_end_index < len(eoss):
-        opts.eos_end_index = len(eoss)
+    if opts.eos_end_index >= len(eoss):
+        opts.eos_end_index = len(eoss)-1
     
     likelihood_dict = {}
     
