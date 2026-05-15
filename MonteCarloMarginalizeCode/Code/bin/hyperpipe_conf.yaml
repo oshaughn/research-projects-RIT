@@ -1,0 +1,122 @@
+# Default hyperpipe configuration consumed by util_RIFT_hyperpipe.py.
+#
+# Hydra finds this file because it lives next to util_RIFT_hyperpipe.py.
+# Users can:
+#   * override fields on the CLI with Hydra syntax:
+#        util_RIFT_hyperpipe.py arch.n-iterations=10 general.use-osg=true
+#   * point Hydra at their own file with --config-name <name>
+#        (placed next to this file) or --config-path <dir>
+#   * compose from the in-package defaults exposed via
+#        RIFT.hyperpipe.config.DEFAULT_CONFIG_YAML
+#
+# The schema is documented in RIFT/hyperpipe/config.py.
+
+arch:
+  method: default
+  n-iterations: 5
+  n-samples-per-job: 1000
+  explode-marg-jobs: 5
+  explode-marg-jobs-last: null
+  start-iteration: 0
+
+post:
+  exe: null
+  coord-module: null
+  coords-fit: "x y z"
+  coords-sample: "x:[-8,8] y:[-8,8] z:[-8,8]"
+  coords-implied: ""
+  coords-nofit: ""
+  likelihood-factor-module: null
+  likelihood-factor-function: null
+  likelihood-factor-ini: null
+  extra-args: ""
+  settings:
+    n-max: null
+    n-step: null
+    n-eff: null
+    sampler-method: null
+    fit-method: null
+    sigma-cut: null
+
+marg-list:
+  - name: gaussian
+    exe: util_HyperMargGaussian.py
+    args: "--outdir gaussian_out --conforming-output-name"
+    event-file: null
+    n-chunk: 100
+    coord-module: null
+    extra-args: ""
+
+puff:
+  exe: null
+  puff-factor: 0.5
+  force-away: 0.03
+  extra-args: ""
+  # Where the puff/tracer node reads its input from.
+  #   posterior : (legacy) reads grid-{k+1}.dat, writes grid_puff-{k+1}.dat
+  #               -> MARG_PUFF re-evaluates the puffed grid. The puffball
+  #               does not need lnL inputs, so this is the legacy mode.
+  #   marg_net  : (tracer) reads all.marg_net, writes grid-{k+1}.dat
+  #               directly. EOS_POST output is redirected to
+  #               posterior-{k+1}.dat (diagnostic only) and the MARG_PUFF
+  #               lane is suppressed entirely. Use with a tracer-aware
+  #               puff.exe (util_HyperparameterTracerUpdate.py).
+  input-source: null    # null = pipeline default (posterior)
+  # Tracer-placement sampler hyperparameters (only used when exe is a
+  # tracer-aware updater; ignored by the legacy util_HyperparameterPuffball.py).
+  # Leave keys null to take the updater's built-in defaults.
+  settings:
+    update-method: null        # smc-mala-bd | smc-mala | birth-death | ucb | puffball
+    tracer-fit-method: null    # rf | rbf | polynomial | quadratic
+    ucb-kappa: null            # UCB exploration weight (default 2.0)
+    ucb-n-candidates: null     # UCB candidate pool size (default 20000)
+    n-mala-steps: null         # int
+    target-ess-frac: null      # float in (0,1]
+    birth-death-rate: null     # float
+    inj-file-prev: null        # path to previous-iteration .dat (enables SMC bridging)
+    no-union-refit: false      # opt out of union refit when inj-file-prev is given
+    regularize: false
+    rng-seed: null             # int; deterministic when given
+    state-in: null
+    state-out: null
+
+test:
+  exe: convergence_test_samples
+  method: JS
+  threshold: 0.05
+  extra-args: ""
+  # Convergence-test diagnostics. All null/false by default. The pipeline
+  # already feeds --samples grid-{k}.dat and grid-{k+1}.dat (or, in tracer
+  # mode, posterior-{k}.dat and posterior-{k+1}.dat) and --parameter from
+  # the coord spec; these are extras you'd typically set when monitoring
+  # iteration-to-iteration agreement.
+  settings:
+    iteration-threshold: null      # skip test until iteration >= N (default 0)
+    write-file-on-success: null    # path to touch when convergence threshold met
+    test-output: null              # per-iteration diagnostic CSV
+    always-succeed: false          # keep DAG running past convergence (diagnostic-only mode)
+    verbose: false
+
+init:
+  file: null
+  generation:
+    placement-method: null
+    params-and-ranges: null
+    npts: null
+    external-code: null
+    external-args: null
+
+general:
+  rundir: null
+  retries: 0
+  request-disk: 10M
+  request-memory: 16384
+  use-osg: false
+  use-singularity: false
+  use-singularity-local: false
+  condor-local-nonworker: false
+  condor-local-nonworker-igwn-prefix: false
+  condor-nogrid-nonworker: false
+  use-full-submit-paths: true
+  transfer-files: []
+  dry-run: false

@@ -137,5 +137,14 @@ Gaussian_adaptive_bimodal:
 
 # ALTERNATIVE PIPELINE IMPLEMENTATION
 #    - This approach has configuration in 'hyperpipe_conf.yaml'
+# Note: util_RIFT_hyperpipe.py without --config loads the install-time default
+# next to the script (which has init.file: null and so fails validation). The
+# --config shim points it at the local demo yaml.
 rundir:
-	python util_RIFT_hyperpipe.py
+	util_RIFT_hyperpipe.py --config hyperpipe_conf.yaml
+
+rundir_tracer:
+	util_RIFT_hyperpipe.py --config hyperpipe_conf_tracer.yaml
+
+rundir_tracer_plots:
+	(cd rundir_tracer; plot_posterior_corner.py --posterior-file posterior-3.dat  --composite-file all.marg_net --composite-file-has-labels --parameter x --parameter y --parameter z --lnL-cut 15 --use-all-composite-but-grayscale)
