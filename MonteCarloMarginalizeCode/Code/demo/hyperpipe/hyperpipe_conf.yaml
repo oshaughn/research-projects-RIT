@@ -1,22 +1,41 @@
+# Baseline hyperpipe demo configuration. Drives the iterative MARG + EOS_POST
+# loop on a 3-D Gaussian toy with a 1000-point uniform seed grid spanning a
+# corner of the [-7,7]^3 prior. Compare with hyperpipe_conf_tracer.yaml for
+# the parsimonious-placement (tracer) variant of the same demo.
+#
+# Run with:
+#     make rundir
+# which is equivalent to:
+#     util_RIFT_hyperpipe.py --config ./hyperpipe_conf.yaml
 
 arch:
-   method: default
-   n-iterations: 3
-   n-samples-per-job: 1000
-   explode marg jobs: 5
+  method: default
+  n-iterations: 3
+  n-samples-per-job: 1000
+  explode-marg-jobs: 5
+
 post:
   coords-fit: "x y z"
   coords-sample: "x:[-7,7] y:[-7,7] z:[-7,7]"
+
 marg-list:
   - name: Gaussian
     exe: example_gaussian.py
-    args: --outdir Gaussian_example --conforming-output-name
+    args: "--outdir Gaussian_example --conforming-output-name"
     n-chunk: 100
+
 puff:
-  settings:
-      puff factor: 0.5
+  # No puff.exe -> no PUFF/MARG_PUFF lane is emitted. The iterative loop
+  # is MARG -> CON -> UNIFY -> EOS_POST -> next-iteration MARG, with new
+  # grids drawn from the posterior alone.
+  puff-factor: 0.5
+  force-away: 0.03
+
 init:
   file: blind_gaussian_3d_xy_plus.dat
+
 general:
   rundir: rundir
-
+  # Toy demo footprint; the GW-PE-tuned 16 GB default is overkill for a
+  # 3-D Gaussian.
+  request-memory: 200
