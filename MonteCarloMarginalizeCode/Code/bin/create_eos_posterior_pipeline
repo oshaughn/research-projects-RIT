@@ -541,14 +541,23 @@ if opts.use_osg:
 # PUFF job
 #   ... pending
 if puff_args and puff_cadence:
+    # Resolve --puff-exe to a full path matching how eospost_exe is handled
+    # above: bare names (e.g. "util_HyperparameterTracerUpdate.py") get
+    # resolved via `which`; if the user already passed an absolute path,
+    # leave it alone. Condor on some test machines does not search PATH
+    # when launching local-universe jobs and fails to start PUFF otherwise.
     exe_here = opts.puff_exe
+    if exe_here and not os.path.isabs(exe_here):
+        resolved = dag_utils.which(exe_here)
+        if resolved:
+            exe_here = os.path.abspath(resolved)
     if opts.use_osg:
         relevant_path = dag_utils.which(opts.puff_exe)
         if opts.condor_local_nonworker_igwn_prefix:
             relevant_path = relevant_path.split("/")[-1]
             exe_here = opts.working_directory + "/local_puff.sh"
         with open("local_puff.sh", 'w') as f:
-            f.write("""#! /bin/bash 
+            f.write("""#! /bin/bash
 {}
 {} $@
 """.format(extra_text,relevant_path))
