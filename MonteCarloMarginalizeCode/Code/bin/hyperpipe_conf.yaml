@@ -59,12 +59,24 @@ puff:
   puff-factor: 0.5
   force-away: 0.03
   extra-args: ""
+  # Where the puff/tracer node reads its input from.
+  #   posterior : (legacy) reads grid-{k+1}.dat, writes grid_puff-{k+1}.dat
+  #               -> MARG_PUFF re-evaluates the puffed grid. The puffball
+  #               does not need lnL inputs, so this is the legacy mode.
+  #   marg_net  : (tracer) reads all.marg_net, writes grid-{k+1}.dat
+  #               directly. EOS_POST output is redirected to
+  #               posterior-{k+1}.dat (diagnostic only) and the MARG_PUFF
+  #               lane is suppressed entirely. Use with a tracer-aware
+  #               puff.exe (util_HyperparameterTracerUpdate.py).
+  input-source: null    # null = pipeline default (posterior)
   # Tracer-placement sampler hyperparameters (only used when exe is a
   # tracer-aware updater; ignored by the legacy util_HyperparameterPuffball.py).
   # Leave keys null to take the updater's built-in defaults.
   settings:
-    update-method: null        # smc-mala-bd | smc-mala | birth-death | puffball
+    update-method: null        # smc-mala-bd | smc-mala | birth-death | ucb | puffball
     tracer-fit-method: null    # rf | rbf | polynomial | quadratic
+    ucb-kappa: null            # UCB exploration weight (default 2.0)
+    ucb-n-candidates: null     # UCB candidate pool size (default 20000)
     n-mala-steps: null         # int
     target-ess-frac: null      # float in (0,1]
     birth-death-rate: null     # float
@@ -80,6 +92,17 @@ test:
   method: JS
   threshold: 0.05
   extra-args: ""
+  # Convergence-test diagnostics. All null/false by default. The pipeline
+  # already feeds --samples grid-{k}.dat and grid-{k+1}.dat (or, in tracer
+  # mode, posterior-{k}.dat and posterior-{k+1}.dat) and --parameter from
+  # the coord spec; these are extras you'd typically set when monitoring
+  # iteration-to-iteration agreement.
+  settings:
+    iteration-threshold: null      # skip test until iteration >= N (default 0)
+    write-file-on-success: null    # path to touch when convergence threshold met
+    test-output: null              # per-iteration diagnostic CSV
+    always-succeed: false          # keep DAG running past convergence (diagnostic-only mode)
+    verbose: false
 
 init:
   file: null

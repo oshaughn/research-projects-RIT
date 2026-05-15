@@ -432,7 +432,17 @@ con_prod_job.write_sub_file()
         
 
 if opts.test_args:
-    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[ opts.working_directory+'/grid-$(macroiteration).dat', opts.working_directory+'/grid-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+    # In tracer mode (puff_uses_marg_net) the file grid-{k}.dat is a placement
+    # grid (lnL columns zero), and the true iteration posterior lives in
+    # posterior-{k}.dat. So the convergence test must compare posterior
+    # samples, not placement grids.
+    if puff_uses_marg_net:
+        _test_curr = opts.working_directory + '/posterior-$(macroiteration).dat'
+        _test_prev = opts.working_directory + '/posterior-$(macroiterationlast).dat'
+    else:
+        _test_curr = opts.working_directory + '/grid-$(macroiteration).dat'
+        _test_prev = opts.working_directory + '/grid-$(macroiterationlast).dat'
+    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[_test_curr, _test_prev] ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
     # Modify: set 'initialdir'
     test_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_test")
     # Modify output argument: change logs and working directory to be subdirectory for the run

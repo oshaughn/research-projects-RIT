@@ -228,6 +228,8 @@ def _build_puff_args(cfg, coord_spec) -> str:
     setting_flags = [
         ("update-method", "--update-method"),
         ("tracer-fit-method", "--tracer-fit-method"),
+        ("ucb-kappa", "--ucb-kappa"),
+        ("ucb-n-candidates", "--ucb-n-candidates"),
         ("n-mala-steps", "--n-mala-steps"),
         ("target-ess-frac", "--target-ess-frac"),
         ("birth-death-rate", "--birth-death-rate"),
@@ -260,6 +262,25 @@ def _build_test_args(cfg, coord_spec) -> str:
         method=_cfg_get(test, "method", "JS"),
         threshold=_cfg_get(test, "threshold", 0.05),
     )
+    # test.settings: forwards convergence_test_samples.py-specific flags. All
+    # nullable -- omitted keys produce no flag, mirroring post.settings.
+    settings = _cfg_get(test, "settings") or {}
+    setting_flags = [
+        ("iteration-threshold",    "--iteration-threshold"),
+        ("write-file-on-success",  "--write-file-on-success"),
+        ("test-output",            "--test-output"),
+    ]
+    for key, flag in setting_flags:
+        val = _cfg_get(settings, key)
+        if val is not None and val != "":
+            args += f" {flag} {val}"
+    bool_flags = [
+        ("always-succeed", "--always-succeed"),
+        ("verbose",        "--verbose"),
+    ]
+    for key, flag in bool_flags:
+        if hyper_config.truthy(_cfg_get(settings, key, False)):
+            args += f" {flag}"
     extra = (_cfg_get(test, "extra-args") or "").strip()
     if extra:
         args += " " + extra
@@ -382,6 +403,11 @@ def my_app(cfg: DictConfig) -> None:
         n_final = _cfg_get(arch, "tracer-final-marg-iterations")
         if n_final is not None:
             cmd_parts.append(f"--tracer-final-marg-iterations {int(n_final)}")
+    # tracer-aware puff input source (posterior|marg_net). Default posterior
+    # keeps the legacy puffball path byte-identical.
+    puff_input_source = _cfg_get(_cfg_get(cfg, "puff"), "input-source")
+    if puff_input_source:
+        cmd_parts.append(f"--puff-input-source {puff_input_source}")
 
     # general
     bool_flag_pairs = [
