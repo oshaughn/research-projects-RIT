@@ -46,6 +46,20 @@ Override a few defaults from the CLI (Hydra syntax)::
         general.use-osg=true general.use-singularity=true \\
         general.condor-local-nonworker=true
 
+Point at a config file living anywhere on disk (no install / no
+``--config-dir`` plumbing needed)::
+
+    util_RIFT_hyperpipe.py --config ./my_tracer.yaml
+    util_RIFT_hyperpipe.py -c /full/path/to/run_config.yaml \\
+        puff.settings.update-method=ucb
+
+The ``--config PATH`` shim accepts an absolute or relative path and
+splits it into the ``--config-dir`` / ``--config-name`` pair Hydra
+expects. Trailing ``.yaml`` / ``.yml`` extensions are stripped
+automatically (so ``--config-name foo.yaml`` works too). A bare name
+falls through to Hydra's normal search path (the installed
+``hyperpipe_conf.yaml`` next to the script).
+
 Implementation notes
 --------------------
 The real work lives in :mod:`RIFT.hyperpipe`:
@@ -449,5 +463,99 @@ def my_app(cfg: DictConfig) -> None:
         )
 
 
+def _preprocess_config_args(argv):
+    """User-friendly --config shim translated into Hydra's --config-dir / --config-name.
+
+    Hydra's native CLI requires two flags (``--config-dir DIR --config-name NAME``)
+    and the config-name must be bare (no ``.yaml`` extension). Users who pass a full
+    path to a config file expect the script to "just use it". This shim accepts:
+
+      --config /full/path/to/myconf.yaml
+      --config myconf.yaml                          (resolved against CWD)
+      --config myconf                               (Hydra default search path)
+      -c /full/path/to/myconf.yaml                  (short form)
+
+    and rewrites argv so Hydra sees the equivalent of::
+
+      --config-dir /full/path/to    --config-name myconf
+
+    Also strips a trailing ``.yaml`` / ``.yml`` from ``--config-name=...`` /
+    ``--config-name foo.yaml`` (the most common user-mistake from Hydra's docs).
+
+    Fails fast with a clear error if the resolved file does not exist.
+    """
+    out = []
+    i = 0
+    n = len(argv)
+
+    def _strip_ext(name):
+        for ext in (".yaml", ".yml"):
+            if name.endswith(ext):
+                return name[: -len(ext)]
+        return name
+
+    def _split_path_or_name(raw):
+        """Given what the user passed, return (dir_or_None, bare_name)."""
+        if os.sep in raw or raw.startswith(".") or raw.endswith(".yaml") or raw.endswith(".yml"):
+            # path-shaped or extension-bearing
+            abs_path = os.path.abspath(raw)
+            d = os.path.dirname(abs_path)
+            base = os.path.basename(abs_path)
+            return d, _strip_ext(base)
+        # bare name -> leave dir alone (use built-in search path)
+        return None, _strip_ext(raw)
+
+    def _emit(dirpart, namepart, raw):
+        # Validate existence when we have a directory commitment
+        if dirpart is not None:
+            full = os.path.join(dirpart, namepart + ".yaml")
+            full_yml = os.path.join(dirpart, namepart + ".yml")
+            if not (os.path.isfile(full) or os.path.isfile(full_yml)):
+                sys.stderr.write(
+                    f"util_RIFT_hyperpipe.py: config file not found from --config {raw!r}\n"
+                    f"  looked for: {full}\n"
+                    f"          or: {full_yml}\n"
+                )
+                sys.exit(2)
+            out.append(f"--config-dir={dirpart}")
+        out.append(f"--config-name={namepart}")
+
+    while i < n:
+        a = argv[i]
+        # Long form: --config X  or  --config=X
+        if a == "--config" or a == "-c":
+            if i + 1 >= n:
+                sys.stderr.write("util_RIFT_hyperpipe.py: --config requires an argument\n")
+                sys.exit(2)
+            raw = argv[i + 1]
+            d, name = _split_path_or_name(raw)
+            _emit(d, name, raw)
+            i += 2
+            continue
+        if a.startswith("--config=") or a.startswith("-c="):
+            raw = a.split("=", 1)[1]
+            d, name = _split_path_or_name(raw)
+            _emit(d, name, raw)
+            i += 1
+            continue
+        # Belt-and-braces: if the user passed --config-name foo.yaml, strip the ext.
+        if a == "--config-name" and i + 1 < n:
+            out.append(a)
+            out.append(_strip_ext(argv[i + 1]))
+            i += 2
+            continue
+        if a.startswith("--config-name="):
+            out.append("--config-name=" + _strip_ext(a.split("=", 1)[1]))
+            i += 1
+            continue
+        out.append(a)
+        i += 1
+    return out
+
+
 if __name__ == "__main__":
+    # Translate any user-friendly --config PATH into Hydra's native flags
+    # before @hydra.main parses sys.argv. Idempotent: passing Hydra's
+    # native --config-dir / --config-name through unchanged still works.
+    sys.argv = [sys.argv[0]] + _preprocess_config_args(sys.argv[1:])
     my_app()
