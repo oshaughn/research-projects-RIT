@@ -138,4 +138,4 @@ Gaussian_adaptive_bimodal:
 # ALTERNATIVE PIPELINE IMPLEMENTATION
 #    - This approach has configuration in 'hyperpipe_conf.yaml'
 rundir:
-	python util_RIFT_hyperpipe.py
+	util_RIFT_hyperpipe.py
