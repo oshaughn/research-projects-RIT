@@ -237,6 +237,23 @@ def _build_puff_args(cfg, coord_spec) -> str:
         force_away=_cfg_get(puff, "force-away", 0.03),
         puff_factor=_cfg_get(puff, "puff-factor", 0.5),
     )
+    # Pass the prior bounds through as --downselect-parameter so the tracer's
+    # internal prior_box covers the user's actual coords-sample range instead
+    # of the data bounding box. Without this, a narrow initial grid (e.g. a
+    # corner seed for blind-recovery tests) clips the tracer to data_bbox +
+    # 10% pad and particles cannot escape the convex hull. Both the legacy
+    # util_HyperparameterPuffball.py and the tracer drop-ins accept these
+    # flags; the legacy puffball treats them as a post-puff downselect mask,
+    # the tracer drop-ins also use them to widen prior_box.
+    # The range value is intentionally unquoted: create_eos_posterior_pipeline
+    # wraps any [..] in single quotes when staging args_puff.txt for Condor.
+    for p in coord_spec.parameters:
+        lo, hi = coord_spec.parameter_ranges[p]
+        args += (
+            f" --downselect-parameter {p}"
+            f" --downselect-parameter-range [{coord_spec._fmt_num(lo)},"
+            f"{coord_spec._fmt_num(hi)}]"
+        )
     settings = _cfg_get(puff, "settings") or {}
     # Value-bearing flags. Each pair is (yaml key, CLI flag). Empty / null is skipped.
     setting_flags = [
