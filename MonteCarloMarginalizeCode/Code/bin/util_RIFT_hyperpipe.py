@@ -415,14 +415,6 @@ def my_app(cfg: DictConfig) -> None:
     start_iter = int(_cfg_get(arch, "start-iteration", 0) or 0)
     if start_iter:
         cmd_parts.append(f"--start-iteration {start_iter}")
-    # Parsimonious-placement workflow: skip MARG_* in intermediate iterations
-    # when the puff grid is sufficient for placement (requires --puff-exe to be
-    # a tracer-aware updater such as util_HyperparameterTracerUpdate.py).
-    if hyper_config.truthy(_cfg_get(arch, "tracer-only-marg", False)):
-        cmd_parts.append("--tracer-only-marg")
-        n_final = _cfg_get(arch, "tracer-final-marg-iterations")
-        if n_final is not None:
-            cmd_parts.append(f"--tracer-final-marg-iterations {int(n_final)}")
     # tracer-aware puff input source (posterior|marg_net). Default posterior
     # keeps the legacy puffball path byte-identical.
     puff_input_source = _cfg_get(_cfg_get(cfg, "puff"), "input-source")

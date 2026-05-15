@@ -18,13 +18,6 @@ arch:
   explode-marg-jobs: 5
   explode-marg-jobs-last: null
   start-iteration: 0
-  # Parsimonious-placement workflow (set tracer-only-marg: true to enable).
-  # Skips MARG_* (posterior) nodes in intermediate iterations and relies on
-  # MARG_PUFF (placement) jobs alone. Final N iterations still run MARG_* to
-  # produce a clean posterior. Requires puff.exe to be a tracer-aware updater
-  # (e.g. util_HyperparameterTracerUpdate.py).
-  tracer-only-marg: false
-  tracer-final-marg-iterations: 1
 
 post:
   exe: null
