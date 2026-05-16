@@ -81,7 +81,7 @@ puff:
     state-out: null
 
 test:
-  exe: convergence_test_samples
+  exe: convergence_test_samples.py
   method: JS
   threshold: 0.05
   extra-args: ""
