@@ -180,7 +180,6 @@ def add_field(a, descr):
 
 
 
-
 def standard_expand_samples(samples):
     """
     Expands a sample set by adding standard derived parameters.
@@ -273,6 +272,43 @@ def standard_expand_samples(samples):
         samples = add_field(samples, [('dlambdat', float)]); samples['dlambdat'] = dLt
 
 
+    return samples
+
+def alt_expand_samples(samples):
+    """
+        Llike standard_expand_samples, but targeted specifically for composite files
+    """
+    if 'm1' in samples.dtype.names and not 'q' in samples.dtype.names:
+        samples=add_field(samples,[('mtotal',float)]); samples["mtotal"]= samples["m1"]+samples["m2"];
+        if not 'q' in samples.dtype.names:
+            samples=add_field(samples,[('q',float)]); samples["q"]= samples["m2"]/samples["m1"];
+        if not 'mc' in samples.dtype.names:
+            samples=add_field(samples,[('mc',float)]); samples["mc"] = lalsimutils.mchirp(samples["m1"], samples["m2"])
+        samples=add_field(samples,[('eta',float)]); samples["eta"] = lalsimutils.symRatio(samples["m1"], samples["m2"])
+        if not 'chi_eff' in samples.dtype.names:
+            samples=add_field(samples,[('chi_eff',float)]); samples["chi_eff"]= (samples["m1"]*samples["a1z"]+samples["m2"]*samples["a2z"])/(samples["mtotal"]); 
+        chi1_perp = np.sqrt(samples['a1x']*samples["a1x"] + samples['a1y']**2)
+        chi2_perp = np.sqrt(samples['a2x']**2 + samples['a2y']**2)
+        samples = add_field(samples, [('chi1_perp',float)]); samples['chi1_perp'] = chi1_perp
+        samples = add_field(samples, [('chi2_perp',float)]); samples['chi2_perp'] = chi2_perp
+
+        phi1 = np.arctan2(samples['a1x'], samples['a1y']);
+        phi2 = np.arctan2(samples['a2x'], samples['a2y']);
+        samples = add_field(samples, [('phi1',float), ('phi2',float), ('phi12',float)])
+        samples['phi1'] = phi1
+        samples['phi2'] = phi2
+        samples['phi12'] = phi2 - phi1
+        
+        chi1 = np.sqrt(samples['a1x']**2 + samples['a1y']**2+samples['a1z']**2)
+        chi2 = np.sqrt(samples['a2x']**2 + samples['a2y']**2+samples['a2z']**2)
+        samples = add_field(samples, [('chi1',float), ('chi2',float)])
+
+
+        if ('lambda1' in samples.dtype.names):
+            Lt,dLt = lalsimutils.tidal_lambda_tilde(samples['m1'], samples['m2'],  samples['lambda1'], samples['lambda2'])
+            samples= add_field(samples, [('LambdaTilde',float), ('DeltaLambdaTilde',float),('lambdat',float),('dlambdat',float)])
+            samples['LambdaTilde'] = samples['lambdat']= Lt
+            samples['DeltaLambdaTilde'] = samples['dlambdat']= dLt
     return samples
 
 
