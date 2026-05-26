@@ -54,7 +54,7 @@ parser.add_argument("--eos-post-retries",default=0,type=int,help="Number of retr
 parser.add_argument("--eos-post-explode-jobs",default=2,type=int,help="Number of MARG jobs to use in posterior generation.")
 parser.add_argument("--eos-post-explode-jobs-last",default=2,type=int,help="Number of MARG jobs to use in posterior generation on the final stage (if desired).")
 parser.add_argument("--test-args",default=None,help="filename of args_test.txt, which holds test arguments.  Note i/o arguments will be modified, so should NOT specify the samples files or the output file, just the test to be performed and any related arguments")
-parser.add_argument("--test-exe",default='convergence_test_samples',help="convergence test samples")
+parser.add_argument("--test-exe",default='convergence_test_samples.py',help="convergence test samples")
 parser.add_argument("--general-retries",default=0,type=int,help="Number of retry attempts for internal jobs (convert, CIP, ...). (These can fail, albeit more rarely, usually due to filesystem problems)")
 parser.add_argument("--general-request-disk",default="10M",type=str,help="Request disk passed to condor. Must be done for all jobs now")
 parser.add_argument("--transfer-file-list",default=None,help="File containing list of *input* filenames to transfer, one name per file. Copied into transfer_files for condor directly.  If provided, also enables attempts to deduce files that need to be transferred for the pipeline to operate, as needed for OSG, etc")
@@ -450,11 +450,26 @@ if opts.test_args:
     # patched puff_exe are handled: bare names get resolved via `which`;
     # absolute paths pass through. Condor on some test machines does not
     # search PATH for local-universe jobs.
+    #
+    # The script as shipped is named ``convergence_test_samples.py``
+    # (setup.py installs everything in bin/ verbatim), but upstream
+    # layers historically default to the bare ``convergence_test_samples``
+    # name. If the bare lookup fails, try the .py-suffixed form too so
+    # those defaults keep working without forcing every caller to update.
     test_exe_resolved = opts.test_exe
     if test_exe_resolved and not os.path.isabs(test_exe_resolved):
         _r = dag_utils.which(test_exe_resolved)
+        if not _r and not test_exe_resolved.endswith(".py"):
+            _r = dag_utils.which(test_exe_resolved + ".py")
         if _r:
             test_exe_resolved = os.path.abspath(_r)
+        else:
+            print(
+                " WARNING: --test-exe {!r} did not resolve via PATH; test.sub "
+                "will use the bare name (condor must find it itself).".format(
+                    opts.test_exe
+                )
+            )
     test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[_test_curr, _test_prev] ,out_dir=opts.working_directory,exe=test_exe_resolved,universe=local_worker_universe,no_grid=no_worker_grid)
     # Modify: set 'initialdir'
     test_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_test")

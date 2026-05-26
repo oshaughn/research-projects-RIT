@@ -122,7 +122,11 @@ puff:
     state-out: null             # -> --state-out
 
 test:
-  exe: convergence_test_samples
+  # The on-disk script is named convergence_test_samples.py (setup.py ships
+  # bin/* verbatim).  Using the bare name here would make the test-exe
+  # `which` resolution miss and leave test.sub with a non-absolute
+  # `executable =` line.
+  exe: convergence_test_samples.py
   method: JS
   threshold: 0.05
   extra-args: ""

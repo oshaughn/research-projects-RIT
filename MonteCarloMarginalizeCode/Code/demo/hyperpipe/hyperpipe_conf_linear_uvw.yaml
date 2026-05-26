@@ -1,0 +1,100 @@
+# End-to-end demo for the linear_coordinate_convert plugin.
+#
+# Goal
+# ----
+# The pipeline iterates in (x, y, z) -- same basis as hyperpipe_conf_tracer.yaml
+# -- but the likelihood is a 3-D Gaussian whose principal axes lie along
+# (u, v, w), a 45-degree rotation of (x, y, z) in the xy-plane.  Sigmas are
+# deliberately unequal (sigma_u != sigma_v != sigma_w) so the rotation is
+# observable in the resulting (x, y, z) posterior -- you should see an
+# elongated, off-axis ellipsoid that points along the rotated v-axis.
+#
+# Why iteration stays in (x, y, z)
+# --------------------------------
+# The hyperpipe yaml schema currently shares `coords-fit` between the puff
+# stage and the post stage (see RIFT/hyperpipe/coords.py:to_puff_args and
+# to_post_args).  Having the puff lane and the EOS posterior operate in
+# different bases would require either a schema extension or a Makefile-
+# style direct invocation; both are out of scope for this demo.  What this
+# yaml DOES demonstrate is the most useful piece of the new plugin
+# machinery: a user-supplied likelihood evaluator (example_gaussian_uvw.py)
+# loading linear_coordinate_convert.py via the same plugin contract that
+# util_ConstructEOSPosterior.py uses.  The library is exercised
+# end-to-end; the post-stage's `--supplementary-coordinate-code` path is
+# covered by the unit tests in RIFT/misc/coordinate_plugin.py.
+#
+# Reading this file
+# -----------------
+# Differences from hyperpipe_conf_tracer.yaml:
+#   * `marg-list[0].exe` -> example_gaussian_uvw.py (uses linear plugin)
+#   * `marg-list[0].args` ships the absolute paths to the plugin / ini so
+#     the marg job finds them regardless of the condor scratch cwd.
+#   * `general.rundir` renamed to keep the two tracer rundirs side-by-side.
+# Everything else mirrors hyperpipe_conf_tracer.yaml exactly.
+#
+# Run with:
+#     util_RIFT_hyperpipe.py --config ./hyperpipe_conf_linear_uvw.yaml
+#
+# Then plot with:
+#     (cd rundir_linear_uvw; plot_posterior_corner.py \
+#          --posterior-file posterior-4.dat \
+#          --composite-file all.marg_net --composite-file-has-labels \
+#          --parameter x --parameter y --parameter z \
+#          --lnL-cut 15 --use-all-composite-but-grayscale)
+
+arch:
+  method: default
+  n-iterations: 5
+  n-samples-per-job: 1000
+  explode-marg-jobs: 5
+  start-iteration: 0
+
+post:
+  # Iteration basis (== puff basis == data-file column basis). The post
+  # stage's GP/RF fit happens here too; the rotated (u, v, w) basis only
+  # appears inside the likelihood evaluator below.
+  coords-fit: "x y z"
+  # Integration ranges in (x, y, z).  Sized to comfortably enclose the
+  # initial grid plus a margin for the Gaussian tails after rotation:
+  # the Gaussian peaks at (u, v, w) = (0, 4.95, 3.5), which back-projects
+  # to (x, y, z) ~= (-3.5, 3.5, 3.5), and the broadest sigma (sigma_w =
+  # 1.5 along z) needs ~+/-5 in z to contain ~3 sigma.
+  coords-sample: "x:[-7,1] y:[0,7] z:[-1,8]"
+  settings:
+    fit-method: rf
+
+marg-list:
+  - name: Gaussian_uvw
+    exe: example_gaussian_uvw.py
+    # The marg job lives inside a condor scratch dir, so the plugin /
+    # ini paths need to be absolute. ${hydra:runtime.cwd} is Hydra's
+    # original-invocation cwd resolver -- this assumes you run
+    # util_RIFT_hyperpipe.py from inside demo/hyperpipe/.  If you invoke
+    # from elsewhere, edit the next two args to point at wherever you
+    # put linear_coordinate_convert.{py,ini}.
+    args: "--outdir Gaussian_uvw_example --conforming-output-name --coord-plugin ${hydra:runtime.cwd}/linear_coordinate_convert.py --coord-ini ${hydra:runtime.cwd}/linear_coordinate_convert.ini --mu-uvw 0.0,4.95,3.5 --sigma-uvw 0.5,1.0,1.5"
+    n-chunk: 100
+
+puff:
+  exe: util_HyperparameterTracerUpdate.py
+  input-source: marg_net
+  puff-factor: 0.5
+  force-away: 0.03
+  settings:
+    update-method: smc-mala-bd
+    tracer-fit-method: rf
+    n-mala-steps: 8
+    target-ess-frac: 0.5
+    birth-death-rate: 1.0
+    rng-seed: null
+
+init:
+  # Reuse the same initial grid as the baseline tracer demo. Columns are
+  # (x, y, z); the Gaussian centre at (u, v, w) = (0, 4.95, 3.5) lies near
+  # the centroid of this grid after rotation, so the iteration has
+  # something to lock onto right from iteration zero.
+  file: blind_gaussian_3d_xy_plus.dat
+
+general:
+  rundir: rundir_linear_uvw
+  request-memory: 200
