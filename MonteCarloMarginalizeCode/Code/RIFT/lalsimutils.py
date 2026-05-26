@@ -1869,7 +1869,7 @@ class ChooseWaveformParams:
                 setattr( swigrow, simattr, str(getattr(row, simattr)) )
             elif not(lalmetaio_old_style) and ('end_time_ns' in simattr ):
                 basename = simattr.replace('_ns', '')
-                val = float(getattr(swigrow, basename))
+                val = float(getattr(row, basename))
                 dt = float(getattr(row, simattr))
                 setattr( swigrow, basename, (val+1e-9*dt))
             else:

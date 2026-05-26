@@ -294,6 +294,7 @@ parser.add_argument("--internal-ile-force-noreset-adapt",action='store_true',hel
 parser.add_argument("--internal-ile-adapt-log",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE via helper.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset for ILE")
+parser.add_argument("--export-marginal-distance-grid",action='store_true',help="Ask ILE workers to export per-intrinsic likelihood density grids in luminosity distance. Requires ILE lnL mode and non-marginalized distance.")
 parser.add_argument("--ile-additional-files-to-transfer",default=None,help="Comma-separated list of filenames. To append to the transfer file list for ILE jobs (only). Intended for surrogates in LAL_DATA_PATH for wide-ranging use")
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
@@ -740,6 +741,10 @@ if not(opts.cip_fit_method is None):
 
 if opts.internal_ile_use_lnL:
     cmd+= " --internal-ile-use-lnL "
+if opts.export_marginal_distance_grid:
+    opts.internal_ile_use_lnL = True
+    if "--internal-ile-use-lnL" not in cmd:
+        cmd += " --internal-ile-use-lnL "
 if opts.internal_cip_use_lnL:
     cmd += " --internal-cip-use-lnL "
 if opts.internal_ile_data_tukey_window_time:
@@ -969,6 +974,10 @@ if not(opts.manual_extra_ile_args is None):
         line = line.replace('--declination-cosine-sampler', '')
 if opts.internal_ile_force_adapt_all:
     line += " --force-adapt-all "
+if opts.export_marginal_distance_grid:
+    if "--distance-marginalization" in line:
+        raise Exception("--export-marginal-distance-grid requires ILE runs without distance marginalization")
+    line += " --export-marginal-distance-grid --internal-use-lnL "
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 if opts.internal_ile_sky_network_coordinates:
