@@ -246,6 +246,7 @@ parser.add_argument("--last-iteration-extrinsic-samples-per-ile",default=5,type=
 parser.add_argument("--last-iteration-extrinsic-samples-per-ile-internal",default=10,type=int,help="Draw this many samples from each ILE job")
 parser.add_argument("--last-iteration-extrinsic-batched-convert",action='store_true',help="Used batched converter for output of extrinsic samples")
 parser.add_argument("--last-iteration-extrinsic-time-resampling",action='store_true',help="Last iterations use time resampling (+ the fairdraw is done inside ILE itself), so different code path for final stages")
+parser.add_argument("--last-iteration-export-marginal-distance-grid", action='store_true', help="Add argument to ILE_extr")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
@@ -772,6 +773,8 @@ if  (opts.last_iteration_extrinsic):
     ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(n_eff_last)  # modify convergence criteria so output of reasonable size/matching needs of extrinsic output
     #  - note we *disable* --no-adapt-after-first (if present), so each point is independent (e.g., in sky location)
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
+    if opts.last_iteration_export_marginal_distance_grid:
+        ile_args_extr += " --export-marginal-distance-grid "
     if opts.last_iteration_extrinsic_time_resampling:
         ile_args_extr += " --resample-time-marginalization --fairdraw-extrinsic-output --fairdraw-extrinsic-output-n-max {} ".format(n_points_per_ILE)
         print(" Time resampling in extraction iteration: **DISABLING** distance marginalization if present ")

@@ -977,7 +977,7 @@ if opts.internal_ile_force_adapt_all:
 if opts.export_marginal_distance_grid:
     if "--distance-marginalization" in line:
         raise Exception("--export-marginal-distance-grid requires ILE runs without distance marginalization")
-    line += " --export-marginal-distance-grid --internal-use-lnL "
+    line += " --last-iteration-export-marginal-distance-grid --internal-use-lnL "
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 if opts.internal_ile_sky_network_coordinates:
