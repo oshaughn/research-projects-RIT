@@ -775,6 +775,7 @@ if  (opts.last_iteration_extrinsic):
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
     if opts.last_iteration_export_marginal_distance_grid:
         ile_args_extr += " --export-marginal-distance-grid "
+        ile_args_extr = ile_args_extr.replace("--distance-marginalization ", ' ')  # *currently* cannot use distance marginalization in the last step if we want distance grid output
     if opts.last_iteration_extrinsic_time_resampling:
         ile_args_extr += " --resample-time-marginalization --fairdraw-extrinsic-output --fairdraw-extrinsic-output-n-max {} ".format(n_points_per_ILE)
         print(" Time resampling in extraction iteration: **DISABLING** distance marginalization if present ")

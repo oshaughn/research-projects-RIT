@@ -2,7 +2,6 @@ RIFT_CODE_ROOT := $(abspath ../../..)
 REPO_ROOT := $(abspath ../../../../..)
 CI_DEMO := $(REPO_ROOT)/.travis/ILE-GPU-Paper/demos
 
-CONDA_ENV ?= my_rift
 INI ?= $(CURDIR)/add_distance_grids.ini
 COINC ?= $(REPO_ROOT)/.travis/ref_ini/coinc.xml
 CACHE ?= $(CI_DEMO)/zero_noise.cache
@@ -11,7 +10,6 @@ INITIAL_GRID ?= $(CI_DEMO)/overlap-grid.xml.gz
 RUN_DIR ?= $(CURDIR)/rundir
 
 ENV = GW_SURROGATE='' PYTHONPATH=$(RIFT_CODE_ROOT):$${PYTHONPATH:-} PATH=$(RIFT_CODE_ROOT)/bin:$${PATH}
-CONDA_RUN = conda run -n $(CONDA_ENV)
 
 .PHONY: help inputs dag submit clean validate-args
 
@@ -42,12 +40,13 @@ dag: inputs
 	printf '%s\n' 'X --mc-range [23,35] --eta-range [0.20,0.24999] --parameter mc --parameter-implied eta --parameter-nofit delta_mc --fit-method gp --verbose --lnL-offset 120 --cap-points 12000 --n-output-samples 1000 --no-plots --n-eff 1000' > "$(RUN_DIR)/args_cip.txt"
 	printf '%s\n' 'X --always-succeed --method lame --parameter m1' > "$(RUN_DIR)/args_test.txt"
 	printf '%s\n' 'X --parameter m1 --parameter m2' > "$(RUN_DIR)/args_plot.txt"
-	printf '%s\n' 'X --n-chunk 10000 --time-marginalization --sim-xml overlap-grid.xml.gz --reference-freq 100.0 --adapt-weight-exponent 0.1 --event-time 1000000014.236547946 --save-P 0.1 --cache-file $(CACHE) --fmin-template 10 --n-max 50000 --fmax 1700.0 --save-deltalnL inf --l-max 2 --n-eff 50 --approximant SEOBNRv4 --adapt-floor-level 0.1 --force-xpy --d-max 1000 --psd-file H1=$(PSD) --psd-file L1=$(PSD) --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN --inclination-cosine-sampler --declination-cosine-sampler --data-start-time 1000000008 --data-end-time 1000000016 --inv-spec-trunc-time 0 --no-adapt-after-first --no-adapt-distance --srate 4096 --sampler-method GMM --internal-use-lnL --export-marginal-distance-grid' > "$(RUN_DIR)/args_ile.txt"
-	cd "$(RUN_DIR)" && $(ENV) $(CONDA_RUN) create_event_parameter_pipeline_BasicIteration \
+	printf '%s\n' 'X --n-chunk 10000 --time-marginalization --sim-xml overlap-grid.xml.gz --reference-freq 100.0 --adapt-weight-exponent 0.1 --event-time 1000000014.236547946 --save-P 0.1 --cache-file $(CACHE) --fmin-template 10 --n-max 50000 --fmax 1700.0 --save-deltalnL inf --l-max 2 --n-eff 50 --approximant SEOBNRv4 --adapt-floor-level 0.1 --force-xpy --d-max 1000 --psd-file H1=$(PSD) --psd-file L1=$(PSD) --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN --inclination-cosine-sampler --declination-cosine-sampler --data-start-time 1000000008 --data-end-time 1000000016 --inv-spec-trunc-time 0 --no-adapt-after-first --no-adapt-distance --srate 4096 --sampler-method GMM --internal-use-lnL  ' > "$(RUN_DIR)/args_ile.txt"
+	cd "$(RUN_DIR)" &&  create_event_parameter_pipeline_BasicIteration \
 		--ile-n-events-to-analyze 20 \
 		--input-grid "$(INITIAL_GRID)" \
 		--ile-exe "$(RIFT_CODE_ROOT)/bin/integrate_likelihood_extrinsic_batchmode" \
 		--ile-args args_ile.txt \
+                --last-iteration-export-marginal-distance-grid \
 		--cip-args args_cip.txt \
 		--test-args args_test.txt \
 		--plot-args args_plot.txt \
