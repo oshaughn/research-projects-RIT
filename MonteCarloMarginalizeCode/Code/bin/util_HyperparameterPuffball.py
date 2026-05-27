@@ -123,7 +123,8 @@ else:
 names_downselect = list(downselect_dict.keys())
 # no conversion needed
 indx_ok = np.ones(len(X_out),dtype=bool)
-for indx, name in enumerate(names_downselect):
+for name in names_downselect:
+    indx = coord_names.index(name)
     indx_ok = np.logical_and(indx_ok,  np.logical_not(np.isnan(X_out[:,indx])))
     indx_ok = np.logical_and(indx_ok,  X_out[:,indx]<= downselect_dict[name][1] )
     indx_ok = np.logical_and(indx_ok,  X_out[:,indx]>= downselect_dict[name][0] )
