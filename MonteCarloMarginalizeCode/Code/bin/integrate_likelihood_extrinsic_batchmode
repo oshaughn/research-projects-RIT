@@ -315,6 +315,8 @@ intrinsic_params.add_option("--eff-lambda", type=float, help="Value of effective
 intrinsic_params.add_option("--deff-lambda", type=float, help="Value of second effective tidal parameter. Optional, ignored if not given")
 intrinsic_params.add_option("--export-eos-index",action='store_true')
 intrinsic_params.add_option("--export-marginal-distance-grid",action='store_true')
+intrinsic_params.add_option("--export-distance-slices",type=int,default=0,help="If >0, run K independent fixed-distance integrals after the main extrinsic integration and write a per-event .dslice file with one row per slice (K rows total). Requires --internal-use-lnL and no --distance-marginalization. Pure-likelihood schema; see RIFT.misc.distance_slices.")
+intrinsic_params.add_option("--distance-slice-method",default="reweight",help="How to estimate L(d_k) at each slice. 'reweight' (default) importance-reweights Omega samples from the main run; 'fresh' would build an independent Omega sampler per slice (not yet implemented).")
 optp.add_option_group(intrinsic_params)
 
 
@@ -2070,7 +2072,97 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
               n_grid=opts.n_eff,
           )
           save_distance_grid(fname_output_dgrid, dgrid)
-          
+
+        # Plan-B distance slices: K independent fixed-d extrinsic integrals.
+        # Produces a (K rows x intrinsic cols) table per ILE job; target size
+        # ~10x .composite when K~=10. See RIFT/misc/distance_slices.py.
+        if (opts.output_file and opts.export_distance_slices and opts.export_distance_slices > 0
+            and not(opts.distance_marginalization) and opts.internal_use_lnL):
+          from RIFT.misc import distance_slices
+          fname_output_dslice = opts.output_file + "_" + str(indx_event) + "_" + ".dslice"
+          K = int(opts.export_distance_slices)
+          # B2-reweight relies on a healthy main n_eff so that Omega samples
+          # are a good importance sample at every slice distance. GMM at low
+          # n_eff biases the reweighting silently; flag it so the user knows
+          # to switch sampler or raise n-max.
+          if opts.sampler_method == "GMM" and neff < 50:
+            print("  WARNING: --export-distance-slices with --sampler-method GMM at main n_eff={:.1f} (<50). ".format(neff)
+                  + "B2-reweight may be biased; prefer --sampler-method AV or raise --n-max.")
+          dL_samp = np.array(sampler._rvs["distance"])
+          # ln(pi_d) at samples uses the actual sampler prior (volumetric or
+          # pseudo-cosmo, whichever was registered).
+          prior_pdf_d = sampler.prior_pdf["distance"]
+          pi_d_samp = np.asarray(prior_pdf_d(dL_samp), float)
+          pi_d_samp = np.where(pi_d_samp > 0, pi_d_samp, np.finfo(float).tiny)
+          ln_pi_d_samp = np.log(pi_d_samp)
+          # ln(q_d) at samples; for the standard ILE path the proposal is the
+          # normalized sampler.pdf['distance'] divided by sampler._pdf_norm
+          # (for the basic mcsampler) or applied directly (Ensemble normalizes
+          # internally). For our purposes the joint_prior/joint_s_prior column
+          # already encodes the ratio across all dims, so we only need pi_d
+          # and q_d at the SAMPLES to isolate the Omega-only factor. Compute
+          # q_d as a normalized 1-D density on the supported range.
+          try:
+            q_d_raw = np.asarray(sampler.pdf["distance"](dL_samp), float)
+          except Exception:
+            q_d_raw = np.ones_like(dL_samp)
+          q_d_norm = float(getattr(sampler, "_pdf_norm", {}).get("distance", 1.0)) or 1.0
+          q_d_samp = q_d_raw / q_d_norm
+          q_d_samp = np.where(q_d_samp > 0, q_d_samp, np.finfo(float).tiny)
+          ln_q_d_samp = np.log(q_d_samp)
+          # Pick slice centers from the full posterior on d. Recover the
+          # log-importance weights with the same fallback chain we use for
+          # .dgrid.
+          rvs = sampler._rvs
+          if 'log_weights' in rvs:
+            ln_w_full = np.array(rvs['log_weights'])
+          elif 'log_integrand' in rvs:
+            ln_w_full = np.array(rvs['log_integrand'] + rvs['log_joint_prior'] - rvs['log_joint_s_prior'])
+          else:
+            integrand = np.asarray(rvs['integrand'])
+            jp = np.asarray(rvs['joint_prior']); jsp = np.asarray(rvs['joint_s_prior'])
+            keep = (integrand > 0) & (jp > 0) & (jsp > 0)
+            ln_w_full = np.full(len(integrand), -np.inf)
+            ln_w_full[keep] = np.log(integrand[keep]) + np.log(jp[keep]) - np.log(jsp[keep])
+          d_slices = distance_slices.quantile_slice_centers(dL_samp, ln_w_full, K)
+
+          method_arg = (opts.distance_slice_method or "reweight").lower()
+          if method_arg != "reweight":
+            print("  warning: distance-slice-method={} not yet implemented; falling back to reweight".format(method_arg))
+            method_arg = "reweight"
+          lnL_k_pure, sigmaL_k, neff_k, ntotal = distance_slices.importance_reweight_slices(
+              sampler, like_to_integrate, d_slices,
+              ln_prior_d_at_samples=ln_pi_d_samp,
+              ln_proposal_d_at_samples=ln_q_d_samp,
+              manual_overflow=manual_avoid_overflow_logarithm,
+              return_lnL=return_lnL,
+          )
+          # importance_reweight_slices already returns the pure extrinsic-
+          # marginalized lnL (no distance prior baked in). Save the sampling
+          # prior at slice centers in a separate column so the default
+          # reconstruction can reproduce log_res.
+          ln_pi_d_slices = np.log(np.maximum(prior_pdf_d(d_slices), np.finfo(float).tiny))
+          method_code = distance_slices.METHOD_REWEIGHT
+          # Re-use the same intrinsic params dict we built for .dgrid; if .dgrid
+          # was disabled, build it now.
+          try:
+            params_out  # noqa: F823
+          except NameError:
+            params_out = {
+                "m1": P.m1/lal.MSUN_SI, "m2": P.m2/lal.MSUN_SI,
+                "s1x": P.s1x, "s1y": P.s1y, "s1z": P.s1z,
+                "s2x": P.s2x, "s2y": P.s2y, "s2z": P.s2z,
+                "lambda1": P.lambda1, "lambda2": P.lambda2,
+                "eccentricity": P.eccentricity, "meanPerAno": P.meanPerAno,
+                "eos_index": getattr(P, "eos_table_index", 0),
+            }
+          slice_table = distance_slices.build_distance_slice_table(
+              d_slices, lnL_k_pure, sigmaL_k, neff_k, ntotal, method_code,
+              params_out, ln_prior_d_at_slices=ln_pi_d_slices,
+          )
+          distance_slices.save_distance_slice_table(fname_output_dslice, slice_table)
+          print("    : wrote distance slices to {}".format(fname_output_dslice))
+
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
     if opts.save_samples and opts.output_file:
