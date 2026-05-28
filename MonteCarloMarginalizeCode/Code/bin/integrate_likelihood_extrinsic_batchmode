@@ -2013,19 +2013,38 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           else:
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, P.eos_table_index, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
 
-        # Distance marginal grid. Only if NOT marginalize distance AND use lnL.
-        # The exported likelihood is a density in dL; integrating it over the
-        # exported dist_weight column reconstructs the ordinary marginalized lnL.
+        # Per-intrinsic likelihood-vs-distance grid. Pure extrinsic-marginalized
+        # likelihood as a function of d_L: divides out the distance sampling
+        # prior so downstream can re-marginalize with any prior of choice.
         if opts.output_file and opts.export_marginal_distance_grid and not(opts.distance_marginalization) and opts.internal_use_lnL:
           from RIFT.misc.distance_grid import build_distance_grid, save_distance_grid
           fname_output_dgrid = opts.output_file +"_"+str(indx_event)+"_" + ".dgrid"
-          dL = np.array(sampler._rvs["distance"] )
-          if 'log_weights' in sampler._rvs:
-            ln_wts = np.array(sampler._rvs['log_weights']) # assume present
-          elif 'log_integrand' in sampler._rvs:
-            ln_wts = np.array(sampler._rvs["log_integrand"] + sampler._rvs["log_joint_prior"] - sampler._rvs["log_joint_s_prior"])
+          dL = np.array(sampler._rvs["distance"])
+          rvs = sampler._rvs
+          if 'log_weights' in rvs:
+            ln_wts = np.array(rvs['log_weights'])
+          elif 'log_integrand' in rvs:
+            ln_wts = np.array(rvs['log_integrand'] + rvs['log_joint_prior'] - rvs['log_joint_s_prior'])
+          elif 'integrand' in rvs and 'joint_prior' in rvs and 'joint_s_prior' in rvs:
+            # mcsamplerEnsemble / GMM stores raw (non-log) integrand and priors.
+            # Drop rejected/out-of-support samples (zero integrand or zero prior
+            # contribution) by setting log weight to -inf.
+            integrand = np.asarray(rvs['integrand'])
+            jp = np.asarray(rvs['joint_prior'])
+            jsp = np.asarray(rvs['joint_s_prior'])
+            keep = (integrand > 0) & (jp > 0) & (jsp > 0)
+            ln_wts = np.full(len(integrand), -np.inf)
+            ln_wts[keep] = np.log(integrand[keep]) + np.log(jp[keep]) - np.log(jsp[keep])
           else:
-            raise Exception(" distance grid export: missing type")
+            raise Exception("distance grid export: cannot find weights in sampler._rvs (keys={})".format(list(rvs.keys())))
+          # Distance prior at each sample. Use the sampler's stored prior_pdf
+          # callable; this matches whatever ILE actually integrated against
+          # (volumetric, pseudo_cosmo, redshift, ...).
+          prior_pdf_d = sampler.prior_pdf["distance"]
+          pi_d_samp = np.asarray(prior_pdf_d(dL), dtype=float)
+          # Guard: prior must be strictly positive at sampled points
+          pi_d_samp = np.where(pi_d_samp > 0, pi_d_samp, np.finfo(float).tiny)
+          ln_prior_d_samp = np.log(pi_d_samp)
           params_out = {
               "m1": P.m1/lal.MSUN_SI,
               "m2": P.m2/lal.MSUN_SI,
@@ -2047,6 +2066,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
               log_res + manual_avoid_overflow_logarithm,
               sqrt_var_over_res,
               params_out,
+              ln_prior_d_at_samples=ln_prior_d_samp,
               n_grid=opts.n_eff,
           )
           save_distance_grid(fname_output_dgrid, dgrid)
