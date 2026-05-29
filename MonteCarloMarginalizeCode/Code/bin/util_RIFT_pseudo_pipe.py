@@ -747,16 +747,17 @@ if not(opts.cip_fit_method is None):
 if opts.internal_ile_use_lnL:
     cmd+= " --internal-ile-use-lnL "
 if opts.export_marginal_distance_grid or (opts.export_distance_slices and opts.export_distance_slices > 0):
-    # Distance grid/slice export needs ILE lnL mode and is incompatible with
-    # distance marginalization. Force lnL mode and disable distance
-    # marginalization here (before the helper command is assembled), so the
-    # helper does not request a marginalized-distance ILE configuration.
+    # Per-distance likelihood export needs ILE lnL mode (forced here for the
+    # whole run, giving clean lnL-scaled helper args) and, *only at the export
+    # stage*, no distance marginalization.  We deliberately do NOT disable
+    # distance marginalization globally: the intrinsic iterations keep it (it
+    # is a large speedup).  Only the final extrinsic stage that emits the
+    # per-distance output has --distance-marginalization stripped, and that
+    # stripping is done by create_event_parameter_pipeline_* on the ILE_extr
+    # argument string -- not here.
     opts.internal_ile_use_lnL = True
     if "--internal-ile-use-lnL" not in cmd:
         cmd += " --internal-ile-use-lnL "
-    if opts.internal_marginalize_distance:
-        print(" ==> Distance grid/slice export requested: disabling distance marginalization (incompatible with per-distance likelihood export) <== ")
-        opts.internal_marginalize_distance = False
     if not opts.add_extrinsic:
         print(" ==> WARNING: distance grid/slice export is emitted by the ILE extrinsic stage, but --add-extrinsic is not set; no per-distance output will be produced. <== ")
 if opts.internal_cip_use_lnL:
@@ -988,17 +989,15 @@ if not(opts.manual_extra_ile_args is None):
         line = line.replace('--declination-cosine-sampler', '')
 if opts.internal_ile_force_adapt_all:
     line += " --force-adapt-all "
-if opts.export_marginal_distance_grid or (opts.export_distance_slices and opts.export_distance_slices > 0):
-    # NOTE: the --last-iteration-export-* flags are *pipeline-builder* flags
-    # (consumed by create_event_parameter_pipeline_*), NOT ILE flags, so they
-    # are added to the CEPP command below -- not to this ILE argument string.
-    # Here we only enforce the ILE-side requirements in args_ile.txt: lnL mode
-    # and no distance marginalization.
-    if "--distance-marginalization" in line:
-        line = line.replace("--distance-marginalization-lookup-table ", ' ')
-        line = line.replace("--distance-marginalization ", ' ')
-    if "--internal-use-lnL" not in line:
-        line += " --internal-use-lnL "
+# NOTE on per-distance export (grid/slices): the --last-iteration-export-*
+# flags are *pipeline-builder* flags (consumed by
+# create_event_parameter_pipeline_*), NOT ILE flags, so they are added to the
+# CEPP command below -- not to this ILE argument string (args_ile.txt).  The
+# args_ile.txt here is the *intrinsic* ILE configuration and intentionally
+# keeps --distance-marginalization (a speedup); lnL mode was already forced
+# above, so --internal-use-lnL is present.  create_event_parameter_pipeline_*
+# strips --distance-marginalization only from the extrinsic (ILE_extr) stage
+# that emits the per-distance output.
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 if opts.internal_ile_sky_network_coordinates:

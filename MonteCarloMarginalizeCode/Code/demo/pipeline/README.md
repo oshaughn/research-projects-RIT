@@ -27,8 +27,8 @@ Targets:
 | target | what it builds / checks |
 | --- | --- |
 | `baseline` | a standard pipeline; asserts no per-distance export leaks into `ILE_extr.sub` |
-| `grid`     | `--export-marginal-distance-grid` (Plan A); asserts `--export-marginal-distance-grid --internal-use-lnL` land in `ILE_extr.sub`, no `--distance-marginalization` anywhere, and the flag does **not** appear in the intrinsic `ILE.sub` |
-| `slices`   | `--export-distance-slices 10 ...` (Plan B); asserts `--export-distance-slices 10`, `--distance-slice-wing-delta-lnL`, `--distance-slice-skip-threshold`, `--internal-use-lnL` land in `ILE_extr.sub`, no `--distance-marginalization`, and nothing leaks into `ILE.sub` |
+| `grid`     | `--export-marginal-distance-grid` (Plan A); asserts `--export-marginal-distance-grid --internal-use-lnL` land in `ILE_extr.sub`, the flag does **not** appear in the intrinsic `ILE.sub`, and that distance marginalization is **kept on `ILE.sub` but stripped from `ILE_extr.sub`** |
+| `slices`   | `--export-distance-slices 10 ...` (Plan B); asserts `--export-distance-slices 10`, `--distance-slice-wing-delta-lnL`, `--distance-slice-skip-threshold`, `--internal-use-lnL` land in `ILE_extr.sub`, nothing leaks into `ILE.sub`, and distance marginalization is **kept on `ILE.sub` but stripped from `ILE_extr.sub`** |
 | `all`      | all three |
 | `clean`    | remove generated `rundir_*` and the fake cache |
 
@@ -42,11 +42,14 @@ slices) is emitted by the **last-iteration extrinsic** ILE stage (`ILE_extr`),
 not by the intrinsic ILE jobs that run every iteration. `util_RIFT_pseudo_pipe.py`
 therefore:
 
-1. forces ILE `lnL` mode and **disables distance marginalization** (the export
-   integrates the pure likelihood vs distance, which is incompatible with a
-   distance-marginalized ILE configuration), and
+1. forces ILE `lnL` mode (for the whole run), and
 2. passes the corresponding `--last-iteration-export-*` flag to CEPP, which
-   appends the ILE-level export flags to the `ILE_extr` argument string only.
+   appends the ILE-level export flags to the `ILE_extr` argument string only
+   **and strips `--distance-marginalization` from that extrinsic stage only**.
+
+Distance marginalization is *not* disabled globally: the intrinsic iterations
+keep it (a large speedup). Only the final extrinsic stage that integrates the
+pure likelihood vs distance has it removed.
 
 These export flags require `--add-extrinsic` (so the extrinsic stage exists);
 the demo passes it explicitly. See

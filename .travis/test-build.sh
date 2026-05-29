@@ -36,13 +36,18 @@ assert_absent() {  # file pattern
 util_RIFT_pseudo_pipe.py --use-ini $REF_INI --use-coinc $COINC --use-rundir `pwd`/test_build_pipe --fake-data-cache `pwd`/foo.cache
 
 # --- 2. Plan-A distance-grid export, threaded onto the extrinsic stage ---
+# Distance marginalization must stay ON for the intrinsic ILE jobs (speedup)
+# and be disabled ONLY at the extrinsic export stage. The trailing space in
+# the pattern matches the standalone --distance-marginalization flag but not
+# --distance-marginalization-lookup-table.
 util_RIFT_pseudo_pipe.py --use-ini $REF_INI --use-coinc $COINC --use-rundir `pwd`/test_build_grid --fake-data-cache `pwd`/foo.cache --add-extrinsic --export-marginal-distance-grid
 assert_has    `pwd`/test_build_grid/ILE_extr.sub "--export-marginal-distance-grid"
 assert_has    `pwd`/test_build_grid/ILE_extr.sub "--internal-use-lnL"
-assert_absent `pwd`/test_build_grid/ILE_extr.sub "--distance-marginalization"
-assert_absent `pwd`/test_build_grid/args_ile.txt "--distance-marginalization"
 assert_absent `pwd`/test_build_grid/ILE.sub      "--export-marginal-distance-grid"
-echo "OK: Plan-A distance-grid export threaded into ILE_extr.sub"
+assert_has    `pwd`/test_build_grid/args_ile.txt "--distance-marginalization "
+assert_has    `pwd`/test_build_grid/ILE.sub      "--distance-marginalization "
+assert_absent `pwd`/test_build_grid/ILE_extr.sub "--distance-marginalization "
+echo "OK: Plan-A grid export only on ILE_extr.sub; distance marginalization disabled only at the extrinsic stage"
 
 # --- 3. Plan-B distance-slice export, threaded onto the extrinsic stage ---
 util_RIFT_pseudo_pipe.py --use-ini $REF_INI --use-coinc $COINC --use-rundir `pwd`/test_build_slices --fake-data-cache `pwd`/foo.cache --add-extrinsic --export-distance-slices 10 --export-distance-slices-wing-delta-lnL 7.0 --export-distance-slices-skip-threshold 1.0
@@ -50,9 +55,10 @@ assert_has    `pwd`/test_build_slices/ILE_extr.sub "--export-distance-slices 10"
 assert_has    `pwd`/test_build_slices/ILE_extr.sub "--distance-slice-wing-delta-lnL 7.0"
 assert_has    `pwd`/test_build_slices/ILE_extr.sub "--distance-slice-skip-threshold 1.0"
 assert_has    `pwd`/test_build_slices/ILE_extr.sub "--internal-use-lnL"
-assert_absent `pwd`/test_build_slices/ILE_extr.sub "--distance-marginalization"
-assert_absent `pwd`/test_build_slices/args_ile.txt "--distance-marginalization"
 assert_absent `pwd`/test_build_slices/ILE.sub      "--export-distance-slices"
-echo "OK: Plan-B distance-slice export threaded into ILE_extr.sub"
+assert_has    `pwd`/test_build_slices/args_ile.txt "--distance-marginalization "
+assert_has    `pwd`/test_build_slices/ILE.sub      "--distance-marginalization "
+assert_absent `pwd`/test_build_slices/ILE_extr.sub "--distance-marginalization "
+echo "OK: Plan-B slice export only on ILE_extr.sub; distance marginalization disabled only at the extrinsic stage"
 
 echo "test-build.sh: all pipeline-build checks passed"

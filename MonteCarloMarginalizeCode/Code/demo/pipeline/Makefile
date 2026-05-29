@@ -70,10 +70,11 @@ validate-grid:
 	@test -s "$(CURDIR)/rundir_grid/ILE_extr.sub"
 	@grep -q -- "--export-marginal-distance-grid" "$(CURDIR)/rundir_grid/ILE_extr.sub"
 	@grep -q -- "--internal-use-lnL"               "$(CURDIR)/rundir_grid/ILE_extr.sub"
-	@! grep -q -- "--distance-marginalization"     "$(CURDIR)/rundir_grid/ILE_extr.sub"
-	@! grep -q -- "--distance-marginalization"     "$(CURDIR)/rundir_grid/args_ile.txt"
 	@! grep -q -- "--export-marginal-distance-grid" "$(CURDIR)/rundir_grid/ILE.sub"
-	@echo "OK: Plan-A distance-grid export threaded into ILE_extr.sub only (no distance marginalization)"
+	@grep -q -- "--distance-marginalization "      "$(CURDIR)/rundir_grid/args_ile.txt"
+	@grep -q -- "--distance-marginalization "      "$(CURDIR)/rundir_grid/ILE.sub"
+	@! grep -q -- "--distance-marginalization "    "$(CURDIR)/rundir_grid/ILE_extr.sub"
+	@echo "OK: Plan-A grid export only on ILE_extr.sub; distance marginalization kept on intrinsic ILE.sub, disabled only at the extrinsic stage"
 
 slices: inputs
 	rm -rf "$(CURDIR)/rundir_slices"
@@ -89,10 +90,11 @@ validate-slices:
 	@grep -q -- "--distance-slice-wing-delta-lnL 7.0" "$(CURDIR)/rundir_slices/ILE_extr.sub"
 	@grep -q -- "--distance-slice-skip-threshold 1.0" "$(CURDIR)/rundir_slices/ILE_extr.sub"
 	@grep -q -- "--internal-use-lnL"                  "$(CURDIR)/rundir_slices/ILE_extr.sub"
-	@! grep -q -- "--distance-marginalization"        "$(CURDIR)/rundir_slices/ILE_extr.sub"
-	@! grep -q -- "--distance-marginalization"        "$(CURDIR)/rundir_slices/args_ile.txt"
 	@! grep -q -- "--export-distance-slices"          "$(CURDIR)/rundir_slices/ILE.sub"
-	@echo "OK: Plan-B distance-slice export threaded into ILE_extr.sub only (no distance marginalization)"
+	@grep -q -- "--distance-marginalization "         "$(CURDIR)/rundir_slices/args_ile.txt"
+	@grep -q -- "--distance-marginalization "         "$(CURDIR)/rundir_slices/ILE.sub"
+	@! grep -q -- "--distance-marginalization "       "$(CURDIR)/rundir_slices/ILE_extr.sub"
+	@echo "OK: Plan-B slice export only on ILE_extr.sub; distance marginalization kept on intrinsic ILE.sub, disabled only at the extrinsic stage"
 
 all: baseline grid slices
 	@echo "All pipeline-build demos passed."
