@@ -230,20 +230,80 @@ For a single ILE call (already wired into the demo):
 known closed-form answer and an adjustable d-Omega coupling, so we can
 keep the math honest as the prototype evolves.
 
-## Known limitations / follow-ups
+## Breadcrumbs for the next session
 
-* **Slice center placement**: quantile centers of the posterior cluster
-  where the likelihood already lives.  For re-marginalization against a
-  prior with significant weight *outside* the posterior support (e.g.
-  cosmologically-motivated priors that look very different from the
-  volumetric default), additional slices in the prior's mass region may
-  be needed.  Configurable via a future `--distance-slice-centers
-  {quantile,log-uniform,custom}` flag.
-* **B2-fresh** (independent integrations per slice) remains a useful
-  cross-check, especially for events with extreme d-Omega coupling that
-  the synthetic harness might miss.  The cleanest implementation needs
-  the per-event sampler setup factored out of batchmode into a helper,
-  which is the right next refactor when B2-fresh becomes a priority.
-* **GMM warning**: consider emitting a runtime warning if
-  `--export-distance-slices` is set together with `--sampler-method GMM`
-  and the main n_eff falls below a threshold, pointing the user at AV.
+These are deliberate next changes, not unknowns.  Each one has a clear
+spec; pick up here when work on `.dslice` resumes.
+
+### 1. Skip threshold should be an absolute lnL scale
+
+**Status**: bug.  `--distance-slice-skip-threshold` currently compares
+`max(core_lnL) - min(core_lnL)` against the threshold (a *relative*
+measure of how peaked the distance profile is).  But in RIFT's framing
+lnL is already a likelihood ratio relative to the noise hypothesis, so
+it has an absolute scale.
+
+**What to change**:
+
+* `is_uninformative(lnL_core, threshold)` in
+  `RIFT/misc/distance_slices.py` should test whether the *peak* lnL
+  across core slices exceeds the threshold, not whether the spread does.
+* Default threshold should be the lnL value below which we consider an
+  event undetected -- something like 1.0 to start, tunable per
+  search-tier convention.
+* `--distance-slice-skip-threshold` help text needs updating to reflect
+  the absolute interpretation.
+
+**Why this matters**: events with low SNR have low peak lnL *and* flat
+distance posteriors; spending fresh-wing budget on them is wasteful.
+Events with high SNR but a flat distance profile (well-constrained
+inclination, distance unconstrained: a rare regime that does occur)
+*do* need wings -- the current relative threshold would incorrectly
+skip them.
+
+### 2. Wing-center placement via lnL ~ parabola in 1/dist
+
+**Status**: improvement.  Wings are currently placed log-uniformly in
+`[d_min, d_core_lo] union [d_core_hi, d_max]` -- agnostic of the
+likelihood shape.  We can do much better.
+
+**The model**: near the peak, the extrinsic-marginalized lnL is well
+approximated by a parabola in `1/dist`:
+
+    lnL(d) ~= lnL_peak - 0.5 * A^2 * (1/d - 1/d_peak)^2
+
+where `A` is the effective SNR amplitude.  This follows from the linear
+amplitude scaling of the inner product with distance.  Fit `(lnL_core,
+1/d_core)` from the core to a quadratic in `1/d`, then solve for the
+two `1/d` values where `lnL = lnL_peak - delta_lnL_target`.  Set
+`delta_lnL_target` to ~7 (probability < 10^{-3} outside) by default.
+Place wing centers spaced log-uniformly between the core edge and the
+solved boundary, on each side.
+
+**Caveat the user flagged**: this is the *marginalized* lnL.  At the
+full-likelihood level there are degeneracies where very nearby sources
+fit reasonably well via fine-tuning of inclination + polarization +
+phase (the so-called distance-inclination ridge).  The parabolic
+extrapolation can under-estimate how far the likelihood ridge extends
+toward small `d`.  Mitigation: clamp the extrapolated boundary to no
+closer than `d_min_prior` and no further than `d_max_prior`, and let
+the fresh integration honestly report low neff on any wing that
+catches an unanticipated ridge.
+
+**Where to land it**: replace `pick_wing_centers` in
+`RIFT/misc/distance_slices.py` with a version that takes
+`(d_core, lnL_core, lnL_peak, delta_lnL_target, d_min, d_max,
+n_wing)`.  The current log-uniform version becomes the fallback when
+the parabolic fit is degenerate (fewer than 3 core points, or all core
+lnL equal, etc.).
+
+**Side benefit**: the parabolic fit also gives a direct estimate of
+`A^2` (the effective Fisher in `1/d`), which is itself worth recording
+in `.dslice` metadata for downstream CIP to use as a sanity check on
+its own distance-distance covariance.
+
+## Older limitations (not high priority)
+
+* **GMM at low main n_eff** silently biases the reweight estimator.
+  The runtime warning is in place; the long-term fix is to default
+  RIFT to AV for any run that turns on `--export-distance-slices`.
