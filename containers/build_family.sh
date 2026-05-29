@@ -58,6 +58,7 @@ for row in "${MATRIX[@]}"; do
     echo ">>> Rendering ${label}: base=${base} cupy=${cupy}"
     sed -e "s#@@BASE_IMAGE@@#${base}#g" \
         -e "s#@@CUPY_PKG@@#${cupy}#g" \
+        -e "s#@@REQFILE@@#${HERE}/requirements-container.txt#g" \
         "${TEMPLATE}" > "${rendered}"
 
     {

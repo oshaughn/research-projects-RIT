@@ -37,7 +37,9 @@ containers/build_family.sh [--render-only] [OUTPUT_DIR]
 All matrix entries share the pip set in
 [`requirements-container.txt`](requirements-container.txt) (the cupy wheel is the
 only per-entry difference). That file is the **single source of truth** also
-consumed by the CI dependency canary (below).
+consumed by the CI dependency canary (below). `build_family.sh` stages it into
+each image via the `.def`'s `%files` section, so the build does **not** depend on
+the cloned RIFT branch shipping the file.
 
 ---
 

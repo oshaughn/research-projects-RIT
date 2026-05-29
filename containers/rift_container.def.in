@@ -13,6 +13,13 @@
 Bootstrap: docker
 From: @@BASE_IMAGE@@
 
+%files
+   # Stage the shared dependency list from the HOST build tree into the image,
+   # so the build does NOT depend on the cloned RIFT branch carrying this file
+   # (the clone below may be a branch/release that predates it). build_family.sh
+   # fills in the absolute host path of containers/requirements-container.txt.
+   @@REQFILE@@ /opt/requirements-container.txt
+
 %post
    # Update the system and install essential libraries
    apt-get update -y
@@ -54,7 +61,9 @@ From: @@BASE_IMAGE@@
 
    # Shared dependency set -- single source of truth, also exercised by the CI
    # dependency-resolution canary (containers/requirements-container.txt).
-   pip3 install -r containers/requirements-container.txt
+   # Staged into the image via the %files section above (independent of the
+   # cloned branch).
+   pip3 install -r /opt/requirements-container.txt
 
 %environment
    # Set environment variables

@@ -1,9 +1,11 @@
 # Shared pip dependency set for the RIFT container builds.
 #
-# SINGLE SOURCE OF TRUTH: both the container definition (rift_container.def /
-# containers/rift_container.def.in) and the CI "dependency-resolution canary"
-# (.github/workflows/ci.yml :: container-dep-canary) install from this file, so
-# the canary actually exercises the same unpinned set the container ships.
+# SINGLE SOURCE OF TRUTH: the multi-target build (containers/rift_container.def.in,
+# which stages this file into the image via its %files section) and the CI
+# "dependency-resolution canary" (.github/workflows/ci.yml :: container-dep-canary)
+# both install from this file, so the canary exercises the same unpinned set the
+# family containers ship. (The top-level rift_container.def keeps an equivalent
+# inline list for the default single build.)
 #
 # NOTE: the GPU-specific cupy wheel (cupy-cuda11x vs cupy-cuda12x) is NOT listed
 # here -- it varies per build-matrix entry and is installed by the .def itself.
