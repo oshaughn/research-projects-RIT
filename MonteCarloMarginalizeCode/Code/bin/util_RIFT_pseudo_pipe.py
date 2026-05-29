@@ -153,6 +153,13 @@ parser.add_argument("--calibration-reweighting-count",type=int,default=None,help
 parser.add_argument("--calibration-reweighting-initial-extra-args",type=str,default=None,help="If not 'None', pass through. One argument targets effective sample size, other duplicates inoutput")
 parser.add_argument("--calibration-reweighting-extra-args",type=str,default=None,help="If not 'None', pass through. One argument targets effective sample size, other duplicates inoutput")
 parser.add_argument("--calibration-reweighting-osg",action='store_true',help="Attempt to use settings for OSG for cal reweighting. Remove after developed")
+# In-loop calibration marginalization (inside the ILE GPU loop), as opposed to the
+# postprocessing --calibration-reweighting path above.  Setting the envelope directory
+# enables it and threads the corresponding flags into the ILE arguments (args_ile.txt).
+parser.add_argument("--calmarg-envelope-directory",default=None,type=str,help="Enable IN-LOOP calibration marginalization in ILE. Directory with per-IFO calibration envelope files named <IFO>.txt (e.g. H1.txt, L1.txt, V1.txt). Threaded to ILE as --calibration-envelope-directory (absolute path).")
+parser.add_argument("--calmarg-n-realizations",default=100,type=int,help="Number of calibration realizations for in-loop calmarg. Threaded to ILE as --calibration-n-realizations.")
+parser.add_argument("--calmarg-spline-count",default=10,type=int,help="Number of spline nodes for in-loop calmarg envelopes. Threaded to ILE as --calibration-spline-count.")
+parser.add_argument("--calmarg-fused-kernel",action='store_true',help="Use the fused GPU kernel (Option C) for in-loop calmarg. GPU only; ILE falls back to the loop method otherwise. Threaded to ILE as --calibration-fused-kernel.")
 parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
@@ -1020,6 +1027,14 @@ if opts.internal_ile_srate_internal:
 # strictly the next argument only does anything at the extrinsic step, otherwis it is ignored
 if opts.internal_ile_srate_time_resampling:
     line += " --srate-resample-time-marginalization {} ".format(opts.internal_ile_srate_time_resampling)
+# In-loop calibration marginalization (inside the ILE GPU loop).  Engages on the
+# distance-marginalization code path (kept in args_ile.txt); the fused kernel
+# additionally requires GPU and falls back to the loop method otherwise.
+if opts.calmarg_envelope_directory:
+    cal_dir = os.path.abspath(opts.calmarg_envelope_directory)
+    line += " --calibration-envelope-directory {} --calibration-n-realizations {} --calibration-spline-count {} ".format(cal_dir, opts.calmarg_n_realizations, opts.calmarg_spline_count)
+    if opts.calmarg_fused_kernel:
+        line += " --calibration-fused-kernel "
 with open('args_ile.txt','w') as f:
         f.write(line)
 
