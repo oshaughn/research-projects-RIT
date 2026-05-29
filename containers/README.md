@@ -116,12 +116,26 @@ Two different namespaces are in play and are kept separate:
 
 - `PyYAML` must be importable wherever the pipeline is built (only when a
   manifest is actually used). Single-`.sif` runs never require it.
-- Smoke-test items for a first real-pool run: (a) the pilot honors a relative
-  `./name.sif` produced by the selection expression; (b) when a manifest *mixes*
-  CVMFS and osdf entries, the `$$()` transfer token expands to `""` on a
-  CVMFS-matched machine — confirm your Condor tolerates an empty entry (it
-  generally does). If not, use a manifest with uniform retrieval (all-osdf or
-  all-cvmfs).
+
+### Validation status
+
+Validated on a real HTCondor pool + GPU (a cap-3.0 machine):
+
+- The advertised attributes are `GPUs_Capability` (machine ad) and `Capability`
+  (require_gpus sub-ad) — matching the defaults above.
+- The `require_gpus` capability floor matches a compatible GPU and correctly
+  *excludes* an incompatible one (`Capability >= 7.0` did not match a cap-3.0
+  GPU), so the floor steers GPU selection as intended.
+- The `$$([ ifThenElse(TARGET.GPUs_Capability >= …, …) ])` transfer token is
+  honored at match time: only the matched image's URL is selected/transferred.
+- The empty-result case — when a manifest *mixes* CVMFS and osdf entries and a
+  CVMFS branch is selected, the `$$()` token expands to `""` — is **tolerated**:
+  the empty entry is skipped and the job runs clean. (So mixed manifests are
+  safe; you do *not* need uniform all-osdf / all-cvmfs retrieval.)
+
+One item still needs a real **OSG/GWMS** pilot (a local pool has no singularity
+wrapper to exercise it): that the pilot evaluates the expression-valued
+`MY.SingularityImage` and honors a relative `./name.sif` produced by it.
 
 ---
 
