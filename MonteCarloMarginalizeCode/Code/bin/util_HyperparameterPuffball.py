@@ -24,6 +24,7 @@ parser.add_argument("--random-parameter", action='append',help="These parameters
 parser.add_argument("--random-parameter-range", action='append', type=str,help="Add a range (pass as a string evaluating to a python 2-element list): --parameter-range '[0.,1000.]'   MUST specify ALL parameter ranges (min and max) in order if used.  ")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
+parser.add_argument("--reflect-parameter",action='append',type=str)
 parser.add_argument("--regularize",action='store_true',help="Add some ad-hoc terms based on priors, to help with nearly-singular matricies")
 opts=  parser.parse_args()
 
@@ -55,7 +56,7 @@ if not(opts.no_correlation is None):
 #    print opts.no_correlation, coord_names, corr_list
 
 downselect_dict = {}
-
+reflect_dict={}
 
 
 if opts.downselect_parameter:
@@ -70,6 +71,20 @@ if len(dlist) != len(dlist_ranges):
 for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 
+indx_reflect=[]
+rlist=[]
+if opts.reflect_parameter:
+    rlist  = opts.reflect_parameter
+    indx_reflect = [coord_names.index(param) for param in opts.reflect_parameter]
+if len(rlist) > len(coord_names):
+    print(" reflection parameters inconsistent", rlist, coord_names)
+    raise Exception(" Reflection only allowed for coordinates ")
+for indx in np.arange(len(rlist)):
+    if not(rlist[indx] in coord_names):
+        raise Exception(" Reflection only allowed for coordinates (--parameter) ")
+    if not(rlist[indx] in downselect_dict):
+        raise Exception(" Reflection requires parameter range specified as a downselection ")
+    reflect_dict[rlist[indx]] = downselect_dict[rlist[indx]]
 
 
 
@@ -112,6 +127,18 @@ if len(coord_names) >1:
     rv = scipy.stats.multivariate_normal(mean=np.zeros(len(coord_names)), cov=cov,allow_singular=True)  # they are just complaining about dynamic range of parameters, usually
     delta_X = rv.rvs(size=len(X))
     X_out = X+delta_X
+
+    # Reflection
+    for indx in indx_reflect:
+        param = coord_names[indx]
+        # put in range [0,2 L]
+        tmp = reflect_dict[param][0] + np.mod(X_out[:,indx] - reflect_dict[param][0], 2*(reflect_dict[param][1] - reflect_dict[param][0]) )
+        # final reflection
+        tmp = np.where( tmp > reflect_dict[param][1], 2*reflect_dict[param][1] - tmp, tmp)
+        X_out[:,indx] = tmp
+        # DELETE parameter from downselet_dict : no longer needed
+        del downselect_dict[param]
+
 else:
     sigma = np.std(X)
     cov = sigma*sigma
