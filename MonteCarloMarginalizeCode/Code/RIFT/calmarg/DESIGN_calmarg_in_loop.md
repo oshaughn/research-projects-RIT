@@ -119,13 +119,42 @@ detector):
 
 i.e. ~8–9× over Option B and ~25–32× over brute force, with bit-level agreement.
 
-**Current scope / limitations of the fused kernel** (raises `NotImplementedError`
-otherwise): GPU only; `phase_marginalization=False`; default
-(distance-unmarginalized) helper only; assumes all detectors share modes/length
-(true after global mode pruning).  Stage 2 = port the distance-marginalization
-`loglikelihood` (bivariate table interpolation + `exponent_max`) into the kernel to
-cover the dominant distmarg production path (sites 1828/1871); the default-helper
-path (site 1725) is covered now.
+### Option C, stage 2 — distance marginalization (implemented, separate kernel)
+
+The dominant production path uses the distance-marginalization `loglikelihood`
+(sites 1828/1871).  This is implemented as a **separate** kernel
+(`RIFT/likelihood/cuda_Q_fused_calmarg_distmarg.cu`, wrapper
+`Q_fused_calmarg_distmarg_cupy`), kept apart from the default-helper kernel on
+purpose: it keeps each kernel's review surface small, leaves the simpler kernel as a
+baseline, and leaves `cal_method='loop'` (Option B) as a full fallback for distmarg
+on both CPU and GPU.
+
+It reproduces `distmarg_loglikelihood` exactly on-board:
+`x0 = kappa/rho_sq`; `s = asinh(√bmax·(x0−xmin)) − asinh(√bmax·(xmax−x0))`;
+`t = asinh(rho_sq/bref)`; bilinear interpolation of `lnI_array` at `(s,t)` (matching
+`EvenBivariateLinearInterpolator`, with the same in-bounds mask, contributing 0
+otherwise); plus `exponent_max`.  Selected via `cal_method='fused'` **and** passing a
+`cal_distmarg` table dict (`lnI_array`, `s0/ds/smin/smax`, `t0/dt/tmax`,
+`xmin/xmax/sqrt_bmax/bref`); with `cal_distmarg=None` the default-helper kernel is
+used.
+
+**Validated** in the harness (`--loglikelihood distmarg`, which builds a
+self-consistent table and the mirror Python closure for reference/Option B) to
+~1e-14 vs the brute-force reference, single- and multi-detector (the asinh/bilinear
+differ from numpy only at ULP level).  Throughput (sm_30):
+
+| case (distmarg) | reference | Option B | Option C |
+|---|---|---|---|
+| n_cal=100, 1024 samp, 2 det | 1364 ms | 495 ms | **77 ms** |
+| n_cal=200, 2048 samp, 3 det | 6136 ms | 2358 ms | **333 ms** |
+
+i.e. ~6–7× over Option B.
+
+**Scope / limitations of both fused kernels** (raise `NotImplementedError`
+otherwise): GPU only; `phase_marginalization=False`; all detectors share
+modes/length (true after global mode pruning).  Remaining: phase-marginalization
+support, and wiring the driver's distmarg call sites to extract the `lookup_table`
+into a `cal_distmarg` dict behind an opt-in flag (Option B remains the default).
 
 ## Driver wiring
 

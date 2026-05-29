@@ -49,7 +49,8 @@ import RIFT.likelihood.factored_likelihood as fl
 # Synthetic case construction
 # ---------------------------------------------------------------------------
 def make_synthetic_case(n_cal=20, npts_extrinsic=64, N_window=256, npts=16,
-                        deltaT=1.0/4096, dets=("H1", "L1"), seed=1234):
+                        deltaT=1.0/4096, dets=("H1", "L1"), seed=1234,
+                        psd_UV=False):
     """Build a controlled set of likelihood inputs with embedded cal-block
     structure.  The n_cal realization blocks are independent random rholm draws
     (their physical relationship is irrelevant for backtesting that the *reduction*
@@ -84,10 +85,16 @@ def make_synthetic_case(n_cal=20, npts_extrinsic=64, N_window=256, npts=16,
     for det in dets:
         case["rholms"][det] = (rng.standard_normal((n_lms, npts_full))
                                + 1j*rng.standard_normal((n_lms, npts_full)))
-        U = rng.standard_normal((n_lms, n_lms)) + 1j*rng.standard_normal((n_lms, n_lms))
-        V = rng.standard_normal((n_lms, n_lms)) + 1j*rng.standard_normal((n_lms, n_lms))
-        case["U"][det] = U + U.conj().T
-        case["V"][det] = V + V.conj().T
+        if psd_UV:
+            # positive-definite U, V=0  -> rho_sq>0, required by the distmarg
+            # transforms (asinh(rho_sq/bref), x0=kappa/rho_sq); mirrors physical <h|h>
+            case["U"][det] = np.eye(n_lms, dtype=complex)
+            case["V"][det] = np.zeros((n_lms, n_lms), dtype=complex)
+        else:
+            U = rng.standard_normal((n_lms, n_lms)) + 1j*rng.standard_normal((n_lms, n_lms))
+            V = rng.standard_normal((n_lms, n_lms)) + 1j*rng.standard_normal((n_lms, n_lms))
+            case["U"][det] = U + U.conj().T
+            case["V"][det] = V + V.conj().T
     # epoch placed so the integration window sits near the middle of each block
     case["epoch"] = case["tref"] - 0.03
     case["tvals"] = np.linspace(-(npts//2)*deltaT, (npts//2)*deltaT, npts)
@@ -155,6 +162,82 @@ def _block_rholms(case, c):
 
 
 # ---------------------------------------------------------------------------
+# Distance-marginalization table + loglikelihood (mirror of the ILE driver, so the
+# fused distmarg kernel can be validated against reference/Option B using the SAME
+# table and transforms)
+# ---------------------------------------------------------------------------
+def _bilinear(s0, ds, t0, dt, fgrid, xpy):
+    """Mirror of EvenBivariateLinearInterpolator in the ILE driver."""
+    dx_inv, dy_inv = 1.0/ds, 1.0/dt
+
+    def call(x, y):
+        i_mid = dx_inv * (x - s0)
+        j_mid = dy_inv * (y - t0)
+        i_lo = xpy.floor(i_mid).astype(int); i_hi = xpy.ceil(i_mid).astype(int)
+        j_lo = xpy.floor(j_mid).astype(int); j_hi = xpy.ceil(j_mid).astype(int)
+        p = i_mid - i_lo; q = j_mid - j_lo
+        p_ = 1 - p; q_ = 1 - q
+        f = p_*q_ * fgrid[i_lo, j_lo]
+        f += p*q_ * fgrid[i_hi, j_lo]
+        f += p_*q * fgrid[i_lo, j_hi]
+        f += p*q * fgrid[i_hi, j_hi]
+        return f
+    return call
+
+
+def make_distmarg_table(xpy, ns=64, nt=48, xmin=-1.0e4, xmax=1.0e4,
+                        sqrt_bmax=1.0, bref=1.0, tmax=10.0, seed=7):
+    """Build a synthetic-but-self-consistent distance-marginalization table.
+
+    s_array spans x0_to_s(xmin)..x0_to_s(xmax), so any x0 in (xmin,xmax) maps to an
+    in-bounds s; wide (xmin,xmax) keeps realized x0=kappa/rho_sq in range.  lnI_array
+    is an arbitrary smooth surface -- physical values are irrelevant for backtesting
+    that the kernel reproduces the same transform the Python closure applies.
+    """
+    def x0_to_s(x0):
+        return (np.arcsinh(sqrt_bmax*(x0 - xmin))
+                - np.arcsinh(sqrt_bmax*(xmax - x0)))
+    smin = float(x0_to_s(xmin))
+    smax = float(x0_to_s(xmax))
+    s_array = np.linspace(smin, smax, ns)
+    t_array = np.linspace(0.0, tmax, nt)
+    SS, TT = np.meshgrid(s_array, t_array, indexing='ij')
+    lnI_array = -0.3*SS**2 + np.cos(TT) - 0.05*TT   # smooth, arbitrary
+
+    return dict(
+        lnI_array=xpy.asarray(lnI_array),
+        s0=float(s_array[0]), ds=float(s_array[1]-s_array[0]),
+        smin=float(s_array[0]), smax=float(s_array[-1]),
+        t0=float(t_array[0]), dt=float(t_array[1]-t_array[0]),
+        tmax=float(t_array[-1]),
+        xmin=float(xmin), xmax=float(xmax),
+        sqrt_bmax=float(sqrt_bmax), bref=float(bref),
+    )
+
+
+def make_distmarg_loglikelihood(params, xpy):
+    """Python distmarg loglikelihood closure (mirror of the ILE driver), consuming
+    the same table the fused kernel uses."""
+    xmin, xmax = params["xmin"], params["xmax"]
+    sqrt_bmax, bref = params["sqrt_bmax"], params["bref"]
+    smin, smax, tmax = params["smin"], params["smax"], params["tmax"]
+    intp = _bilinear(params["s0"], params["ds"], params["t0"], params["dt"],
+                     params["lnI_array"], xpy)
+
+    def loglikelihood(kappa_sq, rho_sq):
+        x0 = kappa_sq / rho_sq
+        s = (xpy.arcsinh(sqrt_bmax*(x0 - xmin))
+             - xpy.arcsinh(sqrt_bmax*(xmax - x0)))
+        t = xpy.arcsinh(rho_sq / bref)
+        lnI = xpy.full_like(x0, -xpy.inf)
+        in_bounds = (s > smin) & (s < smax) & (t < tmax)
+        lnI[in_bounds] = intp(s[in_bounds], t[in_bounds])
+        x0c = xpy.clip(x0, xmin, xmax)
+        return rho_sq * x0c * (x0 - 0.5*x0c) + lnI
+    return loglikelihood
+
+
+# ---------------------------------------------------------------------------
 # Method implementations (the registry being backtested)
 # ---------------------------------------------------------------------------
 def method_reference(case, xpy, phase_marginalization=False, loglikelihood=None):
@@ -204,6 +287,7 @@ def method_in_loop_C(case, xpy, phase_marginalization=False, loglikelihood=None)
     out = fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
         xpy.asarray(case["tvals"]), P, lookupNKDict, rholmsArrayDict, ctU, ctV,
         epochDict, Lmax=2, xpy=xpy, n_cal=case["n_cal"], cal_method='fused',
+        cal_distmarg=case.get("cal_distmarg"),
         loglikelihood=loglikelihood, phase_marginalization=phase_marginalization)
     return _to_host(out)
 
@@ -224,26 +308,47 @@ def _sync(xpy):
 
 
 def run_backtest(methods, backend="cpu", repeat=3, phase_marginalization=False,
-                 **case_kwargs):
+                 loglikelihood_mode="default", **case_kwargs):
     """Evaluate each method, time it, and report agreement vs 'reference' (if run)
-    and vs 'in_loop_B'."""
+    and vs 'in_loop_B'.
+
+    loglikelihood_mode:
+      'default'  -- the distance-unmarginalized helper.
+      'distmarg' -- the distance-marginalization loglikelihood (uses positive-definite
+                    U so rho_sq>0, builds a self-consistent table; reference/Option B
+                    use the Python closure, Option C uses the fused distmarg kernel).
+    """
     xpy = _backend(backend)
-    case = make_synthetic_case(**case_kwargs)
-    print("# calmarg backtest  backend=%s  dets=%s  n_cal=%d  npts_extrinsic=%d  N_window=%d  npts=%d  phase_marg=%s"
+    loglikelihood = None
+    if loglikelihood_mode == "distmarg":
+        case_kwargs["psd_UV"] = True
+        case = make_synthetic_case(**case_kwargs)
+        case["dist"] = np.full(case["npts_extrinsic"], fl.distMpcRef) * (lal.PC_SI*1e6)
+        params = make_distmarg_table(xpy)
+        case["cal_distmarg"] = params           # consumed by the fused distmarg kernel
+        loglikelihood = make_distmarg_loglikelihood(params, xpy)
+    else:
+        case = make_synthetic_case(**case_kwargs)
+    # distmarg's asinh/bilinear differ at ULP level between numpy and the kernel, so
+    # the fused-vs-loop agreement is float-level rather than bit-level.
+    tol = 1e-9 if loglikelihood_mode == "default" else 1e-6
+    print("# calmarg backtest  backend=%s  dets=%s  n_cal=%d  npts_extrinsic=%d  N_window=%d  npts=%d  phase_marg=%s  loglike=%s"
           % (backend, ",".join(case["dets"]), case["n_cal"], case["npts_extrinsic"],
-             case["N_window"], case["npts"], phase_marginalization))
+             case["N_window"], case["npts"], phase_marginalization, loglikelihood_mode))
 
     results = {}
     timings = {}
     for name in methods:
         fn = METHODS[name]
         try:
-            out = fn(case, xpy, phase_marginalization=phase_marginalization)  # warm-up / compile
+            out = fn(case, xpy, phase_marginalization=phase_marginalization,
+                     loglikelihood=loglikelihood)  # warm-up / compile
             _sync(xpy)
             best = float("inf")
             for _ in range(repeat):
                 t0 = time.perf_counter()
-                out = fn(case, xpy, phase_marginalization=phase_marginalization)
+                out = fn(case, xpy, phase_marginalization=phase_marginalization,
+                         loglikelihood=loglikelihood)
                 _sync(xpy)
                 best = min(best, time.perf_counter() - t0)
             results[name] = np.asarray(out)
@@ -258,14 +363,14 @@ def run_backtest(methods, backend="cpu", repeat=3, phase_marginalization=False,
     baseline = "reference" if "reference" in results else (
         "in_loop_B" if "in_loop_B" in results else None)
     if baseline:
-        print("# max |lnL - %s| :" % baseline)
+        print("# max |lnL - %s|  (tol %.0e):" % (baseline, tol))
         ok = True
         for name, vals in results.items():
             if name == baseline:
                 continue
             err = float(np.max(np.abs(vals - results[baseline])))
-            flag = "OK" if err < 1e-9 else "**DIFF**"
-            if err >= 1e-9:
+            flag = "OK" if err < tol else "**DIFF**"
+            if err >= tol:
                 ok = False
             print("    %-12s %.3e   %s" % (name, err, flag))
         print("# RESULT:", "PASS" if ok else "MISMATCH")
@@ -315,6 +420,8 @@ def _parse_args():
     p.add_argument("--N-window", type=int, default=256)
     p.add_argument("--npts", type=int, default=16)
     p.add_argument("--repeat", type=int, default=3, help="timing repetitions (best-of)")
+    p.add_argument("--loglikelihood", default="default", choices=["default", "distmarg"],
+                   help="default helper, or distance-marginalization loglikelihood")
     p.add_argument("--phase-marginalization", action="store_true")
     p.add_argument("--seed", type=int, default=1234)
     return p.parse_args()
@@ -331,6 +438,7 @@ if __name__ == "__main__":
     ok = run_backtest(
         methods, backend=args.backend, repeat=args.repeat,
         phase_marginalization=args.phase_marginalization,
+        loglikelihood_mode=args.loglikelihood,
         n_cal=args.n_cal, npts_extrinsic=args.npts_extrinsic,
         N_window=args.N_window, npts=args.npts, seed=args.seed, dets=dets)
     raise SystemExit(0 if ok else 1)

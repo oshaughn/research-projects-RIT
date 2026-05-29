@@ -1830,7 +1830,7 @@ def _factored_lnL_helper(kappa_sq, rho_sq):
     return kappa_sq - 0.5 * rho_sq
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop'):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time.
@@ -1858,10 +1858,18 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
               existing Q_inner_product kernel; works on CPU and GPU and with any
               loglikelihood callback (distance/phase marginalization).
       'fused' (Option C): a single fused CUDA kernel
-              (RIFT.likelihood.Q_fused_calmarg) does the Q-product, the default
-              helper, and the cal+time log-sum-exp on-board in one launch.
-              Currently GPU-only, phase_marginalization=False, and the default
-              (distance-unmarginalized) helper only; falls back / raises otherwise.
+              (RIFT.likelihood.Q_fused_calmarg) does the Q-product, the
+              loglikelihood, and the cal+time log-sum-exp on-board in one launch.
+              GPU-only, phase_marginalization=False.  With cal_distmarg=None it
+              uses the default (distance-unmarginalized) helper kernel; with
+              cal_distmarg=<table dict> it uses the separate distance-marginalization
+              kernel (Q_fused_calmarg_distmarg) reproducing distmarg_loglikelihood.
+              Raises NotImplementedError for unsupported combinations; the 'loop'
+              path is the fallback for everything (incl. distmarg, on CPU and GPU).
+
+    cal_distmarg : dict or None
+        Distance-marginalization table+params for the fused distmarg kernel; see
+        RIFT.likelihood.Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy.
     """
     global distMpcRef
 
@@ -2125,8 +2133,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             raise NotImplementedError("cal_method='fused' requires the GPU (cupy) backend")
         if phase_marginalization:
             raise NotImplementedError("fused cal kernel does not yet support phase marginalization")
-        if loglikelihood is not _factored_lnL_helper:
-            raise NotImplementedError("fused cal kernel supports only the default (distance-unmarginalized) helper so far")
+        if cal_distmarg is None and loglikelihood is not _factored_lnL_helper:
+            raise NotImplementedError("fused cal kernel needs either the default helper or a cal_distmarg table")
         import RIFT.likelihood.Q_fused_calmarg as Q_fused_calmarg
         dets = list(cal_cache.keys())
         # All detectors share modes/length; ifirst differs per detector (time delay)
@@ -2137,9 +2145,14 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         # Simpson quadrature weight vector (incl. dx=deltaT), so time integration
         # matches the loop path's simps() exactly.  simps is linear -> weights = simps(I).
         w_t = simps(xpy.eye(npts, dtype=np.float64), dx=deltaT, axis=-1)
-        return Q_fused_calmarg.Q_fused_calmarg_cupy(
-            Q_stack, A_stack, ifirst_stack, invDistMpc, rho_sq, w_t,
-            n_cal, N_window_block)
+        if cal_distmarg is None:
+            return Q_fused_calmarg.Q_fused_calmarg_cupy(
+                Q_stack, A_stack, ifirst_stack, invDistMpc, rho_sq, w_t,
+                n_cal, N_window_block)
+        else:
+            return Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy(
+                Q_stack, A_stack, ifirst_stack, invDistMpc, rho_sq, w_t,
+                n_cal, N_window_block, cal_distmarg)
 
     running_max = None
     S = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
