@@ -267,10 +267,21 @@ if not (opts.cip_args is None):
     print("CIP", cip_args)
 
 cip_args_lines = None
+cip_args_prefixes = []  # so it works correctly even in flat mode
 if not (opts.cip_args_list is None):
     with open(opts.cip_args_list) as f:
         cip_args_lines = f.readlines()
-    cip_args_n = [int(x.split(' ')[0]) for x in cip_args_lines]  # Pull off the integer
+    # Pull off the leading token. It is usually an integer (number of iterations), but util_RIFT_pseudo_pipe.py
+    # also emits 'Z' (run-to-convergence marker) and 'G' (grid-stage marker) prefixes; tolerate those here.
+    cip_args_prefixes = [(x.split(' ')[0]) for x in cip_args_lines]
+    cip_args_n = (cip_args_prefixes.copy())
+    for indx in np.arange(len(cip_args_n)):
+        if cip_args_prefixes[indx][0]=='Z':
+            cip_args_n[indx] = 1  # one nominal iteration; this workflow has no run-to-convergence CIP stage
+        elif cip_args_prefixes[indx][0] =='G':
+            cip_args_n[indx] = int(cip_args_prefixes[indx][1:])  # integer after G assumed
+        else:
+            cip_args_n[indx]  = int(cip_args_n[indx])
     cip_args_lines = [' '.join(x.split(' ')[1:]) for x in cip_args_lines] # pull off the integer
     cip_args_lines = [x.replace('[', ' \'[').replace(']', ']\'').rstrip() for x in cip_args_lines]
     cip_args_lines = [x.lstrip() for x in cip_args_lines] # remove leading whitespace
