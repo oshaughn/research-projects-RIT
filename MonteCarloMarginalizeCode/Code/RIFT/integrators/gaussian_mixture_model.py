@@ -16,7 +16,7 @@ from scipy.stats import multivariate_normal,norm
 
 try:
     import cupy
-    import cupyx
+    import cupyx.scipy.special
     xpy_default = cupy
     xpy_special_default = cupyx.scipy.special
     identity_convert = cupy.asnumpy
@@ -68,6 +68,37 @@ from . import multivariate_truncnorm as truncnorm
 import itertools
 
 
+def _xpy_logsumexp(a, axis=None):
+    """Portable logsumexp.
+
+    cupyx.scipy.special.logsumexp is only available in newer cupy releases;
+    the CUDA 10.2 cupy build required by older (sm_30/Kepler) cards does not
+    ship it. Implement the reduction directly with cupy primitives so the GPU
+    path works regardless of cupy version, and fall back to scipy on CPU.
+    """
+    if cupy_ok:
+        a = cupy.asarray(a)
+        a_max = cupy.amax(a, axis=axis, keepdims=True)
+        a_max = cupy.where(cupy.isfinite(a_max), a_max, cupy.zeros_like(a_max))
+        out = cupy.log(cupy.sum(cupy.exp(a - a_max), axis=axis, keepdims=True)) + a_max
+        if axis is None:
+            return out.reshape(())
+        return cupy.squeeze(out, axis=axis)
+    return logsumexp(a, axis=axis)
+
+
+# Symmetric (Hermitian) eigen-routines. cupy.linalg only provides the Hermitian
+# variants (eigh/eigvalsh), not the general eig/eigvals. The matrices fed to
+# _near_psd below are covariance/correlation matrices and hence symmetric, so
+# the Hermitian routines are both correct and the only ones available on GPU.
+if cupy_ok:
+    _xpy_eigvals = cupy.linalg.eigvalsh
+    _xpy_eig = cupy.linalg.eigh
+else:
+    _xpy_eigvals = np.linalg.eigvals
+    _xpy_eig = np.linalg.eig
+
+
 def gpu_logpdf(x, mean, cov, xpy):
     """
     GPU-compatible multivariate normal log-pdf.
@@ -82,12 +113,16 @@ def gpu_logpdf(x, mean, cov, xpy):
     """
     d = mean.shape[0]
     diff = x - mean
-    # Use cholesky for efficiency and stability
+    # Use cholesky for efficiency and stability. cupy.linalg has no LinAlgError
+    # attribute (and cupy.linalg.cholesky returns NaN rather than raising on a
+    # non-PSD input), so catch the numpy error type and also treat a NaN factor
+    # as failure, falling back to an epsilon-regularized diagonal in both cases.
+    eps = 1e-6 * xpy.eye(d)
     try:
         L = xpy.linalg.cholesky(cov)
-    except xpy.linalg.LinAlgError:
-        # Fallback to adding small epsilon to diagonal
-        eps = 1e-6 * xpy.eye(d)
+        if bool(xpy.any(xpy.isnan(L))):
+            L = xpy.linalg.cholesky(cov + eps)
+    except np.linalg.LinAlgError:
         L = xpy.linalg.cholesky(cov + eps)
 
     # Solve L*y = diff^T => y = L^-1 * diff^T
@@ -163,24 +198,15 @@ class estimator:
             p_nk[:,index] = log_pdf + log_p # (16.1.5)
             
         # Use cupy or scipy for logsumexp
-        if cupy_ok:
-            p_xn = cupyx.scipy.special.logsumexp(p_nk, axis=1)
-        else:
-            p_xn = logsumexp(p_nk, axis=1)
-            
+        p_xn = _xpy_logsumexp(p_nk, axis=1)
+
         self.p_nk = p_nk - p_xn[:,self.xpy.newaxis] # (16.1.5)
         # normalize log sample weights as well, before modifying things with them
-        if cupy_ok:
-            ls_sum = cupyx.scipy.special.logsumexp(log_sample_weights)
-        else:
-            ls_sum = logsumexp(log_sample_weights)
-            
-        self.p_nk += log_sample_weights[:,self.xpy.newaxis]  - ls_sum 
-        
-        if cupy_ok:
-            self.log_prob = self.xpy.sum(p_xn + log_sample_weights)
-        else:
-            self.log_prob = np.sum(p_xn + log_sample_weights)
+        ls_sum = _xpy_logsumexp(log_sample_weights)
+
+        self.p_nk += log_sample_weights[:,self.xpy.newaxis]  - ls_sum
+
+        self.log_prob = self.xpy.sum(p_xn + log_sample_weights)
 
     def _m_step(self, n, sample_array):
         '''
@@ -223,16 +249,16 @@ class estimator:
         y = x / (var_list[:, None] * var_list[None, :])
         while True:
             epsilon = self.epsilon
-            if self.xpy.min(self.xpy.linalg.eigvals(y)) > epsilon:
+            if self.xpy.min(_xpy_eigvals(y)) > epsilon:
                 return x
 
             var_list = self.xpy.array([self.xpy.sqrt(x[i,i]) for i in range(n)])
             y = x / (var_list[:, None] * var_list[None, :])
 
-            eigval, eigvec = self.xpy.linalg.eig(y)
+            eigval, eigvec = _xpy_eig(y)
             val = self.xpy.maximum(eigval, epsilon)
             vec = eigvec
-            
+
             # Standard PSD projection:
             val_psd = self.xpy.maximum(eigval, epsilon)
             near_corr = vec @ self.xpy.diag(val_psd) @ vec.T
@@ -418,13 +444,13 @@ class gmm:
         y = x / (var_list[:, None] * var_list[None, :])
         while True:
             epsilon = self.epsilon
-            if self.xpy.min(self.xpy.linalg.eigvals(y)) > epsilon:
+            if self.xpy.min(_xpy_eigvals(y)) > epsilon:
                 return x
 
             var_list = self.xpy.array([self.xpy.sqrt(x[i,i]) for i in range(n)])
             y = x / (var_list[:, None] * var_list[None, :])
 
-            eigval, eigvec = self.xpy.linalg.eig(y)
+            eigval, eigvec = _xpy_eig(y)
             val_psd = self.xpy.maximum(eigval, epsilon)
             near_corr = eigvec @ self.xpy.diag(val_psd) @ eigvec.T
             near_cov = near_corr * (var_list[:, None] * var_list[None, :])

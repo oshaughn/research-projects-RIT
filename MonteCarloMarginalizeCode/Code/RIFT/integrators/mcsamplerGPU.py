@@ -20,7 +20,7 @@ import os
 
 try:
   import cupy
-  import cupyx   # needed for logsumexp
+  import cupyx.scipy.special   # needed for logsumexp
   xpy_default=cupy
   try:
     xpy_special_default = cupyx.scipy.special
@@ -316,15 +316,20 @@ class MCSampler(object):
            - for now, do on the CPU, since this is done rarely and involves fairly small arrays
            - this is very wasteful, since we are casting back to the CPU for ALL our sampling points
        """
-       if old_style or not(cupy_ok):
-         dat_cdf = identity_convert(self.histogram_cdf[param])
-         dat_edges = identity_convert(self.histogram_edges[param])
+       # Use the CPU path whenever this sampler is not actually running on the
+       # GPU (self.xpy is numpy). The GPU interp() calls cupy.searchsorted, which
+       # requires cupy arrays; the histograms are numpy when self.xpy is numpy,
+       # so the module-level cupy_ok flag is not the right gate here. Instance
+       # converters are used so nothing is force-pushed across backends.
+       if old_style or not(cupy_ok) or (self.xpy is np):
+         dat_cdf = self.identity_convert(self.histogram_cdf[param])
+         dat_edges = self.identity_convert(self.histogram_edges[param])
          y = np.interp(
-           identity_convert(P), dat_cdf,
+           self.identity_convert(P), dat_cdf,
            dat_edges,
            )
          # Return the value in the original scaling.
-         return identity_convert_togpu(y)*self.x_max_minus_min[param] + self.x_min[param]
+         return self.identity_convert_togpu(y)*self.x_max_minus_min[param] + self.x_min[param]
        dat_cdf = self.histogram_cdf[param]
        dat_edges =self.histogram_edges[param]
        y = interp(P,dat_cdf,dat_edges)
@@ -722,8 +727,10 @@ class MCSampler(object):
                 lnL= lnF(**unpacked)  # protect order using dictionary
             # take log if we are NOT using lnL
             if cupy_ok:
-              if not(isinstance(lnL,cupy.ndarray)):
-                lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
+              # instance converter tracks self.xpy; module-level converter would
+              # force lnL onto the GPU even in CPU mode (see note in integrate()).
+              if not(isinstance(lnL, self.xpy.ndarray)):
+                lnL = self.identity_convert_togpu(lnL)
 
             log_integrand =lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
             log_weights = tempering_exp*lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
@@ -1086,13 +1093,18 @@ class MCSampler(object):
                 fval = func(**unpacked) # Chris' original plan: note this insures the function arguments are tied to the parameters, using a dictionary. 
 
             if cupy_ok:
-              if not(isinstance(fval,cupy.ndarray)):
-                fval = identity_convert_togpu(fval)  # send to GPU, if not already there
+              # Use the *instance* converter (self.identity_convert_togpu), which
+              # tracks self.xpy. The module-level converter would force fval onto
+              # the GPU even when this sampler is running on the CPU (self.xpy is
+              # numpy by default), producing a numpy/cupy mismatch against the
+              # numpy joint_p_prior / joint_p_s built in draw_simplified.
+              if not(isinstance(fval, self.xpy.ndarray)):
+                fval = self.identity_convert_togpu(fval)
 
             #
             # Check if there is any practical contribution to the integral
             #
-            # FIXME: While not technically a fatal error, this will kill the 
+            # FIXME: While not technically a fatal error, this will kill the
             # adaptive sampling
             if not(cupy_ok): # only do this check if not on GPU
               if fval.sum() == 0:
@@ -1148,9 +1160,9 @@ class MCSampler(object):
             if var is None:
               var=0
             if mean is None:
-              mean=identity_convert_togpu(0.0)
+              mean=self.identity_convert_togpu(0.0)
             current_aggregate = [int(self.ntotal),mean, (self.ntotal-1)*var]
-            current_aggregate = update(current_aggregate, int_val,xpy=xpy_default)
+            current_aggregate = update(current_aggregate, int_val,xpy=self.xpy)
             outvals = finalize(current_aggregate)
 #            print(var, outvals[-1])
             var = outvals[-1]
@@ -1160,7 +1172,7 @@ class MCSampler(object):
             # running number of evaluations
             self.ntotal += n
             # FIXME: Likely redundant with int_val1
-            mean = identity_convert_togpu(xpy_default.float64(int_val1/self.ntotal))
+            mean = self.identity_convert_togpu(self.xpy.float64(int_val1/self.ntotal))
 
             # this test should not be required (!), but ... nan can happen
             if np.isfinite(maxval): #not(np.isinf(maxval)):

@@ -13,7 +13,7 @@ from scipy.special import logsumexp
 
 try:
     import cupy
-    import cupyx
+    import cupyx.scipy.special
     xpy_default = cupy
     xpy_special_default = cupyx.scipy.special
     identity_convert = cupy.asnumpy
@@ -27,6 +27,25 @@ except ImportError:
     cupy_ok = False
 
 regularize_log_scale = 1e-64  # before taking np.log, add this, so we don't propagate infinities
+
+
+def _xpy_logsumexp(a, axis=None):
+    """Portable logsumexp (mirror of gaussian_mixture_model._xpy_logsumexp).
+
+    cupyx.scipy.special.logsumexp is absent in the CUDA 10.2 cupy build needed
+    for older (sm_30) GPUs, so implement the reduction with cupy primitives and
+    fall back to scipy on CPU.
+    """
+    if cupy_ok:
+        a = cupy.asarray(a)
+        a_max = cupy.amax(a, axis=axis, keepdims=True)
+        a_max = cupy.where(cupy.isfinite(a_max), a_max, cupy.zeros_like(a_max))
+        out = cupy.log(cupy.sum(cupy.exp(a - a_max), axis=axis, keepdims=True)) + a_max
+        if axis is None:
+            return out.reshape(())
+        return cupy.squeeze(out, axis=axis)
+    return logsumexp(a, axis=axis)
+
 
 try:
     from multiprocess import Pool
@@ -257,23 +276,16 @@ class integrator:
             self.max_value = self.xpy.maximum(scale_factor, self.max_value)
             self.eff_samp = self.total_value / self.max_value
         else:
-            if cupy_ok:
-                log_sum_weights = cupyx.scipy.special.logsumexp(log_weights)
-            else:
-                log_sum_weights = logsumexp(log_weights)
-                
+            log_sum_weights = _xpy_logsumexp(log_weights)
+
             log_integral_here = log_sum_weights - self.xpy.log(self.n)
             if not(self.integral ):
-                self.integral = log_integral_here  
-                self.total_value = log_sum_weights  
+                self.integral = log_integral_here
+                self.total_value = log_sum_weights
                 self.max_value = log_scale_factor
             else:
-                if cupy_ok:
-                    self.integral = cupyx.scipy.special.logsumexp([ self.integral + self.xpy.log(self.iterations), log_integral_here]) - self.xpy.log(self.iterations+1)
-                    self.total_value= cupyx.scipy.special.logsumexp([self.total_value, log_sum_weights])
-                else:
-                    self.integral = logsumexp([ self.integral + np.log(self.iterations), log_integral_here]) - np.log(self.iterations+1)
-                    self.total_value = logsumexp([self.total_value, log_sum_weights])
+                self.integral = _xpy_logsumexp([ self.integral + self.xpy.log(self.iterations), log_integral_here]) - self.xpy.log(self.iterations+1)
+                self.total_value = _xpy_logsumexp([self.total_value, log_sum_weights])
                 self.max_value = self.xpy.maximum(self.max_value, self.xpy.max(log_weights))
             self.eff_samp = self.xpy.exp(self.total_value - (self.max_value  ))
 
@@ -282,10 +294,7 @@ class integrator:
             if not(self.scaled_error_squared):
                 self.scaled_error_squared = log_scaled_error_squared
             else:
-                if cupy_ok:
-                    self.scaled_error_squared = cupyx.scipy.special.logsumexp([ self.scaled_error_squared + self.xpy.log(self.iterations), log_scaled_error_squared]) - self.xpy.log(self.iterations+1)
-                else:
-                    self.scaled_error_squared = logsumexp([ self.scaled_error_squared + np.log(self.iterations), log_scaled_error_squared]) - np.log(self.iterations+1)
+                self.scaled_error_squared = _xpy_logsumexp([ self.scaled_error_squared + self.xpy.log(self.iterations), log_scaled_error_squared]) - self.xpy.log(self.iterations+1)
 
     def _reset(self):
         for k in self.gmm_dict:

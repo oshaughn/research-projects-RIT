@@ -20,7 +20,7 @@ import os
 
 try:
   import cupy
-  import cupyx   # needed for logsumexp
+  import cupyx.scipy.special   # needed for logsumexp
   xpy_default=cupy
   try:
     xpy_special_default = cupyx.scipy.special
@@ -280,11 +280,17 @@ class MCSampler(object):
     def prior_prod(self, x):
         """
         Evaluates prior_pdf(x), multiplying together all factors
+
+        prior_pdf are host (numpy) functions in general, so evaluate them on a
+        CPU copy of the samples and convert the product back to the active
+        backend. identity_convert / identity_convert_togpu are no-ops when cupy
+        is not in use.
         """
         p_out = xpy_default.ones(len(x))
+        x_cpu = identity_convert(x)
         indx = 0
         for param in self.params_ordered:
-            p_out *= self.prior_pdf[param](x[:,indx])
+            p_out *= identity_convert_togpu(self.prior_pdf[param](x_cpu[:,indx]))
             indx +=1
         return p_out
 
@@ -552,12 +558,16 @@ class MCSampler(object):
               rv = identity_convert_togpu(rv) # send random numbers to GPU : ugh
               log_joint_p_prior = identity_convert_togpu(log_joint_p_prior)    # send to GPU if required. Don't waste memory reassignment otherwise
 
-            # Evaluate function, protecting argument order
+            # Evaluate function, protecting argument order. The user integrand is
+            # a host function in general, so feed it CPU samples; lnL is pushed
+            # back to the active backend just below. identity_convert is a no-op
+            # without cupy.
+            rv_cpu = identity_convert(rv)
             if 'no_protect_names' in kwargs:
-                unpacked0 = rv.T
+                unpacked0 = rv_cpu.T
                 lnL = lnF(*unpacked0)  # do not protect order
             else:
-                unpacked = dict(list(zip(self.params_ordered,rv.T)))
+                unpacked = dict(list(zip(self.params_ordered,rv_cpu.T)))
                 lnL= lnF(**unpacked)  # protect order using dictionary
             # take log if we are NOT using lnL
             if cupy_ok:
@@ -644,7 +654,11 @@ class MCSampler(object):
         # write out log integrand
         self._rvs['log_integrand']  = allloglkl - allp  # remember 'allloglkl' really is Lp -- despite the misleading name! --  so we are *undoing* that
         self._rvs['log_joint_prior'] = allp
-        self._rvs['log_joint_s_prior'] = xpy_here.ones(len(allloglkl))*(np.log(1/V) - np.sum(np.log(self.dx0)))  # effective uniform sampling on this volume
+        # ones_like(allloglkl) follows allloglkl's backend (cupy via numpy's
+        # __array_function__ dispatch when on GPU); xpy_here.ones(len) would
+        # instead create a host array, leaving this term on a different backend
+        # than log_integrand / log_joint_prior and breaking the arithmetic below.
+        self._rvs['log_joint_s_prior'] = xpy_here.ones_like(allloglkl)*(np.log(1/V) - np.sum(np.log(self.dx0)))  # effective uniform sampling on this volume
 
         # Manual estimate of integrand, done transparently (no 'log aggregate' or running calculation -- so memory hog
         log_wt = self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]

@@ -8,7 +8,7 @@ from RIFT.precision import RiftFloat  # platform-portable replacement for np.flo
 
 try:
     import cupy
-    import cupyx
+    import cupyx.scipy.special
     xpy_default = cupy
     xpy_special_default = cupyx.scipy.special
     identity_convert = cupy.asnumpy
@@ -141,21 +141,32 @@ class MCSampler(object):
                 self.prior_pdf[params] = prior_pdf
 
     def evaluate(self, samples):
+        # The user integrand is a host (numpy/scipy) function in general, so move
+        # samples to the CPU before calling it and push the result back to the
+        # active backend (cupy on GPU). This is a no-op when xpy is numpy.
+        samples = self.identity_convert(samples)
         temp = []
         for index in range(len(self.curr_args)):
             temp.append(samples[:,index])
-        temp_ret = self.func(*temp)
-        return self.xpy.rot90([temp_ret], -1)
+        temp_ret = self.identity_convert_togpu(self.func(*temp))
+        # column vector (n,1); cupy.rot90 does not accept array-likes/lists, and
+        # reshape is backend-agnostic and order-preserving (equiv. to the old
+        # np.rot90([temp_ret], -1)).
+        return temp_ret.reshape((-1, 1))
 
 
     def calc_pdf(self, samples):
         n, _ = samples.shape
         temp_ret = self.xpy.ones((n, 1))
+        # Prior pdfs are host functions in general; evaluate them on CPU samples
+        # and convert the result back to the active backend.
+        samples_cpu = self.identity_convert(samples)
         for index in range(len(self.curr_args)):
             if self.curr_args[index] in self.prior_pdf:
                 pdf_func = self.prior_pdf[self.curr_args[index]]
-                temp_samples = samples[:,index]
-                temp_ret *= pdf_func(temp_samples).reshape( temp_ret.shape)
+                temp_samples = samples_cpu[:,index]
+                pdf_vals = self.identity_convert_togpu(pdf_func(temp_samples))
+                temp_ret *= pdf_vals.reshape( temp_ret.shape)
         return temp_ret
 
     def setup(self,n_comp=None,**kwargs):
@@ -191,13 +202,15 @@ class MCSampler(object):
       raw_bounds = self.xpy.array(bounds)
           
       if gmm_dict is None:
+            # See note in integrate(): dict keys must be host ints, not 0-d
+            # cupy arrays (which are unhashable).
             bounds = {}
-            for indx in self.xpy.arange(len(raw_bounds)):
+            for indx in np.arange(len(raw_bounds)):
                 bounds[(indx,)] = raw_bounds[indx]
             bounds=raw_bounds
             if correlate_all_dims:
                 gmm_dict = {tuple(range(dim)):None}
-                bounds = {tuple(self.xpy.arange(len(bounds))): raw_bounds}
+                bounds = {tuple(range(dim)): raw_bounds}
             else:
                 gmm_dict = {}
                 for i in range(dim):
@@ -207,7 +220,7 @@ class MCSampler(object):
             for dims in gmm_dict:
                 n_dims = len(dims)
                 bounds_here = self.xpy.empty((n_dims,2))
-                for indx in self.xpy.arange(n_dims):
+                for indx in range(n_dims):
                     bounds_here[indx] = raw_bounds[dims[indx]]
                 bounds[dims]=bounds_here
 
@@ -350,13 +363,16 @@ class MCSampler(object):
 
         bounds=None
         if gmm_dict is None:
+            # NOTE: dim-group / bounds dict keys must be *host* integers. Building
+            # them with self.xpy.arange would produce unhashable 0-d cupy arrays
+            # on GPU; keep this bookkeeping on the CPU with range/np.arange.
             bounds = {}
-            for indx in self.xpy.arange(len(raw_bounds)):
+            for indx in np.arange(len(raw_bounds)):
                 bounds[(indx,)] = raw_bounds[indx]
             bounds=raw_bounds
             if correlate_all_dims:
                 gmm_dict = {tuple(range(dim)):None}
-                bounds = {tuple(self.xpy.arange(len(bounds))): raw_bounds}
+                bounds = {tuple(range(dim)): raw_bounds}
             else:
                 gmm_dict = {}
                 for i in range(dim):
@@ -366,7 +382,7 @@ class MCSampler(object):
             for dims in gmm_dict:
                 n_dims = len(dims)
                 bounds_here = self.xpy.empty((n_dims,2))
-                for indx in self.xpy.arange(n_dims):
+                for indx in range(n_dims):
                     bounds_here[indx] = raw_bounds[dims[indx]]
                 bounds[dims]=bounds_here
 
@@ -400,13 +416,15 @@ class MCSampler(object):
         if mcsamp_func is not None:
             mcsamp_func(self, integrator)
 
+        # Store sample history on the host so downstream (CPU) consumers --
+        # weights, CDFs, posterior plots -- work regardless of backend.
         index = 0
         for param in args:
-            self._rvs[param] = sample_array[:,index]
+            self._rvs[param] = self.identity_convert(sample_array[:,index])
             index += 1
-        self._rvs['joint_prior'] = prior_array
-        self._rvs['joint_s_prior'] = p_array
-        self._rvs['integrand'] = value_array
+        self._rvs['joint_prior'] = self.identity_convert(prior_array)
+        self._rvs['joint_s_prior'] = self.identity_convert(p_array)
+        self._rvs['integrand'] = self.identity_convert(value_array)
 
         if bFairdraw and not(n_extr is None):
            n_extr = int(self.xpy.min([n_extr,1.5*eff_samp,1.5*neff]))
@@ -419,7 +437,7 @@ class MCSampler(object):
            ln_wt += - scipy.special.logsumexp(self.identity_convert(ln_wt))
            wt = self.xpy.exp(ln_wt)
            if n_extr < len(value_array):
-               indx_list = self.xpy.random.choice(self.xpy.arange(len(wt)), size=n_extr,replace=True,p=wt)
+               indx_list = self.identity_convert(self.xpy.random.choice(self.xpy.arange(len(wt)), size=n_extr,replace=True,p=wt))
                for key in list(self._rvs.keys()):
                    if isinstance(key, tuple):
                        self._rvs[key] = self._rvs[key][:,indx_list]
@@ -435,7 +453,9 @@ class MCSampler(object):
             np.savetxt('mcsampler_data.txt', self.identity_convert(dat_out),
                         header=" ".join(['sample_array', 'value_array', 'p_array']))
 
-        return integral, error_squared, eff_samp, dict_return
+        # Return scalars on the host so callers can do plain numpy arithmetic
+        # (np.sqrt, np.log, np.array([...])) on the results.
+        return self.identity_convert(integral), self.identity_convert(error_squared), self.identity_convert(eff_samp), dict_return
 
 
 def inv_uniform_cdf(a, b, x):
