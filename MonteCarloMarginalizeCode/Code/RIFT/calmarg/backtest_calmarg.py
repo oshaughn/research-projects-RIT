@@ -215,6 +215,25 @@ def make_distmarg_table(xpy, ns=64, nt=48, xmin=-1.0e4, xmax=1.0e4,
     )
 
 
+def load_real_distmarg_table(npz_path, xpy, dmin=1.0, dmax=1000.0):
+    """Load a real util_InitMargTable .npz into the same params dict the kernel +
+    mirror closure consume.  Lets us backtest against the production table's actual
+    s/t ranges (e.g. t_array[0] may be > 0) deterministically."""
+    import RIFT.likelihood.factored_likelihood as _fl
+    d = np.load(npz_path)
+    s_array = np.asarray(d["s_array"]); t_array = np.asarray(d["t_array"])
+    bmax = float(np.asarray(d["bmax"])); bref = float(np.asarray(d["bref"]))
+    return dict(
+        lnI_array=xpy.asarray(d["lnI_array"]),
+        s0=float(s_array[0]), ds=float(s_array[1]-s_array[0]),
+        smin=float(s_array[0]), smax=float(s_array[-1]),
+        t0=float(t_array[0]), dt=float(t_array[1]-t_array[0]),
+        tmax=float(t_array[-1]),
+        xmin=float(_fl.distMpcRef/dmax), xmax=float(_fl.distMpcRef/dmin),
+        sqrt_bmax=float(np.sqrt(bmax)), bref=bref,
+    )
+
+
 def make_distmarg_loglikelihood(params, xpy):
     """Python distmarg loglikelihood closure (mirror of the ILE driver), consuming
     the same table the fused kernel uses."""
@@ -308,7 +327,7 @@ def _sync(xpy):
 
 
 def run_backtest(methods, backend="cpu", repeat=3, phase_marginalization=False,
-                 loglikelihood_mode="default", **case_kwargs):
+                 loglikelihood_mode="default", real_table=None, **case_kwargs):
     """Evaluate each method, time it, and report agreement vs 'reference' (if run)
     and vs 'in_loop_B'.
 
@@ -324,7 +343,8 @@ def run_backtest(methods, backend="cpu", repeat=3, phase_marginalization=False,
         case_kwargs["psd_UV"] = True
         case = make_synthetic_case(**case_kwargs)
         case["dist"] = np.full(case["npts_extrinsic"], fl.distMpcRef) * (lal.PC_SI*1e6)
-        params = make_distmarg_table(xpy)
+        params = (load_real_distmarg_table(real_table, xpy) if real_table
+                  else make_distmarg_table(xpy))
         case["cal_distmarg"] = params           # consumed by the fused distmarg kernel
         loglikelihood = make_distmarg_loglikelihood(params, xpy)
     else:
@@ -422,6 +442,8 @@ def _parse_args():
     p.add_argument("--repeat", type=int, default=3, help="timing repetitions (best-of)")
     p.add_argument("--loglikelihood", default="default", choices=["default", "distmarg"],
                    help="default helper, or distance-marginalization loglikelihood")
+    p.add_argument("--real-table", default=None,
+                   help="path to a real util_InitMargTable .npz (distmarg mode) to backtest against")
     p.add_argument("--phase-marginalization", action="store_true")
     p.add_argument("--seed", type=int, default=1234)
     return p.parse_args()
@@ -438,7 +460,7 @@ if __name__ == "__main__":
     ok = run_backtest(
         methods, backend=args.backend, repeat=args.repeat,
         phase_marginalization=args.phase_marginalization,
-        loglikelihood_mode=args.loglikelihood,
+        loglikelihood_mode=args.loglikelihood, real_table=args.real_table,
         n_cal=args.n_cal, npts_extrinsic=args.npts_extrinsic,
         N_window=args.N_window, npts=args.npts, seed=args.seed, dets=dets)
     raise SystemExit(0 if ok else 1)

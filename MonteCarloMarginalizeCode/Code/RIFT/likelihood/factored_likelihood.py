@@ -2145,13 +2145,17 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         # Simpson quadrature weight vector (incl. dx=deltaT), so time integration
         # matches the loop path's simps() exactly.  simps is linear -> weights = simps(I).
         w_t = simps(xpy.eye(npts, dtype=np.float64), dx=deltaT, axis=-1)
+        # invDistMpc is a scalar when distance is marginalized (P.dist fixed at the
+        # fiducial) and a vector when distance is sampled; the kernel wants one value
+        # per extrinsic sample, so broadcast to (npts_extrinsic,).
+        invDist_vec = xpy.asarray(invDistMpc, dtype=np.float64) * xpy.ones(npts_extrinsic, dtype=np.float64)
         if cal_distmarg is None:
             return Q_fused_calmarg.Q_fused_calmarg_cupy(
-                Q_stack, A_stack, ifirst_stack, invDistMpc, rho_sq, w_t,
+                Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
                 n_cal, N_window_block)
         else:
             return Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy(
-                Q_stack, A_stack, ifirst_stack, invDistMpc, rho_sq, w_t,
+                Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
                 n_cal, N_window_block, cal_distmarg)
 
     running_max = None
