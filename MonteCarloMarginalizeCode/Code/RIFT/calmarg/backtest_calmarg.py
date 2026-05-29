@@ -174,15 +174,22 @@ def method_in_loop_B(case, xpy, phase_marginalization=False, loglikelihood=None)
 
 
 def method_in_loop_C(case, xpy, phase_marginalization=False, loglikelihood=None):
-    """Option C: fused CUDA kernel (Q + loglikelihood + cal log-sum-exp on-board).
+    """Option C: fused CUDA kernel (Q + default helper + cal log-sum-exp on-board).
 
-    STUB. When the fused kernel exists, call it here and return lnL of shape
-    (npts_extrinsic,) on the host.  The harness will then validate it against
-    'reference' and 'in_loop_B' automatically.
+    GPU-only and (for now) default helper / no phase marginalization; raises
+    NotImplementedError otherwise, so the harness SKIPs it on CPU.
     """
-    raise NotImplementedError(
-        "Option C (fused kernel) is not implemented yet -- wire it into "
-        "method_in_loop_C in RIFT/calmarg/backtest_calmarg.py")
+    if loglikelihood is None:
+        loglikelihood = fl._factored_lnL_helper
+    P = _build_P(case, xpy)
+    det = case["det"]
+    out = fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
+        xpy.asarray(case["tvals"]), P, {det: case["lookupNK"]},
+        {det: xpy.asarray(case["rholms"])}, {det: xpy.asarray(case["U"])},
+        {det: xpy.asarray(case["V"])}, {det: case["epoch"]},
+        Lmax=2, xpy=xpy, n_cal=case["n_cal"], cal_method='fused',
+        loglikelihood=loglikelihood, phase_marginalization=phase_marginalization)
+    return _to_host(out)
 
 
 METHODS = {

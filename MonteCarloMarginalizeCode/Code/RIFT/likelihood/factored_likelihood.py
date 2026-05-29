@@ -1830,7 +1830,7 @@ def _factored_lnL_helper(kappa_sq, rho_sq):
     return kappa_sq - 0.5 * rho_sq
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop'):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time.
@@ -1852,6 +1852,16 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     via a streaming log-sum-exp over the n_cal realizations (memory unchanged vs
     the n_cal==1 path; one extra GPU kernel launch per realization).  The n_cal==1
     code path below is unchanged.
+
+    cal_method selects the n_cal>1 reduction:
+      'loop'  (default, Option B): Python loop over realizations reusing the
+              existing Q_inner_product kernel; works on CPU and GPU and with any
+              loglikelihood callback (distance/phase marginalization).
+      'fused' (Option C): a single fused CUDA kernel
+              (RIFT.likelihood.Q_fused_calmarg) does the Q-product, the default
+              helper, and the cal+time log-sum-exp on-board in one launch.
+              Currently GPU-only, phase_marginalization=False, and the default
+              (distance-unmarginalized) helper only; falls back / raises otherwise.
     """
     global distMpcRef
 
@@ -2108,6 +2118,28 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     # over realizations for numerical stability (S holds sum_c exp(lnL_t - max)).
     if return_lnLt:
         raise NotImplementedError("return_lnLt is not supported with calibration marginalization (n_cal>1)")
+
+    if cal_method == 'fused':
+        # ---- Option C: single fused CUDA kernel ----
+        if xpy is np:
+            raise NotImplementedError("cal_method='fused' requires the GPU (cupy) backend")
+        if phase_marginalization:
+            raise NotImplementedError("fused cal kernel does not yet support phase marginalization")
+        if loglikelihood is not _factored_lnL_helper:
+            raise NotImplementedError("fused cal kernel supports only the default (distance-unmarginalized) helper so far")
+        import RIFT.likelihood.Q_fused_calmarg as Q_fused_calmarg
+        dets = list(cal_cache.keys())
+        # All detectors share modes/length; ifirst differs per detector (time delay)
+        Q_stack = xpy.stack([cal_cache[d][0] for d in dets])               # (n_det, npts_full, n_lms)
+        A_stack = xpy.stack([cal_cache[d][1] for d in dets])               # (n_det, npts_extrinsic, n_lms)
+        ifirst_stack = xpy.stack([cal_cache[d][2] for d in dets]).astype(np.int32)  # (n_det, npts_extrinsic)
+        N_window_block = cal_cache[dets[0]][3]
+        # Simpson quadrature weight vector (incl. dx=deltaT), so time integration
+        # matches the loop path's simps() exactly.  simps is linear -> weights = simps(I).
+        w_t = simps(xpy.eye(npts, dtype=np.float64), dx=deltaT, axis=-1)
+        return Q_fused_calmarg.Q_fused_calmarg_cupy(
+            Q_stack, A_stack, ifirst_stack, invDistMpc, rho_sq, w_t,
+            n_cal, N_window_block)
 
     running_max = None
     S = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)

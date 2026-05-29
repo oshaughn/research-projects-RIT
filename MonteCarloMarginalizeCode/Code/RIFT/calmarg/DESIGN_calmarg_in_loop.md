@@ -89,8 +89,41 @@ With `n_cal == 1` the code path is byte-for-byte the original.  With `n_cal > 1`
 | C | fused CUDA kernel: Q + loglikelihood + cal-LSE on-board | minimal | new kernel | highest |
 
 Option B is memory-neutral and reuses the validated kernel — the right
-minimum-violence first step given GPUs have spare throughput.  Option C remains the
-optimized drop-in to **backtest** against B once the physics is confirmed.
+minimum-violence first step given GPUs have spare throughput.
+
+### Option C (implemented for the default helper)
+
+`cal_method='fused'` runs a single fused CUDA kernel
+(`RIFT/likelihood/cuda_Q_fused_calmarg.cu`, wrapped by
+`RIFT/likelihood/Q_fused_calmarg.py`).  One thread per extrinsic sample loops over
+realizations × time × detectors × modes, forms the data term `kappa`, applies the
+default factored-likelihood helper `lnL_t = invDist*Re(kappa) - 0.5*rho_sq`, and
+accumulates a streaming, Simpson-weighted log-sum-exp over `(c,t)` — returning
+`lnL[j]` directly.  No `(batch, n_cal, npts)` intermediate, no per-realization
+Python launches.
+
+Time integration matches Option B exactly by passing the composite-Simpson weight
+vector `w_t = simps(I, dx=deltaT)` (simps is linear, so its action is a fixed weight
+vector) into the kernel.  `rho_sq` is calibration-independent and passed in
+pre-summed over detectors.
+
+**Validated** in the harness vs the brute-force reference and Option B to ~1e-15 on
+GPU.  Throughput (NVS 510, sm_30; single synthetic detector):
+
+| case | reference | Option B | Option C |
+|---|---|---|---|
+| n_cal=100, 1024 samples | 695 ms | 170 ms | **22 ms** |
+| n_cal=200, 8192 samples | 7080 ms | 2422 ms | **279 ms** |
+
+i.e. ~8–9× over Option B and ~25–32× over brute force, with bit-level agreement.
+
+**Current scope / limitations of the fused kernel** (raises `NotImplementedError`
+otherwise): GPU only; `phase_marginalization=False`; default
+(distance-unmarginalized) helper only; assumes all detectors share modes/length
+(true after global mode pruning).  Stage 2 = port the distance-marginalization
+`loglikelihood` (bivariate table interpolation + `exponent_max`) into the kernel to
+cover the dominant distmarg production path (sites 1828/1871); the default-helper
+path (site 1725) is covered now.
 
 ## Driver wiring
 
