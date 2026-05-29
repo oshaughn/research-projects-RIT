@@ -49,35 +49,45 @@ import RIFT.likelihood.factored_likelihood as fl
 # Synthetic case construction
 # ---------------------------------------------------------------------------
 def make_synthetic_case(n_cal=20, npts_extrinsic=64, N_window=256, npts=16,
-                        deltaT=1.0/4096, det="H1", seed=1234):
+                        deltaT=1.0/4096, dets=("H1", "L1"), seed=1234):
     """Build a controlled set of likelihood inputs with embedded cal-block
     structure.  The n_cal realization blocks are independent random rholm draws
     (their physical relationship is irrelevant for backtesting that the *reduction*
     over blocks is computed correctly -- the loglikelihood callback is applied
     identically across methods, so method agreement holds regardless).
 
+    Multiple detectors exercise the kernel's detector loop and the function's
+    per-detector stacking; each detector gets its own random rholms/U/V, and the
+    likelihood derives a distinct per-detector ifirst from the (real) detector
+    location, so the stacked-ifirst path is genuinely tested.
+
     N_window must exceed the sky time-delay spread (+-0.021 s) plus npts so the
     per-sample window stays inside each block.
 
-    Returns a dict ('case') of plain numpy arrays / scalars; convert to a backend
-    with to_backend().
+    Returns a dict ('case') of plain numpy arrays / scalars (rholms/U/V are dicts
+    keyed by detector); convert to a backend in the method functions.
     """
     rng = np.random.default_rng(seed)
     n_lms = 2
     npts_full = N_window * n_cal
+    dets = tuple(dets)
 
     case = dict(
-        det=det, n_cal=n_cal, n_lms=n_lms, N_window=N_window, npts=npts,
+        dets=dets, n_cal=n_cal, n_lms=n_lms, N_window=N_window, npts=npts,
         deltaT=deltaT, npts_extrinsic=npts_extrinsic,
         lookupNK=np.array([[2, 2], [2, -2]], dtype=int),
-        rholms=(rng.standard_normal((n_lms, npts_full))
-                + 1j*rng.standard_normal((n_lms, npts_full))),
         tref=1000000000.0,
     )
-    U = rng.standard_normal((n_lms, n_lms)) + 1j*rng.standard_normal((n_lms, n_lms))
-    V = rng.standard_normal((n_lms, n_lms)) + 1j*rng.standard_normal((n_lms, n_lms))
-    case["U"] = U + U.conj().T
-    case["V"] = V + V.conj().T
+    case["rholms"] = {}
+    case["U"] = {}
+    case["V"] = {}
+    for det in dets:
+        case["rholms"][det] = (rng.standard_normal((n_lms, npts_full))
+                               + 1j*rng.standard_normal((n_lms, npts_full)))
+        U = rng.standard_normal((n_lms, n_lms)) + 1j*rng.standard_normal((n_lms, n_lms))
+        V = rng.standard_normal((n_lms, n_lms)) + 1j*rng.standard_normal((n_lms, n_lms))
+        case["U"][det] = U + U.conj().T
+        case["V"][det] = V + V.conj().T
     # epoch placed so the integration window sits near the middle of each block
     case["epoch"] = case["tref"] - 0.03
     case["tvals"] = np.linspace(-(npts//2)*deltaT, (npts//2)*deltaT, npts)
@@ -127,10 +137,21 @@ def _to_host(x):
     return np.asarray(x)
 
 
-def _block_rholms(case, c, xpy):
-    """rholms restricted to realization block c (as a single-block array)."""
+def _dicts(case, xpy, rholms):
+    """Build the per-detector dicts the likelihood expects from a rholms map."""
+    dets = case["dets"]
+    lookupNKDict = {d: case["lookupNK"] for d in dets}
+    rholmsArrayDict = {d: xpy.asarray(rholms[d]) for d in dets}
+    ctU = {d: xpy.asarray(case["U"][d]) for d in dets}
+    ctV = {d: xpy.asarray(case["V"][d]) for d in dets}
+    epochDict = {d: case["epoch"] for d in dets}
+    return lookupNKDict, rholmsArrayDict, ctU, ctV, epochDict
+
+
+def _block_rholms(case, c):
+    """Per-detector rholms restricted to realization block c."""
     N = case["N_window"]
-    return xpy.asarray(case["rholms"][:, c*N:(c+1)*N])
+    return {d: case["rholms"][d][:, c*N:(c+1)*N] for d in case["dets"]}
 
 
 # ---------------------------------------------------------------------------
@@ -141,17 +162,14 @@ def method_reference(case, xpy, phase_marginalization=False, loglikelihood=None)
     if loglikelihood is None:
         loglikelihood = fl._factored_lnL_helper
     P = _build_P(case, xpy)
-    det = case["det"]
     tvals = xpy.asarray(case["tvals"])
-    lookupNKDict = {det: case["lookupNK"]}
-    ctU = {det: xpy.asarray(case["U"])}
-    ctV = {det: xpy.asarray(case["V"])}
-    epochDict = {det: case["epoch"]}
     n_cal = case["n_cal"]
     lnL_blocks = np.zeros((n_cal, case["npts_extrinsic"]))
     for c in range(n_cal):
+        lookupNKDict, rholmsArrayDict, ctU, ctV, epochDict = _dicts(
+            case, xpy, _block_rholms(case, c))
         out = fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
-            tvals, P, lookupNKDict, {det: _block_rholms(case, c, xpy)}, ctU, ctV,
+            tvals, P, lookupNKDict, rholmsArrayDict, ctU, ctV,
             epochDict, Lmax=2, xpy=xpy, n_cal=1,
             loglikelihood=loglikelihood, phase_marginalization=phase_marginalization)
         lnL_blocks[c] = _to_host(out)
@@ -159,16 +177,15 @@ def method_reference(case, xpy, phase_marginalization=False, loglikelihood=None)
 
 
 def method_in_loop_B(case, xpy, phase_marginalization=False, loglikelihood=None):
-    """Option B: single call with n_cal>1."""
+    """Option B: single call with n_cal>1 (cal_method='loop')."""
     if loglikelihood is None:
         loglikelihood = fl._factored_lnL_helper
     P = _build_P(case, xpy)
-    det = case["det"]
+    lookupNKDict, rholmsArrayDict, ctU, ctV, epochDict = _dicts(
+        case, xpy, case["rholms"])
     out = fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
-        xpy.asarray(case["tvals"]), P, {det: case["lookupNK"]},
-        {det: xpy.asarray(case["rholms"])}, {det: xpy.asarray(case["U"])},
-        {det: xpy.asarray(case["V"])}, {det: case["epoch"]},
-        Lmax=2, xpy=xpy, n_cal=case["n_cal"],
+        xpy.asarray(case["tvals"]), P, lookupNKDict, rholmsArrayDict, ctU, ctV,
+        epochDict, Lmax=2, xpy=xpy, n_cal=case["n_cal"], cal_method='loop',
         loglikelihood=loglikelihood, phase_marginalization=phase_marginalization)
     return _to_host(out)
 
@@ -182,12 +199,11 @@ def method_in_loop_C(case, xpy, phase_marginalization=False, loglikelihood=None)
     if loglikelihood is None:
         loglikelihood = fl._factored_lnL_helper
     P = _build_P(case, xpy)
-    det = case["det"]
+    lookupNKDict, rholmsArrayDict, ctU, ctV, epochDict = _dicts(
+        case, xpy, case["rholms"])
     out = fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
-        xpy.asarray(case["tvals"]), P, {det: case["lookupNK"]},
-        {det: xpy.asarray(case["rholms"])}, {det: xpy.asarray(case["U"])},
-        {det: xpy.asarray(case["V"])}, {det: case["epoch"]},
-        Lmax=2, xpy=xpy, n_cal=case["n_cal"], cal_method='fused',
+        xpy.asarray(case["tvals"]), P, lookupNKDict, rholmsArrayDict, ctU, ctV,
+        epochDict, Lmax=2, xpy=xpy, n_cal=case["n_cal"], cal_method='fused',
         loglikelihood=loglikelihood, phase_marginalization=phase_marginalization)
     return _to_host(out)
 
@@ -213,9 +229,9 @@ def run_backtest(methods, backend="cpu", repeat=3, phase_marginalization=False,
     and vs 'in_loop_B'."""
     xpy = _backend(backend)
     case = make_synthetic_case(**case_kwargs)
-    print("# calmarg backtest  backend=%s  n_cal=%d  npts_extrinsic=%d  N_window=%d  npts=%d  phase_marg=%s"
-          % (backend, case["n_cal"], case["npts_extrinsic"], case["N_window"],
-             case["npts"], phase_marginalization))
+    print("# calmarg backtest  backend=%s  dets=%s  n_cal=%d  npts_extrinsic=%d  N_window=%d  npts=%d  phase_marg=%s"
+          % (backend, ",".join(case["dets"]), case["n_cal"], case["npts_extrinsic"],
+             case["N_window"], case["npts"], phase_marginalization))
 
     results = {}
     timings = {}
@@ -294,6 +310,7 @@ def _parse_args():
     p.add_argument("--methods", default="reference,in_loop_B,in_loop_C",
                    help="comma-separated subset of: %s" % ",".join(METHODS))
     p.add_argument("--n-cal", type=int, default=20)
+    p.add_argument("--dets", default="H1,L1", help="comma-separated detector prefixes")
     p.add_argument("--npts-extrinsic", type=int, default=64)
     p.add_argument("--N-window", type=int, default=256)
     p.add_argument("--npts", type=int, default=16)
@@ -310,9 +327,10 @@ if __name__ == "__main__":
     if unknown:
         raise SystemExit("unknown methods: %s (known: %s)"
                          % (unknown, list(METHODS)))
+    dets = tuple(d.strip() for d in args.dets.split(",") if d.strip())
     ok = run_backtest(
         methods, backend=args.backend, repeat=args.repeat,
         phase_marginalization=args.phase_marginalization,
         n_cal=args.n_cal, npts_extrinsic=args.npts_extrinsic,
-        N_window=args.N_window, npts=args.npts, seed=args.seed)
+        N_window=args.N_window, npts=args.npts, seed=args.seed, dets=dets)
     raise SystemExit(0 if ok else 1)

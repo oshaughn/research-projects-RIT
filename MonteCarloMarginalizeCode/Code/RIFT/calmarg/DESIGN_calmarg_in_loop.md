@@ -108,7 +108,9 @@ vector) into the kernel.  `rho_sq` is calibration-independent and passed in
 pre-summed over detectors.
 
 **Validated** in the harness vs the brute-force reference and Option B to ~1e-15 on
-GPU.  Throughput (NVS 510, sm_30; single synthetic detector):
+GPU, single- and multi-detector (H1,L1,V1 — exercises the kernel's detector loop and
+the per-detector ifirst stacking).  Throughput (NVS 510, sm_30; single synthetic
+detector):
 
 | case | reference | Option B | Option C |
 |---|---|---|---|
