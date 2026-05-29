@@ -131,14 +131,28 @@ The user's preferred path is to add a follow-on stage after a normal RIFT
 run, **without** making `create_event_parameter_pipeline_BasicIteration`
 ("CEPP_basic") more baroque.  Recommendation:
 
-### Recommended (no DAG changes)
+### Recommended (no DAG changes) -- step 1 DONE
 
-1. Enable `--export-distance-slices K` on the **last iteration only** of an
-   otherwise-normal RIFT run.  `util_RIFT_pseudo_pipe.py` already threads
-   `--last-iteration-export-marginal-distance-grid` for the Plan-A flag;
-   add a sibling `--last-iteration-export-distance-slices K` that follows
-   the same path.  This is the cheapest change to `util_RIFT_pseudo_pipe`
-   (one extra option) and zero change to CEPP_basic.
+1. **DONE.** Enable `--export-distance-slices K` on the **last iteration
+   only** of an otherwise-normal RIFT run.  `util_RIFT_pseudo_pipe.py` now
+   exposes `--export-distance-slices K` (plus
+   `--export-distance-slices-{n-core,n-wing,wing-delta-lnL,skip-threshold}`),
+   sibling to `--export-marginal-distance-grid`.  When set it forces ILE
+   lnL mode, disables distance marginalization, and routes
+   `--last-iteration-export-distance-slices K ...` to the pipeline builder
+   (`create_event_parameter_pipeline_{Basic,Alternate,BasicMultiApprox}Iteration`),
+   which appends the ILE-level export flags to the **extrinsic** stage
+   (`ILE_extr.sub`) only.  Requires `--add-extrinsic`.
+
+   While landing this we also fixed a latent bug: the Plan-A grid flag had
+   been appended to `args_ile.txt` (the ILE argument string) instead of the
+   CEPP command, so it would have been handed to the ILE executable and
+   rejected; both grid and slice flags now go to the CEPP command.
+
+   End-to-end coverage: `demo/pipeline/` (Makefile + README) builds
+   baseline/grid/slices pipelines and asserts the flags land in
+   `ILE_extr.sub` (not the intrinsic `ILE.sub`) with no distance
+   marginalization; `.travis/test-build.sh` runs the same checks in CI.
 
 2. Add a consolidation step that concatenates `.dslice` files into a
    single table per iteration -- mirror what `util_CleanILE.py` does for
