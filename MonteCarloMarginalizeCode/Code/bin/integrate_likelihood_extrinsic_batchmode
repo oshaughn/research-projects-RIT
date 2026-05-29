@@ -237,6 +237,7 @@ optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, h
 optp.add_option("--calibration-envelope-directory",default=None, help="Name of directory")
 optp.add_option("--calibration-n-realizations", default=100, type=int, help="Number of realizations to use for calmarg, recommend 100")
 optp.add_option("--calibration-spline-count", default=10,type=int)
+optp.add_option("--calibration-fused-kernel", action="store_true", default=False, help="Opt-in: use the fused GPU kernel (Option C) for in-loop calibration marginalization. GPU only, no phase marginalization; with distance marginalization it uses the fused distmarg kernel. Falls back to the loop method (Option B) otherwise.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
 optp.add_option("--force-gpu-only", action="store_true", help="Hard fail if no GPU present (assessed by cupy not loading)")
@@ -1784,6 +1785,22 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 lnI[in_bounds] = intp(s[in_bounds], t[in_bounds])
                 return exponent_max(x0, rho_sq) + lnI
 
+              # Opt-in: package the distmarg table for the fused GPU kernel (Option C).
+              # Only used (below) at the non-phase-marg distmarg call site; the loop
+              # method (Option B) remains the default and the fallback.
+              cal_distmarg_dict = None
+              if calibration_marginalization and opts.calibration_fused_kernel:
+                if xpy_default is np:
+                  print("  WARNING: --calibration-fused-kernel ignored (requires GPU); using loop method")
+                else:
+                  cal_distmarg_dict = dict(
+                    lnI_array=lnI_array,
+                    s0=float(s_array[0]), ds=float(s_array[1] - s_array[0]),
+                    smin=float(smin), smax=float(smax),
+                    t0=float(t_array[0]), dt=float(t_array[1] - t_array[0]), tmax=float(tmax),
+                    xmin=float(xmin), xmax=float(xmax),
+                    sqrt_bmax=float(sqrt_bmax), bref=float(bref))
+
               if lookup_table["phase_marginalization"]:
 
                 print( " Using direct phase marginalization  ")
@@ -1871,7 +1888,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     P.phiref = phi_orb_true
 
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood,n_cal=n_cal_for_likelihood)
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood,n_cal=n_cal_for_likelihood,
+                    cal_method=('fused' if cal_distmarg_dict is not None else 'loop'), cal_distmarg=cal_distmarg_dict)
 #                  nEvals +=len(right_ascension)
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API

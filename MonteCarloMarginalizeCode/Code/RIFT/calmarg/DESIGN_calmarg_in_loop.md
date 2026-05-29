@@ -152,9 +152,21 @@ i.e. ~6–7× over Option B.
 
 **Scope / limitations of both fused kernels** (raise `NotImplementedError`
 otherwise): GPU only; `phase_marginalization=False`; all detectors share
-modes/length (true after global mode pruning).  Remaining: phase-marginalization
-support, and wiring the driver's distmarg call sites to extract the `lookup_table`
-into a `cal_distmarg` dict behind an opt-in flag (Option B remains the default).
+modes/length (true after global mode pruning).
+
+### Driver wiring (opt-in)
+
+`integrate_likelihood_extrinsic_batchmode` exposes the fused path behind
+`--calibration-fused-kernel` (off by default).  When set (and on GPU, with
+calibration marginalization active), the driver packages the distance-marginalization
+`lookup_table` (`s_array`, `t_array`, `lnI_array`, `bmax`, `bref`) plus `xmin/xmax`
+into a `cal_distmarg` dict and passes `cal_method='fused'` at the **non-phase-marg**
+distmarg call site.  The phase-marg distmarg site and everything else stay on
+`cal_method='loop'` (Option B), which remains the default and the fallback for all
+cases.  On CPU the flag is ignored with a warning (the kernel is GPU-only).
+
+Remaining: phase-marginalization support in the fused kernels (then the phase-marg
+distmarg site can opt in too).
 
 ## Driver wiring
 
