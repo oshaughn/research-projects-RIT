@@ -157,13 +157,23 @@ run, **without** making `create_event_parameter_pipeline_BasicIteration`
    `ILE_extr.sub` (not the intrinsic `ILE.sub`) with no distance
    marginalization; `.travis/test-build.sh` runs the same checks in CI.
 
-2. Add a consolidation step that concatenates `.dslice` files into a
-   single table per iteration -- mirror what `util_CleanILE.py` does for
-   `.composite`.  The natural drop-in is a tiny wrapper script
-   `util_CleanILE_dslice.py` that just concatenates with header dedup.
-   Add one extra `unify_dslice.sub`/`unify_dslice.sh` pair to the existing
-   subdag emitted by CEPP_basic; it depends on the same `ile` job set
-   that produced the `.dslice` files.
+2. **DONE.** Add a consolidation step that concatenates `.dslice` (and
+   `.dgrid`) files into a single table per iteration.  Landed as
+   `util_ConsolidateDistanceGrids.py` (header-checked concatenator with a
+   `--input-glob` mode) plus
+   `RIFT.misc.dag_utils_generic.write_consolidate_distance_grids_sub`.
+   When `--last-iteration-export-marginal-distance-grid` /
+   `--last-iteration-export-distance-slices` is set, CEPP_basic emits
+   `consolidate_dgrid.sub` / `consolidate_dslice.sub` and wires them as
+   children of every `ILE_extr` job in the DAG.  Output lands at the run
+   root as `all_dgrid.dat` / `all_dslice.dat` -- the "net" intrinsic +
+   distance grid downstream tools consume.  End-to-end validated by
+   `demo/pipeline/zero_spin_phenomD/` (zero-spin IMRPhenomD, AV sampler,
+   small mass grid, ~45 s on a laptop): builds the pipeline via
+   `util_RIFT_pseudo_pipe.py`, runs `ILE_extr` directly (no condor) on a
+   few grid rows, consolidates, and feeds `all_dgrid.dat` into
+   `util_ConstructEOSPosterior.py` to reconstruct the joint
+   (m1, m2, dist) posterior.
 
 3. (Optional, deferred) Teach CIP to ingest the `.dslice` table jointly:
    either fit `lnL(intrinsic, dist)` directly, or marginalize over `dist`
