@@ -138,11 +138,14 @@ run, **without** making `create_event_parameter_pipeline_BasicIteration`
    exposes `--export-distance-slices K` (plus
    `--export-distance-slices-{n-core,n-wing,wing-delta-lnL,skip-threshold}`),
    sibling to `--export-marginal-distance-grid`.  When set it forces ILE
-   lnL mode, disables distance marginalization, and routes
+   lnL mode (whole run) and routes
    `--last-iteration-export-distance-slices K ...` to the pipeline builder
    (`create_event_parameter_pipeline_{Basic,Alternate,BasicMultiApprox}Iteration`),
    which appends the ILE-level export flags to the **extrinsic** stage
-   (`ILE_extr.sub`) only.  Requires `--add-extrinsic`.
+   (`ILE_extr.sub`) only.  Distance marginalization is **not** disabled
+   globally -- the intrinsic iterations keep it (a speedup); the pipeline
+   builder strips `--distance-marginalization` from the extrinsic stage only.
+   Requires `--add-extrinsic`.
 
    While landing this we also fixed a latent bug: the Plan-A grid flag had
    been appended to `args_ile.txt` (the ILE argument string) instead of the
