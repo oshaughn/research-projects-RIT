@@ -104,6 +104,15 @@ example. Schema:
 | ↳ `cuda_capability_max` | informational upper bound (`null` = open-ended) |
 | ↳ `note`          | free-text |
 
+> **Keep the family consistent.** A *single* `SINGULARITY_BASE_EXE_DIR` is
+> applied to **every** image in the family — the ILE/CIP jobs locate the
+> executable as `SINGULARITY_BASE_EXE_DIR + <exe name>`, with no per-image
+> override. So all images in a manifest **must install RIFT's executables at the
+> same in-container path** (and share a common layout/Python/entrypoints). Build
+> them from the same `rift_container.def.in` template (`build_family.sh` does
+> this) and do **not** hand-mix images with different internal layouts. The same
+> applies to `SINGULARITY_BASE_EXE_DIR_HYPERPIPE` if you use hyperpipe.
+
 ### What the pipeline generates
 
 For the ILE (and CIP) Condor submit, a manifest produces:
