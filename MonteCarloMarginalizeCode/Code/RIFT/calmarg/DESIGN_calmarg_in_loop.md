@@ -121,6 +121,31 @@ unchanged `n_cal==1` path on each realization block separately and combining by 
 the CPU (`xpy=np`) and the production GPU (`xpy=cupy`, real `Q_inner_product` kernel)
 paths.  It also confirms the `n_cal==1` path is a regression-identical block-0 eval.
 
+## Backtest harness
+
+`RIFT/calmarg/backtest_calmarg.py` is the rig **Option C is developed against**.  It
+holds a `METHODS` registry — `reference` (brute-force per-block + logsumexp),
+`in_loop_B` (the `n_cal>1` call), and `in_loop_C` (a stub raising `NotImplementedError`
+until the fused kernel exists) — and evaluates each over synthetic inputs that
+exercise the cal-block structure, reporting `max|lnL - reference|` and best-of-N
+timing on CPU (`--backend cpu`) or GPU (`--backend gpu`).  Wire the fused kernel into
+`method_in_loop_C` and the harness validates it automatically.
+
+```
+python -m RIFT.calmarg.backtest_calmarg --backend gpu --n-cal 100 --npts-extrinsic 4096 --repeat 5
+```
+
+Current status: `in_loop_B` reproduces `reference` to ~1e-15 on CPU and GPU, with and
+without phase marginalization; on GPU it is ~3–4× faster than the brute-force
+reference (which redundantly recomputes `rho_sq` per realization — exactly the
+redundancy Option C removes).
+
+`run_physics_backtest()` in the same module is the **scaffold** (docstring + TODOs) for
+the heavier real-data comparison vs bilby `calibration_reweighting.py`: load a real
+ILE precompute + cal envelopes + the bilby data_dump, evaluate the in-loop calmarg
+likelihood on the same extrinsic samples, and compare per-sample lnL and the
+log-evidence shift.  It needs frames/PSDs, so it runs on the stable host (not in CI).
+
 ## Open items / future work
 
 * **Option C** fused kernel for maximum throughput; backtest vs Option B and vs the
