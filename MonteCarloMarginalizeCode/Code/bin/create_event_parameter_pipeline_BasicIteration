@@ -917,6 +917,43 @@ sed 1d ./tmp_converted.dat  {extra_shuffle_command} >> ./extrinsic_posterior_sam
         cat_job.set_sub_file(fname)
     cat_job.write_sub_file()
 
+    # Per-distance likelihood export: consolidate per-event .dgrid (Plan A)
+    # and/or .dslice (Plan B) files into a single table at the run root.  The
+    # consolidated file is the "net" intrinsic+distance grid downstream tools
+    # like util_ConstructEOSPosterior.py consume.  Each consolidation is
+    # gated on the corresponding --last-iteration-export-* flag so we never
+    # emit an empty sub for runs that did not request the export.
+    if opts.last_iteration_export_marginal_distance_grid:
+        dgrid_job, dgrid_job_name = dag_utils.write_consolidate_distance_grids_sub(
+            tag='consolidate_dgrid',
+            input_glob='EXTR_out.xml_*_.dgrid',
+            file_output=opts.working_directory + '/all_dgrid.dat',
+            search_dir=opts.working_directory + '/iteration_$(macroiteration)_ile',
+            log_dir=opts.working_directory + '/iteration_$(macroiteration)_ile/logs/',
+            universe=local_worker_universe, no_grid=no_worker_grid,
+        )
+        dgrid_job.add_condor_cmd("initialdir", opts.working_directory)
+        dgrid_job.add_condor_cmd('request_disk', opts.general_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory + "/" + dgrid_job.get_sub_file()
+            dgrid_job.set_sub_file(fname)
+        dgrid_job.write_sub_file()
+    if opts.last_iteration_export_distance_slices and opts.last_iteration_export_distance_slices > 0:
+        dslice_job, dslice_job_name = dag_utils.write_consolidate_distance_grids_sub(
+            tag='consolidate_dslice',
+            input_glob='EXTR_out.xml_*_.dslice',
+            file_output=opts.working_directory + '/all_dslice.dat',
+            search_dir=opts.working_directory + '/iteration_$(macroiteration)_ile',
+            log_dir=opts.working_directory + '/iteration_$(macroiteration)_ile/logs/',
+            universe=local_worker_universe, no_grid=no_worker_grid,
+        )
+        dslice_job.add_condor_cmd("initialdir", opts.working_directory)
+        dslice_job.add_condor_cmd('request_disk', opts.general_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory + "/" + dslice_job.get_sub_file()
+            dslice_job.set_sub_file(fname)
+        dslice_job.write_sub_file()
+
 
 ##   Consolidate job(s)
 #   - consolidate output of single previous job
@@ -1881,6 +1918,19 @@ if opts.last_iteration_extrinsic:
     cat_node = pipeline.CondorDAGNode(cat_job)
     cat_node.add_macro("macroiteration", it)  # needed to identify log file location
 
+    # Per-distance likelihood export consolidation nodes (depend directly on
+    # ILE_extr, since .dgrid / .dslice are emitted by ILE itself with no
+    # convert/resample step in between).
+    dgrid_node = dslice_node = None
+    if opts.last_iteration_export_marginal_distance_grid:
+        dgrid_node = pipeline.CondorDAGNode(dgrid_job)
+        dgrid_node.add_macro("macroiteration", it)
+        dgrid_node.set_retry(opts.ile_retries)
+    if opts.last_iteration_export_distance_slices and opts.last_iteration_export_distance_slices > 0:
+        dslice_node = pipeline.CondorDAGNode(dslice_job)
+        dslice_node.add_macro("macroiteration", it)
+        dslice_node.set_retry(opts.ile_retries)
+
     # Perform final ILE run on all points, saving samples
     # Need to perform number of events CONSISTENT WITH TARGET SAMPLE SIZE
     #    - *not* always same as number of ILE events being analyzed
@@ -1905,6 +1955,13 @@ if opts.last_iteration_extrinsic:
             ile_node.add_parent(parent_fit_node)
         dag.add_node(ile_node)
 #        ile_node_list_per_iteration[it].append(ile_node)
+
+        # Distance-grid / -slice consolidation runs after EVERY ILE_extr
+        # finishes, since each ILE_extr emits one .dgrid / .dslice file.
+        if dgrid_node is not None:
+            dgrid_node.add_parent(ile_node)
+        if dslice_node is not None:
+            dslice_node.add_parent(ile_node)
 
         # Add convert and resample task *for each output file*
         if opts.last_iteration_extrinsic_time_resampling:
@@ -1949,6 +2006,10 @@ if opts.last_iteration_extrinsic:
     else:
         dag.add_node(convert_node)   # this is the time resampling task
         last_node=convert_node
+    if dgrid_node is not None:
+        dag.add_node(dgrid_node)
+    if dslice_node is not None:
+        dag.add_node(dslice_node)
 
 # Create rotation job (if extrinsic available)
 if opts.frame_rotation and opts.last_iteration_extrinsic:

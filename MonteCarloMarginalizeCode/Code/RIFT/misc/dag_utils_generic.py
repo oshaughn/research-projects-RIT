@@ -3493,6 +3493,56 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
 
 
 
+def write_consolidate_distance_grids_sub(tag='consolidate_dgrid', exe=None,
+                                          input_glob=None, file_output=None,
+                                          search_dir='.', universe='local',
+                                          log_dir=None, no_grid=False, **kwargs):
+    """Consolidate per-event .dgrid (Plan A) / .dslice (Plan B) files.
+
+    Wraps ``util_ConsolidateDistanceGrids.py``: writes a thin shell driver
+    that runs the consolidator over ``input_glob`` (a find-style pattern, e.g.
+    ``EXTR_out.xml_*_.dgrid``) in ``search_dir`` and emits the concatenated
+    table at ``file_output``.  Mirrors ``write_cat_sub`` so it slots into the
+    same post-extrinsic part of the DAG.
+    """
+    exe = exe or which("util_ConsolidateDistanceGrids.py")
+    if not exe:
+        exe = "util_ConsolidateDistanceGrids.py"
+
+    cmdname = tag + '.sh'
+    with open(cmdname, 'w') as f:
+        f.write("#! /bin/bash\n")
+        f.write("set -e\n")
+        f.write("cd " + search_dir + "\n")
+        # --allow-empty keeps the post-extrinsic job from failing the DAG if a
+        # re-run already consumed the per-event files or none were produced.
+        f.write(exe + " --input-glob '" + input_glob + "'"
+                " --output " + file_output + " --allow-empty\n")
+    os.system("chmod a+x " + cmdname)
+
+    ile_job = CondorDAGJob(universe=universe, executable=cmdname)
+    if no_grid:
+        ile_job.add_condor_cmd("MY.DESIRED_SITES", '"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local", 'true')
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    uniq_str = "$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    ile_job.add_condor_cmd('getenv', default_getenv_value)
+    try:
+        ile_job.add_condor_cmd('accounting_group', os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user', os.environ['LIGO_USER_NAME'])
+    except:
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
+
+    return ile_job, ile_sub_name
+
+
 def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,target_dir=None,arg_str='',log_dir=None,  universe='local',**kwargs):
     """
     Write script to convert PSD from one format to another.  Needs to be called once per PSD file being used.

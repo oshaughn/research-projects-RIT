@@ -35,16 +35,20 @@ PIPE = util_RIFT_pseudo_pipe.py \
        --fake-data-cache $(FAKE_CACHE) \
        --add-extrinsic
 
-.PHONY: help inputs baseline grid slices validate-grid validate-slices all clean
+.PHONY: help inputs baseline grid slices validate-grid validate-slices all clean zero-spin-phenomD
 
 help:
 	@echo "Targets:"
-	@echo "  make inputs          - verify reference ini/coinc are available"
-	@echo "  make baseline        - build a standard pipeline (no per-distance export)"
-	@echo "  make grid            - build + validate Plan-A distance-grid export"
-	@echo "  make slices          - build + validate Plan-B distance-slice export"
-	@echo "  make all             - run baseline, grid, and slices"
-	@echo "  make clean           - remove generated run directories"
+	@echo "  make inputs              - verify reference ini/coinc are available"
+	@echo "  make baseline            - build a standard pipeline (no per-distance export)"
+	@echo "  make grid                - build + validate Plan-A distance-grid export"
+	@echo "  make slices              - build + validate Plan-B distance-slice export"
+	@echo "  make all                 - run baseline, grid, and slices"
+	@echo "  make zero-spin-phenomD   - full end-to-end validation (build + run ILE locally + consolidate + posterior)"
+	@echo "  make clean               - remove generated run directories"
+
+zero-spin-phenomD:
+	$(MAKE) -C $(CURDIR)/zero_spin_phenomD all
 
 inputs:
 	@test -s "$(REF_INI)"  || (echo "missing $(REF_INI)"  && false)
@@ -74,7 +78,12 @@ validate-grid:
 	@grep -q -- "--distance-marginalization "      "$(CURDIR)/rundir_grid/args_ile.txt"
 	@grep -q -- "--distance-marginalization "      "$(CURDIR)/rundir_grid/ILE.sub"
 	@! grep -q -- "--distance-marginalization "    "$(CURDIR)/rundir_grid/ILE_extr.sub"
-	@echo "OK: Plan-A grid export only on ILE_extr.sub; distance marginalization kept on intrinsic ILE.sub, disabled only at the extrinsic stage"
+	@test -s "$(CURDIR)/rundir_grid/consolidate_dgrid.sub"
+	@test -s "$(CURDIR)/rundir_grid/consolidate_dgrid.sh"
+	@grep -q -- "EXTR_out.xml_\*_.dgrid" "$(CURDIR)/rundir_grid/consolidate_dgrid.sh"
+	@grep -q -- "all_dgrid.dat"          "$(CURDIR)/rundir_grid/consolidate_dgrid.sh"
+	@grep -q "consolidate_dgrid"         $(CURDIR)/rundir_grid/*.dag
+	@echo "OK: Plan-A grid export only on ILE_extr.sub; consolidate_dgrid job present; distance marginalization kept on intrinsic ILE.sub, disabled only at the extrinsic stage"
 
 slices: inputs
 	rm -rf "$(CURDIR)/rundir_slices"
@@ -94,10 +103,16 @@ validate-slices:
 	@grep -q -- "--distance-marginalization "         "$(CURDIR)/rundir_slices/args_ile.txt"
 	@grep -q -- "--distance-marginalization "         "$(CURDIR)/rundir_slices/ILE.sub"
 	@! grep -q -- "--distance-marginalization "       "$(CURDIR)/rundir_slices/ILE_extr.sub"
-	@echo "OK: Plan-B slice export only on ILE_extr.sub; distance marginalization kept on intrinsic ILE.sub, disabled only at the extrinsic stage"
+	@test -s "$(CURDIR)/rundir_slices/consolidate_dslice.sub"
+	@test -s "$(CURDIR)/rundir_slices/consolidate_dslice.sh"
+	@grep -q -- "EXTR_out.xml_\*_.dslice" "$(CURDIR)/rundir_slices/consolidate_dslice.sh"
+	@grep -q -- "all_dslice.dat"          "$(CURDIR)/rundir_slices/consolidate_dslice.sh"
+	@grep -q "consolidate_dslice"         $(CURDIR)/rundir_slices/*.dag
+	@echo "OK: Plan-B slice export only on ILE_extr.sub; consolidate_dslice job present; distance marginalization kept on intrinsic ILE.sub, disabled only at the extrinsic stage"
 
 all: baseline grid slices
 	@echo "All pipeline-build demos passed."
 
 clean:
 	rm -rf "$(CURDIR)/rundir_baseline" "$(CURDIR)/rundir_grid" "$(CURDIR)/rundir_slices" "$(FAKE_CACHE)"
+	$(MAKE) -C $(CURDIR)/zero_spin_phenomD clean
