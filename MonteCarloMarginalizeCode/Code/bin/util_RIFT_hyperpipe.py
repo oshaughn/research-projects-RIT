@@ -400,7 +400,13 @@ def my_app(cfg: DictConfig) -> None:
         _cfg_get(_cfg_get(cfg, "puff"), "exe")
         or _which_or_self("util_HyperparameterPuffball.py")
     )
-    test_exe = _cfg_get(_cfg_get(cfg, "test"), "exe", "convergence_test_samples")
+    # Match the on-disk script name (setup.py ships bin/* verbatim, so the
+    # installed file is convergence_test_samples.py).  Using the .py suffix
+    # here means create_eos_posterior_pipeline's `which`-based path
+    # resolution actually finds the executable; the bare name used to
+    # silently fall through and leave test.sub with a non-absolute
+    # `executable = convergence_test_samples` line.
+    test_exe = _cfg_get(_cfg_get(cfg, "test"), "exe", "convergence_test_samples.py")
 
     cmd_parts: List[str] = [
         _which_or_self("create_eos_posterior_pipeline"),
