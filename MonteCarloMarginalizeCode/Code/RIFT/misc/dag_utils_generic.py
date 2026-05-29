@@ -125,6 +125,26 @@ import shutil
 import numpy as np
 import configparser
 
+# Container family manifest support (Feature: multi-architecture container
+# deployment).  Import-guarded so that plain single-.sif runs never require
+# pyyaml; only an actual .yaml/.yml manifest exercises this path.
+try:
+    from RIFT.misc.container_manifest import (
+        is_container_manifest,
+        load_container_manifest,
+        build_singularity_image_expr,
+        build_transfer_input_expr,
+        build_require_gpus_floor,
+        ContainerManifestError,
+    )
+    _HAVE_CONTAINER_MANIFEST = True
+except ImportError:
+    _HAVE_CONTAINER_MANIFEST = False
+
+    def is_container_manifest(value):
+        # Without the helper module available, never treat a value as a manifest.
+        return False
+
 __author__ = (
     "Evan Ochsner <evano@gravity.phys.uwm.edu>, "
     "Chris Pankow <pankow@gravity.phys.uwm.edu>"
@@ -1902,7 +1922,21 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     singularity_image_used = "{}".format(singularity_image) # make copy
     extra_files = []
-    if singularity_image:
+    # Container family manifest support (see write_ILE_sub_simple).  CIP jobs do
+    # not request GPUs, so no require_gpus floor is added here; on a CPU-only
+    # slot TARGET.GPUs_Capability is undefined and the selection expression
+    # collapses to the fallback image, which must be the CPU-safe one.
+    singularity_is_family = False
+    singularity_image_expr = None
+    singularity_transfer_expr = None
+    if singularity_image and is_container_manifest(singularity_image):
+        singularity_is_family = True
+        _manifest = load_container_manifest(singularity_image)
+        singularity_image_expr = build_singularity_image_expr(_manifest)
+        singularity_transfer_expr = build_transfer_input_expr(_manifest)
+        if singularity_transfer_expr:
+            extra_files += [singularity_transfer_expr]
+    elif singularity_image:
         if 'osdf:' in singularity_image:
             singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
             extra_files += [singularity_image]
@@ -2022,7 +2056,11 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
         ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        if singularity_is_family:
+            # Expression-valued: emit raw, NO surrounding double quotes.
+            ile_job.add_condor_cmd("MY.SingularityImage", singularity_image_expr)
+        else:
+            ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
         requirements.append("HAS_SINGULARITY=?=TRUE")
 
     if use_oauth_files:
@@ -2219,12 +2257,32 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
 
     singularity_image_used = "{}".format(singularity_image) # make copy
     extra_files = []
-    if singularity_image:
+    # Container family manifest support: if singularity_image points at a
+    # .yaml/.yml manifest, build an expression-valued MY.SingularityImage plus a
+    # selective ($$()) transfer entry and a require_gpus capability floor.  A
+    # plain .sif / osdf:// value keeps the legacy single-image behavior below.
+    singularity_is_family = False
+    singularity_image_expr = None
+    singularity_transfer_expr = None
+    singularity_require_gpus_floor = None
+    if singularity_image and is_container_manifest(singularity_image):
+        singularity_is_family = True
+        _manifest = load_container_manifest(singularity_image)
+        singularity_image_expr = build_singularity_image_expr(_manifest)
+        singularity_transfer_expr = build_transfer_input_expr(_manifest)
+        singularity_require_gpus_floor = build_require_gpus_floor(_manifest)
+        # Selective transfer: only the matched osdf image is fetched (via the
+        # $$() token, which is comma-free so it survives transfer_input_files
+        # comma-splitting).  CVMFS/local images are referenced in place and
+        # never transferred, so the whole family is never pulled.
+        if singularity_transfer_expr:
+            extra_files += [singularity_transfer_expr]
+    elif singularity_image:
         if 'osdf:' in singularity_image:
             singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
             extra_files += [singularity_image]
 
-        
+
     exe = exe or which("integrate_likelihood_extrinsic")
     frames_local = None
     if use_singularity:
@@ -2381,7 +2439,12 @@ echo Starting ...
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
         ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        if singularity_is_family:
+            # Expression-valued: emit the ifThenElse raw, with NO surrounding
+            # double quotes (a classad expression must not be quoted).
+            ile_job.add_condor_cmd("MY.SingularityImage", singularity_image_expr)
+        else:
+            ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
         ile_job.add_condor_cmd("MY.flock_local",'true')  # jobs can match to local pool !
         requirements.append("HAS_SINGULARITY=?=TRUE")
 #               if not(use_simple_osg_requirements):
@@ -2529,8 +2592,18 @@ echo Starting ...
         remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60*max_runtime_minutes)
         ile_job.add_condor_cmd('periodic_remove', remove_str)
 
-    if 'RIFT_REQUIRE_GPUS' in os.environ:  # new convention 'require_gpus = ' to specify conditions on GPU properties
-        ile_job.add_condor_cmd('require_gpus',os.environ['RIFT_REQUIRE_GPUS'])
+    # require_gpus: compose the user's RIFT_REQUIRE_GPUS (used today to block
+    # incompatible hosts by DeviceName) with the container family's capability
+    # floor (lowest capability any image in the family supports).  Both apply;
+    # neither is silently dropped.  (new convention 'require_gpus = ' specifies
+    # conditions on GPU properties)
+    require_gpus_terms = []
+    if 'RIFT_REQUIRE_GPUS' in os.environ:
+        require_gpus_terms.append('({})'.format(os.environ['RIFT_REQUIRE_GPUS']))
+    if singularity_is_family and singularity_require_gpus_floor:
+        require_gpus_terms.append('({})'.format(singularity_require_gpus_floor))
+    if require_gpus_terms:
+        ile_job.add_condor_cmd('require_gpus', ' && '.join(require_gpus_terms))
     
 
     ###

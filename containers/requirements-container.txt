@@ -1,0 +1,25 @@
+# Shared pip dependency set for the RIFT container builds.
+#
+# SINGLE SOURCE OF TRUTH: both the container definition (rift_container.def /
+# containers/rift_container.def.in) and the CI "dependency-resolution canary"
+# (.github/workflows/ci.yml :: container-dep-canary) install from this file, so
+# the canary actually exercises the same unpinned set the container ships.
+#
+# NOTE: the GPU-specific cupy wheel (cupy-cuda11x vs cupy-cuda12x) is NOT listed
+# here -- it varies per build-matrix entry and is installed by the .def itself.
+# The canary has no GPU, so it skips cupy entirely.
+#
+# Intentionally UNPINNED (mirrors rift_container.def). The canary's whole job is
+# to catch when a fresh upstream release of one of these (e.g. swig>=4.4.0 via a
+# transitive build, lalsuite, numpy) breaks RIFT -- see issue #136 -- before it
+# surprises a container rebuild.
+asimov>=0.5.6
+asimov-gwdata>=0.4.0
+gwdatafind==1.2.0
+gwosc>=0.7.1
+lalsuite>=7.26
+numpy>=1.24.4
+natsort
+pybind11>=2.12
+scipy>=1.9.3
+pyseobnr

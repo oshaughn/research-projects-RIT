@@ -1,0 +1,43 @@
+# Example RIFT container *family* manifest.
+#
+# Point SINGULARITY_RIFT_IMAGE at a copy of this file (a .yaml / .yml path) to
+# deploy a family of containers instead of a single .sif.  The pipeline turns it
+# into an expression-valued MY.SingularityImage that picks the right image per
+# matched machine's GPU capability, a selective ($$()) transfer for osdf images,
+# and a require_gpus capability floor.
+#
+# A plain .sif path or single osdf:// URL keeps the legacy single-image behavior
+# (this file is NOT consulted in that case).
+#
+# See containers/README.md for the full schema and the HTCondor GPU-attribute
+# caveat.
+
+version: 1
+
+# Machine ClassAd attribute the image-selection ifThenElse tests.  Default
+# GPUs_Capability (advertised on the OSG; verify on your pool with e.g.
+#   condor_status -constraint 'TotalGPUs > 0' -af GPUs_DeviceName GPUs_Capability
+# ). Overridable per-run via the RIFT_GPU_CAPABILITY_ATTR env var.
+capability_attr: GPUs_Capability
+
+# Innermost else-branch of the selection expression: used when the machine
+# advertises no/low capability (and on CPU-only CIP slots).  MUST be the
+# CPU-safe / most broadly compatible image.
+fallback: default
+
+containers:
+  # Default, broadly-compatible image for older machines.  Referenced in place
+  # on CVMFS -- never transferred; CVMFS lazy-fetches it only when selected.
+  - label: default
+    image: /cvmfs/singularity.opensciencegrid.org/oshaughn/rift_container_default.sif
+    cuda_capability_min: 3.5
+    cuda_capability_max: 8.0
+    note: "base=nvidia/cuda:11.8.0-runtime-ubuntu22.04, cupy-cuda11x"
+
+  # Newer image for higher-capability GPUs.  Delivered via osdf: only the
+  # matched machine fetches it (selective $$() transfer).
+  - label: modern
+    image: osdf:///igwn/staging/oshaughn/rift_containers/rift_container_modern.sif
+    cuda_capability_min: 8.0
+    cuda_capability_max: null
+    note: "base=nvidia/cuda:12.4.1-runtime-ubuntu22.04, cupy-cuda12x"

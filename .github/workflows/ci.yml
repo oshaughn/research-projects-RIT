@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [rift_O4d, rift_O4d_junior, rift_O4d_gmm_gpu]
   workflow_dispatch:
+  schedule:
+    # Weekly canary so a fresh UPSTREAM release (e.g. swig>=4.4.0 -- see #136)
+    # is caught even when there is no RIFT commit. Mondays 06:00 UTC.
+    - cron: '0 6 * * 1'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -188,6 +192,65 @@ jobs:
           path: |
             **/*.log
             **/test-results/*.xml
+
+  container-dep-canary:
+    # Dependency-resolution canary for the container build. The container ships
+    # an UNPINNED dependency set (containers/requirements-container.txt) and
+    # clones RIFT at build time, so a fresh upstream release can silently break
+    # RIFT and only surface when a container rebuild fails (e.g. swig>=4.4.0,
+    # issue #136). This job installs that same unpinned set + exercises the pixi
+    # swig-post44 deployment lane and runs the import check, so we get an early
+    # warning. Runs on push/PR AND weekly (see on.schedule).
+    #
+    # Non-blocking: it tracks UPSTREAM changes outside any PR author's control,
+    # so a red run should alert maintainers, not block unrelated PRs.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'   # matches the container's python3.10
+      - name: Enable symlink
+        run: sudo ln -sf $(which python3) /usr/bin/python
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgsl-dev
+      - name: Install UNPINNED container dependency set (latest upstream)
+        run: |
+          python -m pip install --upgrade pip --break-system-packages
+          # Strip the GPU-only cupy line: there is no GPU/driver in CI and the
+          # canary's goal is dependency RESOLUTION + RIFT import, not cupy exec.
+          # (cupy is not actually listed in requirements-container.txt, but be
+          # defensive in case it is added later.)
+          grep -viE '^\s*cupy' containers/requirements-container.txt > /tmp/req-canary.txt
+          python -m pip install -r /tmp/req-canary.txt --break-system-packages
+          python -m pip install --editable . --break-system-packages
+      - name: Show resolved versions
+        run: |
+          python -c "import sys, numpy, scipy; print('python', sys.version); print('numpy', numpy.__version__); print('scipy', scipy.__version__)"
+      - name: Import check (latest container deps)
+        run: python .travis/test-all-mod.py
+
+  container-swig-canary:
+    # Companion to container-dep-canary: exercise the pixi swig-post44 lane,
+    # which is the direct issue-#136 detector (swig>=4.4.0 breaking RIFT's
+    # generated bindings). Kept as its own job so a swig failure is distinct
+    # from a general dependency-resolution failure. Also non-blocking.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgsl-dev
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          environments: swig-post44
+      - name: swig version (post-4.4 lane)
+        run: pixi run -e swig-post44 swig-version
+      - name: Install RIFT (post-4.4 swig lane)
+        run: pixi run -e swig-post44 install-rift
+      - name: Import check (post-4.4 swig lane)
+        run: pixi run -e swig-post44 import-check
 
   docs:
     runs-on: ubuntu-latest
