@@ -941,8 +941,10 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
          # Create multiple data realizations from the realizations, and construct a longer IP item.
          for index, calib_array in enumerate(calibration_realizations.T):
           #print(calib_array.shape, data.data.length, calibration_realizations.shape)
+          # Apply calibration to the DATA (d -> C(f) d), so the <h|h> U,V terms
+          # stay calibration-independent and are computed only once downstream.
           data_now.data.data = calib_array * data.data.data
-          rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
+          rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data_now)
           rhoTS.epoch = data.epoch - hlms[pair].epoch
           tmp= lsu.DataRollBins(rhoTS, N_shift)  # restore functionality for bidirectional shifts: waveform need not start at t=0
           rholms_here = lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
@@ -1828,14 +1830,28 @@ def _factored_lnL_helper(kappa_sq, rho_sq):
     return kappa_sq - 0.5 * rho_sq
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
-    either as an array vs time *or* marginalized in time. 
+    either as an array vs time *or* marginalized in time.
     This generally is marginally faster, particularly if Lmax is large.
     The timeseries quantities are computed via discrete shifts of an existing grid
     Note 'P' must have the *sampling rate* set to correctly interpret the event time.
      Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have 'Vector' postfix
+
+    Calibration marginalization (n_cal>1)
+    -------------------------------------
+    When n_cal>1, the rholm timeseries are assumed to hold ``n_cal`` contiguous
+    calibration realizations, each of length N_window = npts_full/n_cal (built by
+    ComputeModeIPTimeSeries with the calibration applied to the *data*).  Because
+    calibration is applied to the data, the template-template cross terms U,V
+    (rho_sq) are calibration-INDEPENDENT and are computed only once; only the data
+    term kappa changes per realization, selected by shifting the window offset
+    ifirst -> ifirst + c*N_window.  We then Monte-Carlo marginalize:
+        Z_cal(theta) = (1/n_cal) sum_c  integral dt exp( lnL_t(theta, c) )
+    via a streaming log-sum-exp over the n_cal realizations (memory unchanged vs
+    the n_cal==1 path; one extra GPU kernel launch per realization).  The n_cal==1
+    code path below is unchanged.
     """
     global distMpcRef
 
@@ -1878,6 +1894,11 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     # the sum in quadrature of the individual detector contributions.
     kappa_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
     rho_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
+
+    # When marginalizing over calibration (n_cal>1), cache the per-detector data
+    # term inputs here; the calibration-independent rho_sq is still accumulated
+    # in the loop below, and kappa is recomputed per realization afterwards.
+    cal_cache = {}
 
     if (xpy is np) or (optimized_gpu_tools is None):
         simps = my_simps
@@ -2001,34 +2022,46 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             #     xpy.conj(FY_dummy_t), Qlms,
             # ).real * (distMpcRef/distMpc)[...,None]
 
-        if not (xpy is np):
-          FY_conj = xpy.conj(F_vec_dummy_lm * Ylms_vec)
-          # Shape Q = (npts_time_full, nlms)
-          # Shape A=FY_conj = (npts_extrinsic, nlms)
-          # shape result = (npts_extrinsic, npts_time_*window* = npts)
-          Q_prod_result = Q_inner_product.Q_inner_product_cupy(
-            Q, FY_conj,
-            ifirst, npts,
-            )
+        if n_cal == 1:
+          # ---- standard path (no calibration marginalization): UNCHANGED ----
+          if not (xpy is np):
+            FY_conj = xpy.conj(F_vec_dummy_lm * Ylms_vec)
+            # Shape Q = (npts_time_full, nlms)
+            # Shape A=FY_conj = (npts_extrinsic, nlms)
+            # shape result = (npts_extrinsic, npts_time_*window* = npts)
+            Q_prod_result = Q_inner_product.Q_inner_product_cupy(
+              Q, FY_conj,
+              ifirst, npts,
+              )
+          else:
+            # Use old code completely unchanged ... very wasteful on memory management!
+            Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
+            for i in range(npts_extrinsic):
+                Qlms[i] = rholmsArrayDict[det][...,ifirst[i]:(ifirst[i]+npts)].T
+            if phase_marginalization:
+                Qlms[:, :, 1] = xpy.conj(Qlms[:, :, 1])
+
+            FY_dummy_t = np.broadcast_to(
+              (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
+              Qlms.shape,
+              )
+
+            Q_prod_result =  np.einsum(
+              "...i,...i",
+              np.conj(FY_dummy_t), Qlms,
+              )
+
+          kappa_sq += Q_prod_result * (distMpcRef/distMpc)[..., np.newaxis]
         else:
-          # Use old code completely unchanged ... very wasteful on memory management!
-          Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
-          for i in range(npts_extrinsic):
-              Qlms[i] = rholmsArrayDict[det][...,ifirst[i]:(ifirst[i]+npts)].T
-          if phase_marginalization:
-              Qlms[:, :, 1] = xpy.conj(Qlms[:, :, 1])
-
-          FY_dummy_t = np.broadcast_to(
-            (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
-            Qlms.shape,
-            )
-
-          Q_prod_result =  np.einsum(
-            "...i,...i",
-            np.conj(FY_dummy_t), Qlms,
-            )
-
-        kappa_sq += Q_prod_result * (distMpcRef/distMpc)[..., np.newaxis]
+          # ---- calibration-marginalization path (Option B): cache pieces ----
+          # The rholm timeseries hold n_cal contiguous realizations; realization c
+          # is selected later via ifirst -> ifirst + c*N_window_block.  Q is
+          # (npts_full, n_lms) and FY_conj is (npts_extrinsic, n_lms); both already
+          # encode any phase-marginalization conjugation built above.
+          npts_full_det = Q.shape[0]
+          N_window_block = npts_full_det // n_cal
+          FY_conj_cal = xpy.conj(F_vec_dummy_lm * Ylms_vec)
+          cal_cache[det] = (Q, FY_conj_cal, ifirst, N_window_block)
         # lnL_t_accum += Q_prod_result * (distMpcRef/distMpc)[...,None]
 
         # lnL_t_accum += Q_inner_product.Q_inner_product_cupy(
@@ -2047,21 +2080,71 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 #        lnL_t_accum += lnL_t
 
 
-    if phase_marginalization:
-        lnL_t = loglikelihood(xpy.abs(kappa_sq), rho_sq)
-    else:
-        lnL_t = loglikelihood(kappa_sq.real, rho_sq)
+    if n_cal == 1:
+        if phase_marginalization:
+            lnL_t = loglikelihood(xpy.abs(kappa_sq), rho_sq)
+        else:
+            lnL_t = loglikelihood(kappa_sq.real, rho_sq)
 
-    # Take exponential of the log likelihood in-place.
-    lnLmax  = xpy.max(lnL_t)
+        # Take exponential of the log likelihood in-place.
+        lnLmax  = xpy.max(lnL_t)
+        if return_lnLt:
+          return lnL_t  #- lnLmax    # we want the verbatim lnL_t values, no shift
+        L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
+
+        L = simps(L_t, dx=deltaT, axis=-1)
+
+        # Compute log likelihood in-place.
+        lnL = lnLmax + xpy.log(L, out=L)
+
+        return lnL
+
+    # ---- calibration-marginalization reduction (Option B) ----
+    # Monte-Carlo marginalize over the n_cal calibration draws:
+    #   Z_cal(theta) = (1/n_cal) sum_c  \int dt exp( lnL_t(theta, c) )
+    # rho_sq (the <h|h> U,V term) is calibration-independent and was accumulated
+    # once above; only the data term kappa changes per realization, selected by
+    # shifting the window offset into block c.  Accumulate a streaming log-sum-exp
+    # over realizations for numerical stability (S holds sum_c exp(lnL_t - max)).
     if return_lnLt:
-      return lnL_t  #- lnLmax    # we want the verbatim lnL_t values, no shift
-    L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
+        raise NotImplementedError("return_lnLt is not supported with calibration marginalization (n_cal>1)")
 
-    L = simps(L_t, dx=deltaT, axis=-1)
+    running_max = None
+    S = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
+    for c in range(n_cal):
+        kappa_sq_c = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
+        for det in detectors:
+            Q_det, FY_conj_det, ifirst_det, N_window_block = cal_cache[det]
+            ifirst_c = (ifirst_det + c * N_window_block).astype(np.int32)
+            if not (xpy is np):
+                Q_prod_result = Q_inner_product.Q_inner_product_cupy(
+                    Q_det, FY_conj_det, ifirst_c, npts,
+                )
+            else:
+                n_lms_det = Q_det.shape[1]
+                Qlms = xpy.empty((npts_extrinsic, npts, n_lms_det), dtype=np.complex128)
+                for i in range(npts_extrinsic):
+                    Qlms[i] = Q_det[ifirst_c[i]:(ifirst_c[i]+npts), :]
+                # Q_det and FY_conj_det already encode any phase-marg conjugation
+                Q_prod_result = np.einsum("ej,etj->et", FY_conj_det, Qlms)
+            kappa_sq_c += Q_prod_result * invDistMpc[..., np.newaxis]
 
-    # Compute log likelihood in-place.
-    lnL = lnLmax + xpy.log(L, out=L)
+        if phase_marginalization:
+            lnL_t_c = loglikelihood(xpy.abs(kappa_sq_c), rho_sq)
+        else:
+            lnL_t_c = loglikelihood(kappa_sq_c.real, rho_sq)
+
+        m_c = xpy.max(lnL_t_c)
+        if running_max is None:
+            running_max = m_c
+        elif m_c > running_max:
+            S *= xpy.exp(running_max - m_c)
+            running_max = m_c
+        S += xpy.exp(lnL_t_c - running_max)
+
+    L = simps(S, dx=deltaT, axis=-1)
+    # lnL = max + log( (1/n_cal) sum_c \int dt exp(lnL_t - max) )
+    lnL = running_max + xpy.log(L) - np.log(n_cal)
 
     return lnL
 
