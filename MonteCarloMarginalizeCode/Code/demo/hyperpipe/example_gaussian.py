@@ -66,6 +66,12 @@ def likelihood_evaluation():
     
     if opts.using_eos[:5] =='file:': eoss = np.genfromtxt(opts.using_eos[5:],dtype='str')
     else: eoss = np.genfromtxt(opts.using_eos[:],dtype='str')
+
+    # Sanity check on ranges : standard, do no work if not needed
+    if opts.eos_start_index > len(eoss):
+        sys.exit(0) # nothing to do
+    if opts.eos_end_index >= len(eoss):
+        opts.eos_end_index = len(eoss)-1
     
     likelihood_dict = {}
     

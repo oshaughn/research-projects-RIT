@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 import htcondor2 as htcondor
-from htcondor2.dags import DAG, Node
+from htcondor2.dags import DAG
 #
 #  GOAL
 #    Simple pipeline: just ILE+fitting iteration jobs

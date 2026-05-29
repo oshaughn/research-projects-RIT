@@ -2,10 +2,33 @@
 0.0.18.0
 ------------
 development tree is rift_O4d.
+  - parsimonious-placement (preview): new RIFT.misc.tracer_placement engine (SMC+MALA, birth-death,
+    and SMC-MALA+BD samplers; pluggable RF / RBF / polynomial / quadratic fits) plus two
+    opt-in CLI tools that mirror the existing puffball tools' I/O contract:
+    util_HyperparameterTracerUpdate.py (hyperpipe drop-in for util_HyperparameterPuffball.py)
+    and util_ParameterTracerUpdate.py (event-level drop-in for util_ParameterPuffball.py).
+    Default behavior preserves the existing pipelines (the new tools are not invoked unless
+    the user points --puff-exe at them); both also accept --update-method puffball as an
+    exact-regression fallback. See
+    https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/ (TBD) and the project notes at
+    20260513-Me-ParsimoniousPlacementOptions/parsimonious_placement_plan.md.
   - CIP hyperpipe improvements (initialize_me; enable population and EOS params in using_eos file with arbitrary
     labelled parameters); CIP xgboost gp fit (from Aasim); install make 'precession' optional; see also 0.0.17.4rc0
     igwn-ligolw
-    
+  - parsimonious placement (preview): new RIFT.misc.tracer_placement engine package (SMC+MALA / birth-death /
+    SMC-MALA+BD samplers with pluggable RF / RBF / polynomial / quadratic surrogate fits) plus two thin
+    command-line drivers, bin/util_HyperparameterTracerUpdate.py (hyperpipe, .dat I/O) and
+    bin/util_ParameterTracerUpdate.py (event-level, XML I/O via lalsimutils). Both are drop-in alternatives to
+    util_HyperparameterPuffball.py / util_ParameterPuffball.py: legacy default behavior is unchanged --- the new
+    tools are only invoked when --puff-exe points at them. create_eos_posterior_pipeline gains
+    --tracer-only-marg and --tracer-final-marg-iterations to optionally skip MARG_* (posterior) nodes in
+    intermediate iterations and rely on MARG_PUFF (placement) jobs alone, recovering MARG only for the final N
+    iterations. util_RIFT_hyperpipe.py forwards the same flags via arch.tracer-only-marg /
+    arch.tracer-final-marg-iterations and exposes a puff.settings: block mirroring post.settings: so tracer
+    sampler hyperparameters can be set declaratively in Hydra. See
+    20260513-Me-ParsimoniousPlacementOptions/parsimonious_placement_plan.md for theory, prototype results,
+    rollout plan, and references.
+
 0.0.17.9
 ------------
 development tree is rift_O4c_staging -> rift_O4c; draft MR notes at

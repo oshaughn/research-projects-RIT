@@ -41,7 +41,7 @@ for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
 #       continue
 #   fi
    # skip non-python scripts
-   if  [[ ${EXE} == *".sh" ]]; then
+   if  [[ ${EXE} == *".sh" ]] || [[ ${EXE} == *".yaml" ]]; then
         echo " Not python : " ${EXE}
         continue
     fi

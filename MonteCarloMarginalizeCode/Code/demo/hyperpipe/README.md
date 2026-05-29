@@ -6,3 +6,9 @@ For more details, see  the auto-generated documentation [here](https://rift-docu
 
 Similar content is also available in the supplementary document 'technical_doc.txt' for a pedagogical overview of the proceedure and implementation of the pipeline.
 
+# Hyperpipe hydra pipeline writer
+New tool
+```
+util_RIFT_hyperpipe.py --config-name hyperpipe_conf_tracer.yaml
+```
+

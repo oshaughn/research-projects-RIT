@@ -1,0 +1,5 @@
+rundir_baseline/
+rundir_grid/
+rundir_slices/
+fake.cache
+*.cache

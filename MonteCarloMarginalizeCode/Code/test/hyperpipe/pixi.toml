@@ -1,0 +1,74 @@
+# Pixi project for the RIFT.hyperpipe test suite.
+#
+# Location: $RIFT_ROOT/MonteCarloMarginalizeCode/Code/test/hyperpipe/
+#
+# The full lalsuite stack is in the default env because RIFT/__init__.py
+# unconditionally imports lalsimutils --- ``import RIFT.hyperpipe.*``
+# always pays for the LAL chain. Heavier ``pixi install``, but matches
+# how RIFT is actually deployed.
+#
+# Tasks
+# -----
+#   pixi run test             # full pytest suite (the live test)
+#   pixi run test-minimal     # pytest-free smoke check
+#   pixi run demo-dryrun      # end-to-end dry-run of util_RIFT_hyperpipe.py
+#   pixi run which-rift       # confirm RIFT_ROOT is wired correctly
+#
+# First-time setup
+# ----------------
+#   curl -fsSL https://pixi.sh/install.sh | bash      # one-time
+#   cd $RIFT_ROOT/MonteCarloMarginalizeCode/Code/test/hyperpipe
+#   pixi install
+#   pixi run test
+
+[project]
+name = "rift-hyperpipe-test"
+version = "0.1.0"
+description = "Live-test harness for RIFT.hyperpipe (in-tree hyperpipeline driver)."
+authors = ["RIFT developers"]
+channels = ["conda-forge"]
+platforms = ["osx-64", "osx-arm64", "linux-64"]
+
+[dependencies]
+python = ">=3.11,<3.13"
+numpy = "*"
+scipy = "*"
+hydra-core = "*"
+omegaconf = "*"
+pyyaml = "*"
+pytest = "*"
+# Full RIFT runtime stack. Required because RIFT/__init__.py
+# unconditionally imports lalsimutils.
+six = "*"
+h5py = "*"
+matplotlib = "*"
+lalsuite = "*"
+python-lal = "*"
+python-lalsimulation = "*"
+python-lalmetaio = "*"
+python-lalframe = "*"
+igwn-ligolw = "*"
+lscsoft-glue = "*"
+gwpy = "*"
+
+# Resolve RIFT paths relative to this pixi.toml's location so the
+# project works from any RIFT clone (no hardcoded user path). The
+# layout is:
+#
+#   $RIFT_ROOT/MonteCarloMarginalizeCode/Code/test/hyperpipe/pixi.toml
+#                                              ^^^^^^^^^^^^^
+#                                              PIXI_PROJECT_ROOT
+#
+# so going up four levels lands at $RIFT_ROOT.
+[activation.env]
+RIFT_ROOT = "$PIXI_PROJECT_ROOT/../../../.."
+RIFT_PY   = "$PIXI_PROJECT_ROOT/../.."
+RIFT_BIN  = "$PIXI_PROJECT_ROOT/../../bin"
+PYTHONPATH = "$PIXI_PROJECT_ROOT/../..:$PYTHONPATH"
+PATH       = "$PIXI_PROJECT_ROOT/../../bin:$PATH"
+
+[tasks]
+test = "pytest -v tests/"
+test-minimal = "python tests/standalone_check.py"
+demo-dryrun  = "python tests/demo_dryrun.py"
+which-rift   = "echo RIFT_ROOT=$RIFT_ROOT && ls -la $RIFT_PY/RIFT/hyperpipe/"

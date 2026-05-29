@@ -165,7 +165,10 @@ parser.add_argument("--tripwire-fraction",default=0.05,type=float,help="Fraction
 parser.add_argument("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., imposing alternate EOS priors)")
 parser.add_argument("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external likelihood. EXPERTS ONLY")
 parser.add_argument("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
-parser.add_argument("--supplementary-coordinate-code", default=None,type=str,help="Coordinate conversion/prior code. Note the string 'rift_default' will use convert_vector_coordinates, and deploy RIFT-standard priors")
+parser.add_argument("--supplementary-coordinate-code", default=None,type=str,help="Coordinate conversion/prior code. Accepts: the literal 'rift_default' (use RIFT.lalsimutils.convert_waveform_coordinates plus RIFT-standard priors); a filesystem path ending in .py (loaded as a plugin); or any importable dotted module name. See RIFT.misc.coordinate_plugin for the interface plugins must implement.")
+parser.add_argument("--supplementary-coordinate-function", default=None, type=str, help="Name of the entry-point callable inside the module named by --supplementary-coordinate-code. Defaults to 'convert_coordinates'.")
+parser.add_argument("--supplementary-coordinate-ini", default=None, type=str, help="Optional ini file parsed and handed to the coordinate plugin's prepare() hook so it can read its own configuration block(s).")
+parser.add_argument("--supplementary-coordinate-chart", default=None, type=str, help="Which chart (coordinate system) defined by the plugin to use for this run. Required when the plugin's CHARTS dict has more than one entry; ignored when the plugin doesn't define CHARTS. Different charts can share parameter names but imply different priors -- the chart name disambiguates which (name -> prior) mapping is installed.")
 opts=  parser.parse_args()
 
 #print(" WARNING: Always use internal_use_lnL for now ")
@@ -311,13 +314,29 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
       supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=coord_names)
 
 supplemental_coordinate_convert = None
-if opts.supplementary_coordinate_code =='rift_default':
-    # define coordinate converter. Field names must conform to RIFT names
-    supplemental_coordinate_convert = RIFT.lalsimutils.convert_waveform_coordinates
-    # update prior_map
-    print(" PRIORS NOT YET DEPLOYED WITH FLEXIBLE RANGES - be careful!")
-    # Update parameters using arguments: NOT YET DEPLOYED
-    prior_map.update(RIFT.misc.likelihood.rift_priors.prior_map) # provide priors from default
+if opts.supplementary_coordinate_code:
+    # Resolve the user-supplied coordinate-convert plugin.  The loader
+    # accepts three forms in --supplementary-coordinate-code: the literal
+    # 'rift_default', a filesystem path to a .py file, or an importable
+    # dotted module name.  The plugin must expose a callable named by
+    # --supplementary-coordinate-function (default 'convert_coordinates')
+    # with the signature (x_in, coord_names, low_level_coord_names, **kwargs)
+    # returning a 2-D ndarray of shape (N, len(coord_names)).  Plugins may
+    # optionally define prepare() (one-shot setup, gets the parsed ini and
+    # the active coord-name lists) and register_priors() (mutate prior_map
+    # in place).  See RIFT.misc.coordinate_plugin for the full contract.
+    from RIFT.misc.coordinate_plugin import load_coordinate_converter
+    supplemental_coordinate_convert, _coord_plugin_module = load_coordinate_converter(
+        spec=opts.supplementary_coordinate_code,
+        function_name=opts.supplementary_coordinate_function,
+        ini_path=opts.supplementary_coordinate_ini,
+        coord_names=coord_names,
+        low_level_coord_names=low_level_coord_names,
+        chart=opts.supplementary_coordinate_chart,
+        opts=opts,
+        prior_map=prior_map,
+        prior_range_map=prior_range_map,
+    )
 
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as C

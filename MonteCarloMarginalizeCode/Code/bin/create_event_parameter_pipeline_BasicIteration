@@ -246,6 +246,12 @@ parser.add_argument("--last-iteration-extrinsic-samples-per-ile",default=5,type=
 parser.add_argument("--last-iteration-extrinsic-samples-per-ile-internal",default=10,type=int,help="Draw this many samples from each ILE job")
 parser.add_argument("--last-iteration-extrinsic-batched-convert",action='store_true',help="Used batched converter for output of extrinsic samples")
 parser.add_argument("--last-iteration-extrinsic-time-resampling",action='store_true',help="Last iterations use time resampling (+ the fairdraw is done inside ILE itself), so different code path for final stages")
+parser.add_argument("--last-iteration-export-marginal-distance-grid", action='store_true', help="Add argument to ILE_extr")
+parser.add_argument("--last-iteration-export-distance-slices", default=0, type=int, help="If >0, the ILE_extr (extrinsic) stage exports K-row .dslice files: Plan-B fixed-distance extrinsic-marginalized likelihoods. Adds --export-distance-slices K (+ --internal-use-lnL) to ILE_extr and strips --distance-marginalization.")
+parser.add_argument("--last-iteration-export-distance-slices-n-core", default=0, type=int, help="Passthrough to ILE --n-distance-slice-core for the extrinsic-stage .dslice export (0 = ILE default).")
+parser.add_argument("--last-iteration-export-distance-slices-n-wing", default=0, type=int, help="Passthrough to ILE --n-distance-slice-wing for the extrinsic-stage .dslice export (0 = ILE default).")
+parser.add_argument("--last-iteration-export-distance-slices-wing-delta-lnL", default=None, type=float, help="Passthrough to ILE --distance-slice-wing-delta-lnL for the extrinsic-stage .dslice export.")
+parser.add_argument("--last-iteration-export-distance-slices-skip-threshold", default=None, type=float, help="Passthrough to ILE --distance-slice-skip-threshold for the extrinsic-stage .dslice export.")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
@@ -772,6 +778,25 @@ if  (opts.last_iteration_extrinsic):
     ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(n_eff_last)  # modify convergence criteria so output of reasonable size/matching needs of extrinsic output
     #  - note we *disable* --no-adapt-after-first (if present), so each point is independent (e.g., in sky location)
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
+    if opts.last_iteration_export_marginal_distance_grid:
+        ile_args_extr += " --export-marginal-distance-grid "
+        ile_args_extr = ile_args_extr.replace("--distance-marginalization ", ' ')  # *currently* cannot use distance marginalization in the last step if we want distance grid output
+    if opts.last_iteration_export_distance_slices and opts.last_iteration_export_distance_slices > 0:
+        # Plan-B distance slices: K independent fixed-d extrinsic integrals per
+        # intrinsic point, emitted as a .dslice file. Requires lnL mode and no
+        # distance marginalization (same constraints as the grid export above).
+        ile_args_extr += " --export-distance-slices {} ".format(opts.last_iteration_export_distance_slices)
+        if opts.last_iteration_export_distance_slices_n_core:
+            ile_args_extr += " --n-distance-slice-core {} ".format(opts.last_iteration_export_distance_slices_n_core)
+        if opts.last_iteration_export_distance_slices_n_wing:
+            ile_args_extr += " --n-distance-slice-wing {} ".format(opts.last_iteration_export_distance_slices_n_wing)
+        if opts.last_iteration_export_distance_slices_wing_delta_lnL is not None:
+            ile_args_extr += " --distance-slice-wing-delta-lnL {} ".format(opts.last_iteration_export_distance_slices_wing_delta_lnL)
+        if opts.last_iteration_export_distance_slices_skip_threshold is not None:
+            ile_args_extr += " --distance-slice-skip-threshold {} ".format(opts.last_iteration_export_distance_slices_skip_threshold)
+        if "--internal-use-lnL" not in ile_args_extr:
+            ile_args_extr += " --internal-use-lnL "
+        ile_args_extr = ile_args_extr.replace("--distance-marginalization ", ' ')
     if opts.last_iteration_extrinsic_time_resampling:
         ile_args_extr += " --resample-time-marginalization --fairdraw-extrinsic-output --fairdraw-extrinsic-output-n-max {} ".format(n_points_per_ILE)
         print(" Time resampling in extraction iteration: **DISABLING** distance marginalization if present ")
@@ -891,6 +916,43 @@ sed 1d ./tmp_converted.dat  {extra_shuffle_command} >> ./extrinsic_posterior_sam
         fname = opts.working_directory+"/"+cat_job.get_sub_file()
         cat_job.set_sub_file(fname)
     cat_job.write_sub_file()
+
+    # Per-distance likelihood export: consolidate per-event .dgrid (Plan A)
+    # and/or .dslice (Plan B) files into a single table at the run root.  The
+    # consolidated file is the "net" intrinsic+distance grid downstream tools
+    # like util_ConstructEOSPosterior.py consume.  Each consolidation is
+    # gated on the corresponding --last-iteration-export-* flag so we never
+    # emit an empty sub for runs that did not request the export.
+    if opts.last_iteration_export_marginal_distance_grid:
+        dgrid_job, dgrid_job_name = dag_utils.write_consolidate_distance_grids_sub(
+            tag='consolidate_dgrid',
+            input_glob='EXTR_out.xml_*_.dgrid',
+            file_output=opts.working_directory + '/all_dgrid.dat',
+            search_dir=opts.working_directory + '/iteration_$(macroiteration)_ile',
+            log_dir=opts.working_directory + '/iteration_$(macroiteration)_ile/logs/',
+            universe=local_worker_universe, no_grid=no_worker_grid,
+        )
+        dgrid_job.add_condor_cmd("initialdir", opts.working_directory)
+        dgrid_job.add_condor_cmd('request_disk', opts.general_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory + "/" + dgrid_job.get_sub_file()
+            dgrid_job.set_sub_file(fname)
+        dgrid_job.write_sub_file()
+    if opts.last_iteration_export_distance_slices and opts.last_iteration_export_distance_slices > 0:
+        dslice_job, dslice_job_name = dag_utils.write_consolidate_distance_grids_sub(
+            tag='consolidate_dslice',
+            input_glob='EXTR_out.xml_*_.dslice',
+            file_output=opts.working_directory + '/all_dslice.dat',
+            search_dir=opts.working_directory + '/iteration_$(macroiteration)_ile',
+            log_dir=opts.working_directory + '/iteration_$(macroiteration)_ile/logs/',
+            universe=local_worker_universe, no_grid=no_worker_grid,
+        )
+        dslice_job.add_condor_cmd("initialdir", opts.working_directory)
+        dslice_job.add_condor_cmd('request_disk', opts.general_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory + "/" + dslice_job.get_sub_file()
+            dslice_job.set_sub_file(fname)
+        dslice_job.write_sub_file()
 
 
 ##   Consolidate job(s)
@@ -1856,6 +1918,19 @@ if opts.last_iteration_extrinsic:
     cat_node = pipeline.CondorDAGNode(cat_job)
     cat_node.add_macro("macroiteration", it)  # needed to identify log file location
 
+    # Per-distance likelihood export consolidation nodes (depend directly on
+    # ILE_extr, since .dgrid / .dslice are emitted by ILE itself with no
+    # convert/resample step in between).
+    dgrid_node = dslice_node = None
+    if opts.last_iteration_export_marginal_distance_grid:
+        dgrid_node = pipeline.CondorDAGNode(dgrid_job)
+        dgrid_node.add_macro("macroiteration", it)
+        dgrid_node.set_retry(opts.ile_retries)
+    if opts.last_iteration_export_distance_slices and opts.last_iteration_export_distance_slices > 0:
+        dslice_node = pipeline.CondorDAGNode(dslice_job)
+        dslice_node.add_macro("macroiteration", it)
+        dslice_node.set_retry(opts.ile_retries)
+
     # Perform final ILE run on all points, saving samples
     # Need to perform number of events CONSISTENT WITH TARGET SAMPLE SIZE
     #    - *not* always same as number of ILE events being analyzed
@@ -1880,6 +1955,13 @@ if opts.last_iteration_extrinsic:
             ile_node.add_parent(parent_fit_node)
         dag.add_node(ile_node)
 #        ile_node_list_per_iteration[it].append(ile_node)
+
+        # Distance-grid / -slice consolidation runs after EVERY ILE_extr
+        # finishes, since each ILE_extr emits one .dgrid / .dslice file.
+        if dgrid_node is not None:
+            dgrid_node.add_parent(ile_node)
+        if dslice_node is not None:
+            dslice_node.add_parent(ile_node)
 
         # Add convert and resample task *for each output file*
         if opts.last_iteration_extrinsic_time_resampling:
@@ -1924,6 +2006,10 @@ if opts.last_iteration_extrinsic:
     else:
         dag.add_node(convert_node)   # this is the time resampling task
         last_node=convert_node
+    if dgrid_node is not None:
+        dag.add_node(dgrid_node)
+    if dslice_node is not None:
+        dag.add_node(dslice_node)
 
 # Create rotation job (if extrinsic available)
 if opts.frame_rotation and opts.last_iteration_extrinsic:

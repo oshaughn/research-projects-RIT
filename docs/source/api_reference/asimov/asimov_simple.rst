@@ -138,7 +138,7 @@ Label to Argument Mapping (rift.ini)
 
 The authoritative ``rift.ini`` template is located at:
 
-`MonteCarloMarginalizeCode/Code/RIFT/asimov/rift.ini <https://github.com/oshaughnessy-junior/research-projects-rit/blob/main/MonteCarloMarginalizeCode/Code/RIFT/asimov/rift.ini>`_ in this repository.
+`MonteCarloMarginalizeCode/Code/RIFT/asimov/rift.ini <https://github.com/oshaughnessy-junior/research-projects-rit/blob/rift_O4d_junior/MonteCarloMarginalizeCode/Code/RIFT/asimov/rift.ini>`_ in this repository.
 
 .. _asimov-rift-example:
 

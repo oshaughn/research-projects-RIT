@@ -114,7 +114,6 @@ Apply the base infrastructure configuration. These define the cluster, accountin
    - Base Singularity image
 
 2. **cbcflow/testing.yaml**: cbcflow configuration
-   - Workflow manager settings
 
 3. **production-pe-priors.yaml**: Prior distributions
    - Default prior settings for mass, spin, etc.
@@ -122,7 +121,7 @@ Apply the base infrastructure configuration. These define the cluster, accountin
 Stage 4: cbcflow Integration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-cbcflow manages the overall workflow for production PE. It coordinates multiple pipelines and handles result aggregation:
+cbcflow provides metadata about identified event candidates and internal understanding of them, recording state about previous investigations:
 
 .. code-block:: bash
 
@@ -135,10 +134,10 @@ cbcflow manages the overall workflow for production PE. It coordinates multiple 
 
 **What cbcflow does:**
 
-- Coordinates data retrieval (graceDB)
-- Manages multiple PE pipelines
-- Handles result merging and aggregation
-- Generates summary pages
+`cbcflow documentation <https://cbc.docs.ligo.org/projects/cbcflow/index.html>`_ provides:
+
+- **Metadata for superevents**, stored in a standardized format.
+- **A Python API** for interacting with that metadata.
 
 Stage 5: Output Configuration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -193,12 +192,12 @@ Define a function to add events. This is the core of the multi-event pattern:
 
 **What each blueprint provides:**
 
-- **o4b-production.yaml**: Data retrieval from graceDB
-- **standard.yaml**: PE configurator settings
-- **standard-settings.yaml**: Bayeswave PSD settings
-- **analysis_rift_SEOBNRv5PHM.yaml**: RIFT with SEOBNRv5PHM waveform
-- **analysis_rift_NRSur7dq4.yaml**: RIFT with NRSur7dq4 waveform
-- **bilby analyses**: Bilby with various waveforms (for cross-validation)
+* `o4b-production.yaml <https://git.ligo.org/asimov/data/-/blob/main/analyses/get-data/o4b-production.yaml?ref_type=heads>`_: This blueprint provides analyses to retrieve calibration and the online PE results (needed to set priors)
+* `pe-configurator/standard.yaml <https://git.ligo.org/asimov/data/-/blob/main/analyses/pe-configurator/standard.yaml>`_: PE configurator settings needed to set the priors
+* `bayeswave-psd/standard-settings.yaml <https://git.ligo.org/asimov/data/-/blob/main/analyses/bayeswave-psd/standard-settings.yaml>`_: Bayeswave PSD settings
+* `analysis_rift_SEOBNRv5PHM.yaml`: RIFT with SEOBNRv5PHM waveform
+* `analysis_rift_NRSur7dq4.yaml`: RIFT with NRSur7dq4 waveform
+* `bilby analyses`: Bilby with various waveforms (for cross-validation)
 
 Stage 8: Event Loop
 ^^^^^^^^^^^^^^^^^^
