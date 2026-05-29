@@ -41,6 +41,24 @@ consumed by the CI dependency canary (below). `build_family.sh` stages it into
 each image via the `.def`'s `%files` section, so the build does **not** depend on
 the cloned RIFT branch shipping the file.
 
+### Build troubleshooting
+
+**`proot error: ptrace(TRACEME): Operation not permitted` / `mksquashfs command
+failed`** (seen on shared clusters such as CIT). Apptainer fell back to its
+unprivileged `proot` build engine (no usable user namespaces or setuid
+apptainer), and proot's squashfs step is blocked by seccomp. `build_family.sh`
+already exports `PROOT_NO_SECCOMP=1`, which is the documented workaround; if you
+invoke `apptainer build` by hand, set it yourself:
+
+```console
+export PROOT_NO_SECCOMP=1
+```
+
+Better, if your site supports it, avoid the proot path entirely — build with
+`apptainer build --fakeroot ...` (needs `/etc/subuid` + `/etc/subgid` mappings
+for your user) or on a node with unprivileged user namespaces enabled. If the
+build runs out of space mid-way, point `APPTAINER_TMPDIR` at a large local disk.
+
 ---
 
 ## 2. Deploying a family via a manifest

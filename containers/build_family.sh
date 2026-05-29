@@ -39,6 +39,15 @@ MATRIX=(
   "modern|nvidia/cuda:12.4.1-runtime-ubuntu22.04|cupy-cuda12x|8.0|"
 )
 
+# Workaround for unprivileged apptainer builds that fall back to the `proot`
+# engine (no usable user namespaces / setuid apptainer, common on shared
+# clusters like CIT): proot's mksquashfs step is blocked by seccomp on ptrace
+# ("proot error: ptrace(TRACEME): Operation not permitted"). PROOT_NO_SECCOMP=1
+# disables proot's seccomp filtering and lets the build finish. Harmless when
+# proot is not used; override by exporting it yourself before running.
+# A fully privileged / fakeroot / userns-capable build does not need this.
+export PROOT_NO_SECCOMP="${PROOT_NO_SECCOMP:-1}"
+
 mkdir -p "${OUTPUT_DIR}"
 MANIFEST_STUB="${OUTPUT_DIR}/rift_container_family.generated.yaml"
 {
