@@ -29,7 +29,9 @@ import lalsimulation as lalsim
 import lal
 import sys
 
-import NRWaveformCatalogManager3 as nrwf
+from RIFT.physics._nrwf_loader import get_nrwf as _rift_get_nrwf
+
+nrwf, _useNR = _rift_get_nrwf()    # prefers nrcatalog.compat_nrwf, falls back to NRWaveformCatalogManager3
 from matplotlib import pyplot as plt
 
 

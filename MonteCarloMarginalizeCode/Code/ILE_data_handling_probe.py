@@ -210,7 +210,8 @@ if opts.data_end_time is None and opts.data_start_time is not None:
 NR_template_group=None
 NR_template_param=None
 if opts.nr_group and opts.nr_param:
-    import NRWaveformCatalogManager3 as nrwf
+    from RIFT.physics._nrwf_loader import get_nrwf as _rift_get_nrwf
+    nrwf, _useNR = _rift_get_nrwf()    # prefers nrcatalog.compat_nrwf, falls back to NRWaveformCatalogManager3
     NR_template_group = opts.nr_group
     if nrwf.internal_ParametersAreExpressions[NR_template_group]:
         NR_template_param = eval(opts.nr_param)

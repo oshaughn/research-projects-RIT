@@ -84,14 +84,20 @@ except:
         has_GWS=False
 
 if not( 'RIFT_LOWLATENCY'  in os.environ):
-  # Dont support external packages in low latency
- try:
-        import NRWaveformCatalogManager3 as nrwf
-        useNR =True
-        if log_loud:
-          print(" factored_likelihood.py : NRWaveformCatalogManager3 available ")
- except ImportError:
-        useNR=False
+ # Dont support external packages in low latency.
+ # Resolution order (see RIFT/physics/_nrwf_loader.py):
+ #   1. nrcatalog.compat_nrwf  (cleanup_2026 NR catalog package)
+ #   2. NRWaveformCatalogManager3  (legacy)
+ #   3. None
+ # Override with $RIFT_NRWF_BACKEND={auto,new,legacy,none}.
+ from RIFT.physics._nrwf_loader import get_nrwf as _rift_get_nrwf
+ nrwf, useNR = _rift_get_nrwf()
+ if useNR and log_loud:
+        backend = "nrcatalog" if getattr(nrwf, "is_using_legacy", None) else "NRWaveformCatalogManager3"
+        legacy_note = ""
+        if getattr(nrwf, "is_using_legacy", None) is not None:
+              legacy_note = " (legacy wrapped)" if nrwf.is_using_legacy() else " (no legacy)"
+        print(" factored_likelihood.py : NR backend = " + backend + legacy_note)
 
 
  try:

@@ -97,10 +97,10 @@ import lal
 import lalsimulation as lalsim
 import lalsimutils
 try:
-    hasNR=True
-    import NRWaveformCatalogManager3 as nrwf
-except:
-    hasNR=False
+    from RIFT.physics._nrwf_loader import get_nrwf as _rift_get_nrwf
+    nrwf, hasNR = _rift_get_nrwf()
+except ImportError:
+    nrwf = None; hasNR = False
     print(" - no NR waveforms -")
 try:
     hasEOB=True
