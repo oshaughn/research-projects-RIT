@@ -204,35 +204,32 @@ def importance_reweight_slices(
 
 
 def is_uninformative(lnL_core, threshold=1.0):
-    """Detect a flat / non-informative distance profile from the core slices.
+    """Detect a non-detectable event from the core slices via an absolute lnL.
 
-    If the spread in core slice lnL is below ``threshold`` nats, the run has
-    essentially no distance information and there is nothing for wing
-    integrations to learn -- skip them.
+    In RIFT's framing lnL is a likelihood ratio relative to the noise
+    hypothesis, so it carries an absolute scale.  If the *peak* lnL across the
+    core slices does not exceed ``threshold`` nats, the event is effectively
+    undetected -- its distance posterior carries no information worth probing,
+    so wing integrations are wasted compute and we skip them.
+
+    This intentionally does NOT key off the spread ``max - min``: a high-SNR
+    event with a flat distance profile (e.g. well-constrained inclination but
+    unconstrained distance) has a small spread yet a large peak lnL, and *does*
+    deserve wings.  A relative-spread test would wrongly skip it.
     """
     finite = np.isfinite(lnL_core)
     if not np.any(finite):
         return True
-    if np.sum(finite) < 2:
-        return True
-    return (np.max(lnL_core[finite]) - np.min(lnL_core[finite])) < threshold
+    return np.max(lnL_core[finite]) < threshold
 
 
-def pick_wing_centers(d_min, d_max, d_core, n_wing,
-                       min_log_gap=0.05):
-    """Place K_wing slice centers log-uniformly outside the core span.
+def _log_uniform_wings(d_min, d_max, d_core_lo, d_core_hi, n_wing, min_log_gap):
+    """Log-uniform wing placement across the full spans outside the core.
 
-    Half go below the core, half above (rounded so the lower half gets the
-    extra when K_wing is odd).  Returns a sorted array of distances.
+    Half below the core, half above (lower half gets the extra when n_wing is
+    odd).  This is the likelihood-shape-agnostic fallback used whenever the
+    parabolic fit is degenerate.
     """
-    n_wing = int(n_wing)
-    if n_wing <= 0:
-        return np.array([])
-    d_core = np.asarray(d_core, float)
-    finite = np.isfinite(d_core) & (d_core > 0)
-    d_core_lo = float(np.min(d_core[finite])) if np.any(finite) else d_min
-    d_core_hi = float(np.max(d_core[finite])) if np.any(finite) else d_max
-
     n_low = (n_wing + 1) // 2
     n_high = n_wing - n_low
     wings = []
@@ -246,6 +243,128 @@ def pick_wing_centers(d_min, d_max, d_core, n_wing,
                                          n_high + 2)[1:-1]))
     if not wings:
         return np.array([])
+    return np.sort(np.concatenate(wings))
+
+
+def fit_lnL_parabola_in_inv_d(d_core, lnL_core):
+    """Fit lnL_core to a quadratic in u = 1/dist.
+
+    Near the peak the extrinsic-marginalized lnL is well modeled by
+
+        lnL(d) ~= lnL_peak - 0.5 * A^2 * (1/d - 1/d_peak)^2
+
+    which is a downward parabola in u = 1/d.  Returns ``(a, b, c)`` from
+    ``lnL ~= a u^2 + b u + c`` (so ``A^2 = -2 a`` and the vertex sits at
+    ``u_peak = -b/2a``), or ``None`` if the fit is degenerate (fewer than 3
+    distinct finite core points, no lnL variation, or a non-downward fit).
+    """
+    d_core = np.asarray(d_core, float)
+    lnL_core = np.asarray(lnL_core, float)
+    finite = np.isfinite(d_core) & (d_core > 0) & np.isfinite(lnL_core)
+    if np.sum(finite) < 3:
+        return None
+    u = 1.0 / d_core[finite]
+    y = lnL_core[finite]
+    if np.ptp(u) <= 0 or np.ptp(y) <= 0:
+        return None
+    try:
+        a, b, c = np.polyfit(u, y, 2)
+    except Exception:
+        return None
+    if not (np.isfinite(a) and np.isfinite(b) and np.isfinite(c)) or a >= 0:
+        return None
+    return float(a), float(b), float(c)
+
+
+def _parabolic_wing_bounds(d_core, lnL_core, lnL_peak, delta_lnL_target,
+                           d_min, d_max):
+    """Boundary distances where the lnL parabola drops ``delta_lnL_target``.
+
+    Solves the fitted ``lnL(u) = a u^2 + b u + c`` (u = 1/dist) for the two
+    u where lnL equals ``(lnL_peak or fitted vertex) - delta_lnL_target``,
+    then maps back to distance and clamps to ``[d_min, d_max]``.
+
+    Returns ``(d_small_bound, d_large_bound)`` or ``None`` if the fit is
+    degenerate (caller falls back to log-uniform).
+    """
+    fit = fit_lnL_parabola_in_inv_d(d_core, lnL_core)
+    if fit is None:
+        return None
+    a, b, c = fit
+    vertex_u = -b / (2.0 * a)
+    vertex_val = c - b * b / (4.0 * a)
+    target = (vertex_val if lnL_peak is None else float(lnL_peak)) \
+        - float(delta_lnL_target)
+    disc = b * b - 4.0 * a * (c - target)
+    if disc > 0:
+        sq = np.sqrt(disc)
+        r1 = (-b - sq) / (2.0 * a)
+        r2 = (-b + sq) / (2.0 * a)
+        u_lo, u_hi = min(r1, r2), max(r1, r2)
+    else:
+        # target above the fitted vertex (observed peak exceeds the fit, or
+        # delta too small): fall back to the vertex-symmetric half-width,
+        # which always yields real roots for a downward parabola.
+        half_width = np.sqrt(-float(delta_lnL_target) / a)
+        u_lo, u_hi = vertex_u - half_width, vertex_u + half_width
+    # u_lo  -> larger distance boundary; u_hi -> smaller distance boundary.
+    d_large = 1.0 / u_lo if u_lo > 0 else d_max
+    d_small = 1.0 / u_hi if u_hi > 0 else d_min
+    d_small = float(np.clip(d_small, d_min, d_max))
+    d_large = float(np.clip(d_large, d_min, d_max))
+    if not (d_large > d_small):
+        return None
+    return d_small, d_large
+
+
+def pick_wing_centers(d_min, d_max, d_core, n_wing,
+                       lnL_core=None, lnL_peak=None, delta_lnL_target=7.0,
+                       min_log_gap=0.05):
+    """Place K_wing slice centers outside the core span.
+
+    When ``lnL_core`` is supplied and a quadratic fit of lnL vs 1/dist is
+    non-degenerate, the wing span on each side is bounded by the parabolic
+    model: wings extend from the core edge out to where lnL drops
+    ``delta_lnL_target`` nats below the peak (default 7, i.e. prior weight
+    < ~10^-3 outside).  This concentrates wing compute where the likelihood
+    actually has support instead of spreading it across the whole prior range.
+
+    Falls back to ``_log_uniform_wings`` (likelihood-agnostic, full-range)
+    whenever the fit is degenerate or leaves no room outside the core.  Half
+    the wings go below the core, half above (lower half gets the extra when
+    n_wing is odd).  Returns a sorted array of distances.
+    """
+    n_wing = int(n_wing)
+    if n_wing <= 0:
+        return np.array([])
+    d_core = np.asarray(d_core, float)
+    finite = np.isfinite(d_core) & (d_core > 0)
+    d_core_lo = float(np.min(d_core[finite])) if np.any(finite) else d_min
+    d_core_hi = float(np.max(d_core[finite])) if np.any(finite) else d_max
+
+    bounds = None
+    if lnL_core is not None:
+        bounds = _parabolic_wing_bounds(d_core, lnL_core, lnL_peak,
+                                        delta_lnL_target, d_min, d_max)
+    if bounds is None:
+        return _log_uniform_wings(d_min, d_max, d_core_lo, d_core_hi,
+                                  n_wing, min_log_gap)
+
+    d_small_bound, d_large_bound = bounds
+    n_low = (n_wing + 1) // 2
+    n_high = n_wing - n_low
+    wings = []
+    if d_core_lo > d_small_bound * np.exp(min_log_gap) and n_low > 0:
+        wings.append(np.exp(np.linspace(np.log(d_small_bound),
+                                         np.log(d_core_lo),
+                                         n_low + 2)[1:-1]))
+    if d_large_bound > d_core_hi * np.exp(min_log_gap) and n_high > 0:
+        wings.append(np.exp(np.linspace(np.log(d_core_hi),
+                                         np.log(d_large_bound),
+                                         n_high + 2)[1:-1]))
+    if not wings:
+        return _log_uniform_wings(d_min, d_max, d_core_lo, d_core_hi,
+                                  n_wing, min_log_gap)
     return np.sort(np.concatenate(wings))
 
 

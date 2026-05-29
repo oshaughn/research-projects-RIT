@@ -76,8 +76,41 @@ def synth_run(N, alpha, sigma_d=80.0, d0_const=400.0, lnL_peak=30.0,
     )
 
 
+def test_wing_placement_and_skip():
+    """Unit-check the absolute skip cut and the parabolic wing placement."""
+    from RIFT.misc import distance_slices as ds
+    print("\n-- is_uninformative (absolute peak cut) --")
+    assert ds.is_uninformative(np.array([0.1, 0.3, 0.4, 0.2]))          # undetected
+    assert not ds.is_uninformative(np.array([49.8, 50.0, 49.9, 49.85])) # hi-SNR flat
+    assert ds.is_uninformative(np.array([np.nan, np.nan]))              # all nan
+    print("   ok: undetected skipped, high-SNR-flat kept, nan skipped")
+
+    print("-- parabolic wing placement --")
+    A2, dpeak, peak = 8.0e6, 400.0, 30.0
+    d_core = np.array([300., 350., 400., 450., 500.])
+    lnL_core = peak - 0.5 * A2 * (1.0/d_core - 1.0/dpeak)**2
+    a, b, c = ds.fit_lnL_parabola_in_inv_d(d_core, lnL_core)
+    assert abs(-2*a - A2) / A2 < 1e-6, "A^2 mis-recovered"
+    d_min, d_max = 1.0, 4000.0
+    w = ds.pick_wing_centers(d_min, d_max, d_core, 6, lnL_core=lnL_core,
+                             lnL_peak=peak, delta_lnL_target=7.0)
+    hw = np.sqrt(14.0 / A2)
+    d_small, d_large = 1.0/(1.0/dpeak + hw), 1.0/(1.0/dpeak - hw)
+    assert w.min() >= d_small - 1e-6 and w.max() <= d_large + 1e-6, \
+        "wings escaped parabolic bounds"
+    assert np.all((w < d_core.min()) | (w > d_core.max())), "wing inside core"
+    print("   ok: A^2 recovered, wings within [{:.1f},{:.1f}] outside core".format(
+        d_small, d_large))
+
+    # degenerate -> log-uniform fallback spans the full prior range
+    w_fb = ds.pick_wing_centers(d_min, d_max, d_core, 6)
+    assert w_fb.min() < d_small and w_fb.max() > d_large, "fallback not full-range"
+    print("   ok: degenerate input falls back to full-range log-uniform")
+
+
 def main():
     from RIFT.misc import distance_slices
+    test_wing_placement_and_skip()
     rng = np.random.default_rng(20260528)
     print("Mock 1-Omega problem: L(d, x) = peak exp(-0.5*((d - d0(x))/sigma)^2)")
     print("'alpha' is the d-Omega coupling. alpha=0: separable. alpha=80: peak shifts ~1 sigma per unit x.")

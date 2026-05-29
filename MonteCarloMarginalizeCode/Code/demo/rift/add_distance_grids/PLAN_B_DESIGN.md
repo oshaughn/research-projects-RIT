@@ -66,19 +66,27 @@ For each wing slice `d_k`:
    adapted proposal in the wings without relying on the main run's
    Omega samples.
 
-Wing centers are placed log-uniformly in `[d_min, d_core_lo]` and
-`[d_core_hi, d_max]`, half-and-half, so coverage extends from the
-sampler's support boundary all the way back to the core.  Empirically
-this reaches at least ~30 nats below peak on the demo event (vs the
-user's ~7 nat target for 10^{-3} prior weight outside).
+Wing centers are placed by fitting the core `(lnL, 1/d)` points to a
+parabola in `1/d` (the natural form of the marginalized lnL near peak)
+and spanning each side from the core edge out to where the model drops
+`--distance-slice-wing-delta-lnL` nats below peak (default 7, i.e.
+prior weight < 10^{-3} outside).  This concentrates wing budget where
+the likelihood actually has support.  When the parabolic fit is
+degenerate (fewer than 3 core points, no lnL variation, or a
+non-downward fit) it falls back to log-uniform placement across the
+full `[d_min, d_core_lo]` and `[d_core_hi, d_max]` spans.
 
 ### Skip non-informative events
 
-If the lnL spread across the core slices is below
-`--distance-slice-skip-threshold` (default 1.0 nat), the distance
-posterior is essentially flat and wing integrations have nothing to
-learn -- they are skipped and only the core rows are written.  This
-guards the user's directive to "not waste time on noninformative
+`--distance-slice-skip-threshold` (default 1.0 nat) is an **absolute**
+lnL cut: lnL is a likelihood ratio against the noise hypothesis, so if
+the *peak* lnL across the core slices is below the threshold the event
+is effectively undetected and wing integrations have nothing to learn
+-- they are skipped and only the core rows are written.  This is a
+detectability cut, not a relative-spread test: a high-SNR event with a
+flat distance profile (well-constrained inclination, unconstrained
+distance) has a small spread but a large peak lnL and *does* get wings.
+This guards the user's directive to "not waste time on noninformative
 likelihoods".
 
 Code:
@@ -88,7 +96,8 @@ Code:
 - `bin/integrate_likelihood_extrinsic_batchmode`: new flags
   `--export-distance-slices K`, `--n-distance-slice-core`,
   `--n-distance-slice-wing`, `--distance-slice-wing-nmax`,
-  `--distance-slice-wing-neff`, `--distance-slice-skip-threshold`.
+  `--distance-slice-wing-neff`, `--distance-slice-skip-threshold`,
+  `--distance-slice-wing-delta-lnL`.
 
 ## Output format: `.dslice`
 
@@ -235,72 +244,58 @@ keep the math honest as the prototype evolves.
 These are deliberate next changes, not unknowns.  Each one has a clear
 spec; pick up here when work on `.dslice` resumes.
 
-### 1. Skip threshold should be an absolute lnL scale
+### 1. Skip threshold should be an absolute lnL scale -- DONE
 
-**Status**: bug.  `--distance-slice-skip-threshold` currently compares
-`max(core_lnL) - min(core_lnL)` against the threshold (a *relative*
-measure of how peaked the distance profile is).  But in RIFT's framing
-lnL is already a likelihood ratio relative to the noise hypothesis, so
-it has an absolute scale.
+**Status**: landed.  `--distance-slice-skip-threshold` is now an
+absolute cut.  `is_uninformative(lnL_core, threshold)` returns True iff
+the *peak* core lnL is below the threshold (default 1.0 nat); the old
+`max - min` spread test is gone.  Help text and the ILE skip message
+("peak core lnL < ... (effectively undetected)") were updated to match.
 
-**What to change**:
+This skips undetected low-SNR events (low peak, flat profile) while
+correctly *keeping* high-SNR events with a flat distance profile
+(small spread but large peak lnL) -- exactly the case the relative
+test got wrong.
 
-* `is_uninformative(lnL_core, threshold)` in
-  `RIFT/misc/distance_slices.py` should test whether the *peak* lnL
-  across core slices exceeds the threshold, not whether the spread does.
-* Default threshold should be the lnL value below which we consider an
-  event undetected -- something like 1.0 to start, tunable per
-  search-tier convention.
-* `--distance-slice-skip-threshold` help text needs updating to reflect
-  the absolute interpretation.
+### 2. Wing-center placement via lnL ~ parabola in 1/dist -- DONE
 
-**Why this matters**: events with low SNR have low peak lnL *and* flat
-distance posteriors; spending fresh-wing budget on them is wasteful.
-Events with high SNR but a flat distance profile (well-constrained
-inclination, distance unconstrained: a rare regime that does occur)
-*do* need wings -- the current relative threshold would incorrectly
-skip them.
-
-### 2. Wing-center placement via lnL ~ parabola in 1/dist
-
-**Status**: improvement.  Wings are currently placed log-uniformly in
-`[d_min, d_core_lo] union [d_core_hi, d_max]` -- agnostic of the
-likelihood shape.  We can do much better.
-
-**The model**: near the peak, the extrinsic-marginalized lnL is well
-approximated by a parabola in `1/dist`:
+**Status**: landed.  `pick_wing_centers` now accepts
+`(d_min, d_max, d_core, n_wing, lnL_core=None, lnL_peak=None,
+delta_lnL_target=7.0)`.  When `lnL_core` is supplied it fits the core
+`(lnL, 1/d)` points to a parabola in `1/d`
 
     lnL(d) ~= lnL_peak - 0.5 * A^2 * (1/d - 1/d_peak)^2
 
-where `A` is the effective SNR amplitude.  This follows from the linear
-amplitude scaling of the inner product with distance.  Fit `(lnL_core,
-1/d_core)` from the core to a quadratic in `1/d`, then solve for the
-two `1/d` values where `lnL = lnL_peak - delta_lnL_target`.  Set
-`delta_lnL_target` to ~7 (probability < 10^{-3} outside) by default.
-Place wing centers spaced log-uniformly between the core edge and the
-solved boundary, on each side.
+(`fit_lnL_parabola_in_inv_d`), solves for the two `1/d` where lnL drops
+`delta_lnL_target` nats below peak (`_parabolic_wing_bounds`), and
+spaces wings log-uniformly between the core edge and that boundary on
+each side.  The ILE binary passes `lnL_core`, the observed peak, and
+`--distance-slice-wing-delta-lnL` (default 7.0).
 
-**Caveat the user flagged**: this is the *marginalized* lnL.  At the
-full-likelihood level there are degeneracies where very nearby sources
-fit reasonably well via fine-tuning of inclination + polarization +
-phase (the so-called distance-inclination ridge).  The parabolic
-extrapolation can under-estimate how far the likelihood ridge extends
-toward small `d`.  Mitigation: clamp the extrapolated boundary to no
-closer than `d_min_prior` and no further than `d_max_prior`, and let
-the fresh integration honestly report low neff on any wing that
-catches an unanticipated ridge.
+Robustness implemented:
 
-**Where to land it**: replace `pick_wing_centers` in
-`RIFT/misc/distance_slices.py` with a version that takes
-`(d_core, lnL_core, lnL_peak, delta_lnL_target, d_min, d_max,
-n_wing)`.  The current log-uniform version becomes the fallback when
-the parabolic fit is degenerate (fewer than 3 core points, or all core
-lnL equal, etc.).
+* Boundaries are clamped to `[d_min, d_max]` (the sampler's distance
+  support), honoring the distance-inclination-ridge caveat: the fresh
+  integration will honestly report low neff on any wing that catches an
+  unanticipated ridge.
+* When the fit is degenerate (fewer than 3 finite core points, no lnL
+  variation, non-downward fit) or leaves no room outside the core, it
+  falls back to the original log-uniform full-range placement
+  (`_log_uniform_wings`).
+* If the requested target lnL sits above the fitted vertex (observed
+  peak exceeds the fit), it uses the vertex-symmetric half-width
+  `sqrt(-delta/a)`, which always yields real roots for a downward
+  parabola.
 
-**Side benefit**: the parabolic fit also gives a direct estimate of
-`A^2` (the effective Fisher in `1/d`), which is itself worth recording
-in `.dslice` metadata for downstream CIP to use as a sanity check on
-its own distance-distance covariance.
+**Verified**: synthetic parabola recovers `A^2` exactly and places
+wings inside the solved `[d_small, d_large]` bounds rather than spread
+across the full prior range; degenerate inputs fall back cleanly.
+
+**Side benefit still open (deferred)**: `fit_lnL_parabola_in_inv_d`
+exposes `A^2 = -2a` (the effective Fisher in `1/d`).  Recording it in
+`.dslice` metadata for downstream CIP would require a schema/header
+addition to `DISTANCE_SLICE_FIELDS`; not done yet since it touches the
+load/save/reconstruct path.
 
 ## Older limitations (not high priority)
 

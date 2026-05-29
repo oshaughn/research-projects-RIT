@@ -320,7 +320,8 @@ intrinsic_params.add_option("--n-distance-slice-core",type=int,default=0,help="C
 intrinsic_params.add_option("--n-distance-slice-wing",type=int,default=0,help="Wing slices via fresh Omega-only integrations at pinned distance (covers tails ~7 nats below peak). If 0 and --export-distance-slices>0, defaults to K - core.")
 intrinsic_params.add_option("--distance-slice-wing-nmax",type=int,default=20000,help="Max samples per wing fresh integration.")
 intrinsic_params.add_option("--distance-slice-wing-neff",type=int,default=30,help="n_eff target per wing fresh integration.")
-intrinsic_params.add_option("--distance-slice-skip-threshold",type=float,default=1.0,help="If the lnL spread across core slices is below this many nats, treat the distance posterior as non-informative and skip wing integrations.")
+intrinsic_params.add_option("--distance-slice-skip-threshold",type=float,default=1.0,help="Absolute lnL scale: if the PEAK lnL across core slices is below this many nats, treat the event as effectively undetected and skip wing integrations. (lnL is a likelihood ratio vs noise, so this is an absolute detectability cut, not a relative-spread test.)")
+intrinsic_params.add_option("--distance-slice-wing-delta-lnL",type=float,default=7.0,help="Target lnL drop below peak used to place wing slice centers: wings span from the core edge out to where the parabolic lnL(1/d) model falls this many nats below peak (default 7 ~ prior weight <1e-3 outside). Falls back to log-uniform full-range placement if the parabolic fit is degenerate.")
 optp.add_option_group(intrinsic_params)
 
 
@@ -2156,13 +2157,18 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           lnL_wings = np.array([]); sigmaL_wings = np.array([]); neff_wings = np.array([]); ntotal_wings = np.array([], dtype=int)
           if n_wing > 0:
             if distance_slices.is_uninformative(lnL_core, threshold=opts.distance_slice_skip_threshold):
-              print("    : core lnL spread < {:.2f} nats; skipping {} wing fresh integrations".format(
+              print("    : peak core lnL < {:.2f} nats (effectively undetected); skipping {} wing fresh integrations".format(
                   opts.distance_slice_skip_threshold, n_wing))
             else:
+              # Place wings via the parabolic lnL(1/d) model fit to the core,
+              # so wing budget concentrates where the likelihood has support.
+              lnL_peak_core = float(np.nanmax(lnL_core)) if np.any(np.isfinite(lnL_core)) else None
               d_wings = distance_slices.pick_wing_centers(
                   float(sampler.llim["distance"]),
                   float(sampler.rlim["distance"]),
                   d_core, n_wing,
+                  lnL_core=lnL_core, lnL_peak=lnL_peak_core,
+                  delta_lnL_target=opts.distance_slice_wing_delta_lnL,
               )
               if len(d_wings) == 0:
                 print("    : no room outside core for wing slices; skipping")
