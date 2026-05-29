@@ -165,8 +165,20 @@ distmarg call site.  The phase-marg distmarg site and everything else stay on
 `cal_method='loop'` (Option B), which remains the default and the fallback for all
 cases.  On CPU the flag is ignored with a warning (the kernel is GPU-only).
 
-Remaining: phase-marginalization support in the fused kernels (then the phase-marg
-distmarg site can opt in too).
+**End-to-end status.** Run through `integrate_likelihood_extrinsic_batchmode` on the
+CI fake data with `--distance-marginalization` + a real `util_InitMargTable` table +
+`--calibration-envelope-directory --calibration-fused-kernel`.  This caught a real
+wiring bug — in the distmarg path `P.dist` is fixed at the fiducial, so `invDistMpc`
+is a scalar, but the fused kernel wants one value per extrinsic sample; the fused
+branch now broadcasts it to `(npts_extrinsic,)`.  After the fix the fused path runs to
+completion.  Numerics were validated deterministically with
+`backtest_calmarg.py --loglikelihood distmarg --real-table <npz>`: fused == reference
+== loop to ~2e-14 on the production table.  (A full *sampler* end-to-end numerical
+comparison needs a larger GPU than the local 2 GB card, which OOMs / returns nan under
+load.)
+
+Remaining: a full numerical end-to-end on a larger GPU; phase-marginalization support
+in the fused kernels (then the phase-marg distmarg site can opt in too).
 
 ## Driver wiring
 
