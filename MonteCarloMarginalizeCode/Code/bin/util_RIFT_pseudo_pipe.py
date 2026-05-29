@@ -137,6 +137,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--skip-reproducibility",action='store_true')
 parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
 parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration. Note this writes an adaptively-sized DAG each iteration, but doesn't otherwise optimize yet.")
+parser.add_argument("--pipeline-builder",default=None,choices=["BasicIteration","AlternateIteration"],help="Explicitly select the create_event_parameter_pipeline_* iteration builder, as a drop-in hot-swap for side-by-side A/B testing. Overrides the implicit --use-subdags routing. If unset, the builder is chosen by --use-subdags (Alternate) vs. the default (Basic).")
 parser.add_argument("--use-ile-subdags",action='store_true',help="Use ILE subdag system (new)")
 parser.add_argument("--bilby-ini-file",default=None,type=str,help="Pass ini file for parsing. Intended to use for calibration reweighting. Full path recommended")
 parser.add_argument("--bilby-pickle-file",default=None,type=str,help="Bilby Pickle file with event settings. Intended to use for calibration reweighting. Full path recommended")
@@ -1444,6 +1445,12 @@ if opts.internal_cip_request_memory:
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
+if opts.pipeline_builder:  # explicit override wins, for clean side-by-side A/B testing of the two builders
+    if opts.use_subdags and opts.pipeline_builder != "AlternateIteration":
+        # use_subdags is set either by the user or force-set by --internal-use-amr (which REQUIRES the Alternate builder)
+        print(" WARNING: --pipeline-builder {} overrides --use-subdags routing; AMR/subdag runs require AlternateIteration ".format(opts.pipeline_builder))
+    cepp = "create_event_parameter_pipeline_" + opts.pipeline_builder
+print(" Pipeline builder (create_event_parameter_pipeline_*): ", cepp)
 cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if opts.ile_jobs_per_worker_first:
     cmd += " --ile-n-events-to-analyze-first {} ".format(opts.ile_jobs_per_worker_first)
