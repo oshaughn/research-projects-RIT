@@ -28,6 +28,8 @@ NMAX    ?= 2000        # max extrinsic samples
 NEFF    ?= 100         # target effective samples
 SEED    ?= 1234        # fixes BOTH the cal draws and the extrinsic draws
 DMAX    ?= 1000
+SAMPLER ?= AV          # adaptive-volume sampler: mature, stable GPU code path
+                       #   (GMM is newer/heavier on GPU; override with SAMPLER=GMM)
 
 # Detector / data configuration for the synthetic injection
 EVENT_TIME := 1000000014.236547946
@@ -45,7 +47,7 @@ COMMON := --vectorized --gpu \
   $(IFO_PSD) $(IFO_CHAN) \
   --inclination-cosine-sampler --declination-cosine-sampler \
   --data-start-time 1000000008 --data-end-time 1000000016 --inv-spec-trunc-time 0 \
-  --srate 4096 --sampler-method GMM
+  --srate 4096 --sampler-method $(SAMPLER)
 
 CALMARG := --calibration-envelope-directory $(CURDIR)/cal_env --calibration-n-realizations $(NCAL)
 

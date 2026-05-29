@@ -68,15 +68,22 @@ extern "C" {
     for (int c = 0; c < n_cal; ++c) {
       for (int t = 0; t < npts; ++t) {
         complex<double> kappa = complex<double>(0.0, 0.0);
+        bool in_range = true;
         for (int d = 0; d < n_det; ++d) {
           long base = (long)ifirst[(size_t)d * n_ext + j] + (long)c * N_window;
+          long idx = base + (long)t;
+          /* guard against out-of-range window offsets (e.g. pathological /
+             NaN extrinsic draws from the sampler) so we never do an illegal
+             memory access; such (c,t) samples simply do not contribute. */
+          if (idx < 0 || idx >= (long)npts_full) { in_range = false; break; }
           const complex<double> * Qd = Q + (size_t)d * npts_full * n_lms;
           const complex<double> * Ad = A + ((size_t)d * n_ext + j) * n_lms;
-          long qrow = (base + (long)t) * (long)n_lms;
+          long qrow = idx * (long)n_lms;
           for (int lm = 0; lm < n_lms; ++lm) {
             kappa += Ad[lm] * Qd[qrow + lm];
           }
         }
+        if (!in_range) continue;
 
         double kappa_sq = inv * kappa.real();
         double rsq = rho_sq[(size_t)j * npts + t];

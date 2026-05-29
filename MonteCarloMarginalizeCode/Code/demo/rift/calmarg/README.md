@@ -80,7 +80,14 @@ make all NCAL=100 NCHUNK=4000 NMAX=20000 NEFF=1000   # production-ish (needs a l
 ```
 
 `NCAL` (calibration realizations), `NCHUNK`/`NMAX` (extrinsic samples per block / max),
-`NEFF` (target effective samples), `SEED`, `DMAX`.
+`NEFF` (target effective samples), `SEED`, `DMAX`, `SAMPLER`.
+
+The demo uses the **adaptive-volume sampler** (`SAMPLER=AV`), the mature/stable GPU
+code path. The GMM sampler (`mcsamplerEnsemble`) is newer and heavier on the GPU; if you
+hit `CUDA_ERROR_ILLEGAL_ADDRESS` or other GPU instability, stay on AV (override with
+`SAMPLER=GMM` only if you specifically want to test it). The fused kernels themselves
+also guard against out-of-range window offsets, so a pathological draw can't trigger an
+illegal memory access.
 
 > **Memory note.** The fused/loop precompute holds `N` calibration realizations, so GPU
 > memory scales with `NCAL` and `NCHUNK`. On a small card (≈2 GB) keep `NCHUNK` ≲ 1000;
