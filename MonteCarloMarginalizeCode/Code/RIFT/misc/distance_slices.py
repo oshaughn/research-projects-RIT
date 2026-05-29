@@ -203,6 +203,161 @@ def importance_reweight_slices(
     return lnL_out, sigmaL_out, neff_out, N
 
 
+def is_uninformative(lnL_core, threshold=1.0):
+    """Detect a flat / non-informative distance profile from the core slices.
+
+    If the spread in core slice lnL is below ``threshold`` nats, the run has
+    essentially no distance information and there is nothing for wing
+    integrations to learn -- skip them.
+    """
+    finite = np.isfinite(lnL_core)
+    if not np.any(finite):
+        return True
+    if np.sum(finite) < 2:
+        return True
+    return (np.max(lnL_core[finite]) - np.min(lnL_core[finite])) < threshold
+
+
+def pick_wing_centers(d_min, d_max, d_core, n_wing,
+                       min_log_gap=0.05):
+    """Place K_wing slice centers log-uniformly outside the core span.
+
+    Half go below the core, half above (rounded so the lower half gets the
+    extra when K_wing is odd).  Returns a sorted array of distances.
+    """
+    n_wing = int(n_wing)
+    if n_wing <= 0:
+        return np.array([])
+    d_core = np.asarray(d_core, float)
+    finite = np.isfinite(d_core) & (d_core > 0)
+    d_core_lo = float(np.min(d_core[finite])) if np.any(finite) else d_min
+    d_core_hi = float(np.max(d_core[finite])) if np.any(finite) else d_max
+
+    n_low = (n_wing + 1) // 2
+    n_high = n_wing - n_low
+    wings = []
+    if d_core_lo > d_min * np.exp(min_log_gap) and n_low > 0:
+        wings.append(np.exp(np.linspace(np.log(d_min),
+                                         np.log(d_core_lo),
+                                         n_low + 2)[1:-1]))
+    if d_max > d_core_hi * np.exp(min_log_gap) and n_high > 0:
+        wings.append(np.exp(np.linspace(np.log(d_core_hi),
+                                         np.log(d_max),
+                                         n_high + 2)[1:-1]))
+    if not wings:
+        return np.array([])
+    return np.sort(np.concatenate(wings))
+
+
+def fresh_sample_slices(reference_sampler, like_to_integrate, d_slices,
+                         n_max=20000, n_eff_target=30, n_chunk=2000,
+                         return_lnL=True, verbose=False):
+    """Independent Omega-only integration at each pinned distance d_k.
+
+    Build a fresh AdaptiveVolume sampler for the Omega parameters by
+    cloning the reference sampler's per-parameter (pdf, prior, bounds)
+    config, then integrate the cached likelihood with distance pinned to
+    each slice.  Cost per slice: up to ``n_max`` cached-likelihood
+    evaluations (no waveform/PSD regeneration).
+
+    Returns the same (lnL, sigmaL, neff, ntotal_array) tuple shape as
+    ``importance_reweight_slices``.
+    """
+    from RIFT.integrators import mcsamplerAdaptiveVolume
+
+    arg_names = like_to_integrate.__code__.co_varnames[
+        :like_to_integrate.__code__.co_argcount]
+    if "distance" not in arg_names:
+        raise ValueError("like_to_integrate has no 'distance' arg; fresh "
+                         "slice integration not applicable")
+    omega_params = [a for a in arg_names if a != "distance"]
+    missing = [p for p in omega_params
+               if p not in reference_sampler.params_ordered]
+    if missing:
+        raise KeyError("reference_sampler missing Omega params {!r} needed "
+                        "for fresh slice integration".format(missing))
+
+    K = len(d_slices)
+    lnL_out = np.full(K, -np.inf)
+    sigmaL_out = np.full(K, np.inf)
+    neff_out = np.zeros(K)
+    ntotal_out = np.zeros(K, dtype=int)
+
+    for k, d_k in enumerate(d_slices):
+        sampler = mcsamplerAdaptiveVolume.MCSampler()
+        for p in omega_params:
+            sampler.add_parameter(
+                p,
+                pdf=reference_sampler.pdf[p],
+                prior_pdf=reference_sampler.prior_pdf[p],
+                left_limit=float(reference_sampler.llim[p]),
+                right_limit=float(reference_sampler.rlim[p]),
+                adaptive_sampling=True,
+            )
+
+        d_fixed = float(d_k)
+        # Per-Omega-param bounds, used to clip values defensively against
+        # boundary noise (e.g. np.random.uniform can return rlim - 1ULP which
+        # makes downstream arccos(...) NaN).
+        omega_bounds = {p: (float(reference_sampler.llim[p]),
+                             float(reference_sampler.rlim[p]))
+                         for p in omega_params}
+
+        def like_at_pinned_d(**kw):
+            # AV's integrate_log passes Omega params as kwargs by name.
+            sample = next(iter(kw.values()))
+            N_eval = len(sample)
+            d_arr = np.full(N_eval, d_fixed)
+            full = {}
+            for p, arr in kw.items():
+                lo, hi = omega_bounds.get(p, (-np.inf, np.inf))
+                # nudge inward by a tiny epsilon relative to range, so arccos
+                # and friends never see the exact boundary
+                eps = 1e-12 * max(abs(hi - lo), 1.0)
+                full[p] = np.clip(np.asarray(arr, float), lo + eps, hi - eps)
+            full["distance"] = d_arr
+            return like_to_integrate(*(full[a] for a in arg_names))
+
+        try:
+            res = sampler.integrate_log(
+                like_at_pinned_d,
+                *omega_params,
+                nmax=int(n_max), neff=int(n_eff_target), n=int(n_chunk),
+                tempering_exp=0.1, n_adapt=10,
+                verbose=verbose,
+            )
+        except Exception as e:
+            print("  fresh slice d={:.2f} failed: {!r}".format(d_k, e))
+            continue
+        # AV's integrate_log returns (log_int, log(rel_var) + 2*log_int,
+        # eff_samp, dict). Convert to sigma_lnL ~ sqrt(rel_var).
+        if isinstance(res, tuple):
+            lnI = float(res[0])
+            if len(res) > 1:
+                log_abs_var = float(res[1])
+                ln_rel_var = log_abs_var - 2.0 * lnI
+                sigma = float(np.exp(0.5 * ln_rel_var)) if np.isfinite(ln_rel_var) else np.inf
+            else:
+                sigma = np.nan
+            neff_val = float(res[2]) if len(res) > 2 else np.nan
+        else:
+            lnI = float(res)
+            sigma = np.nan
+            neff_val = np.nan
+        # When return_lnL=True the cached like_to_integrate returned
+        # lnL - manual_overflow, so integrate_log's lnI is log of the integral
+        # of exp(lnL - overflow). We restore the overflow OUTSIDE this helper
+        # (caller knows manual_avoid_overflow_logarithm).
+        lnL_out[k] = lnI
+        if not(np.isnan(sigma)):
+            sigmaL_out[k] = sigma
+        if not(np.isnan(neff_val)):
+            neff_out[k] = neff_val
+        ntotal_out[k] = int(getattr(sampler, "ntotal", 0))
+
+    return lnL_out, sigmaL_out, neff_out, ntotal_out
+
+
 def build_distance_slice_table(d_slices, lnL_slices, sigmaL_slices,
                                 neff_slices, ntotal, method_code,
                                 params, ln_prior_d_at_slices):

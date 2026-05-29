@@ -315,8 +315,12 @@ intrinsic_params.add_option("--eff-lambda", type=float, help="Value of effective
 intrinsic_params.add_option("--deff-lambda", type=float, help="Value of second effective tidal parameter. Optional, ignored if not given")
 intrinsic_params.add_option("--export-eos-index",action='store_true')
 intrinsic_params.add_option("--export-marginal-distance-grid",action='store_true')
-intrinsic_params.add_option("--export-distance-slices",type=int,default=0,help="If >0, run K independent fixed-distance integrals after the main extrinsic integration and write a per-event .dslice file with one row per slice (K rows total). Requires --internal-use-lnL and no --distance-marginalization. Pure-likelihood schema; see RIFT.misc.distance_slices.")
-intrinsic_params.add_option("--distance-slice-method",default="reweight",help="How to estimate L(d_k) at each slice. 'reweight' (default) importance-reweights Omega samples from the main run; 'fresh' would build an independent Omega sampler per slice (not yet implemented).")
+intrinsic_params.add_option("--export-distance-slices",type=int,default=0,help="If >0, after main extrinsic integration emit a per-event .dslice file with rows of fixed-d extrinsic-marginalized likelihoods. Total rows = --n-distance-slice-core + --n-distance-slice-wing. Requires --internal-use-lnL and no --distance-marginalization.")
+intrinsic_params.add_option("--n-distance-slice-core",type=int,default=0,help="Core slices via importance-reweight on existing Omega samples (cheap). If 0 and --export-distance-slices>0, defaults to ceil(K*0.6).")
+intrinsic_params.add_option("--n-distance-slice-wing",type=int,default=0,help="Wing slices via fresh Omega-only integrations at pinned distance (covers tails ~7 nats below peak). If 0 and --export-distance-slices>0, defaults to K - core.")
+intrinsic_params.add_option("--distance-slice-wing-nmax",type=int,default=20000,help="Max samples per wing fresh integration.")
+intrinsic_params.add_option("--distance-slice-wing-neff",type=int,default=30,help="n_eff target per wing fresh integration.")
+intrinsic_params.add_option("--distance-slice-skip-threshold",type=float,default=1.0,help="If the lnL spread across core slices is below this many nats, treat the distance posterior as non-informative and skip wing integrations.")
 optp.add_option_group(intrinsic_params)
 
 
@@ -2124,27 +2128,73 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             keep = (integrand > 0) & (jp > 0) & (jsp > 0)
             ln_w_full = np.full(len(integrand), -np.inf)
             ln_w_full[keep] = np.log(integrand[keep]) + np.log(jp[keep]) - np.log(jsp[keep])
-          d_slices = distance_slices.quantile_slice_centers(dL_samp, ln_w_full, K)
+          # Split K into core (reweight) and wing (fresh) slices.
+          n_core = int(opts.n_distance_slice_core) or int(np.ceil(0.6 * K))
+          n_wing = int(opts.n_distance_slice_wing) or (K - n_core)
+          n_core = max(1, min(n_core, K))
+          n_wing = max(0, min(n_wing, K - n_core))
 
-          method_arg = (opts.distance_slice_method or "reweight").lower()
-          if method_arg != "reweight":
-            print("  warning: distance-slice-method={} not yet implemented; falling back to reweight".format(method_arg))
-            method_arg = "reweight"
-          lnL_k_pure, sigmaL_k, neff_k, ntotal = distance_slices.importance_reweight_slices(
-              sampler, like_to_integrate, d_slices,
+          # Core: importance-reweight at quantile centers of the posterior.
+          d_core = distance_slices.quantile_slice_centers(dL_samp, ln_w_full, n_core)
+          lnL_core, sigmaL_core, neff_core, ntotal_core = distance_slices.importance_reweight_slices(
+              sampler, like_to_integrate, d_core,
               ln_prior_d_at_samples=ln_pi_d_samp,
               ln_proposal_d_at_samples=ln_q_d_samp,
               manual_overflow=manual_avoid_overflow_logarithm,
               return_lnL=return_lnL,
           )
-          # importance_reweight_slices already returns the pure extrinsic-
-          # marginalized lnL (no distance prior baked in). Save the sampling
-          # prior at slice centers in a separate column so the default
-          # reconstruction can reproduce log_res.
-          ln_pi_d_slices = np.log(np.maximum(prior_pdf_d(d_slices), np.finfo(float).tiny))
-          method_code = distance_slices.METHOD_REWEIGHT
-          # Re-use the same intrinsic params dict we built for .dgrid; if .dgrid
-          # was disabled, build it now.
+          ln_pi_d_core = np.log(np.maximum(prior_pdf_d(d_core), np.finfo(float).tiny))
+
+          if opts.sampler_method == "GMM" and neff < 50:
+            print("  WARNING: --export-distance-slices with --sampler-method GMM at main n_eff={:.1f} (<50). ".format(neff)
+                  + "B2-reweight may be biased; prefer --sampler-method AV or raise --n-max.")
+
+          # Wings: only run if (a) we asked for any, (b) core suggests a
+          # real distance posterior shape worth probing. Otherwise the
+          # likelihood is flat in d and fresh wings are wasted compute.
+          d_wings = np.array([])
+          lnL_wings = np.array([]); sigmaL_wings = np.array([]); neff_wings = np.array([]); ntotal_wings = np.array([], dtype=int)
+          if n_wing > 0:
+            if distance_slices.is_uninformative(lnL_core, threshold=opts.distance_slice_skip_threshold):
+              print("    : core lnL spread < {:.2f} nats; skipping {} wing fresh integrations".format(
+                  opts.distance_slice_skip_threshold, n_wing))
+            else:
+              d_wings = distance_slices.pick_wing_centers(
+                  float(sampler.llim["distance"]),
+                  float(sampler.rlim["distance"]),
+                  d_core, n_wing,
+              )
+              if len(d_wings) == 0:
+                print("    : no room outside core for wing slices; skipping")
+              else:
+                print("    : running {} wing fresh integrations".format(len(d_wings)))
+                lnL_wings_raw, sigmaL_wings, neff_wings, ntotal_wings = distance_slices.fresh_sample_slices(
+                    sampler, like_to_integrate, d_wings,
+                    n_max=int(opts.distance_slice_wing_nmax),
+                    n_eff_target=int(opts.distance_slice_wing_neff),
+                    return_lnL=return_lnL,
+                )
+                # fresh_sample_slices returns ln integral of L_with_overflow;
+                # restore the overflow scale so wing lnL is on the same axis
+                # as the core slice (and as log_res).
+                lnL_wings = lnL_wings_raw + manual_avoid_overflow_logarithm
+
+          # Combine core + wings, sort by distance.
+          d_all = np.concatenate([np.asarray(d_core, float), np.asarray(d_wings, float)])
+          lnL_all = np.concatenate([lnL_core, lnL_wings])
+          sigmaL_all = np.concatenate([sigmaL_core, sigmaL_wings])
+          neff_all = np.concatenate([neff_core, neff_wings])
+          ntotal_all = np.concatenate([
+              np.full(len(d_core), ntotal_core, dtype=int),
+              np.asarray(ntotal_wings, dtype=int),
+          ])
+          method_all = np.concatenate([
+              np.full(len(d_core), distance_slices.METHOD_REWEIGHT, dtype=int),
+              np.full(len(d_wings), distance_slices.METHOD_FRESH, dtype=int),
+          ])
+          ln_pi_d_all = np.log(np.maximum(prior_pdf_d(d_all), np.finfo(float).tiny))
+          order = np.argsort(d_all)
+
           try:
             params_out  # noqa: F823
           except NameError:
@@ -2156,12 +2206,18 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 "eccentricity": P.eccentricity, "meanPerAno": P.meanPerAno,
                 "eos_index": getattr(P, "eos_table_index", 0),
             }
+          # Pass per-row method (build_distance_slice_table accepts a scalar
+          # method; we extend by writing the method field directly after).
           slice_table = distance_slices.build_distance_slice_table(
-              d_slices, lnL_k_pure, sigmaL_k, neff_k, ntotal, method_code,
-              params_out, ln_prior_d_at_slices=ln_pi_d_slices,
+              d_all[order], lnL_all[order], sigmaL_all[order], neff_all[order],
+              0, distance_slices.METHOD_REWEIGHT, params_out,
+              ln_prior_d_at_slices=ln_pi_d_all[order],
           )
+          slice_table["ntotal"] = ntotal_all[order].astype(float)
+          slice_table["method"] = method_all[order].astype(float)
           distance_slices.save_distance_slice_table(fname_output_dslice, slice_table)
-          print("    : wrote distance slices to {}".format(fname_output_dslice))
+          print("    : wrote distance slices to {} ({} core + {} wings)".format(
+              fname_output_dslice, len(d_core), len(d_wings)))
 
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed

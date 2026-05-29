@@ -17,56 +17,78 @@ honest extrinsic-marginalized lnL.
 Deliverable target: <~10x the size of `.composite` files.  K = 10 slices
 per intrinsic point and ~20 columns per row hits that budget.
 
-## Two estimators (cross-check)
+## Hybrid core+wings architecture
 
-### B2-reweight (implemented)
+A single ILE job emits two kinds of slice rows in one `.dslice` file,
+distinguished by the `method` column:
 
-After the main `sampler.integrate(...)` call in `analyze_event`:
+* **Core (method = 0, reweight)** at the heart of the posterior, where
+  reweighting the main run's Omega samples is cheap and accurate.
+* **Wings (method = 1, fresh)** in the low-probability tails, where
+  reweighting fails because the main Omega samples don't cover the
+  optimal Omega at far-from-peak distances.  Each wing is its own fresh
+  AdaptiveVolume integration over Omega with distance pinned.
 
-1. Choose K slice centers `d_1, ..., d_K` from the posterior in d
-   (equi-probable quantiles; uniform-in-log-d fallback for degenerate
-   posteriors).
-2. For each `d_k`, *re-evaluate* the existing `like_to_integrate` at
-   `(Omega_i, d_k)` for every sample i, using the already-precomputed
-   `rholms_intp` / `cross_terms`.  Cost: K * N likelihood evaluations of
-   the cheap cached function; no waveform regeneration, no PSD reload.
-3. Importance reweight to estimate the slice marginal:
+### Core: B2-reweight
+
+After the main `sampler.integrate(...)` call:
+
+1. Choose `K_core` slice centers from equi-probable quantiles of the
+   posterior in d (uniform-in-log-d fallback for degenerate posteriors).
+2. For each `d_k`, re-evaluate the existing `like_to_integrate` at
+   `(Omega_i, d_k)` for every sample i, reusing the already-precomputed
+   `rholms_intp` / `cross_terms`.  Cost: `K_core * N` likelihood
+   evaluations on cached data; no waveform regeneration, no PSD reload.
+3. Importance reweight:
 
        L(d_k) ~= (1/N) sum_i L(d_k, Omega_i) * pi_Omega(Omega_i) / q_Omega(Omega_i)
 
    The Omega-only IW factor `pi_Omega/q_Omega` is extracted from the
    stored joint prior/proposal ratio with the distance piece divided out.
 
-Why this works well: for typical CBC events the Omega posterior is nearly
-d-independent (d enters mostly through amplitude), so the Omega samples
-drawn during the main run are good importance samples at every slice
-distance.  When that assumption breaks (e.g. precessing systems where
-sky/inclination couples strongly to d), `neff` at the slice drops and the
-slice's `sigmaL` blows up -- that's the signal to fall back to B2-fresh.
+This works well inside the posterior: Omega samples there are good
+importance samples at every nearby slice distance.  Falls apart in the
+tails -- which is exactly where the wings step in.
+
+### Wings: B2-fresh
+
+For each wing slice `d_k`:
+
+1. Construct a fresh `mcsamplerAdaptiveVolume.MCSampler` over only the
+   Omega parameters by cloning the main sampler's per-parameter
+   `(pdf, prior, llim, rlim)` config.  No distance dimension.
+2. Wrap `like_to_integrate` so distance is fixed to `d_k`; Omega values
+   are clipped inward by ~1e-12 of their range to dodge boundary
+   `arccos(1+eps) = NaN` failures.
+3. Call `sampler.integrate_log(...)` with a modest budget
+   (`--distance-slice-wing-nmax`, default 20k; `--distance-slice-wing-neff`,
+   default 30).  AV is the canonical choice here -- it gives a real
+   adapted proposal in the wings without relying on the main run's
+   Omega samples.
+
+Wing centers are placed log-uniformly in `[d_min, d_core_lo]` and
+`[d_core_hi, d_max]`, half-and-half, so coverage extends from the
+sampler's support boundary all the way back to the core.  Empirically
+this reaches at least ~30 nats below peak on the demo event (vs the
+user's ~7 nat target for 10^{-3} prior weight outside).
+
+### Skip non-informative events
+
+If the lnL spread across the core slices is below
+`--distance-slice-skip-threshold` (default 1.0 nat), the distance
+posterior is essentially flat and wing integrations have nothing to
+learn -- they are skipped and only the core rows are written.  This
+guards the user's directive to "not waste time on noninformative
+likelihoods".
 
 Code:
-- `MonteCarloMarginalizeCode/Code/RIFT/misc/distance_slices.py` --
-  estimators and file I/O.
-- `bin/integrate_likelihood_extrinsic_batchmode` --
-  `--export-distance-slices K` flag; emits one `.dslice` per ILE job.
-
-### B2-fresh (designed, not yet implemented)
-
-For each `d_k`, build a fresh basic mcsampler over Omega only with
-distance pinned to `d_k`, then call `sampler.integrate(like_to_integrate,
-*omega_args, distance=d_k, ...)`.  More expensive (K independent
-adaptive integrations) but doesn't rely on the Omega-quasi-independence
-assumption.
-
-Why deferred: the existing sampler-construction code in batchmode (lines
-~945-1199) is straight-line, not factored.  Cleanly implementing B2-fresh
-needs that block extracted into a helper, which is a larger refactor than
-the user asked for in the prototype scope.  Skeleton in the same module.
-
-When to implement B2-fresh:
-- B2-reweight's per-slice `neff` drops below O(10) on real events.
-- Cross-check disagreement between B2-reweight and B2-fresh exceeds the
-  reported `sigmaL`.
+- `MonteCarloMarginalizeCode/Code/RIFT/misc/distance_slices.py`:
+  `importance_reweight_slices`, `fresh_sample_slices`,
+  `quantile_slice_centers`, `pick_wing_centers`, `is_uninformative`.
+- `bin/integrate_likelihood_extrinsic_batchmode`: new flags
+  `--export-distance-slices K`, `--n-distance-slice-core`,
+  `--n-distance-slice-wing`, `--distance-slice-wing-nmax`,
+  `--distance-slice-wing-neff`, `--distance-slice-skip-threshold`.
 
 ## Output format: `.dslice`
 
