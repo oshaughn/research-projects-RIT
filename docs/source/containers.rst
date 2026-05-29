@@ -177,9 +177,23 @@ The build lives under :code:`containers/`:
     # render and build each .sif (requires apptainer)
     containers/build_family.sh ./container_family
 
+    # on shared clusters (e.g. CIT), build with --fakeroot to avoid the
+    # unprivileged proot engine (whose mksquashfs step fails):
+    containers/build_family.sh --fakeroot ./container_family
+
 Each run also writes a ``rift_container_family.generated.yaml`` stub: fill in
 each ``image:`` with where you published the ``.sif`` (a CVMFS path or
 ``osdf://`` URL) and you have a deployable manifest.
+
+.. note::
+
+   On clusters without setuid apptainer or unprivileged user namespaces, a plain
+   build falls back to the ``proot`` engine and fails at ``mksquashfs``
+   (``ptrace(TRACEME): Operation not permitted``). Use ``--fakeroot`` (needs
+   ``/etc/subuid`` + ``/etc/subgid`` entries), or ``--sandbox`` to build a
+   directory that skips ``mksquashfs`` and convert it to a ``.sif`` later on a
+   capable host. See the build-troubleshooting section of
+   :code:`containers/README.md`.
 
 The top-level :code:`rift_container.def` is unchanged and remains the default
 single-image build.

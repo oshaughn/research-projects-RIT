@@ -43,21 +43,41 @@ the cloned RIFT branch shipping the file.
 
 ### Build troubleshooting
 
-**`proot error: ptrace(TRACEME): Operation not permitted` / `mksquashfs command
-failed`** (seen on shared clusters such as CIT). Apptainer fell back to its
-unprivileged `proot` build engine (no usable user namespaces or setuid
-apptainer), and proot's squashfs step is blocked by seccomp. `build_family.sh`
-already exports `PROOT_NO_SECCOMP=1`, which is the documented workaround; if you
-invoke `apptainer build` by hand, set it yourself:
+**`proot error: ptrace(TRACEME): Operation not permitted` /
+`mksquashfs command failed`** (seen on shared clusters such as CIT). Apptainer
+has no usable user namespaces or setuid install, so it falls back to its
+unprivileged `proot` build engine — which cannot run the `mksquashfs` helper.
+**Setting `PROOT_NO_SECCOMP=1` is not sufficient** (it silences the seccomp
+message but proot still fails to exec mksquashfs). Avoid the proot path instead:
 
-```console
-export PROOT_NO_SECCOMP=1
-```
+1. **Build with `--fakeroot`** (recommended; the IGWN/CIT path):
 
-Better, if your site supports it, avoid the proot path entirely — build with
-`apptainer build --fakeroot ...` (needs `/etc/subuid` + `/etc/subgid` mappings
-for your user) or on a node with unprivileged user namespaces enabled. If the
-build runs out of space mid-way, point `APPTAINER_TMPDIR` at a large local disk.
+   ```console
+   containers/build_family.sh --fakeroot ./container_family
+   ```
+
+   Requires `/etc/subuid` + `/etc/subgid` entries for your user and unprivileged
+   user namespaces enabled (check: `grep $USER /etc/subuid` and
+   `apptainer build --fakeroot` on a tiny def). This produces a real `.sif`
+   without proot.
+
+2. **If even `--fakeroot` is unavailable, build a `--sandbox`** (a directory).
+   This skips `mksquashfs` entirely, so it sidesteps the failing step:
+
+   ```console
+   containers/build_family.sh --sandbox ./container_family
+   # later, on a host where apptainer can make a SIF:
+   apptainer build rift_container_default.sif ./container_family/rift_container_default/
+   ```
+
+3. **Or build elsewhere** — on a node/registry with proper apptainer (or build
+   the OCI image with Docker/podman, push to a registry, then
+   `apptainer pull`/`build` the `.sif` on a capable host).
+
+`build_family.sh` still exports `PROOT_NO_SECCOMP=1` as a harmless best-effort,
+and passes any extra `--flag` you give it straight through to `apptainer build`.
+If a build runs out of space mid-way, point `APPTAINER_TMPDIR` at a large local
+disk.
 
 ---
 

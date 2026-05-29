@@ -4,11 +4,21 @@
 # different GPU compute capabilities).
 #
 # Usage:
-#   containers/build_family.sh [--render-only] [OUTPUT_DIR]
+#   containers/build_family.sh [--render-only] [--fakeroot] [--sandbox] \
+#                              [other apptainer build flags] [OUTPUT_DIR]
 #
 #   --render-only   render the per-entry .def files but do NOT run apptainer
 #                   (useful on machines without apptainer, or in CI)
-#   OUTPUT_DIR      where rendered .def and built .sif land (default: ./container_family)
+#   --fakeroot      pass --fakeroot to `apptainer build` (RECOMMENDED on shared
+#                   clusters such as CIT: avoids the unprivileged `proot` engine,
+#                   whose mksquashfs step fails. Needs /etc/subuid + /etc/subgid
+#                   entries for your user and unprivileged user namespaces.)
+#   --sandbox       build a writable directory instead of a .sif. This SKIPS the
+#                   mksquashfs step entirely, so it sidesteps the proot squashfs
+#                   failure when even --fakeroot is unavailable. Convert to .sif
+#                   later on a capable host: apptainer build out.sif sandbox_dir/
+#   any other --flag is passed straight through to `apptainer build`.
+#   OUTPUT_DIR      where rendered .def and built images land (default: ./container_family)
 #
 # The DEFAULT (first) matrix entry keeps the current production base image, so
 # the family always includes a broadly-compatible image for older machines.
@@ -22,11 +32,16 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE="${HERE}/rift_container.def.in"
 
 RENDER_ONLY=0
+SANDBOX=0
+BUILD_OPTS=()
 OUTPUT_DIR="./container_family"
 for arg in "$@"; do
     case "$arg" in
         --render-only) RENDER_ONLY=1 ;;
-        *) OUTPUT_DIR="$arg" ;;
+        --sandbox)     SANDBOX=1 ;;
+        --fakeroot)    BUILD_OPTS+=(--fakeroot) ;;
+        --*)           BUILD_OPTS+=("$arg") ;;   # passthrough to apptainer build
+        *)             OUTPUT_DIR="$arg" ;;
     esac
 done
 
@@ -90,8 +105,17 @@ for row in "${MATRIX[@]}"; do
         echo "    apptainer not found; wrote ${rendered} (build skipped)" >&2
         continue
     fi
-    echo ">>> Building ${sif}"
-    apptainer build "${sif}" "${rendered}"
+
+    if [ "${SANDBOX}" -eq 1 ]; then
+        target="${OUTPUT_DIR}/rift_container_${label}"   # writable directory (no mksquashfs)
+        sandbox_opt=(--sandbox)
+    else
+        target="${sif}"
+        sandbox_opt=()
+    fi
+    echo ">>> Building ${target}${BUILD_OPTS[*]:+ (opts: ${BUILD_OPTS[*]})}"
+    # ${arr[@]+"${arr[@]}"} expands safely even when the array is empty under set -u
+    apptainer build ${sandbox_opt[@]+"${sandbox_opt[@]}"} ${BUILD_OPTS[@]+"${BUILD_OPTS[@]}"} "${target}" "${rendered}"
 done
 
 echo
