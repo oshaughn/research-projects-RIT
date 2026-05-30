@@ -63,7 +63,8 @@ def _prep_log_w(cal_log_weights, n_cal):
 
 
 def Q_fused_calmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
-                         cal_log_weights=None, threads_per_block=256):
+                         cal_log_weights=None, phase_marginalization=False,
+                         threads_per_block=256):
     """Compute the calibration-marginalized factored log likelihood per extrinsic
     sample in a single kernel launch.
 
@@ -118,6 +119,7 @@ def Q_fused_calmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
     block = (threads_per_block,)
     fn(grid, block, (
         Q, A, ifirst, invDist, rho_sq, w_t, log_w, np.float64(log_w_norm),
+        np.int32(1 if phase_marginalization else 0),
         np.int32(n_det), np.int32(n_cal), np.int32(N_window), np.int32(npts),
         np.int32(n_lms), np.int32(n_ext), np.int32(npts_full),
         out,
@@ -127,7 +129,8 @@ def Q_fused_calmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
 
 def Q_fused_calmarg_distmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t,
                                   n_cal, N_window, distmarg,
-                                  cal_log_weights=None, threads_per_block=256):
+                                  cal_log_weights=None, phase_marginalization=False,
+                                  threads_per_block=256):
     """Fused calibration + distance marginalization (Option C stage 2).
 
     Same as Q_fused_calmarg_cupy, but applies the distance-marginalization
@@ -167,7 +170,8 @@ def Q_fused_calmarg_distmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t,
     grid = ((n_ext + threads_per_block - 1) // threads_per_block,)
     block = (threads_per_block,)
     fn(grid, block, (
-        Q, A, ifirst, invDist, rho_sq, w_t, log_w, np.float64(log_w_norm), lnI,
+        Q, A, ifirst, invDist, rho_sq, w_t, log_w, np.float64(log_w_norm),
+        np.int32(1 if phase_marginalization else 0), lnI,
         np.float64(distmarg["s0"]), np.float64(distmarg["ds"]),
         np.float64(distmarg["smin"]), np.float64(distmarg["smax"]), np.int32(ns),
         np.float64(distmarg["t0"]), np.float64(distmarg["dt"]),
@@ -220,7 +224,8 @@ def _distmarg_lnL_numpy(kappa_sq, rho_sq, d):
 
 
 def Q_fused_calmarg_numpy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
-                          distmarg=None, cal_log_weights=None):
+                          distmarg=None, cal_log_weights=None,
+                          phase_marginalization=False):
     """Pure-numpy equivalent of Q_fused_calmarg_cupy / _distmarg_cupy.
 
     Same arguments and result; distmarg=None uses the default helper, otherwise the
@@ -257,7 +262,8 @@ def Q_fused_calmarg_numpy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
             gathered = Q[dd][idx]                                # (n_ext, npts, n_lms)
             gathered[~valid] = 0.0                               # out-of-block -> 0
             kappa += np.einsum("jl,jtl->jt", A[dd], gathered)
-        kappa_sq = (kappa * invDist[:, None]).real
+        kappa_scaled = kappa * invDist[:, None]
+        kappa_sq = np.abs(kappa_scaled) if phase_marginalization else kappa_scaled.real
         if distmarg is None:
             lnLt = kappa_sq - 0.5 * rho_sq
         else:

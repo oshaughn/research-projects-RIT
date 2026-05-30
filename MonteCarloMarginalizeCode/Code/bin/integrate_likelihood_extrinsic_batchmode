@@ -1855,7 +1855,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     P.phiref = phi_orb_true
 
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood, phase_marginalization=True,n_cal=n_cal_for_likelihood)
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood, phase_marginalization=True,n_cal=n_cal_for_likelihood,
+                    cal_method=('fused' if cal_distmarg_dict is not None else 'loop'), cal_distmarg=cal_distmarg_dict)
 #                  nEvals +=len(right_ascension)
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API

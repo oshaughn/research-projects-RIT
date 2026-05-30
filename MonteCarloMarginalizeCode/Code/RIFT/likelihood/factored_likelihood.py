@@ -1865,10 +1865,10 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
       'loop'  (default, Option B): Python loop over realizations reusing the
               existing Q_inner_product kernel; works on CPU and GPU and with any
               loglikelihood callback (distance/phase marginalization).
-      'fused' (Option C): a single fused CUDA kernel
-              (RIFT.likelihood.Q_fused_calmarg) does the Q-product, the
-              loglikelihood, and the cal+time log-sum-exp on-board in one launch.
-              GPU-only, phase_marginalization=False.  With cal_distmarg=None it
+      'fused' (Option C): a single fused kernel (RIFT.likelihood.Q_fused_calmarg)
+              does the Q-product, the loglikelihood, and the cal+time log-sum-exp in
+              one launch -- a CUDA kernel on GPU, or pure numpy on CPU.  Supports
+              phase marginalization (|kappa|).  With cal_distmarg=None it
               uses the default (distance-unmarginalized) helper kernel; with
               cal_distmarg=<table dict> it uses the separate distance-marginalization
               kernel (Q_fused_calmarg_distmarg) reproducing distmarg_loglikelihood.
@@ -2153,8 +2153,6 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         # ---- Option C: fused implementation (GPU CUDA kernel, or numpy on CPU) ----
         # (return_lnLt needs the per-time series, which the loop reduction produces, so
         #  the fused scalar kernel is bypassed when a timeseries is requested.)
-        if phase_marginalization:
-            raise NotImplementedError("fused cal kernel does not yet support phase marginalization")
         if cal_distmarg is None and loglikelihood is not _factored_lnL_helper:
             raise NotImplementedError("fused cal kernel needs either the default helper or a cal_distmarg table")
         import RIFT.likelihood.Q_fused_calmarg as Q_fused_calmarg
@@ -2175,15 +2173,18 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             # CPU: pure-numpy fused (no CUDA); independent cross-check of the kernel
             return Q_fused_calmarg.Q_fused_calmarg_numpy(
                 Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
-                n_cal, N_window_block, distmarg=cal_distmarg, cal_log_weights=cal_log_weights)
+                n_cal, N_window_block, distmarg=cal_distmarg, cal_log_weights=cal_log_weights,
+                phase_marginalization=phase_marginalization)
         if cal_distmarg is None:
             return Q_fused_calmarg.Q_fused_calmarg_cupy(
                 Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
-                n_cal, N_window_block, cal_log_weights=cal_log_weights)
+                n_cal, N_window_block, cal_log_weights=cal_log_weights,
+                phase_marginalization=phase_marginalization)
         else:
             return Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy(
                 Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
-                n_cal, N_window_block, cal_distmarg, cal_log_weights=cal_log_weights)
+                n_cal, N_window_block, cal_distmarg, cal_log_weights=cal_log_weights,
+                phase_marginalization=phase_marginalization)
 
     running_max = None
     S = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)

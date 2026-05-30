@@ -45,6 +45,7 @@ extern "C" {
     const double * w_t,
     const double * log_w,
     double log_w_norm,
+    int phase_marg,
     int n_det,
     int n_cal,
     int N_window,
@@ -88,7 +89,10 @@ extern "C" {
           }
         }
 
-        double lnLt = inv * kappa.real() - 0.5 * rho_sq[(size_t)j * npts + t] + lw;
+        /* phase marginalization: use |kappa| (the (2,-2) conjugation is already baked
+           into Q/A by the caller), else Re(kappa). */
+        double kre = phase_marg ? sqrt(kappa.real()*kappa.real() + kappa.imag()*kappa.imag()) : kappa.real();
+        double lnLt = inv * kre - 0.5 * rho_sq[(size_t)j * npts + t] + lw;
         double wt = w_t[t];
 
         if (first) {

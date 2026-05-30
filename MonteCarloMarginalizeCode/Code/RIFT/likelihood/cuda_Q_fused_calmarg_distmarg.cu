@@ -45,6 +45,7 @@ extern "C" {
     const double * w_t,
     const double * log_w,
     double log_w_norm,
+    int phase_marg,
     const double * lnI_array,
     double s0, double ds, double smin, double smax, int ns,
     double t0, double dt, double tmax, int nt,
@@ -90,7 +91,9 @@ extern "C" {
           }
         }
 
-        double kappa_sq = inv * kappa.real();
+        /* phase marginalization: |kappa| (conjugation baked into Q/A), else Re(kappa) */
+        double kre = phase_marg ? sqrt(kappa.real()*kappa.real() + kappa.imag()*kappa.imag()) : kappa.real();
+        double kappa_sq = inv * kre;
         double rsq = rho_sq[(size_t)j * npts + t];
         double x0 = kappa_sq / rsq;
 

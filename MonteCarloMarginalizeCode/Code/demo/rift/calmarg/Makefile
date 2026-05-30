@@ -62,6 +62,14 @@ else
   VERIFY_LL   := default
 endif
 
+# PHASE=1 adds analytic phase marginalization to the deterministic check (verify-exact).
+PHASE ?= 0
+ifeq ($(PHASE),1)
+  VERIFY_PHASE := --phase-marginalization
+else
+  VERIFY_PHASE :=
+endif
+
 # Detector / data configuration for the synthetic injection
 EVENT_TIME := 1000000014.236547946
 IFO_PSD    := --psd-file H1=$(PSD) --psd-file L1=$(PSD) --psd-file V1=$(PSD)
@@ -97,8 +105,8 @@ help:
 	@echo "  make clean        - remove generated inputs/outputs"
 	@echo ""
 	@echo "Tunables (make VAR=...): NCAL=$(NCAL) NCHUNK=$(NCHUNK) NMAX=$(NMAX) NEFF=$(NEFF) SEED=$(SEED)"
-	@echo "Review matrix:  BACKEND=gpu|cpu   DMARG=1|0"
-	@echo "  e.g.  make verify-exact BACKEND=cpu DMARG=0    (laptop, no CUDA, no distance marg)"
+	@echo "Review matrix:  BACKEND=gpu|cpu   DMARG=1|0   PHASE=0|1"
+	@echo "  e.g.  make verify-exact BACKEND=cpu DMARG=0 PHASE=1   (laptop, no CUDA, no distance marg, phase marg)"
 
 inputs: $(DMARG_DEP) cal_env/H1.txt
 
@@ -113,7 +121,7 @@ cal_env/H1.txt:
 # Honours BACKEND (gpu/cpu) and DMARG (distmarg/default helper).
 verify-exact: $(DMARG_DEP)
 	$(ENV) python -m RIFT.calmarg.backtest_calmarg --backend $(BACKEND) \
-	  --loglikelihood $(VERIFY_LL) \
+	  --loglikelihood $(VERIFY_LL) $(VERIFY_PHASE) \
 	  --dets H1,L1,V1 --n-cal $(NCAL) --npts-extrinsic 512
 
 run-baseline: inputs
