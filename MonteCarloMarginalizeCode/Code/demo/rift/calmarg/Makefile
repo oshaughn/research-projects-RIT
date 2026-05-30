@@ -62,6 +62,8 @@ help:
 	@echo "  make run-fused    - ILE + in-loop calmarg, Option C (fused GPU kernel)"
 	@echo "  make compare      - print marginalized lnL from the three runs"
 	@echo "  make all          - inputs + verify-exact + the three runs + compare"
+	@echo "  make lowsnr-inputs- generate a fainter (~SNR 9) 3-IFO injection + cache"
+	@echo "  make low-snr      - lowsnr-inputs, then 'make all' on the quiet cache"
 	@echo "  make clean        - remove generated inputs/outputs"
 	@echo ""
 	@echo "Tunables (make VAR=...): NCAL=$(NCAL) NCHUNK=$(NCHUNK) NMAX=$(NMAX) NEFF=$(NEFF) SEED=$(SEED)"
@@ -100,6 +102,33 @@ compare:
 
 all: inputs verify-exact run-baseline run-loop run-fused compare
 
+# --- Low-SNR variant -------------------------------------------------------
+# The bundled CI injection is network SNR ~17.5 (m1=35,m2=30 at 200 Mpc).  This
+# generates a fainter copy (same source, larger distance -> ~SNR 9) on the fly so
+# the full-sampler loop-vs-fused agreement is resolved well above Monte-Carlo
+# noise.  No binaries are committed; the frames/cache are regenerated locally,
+# exactly as the CI data itself is made.
+INJ_M1     ?= 35
+INJ_M2     ?= 30
+INJ_DIST   ?= 400        # Mpc -> ~SNR 9 network (vs ~17.5 for the bundled 200 Mpc data)
+INJ_APPROX ?= SEOBNRv4
+INJ_FMIN   ?= 8
+LOWSNR_CACHE := $(CURDIR)/lowsnr.cache
+
+lowsnr-inputs: $(LOWSNR_CACHE)
+$(LOWSNR_CACHE):
+	$(ENV) util_WriteInjectionFile.py --parameter m1 --parameter-value $(INJ_M1) \
+	  --parameter m2 --parameter-value $(INJ_M2) --fname mdc_lowsnr --approx $(INJ_APPROX) \
+	  --parameter tref --parameter-value $(EVENT_TIME) \
+	  --parameter dist --parameter-value $(INJ_DIST) --parameter fmin --parameter-value $(INJ_FMIN)
+	$(ENV) util_WriteFrameAndCacheFromXML.sh mdc_lowsnr.xml.gz 0 lowsnr $(INJ_APPROX)
+	@echo "# injected network SNR:"; $(ENV) util_FrameZeroNoiseSNR.py --cache $(LOWSNR_CACHE) \
+	  --psd-file H1=$(PSD) --psd-file L1=$(PSD) --psd-file V1=$(PSD) 2>/dev/null | tail -1
+
+# Run the full comparison on the quiet injection (override CACHE).
+low-snr: lowsnr-inputs
+	$(MAKE) all CACHE=$(LOWSNR_CACHE)
+
 clean:
-	rm -f distance_marg.npz out_*.dat *.xml.gz
-	rm -rf cal_env
+	rm -f distance_marg.npz out_*.dat *.xml.gz lowsnr.cache snr_*.dat snr-report.txt
+	rm -rf cal_env lowsnr_mdc

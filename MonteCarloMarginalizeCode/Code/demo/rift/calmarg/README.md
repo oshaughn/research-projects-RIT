@@ -56,8 +56,11 @@ Generated inputs:
 * `cal_env/{H1,L1,V1}.txt` — synthetic calibration envelopes (amplitude 1-sigma 5–8%,
   phase 1-sigma 3–4.8°, deliberately different per IFO; see `tools/make_cal_envelopes.py`).
 
-Each `out_*_0_.dat` row is one intrinsic point; the **last column is the
-extrinsic-marginalized lnL**.
+Each `out_*_0_.dat` row is one intrinsic point. The columns end with
+`... lnL  sqrt_var  ntotal  neff`, so the **marginalized lnL is column `[-4]`** and
+the **last column is `neff`** (effective sample count, a sampler diagnostic — *not*
+the result). `make compare` reads the right column and also prints `neff` and the
+sampling error; don't compare the last column.
 
 ## How to read the results
 
@@ -72,6 +75,23 @@ extrinsic-marginalized lnL**.
   noise*, as does a repeat of either one. Raise `NEFF`/`NMAX` (on a GPU with enough
   memory) to shrink the scatter and to resolve the calibration penalty (in-loop
   calmarg lowers and broadens the marginalized lnL relative to baseline).
+
+## Quiet-source variant (low SNR)
+
+The bundled CI injection is **network SNR ≈ 17.5** (`m1=35, m2=30` at 200 Mpc). For a
+full-sampler sanity where loop-vs-fused agreement sits clearly above Monte-Carlo noise,
+generate a fainter copy of the same source at larger distance (~SNR 9) and run the
+comparison on it:
+
+```bash
+make lowsnr-inputs                  # writes mdc_lowsnr.xml.gz + lowsnr.cache (3 IFOs), prints the injected SNR
+make low-snr                        # = make all  CACHE=$(CURDIR)/lowsnr.cache
+# tune the loudness with INJ_DIST (Mpc): larger = quieter
+make lowsnr-inputs INJ_DIST=600     # ~SNR 6
+```
+
+Nothing binary is committed — the frames/cache are regenerated locally, exactly as the
+CI data itself is built (`util_WriteInjectionFile.py` → `util_WriteFrameAndCacheFromXML.sh`).
 
 ## Tunables
 
