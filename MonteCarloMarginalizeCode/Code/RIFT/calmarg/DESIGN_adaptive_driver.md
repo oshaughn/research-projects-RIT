@@ -42,9 +42,13 @@ expensive** — i.e., how to *learn* the cal proposal during a real analysis.
    nearly **independent of the extrinsic parameters** across the high-likelihood region
    (it is set by the data + best-fit template, not by sky/inclination/etc).  So we do
    NOT need to relearn cal per extrinsic sample, nor iterate many times.
-3. The residual baseline-vs-calmarg lnL gap observed in full runs is dominated by
-   **extrinsic-sampler under-convergence** (low neff), not a calmarg error — the
-   brute-force reference (below) is the way to confirm this.
+3. The calmarg lnL sitting ABOVE the no-cal baseline is **expected physics, not a bug**:
+   for cal-on-data, at fixed theta  lnL_c = lnL_baseline + (delta.h|h)  with mean 0, so
+   Z_cal(theta) = E_C[L] = L_baseline * exp(+ shift); logmeanexp(lnL_c) > mean(lnL_c)
+   (dominated by the best-fitting cal draws).  Confirmed at the injection point on real
+   data: mean(lnL_c) ~ baseline, logmeanexp(lnL_c) above it by a positive margin.  Small
+   cal variance -> shift ~ 0.5*Var_c[lnL_c]; high SNR -> larger (best-draw dominated).
+   This is ALSO why neff_cal collapses and adaptive sampling is needed.
 
 ## Options (and recommendation)
 
@@ -83,17 +87,62 @@ This is a single extra pilot (not a multi-stage loop), exploits cal's boringness
 Phase 0 + Phase 1, and degrades gracefully (if the pilot is poor, importance weights
 keep it unbiased — just less efficient).
 
-## Recommended sequencing
+## AGREED architecture and priority (do all of A, C, B to prep for the future)
 
-1. **Timing data** (done via `--scan-ncal`) — quantify the per-eval and brute-force cost.
-2. **Brute-force reference harness (A)** — ground truth; settle baseline-vs-calmarg.
-3. **Lazy pilot (C)** — the production path; validate against A on a boring-cal case.
-4. **Breadcrumb interface (B-lite)** — `save/load` the learned cal proposal (Gaussian
-   now), integrator-agnostic; NF is a separate, later project.
+Priority order **A -> C -> B**:
+- **A is the critical benchmark** -- the *only* validation.  Build first.
+- **C is production** (the parallel-pilot DAG below).
+- **B is the future** (portable extrinsic+cal distribution / normalizing flow).  Lay
+  breadcrumbs + stub code now so the plan is remembered.
 
-Open design questions for discussion before coding:
-- Where exactly to source the K pilot points (CIP grid output? a dedicated short ILE
-  pilot? the maxpt?).  Cleanest is probably a short low-`n_max` ILE pilot at the best
-  intrinsic point.
-- Whether the pilot runs inline (one process) or as separate parallel jobs.
-- The breadcrumb file schema (so it is useful beyond calmarg).
+This is a deliberate "long jump": more structure than calmarg strictly needs, because
+the same machinery generalizes to saving the **extrinsic** distribution (the decade-old
+goal).  Longer path, but richer payoff and easy to exploit later.
+
+### Source of pilot points: harvest from the previous iteration's `*.composite`
+Every RIFT iteration already produces a `*.composite` of evaluated (intrinsic+extrinsic)
+points with their lnL -- plenty of trials, no need for a dedicated pilot integration.
+The pilot **harvests the top fraction by lnL (~top 5%)** from iteration N-1's composite
+and does full cal there.  (This same harvest generalizes to learning the extrinsic
+proposal.)
+
+### Parallel-pilot DAG (nothing serial)
+Per iteration N, run in parallel:
+- **wide_N**: the normal ILE iteration, with `n_cal` modest, its cal realizations SEEDED
+  from the consolidated proposal produced after iteration N-1 (importance-weighted,
+  Phase 0).  This is the production likelihood.
+- **pilot_N**: harvest top-5% lnL points from iteration N-1's composite; do FULL cal at
+  those points (large prior `n_cal`, embarrassingly parallel -- "spam in parallel");
+  emit a breadcrumb (per-point cal responsibilities / a fitted Gaussian).
+
+Then a **consolidation_N** job (the barrier between N and N+1) collects the pilot
+breadcrumbs into a single consolidated cal proposal (Gaussian mean/cov over cal nodes +
+importance-weight bookkeeping).  **pilot_N informs wide_{N+1}** through that consolidated
+proposal.  A **cap** limits how many iterations keep pilot jobs active (once cal is
+learned -- it is boring -- freeze the proposal and drop the pilots).
+
+```
+  iter N-1.composite ──► pilot_N ──┐
+                                   ├─► consolidation_N ──► wide_{N+1}  (seeded)
+       (wide_N runs in parallel) ──┘
+  (pilots run for the first ~K iterations, then frozen)
+```
+
+### B (breadcrumbs / future): portable distribution object
+The consolidated proposal is a **portable save/load object** with a stable,
+integrator-agnostic schema.  Start: a Gaussian over cal spline nodes (mean, cov) + the
+prior + importance-weight metadata.  Designed from the start to ALSO carry an extrinsic
+proposal (same harvest->fit->consolidate->seed structure).  NF is a later drop-in behind
+the same interface.  Stub the schema + the consolidation/seed hooks now.
+
+## Build order (this branch)
+1. **Timing data** -- done (`--scan-ncal`).
+2. **A: brute-force reference** -- prior-only large-`n_cal`, converged; the ground truth.
+   Testable now in the backtest: brute-force (large prior set) vs adaptive-seeded must
+   agree on Z_cal while the seeded run has far higher `neff_cal`.
+3. **B-lite breadcrumb I/O** -- `save/load` the cal proposal (Gaussian; schema with an
+   `extrinsic` slot reserved).  Used by C.
+4. **C core** -- harvest top-fraction from a `*.composite`; fit (adaptive.fit_proposal);
+   write/consolidate breadcrumbs; seed the next run's cal realizations.
+5. **C DAG wiring** (pilot || wide || consolidation, the cap) in the pipeline builder --
+   the largest, condor-DAG piece; stub with TODOs referencing this doc, build last.

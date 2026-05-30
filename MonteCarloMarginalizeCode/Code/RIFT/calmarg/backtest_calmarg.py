@@ -278,8 +278,9 @@ def method_reference(case, xpy, phase_marginalization=False, loglikelihood=None)
     lw = case.get("cal_log_weights")
     if lw is None:
         return logsumexp(lnL_blocks, axis=0) - np.log(n_cal)
+    # unbiased importance estimate: (1/n_cal) sum_c w_c L_c  -> normalize by log(n_cal)
     lw = np.asarray(lw, dtype=float)
-    return logsumexp(lnL_blocks + lw[:, None], axis=0) - logsumexp(lw)
+    return logsumexp(lnL_blocks + lw[:, None], axis=0) - np.log(n_cal)
 
 
 def method_in_loop_B(case, xpy, phase_marginalization=False, loglikelihood=None):

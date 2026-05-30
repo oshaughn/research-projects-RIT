@@ -45,20 +45,19 @@ def _get_kernel_distmarg():
 
 
 def _prep_log_w(cal_log_weights, n_cal):
-    """Return (log_w cupy array length n_cal, log_w_norm float = logsumexp(log_w)).
-    cal_log_weights=None -> uniform (log_w=0, log_w_norm=log(n_cal)), i.e. the plain
-    (1/n_cal) average."""
+    """Return (log_w cupy array length n_cal, log_w_norm = log(n_cal)).
+    The cal-marginalized likelihood is the UNBIASED importance estimate
+    (1/n_cal) sum_c w_c L_c (w_c=prior/proposal, E[w]=1) -> normalization log(n_cal),
+    NOT logsumexp(log_w) (the biased self-normalized estimator).  Uniform -> they agree."""
     import cupy
     if cal_log_weights is None:
         log_w = cupy.zeros(n_cal, dtype=cupy.float64)
-        log_w_norm = float(np.log(n_cal))
     else:
         # cupy.asarray (not ascontiguousarray) so a host numpy array is accepted/transferred
         log_w = cupy.ascontiguousarray(cupy.asarray(cal_log_weights, dtype=cupy.float64))
         assert log_w.shape == (n_cal,), \
             "cal_log_weights shape %s != (%d,)" % (log_w.shape, n_cal)
-        mx = float(cupy.max(log_w))
-        log_w_norm = mx + float(cupy.log(cupy.sum(cupy.exp(log_w - mx))))
+    log_w_norm = float(np.log(n_cal))
     return log_w, log_w_norm
 
 
@@ -243,13 +242,9 @@ def Q_fused_calmarg_numpy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
     npts = w_t.shape[0]
     assert npts_full == N_window * n_cal
 
-    if cal_log_weights is None:
-        log_w = np.zeros(n_cal)
-        log_w_norm = float(np.log(n_cal))
-    else:
-        log_w = np.asarray(cal_log_weights, dtype=np.float64)
-        _mx = float(np.max(log_w))
-        log_w_norm = _mx + float(np.log(np.sum(np.exp(log_w - _mx))))
+    # log(n_cal): unbiased importance estimate (1/n_cal) sum_c w_c L_c (not self-normalized)
+    log_w = np.zeros(n_cal) if cal_log_weights is None else np.asarray(cal_log_weights, dtype=np.float64)
+    log_w_norm = float(np.log(n_cal))
 
     tgrid = np.arange(npts)
     lnLt_all = np.empty((n_cal, n_ext, npts), dtype=np.float64)

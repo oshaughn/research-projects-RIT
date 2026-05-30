@@ -2139,15 +2139,17 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
     # Per-realization importance log-weights for the cal marginalization.  Default
     # (None) is uniform -> the plain (1/n_cal) average; non-uniform weights support
-    # adaptive / importance cal sampling (w_c = prior(c)/proposal(c)).  The weighted
-    # marginal is  sum_c exp(log_w[c]) * Z_c / sum_c exp(log_w[c]).
+    # adaptive / importance cal sampling (w_c = prior(c)/proposal(c), with E_q[w]=1).
+    # The cal-marginalized likelihood is the UNBIASED importance estimate of the prior
+    # integral:  L_marg = integral pi(c) L(c) dc ~= (1/n_cal) sum_c w_c L_c.  So the
+    # normalization is log(n_cal) -- NOT logsumexp(log_w) (the self-normalized/ratio
+    # estimator), which is biased by log(sum w / n_cal) for non-uniform weights.  For
+    # uniform weights the two coincide.
     if cal_log_weights is None:
         cal_log_w = xpy.zeros(n_cal, dtype=np.float64)
-        cal_log_w_norm = float(np.log(n_cal))
     else:
         cal_log_w = xpy.asarray(cal_log_weights, dtype=np.float64)
-        _mx = float(xpy.max(cal_log_w))
-        cal_log_w_norm = _mx + float(xpy.log(xpy.sum(xpy.exp(cal_log_w - _mx))))
+    cal_log_w_norm = float(np.log(n_cal))
 
     if cal_method == 'fused' and not return_lnLt:
         # ---- Option C: fused implementation (GPU CUDA kernel, or numpy on CPU) ----
@@ -2233,12 +2235,12 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
     if return_lnLt:
         # cal-marginalized lnL at each time bin:
-        #   lnL_marg(t) = log( sum_c exp(log_w[c]) exp(lnL_t,c(t)) ) - logsumexp(log_w)
+        #   lnL_marg(t) = log( sum_c exp(log_w[c]) exp(lnL_t,c(t)) ) - log(n_cal)
         # (the time integral is NOT taken; downstream resamples this timeseries).
         return running_max + xpy.log(S) - cal_log_w_norm
 
     L = simps(S, dx=deltaT, axis=-1)
-    # lnL = max + log( sum_c exp(log_w[c]) \int dt exp(lnL_t - max) ) - logsumexp(log_w)
+    # lnL = max + log( sum_c exp(log_w[c]) \int dt exp(lnL_t - max) ) - log(n_cal)
     lnL = running_max + xpy.log(L) - cal_log_w_norm
 
     return lnL
