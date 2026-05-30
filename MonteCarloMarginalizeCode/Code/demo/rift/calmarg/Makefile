@@ -13,9 +13,12 @@ RIFT_CODE_ROOT := $(abspath ../../..)
 REPO_ROOT      := $(abspath ../../../../..)
 CI_DEMO        := $(REPO_ROOT)/.travis/ILE-GPU-Paper/demos
 
-CACHE ?= $(CI_DEMO)/zero_noise.cache
-PSD   ?= $(CI_DEMO)/HLV-ILIGO_PSD.xml.gz
-GRID  ?= $(CI_DEMO)/overlap-grid.xml.gz
+CACHE   ?= $(CI_DEMO)/zero_noise.cache
+PSD     ?= $(CI_DEMO)/HLV-ILIGO_PSD.xml.gz
+# Analyze the INJECTION itself as the (single) template, so the signal is actually
+# present (matched template -> lnL ~ rho^2/2).  Using a far-off grid point instead
+# gives lnL ~ 0 ("no signal"), which makes the calmarg effect invisible.
+SIM_XML ?= $(CI_DEMO)/mdc.xml.gz
 
 ILE := $(RIFT_CODE_ROOT)/bin/integrate_likelihood_extrinsic_batchmode
 ENV := PYTHONPATH=$(RIFT_CODE_ROOT):$${PYTHONPATH:-} PATH=$(RIFT_CODE_ROOT)/bin:$${PATH}
@@ -39,7 +42,7 @@ IFO_CHAN   := --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN --chan
 # Common ILE arguments (distance marginalization ON; 3 detectors)
 COMMON := --vectorized --gpu \
   --n-chunk $(NCHUNK) --n-max $(NMAX) --n-eff $(NEFF) --seed $(SEED) \
-  --time-marginalization --sim-xml $(GRID) --n-events-to-analyze 1 \
+  --time-marginalization --sim-xml $(SIM_XML) --n-events-to-analyze 1 \
   --reference-freq 100.0 --event-time $(EVENT_TIME) --approximant SEOBNRv4 --l-max 2 \
   --cache-file $(CACHE) --fmin-template 10 --fmax 1700.0 \
   --d-min 1 --d-max $(DMAX) \
@@ -125,9 +128,9 @@ $(LOWSNR_CACHE):
 	@echo "# injected network SNR:"; $(ENV) util_FrameZeroNoiseSNR.py --cache $(LOWSNR_CACHE) \
 	  --psd-file H1=$(PSD) --psd-file L1=$(PSD) --psd-file V1=$(PSD) 2>/dev/null | tail -1
 
-# Run the full comparison on the quiet injection (override CACHE).
+# Run the full comparison on the quiet injection (override CACHE + matched template).
 low-snr: lowsnr-inputs
-	$(MAKE) all CACHE=$(LOWSNR_CACHE)
+	$(MAKE) all CACHE=$(LOWSNR_CACHE) SIM_XML=$(CURDIR)/mdc_lowsnr.xml.gz
 
 clean:
 	rm -f distance_marg.npz out_*.dat *.xml.gz lowsnr.cache snr_*.dat snr-report.txt

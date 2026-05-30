@@ -5,9 +5,14 @@ over detector calibration uncertainty *inside* the ILE GPU likelihood loop, inst
 of as a postprocessing reweighting step (`calibration_reweighting.py`).
 
 It uses the zero-spin synthetic data shipped with the CI
-(`.travis/ILE-GPU-Paper/demos/`): a zero-noise injection observed in **three
-detectors (H1, L1, V1)**, with the bundled `HLV-ILIGO_PSD.xml.gz` PSDs and
-`overlap-grid.xml.gz` intrinsic grid. No real data or proprietary frames are needed.
+(`.travis/ILE-GPU-Paper/demos/`): a zero-noise injection (`m1=35, m2=30` at 200 Mpc,
+network SNR ≈ 17.5) observed in **three detectors (H1, L1, V1)**, with the bundled
+`HLV-ILIGO_PSD.xml.gz` PSDs. No real data or proprietary frames are needed.
+
+The template analyzed is the **injection itself** (`mdc.xml.gz`, a single matched
+point), so the signal is actually present and `lnL ≈ ρ²/2 ~ 150` — large enough for the
+calibration-marginalization effect to be visible. (Analyzing a far-off intrinsic grid
+point instead would give `lnL ~ 0` and hide the effect.)
 
 ## Why in-loop, and what it does
 
