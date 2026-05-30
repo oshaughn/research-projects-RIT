@@ -2132,8 +2132,10 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     # once above; only the data term kappa changes per realization, selected by
     # shifting the window offset into block c.  Accumulate a streaming log-sum-exp
     # over realizations for numerical stability (S holds sum_c exp(lnL_t - max)).
-    if return_lnLt:
-        raise NotImplementedError("return_lnLt is not supported with calibration marginalization (n_cal>1)")
+    # return_lnLt with calibration marginalization: return the cal-marginalized lnL(t)
+    # timeseries (weighted log-sum-exp over realizations at each time bin) so downstream
+    # time resampling/output works.  This is produced by the loop reduction below; the
+    # fused kernel (which returns the time-integrated scalar) is skipped in that case.
 
     # Per-realization importance log-weights for the cal marginalization.  Default
     # (None) is uniform -> the plain (1/n_cal) average; non-uniform weights support
@@ -2147,8 +2149,10 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         _mx = float(xpy.max(cal_log_w))
         cal_log_w_norm = _mx + float(xpy.log(xpy.sum(xpy.exp(cal_log_w - _mx))))
 
-    if cal_method == 'fused':
+    if cal_method == 'fused' and not return_lnLt:
         # ---- Option C: fused implementation (GPU CUDA kernel, or numpy on CPU) ----
+        # (return_lnLt needs the per-time series, which the loop reduction produces, so
+        #  the fused scalar kernel is bypassed when a timeseries is requested.)
         if phase_marginalization:
             raise NotImplementedError("fused cal kernel does not yet support phase marginalization")
         if cal_distmarg is None and loglikelihood is not _factored_lnL_helper:
@@ -2225,6 +2229,12 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             S *= xpy.exp(running_max - m_c)
             running_max = m_c
         S += xpy.exp(lnL_t_c - running_max)
+
+    if return_lnLt:
+        # cal-marginalized lnL at each time bin:
+        #   lnL_marg(t) = log( sum_c exp(log_w[c]) exp(lnL_t,c(t)) ) - logsumexp(log_w)
+        # (the time integral is NOT taken; downstream resamples this timeseries).
+        return running_max + xpy.log(S) - cal_log_w_norm
 
     L = simps(S, dx=deltaT, axis=-1)
     # lnL = max + log( sum_c exp(log_w[c]) \int dt exp(lnL_t - max) ) - logsumexp(log_w)
