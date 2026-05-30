@@ -948,6 +948,14 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
           rhoTS.epoch = data.epoch - hlms[pair].epoch
           tmp= lsu.DataRollBins(rhoTS, N_shift)  # restore functionality for bidirectional shifts: waveform need not start at t=0
           rholms_here = lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
+          # CRITICAL: the concatenated series must carry the SAME epoch as the
+          # non-calibration branch (i.e. block 0's per-block epoch, after the roll/cut).
+          # Otherwise the time reference is wrong and ifirst lands in the wrong block,
+          # zeroing the signal -> the calmarg likelihood collapses.  The within-block
+          # offset (ifirst) is identical for every block, so block 0's epoch is the
+          # reference for all of them.
+          if index == 0:
+            rholms_so_far.epoch = rholms_here.epoch
           indx_start = index*N_window
           rholms_so_far.data.data[indx_start:indx_start+N_window] = rholms_here.data.data
          rholms[pair] = rholms_so_far
