@@ -1838,7 +1838,7 @@ def _factored_lnL_helper(kappa_sq, rho_sq):
     return kappa_sq - 0.5 * rho_sq
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None,return_cal_components=False):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time.
@@ -2151,7 +2151,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         cal_log_w = xpy.asarray(cal_log_weights, dtype=np.float64)
     cal_log_w_norm = float(np.log(n_cal))
 
-    if cal_method == 'fused' and not return_lnLt:
+    if cal_method == 'fused' and not return_lnLt and not return_cal_components:
         # ---- Option C: fused implementation (GPU CUDA kernel, or numpy on CPU) ----
         # (return_lnLt needs the per-time series, which the loop reduction produces, so
         #  the fused scalar kernel is bypassed when a timeseries is requested.)
@@ -2190,6 +2190,11 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
     running_max = None
     S = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
+    # Pilot/adaptive support: optionally collect the RAW (un-importance-weighted)
+    # time-integrated log-likelihood per realization, one value per extrinsic point.
+    # This is the cal posterior responsibility used by util_CalPilotFit to learn a
+    # proposal.  (loop method only; the fused scalar path is bypassed above.)
+    cal_components = xpy.zeros((npts_extrinsic, n_cal), dtype=np.float64) if return_cal_components else None
     for c in range(n_cal):
         kappa_sq_c = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
         for det in detectors:
@@ -2222,6 +2227,11 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             lnL_t_c = loglikelihood(xpy.abs(kappa_sq_c), rho_sq)
         else:
             lnL_t_c = loglikelihood(kappa_sq_c.real, rho_sq)
+        if return_cal_components:
+            # RAW per-realization time-integrated log L (no importance weight), stable:
+            #   log( simps_t exp(lnL_t,c) ) = m + log( simps_t exp(lnL_t,c - m) )
+            m_raw = xpy.max(lnL_t_c, axis=-1, keepdims=True)
+            cal_components[:, c] = m_raw[:, 0] + xpy.log(simps(xpy.exp(lnL_t_c - m_raw), dx=deltaT, axis=-1))
         # fold in this realization's importance log-weight
         lnL_t_c = lnL_t_c + cal_log_w[c]
 
@@ -2232,6 +2242,12 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             S *= xpy.exp(running_max - m_c)
             running_max = m_c
         S += xpy.exp(lnL_t_c - running_max)
+
+    if return_cal_components:
+        # (npts_extrinsic, n_cal): RAW per-realization integrated log-likelihood.  The
+        # caller (util_CalPilot / ILE dump) accumulates over the harvested extrinsic
+        # points to form the cal posterior responsibility, then fits a proposal.
+        return cal_components
 
     if return_lnLt:
         # cal-marginalized lnL at each time bin:

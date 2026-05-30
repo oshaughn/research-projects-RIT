@@ -146,3 +146,55 @@ the same interface.  Stub the schema + the consolidation/seed hooks now.
    write/consolidate breadcrumbs; seed the next run's cal realizations.
 5. **C DAG wiring** (pilot || wide || consolidation, the cap) in the pipeline builder --
    the largest, condor-DAG piece; stub with TODOs referencing this doc, build last.
+
+## Implemented executable decomposition (this branch)
+
+The pilot/seed loop is realized with two ILE flags + two thin CLIs, all opt-in (the
+default DAG and likelihood are byte-identical when unused):
+
+- `generate_realizations.py` (refactored, prior draws byte-identical):
+  - `build_realizations_from_nodes(...)` -- spline construction, shared by prior & proposal.
+  - `node_prior(...)` -- the diagonal-Gaussian cal prior per detector.
+  - `draw_prior_realizations_with_nodes(...)` -- prior draws that KEEP the node vectors
+    (cold pilot, N=0).
+  - `seed_realizations_from_breadcrumb(...) -> (factors, cal_log_weights, nodes)` -- draw
+    cal realizations from a learned proposal + Phase-0 weights log(prior/proposal).
+- `factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(..., return_cal_components=True)`
+  returns the RAW per-realization time-integrated log L `(npts_extrinsic, n_cal)` before
+  the cal collapse (loop method).  Validated: `logsumexp_c(components) - log(n_cal)` ==
+  the cal-marg lnL to ~1e-16.
+- ILE `--calibration-proposal-breadcrumb <bc>`: seed the run's cal realizations from the
+  proposal (+ thread `cal_log_weights` to all likelihood call sites & resample).  This is
+  what **wide_{N+1}** uses.
+- ILE `--calibration-dump-responsibilities <out>` (+ `--calibration-pilot-extrinsic`):
+  the **pilot**.  Keeps the cal node draws; at each analyzed (harvested) intrinsic point,
+  evaluates `return_cal_components` over a uniform-prior extrinsic batch and accumulates
+  `int dOmega L_c` per realization; writes `(nodes, log_resp=log_w+log int L_c, prior...)`.
+  If `--calibration-proposal-breadcrumb` is ALSO given, the pilot draws FROM that proposal
+  (refinement: pilot_N seeded by consolidation_{N-1}) and folds `log_w` into `log_resp`.
+- `bin/util_CalPilotFit.py`: pool dumps -> `adaptive.fit_proposal` (AUTO-TEMPERED: pick the
+  largest beta<=1 whose tempered neff >= `target_neff_frac*n_cal`, so a low-neff cold draw
+  cannot collapse the proposal) -> breadcrumb.
+- `bin/util_CalConsolidate.py`: precision-weighted combine of pilot breadcrumbs (or a
+  single-input pass-through) -> the consolidated proposal that seeds wide_{N+1}.
+
+The across-DAG-iteration loop (pilot_N seeded by consolidation_{N-1}, refit, ...) is
+exactly `adaptive.adaptive_cal` UNROLLED over RIFT iterations -- no extra serial cost.
+
+## Convergence characterization (measured)
+
+The cal node space is high-dimensional (2 * spline_count * n_det; e.g. 60 for 10 nodes x
+3 IFOs).  A single Gaussian proposal learned from one prior shot in this space converges
+SLOWLY when the cal posterior is strongly displaced/narrowed vs the prior: in a stress
+test (12 of 60 nodes offset 1 sigma, tightened to 0.5 sigma) the responsibility neff sits
+~1-3 and `|mean-true|` only falls to ~0.5 sigma over many rounds -- and the reference
+`adaptive.adaptive_cal` behaves the SAME (this is intrinsic to broad-prior importance
+sampling in high-D, not a wiring defect).  Two things make this acceptable:
+1. **Correctness is independent of pilot quality.** The Phase-0 importance weights make
+   the marginalization UNBIASED for any proposal; a poor pilot only lowers `neff_cal`.
+2. **Real cal is boring.** Posteriors are small, smooth, near-prior displacements; in a
+   benign regime (offset ~0.3 sigma) the prior is already a decent proposal and the pilot
+   gives a modest neff gain.  The big wins are when cal is genuinely informative, where
+   the across-iteration climb accumulates.
+For a sharp high-D posterior the right long-term tool is **B (normalizing flow)** behind
+the same breadcrumb interface -- a single Gaussian is the deliberate first cut.

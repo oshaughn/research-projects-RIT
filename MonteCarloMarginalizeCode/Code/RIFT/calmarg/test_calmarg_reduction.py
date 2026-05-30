@@ -75,6 +75,22 @@ maxerr = np.max(np.abs(np.array(lnL_new) - np.array(lnL_ref)))
 print("max abs error :", maxerr)
 assert maxerr < 1e-9, "MISMATCH: cal-marg reduction != brute-force reference"
 
+# --- return_cal_components: raw per-realization integrated log L, (npts_extrinsic, n_cal) ---
+# Collapsing it by hand must reproduce the cal-marg lnL:
+#   lnL_marg(i) = logsumexp_c comp[i,c] - log(n_cal)   (uniform weights)
+comp = fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
+    tvals, P, lookupNKDict, rholmsArrayDict, ctUArrayDict, ctVArrayDict, epochDict,
+    Lmax=2, xpy=np, n_cal=n_cal, return_cal_components=True)
+comp = np.array(comp)
+assert comp.shape == (npts_extrinsic, n_cal), "cal_components shape %s" % (comp.shape,)
+# each column must equal the per-block n_cal==1 evaluation (raw, no weight)
+assert np.max(np.abs(comp.T - lnL_blocks)) < 1e-9, "cal_components != per-block reference"
+lnL_from_comp = logsumexp(comp, axis=1) - np.log(n_cal)
+assert np.max(np.abs(lnL_from_comp - np.array(lnL_new))) < 1e-9, \
+    "collapse of cal_components != cal-marg lnL"
+print("cal_components check: max err vs blocks = %.2e ; collapse matches lnL" %
+      np.max(np.abs(comp.T - lnL_blocks)))
+
 # --- also confirm n_cal==1 on the full concat == block-0 evaluation (regression) ---
 lnL_n1_full = fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
     tvals, P, lookupNKDict, {det: rho[:, :N_window].copy()}, ctUArrayDict, ctVArrayDict,
