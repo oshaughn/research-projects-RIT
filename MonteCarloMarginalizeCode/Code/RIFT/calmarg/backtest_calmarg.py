@@ -439,6 +439,52 @@ def run_physics_backtest(precompute_or_config=None, cal_envelope_dir=None,
         "see docstring for the intended flow. Run on the stable host post-update.")
 
 
+def scan_timing(methods, backend="gpu", n_cal_list=(1, 10, 50, 100, 200),
+                repeat=5, loglikelihood_mode="default", real_table=None, **case_kwargs):
+    """Per-likelihood-evaluation wall-time vs n_cal, to quantify the cost of
+    calibration marginalization (and the brute-force reference) for planning.
+
+    Reports best-of-`repeat` ms per call for each method at each n_cal.  The
+    reference (brute force) does n_cal separate n_cal==1 evaluations, so its cost
+    scales ~linearly in n_cal; loop reuses the kernel per realization; fused does it
+    in one launch.  Multiply by (n_iterations * blocks-per-iteration) to estimate the
+    full-integration cost."""
+    xpy = _backend(backend)
+    print("# timing scan  backend=%s  dets=%s  npts_extrinsic=%d  loglike=%s"
+          % (backend, case_kwargs.get("dets", "H1,L1"),
+             case_kwargs.get("npts_extrinsic", 64), loglikelihood_mode))
+    print("# %-6s " % "n_cal" + "".join("%14s" % m for m in methods) + "   (ms/eval, best of %d)" % repeat)
+    for n_cal in n_cal_list:
+        ck = dict(case_kwargs); ck["n_cal"] = n_cal
+        loglikelihood = None
+        if loglikelihood_mode == "distmarg":
+            ck["psd_UV"] = True
+            case = make_synthetic_case(**ck)
+            case["dist"] = np.full(case["npts_extrinsic"], fl.distMpcRef) * (lal.PC_SI*1e6)
+            params = (load_real_distmarg_table(real_table, xpy) if real_table
+                      else make_distmarg_table(xpy))
+            case["cal_distmarg"] = params
+            loglikelihood = make_distmarg_loglikelihood(params, xpy)
+        else:
+            case = make_synthetic_case(**ck)
+        row = []
+        for name in methods:
+            fn = METHODS[name]
+            try:
+                fn(case, xpy, loglikelihood=loglikelihood)  # warm-up
+                _sync(xpy)
+                best = float("inf")
+                for _ in range(repeat):
+                    t0 = time.perf_counter()
+                    fn(case, xpy, loglikelihood=loglikelihood)
+                    _sync(xpy)
+                    best = min(best, time.perf_counter() - t0)
+                row.append("%14.3f" % (best * 1e3))
+            except Exception as e:
+                row.append("%14s" % ("ERR:" + type(e).__name__))
+        print("  %-6d" % n_cal + "".join(row))
+
+
 def _parse_args():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -459,6 +505,8 @@ def _parse_args():
                    help="inject non-uniform per-realization importance log-weights (validate the weighted reduction)")
     p.add_argument("--phase-marginalization", action="store_true")
     p.add_argument("--seed", type=int, default=1234)
+    p.add_argument("--scan-ncal", default=None,
+                   help="comma-separated n_cal values: time each method per n_cal instead of validating")
     return p.parse_args()
 
 
@@ -470,6 +518,13 @@ if __name__ == "__main__":
         raise SystemExit("unknown methods: %s (known: %s)"
                          % (unknown, list(METHODS)))
     dets = tuple(d.strip() for d in args.dets.split(",") if d.strip())
+    if args.scan_ncal:
+        n_cal_list = [int(x) for x in args.scan_ncal.split(",") if x.strip()]
+        scan_timing(methods, backend=args.backend, n_cal_list=n_cal_list,
+                    repeat=args.repeat, loglikelihood_mode=args.loglikelihood,
+                    real_table=args.real_table, npts_extrinsic=args.npts_extrinsic,
+                    N_window=args.N_window, npts=args.npts, seed=args.seed, dets=dets)
+        raise SystemExit(0)
     ok = run_backtest(
         methods, backend=args.backend, repeat=args.repeat,
         phase_marginalization=args.phase_marginalization,
