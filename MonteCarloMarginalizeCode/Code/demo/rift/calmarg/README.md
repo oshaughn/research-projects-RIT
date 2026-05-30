@@ -67,6 +67,24 @@ the **last column is `neff`** (effective sample count, a sampler diagnostic — 
 the result). `make compare` reads the right column and also prints `neff` and the
 sampling error; don't compare the last column.
 
+## Convergence caveat (read before trusting a single full-sampler lnL)
+
+This demo analyzes **one** intrinsic point with the matched template, so the extrinsic
+likelihood is a single narrow peak. RIFT's adaptive extrinsic sampler can struggle to
+lock such a peak robustly from a single point (the full pipeline normally seeds from a
+grid of points), and the convergence is sensitive to `NCHUNK`, SNR, and even the GPU
+environment. Symptoms of a *non-converged* run: `neff` of order 1 (one draw dominates),
+or `neff` large but lnL near 0 (the sampler spread into an off-peak region and missed
+the signal). Always sanity-check `sqrt(2*lnLmax)` in the run log — it should be ~the
+injected network SNR (≈17.5 here, ≈9 for the low-SNR variant); if it is, the signal was
+found and any oddness is marginalization/convergence, not a missing signal.
+
+Practical guidance: for a robust full-sampler run use the **low-SNR variant** (`make
+low-snr`, broad peak) and a modest `NCHUNK` (~1000). For the *rigorous* loop-vs-fused
+correctness check that does **not** depend on sampler convergence, use **`make
+verify-exact`** (deterministic, ~1e-14). The calibration-marginalization correctness
+claim rests on `verify-exact`; the full-sampler runs are an end-to-end illustration.
+
 ## How to read the results
 
 * **`make verify-exact` is the exact numerical proof.** It bypasses the stochastic
