@@ -275,7 +275,11 @@ def method_reference(case, xpy, phase_marginalization=False, loglikelihood=None)
             epochDict, Lmax=2, xpy=xpy, n_cal=1,
             loglikelihood=loglikelihood, phase_marginalization=phase_marginalization)
         lnL_blocks[c] = _to_host(out)
-    return logsumexp(lnL_blocks, axis=0) - np.log(n_cal)
+    lw = case.get("cal_log_weights")
+    if lw is None:
+        return logsumexp(lnL_blocks, axis=0) - np.log(n_cal)
+    lw = np.asarray(lw, dtype=float)
+    return logsumexp(lnL_blocks + lw[:, None], axis=0) - logsumexp(lw)
 
 
 def method_in_loop_B(case, xpy, phase_marginalization=False, loglikelihood=None):
@@ -288,6 +292,7 @@ def method_in_loop_B(case, xpy, phase_marginalization=False, loglikelihood=None)
     out = fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
         xpy.asarray(case["tvals"]), P, lookupNKDict, rholmsArrayDict, ctU, ctV,
         epochDict, Lmax=2, xpy=xpy, n_cal=case["n_cal"], cal_method='loop',
+        cal_log_weights=case.get("cal_log_weights"),
         loglikelihood=loglikelihood, phase_marginalization=phase_marginalization)
     return _to_host(out)
 
@@ -307,6 +312,7 @@ def method_in_loop_C(case, xpy, phase_marginalization=False, loglikelihood=None)
         xpy.asarray(case["tvals"]), P, lookupNKDict, rholmsArrayDict, ctU, ctV,
         epochDict, Lmax=2, xpy=xpy, n_cal=case["n_cal"], cal_method='fused',
         cal_distmarg=case.get("cal_distmarg"),
+        cal_log_weights=case.get("cal_log_weights"),
         loglikelihood=loglikelihood, phase_marginalization=phase_marginalization)
     return _to_host(out)
 
@@ -327,7 +333,8 @@ def _sync(xpy):
 
 
 def run_backtest(methods, backend="cpu", repeat=3, phase_marginalization=False,
-                 loglikelihood_mode="default", real_table=None, **case_kwargs):
+                 loglikelihood_mode="default", real_table=None,
+                 random_cal_weights=False, **case_kwargs):
     """Evaluate each method, time it, and report agreement vs 'reference' (if run)
     and vs 'in_loop_B'.
 
@@ -349,6 +356,10 @@ def run_backtest(methods, backend="cpu", repeat=3, phase_marginalization=False,
         loglikelihood = make_distmarg_loglikelihood(params, xpy)
     else:
         case = make_synthetic_case(**case_kwargs)
+    if random_cal_weights:
+        # non-uniform importance log-weights, to validate the weighted reduction
+        rng = np.random.default_rng(20240601)
+        case["cal_log_weights"] = rng.normal(0.0, 1.5, size=case["n_cal"])
     # distmarg's asinh/bilinear differ at ULP level between numpy and the kernel, so
     # the fused-vs-loop agreement is float-level rather than bit-level.
     tol = 1e-9 if loglikelihood_mode == "default" else 1e-6
@@ -444,6 +455,8 @@ def _parse_args():
                    help="default helper, or distance-marginalization loglikelihood")
     p.add_argument("--real-table", default=None,
                    help="path to a real util_InitMargTable .npz (distmarg mode) to backtest against")
+    p.add_argument("--random-cal-weights", action="store_true",
+                   help="inject non-uniform per-realization importance log-weights (validate the weighted reduction)")
     p.add_argument("--phase-marginalization", action="store_true")
     p.add_argument("--seed", type=int, default=1234)
     return p.parse_args()
@@ -461,6 +474,7 @@ if __name__ == "__main__":
         methods, backend=args.backend, repeat=args.repeat,
         phase_marginalization=args.phase_marginalization,
         loglikelihood_mode=args.loglikelihood, real_table=args.real_table,
+        random_cal_weights=args.random_cal_weights,
         n_cal=args.n_cal, npts_extrinsic=args.npts_extrinsic,
         N_window=args.N_window, npts=args.npts, seed=args.seed, dets=dets)
     raise SystemExit(0 if ok else 1)

@@ -14,7 +14,11 @@
   and accumulating a streaming, Simpson-weighted log-sum-exp over (c,t).  The
   result is the calibration-marginalized log likelihood
 
-        out[j] = log( (1/n_cal) * sum_c  sum_t w_t * exp(lnL_t(j,c,t)) ).
+        out[j] = log( sum_c sum_t w_t * exp(lnL_t(j,c,t) + log_w[c]) ) - log_w_norm,
+
+  where log_w[c] are per-realization importance log-weights (log_w_norm =
+  logsumexp(log_w)); for uniform weights log_w[c]=0 and log_w_norm=log(n_cal), giving
+  the plain (1/n_cal) average.  This supports adaptive / importance cal sampling.
 
   rho_sq is calibration-independent and is passed in pre-summed over detectors.
   w_t are the composite-Simpson quadrature weights (including dx=deltaT), so the
@@ -39,6 +43,8 @@ extern "C" {
     const double * invDist,
     const double * rho_sq,
     const double * w_t,
+    const double * log_w,
+    double log_w_norm,
     int n_det,
     int n_cal,
     int N_window,
@@ -55,11 +61,12 @@ extern "C" {
 
     /* streaming weighted log-sum-exp accumulators (first-iteration flag avoids
        needing an explicit -infinity, which is awkward under NVRTC) */
-    double m = 0.0;         /* running max of lnL_t */
-    double S = 0.0;         /* running sum_  w_t * exp(lnL_t - m) */
+    double m = 0.0;         /* running max of (lnL_t + log_w[c]) */
+    double S = 0.0;         /* running sum_  w_t * exp(lnL_t + log_w[c] - m) */
     bool first = true;
 
     for (int c = 0; c < n_cal; ++c) {
+      const double lw = log_w[c];   /* per-realization importance log-weight */
       for (int t = 0; t < npts; ++t) {
         complex<double> kappa = complex<double>(0.0, 0.0);
         for (int d = 0; d < n_det; ++d) {
@@ -81,7 +88,7 @@ extern "C" {
           }
         }
 
-        double lnLt = inv * kappa.real() - 0.5 * rho_sq[(size_t)j * npts + t];
+        double lnLt = inv * kappa.real() - 0.5 * rho_sq[(size_t)j * npts + t] + lw;
         double wt = w_t[t];
 
         if (first) {
@@ -97,7 +104,7 @@ extern "C" {
       } /* t */
     } /* c */
 
-    out[j] = m + log(S) - log((double)n_cal);
+    out[j] = m + log(S) - log_w_norm;
   } /* Q_fused_calmarg */
 
 } /* extern "C" */

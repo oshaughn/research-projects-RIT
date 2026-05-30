@@ -39,8 +39,25 @@ def _get_kernel_distmarg():
     return _kernel_distmarg
 
 
+def _prep_log_w(cal_log_weights, n_cal):
+    """Return (log_w cupy array length n_cal, log_w_norm float = logsumexp(log_w)).
+    cal_log_weights=None -> uniform (log_w=0, log_w_norm=log(n_cal)), i.e. the plain
+    (1/n_cal) average."""
+    if cal_log_weights is None:
+        log_w = cupy.zeros(n_cal, dtype=cupy.float64)
+        log_w_norm = float(np.log(n_cal))
+    else:
+        # cupy.asarray (not ascontiguousarray) so a host numpy array is accepted/transferred
+        log_w = cupy.ascontiguousarray(cupy.asarray(cal_log_weights, dtype=cupy.float64))
+        assert log_w.shape == (n_cal,), \
+            "cal_log_weights shape %s != (%d,)" % (log_w.shape, n_cal)
+        mx = float(cupy.max(log_w))
+        log_w_norm = mx + float(cupy.log(cupy.sum(cupy.exp(log_w - mx))))
+    return log_w, log_w_norm
+
+
 def Q_fused_calmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
-                         threads_per_block=256):
+                         cal_log_weights=None, threads_per_block=256):
     """Compute the calibration-marginalized factored log likelihood per extrinsic
     sample in a single kernel launch.
 
@@ -86,13 +103,14 @@ def Q_fused_calmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
     assert npts_full == N_window * n_cal, \
         "npts_full=%d != N_window*n_cal=%d*%d" % (npts_full, N_window, n_cal)
 
+    log_w, log_w_norm = _prep_log_w(cal_log_weights, n_cal)
     out = cupy.empty(n_ext, dtype=cupy.float64)
 
     fn = _get_kernel()
     grid = ((n_ext + threads_per_block - 1) // threads_per_block,)
     block = (threads_per_block,)
     fn(grid, block, (
-        Q, A, ifirst, invDist, rho_sq, w_t,
+        Q, A, ifirst, invDist, rho_sq, w_t, log_w, np.float64(log_w_norm),
         np.int32(n_det), np.int32(n_cal), np.int32(N_window), np.int32(npts),
         np.int32(n_lms), np.int32(n_ext), np.int32(npts_full),
         out,
@@ -102,7 +120,7 @@ def Q_fused_calmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
 
 def Q_fused_calmarg_distmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t,
                                   n_cal, N_window, distmarg,
-                                  threads_per_block=256):
+                                  cal_log_weights=None, threads_per_block=256):
     """Fused calibration + distance marginalization (Option C stage 2).
 
     Same as Q_fused_calmarg_cupy, but applies the distance-marginalization
@@ -134,13 +152,14 @@ def Q_fused_calmarg_distmarg_cupy(Q, A, ifirst, invDist, rho_sq, w_t,
     assert npts_full == N_window * n_cal, \
         "npts_full=%d != N_window*n_cal=%d*%d" % (npts_full, N_window, n_cal)
 
+    log_w, log_w_norm = _prep_log_w(cal_log_weights, n_cal)
     out = cupy.empty(n_ext, dtype=cupy.float64)
 
     fn = _get_kernel_distmarg()
     grid = ((n_ext + threads_per_block - 1) // threads_per_block,)
     block = (threads_per_block,)
     fn(grid, block, (
-        Q, A, ifirst, invDist, rho_sq, w_t, lnI,
+        Q, A, ifirst, invDist, rho_sq, w_t, log_w, np.float64(log_w_norm), lnI,
         np.float64(distmarg["s0"]), np.float64(distmarg["ds"]),
         np.float64(distmarg["smin"]), np.float64(distmarg["smax"]), np.int32(ns),
         np.float64(distmarg["t0"]), np.float64(distmarg["dt"]),

@@ -43,6 +43,8 @@ extern "C" {
     const double * invDist,
     const double * rho_sq,
     const double * w_t,
+    const double * log_w,
+    double log_w_norm,
     const double * lnI_array,
     double s0, double ds, double smin, double smax, int ns,
     double t0, double dt, double tmax, int nt,
@@ -66,6 +68,7 @@ extern "C" {
     bool first = true;
 
     for (int c = 0; c < n_cal; ++c) {
+      const double lw = log_w[c];   /* per-realization importance log-weight */
       for (int t = 0; t < npts; ++t) {
         complex<double> kappa = complex<double>(0.0, 0.0);
         for (int d = 0; d < n_det; ++d) {
@@ -119,7 +122,7 @@ extern "C" {
         double x0c = x0;
         if (x0c < xmin) x0c = xmin;
         if (x0c > xmax) x0c = xmax;
-        double lnLt = rsq * x0c * (x0 - 0.5 * x0c) + lnI;
+        double lnLt = rsq * x0c * (x0 - 0.5 * x0c) + lnI + lw;
 
         double wt = w_t[t];
         if (first) {
@@ -135,7 +138,7 @@ extern "C" {
       } /* t */
     } /* c */
 
-    out[j] = m + log(S) - log((double)n_cal);
+    out[j] = m + log(S) - log_w_norm;
   } /* Q_fused_calmarg_distmarg */
 
 } /* extern "C" */

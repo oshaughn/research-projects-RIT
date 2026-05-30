@@ -1830,7 +1830,7 @@ def _factored_lnL_helper(kappa_sq, rho_sq):
     return kappa_sq - 0.5 * rho_sq
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time.
@@ -2127,6 +2127,18 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     if return_lnLt:
         raise NotImplementedError("return_lnLt is not supported with calibration marginalization (n_cal>1)")
 
+    # Per-realization importance log-weights for the cal marginalization.  Default
+    # (None) is uniform -> the plain (1/n_cal) average; non-uniform weights support
+    # adaptive / importance cal sampling (w_c = prior(c)/proposal(c)).  The weighted
+    # marginal is  sum_c exp(log_w[c]) * Z_c / sum_c exp(log_w[c]).
+    if cal_log_weights is None:
+        cal_log_w = xpy.zeros(n_cal, dtype=np.float64)
+        cal_log_w_norm = float(np.log(n_cal))
+    else:
+        cal_log_w = xpy.asarray(cal_log_weights, dtype=np.float64)
+        _mx = float(xpy.max(cal_log_w))
+        cal_log_w_norm = _mx + float(xpy.log(xpy.sum(xpy.exp(cal_log_w - _mx))))
+
     if cal_method == 'fused':
         # ---- Option C: single fused CUDA kernel ----
         if xpy is np:
@@ -2152,11 +2164,11 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         if cal_distmarg is None:
             return Q_fused_calmarg.Q_fused_calmarg_cupy(
                 Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
-                n_cal, N_window_block)
+                n_cal, N_window_block, cal_log_weights=cal_log_weights)
         else:
             return Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy(
                 Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
-                n_cal, N_window_block, cal_distmarg)
+                n_cal, N_window_block, cal_distmarg, cal_log_weights=cal_log_weights)
 
     running_max = None
     S = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
@@ -2192,6 +2204,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             lnL_t_c = loglikelihood(xpy.abs(kappa_sq_c), rho_sq)
         else:
             lnL_t_c = loglikelihood(kappa_sq_c.real, rho_sq)
+        # fold in this realization's importance log-weight
+        lnL_t_c = lnL_t_c + cal_log_w[c]
 
         m_c = xpy.max(lnL_t_c)
         if running_max is None:
@@ -2202,8 +2216,8 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         S += xpy.exp(lnL_t_c - running_max)
 
     L = simps(S, dx=deltaT, axis=-1)
-    # lnL = max + log( (1/n_cal) sum_c \int dt exp(lnL_t - max) )
-    lnL = running_max + xpy.log(L) - np.log(n_cal)
+    # lnL = max + log( sum_c exp(log_w[c]) \int dt exp(lnL_t - max) ) - logsumexp(log_w)
+    lnL = running_max + xpy.log(L) - cal_log_w_norm
 
     return lnL
 
