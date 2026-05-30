@@ -2140,9 +2140,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         cal_log_w_norm = _mx + float(xpy.log(xpy.sum(xpy.exp(cal_log_w - _mx))))
 
     if cal_method == 'fused':
-        # ---- Option C: single fused CUDA kernel ----
-        if xpy is np:
-            raise NotImplementedError("cal_method='fused' requires the GPU (cupy) backend")
+        # ---- Option C: fused implementation (GPU CUDA kernel, or numpy on CPU) ----
         if phase_marginalization:
             raise NotImplementedError("fused cal kernel does not yet support phase marginalization")
         if cal_distmarg is None and loglikelihood is not _factored_lnL_helper:
@@ -2161,6 +2159,11 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         # fiducial) and a vector when distance is sampled; the kernel wants one value
         # per extrinsic sample, so broadcast to (npts_extrinsic,).
         invDist_vec = xpy.asarray(invDistMpc, dtype=np.float64) * xpy.ones(npts_extrinsic, dtype=np.float64)
+        if xpy is np:
+            # CPU: pure-numpy fused (no CUDA); independent cross-check of the kernel
+            return Q_fused_calmarg.Q_fused_calmarg_numpy(
+                Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
+                n_cal, N_window_block, distmarg=cal_distmarg, cal_log_weights=cal_log_weights)
         if cal_distmarg is None:
             return Q_fused_calmarg.Q_fused_calmarg_cupy(
                 Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
