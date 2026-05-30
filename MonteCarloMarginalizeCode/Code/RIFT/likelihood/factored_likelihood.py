@@ -2164,16 +2164,26 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         kappa_sq_c = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
         for det in detectors:
             Q_det, FY_conj_det, ifirst_det, N_window_block = cal_cache[det]
-            ifirst_c = (ifirst_det + c * N_window_block).astype(np.int32)
+            # Restrict to THIS realization block and use the within-block offset, so
+            # the window is confined to [0, N_window): an over-running window then
+            # zeros (the shared kernel / CPU fill below guard against N_window_block)
+            # instead of bleeding into the neighbouring block or reading out of
+            # bounds.  This matches the per-block n_cal==1 reference and the fused
+            # kernel exactly.
+            Q_block = Q_det[c*N_window_block:(c+1)*N_window_block]   # (N_window, n_lms)
+            ifirst_within = ifirst_det.astype(np.int32)
             if not (xpy is np):
                 Q_prod_result = Q_inner_product.Q_inner_product_cupy(
-                    Q_det, FY_conj_det, ifirst_c, npts,
+                    Q_block, FY_conj_det, ifirst_within, npts,
                 )
             else:
-                n_lms_det = Q_det.shape[1]
-                Qlms = xpy.empty((npts_extrinsic, npts, n_lms_det), dtype=np.complex128)
+                n_lms_det = Q_block.shape[1]
+                Qlms = xpy.zeros((npts_extrinsic, npts, n_lms_det), dtype=np.complex128)
+                tgrid = np.arange(npts)
                 for i in range(npts_extrinsic):
-                    Qlms[i] = Q_det[ifirst_c[i]:(ifirst_c[i]+npts), :]
+                    idxs = int(ifirst_within[i]) + tgrid
+                    valid = (idxs >= 0) & (idxs < N_window_block)
+                    Qlms[i, valid] = Q_block[idxs[valid]]
                 # Q_det and FY_conj_det already encode any phase-marg conjugation
                 Q_prod_result = np.einsum("ej,etj->et", FY_conj_det, Qlms)
             kappa_sq_c += Q_prod_result * invDistMpc[..., np.newaxis]

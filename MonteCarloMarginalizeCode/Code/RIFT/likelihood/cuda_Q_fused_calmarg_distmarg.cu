@@ -68,14 +68,17 @@ extern "C" {
     for (int c = 0; c < n_cal; ++c) {
       for (int t = 0; t < npts; ++t) {
         complex<double> kappa = complex<double>(0.0, 0.0);
-        bool in_range = true;
         for (int d = 0; d < n_det; ++d) {
-          long base = (long)ifirst[(size_t)d * n_ext + j] + (long)c * N_window;
-          long idx = base + (long)t;
-          /* guard against out-of-range window offsets (e.g. pathological /
-             NaN extrinsic draws from the sampler) so we never do an illegal
-             memory access; such (c,t) samples simply do not contribute. */
-          if (idx < 0 || idx >= (long)npts_full) { in_range = false; break; }
+          long within = (long)ifirst[(size_t)d * n_ext + j] + (long)t;
+          /* The window must stay inside THIS detector's realization block c, i.e.
+             the within-block offset must lie in [0, N_window).  An out-of-range
+             offset (window extends past the rholm buffer for an extreme sky
+             position, or a pathological/NaN draw) means this detector contributes
+             zero at this (c,t) -- matching the per-block n_cal==1 behavior.  This
+             also prevents reading a neighbouring block (a non-last-block overflow
+             would otherwise bleed into block c+1) or out of bounds entirely. */
+          if (within < 0 || within >= (long)N_window) continue;
+          long idx = within + (long)c * N_window;
           const complex<double> * Qd = Q + (size_t)d * npts_full * n_lms;
           const complex<double> * Ad = A + ((size_t)d * n_ext + j) * n_lms;
           long qrow = idx * (long)n_lms;
@@ -83,7 +86,6 @@ extern "C" {
             kappa += Ad[lm] * Qd[qrow + lm];
           }
         }
-        if (!in_range) continue;
 
         double kappa_sq = inv * kappa.real();
         double rsq = rho_sq[(size_t)j * npts + t];
