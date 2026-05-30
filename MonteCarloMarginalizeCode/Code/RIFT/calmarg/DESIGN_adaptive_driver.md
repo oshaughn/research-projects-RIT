@@ -145,7 +145,47 @@ the same interface.  Stub the schema + the consolidation/seed hooks now.
 4. **C core** -- harvest top-fraction from a `*.composite`; fit (adaptive.fit_proposal);
    write/consolidate breadcrumbs; seed the next run's cal realizations.
 5. **C DAG wiring** (pilot || wide || consolidation, the cap) in the pipeline builder --
-   the largest, condor-DAG piece; stub with TODOs referencing this doc, build last.
+   DONE (opt-in; default DAG byte-identical).  See "DAG wiring" below.  NEEDS a condor
+   smoke test on a real cluster run (cannot be exercised off-cluster), like the main-path
+   GPU end-to-end test.
+
+## DAG wiring (implemented; opt-in via `--calmarg-pilot`)
+
+A single per-iteration **calpilot** condor job collapses harvest -> dump -> fit ->
+consolidate into one process (`bin/util_CalPilotStage.py`), so the pipeline-builder
+surgery is minimal and the steps (which are serial anyway) stay in one place:
+
+```
+  iteration N composite ──► CALPILOT_N (util_CalPilotStage.py):
+       1. util_CalHarvestGrid.py   top-frac high-lnL pts -> cal_pilot_grid_N.xml.gz
+       2. ILE --calibration-dump-responsibilities (cheap: skips the extrinsic sampler)
+          [+ --calibration-proposal-breadcrumb cal_consolidated_{N-1}.npz  -> refine]
+       3. util_CalPilotFit.py       -> cal_proposal_N.npz   (auto-tempered)
+       4. util_CalConsolidate.py    -> cal_consolidated_N.npz
+                                   │
+       (CALPILOT_N runs ∥ CIP_N/puff_N; parent = unify_N, does NOT gate them)
+                                   ▼
+  wide ILE jobs of iteration N+1  --calibration-proposal-breadcrumb cal_consolidated_N.npz
+       (depend on CALPILOT_N; a missing breadcrumb at early N falls back to the prior)
+```
+
+- `dag_utils.write_calpilot_sub` defines the job; `create_event_parameter_pipeline_BasicIteration`
+  instantiates `calpilot_node` per active iteration (parent `unify_node`), records it, and
+  makes iteration N+1's wide ILE nodes depend on `calpilot_node[N]`.  ILE nodes carry a new
+  `macroiterationprev` macro so the per-iteration breadcrumb path resolves.
+- **Cap & cadence**: `--calmarg-pilot-max-it` (default 3), `--calmarg-pilot-cadence`
+  (default 1) -- pilots stop once cal is learned (cal is boring), freezing the proposal.
+- `util_RIFT_pseudo_pipe.py`: `--calmarg-pilot[-cadence|-max-it|-top-fraction|-max-points]`
+  add the CEPP flags and append the `--calibration-proposal-breadcrumb
+  .../cal_consolidated_$(macroiterationprev).npz` to the wide ILE args (args_ile.txt).
+
+Run: add `--calmarg-pilot` to a `util_RIFT_pseudo_pipe.py` invocation that already uses
+`--calmarg-envelope-directory ...`.  Everything is opt-in; without `--calmarg-pilot` the
+DAG and ILE behavior are unchanged.
+
+NOTE (subdag/exploded-ILE): the seed dependency is wired for the standard ILE batch path;
+the `--ile-group-subdag` grouped path would need the dependency placed on the subdag node
+(left as a follow-up; uncommon for calmarg runs).
 
 ## Implemented executable decomposition (this branch)
 

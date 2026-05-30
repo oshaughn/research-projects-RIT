@@ -82,6 +82,7 @@ def add_batch_ILE_nodes_to_dag(my_dag,my_ile_job,my_parent_node, my_child_node, 
         ile_node.add_macro("macroevent", event*n_group)
         ile_node.add_macro("macrongroup", n_group)
         ile_node.add_macro("macroiteration", it)
+        ile_node.add_macro("macroiterationprev", it-1)   # Option C cal-pilot seed path
         if not(my_parent_node is None):
             ile_node.add_parent(my_parent_node)
         if it == it_start:
@@ -239,6 +240,11 @@ parser.add_argument("--puff-exe",default=None,help="util_ParameterPuffball.py")
 parser.add_argument("--puff-args",default=None,help="util_ParameterPuffball arguments.  If not specified, puffball will not be performed  ")
 parser.add_argument("--puff-cadence",default=None,type=int,help="Every n iterations (not including 0), the puffball code will be applied.  Puffball points will be done *in addition* to the usual results from the DAG.  (The puffball is based on perturbing points from that iteration, and this will roughly double that iteration in ILE job size).  Proposed value 2 (i.e., puff overlap-grid-2, ...-4, ...-6.  If not specified, puffball will not be performed ")
 parser.add_argument("--puff-max-it",default=-1,type=int,help="Maximum iteration number that puffball is applied.  If negative, puffball is not applied ")
+parser.add_argument("--calmarg-pilot",action='store_true',help="Option C adaptive calibration: add per-iteration cal PILOT jobs (harvest top-lnL points from iteration N's composite, run ILE --calibration-dump-responsibilities, fit+consolidate a cal proposal that SEEDS wide_{N+1} via --calibration-proposal-breadcrumb).  Requires the wide ILE args to already carry the calibration envelope + (per-iteration) proposal-breadcrumb path.")
+parser.add_argument("--calmarg-pilot-cadence",default=1,type=int,help="Run a cal pilot every n iterations.  Default 1 (every iteration until the cap).")
+parser.add_argument("--calmarg-pilot-max-it",default=3,type=int,help="Stop launching cal pilots after this iteration (cal is boring -> freeze the proposal once learned).  Default 3.")
+parser.add_argument("--calmarg-pilot-top-fraction",default=0.05,type=float,help="Fraction of highest-lnL composite points the pilot harvests for full cal.")
+parser.add_argument("--calmarg-pilot-max-points",default=32,type=int,help="Cap on harvested pilot points per iteration.")
 parser.add_argument("--first-iteration-jumpstart",action='store_true',help="No ILE jobs the first iteration.  Assumes you already have .composite files and want to get going. Particularly helpful for subdag systems")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Configure last iteration to extract *one* set of extrinsic parameters from each intrinsic point. [This is highly inefficient, but people like having one extrinsic point per intrinsic point.]  Requires --convert-args")
 parser.add_argument("--last-iteration-extrinsic-nsamples",default=3000,type=int,help="Construct this number of extrinsic samples")
@@ -1111,6 +1117,24 @@ if puff_args and puff_cadence:
     puff_job.write_sub_file()
 
 
+##   calibration PILOT job (Option C adaptive cal; see RIFT/calmarg/DESIGN_adaptive_driver.md)
+calpilot_job = None
+calpilot_node_per_iteration = {}
+if opts.calmarg_pilot:
+    calpilot_log_dir = opts.working_directory + "/iteration_$(macroiteration)_cip/logs/"
+    calpilot_job, calpilot_job_name = dag_utils.write_calpilot_sub(
+        tag='CALPILOT', log_dir=calpilot_log_dir, working_directory=opts.working_directory,
+        ile_args_file=opts.working_directory + "/args_ile.txt",
+        top_fraction=opts.calmarg_pilot_top_fraction, max_points=opts.calmarg_pilot_max_points,
+        request_memory=opts.request_memory_ILE, request_gpu=opts.request_gpu_ILE,
+        universe="vanilla",
+        singularity_image=(singularity_image if opts.condor_containerize_nonworker else None))
+    calpilot_job.add_condor_cmd("initialdir", opts.working_directory + "/iteration_$(macroiteration)_cip")
+    if opts.use_full_submit_paths:
+        calpilot_job.set_sub_file(opts.working_directory + "/" + calpilot_job.get_sub_file())
+    calpilot_job.write_sub_file()
+
+
 ##   fetch job.  Fetch is before CURRENT iteration, so it is just-in-time and can be used at iteration 0
 if fetch_args:
     fetch_job, fetch_job_name = dag_utils.write_puff_sub(tag='FETCH',log_dir=None,arg_str=fetch_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/fetch-$(macroiteration).xml.gz',out_dir=opts.working_directory,exe=opts.fetch_ext_grid_exe,universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
@@ -1581,6 +1605,14 @@ for it in np.arange(it_start,opts.n_iterations):
             dag.add_node(main_analysis_node)
         else:
             add_batch_ILE_nodes_to_dag(dag, ile_job, parent_fit_node, con_node, indx_max, n_group_here, it, n_retries=opts.ile_retries,it_start=it_start,convert_psd_node_list=convert_psd_node_list,node_list_dict=ile_node_list_per_iteration)
+            # Option C: the wide ILE jobs of iteration `it` are SEEDED from the cal proposal
+            # learned by the PREVIOUS iteration's pilot -> make them depend on calpilot_{it-1}
+            # so cal_consolidated_{it-1}.npz exists (the seed barrier).  The ILE args carry
+            # --calibration-proposal-breadcrumb .../cal_consolidated_$(macroiterationprev).npz;
+            # a missing file (early iterations) falls back to the prior inside ILE.
+            if calpilot_job and ((it-1) in calpilot_node_per_iteration):
+                for _ile_node in ile_node_list_per_iteration[it]:
+                    _ile_node.add_parent(calpilot_node_per_iteration[it-1])
 #       for event in np.arange(indx_max): #np.arange(n_jobs_this_time):
 #         # Add task per ILE operation
 #         ile_node = pipeline.CondorDAGNode(ile_job)
@@ -1871,11 +1903,26 @@ for it in np.arange(it_start,opts.n_iterations):
         puff_node.set_retry(opts.general_retries)
         if not (parent_fit_node is None):
             puff_node.add_parent(parent_fit_node)  # only fit if we have results from the previous iteration
-        dag.add_node(puff_node) 
-        
+        dag.add_node(puff_node)
+
         parent_fit_node = puff_node
 
-        
+    # Calibration PILOT for this iteration (Option C).  Runs IN PARALLEL with CIP/puff --
+    # it does NOT gate them (parent_fit_node is left untouched) -- harvesting iteration
+    # it's composite (via unify_node, which guarantees a non-empty composite) and emitting
+    # cal_consolidated_<it>.npz, which SEEDS the wide ILE jobs of iteration it+1.
+    if calpilot_job and (it <= opts.calmarg_pilot_max_it) and (it % opts.calmarg_pilot_cadence == 0):
+        print(" Calibration pilot for iteration ", it)
+        calpilot_node = pipeline.CondorDAGNode(calpilot_job)
+        calpilot_node.add_macro("macroiteration", it)
+        calpilot_node.add_macro("macroiterationprev", it-1)
+        calpilot_node.set_category("CALPILOT")
+        calpilot_node.set_retry(opts.general_retries)
+        calpilot_node.add_parent(unify_node)   # need iteration it's (non-empty) composite
+        dag.add_node(calpilot_node)
+        calpilot_node_per_iteration[it] = calpilot_node
+
+
 
     # Create convert node, which depends on fit node, *if* tests are being performed
     if opts.test_args:

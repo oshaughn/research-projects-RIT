@@ -160,6 +160,11 @@ parser.add_argument("--calmarg-envelope-directory",default=None,type=str,help="E
 parser.add_argument("--calmarg-n-realizations",default=100,type=int,help="Number of calibration realizations for in-loop calmarg. Threaded to ILE as --calibration-n-realizations.")
 parser.add_argument("--calmarg-spline-count",default=10,type=int,help="Number of spline nodes for in-loop calmarg envelopes. Threaded to ILE as --calibration-spline-count.")
 parser.add_argument("--calmarg-fused-kernel",action='store_true',help="Use the fused GPU kernel (Option C) for in-loop calmarg. GPU only; ILE falls back to the loop method otherwise. Threaded to ILE as --calibration-fused-kernel.")
+parser.add_argument("--calmarg-pilot",action='store_true',help="Option C adaptive calibration: add per-iteration cal PILOT jobs that learn a cal proposal (harvest top-lnL composite points -> ILE --calibration-dump-responsibilities -> fit+consolidate) and SEED the next iteration's wide ILE jobs via --calibration-proposal-breadcrumb. Requires --calmarg-envelope-directory.")
+parser.add_argument("--calmarg-pilot-cadence",default=1,type=int,help="Run a cal pilot every n iterations (default 1).")
+parser.add_argument("--calmarg-pilot-max-it",default=3,type=int,help="Stop launching cal pilots after this iteration (cal is boring; freeze once learned). Default 3.")
+parser.add_argument("--calmarg-pilot-top-fraction",default=0.05,type=float,help="Fraction of highest-lnL composite points the pilot harvests. Default 0.05.")
+parser.add_argument("--calmarg-pilot-max-points",default=32,type=int,help="Cap on harvested pilot points per iteration. Default 32.")
 parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
@@ -1035,6 +1040,11 @@ if opts.calmarg_envelope_directory:
     line += " --calibration-envelope-directory {} --calibration-n-realizations {} --calibration-spline-count {} ".format(cal_dir, opts.calmarg_n_realizations, opts.calmarg_spline_count)
     if opts.calmarg_fused_kernel:
         line += " --calibration-fused-kernel "
+    if opts.calmarg_pilot:
+        # Option C: wide ILE jobs are SEEDED from the previous iteration's consolidated cal
+        # proposal.  The $(macroiterationprev) condor macro resolves per node; ILE falls
+        # back to the broad prior when the file is absent (the first iterations).
+        line += " --calibration-proposal-breadcrumb {}/cal_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
 with open('args_ile.txt','w') as f:
         f.write(line)
 
@@ -1475,6 +1485,9 @@ if not(opts.ile_runtime_max_minutes is None):
     cmd += " --ile-runtime-max-minutes {} ".format(opts.ile_runtime_max_minutes)
 if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
     cmd+= " --puff-exe `which util_ParameterPuffball.py` --puff-cadence 1 --puff-max-it " + str(puff_max_it)+ " --puff-args `pwd`/args_puff.txt "
+if opts.calmarg_pilot:
+    cmd += " --calmarg-pilot --calmarg-pilot-cadence {} --calmarg-pilot-max-it {} --calmarg-pilot-top-fraction {} --calmarg-pilot-max-points {} ".format(
+        opts.calmarg_pilot_cadence, opts.calmarg_pilot_max_it, opts.calmarg_pilot_top_fraction, opts.calmarg_pilot_max_points)
 if opts.assume_eccentric:
     cmd += " --use-eccentricity "
     if opts.sample_eccentricity_squared:

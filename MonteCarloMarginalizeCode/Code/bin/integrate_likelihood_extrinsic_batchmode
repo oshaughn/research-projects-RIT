@@ -811,6 +811,14 @@ if opts.calibration_envelope_directory:
   cal_fmin_ifo = {}
   for ifo in psd_dict:
      cal_fmin_ifo[ifo] = flow_ifo_dict[ifo] if opts.fmin_ifo else opts.fmin_template
+  # Graceful fallback: a seeded run is given a per-iteration breadcrumb path, but the
+  # FIRST iteration (and any iteration before a pilot has run) has no breadcrumb yet.  If
+  # the path is missing, fall back to the broad prior -- so the SAME fixed ILE args work
+  # across all DAG iterations.
+  if opts.calibration_proposal_breadcrumb and not os.path.exists(opts.calibration_proposal_breadcrumb):
+     print(" Calibration proposal breadcrumb {} not present yet; falling back to PRIOR cal draws.".format(
+           opts.calibration_proposal_breadcrumb))
+     opts.calibration_proposal_breadcrumb = None
   if opts.calibration_dump_responsibilities:
      # PILOT (Option C): KEEP the cal node vectors so the per-realization responsibilities
      # accumulated below can be fitted into a proposal (util_CalPilotFit.py).  Deterministic
@@ -1648,6 +1656,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             _calpilot_logresp_list.append(_logsumexp(_comp, axis=0) - np.log(_Next))
             print("   pilot point {}: accumulated cal responsibilities ({} realizations, {} extrinsic)".format(
                   int(indx_event), n_cal_for_likelihood, _Next))
+            # PILOT is cheap: skip the full extrinsic sampler integration -- we only needed
+            # the precompute + this small per-realization eval.  Return a harmless lnL.
+            return 0.0
 
 
 
