@@ -56,6 +56,29 @@ make compare       # print the marginalized lnL from the three runs
 make all
 ```
 
+### Backends and review matrix
+
+The fused path has two interchangeable backends and works with or without distance
+marginalization, selected by `BACKEND` and `DMARG`:
+
+| toggle | values | meaning |
+|---|---|---|
+| `BACKEND` | `gpu` (default) / `cpu` | CUDA kernels / pure-numpy (laptop, no CUDA) |
+| `DMARG`   | `1` (default) / `0`      | distance-marginalization (fused distmarg kernel) / off (default-helper kernel) |
+
+The deterministic check covers the whole matrix; e.g. on a laptop with no CUDA:
+
+```bash
+make verify-exact BACKEND=cpu DMARG=1      # CPU, distance marginalization
+make verify-exact BACKEND=cpu DMARG=0      # CPU, no distance marginalization
+make all DMARG=0                           # full non-distmarg end-to-end run
+```
+
+`BACKEND=cpu` runs on numpy where cupy is absent (a Mac); the full ILE runs use
+`--gpu --force-xpy`, which is the numpy code path only on a machine without cupy.
+`verify-exact BACKEND=cpu` always uses numpy (the backtest picks the backend directly),
+so it is the portable cross-check.
+
 Generated inputs:
 * `distance_marg.npz` — distance-marginalization lookup table (`util_InitMargTable`).
 * `cal_env/{H1,L1,V1}.txt` — synthetic calibration envelopes (amplitude 1-sigma 5–8%,

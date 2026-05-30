@@ -1505,6 +1505,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       print("IGNORE ACTIVE ", ignore_threshold)
     extra_kwargs ={}
     n_cal_for_likelihood = 1   # >1 triggers in-loop calibration marginalization in the likelihood
+    # use the fused implementation (Option C) when requested; works on GPU (CUDA
+    # kernels) and CPU (numpy).  Phase marginalization is not supported by the fused
+    # path, so it is disabled there below (that call site stays on the loop method).
+    use_fused_calmarg = bool(calibration_marginalization and opts.calibration_fused_kernel)
     if calibration_marginalization:
       extra_kwargs['calibration_realizations'] = calibration_realization_dict
       n_cal_for_likelihood = opts.calibration_n_realizations
@@ -1692,22 +1696,26 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 psi, distance):
 #                global nEvals
                 tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
-                P.phi = xpy_asarray_already(right_ascension)  # cast to float
+                # Use xpy_default.asarray (not the passthrough xpy_asarray_already): some
+                # samplers (e.g. AV) hand back numpy arrays, so on GPU we must convert
+                # them to cupy.  asarray is a no-op for already-on-device arrays.  This
+                # mirrors the distance-marginalization likelihood_function below.
+                P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)
                 if opts.declination_cosine_sampler:
-                  P.theta = numpy.pi/2 - xpy_default.arccos(xpy_asarray_already(declination))
+                  P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination, dtype=np.float64))
                 else:
-                  P.theta = xpy_asarray_already(declination)
+                  P.theta = xpy_default.asarray(declination, dtype=np.float64)
                 P.tref = float(fiducial_epoch)
-                P.phiref = xpy_asarray_already(phi_orb)
+                P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
                 if opts.inclination_cosine_sampler:
-                  P.incl = xpy_default.arccos(xpy_asarray_already(inclination))
+                  P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
                 else:
-                  P.incl = xpy_asarray_already(inclination)
+                  P.incl = xpy_default.asarray(inclination, dtype=np.float64)
                 if opts.d_prior_redshift:
                   distance = redshift_to_distance(distance)
 
-                P.psi = xpy_asarray_already(psi)
-                P.dist = xpy_asarray_already(distance* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
+                P.psi = xpy_default.asarray(psi, dtype=np.float64)
+                P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC, dtype=np.float64) # luminosity distance
 
                 # rotate sky if needed
                 if opts.internal_sky_network_coordinates:
@@ -1726,7 +1734,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                        P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,n_cal=n_cal_for_likelihood)
+                        P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,n_cal=n_cal_for_likelihood,
+                        cal_method=('fused' if use_fused_calmarg else 'loop'))  # non-distmarg: default-helper fused kernel (cal_distmarg=None)
 #                nEvals +=len(right_ascension)
                 if supplemental_ln_likelihood:
                   lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist,xpy=xpy_default) # use these variables so they are already float-type
@@ -1785,14 +1794,12 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 lnI[in_bounds] = intp(s[in_bounds], t[in_bounds])
                 return exponent_max(x0, rho_sq) + lnI
 
-              # Opt-in: package the distmarg table for the fused GPU kernel (Option C).
+              # Opt-in: package the distmarg table for the fused kernel (Option C).
               # Only used (below) at the non-phase-marg distmarg call site; the loop
-              # method (Option B) remains the default and the fallback.
+              # method (Option B) remains the default and the fallback.  Works on GPU
+              # and CPU (the fused path has a numpy backend), so no GPU gate here.
               cal_distmarg_dict = None
-              if calibration_marginalization and opts.calibration_fused_kernel:
-                if xpy_default is np:
-                  print("  WARNING: --calibration-fused-kernel ignored (requires GPU); using loop method")
-                else:
+              if use_fused_calmarg:
                   cal_distmarg_dict = dict(
                     lnI_array=lnI_array,
                     s0=float(s_array[0]), ds=float(s_array[1] - s_array[0]),

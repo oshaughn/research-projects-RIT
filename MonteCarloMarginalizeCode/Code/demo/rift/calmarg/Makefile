@@ -34,19 +34,46 @@ DMAX    ?= 1000
 SAMPLER ?= AV          # adaptive-volume sampler: mature, stable GPU code path
                        #   (GMM is newer/heavier on GPU; override with SAMPLER=GMM)
 
+# Review matrix toggles:
+#   BACKEND=gpu (CUDA kernels) | cpu (numpy; runs on a laptop, no CUDA)
+#   DMARG=1 (distance marginalization on, fused distmarg kernel)
+#         | 0 (off, default-helper fused kernel)
+BACKEND ?= gpu
+DMARG   ?= 1
+
+ifeq ($(BACKEND),cpu)
+  # --gpu --force-xpy selects the xpy code path; on a machine WITHOUT cupy (e.g. a
+  # Mac) that path is numpy, i.e. CPU.  (On a machine with cupy it stays on the GPU
+  # xpy path -- there is no separate force-numpy switch -- so use BACKEND=cpu where
+  # cupy is absent.  The deterministic 'make verify-exact BACKEND=cpu' always uses
+  # numpy regardless, since the backtest selects the backend directly.)
+  ACCEL := --vectorized --gpu --force-xpy
+else
+  ACCEL := --vectorized --gpu
+endif
+
+ifeq ($(DMARG),1)
+  DMARG_FLAGS := --distance-marginalization --distance-marginalization-lookup-table $(CURDIR)/distance_marg.npz
+  DMARG_DEP   := distance_marg.npz
+  VERIFY_LL   := distmarg --real-table $(CURDIR)/distance_marg.npz
+else
+  DMARG_FLAGS :=
+  DMARG_DEP   :=
+  VERIFY_LL   := default
+endif
+
 # Detector / data configuration for the synthetic injection
 EVENT_TIME := 1000000014.236547946
 IFO_PSD    := --psd-file H1=$(PSD) --psd-file L1=$(PSD) --psd-file V1=$(PSD)
 IFO_CHAN   := --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN --channel-name V1=FAKE-STRAIN
 
-# Common ILE arguments (distance marginalization ON; 3 detectors)
-COMMON := --vectorized --gpu \
+# Common ILE arguments (3 detectors)
+COMMON := $(ACCEL) \
   --n-chunk $(NCHUNK) --n-max $(NMAX) --n-eff $(NEFF) --seed $(SEED) \
   --time-marginalization --sim-xml $(SIM_XML) --n-events-to-analyze 1 \
   --reference-freq 100.0 --event-time $(EVENT_TIME) --approximant SEOBNRv4 --l-max 2 \
   --cache-file $(CACHE) --fmin-template 10 --fmax 1700.0 \
-  --d-min 1 --d-max $(DMAX) \
-  --distance-marginalization --distance-marginalization-lookup-table distance_marg.npz \
+  --d-min 1 --d-max $(DMAX) $(DMARG_FLAGS) \
   $(IFO_PSD) $(IFO_CHAN) \
   --inclination-cosine-sampler --declination-cosine-sampler \
   --data-start-time 1000000008 --data-end-time 1000000016 --inv-spec-trunc-time 0 \
@@ -70,8 +97,10 @@ help:
 	@echo "  make clean        - remove generated inputs/outputs"
 	@echo ""
 	@echo "Tunables (make VAR=...): NCAL=$(NCAL) NCHUNK=$(NCHUNK) NMAX=$(NMAX) NEFF=$(NEFF) SEED=$(SEED)"
+	@echo "Review matrix:  BACKEND=gpu|cpu   DMARG=1|0"
+	@echo "  e.g.  make verify-exact BACKEND=cpu DMARG=0    (laptop, no CUDA, no distance marg)"
 
-inputs: distance_marg.npz cal_env/H1.txt
+inputs: $(DMARG_DEP) cal_env/H1.txt
 
 distance_marg.npz:
 	$(ENV) $(RIFT_CODE_ROOT)/bin/util_InitMargTable --d-min 1 --d-max $(DMAX) --out distance_marg.npz
@@ -80,11 +109,11 @@ cal_env/H1.txt:
 	$(ENV) python tools/make_cal_envelopes.py --out-dir $(CURDIR)/cal_env --ifos H1,L1,V1
 
 # Deterministic exact check on identical inputs (bypasses the stochastic sampler):
-# loop (Option B), fused (Option C) and a brute-force reference must agree to ~1e-14,
-# using THIS demo's real distance-marginalization table.
-verify-exact: distance_marg.npz
-	$(ENV) python -m RIFT.calmarg.backtest_calmarg --backend gpu \
-	  --loglikelihood distmarg --real-table distance_marg.npz \
+# loop (Option B), fused (Option C) and a brute-force reference must agree to ~1e-14.
+# Honours BACKEND (gpu/cpu) and DMARG (distmarg/default helper).
+verify-exact: $(DMARG_DEP)
+	$(ENV) python -m RIFT.calmarg.backtest_calmarg --backend $(BACKEND) \
+	  --loglikelihood $(VERIFY_LL) \
 	  --dets H1,L1,V1 --n-cal $(NCAL) --npts-extrinsic 512
 
 run-baseline: inputs
