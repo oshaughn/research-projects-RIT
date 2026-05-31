@@ -166,6 +166,7 @@ parser.add_argument("--calmarg-pilot-max-it",default=3,type=int,help="Stop launc
 parser.add_argument("--calmarg-pilot-top-fraction",default=0.05,type=float,help="Fraction of highest-lnL composite points the pilot harvests. Default 0.05.")
 parser.add_argument("--calmarg-pilot-max-points",default=32,type=int,help="Cap on harvested pilot points per iteration. Default 32.")
 parser.add_argument("--calmarg-first-cip-sigma-cut",default=100.0,type=float,help="With --calmarg-pilot: relax the first CIP stage's --sigma-cut to this value, so cold-start (prior-cal) iteration-0 points -- which have large MC error -- are not all stripped by CIP's default 0.6.  Threaded to helper_LDG_Events.py. Default 100 (effectively keep all cold-start points).")
+parser.add_argument("--calmarg-burn-in-neff",default=None,type=float,help="In-loop calmarg: burn the extrinsic sampler in on the cheap zero-cal likelihood to this n_eff before the full cal-marginalized integration (warm start; the extrinsic posterior is ~cal-independent). Threaded to ILE as --calibration-burn-in-neff.")
 parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
@@ -1045,6 +1046,8 @@ if opts.calmarg_envelope_directory:
     line += " --calibration-envelope-directory {} --calibration-n-realizations {} --calibration-spline-count {} ".format(cal_dir, opts.calmarg_n_realizations, opts.calmarg_spline_count)
     if opts.calmarg_fused_kernel:
         line += " --calibration-fused-kernel "
+    if opts.calmarg_burn_in_neff:
+        line += " --calibration-burn-in-neff {} ".format(opts.calmarg_burn_in_neff)
     if opts.calmarg_pilot:
         # Option C: wide ILE jobs are SEEDED from the previous iteration's consolidated cal
         # proposal.  The $(macroiterationprev) condor macro resolves per node; ILE falls

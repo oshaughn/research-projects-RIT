@@ -241,6 +241,8 @@ optp.add_option("--calibration-fused-kernel", action="store_true", default=False
 optp.add_option("--calibration-proposal-breadcrumb",default=None, help="Opt-in (Option C / adaptive pilot): path to a breadcrumb .npz (RIFT.calmarg.breadcrumbs) carrying a LEARNED Gaussian proposal over cal spline nodes. When set, the cal realizations are drawn from that proposal instead of the broad prior, and the marginalization carries Phase-0 importance weights log(prior/proposal) so it stays unbiased. Requires --calibration-envelope-directory (the prior).")
 optp.add_option("--calibration-dump-responsibilities",default=None, help="Opt-in (Option C / adaptive pilot): path to write per-cal-realization log-responsibilities (length n_cal), accumulated over the evaluated grid, plus the cal node draws. This is the pilot's output, fitted into a proposal by util_CalPilotFit.py. No effect on the returned likelihood.")
 optp.add_option("--calibration-pilot-extrinsic",default=256,type=int, help="Pilot only: number of uniform-prior extrinsic samples used to extrinsic-marginalize the per-realization cal responsibility at each intrinsic point. Cal is ~extrinsic-independent, so a modest batch suffices.")
+optp.add_option("--calibration-burn-in-neff",default=None,type=float, help="Opt-in (generally useful): before the production cal-marginalized integration, BURN IN the extrinsic sampler on the cheap ZERO-CAL (n_cal=1) likelihood until this effective sample count, then switch to the full cal-marginalized likelihood reusing the adapted proposal. The extrinsic posterior is ~cal-independent, so this warm-starts the (expensive) cal-marg phase. No effect unless calibration marginalization is active.")
+optp.add_option("--calibration-burn-in-nmax",default=None,type=int, help="Cap on the number of samples drawn during the zero-cal burn-in (default: the run's --n-max). Keeps the burn-in bounded if it cannot reach --calibration-burn-in-neff.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
 optp.add_option("--force-gpu-only", action="store_true", help="Hard fail if no GPU present (assessed by cupy not loading)")
@@ -2085,6 +2087,27 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
              # train with equal weight - no likelihood information
              lnL_oracles  = np.zeros(opts.n_chunk)
              sampler.update_sampling_prior(lnL_oracles, opts.n_chunk, external_rvs=rvs_train,log_scale_weights=True,floor_integrated_probability=opts.adapt_floor_level)
+
+    # Optional ZERO-CAL burn-in (generally useful; see RIFT/calmarg/DESIGN_adaptive_driver.md).
+    # Adapt the extrinsic sampler cheaply on the n_cal=1 baseline first, then run the full
+    # cal-marginalized integration reusing the adapted proposal.  The likelihood closures
+    # read the enclosing n_cal_for_likelihood, so toggling it to 1 makes this same
+    # like_to_integrate evaluate the fast baseline.  Correctness is preserved regardless of
+    # whether the sampler retains adaptation across the two integrate() calls -- worst case
+    # the burn-in is simply wasted; the production integral below is always the full cal one.
+    if opts.calibration_burn_in_neff and calibration_marginalization and n_cal_for_likelihood > 1:
+        _ncal_full = n_cal_for_likelihood
+        n_cal_for_likelihood = 1
+        _burn_pinned = dict(pinned_params)
+        _burn_pinned['neff'] = float(opts.calibration_burn_in_neff)
+        _burn_pinned['nmax'] = int(opts.calibration_burn_in_nmax) if opts.calibration_burn_in_nmax else int(pinned_params.get('nmax', n_max))
+        print(" [calmarg burn-in] adapting extrinsic sampler on ZERO-CAL likelihood -> neff>={:g} (nmax cap {})".format(_burn_pinned['neff'], _burn_pinned['nmax']))
+        try:
+            _b = sampler.integrate(like_to_integrate, *unpinned_params, **_burn_pinned)
+            print(" [calmarg burn-in] done (burn-in neff ~ {}); switching to full cal marginalization".format(_b[2] if _b and len(_b) > 2 else '?'))
+        except Exception as _eb:
+            print(" [calmarg burn-in] integrate failed ({}); proceeding to production".format(_eb))
+        n_cal_for_likelihood = _ncal_full   # restore: production uses the full cal set
 
     res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
 

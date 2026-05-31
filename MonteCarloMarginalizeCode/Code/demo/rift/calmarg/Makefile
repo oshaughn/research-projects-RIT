@@ -212,6 +212,13 @@ ifeq ($(FUSED),1)
 else
   DAG_FUSED_FLAG :=
 endif
+# Optional zero-cal extrinsic burn-in (task #24): set BURN_IN_NEFF to a target n_eff to
+# adapt the sampler on the cheap zero-cal likelihood before the full cal-marg integral.
+ifneq ($(BURN_IN_NEFF),)
+  DAG_BURNIN_FLAG := --calibration-burn-in-neff $(BURN_IN_NEFF)
+else
+  DAG_BURNIN_FLAG :=
+endif
 ifeq ($(PILOT),1)
   DAG_PILOT_CEPP := --calmarg-pilot --calmarg-pilot-cadence 1 --calmarg-pilot-max-it 1
 else
@@ -234,7 +241,7 @@ DAG_ILE_ARGS := --n-chunk $(NCHUNK_DAG) --time-marginalization --sim-xml overlap
   --data-end-time 1000000016 --inv-spec-trunc-time 0 \
   --srate 4096 --sampler-method AV --vectorized --gpu $(DAG_DMARG_FLAG) \
   --calibration-envelope-directory $(CURDIR)/cal_env --calibration-n-realizations $(NCAL_DAG) \
-  --calibration-spline-count 10 $(DAG_FUSED_FLAG)
+  --calibration-spline-count 10 $(DAG_FUSED_FLAG) $(DAG_BURNIN_FLAG)
 # --sigma-cut 5: cal draws (PRIOR for vanilla every iteration; PRIOR at iteration 0 for the
 # pilot cold start) have high per-point MC error (~0.7-0.9 here), which the CIP default
 # --sigma-cut 0.6 would strip entirely.  Relax it (cf. the helper_LDG_Events.py fix that
