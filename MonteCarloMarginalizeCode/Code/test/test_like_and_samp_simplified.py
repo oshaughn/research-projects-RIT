@@ -65,6 +65,7 @@ bNoMatplotlib=True
 import sys
 
 import numpy as np
+from RIFT.precision import RiftFloat
 
 from glue.lal import Cache
 from glue.ligolw import utils, lsctables, table, ligolw,  git_version
@@ -639,7 +640,7 @@ if True:
         global nEvals
         global lnLOffsetValue
         # use EXTREMELY many bits
-        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
+        lnL = np.zeros(right_ascension.shape,dtype=RiftFloat)
         i = 0
 #        if opts.rotate_sky_coordinates:
 #            print "   -Sky ring width ", np.std(declination), " note contribution from floor is of order p_floor*(pi)/sqrt(12) ~ 0.9 pfloor"
@@ -824,4 +825,3 @@ if  True: # opts.points_file_base:
 #    utils.write_fileobj(xmldoc,sys.stdout)
     xmlutils.append_likelihood_result_to_xmldoc(xmldoc, np.log(res), **{"mass1": m1, "mass2": m2})
     utils.write_filename(xmldoc, opts.points_file_base+".xml.gz", gz=True)
-

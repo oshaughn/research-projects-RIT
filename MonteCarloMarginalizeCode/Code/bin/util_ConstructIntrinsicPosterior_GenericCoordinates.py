@@ -16,6 +16,7 @@
 
 
 import RIFT.interpolators.BayesianLeastSquares as BayesianLeastSquares
+from RIFT.precision import RiftFloat
 
 import argparse
 import sys
@@ -3115,7 +3116,7 @@ if opts.pseudo_gaussian_mass_prior:
 # Note also downselects NOT applied: no range cuts, unless applied as part of aligned_prior, etc.  
 #   - use for Bayes factors with GREAT CARE for this reason; should correct for with indx_ok
 log_res_reweighted = lnLmax + np.log(np.mean(weights))
-sigma_reweighted= np.std(weights,dtype=np.float128)/np.mean(weights)
+sigma_reweighted= np.std(weights,dtype=RiftFloat)/np.mean(weights)
 neff_reweighted = np.sum(weights)/np.max(weights)
 np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [log_res_reweighted])  # should agree with the usual result, if no prior changes
 with open(opts.fname_output_integral+"_withpriorchange+annotation.dat", 'w') as file_out:
@@ -3692,5 +3693,4 @@ for indx in np.arange(len(extra_plot_coord_names)):
      print(" Failed to generate corner for ", extra_plot_coord_names[indx])
 
 sys.exit(0)
-
 
