@@ -197,7 +197,11 @@ DAG_ILE_ARGS := --n-chunk $(NCHUNK_DAG) --time-marginalization --sim-xml overlap
   --srate 4096 --sampler-method AV --vectorized --gpu \
   --calibration-envelope-directory $(CURDIR)/cal_env --calibration-n-realizations $(NCAL_DAG) \
   --calibration-spline-count 10
-DAG_CIP_ARGS  := --mc-range [23,35] --eta-range [0.20,0.24999] --parameter mc --parameter-implied eta --parameter-nofit delta_mc --fit-method gp --lnL-offset 120 --cap-points 12000 --n-output-samples 5000 --no-plots --n-eff 5000
+# --sigma-cut 5: iteration 0 uses PRIOR cal draws (no pilot seed yet) -> low neff_cal ->
+# high per-point MC error (~0.7-0.9 here), which the CIP default --sigma-cut 0.6 would
+# strip entirely.  Relax it so the cold-start points survive (cf. the long-term
+# helper_LDG_Events.py fix that relaxes the first CIP stage when cal pilots are enabled).
+DAG_CIP_ARGS  := --mc-range [23,35] --eta-range [0.20,0.24999] --parameter mc --parameter-implied eta --parameter-nofit delta_mc --fit-method gp --lnL-offset 120 --sigma-cut 5 --cap-points 12000 --n-output-samples 5000 --no-plots --n-eff 5000
 DAG_TEST_ARGS := --always-succeed --method lame --parameter m1
 DAG_PLOT_ARGS := --parameter m1 --parameter m2
 DAG_FILE      := marginalize_intrinsic_parameters_BasicIterationWorkflow.dag
