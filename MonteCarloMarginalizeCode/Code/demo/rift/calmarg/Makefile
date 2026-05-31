@@ -251,7 +251,27 @@ DAG_TEST_ARGS := --always-succeed --method lame --parameter m1
 DAG_PLOT_ARGS := --parameter m1 --parameter m2
 DAG_FILE      := marginalize_intrinsic_parameters_BasicIterationWorkflow.dag
 
-.PHONY: dag dag-build dag-validate dag-run tune-single
+.PHONY: dag dag-build dag-validate dag-run tune-single tune-condor
+
+# Single-event ILE at the injection as ONE condor job (a full DAG is overkill for tuning):
+# persistent logs, watchdog-isolated (condor, not an interactive launch), restartable, and
+# UNBUFFERED via `python -u` so n_eff creep is watchable live.  Submit from inside the env
+# (getenv captures cupy):  conda run -n rift_gpu2 make tune-condor FUSED=1 NMAX_DAG=4000000
+#   watch:  tail -f rundir_tune/tune_condor.out   ;   cat rundir_tune/tune_out*.dat
+tune-condor: cal_env/H1.txt $(DAG_DMARG_DEP)
+	rm -rf $(CURDIR)/rundir_tune; mkdir -p $(CURDIR)/rundir_tune
+	@PYEXE=$$(command -v python); \
+	{ echo "universe = vanilla"; \
+	  echo "executable = $$PYEXE"; \
+	  echo "arguments = -u $(ILE) $(DAG_ILE_ARGS) --sim-xml $(SIM_XML) --n-events-to-analyze 1 --output-file tune_out"; \
+	  echo "request_GPUs = 1"; \
+	  echo "getenv = True"; \
+	  echo "initialdir = $(CURDIR)/rundir_tune"; \
+	  echo "output = tune_condor.out"; echo "error = tune_condor.err"; echo "log = tune_condor.log"; \
+	  echo "queue"; } > $(CURDIR)/rundir_tune/tune_condor.sub
+	cd $(CURDIR)/rundir_tune && $(ENV) condor_submit tune_condor.sub
+	@echo "Submitted.  Watch live:  tail -f $(CURDIR)/rundir_tune/tune_condor.out"
+	@echo "Result when done:        cat $(CURDIR)/rundir_tune/tune_out*.dat   (lnL col -4, n_eff col -1)"
 
 # Single-event ILE at the INJECTION (command-single style) using the SAME wide-ILE args
 # the DAG will use -- the fast way to tune settings (n_eff!) for the event before paying
