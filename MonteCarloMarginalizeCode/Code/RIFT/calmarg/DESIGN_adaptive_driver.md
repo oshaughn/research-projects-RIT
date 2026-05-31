@@ -203,6 +203,19 @@ prior + importance-weight metadata.  Designed from the start to ALSO carry an ex
 proposal (same harvest->fit->consolidate->seed structure).  NF is a later drop-in behind
 the same interface.  Stub the schema + the consolidation/seed hooks now.
 
+## n_eff is conservative vs the true ESS (refines the starvation math)
+RIFT's reported `n_eff` is a deliberately CONSERVATIVE lower bound -- the true effective
+sample size (ESS) is meaningfully larger.  So `n_eff(us)=100` yields appreciably more
+usable fair-draw points than 100.  Consequences:
+- The earlier "low n_eff" worry was over-pessimistic: with enough samples the integrator
+  creeps up fine (the tune-condor run reached n_eff>200 on the moderate-SNR injection), and
+  the usable ESS is larger still.
+- Pilot harvesting is LESS starved than the conservative count implied: top-fraction of
+  the composite + the larger-than-n_eff ESS means a real run can pull out enough
+  high-quality points to inform the cal proposal after all.  The d(d+1)/2 requirement for
+  a FULL covariance still holds, but the prior-shrinkage backstop covers the residual
+  unconstrained directions, so we do not need to fully resolve every cal dof to be safe.
+
 ## Build order (this branch)
 1. **Timing data** -- done (`--scan-ncal`).
 2. **A: brute-force reference** -- prior-only large-`n_cal`, converged; the ground truth.
