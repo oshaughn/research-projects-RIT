@@ -51,7 +51,10 @@ import scipy  # for decimate
 try:
     import precession
 except ImportError:
-    print('Import Error - module missing. Please install the module "precession."')
+    # MUST go to stderr: many RIFT tools write data to stdout (composite/.dat files are
+    # built from it), and a stray stdout line here corrupts those files -> downstream
+    # parsers (CIP, util_CalHarvestGrid) choke on ragged/non-numeric rows.
+    print('Import Error - module missing. Please install the module "precession."', file=sys.stderr)
 def safe_int(mystr):
    try:
         return int(mystr)

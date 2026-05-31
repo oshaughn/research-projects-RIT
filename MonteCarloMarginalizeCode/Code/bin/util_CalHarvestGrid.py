@@ -67,7 +67,15 @@ def main(argv=None):
                    help="column index of m1 (m2..spins follow)")
     opts = p.parse_args(argv)
 
-    dat = np.loadtxt(opts.composite)
+    # Robust read: composites are sometimes ragged (variable trailing columns, or a
+    # stray non-numeric line).  Read only the columns we need (indx..lnL) and skip rows
+    # that don't parse, rather than failing the whole pilot.
+    n_need = max(opts.lnL_col, opts.mass_col + 7) + 1
+    dat = np.genfromtxt(opts.composite, usecols=range(n_need), invalid_raise=False)
+    dat = np.atleast_2d(dat)
+    dat = dat[~np.isnan(dat).any(axis=1)]   # drop any rows that failed to parse
+    if len(dat) == 0:
+        raise ValueError("no valid numeric rows in composite %s" % opts.composite)
     rows = harvest_top_rows(dat, lnL_col=opts.lnL_col, top_fraction=opts.top_fraction,
                             max_points=opts.max_points)
     P_list = rows_to_P_list(rows, mass_col=opts.mass_col)
