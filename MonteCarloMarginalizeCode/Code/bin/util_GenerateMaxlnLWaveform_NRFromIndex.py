@@ -15,6 +15,8 @@ import os
 import subprocess
 from shutil import copyfile
 
+from RIFT.precision import RiftFloat
+
 import NRWaveformCatalogManager3 as nrwf
 import lal
 import RIFT.lalsimutils as lalsimutils
@@ -26,7 +28,7 @@ parser.add_argument("--nr-group",default=None,help="group")
 parser.add_argument("--nr-param",default=None,help="param")
 parser.add_argument("--fname-indexed",default=None,help="File name of *.indexed file")
 parser.add_argument("--n-max",default=1e4,type=int,help="Override settings in command-single.sh")
-parser.add_argument("--event-time", type=np.float128,  default=None,help="Event time. If not present, will use event.log")
+parser.add_argument("--event-time", type=RiftFloat,  default=None,help="Event time. If not present, will use event.log")
 parser.add_argument("--save-plots", default=False, action='store_true',help="saves waveform plot and hoft data")
 parser.add_argument("--use-NR", default=False, action='store_true', help="generate plots using NR data")
 parser.add_argument("--no-memory",action='store_true')
@@ -180,4 +182,3 @@ with open(str(opts.run_dir)+"/command-single.sh",'r') as runfile:
 os.chdir(opts.run_dir)
 print(cmd)
 os.system(cmd)
-

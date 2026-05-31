@@ -48,6 +48,7 @@ from igwn_ligolw import utils,  ligolw
 import glue.lal
 
 import RIFT.lalsimutils as lalsimutils
+from RIFT.precision import RiftFloat
 import RIFT.integrators.mcsampler as mcsampler
 import RIFT.misc.sky_rotations as sky_rotations
 try:
@@ -1574,7 +1575,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 distance = redshift_to_distance(distance)
 
             # use EXTREMELY many bits
-            lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
+            lnL = numpy.zeros(right_ascension.shape,dtype=RiftFloat)
             i = 0
             for ph, th, tr, phr, ic, ps, di in zip(right_ascension, dec,
                     t_ref, phi_orb, incl, psi, distance):
@@ -1607,7 +1608,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 distance = redshift_to_distance(distance)
 
             # use EXTREMELY many bits
-            lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
+            lnL = numpy.zeros(right_ascension.shape,dtype=RiftFloat)
             i = 0
             tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
 
@@ -1650,7 +1651,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 distance = redshift_to_distance(distance)
 
             # use EXTREMELY many bits
-            lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
+            lnL = numpy.zeros(right_ascension.shape,dtype=RiftFloat)
             P.phi = right_ascension.astype(float)  # cast to float
             P.theta = dec #declination.astype(float)
             P.tref = float(fiducial_epoch)
@@ -1889,7 +1890,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             if opts.d_prior_redshift:
               distance = redshift_to_distance(distance)
 
-            lnL = numpy.zeros(len(right_ascension),dtype=numpy.float128)
+            lnL = numpy.zeros(len(right_ascension),dtype=RiftFloat)
 #            i = 0
             tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
 
@@ -2360,7 +2361,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
        sampler._rvs["inclination"][indx_guess]/(numpy.pi),\
        sampler._rvs["psi"][indx_guess]/numpy.pi,\
        sampler._rvs["distance"][indx_guess]/dmax\
-            ],dtype=numpy.float128)
+            ],dtype=RiftFloat)
       x0 = numpy.fmod(x0,numpy.ones(len(x0)))  # had BETTER be defined on this range!
       # Pick the best starting time. BRUTE FORCE METHOD: use grid
       def fn_scaled_t(t,x0):
