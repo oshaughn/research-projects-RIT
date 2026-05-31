@@ -193,6 +193,17 @@ NEFF_DAG      ?= 15
 NCHUNK_DAG    ?= 10000
 N_COPIES_DAG  ?= 1        # ILE job duplicates (builder default 2); 1 -> no redundancy,
                           # ~2x faster turnaround on a single-card test
+DMARG_DAG     ?= 1        # distance marginalization in the wide ILE (default ON).  Without
+                          # it (and the removed --no-adapt-distance) distance was neither
+                          # adapted nor marginalized -> catastrophic n_eff.
+
+ifeq ($(DMARG_DAG),1)
+  DAG_DMARG_FLAG := --distance-marginalization --distance-marginalization-lookup-table $(CURDIR)/distance_marg.npz
+  DAG_DMARG_DEP  := distance_marg.npz
+else
+  DAG_DMARG_FLAG :=
+  DAG_DMARG_DEP  :=
+endif
 
 ifeq ($(FUSED),1)
   DAG_FUSED_FLAG := --calibration-fused-kernel
@@ -205,15 +216,19 @@ else
   DAG_PILOT_CEPP :=
 endif
 
+# NOTE: adapt-weight-exponent left at the ILE DEFAULT (1.0).  Forcing 0.1 (as the
+# ILE-GPU-Paper STANDARD_ILE_OPTS does) over-tempers the adaptive proposal -> it cannot
+# concentrate on the high-dynamic-range cal-marginalized peak -> n_eff crawls (~2 at
+# 100k).  At the default 1.0 the same single-event run converges normally.
 DAG_ILE_ARGS := --n-chunk $(NCHUNK_DAG) --time-marginalization --sim-xml overlap-grid.xml.gz \
-  --reference-freq 100.0 --adapt-weight-exponent 0.1 --event-time $(EVENT_TIME) --save-P 0.1 \
+  --reference-freq 100.0 --event-time $(EVENT_TIME) --save-P 0.1 \
   --cache-file $(CACHE) --fmin-template 10 --n-max $(NMAX_DAG) --fmax 1700.0 --save-deltalnL inf \
-  --l-max 2 --n-eff $(NEFF_DAG) --approximant SEOBNRv4 --adapt-floor-level 0.1 --d-max $(DMAX) \
+  --l-max 2 --n-eff $(NEFF_DAG) --approximant SEOBNRv4 --d-min 1 --d-max $(DMAX) \
   --psd-file H1=$(PSD) --psd-file L1=$(PSD) --psd-file V1=$(PSD) \
   --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN --channel-name V1=FAKE-STRAIN \
   --inclination-cosine-sampler --declination-cosine-sampler --data-start-time 1000000008 \
-  --data-end-time 1000000016 --inv-spec-trunc-time 0 --no-adapt-after-first --no-adapt-distance \
-  --srate 4096 --sampler-method AV --vectorized --gpu \
+  --data-end-time 1000000016 --inv-spec-trunc-time 0 \
+  --srate 4096 --sampler-method AV --vectorized --gpu $(DAG_DMARG_FLAG) \
   --calibration-envelope-directory $(CURDIR)/cal_env --calibration-n-realizations $(NCAL_DAG) \
   --calibration-spline-count 10 $(DAG_FUSED_FLAG)
 # --sigma-cut 5: cal draws (PRIOR for vanilla every iteration; PRIOR at iteration 0 for the
@@ -225,10 +240,22 @@ DAG_TEST_ARGS := --always-succeed --method lame --parameter m1
 DAG_PLOT_ARGS := --parameter m1 --parameter m2
 DAG_FILE      := marginalize_intrinsic_parameters_BasicIterationWorkflow.dag
 
-.PHONY: dag dag-build dag-validate dag-run
+.PHONY: dag dag-build dag-validate dag-run tune-single
+
+# Single-event ILE at the INJECTION (command-single style) using the SAME wide-ILE args
+# the DAG will use -- the fast way to tune settings (n_eff!) for the event before paying
+# for a full multi-iteration DAG.  Reports lnL (col -4) and n_eff (col -1).
+#   make tune-single FUSED=1 DMARG_DAG=1 NMAX_DAG=200000 NEFF_DAG=200
+tune-single: cal_env/H1.txt $(DAG_DMARG_DEP)
+	rm -rf $(CURDIR)/rundir_tune; mkdir -p $(CURDIR)/rundir_tune
+	cd $(CURDIR)/rundir_tune && $(ENV) $(ILE) $(DAG_ILE_ARGS) \
+	  --sim-xml $(SIM_XML) --n-events-to-analyze 1 --output-file tune_out
+	@echo "=== tune-single result (lnL +- err, n_eff) ==="
+	@cat $(CURDIR)/rundir_tune/tune_out*.dat
+	@echo "  (n_eff is the last column; aim for a healthy value before running the DAG)"
 
 # Build the DAG (no condor submission) and validate the wiring.  PILOT/FUSED toggles above.
-dag-build: cal_env/H1.txt
+dag-build: cal_env/H1.txt $(DAG_DMARG_DEP)
 	rm -rf $(RUN_DAG); mkdir -p $(RUN_DAG)
 	cd $(RUN_DAG) && $(ENV) util_ManualOverlapGrid.py --parameter mc --parameter-range '[23,35]' \
 	  --parameter delta_mc --parameter-range '[0.0,0.5]' --grid-cartesian-npts $(NPTS_GRID_DAG) \
