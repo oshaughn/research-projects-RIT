@@ -193,9 +193,11 @@ NEFF_DAG      ?= 15
 NCHUNK_DAG    ?= 10000
 N_COPIES_DAG  ?= 1        # ILE job duplicates (builder default 2); 1 -> no redundancy,
                           # ~2x faster turnaround on a single-card test
-DMARG_DAG     ?= 1        # distance marginalization in the wide ILE (default ON).  Without
-                          # it (and the removed --no-adapt-distance) distance was neither
-                          # adapted nor marginalized -> catastrophic n_eff.
+DMARG_DAG     ?= 1        # distance marginalization in the wide ILE (default ON).  With it,
+                          # distance is integrated analytically (not sampled), the clean
+                          # production path.  (Aside: --no-adapt-distance is NOT a freeze --
+                          # distance is then UNIFORMLY sampled, fine for low-SNR with a
+                          # sensible d-min/d-max; it is simply moot once distmarg is on.)
 
 ifeq ($(DMARG_DAG),1)
   DAG_DMARG_FLAG := --distance-marginalization --distance-marginalization-lookup-table $(CURDIR)/distance_marg.npz
@@ -216,10 +218,12 @@ else
   DAG_PILOT_CEPP :=
 endif
 
-# NOTE: adapt-weight-exponent left at the ILE DEFAULT (1.0).  Forcing 0.1 (as the
-# ILE-GPU-Paper STANDARD_ILE_OPTS does) over-tempers the adaptive proposal -> it cannot
-# concentrate on the high-dynamic-range cal-marginalized peak -> n_eff crawls (~2 at
-# 100k).  At the default 1.0 the same single-event run converges normally.
+# NOTE: adapt-weight-exponent left at the ILE DEFAULT (1.0).  For the AV sampler used here
+# this option is a NO-OP (it matters for the OTHER integrators -- GMM/portfolio -- so do
+# not drop it globally).  n_eff is naturally low at small n-max (~3 at 100k) regardless:
+# 100k samples is SHORT by RIFT standards; production runs use millions and let the AV
+# integrator creep n_eff upward.  Baseline (no cal) and calmarg give ~equal n_eff here, so
+# cal is not the bottleneck -- the moderate SNR (~17.5; "loud" is 40+) x sample count is.
 DAG_ILE_ARGS := --n-chunk $(NCHUNK_DAG) --time-marginalization --sim-xml overlap-grid.xml.gz \
   --reference-freq 100.0 --event-time $(EVENT_TIME) --save-P 0.1 \
   --cache-file $(CACHE) --fmin-template 10 --n-max $(NMAX_DAG) --fmax 1700.0 --save-deltalnL inf \
