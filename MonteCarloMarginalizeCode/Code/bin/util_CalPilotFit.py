@@ -84,7 +84,11 @@ def main(argv=None):
         print(" Auto-tempering: beta=%.3f (target neff>=%.0f; tempered neff=%.1f)"
               % (beta, target, adaptive.neff_from_logweights(beta * log_resp)))
 
-    mean, cov = adaptive.fit_proposal(nodes, log_resp, beta, cov_inflate=opts.cov_inflate)
+    # shrink toward the prior diagonal: in ~60-D cal node space a pilot with neff~tens
+    # cannot constrain the full covariance, so uninformed directions must default to
+    # ~prior width (else the proposal collapses to a near-delta and seeded weights blow up)
+    mean, cov = adaptive.fit_proposal(nodes, log_resp, beta, cov_inflate=opts.cov_inflate,
+                                      prior_sigma=dumps[0]["prior_sigma"])
 
     cal = dict(proposal_mean=mean, proposal_cov=cov,
                prior_mean=dumps[0]["prior_mean"], prior_sigma=dumps[0]["prior_sigma"],

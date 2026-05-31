@@ -191,6 +191,8 @@ NCAL_DAG      ?= 20
 NMAX_DAG      ?= 40000
 NEFF_DAG      ?= 15
 NCHUNK_DAG    ?= 10000
+N_COPIES_DAG  ?= 1        # ILE job duplicates (builder default 2); 1 -> no redundancy,
+                          # ~2x faster turnaround on a single-card test
 
 ifeq ($(FUSED),1)
   DAG_FUSED_FLAG := --calibration-fused-kernel
@@ -246,7 +248,7 @@ dag-build: cal_env/H1.txt
 	  --ile-exe $(ILE) \
 	  --ile-args $(RUN_DAG)/args_ile.txt --cip-args $(RUN_DAG)/args_cip.txt \
 	  --test-args $(RUN_DAG)/args_test.txt --plot-args $(RUN_DAG)/args_plot.txt \
-	  --request-memory-CIP 2048 --request-memory-ILE 4096 \
+	  --request-memory-CIP 2048 --request-memory-ILE 4096 --n-copies $(N_COPIES_DAG) \
 	  --input-grid $(RUN_DAG)/overlap-grid.xml.gz --n-samples-per-job $(NPTS_IT_DAG) \
 	  --working-directory $(RUN_DAG) --n-iterations $(N_IT_DAG) \
 	  $(DAG_PILOT_CEPP)

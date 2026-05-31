@@ -94,10 +94,24 @@ def nodes_to_cal_factors(amp_nodes, phase_nodes, log_f_nodes, T_segment, dT, fmi
 # ---------------------------------------------------------------------------
 # Tempered proposal fit + diagnostics
 # ---------------------------------------------------------------------------
-def fit_proposal(nodes, log_resp, beta, cov_floor=1e-8, cov_inflate=1.0):
+def fit_proposal(nodes, log_resp, beta, cov_floor=1e-8, cov_inflate=1.0,
+                 prior_sigma=None, shrink=None):
     """Tempered weighted-Gaussian fit.  Weights = softmax(beta * log_resp).
 
     beta in (0,1]: small -> broad (many samples), 1 -> full responsibility weighting.
+
+    prior_sigma : if given (length-dim 1-sigma of the diagonal prior), SHRINK the fitted
+        covariance toward diag(prior_sigma**2).  This is essential when the fit is starved
+        -- a weighted sample covariance from ~neff effective points cannot constrain the
+        dim*(dim+1)/2 entries of a dim-dimensional covariance (cal node space is ~60-D),
+        so the UNINFORMED directions otherwise collapse to ~0 variance.  A near-zero
+        proposal variance is a near-delta: seeded draws are pinned and the importance
+        weights log(prior/proposal) blow up, producing the pathological seeded likelihoods
+        we saw.  Shrinking keeps uninformed directions at ~prior width (log_w ~ 0 there).
+    shrink : explicit shrinkage weight rho in [0,1] toward the prior; default auto =
+        (dim+1)/(dim+1+neff), i.e. ~1 (all prior) when starved, ->0 (all data) when
+        neff >> dim.
+
     Returns (mean, cov)."""
     lw = beta * log_resp
     lw = lw - logsumexp(lw)
@@ -105,7 +119,16 @@ def fit_proposal(nodes, log_resp, beta, cov_floor=1e-8, cov_inflate=1.0):
     mean = w @ nodes
     d = nodes - mean
     cov = (w[:, None] * d).T @ d
-    cov = cov_inflate * cov + cov_floor * np.eye(mean.shape[0])
+    dim = mean.shape[0]
+    if prior_sigma is not None:
+        prior_sigma = np.asarray(prior_sigma, dtype=float)
+        neff = neff_from_logweights(beta * log_resp)
+        rho = shrink if shrink is not None else (dim + 1.0) / (dim + 1.0 + neff)
+        rho = float(min(max(rho, 0.0), 1.0))
+        cov = (1.0 - rho) * cov_inflate * cov + rho * np.diag(prior_sigma ** 2)
+    else:
+        cov = cov_inflate * cov
+    cov = cov + cov_floor * np.eye(dim)
     return mean, cov
 
 
@@ -156,7 +179,8 @@ def adaptive_cal(evaluate, prior_mean, prior_sigma, n_nodes_amp,
         # next proposal from tempered posterior responsibilities; inflate the covariance
         # early (while tempering is on) to keep exploring, relax as beta -> 1.
         beta = float(betas[min(it, len(betas) - 1)])
-        mean, cov = fit_proposal(nodes, log_resp, beta, cov_inflate=1.0 + (1.0 - beta))
+        mean, cov = fit_proposal(nodes, log_resp, beta, cov_inflate=1.0 + (1.0 - beta),
+                                 prior_sigma=prior_sigma)
         neff_resp = neff_from_logweights(log_resp)
         neff_w = neff_from_logweights(log_w)
         history.append(dict(iter=it, beta=beta, neff_resp=neff_resp, neff_w=neff_w))
