@@ -178,13 +178,30 @@ low-snr: lowsnr-inputs
 # with --calmarg-pilot added.  Designed to run on a single machine with condor + GPU
 # (e.g. cardassia); select the card with CUDA_VISIBLE_DEVICES if needed.
 RUN_DAG       := $(CURDIR)/rundir_dag
-N_IT_DAG      ?= 2        # >=2 so iteration 1 consumes the seed from calpilot_0
+# Toggles: PILOT=1 adds the adaptive cal pilots (seed wide_{N+1}); PILOT=0 is VANILLA
+# in-loop calmarg (no pilots -- the clean production path, best for faint sources).
+# FUSED=1 uses the fused GPU kernel (Option C).  E.g. the priority vanilla-fused demo:
+#     make dag-build PILOT=0 FUSED=1   &&   make dag-run PILOT=0 FUSED=1
+PILOT         ?= 1
+FUSED         ?= 0
+N_IT_DAG      ?= 2        # >=2 so iteration 1 consumes the seed from calpilot_0 (PILOT=1)
 NPTS_GRID_DAG ?= 80       # initial intrinsic grid size
 NPTS_IT_DAG   ?= 12       # intrinsic points / ILE jobs per iteration
 NCAL_DAG      ?= 20
 NMAX_DAG      ?= 40000
 NEFF_DAG      ?= 15
 NCHUNK_DAG    ?= 10000
+
+ifeq ($(FUSED),1)
+  DAG_FUSED_FLAG := --calibration-fused-kernel
+else
+  DAG_FUSED_FLAG :=
+endif
+ifeq ($(PILOT),1)
+  DAG_PILOT_CEPP := --calmarg-pilot --calmarg-pilot-cadence 1 --calmarg-pilot-max-it 1
+else
+  DAG_PILOT_CEPP :=
+endif
 
 DAG_ILE_ARGS := --n-chunk $(NCHUNK_DAG) --time-marginalization --sim-xml overlap-grid.xml.gz \
   --reference-freq 100.0 --adapt-weight-exponent 0.1 --event-time $(EVENT_TIME) --save-P 0.1 \
@@ -196,11 +213,11 @@ DAG_ILE_ARGS := --n-chunk $(NCHUNK_DAG) --time-marginalization --sim-xml overlap
   --data-end-time 1000000016 --inv-spec-trunc-time 0 --no-adapt-after-first --no-adapt-distance \
   --srate 4096 --sampler-method AV --vectorized --gpu \
   --calibration-envelope-directory $(CURDIR)/cal_env --calibration-n-realizations $(NCAL_DAG) \
-  --calibration-spline-count 10
-# --sigma-cut 5: iteration 0 uses PRIOR cal draws (no pilot seed yet) -> low neff_cal ->
-# high per-point MC error (~0.7-0.9 here), which the CIP default --sigma-cut 0.6 would
-# strip entirely.  Relax it so the cold-start points survive (cf. the long-term
-# helper_LDG_Events.py fix that relaxes the first CIP stage when cal pilots are enabled).
+  --calibration-spline-count 10 $(DAG_FUSED_FLAG)
+# --sigma-cut 5: cal draws (PRIOR for vanilla every iteration; PRIOR at iteration 0 for the
+# pilot cold start) have high per-point MC error (~0.7-0.9 here), which the CIP default
+# --sigma-cut 0.6 would strip entirely.  Relax it (cf. the helper_LDG_Events.py fix that
+# relaxes the first CIP stage automatically when --calmarg-pilot is enabled).
 DAG_CIP_ARGS  := --mc-range [23,35] --eta-range [0.20,0.24999] --parameter mc --parameter-implied eta --parameter-nofit delta_mc --fit-method gp --lnL-offset 120 --sigma-cut 5 --cap-points 12000 --n-output-samples 5000 --no-plots --n-eff 5000
 DAG_TEST_ARGS := --always-succeed --method lame --parameter m1
 DAG_PLOT_ARGS := --parameter m1 --parameter m2
@@ -208,7 +225,7 @@ DAG_FILE      := marginalize_intrinsic_parameters_BasicIterationWorkflow.dag
 
 .PHONY: dag dag-build dag-validate dag-run
 
-# Build the DAG (no condor submission) and validate the cal-pilot wiring is present.
+# Build the DAG (no condor submission) and validate the wiring.  PILOT/FUSED toggles above.
 dag-build: cal_env/H1.txt
 	rm -rf $(RUN_DAG); mkdir -p $(RUN_DAG)
 	cd $(RUN_DAG) && $(ENV) util_ManualOverlapGrid.py --parameter mc --parameter-range '[23,35]' \
@@ -218,11 +235,12 @@ dag-build: cal_env/H1.txt
 	cd $(RUN_DAG) && printf 'X %s\n' "$(DAG_CIP_ARGS)"  > args_cip.txt
 	cd $(RUN_DAG) && printf 'X %s\n' "$(DAG_TEST_ARGS)" > args_test.txt
 	cd $(RUN_DAG) && printf 'X %s\n' "$(DAG_PLOT_ARGS)" > args_plot.txt
-	# args_ile.txt: the wide ILE config + the per-iteration seed breadcrumb.  The condor
-	# macro $(macroiterationprev) is emitted literally ($$ -> $ for Make; single-quoted
-	# for the shell), exactly as util_RIFT_pseudo_pipe.py would inject it.
+	# args_ile.txt: the wide ILE config; for PILOT=1 also the per-iteration seed breadcrumb
+	# (the condor macro $(macroiterationprev) is emitted literally: $$ -> $ for Make, then
+	# single-quoted for the shell -- exactly as util_RIFT_pseudo_pipe.py injects it).
 	cd $(RUN_DAG) && { printf 'X %s' "$(DAG_ILE_ARGS)"; \
-	  printf ' --calibration-proposal-breadcrumb %s/cal_consolidated_$$(macroiterationprev).npz\n' "$(RUN_DAG)"; } > args_ile.txt
+	  [ "$(PILOT)" = "1" ] && printf ' --calibration-proposal-breadcrumb %s/cal_consolidated_$$(macroiterationprev).npz' "$(RUN_DAG)"; \
+	  printf '\n'; } > args_ile.txt
 	cd $(RUN_DAG) && $(ENV) create_event_parameter_pipeline_BasicIteration --request-gpu-ILE \
 	  --ile-n-events-to-analyze $(NPTS_IT_DAG) --input-grid overlap-grid-0.xml.gz \
 	  --ile-exe $(ILE) \
@@ -231,20 +249,28 @@ dag-build: cal_env/H1.txt
 	  --request-memory-CIP 2048 --request-memory-ILE 4096 \
 	  --input-grid $(RUN_DAG)/overlap-grid.xml.gz --n-samples-per-job $(NPTS_IT_DAG) \
 	  --working-directory $(RUN_DAG) --n-iterations $(N_IT_DAG) \
-	  --calmarg-pilot --calmarg-pilot-cadence 1 --calmarg-pilot-max-it 1
-	$(MAKE) dag-validate
+	  $(DAG_PILOT_CEPP)
+	$(MAKE) dag-validate PILOT=$(PILOT) FUSED=$(FUSED)
 
-# Validate the produced DAG carries the cal-pilot topology (no condor needed).
+# Validate the produced DAG (no condor needed).  Branch on PILOT.
 dag-validate:
+	@grep -q -- "--calibration-envelope-directory" "$(RUN_DAG)/ILE.sub" || (echo "FAIL: wide ILE.sub missing calibration envelope" && false)
+ifeq ($(FUSED),1)
+	@grep -q -- "--calibration-fused-kernel" "$(RUN_DAG)/ILE.sub" || (echo "FAIL: FUSED=1 but ILE.sub missing --calibration-fused-kernel" && false)
+endif
+ifeq ($(PILOT),1)
 	@test -s "$(RUN_DAG)/CALPILOT.sub"                          || (echo "FAIL: no CALPILOT.sub" && false)
 	@grep -q "util_CalPilotStage.py" "$(RUN_DAG)/CALPILOT.sub"  || (echo "FAIL: CALPILOT.sub does not run util_CalPilotStage.py" && false)
 	@grep -q "CALPILOT" $(RUN_DAG)/$(DAG_FILE)                  || (echo "FAIL: no CALPILOT job in DAG" && false)
 	@grep -q -- "--calibration-proposal-breadcrumb" "$(RUN_DAG)/ILE.sub" || (echo "FAIL: wide ILE.sub missing seed breadcrumb" && false)
 	@grep -q "macroiterationprev" "$(RUN_DAG)/ILE.sub"          || (echo "FAIL: ILE.sub missing macroiterationprev" && false)
-	@grep -q "cal_consolidated"   "$(RUN_DAG)/CALPILOT.sub"     || (echo "FAIL: CALPILOT.sub missing consolidated output" && false)
-	@echo "OK: DAG built with cal-pilot wiring -- CALPILOT job present, runs util_CalPilotStage.py,"
-	@echo "    wide ILE seeded via --calibration-proposal-breadcrumb cal_consolidated_\$$(macroiterationprev).npz."
-	@echo "    Submit it with:  make dag-run   (or: cd $(RUN_DAG) && condor_submit_dag $(DAG_FILE))"
+	@echo "OK: cal-PILOT DAG built -- CALPILOT runs util_CalPilotStage.py; wide ILE seeded via breadcrumb."
+else
+	@! test -s "$(RUN_DAG)/CALPILOT.sub" || (echo "FAIL: PILOT=0 but a CALPILOT.sub was produced" && false)
+	@! grep -q -- "--calibration-proposal-breadcrumb" "$(RUN_DAG)/ILE.sub" || (echo "FAIL: PILOT=0 but ILE.sub has a seed breadcrumb" && false)
+	@echo "OK: VANILLA calmarg DAG built (no pilots; FUSED=$(FUSED)) -- ILE.sub carries the cal envelope, no CALPILOT."
+endif
+	@echo "    Submit with:  make dag-run PILOT=$(PILOT) FUSED=$(FUSED)"
 
 # Submit the DAG to the local condor (GPU).  Select the card with CUDA_VISIBLE_DEVICES.
 dag-run:
