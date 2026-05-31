@@ -169,6 +169,88 @@ $(LOWSNR_CACHE):
 low-snr: lowsnr-inputs
 	$(MAKE) all CACHE=$(LOWSNR_CACHE) SIM_XML=$(CURDIR)/mdc_lowsnr.xml.gz
 
+# --- Full DAG test (Option C adaptive cal pilot) on local condor ----------------
+# Builds and (optionally) submits a real RIFT DAG that exercises the per-iteration
+# calibration PILOT wiring: calpilot_N runs in parallel with CIP_N, learns a cal
+# proposal, and SEEDS the wide ILE jobs of iteration N+1 via a breadcrumb.  Mirrors
+# the known-good .travis/ILE-GPU-Paper test_workflow_batch_gpu_lowlatency target
+# (calls create_event_parameter_pipeline_BasicIteration directly), 3-IFO + GPU + AV,
+# with --calmarg-pilot added.  Designed to run on a single machine with condor + GPU
+# (e.g. cardassia); select the card with CUDA_VISIBLE_DEVICES if needed.
+RUN_DAG       := $(CURDIR)/rundir_dag
+N_IT_DAG      ?= 2        # >=2 so iteration 1 consumes the seed from calpilot_0
+NPTS_GRID_DAG ?= 80       # initial intrinsic grid size
+NPTS_IT_DAG   ?= 12       # intrinsic points / ILE jobs per iteration
+NCAL_DAG      ?= 20
+NMAX_DAG      ?= 40000
+NEFF_DAG      ?= 15
+NCHUNK_DAG    ?= 10000
+
+DAG_ILE_ARGS := --n-chunk $(NCHUNK_DAG) --time-marginalization --sim-xml overlap-grid.xml.gz \
+  --reference-freq 100.0 --adapt-weight-exponent 0.1 --event-time $(EVENT_TIME) --save-P 0.1 \
+  --cache-file $(CACHE) --fmin-template 10 --n-max $(NMAX_DAG) --fmax 1700.0 --save-deltalnL inf \
+  --l-max 2 --n-eff $(NEFF_DAG) --approximant SEOBNRv4 --adapt-floor-level 0.1 --d-max $(DMAX) \
+  --psd-file H1=$(PSD) --psd-file L1=$(PSD) --psd-file V1=$(PSD) \
+  --channel-name H1=FAKE-STRAIN --channel-name L1=FAKE-STRAIN --channel-name V1=FAKE-STRAIN \
+  --inclination-cosine-sampler --declination-cosine-sampler --data-start-time 1000000008 \
+  --data-end-time 1000000016 --inv-spec-trunc-time 0 --no-adapt-after-first --no-adapt-distance \
+  --srate 4096 --sampler-method AV --vectorized --gpu \
+  --calibration-envelope-directory $(CURDIR)/cal_env --calibration-n-realizations $(NCAL_DAG) \
+  --calibration-spline-count 10
+DAG_CIP_ARGS  := --mc-range [23,35] --eta-range [0.20,0.24999] --parameter mc --parameter-implied eta --parameter-nofit delta_mc --fit-method gp --lnL-offset 120 --cap-points 12000 --n-output-samples 5000 --no-plots --n-eff 5000
+DAG_TEST_ARGS := --always-succeed --method lame --parameter m1
+DAG_PLOT_ARGS := --parameter m1 --parameter m2
+DAG_FILE      := marginalize_intrinsic_parameters_BasicIterationWorkflow.dag
+
+.PHONY: dag dag-build dag-validate dag-run
+
+# Build the DAG (no condor submission) and validate the cal-pilot wiring is present.
+dag-build: cal_env/H1.txt
+	rm -rf $(RUN_DAG); mkdir -p $(RUN_DAG)
+	cd $(RUN_DAG) && $(ENV) util_ManualOverlapGrid.py --parameter mc --parameter-range '[23,35]' \
+	  --parameter delta_mc --parameter-range '[0.0,0.5]' --grid-cartesian-npts $(NPTS_GRID_DAG) \
+	  --skip-overlap --approx SEOBNRv4
+	cd $(RUN_DAG) && cp overlap-grid.xml.gz overlap-grid-0.xml.gz
+	cd $(RUN_DAG) && printf 'X %s\n' "$(DAG_CIP_ARGS)"  > args_cip.txt
+	cd $(RUN_DAG) && printf 'X %s\n' "$(DAG_TEST_ARGS)" > args_test.txt
+	cd $(RUN_DAG) && printf 'X %s\n' "$(DAG_PLOT_ARGS)" > args_plot.txt
+	# args_ile.txt: the wide ILE config + the per-iteration seed breadcrumb.  The condor
+	# macro $(macroiterationprev) is emitted literally ($$ -> $ for Make; single-quoted
+	# for the shell), exactly as util_RIFT_pseudo_pipe.py would inject it.
+	cd $(RUN_DAG) && { printf 'X %s' "$(DAG_ILE_ARGS)"; \
+	  printf ' --calibration-proposal-breadcrumb %s/cal_consolidated_$$(macroiterationprev).npz\n' "$(RUN_DAG)"; } > args_ile.txt
+	cd $(RUN_DAG) && $(ENV) create_event_parameter_pipeline_BasicIteration --request-gpu-ILE \
+	  --ile-n-events-to-analyze $(NPTS_IT_DAG) --input-grid overlap-grid-0.xml.gz \
+	  --ile-exe $(ILE) \
+	  --ile-args $(RUN_DAG)/args_ile.txt --cip-args $(RUN_DAG)/args_cip.txt \
+	  --test-args $(RUN_DAG)/args_test.txt --plot-args $(RUN_DAG)/args_plot.txt \
+	  --request-memory-CIP 2048 --request-memory-ILE 4096 \
+	  --input-grid $(RUN_DAG)/overlap-grid.xml.gz --n-samples-per-job $(NPTS_IT_DAG) \
+	  --working-directory $(RUN_DAG) --n-iterations $(N_IT_DAG) \
+	  --calmarg-pilot --calmarg-pilot-cadence 1 --calmarg-pilot-max-it 1
+	$(MAKE) dag-validate
+
+# Validate the produced DAG carries the cal-pilot topology (no condor needed).
+dag-validate:
+	@test -s "$(RUN_DAG)/CALPILOT.sub"                          || (echo "FAIL: no CALPILOT.sub" && false)
+	@grep -q "util_CalPilotStage.py" "$(RUN_DAG)/CALPILOT.sub"  || (echo "FAIL: CALPILOT.sub does not run util_CalPilotStage.py" && false)
+	@grep -q "CALPILOT" $(RUN_DAG)/$(DAG_FILE)                  || (echo "FAIL: no CALPILOT job in DAG" && false)
+	@grep -q -- "--calibration-proposal-breadcrumb" "$(RUN_DAG)/ILE.sub" || (echo "FAIL: wide ILE.sub missing seed breadcrumb" && false)
+	@grep -q "macroiterationprev" "$(RUN_DAG)/ILE.sub"          || (echo "FAIL: ILE.sub missing macroiterationprev" && false)
+	@grep -q "cal_consolidated"   "$(RUN_DAG)/CALPILOT.sub"     || (echo "FAIL: CALPILOT.sub missing consolidated output" && false)
+	@echo "OK: DAG built with cal-pilot wiring -- CALPILOT job present, runs util_CalPilotStage.py,"
+	@echo "    wide ILE seeded via --calibration-proposal-breadcrumb cal_consolidated_\$$(macroiterationprev).npz."
+	@echo "    Submit it with:  make dag-run   (or: cd $(RUN_DAG) && condor_submit_dag $(DAG_FILE))"
+
+# Submit the DAG to the local condor (GPU).  Select the card with CUDA_VISIBLE_DEVICES.
+dag-run:
+	cd $(RUN_DAG) && $(ENV) condor_submit_dag -f $(DAG_FILE)
+	@echo "Submitted.  Watch with: condor_q ; tail -f $(RUN_DAG)/$(DAG_FILE).dagman.out"
+	@echo "After it finishes, the pilot products are $(RUN_DAG)/cal_consolidated_*.npz and"
+	@echo "$(RUN_DAG)/cal_pilot_resp_*.npz ; the seeded wide-ILE logs report 'SEEDED from proposal breadcrumb'."
+
+dag: dag-build
+
 clean:
 	rm -f distance_marg.npz out_*.dat *.xml.gz lowsnr.cache snr_*.dat snr-report.txt
-	rm -rf cal_env lowsnr_mdc
+	rm -rf cal_env lowsnr_mdc rundir_dag

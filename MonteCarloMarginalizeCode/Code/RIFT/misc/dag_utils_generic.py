@@ -2742,6 +2742,60 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
 
 
 
+def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla",
+                       working_directory=None, ile_args_file=None, top_fraction=0.05,
+                       max_points=32, request_memory=4096, request_gpu=True,
+                       singularity_image=None, max_runtime_minutes=300, **kwargs):
+    """Submit file for a calibration PILOT stage (Option C; see
+    RIFT/calmarg/DESIGN_adaptive_driver.md): harvest top-lnL points from iteration
+    $(macroiteration)'s composite, run ILE --calibration-dump-responsibilities on them,
+    fit + consolidate a cal proposal that seeds wide_{N+1}.  Runs util_CalPilotStage.py.
+
+    Macros expected at instantiation: macroiteration, macroiterationprev.
+    Produces  <wd>/cal_consolidated_$(macroiteration).npz  (consumed by wide_{N+1} ILE via
+    --calibration-proposal-breadcrumb).
+    """
+    exe = exe or which("util_CalPilotStage.py")
+    wd = working_directory
+    job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+    sub_name = tag + '.sub'
+    job.set_sub_file(sub_name)
+
+    # arguments (per-iteration files via condor macros)
+    job.add_opt("composite", wd + "/consolidated_$(macroiteration).composite")
+    job.add_opt("ile-args-file", ile_args_file)
+    job.add_opt("iteration", "$(macroiteration)")
+    job.add_opt("output-breadcrumb", wd + "/cal_consolidated_$(macroiteration).npz")
+    job.add_opt("prev-breadcrumb", wd + "/cal_consolidated_$(macroiterationprev).npz")
+    job.add_opt("top-fraction", str(top_fraction))
+    job.add_opt("max-points", str(max_points))
+    job.add_opt("workdir", wd)
+
+    uniq_str = "$(macroiteration)-$(cluster)-$(process)"
+    job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    if default_resolved_env:
+        job.add_condor_cmd('environment', default_resolved_env)
+    else:
+        job.add_condor_cmd('getenv', default_getenv_value)
+    job.add_condor_cmd('request_memory', str(request_memory) + "M")
+    if request_gpu:
+        job.add_condor_cmd('request_GPUs', '1')          # the pilot runs ILE (GPU path)
+    if singularity_image:
+        job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    try:
+        job.add_condor_cmd('accounting_group', os.environ['LIGO_ACCOUNTING'])
+        job.add_condor_cmd('accounting_group_user', os.environ['LIGO_USER_NAME'])
+    except:
+        print(" LIGO accounting information not available.  Add manually to %s !" % sub_name)
+    if not (max_runtime_minutes is None):
+        remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60 * max_runtime_minutes)
+        job.add_condor_cmd('periodic_remove', remove_str)
+    return job, sub_name
+
+
 def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=60,extra_text='',**kwargs):
     """
     Write a submit file for launching a consolidation job
