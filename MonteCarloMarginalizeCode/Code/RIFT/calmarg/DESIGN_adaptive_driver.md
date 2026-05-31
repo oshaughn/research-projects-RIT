@@ -2,6 +2,53 @@
 
 Status: **planning** (do not implement the multi-stage loop until we pick a path).
 
+## Zero-cal burn-in of the extrinsic sampler (proposed; ILE-level, analyze_event)
+
+**Problem.** Calibration marginalization makes the extrinsic integral much harder to
+converge: with cal drawn from the broad PRIOR the per-time lnL has a large dynamic range,
+so the adaptive sampler (AV) struggles to reach a useful `n_eff` -- and on the FIRST
+iteration there is no learned cal proposal yet, so every cold-start ILE job is in this
+regime.  Empirically (local DAG run) iteration-0 points come out with `sigma ~ 0.7-0.9`
+and few effective samples; high-SNR sources are hard even WITHOUT cal, and cal makes it
+worse.  We are effectively failing to seed the *intrinsic* grid because the *extrinsic*
+sampler never gets going.
+
+**Idea (O'Shaughnessy).** Burn the sampler in on a *different, cheaper* likelihood first
+-- the ZERO-CAL (n_cal=1) baseline -- until it reaches a minimal `n_eff`, so the
+extrinsic sampling proposal is "roughly right", THEN switch to the full cal-marginalized
+likelihood for the production estimate.  The extrinsic posterior shape is nearly the same
+with and without cal (cal mostly rescales / mildly shifts lnL), so the burned-in proposal
+is an excellent warm start -- and the zero-cal evaluations are ~`n_cal`x cheaper.
+
+**Where it lives.** `analyze_event` in `integrate_likelihood_extrinsic_batchmode`.  The
+likelihood closures already read the module-scope `n_cal_for_likelihood`; the sampler also
+already supports a warm start via `sampler.update_sampling_prior(..., external_rvs=...)`
+(the existing `oracleRS` path, ~line 2078).  Two viable mechanisms:
+
+  1. **Two-phase integrate (simplest).**  Set `n_cal_for_likelihood = 1`, call
+     `sampler.integrate(likelihood_function, ..., n_eff=burn_in_neff)` (the closures now
+     evaluate the fast zero-cal baseline), then restore `n_cal_for_likelihood` and call
+     the production `sampler.integrate(...)` WITHOUT resetting -- reusing the adapted
+     proposal.  Risk: AV's reset semantics across two integrate() calls in one
+     analyze_event are unverified (it "always resets every iteration" between DAG
+     iterations; need to confirm it does NOT reset at the start of integrate()).
+  2. **Warm-start via update_sampling_prior (robust).**  Run the zero-cal burn-in,
+     harvest its drawn extrinsic samples + lnL, and feed them to
+     `sampler.update_sampling_prior(external_rvs=...)` exactly like the oracle path, then
+     run the production integrate.  Survives regardless of integrate()'s reset behavior.
+
+**Proposed flag.** `--calibration-burn-in-neff <float>` (0/None = off): target n_eff for
+the zero-cal burn-in (capped by a fraction of n-max).  Default off; opt-in.
+
+**Relation to the bigger seeding plan.** This is the in-job version of the same idea as
+the *zero-cal pilots* that seed the intrinsic/extrinsic grids for high-SNR sources: burn
+in cheaply, then pay for cal only once the sampling is on-target.  The pilot (`pilot.py`,
+util_CalPilotStage) seeds the CAL proposal across iterations; this burn-in seeds the
+EXTRINSIC proposal within a single job.  They compose.
+
+Status: framed; needs implementation behind the flag + a GPU smoke test to confirm the
+sampler reuses/seeds adaptation across the burn-in -> production handoff.
+
 ## Where we are
 
 - In-loop calmarg works and is validated (loop == fused == reference ~1e-14; CPU+GPU;
