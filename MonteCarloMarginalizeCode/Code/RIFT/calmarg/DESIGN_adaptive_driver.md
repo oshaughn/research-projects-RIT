@@ -46,8 +46,29 @@ in cheaply, then pay for cal only once the sampling is on-target.  The pilot (`p
 util_CalPilotStage) seeds the CAL proposal across iterations; this burn-in seeds the
 EXTRINSIC proposal within a single job.  They compose.
 
-Status: framed; needs implementation behind the flag + a GPU smoke test to confirm the
-sampler reuses/seeds adaptation across the burn-in -> production handoff.
+Status: implemented behind `--calibration-burn-in-neff` (two-phase integrate, toggling
+`n_cal_for_likelihood`), correctness-safe (the production integral is always the full cal
+one).  BUT see the sampler limitation below.
+
+### Sampler limitation (measured / per review) -- BREADCRUMB for future work
+The default and most efficient extrinsic sampler, **AV (mcsamplerAdaptiveVolume),
+COMPLETELY RESETS between `integrate()` calls** -- there is currently no seedable AV.  So
+the two-phase burn-in gives AV **no speedup** (the adapted proposal is thrown away); it is
+only ever correctness-safe overhead there.  Moreover, **re-seeding AV is inherently
+dangerous**: AV can only *contract* its volume, never *expand* or *shift* its boundaries,
+so a burn-in proposal that is slightly off / too tight would trap the production phase in
+the wrong region.  The other integrators (**GMM**, **portfolio**) CAN reuse sampling
+models (their `update_sampling_prior` / `gmm_dict` hooks) but are less efficient overall.
+
+Therefore the zero-cal burn-in only pays off once we have:
+  1. a **seedable AV** (warm-start AV from external samples / a prior proposal), and/or
+  2. a **more flexible, boundary-shifting AV** that can EXPAND and TRANSLATE its sampling
+     volume (not only contract) -- so a warm start can't trap it.
+Both would be broadly useful well beyond calmarg (every iteration, every warm start).
+Until then: keep the burn-in flag (harmless, gated, ready) but do NOT rely on it for AV;
+for GMM/portfolio it can warm-start via their model-reuse hooks (untested).  The cal PILOT
+(across-iteration proposal learning) and the prior-shrinkage backstop remain the load-
+bearing pieces for cal; extrinsic seeding waits on seedable AV.
 
 ## Where we are
 
