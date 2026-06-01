@@ -557,6 +557,10 @@ if not (opts.transfer_file_list is None):
         for  line in f.readlines():
             transfer_file_names.append(line.rstrip())
     print(" Input files to transfer to job working directory (note!)", transfer_file_names)
+# Clean snapshot of the transfer list (PSD + cal envelopes only) BEFORE the grid is
+# appended and BEFORE write_ILE_sub_simple mutates it in place (frames_dir, ile_pre.sh).
+# The CALPILOT job (built later) needs this clean set, not the wide-ILE-polluted one.
+transfer_file_names_pilot_base = list(transfer_file_names)
 
 ###
 ### Fiducial fit job (=sanity check that code will run)
@@ -1134,7 +1138,7 @@ if opts.calmarg_pilot:
         universe="vanilla",
         singularity_image=(singularity_image if (opts.use_singularity or opts.use_osg or opts.condor_containerize_nonworker) else None),
         use_osg=opts.use_osg, use_singularity=opts.use_singularity, frames_dir=opts.frames_dir,
-        transfer_files=(list(transfer_file_names[:-1]) if (opts.use_osg and len(transfer_file_names) > 0) else None))
+        transfer_files=(list(transfer_file_names_pilot_base) if opts.use_osg else None))
     calpilot_job.add_condor_cmd("initialdir", opts.working_directory + "/iteration_$(macroiteration)_cip")
     if opts.use_full_submit_paths:
         calpilot_job.set_sub_file(opts.working_directory + "/" + calpilot_job.get_sub_file())

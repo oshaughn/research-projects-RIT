@@ -1061,8 +1061,19 @@ if opts.calmarg_envelope_directory:
     if opts.calmarg_pilot:
         # Option C: wide ILE jobs are SEEDED from the previous iteration's consolidated cal
         # proposal.  The $(macroiterationprev) condor macro resolves per node; ILE falls
-        # back to the broad prior when the file is absent (the first iterations).
-        line += " --calibration-proposal-breadcrumb {}/cal_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
+        # back to the broad prior when the file is absent/invalid (the first iterations).
+        if opts.use_osg_file_transfer:
+            # OSG: no shared FS -> reference the breadcrumb by BASENAME (it is transferred
+            # in from the submit node, produced at runtime by calpilot_{N-1}), and add it to
+            # the ILE transfer list.  Also create a placeholder cal_consolidated_-1.npz so
+            # condor's transfer for the FIRST iteration (prev=-1, never produced) does not
+            # fail -- ILE's breadcrumb load is try/except and falls back to the prior.
+            line += " --calibration-proposal-breadcrumb cal_consolidated_$(macroiterationprev).npz "
+            _bc_xfer = os.getcwd() + "/cal_consolidated_$(macroiterationprev).npz"
+            opts.ile_additional_files_to_transfer = (opts.ile_additional_files_to_transfer + "," + _bc_xfer) if opts.ile_additional_files_to_transfer else _bc_xfer
+            open(os.getcwd() + "/cal_consolidated_-1.npz", "a").close()   # placeholder for iteration 0
+        else:
+            line += " --calibration-proposal-breadcrumb {}/cal_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
 with open('args_ile.txt','w') as f:
         f.write(line)
 
