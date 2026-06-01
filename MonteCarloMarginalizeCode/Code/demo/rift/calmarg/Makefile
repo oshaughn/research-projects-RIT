@@ -354,6 +354,14 @@ PP_INI   ?= $(RIFT_CODE_ROOT)/demo/pipeline/zero_spin_phenomD/zero_spin_phenomD.
 PP_COINC ?= $(REPO_ROOT)/.travis/ref_ini/coinc.xml
 PP_NIT   ?= 2          # forced iteration count (small, under control)
 PP_SRATE ?= 4096       # time-resampling output rate (--srate-resample-time-marginalization)
+# PP_PILOT=1 adds the adaptive cal PILOT jobs to pp-run (harvest->dump->fit->consolidate->
+# seed wide_{N+1}).  Default 0 (vanilla).  `make pp-run-pilot` is the convenience wrapper.
+PP_PILOT ?= 0
+ifeq ($(PP_PILOT),1)
+  PP_PILOT_FLAGS := --calmarg-pilot --calmarg-pilot-cadence 1 --calmarg-pilot-max-it 1
+else
+  PP_PILOT_FLAGS :=
+endif
 
 .PHONY: pp pp-build pp-validate
 
@@ -459,7 +467,7 @@ endif
 	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
 	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
 	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30 \
-	  $(PP_DISK_FLAGS) $(PP_OSG_FLAGS)
+	  $(PP_DISK_FLAGS) $(PP_OSG_FLAGS) $(PP_PILOT_FLAGS)
 ifeq ($(OSG),1)
 	@# --use-osg-file-transfer expects a frames_dir of .gwf in the rundir.  Must be a FULL
 	@# COPY, not a symlink: condor refuses "Transfer of symlinks to directories is not supported".
@@ -479,8 +487,17 @@ endif
 	@grep -q -- "--srate-resample-time-marginalization" $(PP_RUN_REAL)/ILE_extr.sub || (echo "FAIL: extrinsic stage missing time resampling" && false)
 	@grep -q -- "--calibration-fused-kernel" $(PP_RUN_REAL)/ILE_extr.sub || (echo "FAIL: extrinsic stage missing calmarg" && false)
 	@test -s "$(PP_RUN_REAL)/$(PP_DAG)" || (echo "FAIL: no top-level DAG produced" && false)
+ifeq ($(PP_PILOT),1)
+	@test -s "$(PP_RUN_REAL)/CALPILOT.sub"                         || (echo "FAIL: PP_PILOT=1 but no CALPILOT.sub" && false)
+	@grep -q "util_CalPilotStage.py" "$(PP_RUN_REAL)/CALPILOT.sub" || (echo "FAIL: CALPILOT.sub does not run util_CalPilotStage.py" && false)
+	@grep -q "CALPILOT" "$(PP_RUN_REAL)/$(PP_DAG)"                 || (echo "FAIL: no CALPILOT job in DAG" && false)
+	@grep -q -- "--calibration-proposal-breadcrumb" "$(PP_RUN_REAL)/args_ile.txt" || (echo "FAIL: wide ILE args missing seed breadcrumb" && false)
+	@echo "OK: runnable cal-PILOT pipeline built on CI data -- CALPILOT (harvest->dump->fit->"
+	@echo "    consolidate) wired; wide ILE seeded via --calibration-proposal-breadcrumb; $(PP_NIT) iters."
+else
 	@echo "OK: runnable calmarg pipeline built on the CI fake data (real cache + PSD + FAKE-STRAIN,"
 	@echo "    event 1000000014.236, calmarg+fused, time-resampling, zero-spin, $(PP_NIT) iters)."
+endif
 
 # Build + SUBMIT to condor.  Watch: condor_q ; tail -f $(PP_RUN_REAL)/$(PP_DAG).dagman.out
 # Extrinsic time-sample output lands in the last iteration's extrinsic stage.
@@ -490,6 +507,15 @@ pp-run: pp-run-build
 	@# CIT requires accounting identity in the environment, else jobs never queue.
 	@test -n "$$LIGO_USER_NAME" || echo "  *** WARNING: LIGO_USER_NAME is unset -- condor jobs may not queue (required at CIT). export it. ***"
 	@{ test -n "$$LIGO_ACCOUNTING" || test -n "$$LIGO_ACCOUNTING_GROUP"; } || echo "  *** WARNING: LIGO_ACCOUNTING (a.k.a. LIGO_ACCOUNTING_GROUP) is unset -- condor jobs may not queue (required at CIT). export it. ***"
+
+# Runnable cal-PILOT pipeline: pp-run with the adaptive pilots enabled (harvest->dump->
+# fit->consolidate->seed wide_{N+1}).  Needs >=2 iterations so the seed is consumed.
+# Honours OSG (CIT) the same way as pp-run.
+.PHONY: pp-run-pilot pp-run-pilot-build
+pp-run-pilot-build:
+	$(MAKE) pp-run-build PP_PILOT=1 PP_NIT=2
+pp-run-pilot:
+	$(MAKE) pp-run PP_PILOT=1 PP_NIT=2
 
 clean:
 	rm -f distance_marg.npz out_*.dat *.xml.gz lowsnr.cache snr_*.dat snr-report.txt foo.cache ci_coinc.xml
