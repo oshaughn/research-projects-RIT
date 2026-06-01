@@ -418,18 +418,19 @@ ifneq ($(SINGULARITY_RIFT_IMAGE),)
 endif
 OSG ?= 0
 ifeq ($(OSG),1)
+  # Container: ~4 GB disk for the .sif transfer + unpack (vs the MB-scale shared-FS baseline)
+  PP_DISK ?= 4G
   PP_OSG_XFER  := $(CURDIR)/cal_env/H1.txt,$(CURDIR)/cal_env/L1.txt,$(CURDIR)/cal_env/V1.txt,$(PSD)
-  # Container: request ~4 GB extra disk over the MB-scale shared-FS baseline, for the .sif
-  # image transfer + unpack on the worker (ILE, CIP, and general/worker jobs).
-  PP_OSG_DISK  ?= 4G
   PP_OSG_FLAGS := --use-osg --use-osg-cip --use-osg-file-transfer \
-                  --ile-additional-files-to-transfer $(PP_OSG_XFER) \
-                  --internal-ile-request-disk $(PP_OSG_DISK) \
-                  --internal-cip-request-disk $(PP_OSG_DISK) \
-                  --internal-general-request-disk $(PP_OSG_DISK)
+                  --ile-additional-files-to-transfer $(PP_OSG_XFER)
 else
+  PP_DISK ?= 4M
   PP_OSG_FLAGS :=
 endif
+# Disk requests for ALL THREE job types come from the CLI here, ALWAYS (baseline 4M local,
+# 4G container).  Must NOT also be set in the ini -- a [rift-pseudo-pipe] value there
+# OVERRIDES the CLI, which previously left ILE stuck at 4M while cip/general got bumped.
+PP_DISK_FLAGS := --internal-ile-request-disk $(PP_DISK) --internal-cip-request-disk $(PP_DISK) --internal-general-request-disk $(PP_DISK)
 
 .PHONY: pp-run pp-run-build pp-coinc
 
@@ -453,7 +454,7 @@ endif
 	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
 	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
 	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30 \
-	  $(PP_OSG_FLAGS)
+	  $(PP_DISK_FLAGS) $(PP_OSG_FLAGS)
 ifeq ($(OSG),1)
 	@# --use-osg-file-transfer expects a frames_dir of .gwf in the rundir; link the CI frames
 	ln -sfn $(CI_DEMO)/zero_noise_mdc $(PP_RUN_REAL)/frames_dir
