@@ -1122,13 +1122,19 @@ calpilot_job = None
 calpilot_node_per_iteration = {}
 if opts.calmarg_pilot:
     calpilot_log_dir = opts.working_directory + "/iteration_$(macroiteration)_cip/logs/"
+    # On OSG the CALPILOT job runs ILE internally, so it needs the same container + input
+    # transfer set as the wide ILE jobs (PSD + cal envelopes + frames), plus the composite.
+    # transfer_file_names[:-1] = the helper transfer list WITHOUT the wide grid (the pilot
+    # harvests its own grid from the transferred composite).
     calpilot_job, calpilot_job_name = dag_utils.write_calpilot_sub(
         tag='CALPILOT', log_dir=calpilot_log_dir, working_directory=opts.working_directory,
         ile_args_file=opts.working_directory + "/args_ile.txt",
         top_fraction=opts.calmarg_pilot_top_fraction, max_points=opts.calmarg_pilot_max_points,
         request_memory=opts.request_memory_ILE, request_gpu=opts.request_gpu_ILE,
         universe="vanilla",
-        singularity_image=(singularity_image if opts.condor_containerize_nonworker else None))
+        singularity_image=(singularity_image if (opts.use_singularity or opts.use_osg or opts.condor_containerize_nonworker) else None),
+        use_osg=opts.use_osg, use_singularity=opts.use_singularity, frames_dir=opts.frames_dir,
+        transfer_files=(list(transfer_file_names[:-1]) if (opts.use_osg and len(transfer_file_names) > 0) else None))
     calpilot_job.add_condor_cmd("initialdir", opts.working_directory + "/iteration_$(macroiteration)_cip")
     if opts.use_full_submit_paths:
         calpilot_job.set_sub_file(opts.working_directory + "/" + calpilot_job.get_sub_file())

@@ -2745,7 +2745,9 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
 def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla",
                        working_directory=None, ile_args_file=None, top_fraction=0.05,
                        max_points=32, request_memory=4096, request_gpu=True,
-                       singularity_image=None, max_runtime_minutes=300, **kwargs):
+                       singularity_image=None, max_runtime_minutes=300,
+                       use_osg=False, use_singularity=False, frames_dir=None,
+                       transfer_files=None, **kwargs):
     """Submit file for a calibration PILOT stage (Option C; see
     RIFT/calmarg/DESIGN_adaptive_driver.md): harvest top-lnL points from iteration
     $(macroiteration)'s composite, run ILE --calibration-dump-responsibilities on them,
@@ -2754,22 +2756,77 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
     Macros expected at instantiation: macroiteration, macroiterationprev.
     Produces  <wd>/cal_consolidated_$(macroiteration).npz  (consumed by wide_{N+1} ILE via
     --calibration-proposal-breadcrumb).
+
+    OSG/container (use_osg/use_singularity): the CALPILOT job runs ILE internally, so it
+    needs the SAME input set as a wide ILE job -- mirrors write_ILE_sub_simple:
+      - runs in the singularity image (exe at SINGULARITY_BASE_EXE_DIR);
+      - a prescript (calpilot_pre.sh) rebuilds local.cache from the transferred frames;
+      - transfer_input_files = transfer_files (PSD + cal envelopes) + frames_dir + the
+        composite + args_ile.txt; transfer_output_files = the consolidated breadcrumb;
+      - the stage args reference BASENAMES (the worker has no shared filesystem).
+    Refinement (--prev-breadcrumb) is skipped on OSG: the previous breadcrumb is produced
+    at runtime so it cannot be reliably listed for transfer (esp. iteration 0); each OSG
+    pilot is an independent cold start (safe -- the fit shrinks toward the prior).
+    NOTE: untested off-CIT; validate the container + transfer on a real OSG run.
     """
     exe = exe or which("util_CalPilotStage.py")
     wd = working_directory
-    job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+    on_osg = bool(use_osg or use_singularity)
+    exe_base = os.path.basename(exe)
+    frames_local = os.path.basename(frames_dir) if frames_dir else None
+    if transfer_files is None:
+        transfer_files = []
+    transfer_files = list(transfer_files)
+
+    if use_singularity:
+        base = os.environ.get('SINGULARITY_BASE_EXE_DIR', '/usr/bin/')
+        exe = base.rstrip('/') + '/' + exe_base
+
+    # On OSG/container there is no shared FS: the stage's inputs are transferred FLAT into
+    # the job scratch dir, so reference them by basename and run in '.'; on a local shared
+    # FS use absolute paths.
+    if on_osg:
+        composite_arg = "consolidated_$(macroiteration).composite"
+        ile_args_arg  = os.path.basename(ile_args_file) if ile_args_file else "args_ile.txt"
+        out_arg       = "cal_consolidated_$(macroiteration).npz"
+        workdir_arg   = "."
+    else:
+        composite_arg = wd + "/consolidated_$(macroiteration).composite"
+        ile_args_arg  = ile_args_file
+        out_arg       = wd + "/cal_consolidated_$(macroiteration).npz"
+        workdir_arg   = wd
+
+    # Prescript: on OSG, rebuild local.cache (relative paths) from the transferred frames,
+    # then exec the stage.  Mirrors write_ILE_sub_simple's ile_pre.sh.
+    if on_osg and frames_local:
+        lalapps_path2cache = os.environ.get('LALAPPS_PATH2CACHE', 'lal_path2cache')
+        pre = 'calpilot_pre.sh'
+        with open(pre, 'w') as f:
+            f.write("#! /bin/bash -xe \n")
+            f.write("ls {0} | {1} 1> local.cache \n".format(frames_local, lalapps_path2cache))
+            f.write("cat local.cache | awk '{print $1, $2, $3, $4}' > local_stripped.cache \n")
+            f.write("for i in `ls {0}`; do echo {0}/$i; done > base_paths.dat \n".format(frames_local))
+            f.write("paste local_stripped.cache base_paths.dat > local_relative.cache \n")
+            f.write("cp local_relative.cache local.cache \n")
+            f.write('{0} "$@" \n'.format(exe))
+        os.system("chmod a+x " + pre)
+        transfer_files += ['../' + pre, frames_dir]
+        exe = pre
+
+    job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
     sub_name = tag + '.sub'
     job.set_sub_file(sub_name)
 
     # arguments (per-iteration files via condor macros)
-    job.add_opt("composite", wd + "/consolidated_$(macroiteration).composite")
-    job.add_opt("ile-args-file", ile_args_file)
+    job.add_opt("composite", composite_arg)
+    job.add_opt("ile-args-file", ile_args_arg)
     job.add_opt("iteration", "$(macroiteration)")
-    job.add_opt("output-breadcrumb", wd + "/cal_consolidated_$(macroiteration).npz")
-    job.add_opt("prev-breadcrumb", wd + "/cal_consolidated_$(macroiterationprev).npz")
+    job.add_opt("output-breadcrumb", out_arg)
+    if not on_osg:
+        job.add_opt("prev-breadcrumb", wd + "/cal_consolidated_$(macroiterationprev).npz")
     job.add_opt("top-fraction", str(top_fraction))
     job.add_opt("max-points", str(max_points))
-    job.add_opt("workdir", wd)
+    job.add_opt("workdir", workdir_arg)
 
     uniq_str = "$(macroiteration)-$(cluster)-$(process)"
     job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
@@ -2783,8 +2840,28 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
     job.add_condor_cmd('request_memory', str(request_memory) + "M")
     if request_gpu:
         job.add_condor_cmd('request_GPUs', '1')          # the pilot runs ILE (GPU path)
-    if singularity_image:
+
+    requirements = []
+    if use_singularity and singularity_image:
+        job.add_condor_cmd('transfer_executable', 'False')
+        job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+        job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image + '"')
+        job.add_condor_cmd("MY.flock_local", 'true')
+        requirements.append("HAS_SINGULARITY=?=TRUE")
+    elif singularity_image:
         job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+
+    if on_osg:
+        # absolute paths -> condor transfers each to the worker scratch dir by basename,
+        # which is what the stage args (basenames) reference.
+        transfer_files += [wd + "/consolidated_$(macroiteration).composite", ile_args_file]
+        job.add_condor_cmd('transfer_input_files', ','.join(transfer_files))
+        job.add_condor_cmd('should_transfer_files', 'YES')
+        job.add_condor_cmd('when_to_transfer_output', 'ON_EXIT')
+        job.add_condor_cmd('transfer_output_files', 'cal_consolidated_$(macroiteration).npz')
+    if requirements:
+        job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
+
     try:
         job.add_condor_cmd('accounting_group', os.environ['LIGO_ACCOUNTING'])
         job.add_condor_cmd('accounting_group_user', os.environ['LIGO_USER_NAME'])

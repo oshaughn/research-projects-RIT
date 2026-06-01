@@ -859,17 +859,27 @@ if opts.calibration_envelope_directory:
      # Option C / adaptive pilot: draw cal realizations from the LEARNED proposal and
      # carry importance weights log(prior/proposal) so the marginalization is unbiased.
      import RIFT.calmarg.breadcrumbs, RIFT.calmarg.adaptive
-     _bc = RIFT.calmarg.breadcrumbs.load(opts.calibration_proposal_breadcrumb)
-     _rng = np.random.default_rng(getattr(opts,'seed',None))
-     calibration_realization_dict, calibration_log_weights, _seed_nodes = \
-        RIFT.calmarg.generate_realizations.seed_realizations_from_breadcrumb(
-           _bc, 1./P.deltaF, P.deltaT, opts.fmin_template, fmax,
-           opts.calibration_spline_count, opts.calibration_n_realizations,
-           fmin_ifo=cal_fmin_ifo, rng=_rng)
-     print(" Calibration realizations SEEDED from proposal breadcrumb {} ; neff(cal weights)~{:.1f}/{}".format(
-           opts.calibration_proposal_breadcrumb,
-           RIFT.calmarg.adaptive.neff_from_logweights(calibration_log_weights),
-           opts.calibration_n_realizations))
+     try:
+       _bc = RIFT.calmarg.breadcrumbs.load(opts.calibration_proposal_breadcrumb)
+       _rng = np.random.default_rng(getattr(opts,'seed',None))
+       calibration_realization_dict, calibration_log_weights, _seed_nodes = \
+          RIFT.calmarg.generate_realizations.seed_realizations_from_breadcrumb(
+             _bc, 1./P.deltaF, P.deltaT, opts.fmin_template, fmax,
+             opts.calibration_spline_count, opts.calibration_n_realizations,
+             fmin_ifo=cal_fmin_ifo, rng=_rng)
+       print(" Calibration realizations SEEDED from proposal breadcrumb {} ; neff(cal weights)~{:.1f}/{}".format(
+             opts.calibration_proposal_breadcrumb,
+             RIFT.calmarg.adaptive.neff_from_logweights(calibration_log_weights),
+             opts.calibration_n_realizations))
+     except Exception as _e_bc:
+       # robustness (esp. OSG file transfer): a missing/partial/invalid breadcrumb must NOT
+       # kill the job -- fall back to broad PRIOR cal draws (still unbiased, just unseeded).
+       print(" WARNING: could not seed from breadcrumb {} ({}); falling back to PRIOR cal draws.".format(
+             opts.calibration_proposal_breadcrumb, _e_bc))
+       opts.calibration_proposal_breadcrumb = None
+       for ifo in psd_dict:
+          fname = opts.calibration_envelope_directory + "/" + ifo + ".txt"
+          calibration_realization_dict[ifo] = RIFT.calmarg.generate_realizations.create_realizations(fname, 1./P.deltaF, P.deltaT, cal_fmin_ifo[ifo], fmax, opts.calibration_spline_count, opts.calibration_n_realizations)
   else:
      for ifo in psd_dict:
         fname = opts.calibration_envelope_directory + "/" + ifo + ".txt"
