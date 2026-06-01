@@ -453,7 +453,11 @@ ifeq ($(OSG),1)
 	ln -sfn $(CI_DEMO)/zero_noise_mdc $(PP_RUN_REAL)/frames_dir
 	@echo "  [OSG] linked CI frames -> $(PP_RUN_REAL)/frames_dir (transferred per job)"
 endif
+ifeq ($(OSG),1)
+	@grep -q "local.cache" $(PP_RUN_REAL)/args_ile.txt 2>/dev/null || echo "  [OSG] note: cache is local.cache (built on the remote worker), not zero_noise.cache"
+else
 	@grep -q "zero_noise.cache"   $(PP_RUN_REAL)/args_ile.txt || (echo "FAIL: not the real CI cache" && false)
+endif
 	@grep -q "FAKE-STRAIN"        $(PP_RUN_REAL)/args_ile.txt || (echo "FAIL: not the FAKE-STRAIN channels" && false)
 	@grep -q "1000000014"         $(PP_RUN_REAL)/args_ile.txt || (echo "FAIL: not the CI event time" && false)
 	@grep -q -- "--srate-resample-time-marginalization" $(PP_RUN_REAL)/ILE_extr.sub || (echo "FAIL: extrinsic stage missing time resampling" && false)
@@ -467,6 +471,9 @@ endif
 pp-run: pp-run-build
 	cd $(PP_RUN_REAL) && $(ENV) condor_submit_dag -f $(PP_DAG)
 	@echo "Submitted.  Watch:  condor_q ; tail -f $(PP_RUN_REAL)/$(PP_DAG).dagman.out"
+	@# CIT requires accounting identity in the environment, else jobs never queue.
+	@test -n "$$LIGO_USER_NAME" || echo "  *** WARNING: LIGO_USER_NAME is unset -- condor jobs may not queue (required at CIT). export it. ***"
+	@{ test -n "$$LIGO_ACCOUNTING" || test -n "$$LIGO_ACCOUNTING_GROUP"; } || echo "  *** WARNING: LIGO_ACCOUNTING (a.k.a. LIGO_ACCOUNTING_GROUP) is unset -- condor jobs may not queue (required at CIT). export it. ***"
 
 clean:
 	rm -f distance_marg.npz out_*.dat *.xml.gz lowsnr.cache snr_*.dat snr-report.txt foo.cache ci_coinc.xml
