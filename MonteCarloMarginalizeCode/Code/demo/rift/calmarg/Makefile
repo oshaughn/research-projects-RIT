@@ -489,7 +489,9 @@ endif
 	@test -s "$(PP_RUN_REAL)/$(PP_DAG)" || (echo "FAIL: no top-level DAG produced" && false)
 ifeq ($(PP_PILOT),1)
 	@test -s "$(PP_RUN_REAL)/CALPILOT.sub"                         || (echo "FAIL: PP_PILOT=1 but no CALPILOT.sub" && false)
-	@grep -q "util_CalPilotStage.py" "$(PP_RUN_REAL)/CALPILOT.sub" || (echo "FAIL: CALPILOT.sub does not run util_CalPilotStage.py" && false)
+	@# the stage exe is named in CALPILOT.sub (local) OR in calpilot_pre.sh (OSG: the sub's
+	@# executable is the prescript, which builds local.cache then runs util_CalPilotStage.py)
+	@grep -qs "util_CalPilotStage.py" "$(PP_RUN_REAL)/CALPILOT.sub" "$(PP_RUN_REAL)/calpilot_pre.sh" || (echo "FAIL: neither CALPILOT.sub nor calpilot_pre.sh runs util_CalPilotStage.py" && false)
 	@grep -q "CALPILOT" "$(PP_RUN_REAL)/$(PP_DAG)"                 || (echo "FAIL: no CALPILOT job in DAG" && false)
 	@grep -q -- "--calibration-proposal-breadcrumb" "$(PP_RUN_REAL)/args_ile.txt" || (echo "FAIL: wide ILE args missing seed breadcrumb" && false)
 	@echo "OK: runnable cal-PILOT pipeline built on CI data -- CALPILOT (harvest->dump->fit->"
