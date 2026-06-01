@@ -420,12 +420,17 @@ OSG ?= 0
 ifeq ($(OSG),1)
   # Container: ~4 GB disk for the .sif transfer + unpack (vs the MB-scale shared-FS baseline)
   PP_DISK ?= 4G
-  PP_OSG_XFER  := $(CURDIR)/cal_env/H1.txt,$(CURDIR)/cal_env/L1.txt,$(CURDIR)/cal_env/V1.txt,$(PSD)
-  PP_OSG_FLAGS := --use-osg --use-osg-cip --use-osg-file-transfer \
-                  --ile-additional-files-to-transfer $(PP_OSG_XFER)
+  PP_OSG_FLAGS := --use-osg --use-osg-cip --use-osg-file-transfer
+  # On OSG the cal envelopes are auto-added to the transfer list by util_RIFT_pseudo_pipe.py
+  # (referenced as '.'); the PSD is provided as run-dir <IFO>-psd.xml.gz (copied below), which
+  # RIFT lists + transfers by basename.  So do NOT pass --use-online-psd-file (it would force
+  # an unreachable absolute path into the args).
+  PP_PSD_FLAG :=
 else
   PP_DISK ?= 4M
   PP_OSG_FLAGS :=
+  # Local shared FS: reference the CI PSD by absolute path (no transfer needed).
+  PP_PSD_FLAG := --use-online-psd-file $(PSD)
 endif
 # Disk requests for ALL THREE job types come from the CLI here, ALWAYS (baseline 4M local,
 # 4G container).  Must NOT also be set in the ini -- a [rift-pseudo-pipe] value there
@@ -449,7 +454,7 @@ endif
 	rm -rf $(PP_RUN_REAL)
 	$(ENV) util_RIFT_pseudo_pipe.py \
 	  --use-ini $(CURDIR)/calmarg_ci.ini --use-coinc $(CURDIR)/ci_coinc.xml --use-rundir $(PP_RUN_REAL) \
-	  --fake-data-cache $(CACHE) --use-online-psd-file $(PSD) \
+	  --fake-data-cache $(CACHE) $(PP_PSD_FLAG) \
 	  --assume-nospin --approx IMRPhenomD --ile-sampler-method AV \
 	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
 	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
@@ -458,7 +463,10 @@ endif
 ifeq ($(OSG),1)
 	@# --use-osg-file-transfer expects a frames_dir of .gwf in the rundir; link the CI frames
 	ln -sfn $(CI_DEMO)/zero_noise_mdc $(PP_RUN_REAL)/frames_dir
-	@echo "  [OSG] linked CI frames -> $(PP_RUN_REAL)/frames_dir (transferred per job)"
+	@# The args reference per-IFO <IFO>-psd.xml.gz (basename, transferred); populate them from
+	@# the CI PSD so the files exist in the run dir AND carry the real PSD (not fiducial).
+	for ifo in H1 L1 V1; do cp $(PSD) $(PP_RUN_REAL)/$$ifo-psd.xml.gz; done
+	@echo "  [OSG] linked CI frames -> frames_dir, copied CI PSD -> {H1,L1,V1}-psd.xml.gz"
 endif
 ifeq ($(OSG),1)
 	@grep -q "local.cache" $(PP_RUN_REAL)/args_ile.txt 2>/dev/null || echo "  [OSG] note: cache is local.cache (built on the remote worker), not zero_noise.cache"

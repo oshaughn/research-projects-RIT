@@ -1043,7 +1043,17 @@ if opts.internal_ile_srate_time_resampling:
 # additionally requires GPU and falls back to the loop method otherwise.
 if opts.calmarg_envelope_directory:
     cal_dir = os.path.abspath(opts.calmarg_envelope_directory)
-    line += " --calibration-envelope-directory {} --calibration-n-realizations {} --calibration-spline-count {} ".format(cal_dir, opts.calmarg_n_realizations, opts.calmarg_spline_count)
+    cal_dir_arg = cal_dir
+    if opts.use_osg_file_transfer:
+        # OSG file transfer: the worker has no shared filesystem, so an absolute
+        # --calibration-envelope-directory path is unreachable.  The per-IFO <IFO>.txt
+        # envelope files are transferred FLAT into the job scratch dir, so reference them
+        # relative to '.', and auto-append them to the ILE transfer list (the user should
+        # not have to remember --ile-additional-files-to-transfer for these).
+        cal_dir_arg = '.'
+        _cal_files = ",".join("{}/{}.txt".format(cal_dir, ifo) for ifo in event_dict["IFOs"])
+        opts.ile_additional_files_to_transfer = (opts.ile_additional_files_to_transfer + "," + _cal_files) if opts.ile_additional_files_to_transfer else _cal_files
+    line += " --calibration-envelope-directory {} --calibration-n-realizations {} --calibration-spline-count {} ".format(cal_dir_arg, opts.calmarg_n_realizations, opts.calmarg_spline_count)
     if opts.calmarg_fused_kernel:
         line += " --calibration-fused-kernel "
     if opts.calmarg_burn_in_neff:
