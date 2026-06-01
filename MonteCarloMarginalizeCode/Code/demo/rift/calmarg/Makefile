@@ -341,6 +341,59 @@ dag-run:
 
 dag: dag-build
 
+# --- Top-level pipeline thread-through (util_RIFT_pseudo_pipe.py) -------------------
+# Unlike dag-build (which calls create_event_parameter_pipeline_BasicIteration directly
+# with a hand-written args_ile.txt), this exercises the FULL top-level builder:
+# util_RIFT_pseudo_pipe.py -> helper_LDG_Events.py -> args generation -> create_event_*.
+# Goal: confirm the calmarg flags AND the time-sample (time-resampling) options thread all
+# the way into args_ile.txt / the .sub files / the DAG.  Offline build-validate (the
+# established pattern: .travis/test-build.sh + demo/pipeline/zero_spin_phenomD), so no GPU
+# run needed.  Zero spin (reuses the zero-spin IMRPhenomD ini); iterations forced small.
+PP_RUN   := $(CURDIR)/rundir_pp
+PP_INI   ?= $(RIFT_CODE_ROOT)/demo/pipeline/zero_spin_phenomD/zero_spin_phenomD.ini
+PP_COINC ?= $(REPO_ROOT)/.travis/ref_ini/coinc.xml
+PP_NIT   ?= 2          # forced iteration count (small, under control)
+PP_SRATE ?= 4096       # time-resampling output rate (--srate-resample-time-marginalization)
+
+.PHONY: pp pp-build pp-validate
+
+pp-build: cal_env/H1.txt
+	@test -s "$(PP_INI)"   || (echo "missing zero-spin ini $(PP_INI)" && false)
+	@test -s "$(PP_COINC)" || (echo "missing coinc $(PP_COINC)" && false)
+	rm -rf $(PP_RUN); touch $(CURDIR)/foo.cache
+	$(ENV) util_RIFT_pseudo_pipe.py \
+	  --use-ini $(PP_INI) --use-coinc $(PP_COINC) --use-rundir $(PP_RUN) \
+	  --fake-data-cache $(CURDIR)/foo.cache \
+	  --assume-nospin --approx IMRPhenomD --ile-sampler-method AV \
+	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling $(PP_SRATE) \
+	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
+	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30
+	$(MAKE) pp-validate
+
+# Confirm everything threaded through into the generated pipeline (no condor needed).
+pp-validate:
+	@test -s "$(PP_RUN)/args_ile.txt" || (echo "FAIL: pseudo_pipe produced no args_ile.txt" && false)
+	@echo "--- args_ile.txt ---"; cat $(PP_RUN)/args_ile.txt
+	@grep -q -- "--calibration-envelope-directory" $(PP_RUN)/args_ile.txt || (echo "FAIL: calmarg envelope not threaded to args_ile.txt" && false)
+	@grep -q -- "--calibration-n-realizations"     $(PP_RUN)/args_ile.txt || (echo "FAIL: calmarg n-realizations not threaded" && false)
+	@grep -q -- "--calibration-fused-kernel"       $(PP_RUN)/args_ile.txt || (echo "FAIL: calmarg fused-kernel not threaded" && false)
+	@grep -q -- "--time-marginalization"           $(PP_RUN)/args_ile.txt || (echo "FAIL: --time-marginalization absent (time integral)" && false)
+	@grep -q -- "--srate-resample-time-marginalization" $(PP_RUN)/args_ile.txt || (echo "FAIL: TIME SAMPLES (--srate-resample-time-marginalization) not threaded to ILE" && false)
+	@ls $(PP_RUN)/*.dag >/dev/null 2>&1 || (echo "FAIL: no top-level DAG produced" && false)
+	@test -s "$(PP_RUN)/ILE_extr.sub" || (echo "FAIL: no extrinsic (time-sample) stage ILE_extr.sub" && false)
+	@echo "--- ILE_extr.sub (the extrinsic / time-sample output stage) ---"
+	@grep -oE -- "--calibration-fused-kernel|--calibration-envelope-directory|--srate-resample-time-marginalization [0-9]+|--time-marginalization" $(PP_RUN)/ILE_extr.sub | sort -u
+	@grep -q -- "--calibration-fused-kernel"            $(PP_RUN)/ILE_extr.sub || (echo "FAIL: extrinsic stage missing calmarg" && false)
+	@grep -q -- "--srate-resample-time-marginalization" $(PP_RUN)/ILE_extr.sub || (echo "FAIL: extrinsic stage missing TIME SAMPLES resampling" && false)
+	@echo "OK: top-level util_RIFT_pseudo_pipe.py threaded EVERYTHING --"
+	@echo "    calmarg (envelope + n-realizations + fused-kernel) into args_ile.txt, ILE.sub AND ILE_extr.sub;"
+	@echo "    TIME SAMPLES (--srate-resample-time-marginalization) into the wide AND extrinsic (ILE_extr) stages"
+	@echo "    [--add-extrinsic-time-resampling drives the extrinsic stage at build time]; zero-spin IMRPhenomD;"
+	@echo "    $(PP_NIT) iterations; full DAG produced."
+	@echo "    (Offline build-validate -- the established pattern; no GPU/data run needed for the threading check.)"
+
+pp: pp-build
+
 clean:
-	rm -f distance_marg.npz out_*.dat *.xml.gz lowsnr.cache snr_*.dat snr-report.txt
-	rm -rf cal_env lowsnr_mdc rundir_dag
+	rm -f distance_marg.npz out_*.dat *.xml.gz lowsnr.cache snr_*.dat snr-report.txt foo.cache
+	rm -rf cal_env lowsnr_mdc rundir_dag rundir_tune rundir_pp
