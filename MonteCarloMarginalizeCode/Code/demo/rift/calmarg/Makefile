@@ -511,12 +511,14 @@ pp-run: pp-run-build
 # Runnable cal-PILOT pipeline: pp-run with the adaptive pilots enabled (harvest->dump->
 # fit->consolidate->seed wide_{N+1}).  Needs >=2 iterations so the seed is consumed.
 # Honours OSG (CIT) the same way as pp-run.
+# NOTE: uses a SEPARATE run directory (rundir_pp_pilot) so it does NOT clobber a vanilla
+# pp-run already running in rundir_pp_run.  (pp-run-build starts with `rm -rf`.)
 .PHONY: pp-run-pilot pp-run-pilot-build
 pp-run-pilot-build:
-	$(MAKE) pp-run-build PP_PILOT=1 PP_NIT=2
+	$(MAKE) pp-run-build PP_PILOT=1 PP_NIT=2 PP_RUN_REAL=$(CURDIR)/rundir_pp_pilot
 pp-run-pilot:
-	$(MAKE) pp-run PP_PILOT=1 PP_NIT=2
+	$(MAKE) pp-run PP_PILOT=1 PP_NIT=2 PP_RUN_REAL=$(CURDIR)/rundir_pp_pilot
 
 clean:
 	rm -f distance_marg.npz out_*.dat *.xml.gz lowsnr.cache snr_*.dat snr-report.txt foo.cache ci_coinc.xml
-	rm -rf cal_env lowsnr_mdc rundir_dag rundir_tune rundir_pp rundir_pp_run
+	rm -rf cal_env lowsnr_mdc rundir_dag rundir_tune rundir_pp rundir_pp_run rundir_pp_pilot
