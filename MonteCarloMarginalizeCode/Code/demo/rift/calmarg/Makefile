@@ -394,6 +394,47 @@ pp-validate:
 
 pp: pp-build
 
+# --- RUNNABLE top-level pipeline on the CI fake data (breadcrumb for later) ----------
+# Unlike pp-build (offline threading check), this builds a pipeline that ACTUALLY RUNS on
+# the zero-noise CI data and SUBMITS it to condor: real coinc (util_SimInspiralToCoinc.py
+# from the injection), the real zero_noise.cache + CI PSD + FAKE-STRAIN channels (a
+# CI-matched ini), calmarg + time-resampling, zero spin, small forced iterations.  Produces
+# extrinsic-stage TIME SAMPLES with calmarg on.  Single GPU on cardassia (CUDA_VISIBLE_DEVICES=0).
+PP_RUN_REAL := $(CURDIR)/rundir_pp_run
+PP_DAG      := marginalize_intrinsic_parameters_BasicIterationWorkflow.dag
+
+.PHONY: pp-run pp-run-build pp-coinc
+
+pp-coinc: ci_coinc.xml
+ci_coinc.xml:
+	$(ENV) util_SimInspiralToCoinc.py --sim-xml $(SIM_XML) --event 0 \
+	  --ifo H1 --ifo L1 --ifo V1 --output $(CURDIR)/ci_coinc.xml --injected-snr 17.5
+
+# Build the runnable pipeline (no submit) and validate the runnable bits threaded through.
+pp-run-build: cal_env/H1.txt ci_coinc.xml
+	rm -rf $(PP_RUN_REAL)
+	$(ENV) util_RIFT_pseudo_pipe.py \
+	  --use-ini $(CURDIR)/calmarg_ci.ini --use-coinc $(CURDIR)/ci_coinc.xml --use-rundir $(PP_RUN_REAL) \
+	  --fake-data-cache $(CACHE) --use-online-psd-file $(PSD) \
+	  --assume-nospin --approx IMRPhenomD --ile-sampler-method AV \
+	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
+	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
+	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30
+	@grep -q "zero_noise.cache"   $(PP_RUN_REAL)/args_ile.txt || (echo "FAIL: not the real CI cache" && false)
+	@grep -q "FAKE-STRAIN"        $(PP_RUN_REAL)/args_ile.txt || (echo "FAIL: not the FAKE-STRAIN channels" && false)
+	@grep -q "1000000014"         $(PP_RUN_REAL)/args_ile.txt || (echo "FAIL: not the CI event time" && false)
+	@grep -q -- "--srate-resample-time-marginalization" $(PP_RUN_REAL)/ILE_extr.sub || (echo "FAIL: extrinsic stage missing time resampling" && false)
+	@grep -q -- "--calibration-fused-kernel" $(PP_RUN_REAL)/ILE_extr.sub || (echo "FAIL: extrinsic stage missing calmarg" && false)
+	@test -s "$(PP_RUN_REAL)/$(PP_DAG)" || (echo "FAIL: no top-level DAG produced" && false)
+	@echo "OK: runnable calmarg pipeline built on the CI fake data (real cache + PSD + FAKE-STRAIN,"
+	@echo "    event 1000000014.236, calmarg+fused, time-resampling, zero-spin, $(PP_NIT) iters)."
+
+# Build + SUBMIT to condor.  Watch: condor_q ; tail -f $(PP_RUN_REAL)/$(PP_DAG).dagman.out
+# Extrinsic time-sample output lands in the last iteration's extrinsic stage.
+pp-run: pp-run-build
+	cd $(PP_RUN_REAL) && $(ENV) condor_submit_dag -f $(PP_DAG)
+	@echo "Submitted.  Watch:  condor_q ; tail -f $(PP_RUN_REAL)/$(PP_DAG).dagman.out"
+
 clean:
-	rm -f distance_marg.npz out_*.dat *.xml.gz lowsnr.cache snr_*.dat snr-report.txt foo.cache
-	rm -rf cal_env lowsnr_mdc rundir_dag rundir_tune rundir_pp
+	rm -f distance_marg.npz out_*.dat *.xml.gz lowsnr.cache snr_*.dat snr-report.txt foo.cache ci_coinc.xml
+	rm -rf cal_env lowsnr_mdc rundir_dag rundir_tune rundir_pp rundir_pp_run
