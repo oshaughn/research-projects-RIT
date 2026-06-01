@@ -43,7 +43,7 @@ opts=  parser.parse_args()
 ###
 
 if opts.fname and opts.mega_verbose:
- sdHere = spokes.LoadSpokeXML(opts.fname,is_eccentric=opts.is_eccentric,digits=digits)
+ sdHere = spokes.LoadSpokeXML(opts.fname,is_eccentric=opts.is_eccentric,digits=opts.digits)
  for key in sdHere:
     print(" Spoke : ", key)
     for P in sdHere[key]:
@@ -56,7 +56,7 @@ if opts.fname and opts.mega_verbose:
 ###
 
 if opts.fname_dat:
- sdHere = spokes.LoadSpokeDAT(opts.fname_dat,is_eccentric=opts.is_eccentric,digits=digits)
+ sdHere = spokes.LoadSpokeDAT(opts.fname_dat,is_eccentric=opts.is_eccentric,digits=opts.digits)
  print(" Spoke count : ", len(sdHere.keys()))
  fig_index =0
  for key in sdHere:
@@ -104,8 +104,8 @@ if opts.verbose:
 
 
 if opts.fname and opts.fname_dat:
-   sd_dat = spokes.LoadSpokeDAT(opts.fname_dat,is_eccentric=opts.is_eccentric,digits=digits)
-   sd_P =  sdHere = spokes.LoadSpokeXML(opts.fname,is_eccentric=opts.is_eccentric,digits=digits)
+   sd_dat = spokes.LoadSpokeDAT(opts.fname_dat,is_eccentric=opts.is_eccentric,digits=opts.digits)
+   sd_P =  sdHere = spokes.LoadSpokeXML(opts.fname,is_eccentric=opts.is_eccentric,digits=opts.digits)
 
    print(" --- Refinement: Writing XML --- ")
    print(" data file ", len(sd_dat))
