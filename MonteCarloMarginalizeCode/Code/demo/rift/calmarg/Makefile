@@ -403,6 +403,28 @@ pp: pp-build
 PP_RUN_REAL := $(CURDIR)/rundir_pp_run
 PP_DAG      := marginalize_intrinsic_parameters_BasicIterationWorkflow.dag
 
+# --- CIT / OSG container mode (auto-activates when SINGULARITY_RIFT_IMAGE is set) -----
+# CIT is container-only: you must `export SINGULARITY_RIFT_IMAGE=/path/to/rift.sif` and run
+# on OSG.  Exporting that env var (or passing OSG=1) auto-populates the OSG flags on pp-run:
+#   --use-osg            -> the builder adds --use-singularity (reads SINGULARITY_RIFT_IMAGE)
+#   --use-osg-cip        -> CIP jobs run in-container on OSG too
+#   --use-osg-file-transfer + a frames_dir -> transfer the CI frames (no CVMFS for fake data)
+#   --ile-additional-files-to-transfer -> ride the cal envelopes + PSD to the workers (no
+#                                          shared filesystem on OSG)
+# On a local shared-FS run (cardassia) leave SINGULARITY_RIFT_IMAGE unset / OSG=0 -> no-op.
+#   CIT:  export SINGULARITY_RIFT_IMAGE=/cvmfs/.../rift.sif ; make pp-run
+ifneq ($(SINGULARITY_RIFT_IMAGE),)
+  OSG ?= 1
+endif
+OSG ?= 0
+ifeq ($(OSG),1)
+  PP_OSG_XFER  := $(CURDIR)/cal_env/H1.txt,$(CURDIR)/cal_env/L1.txt,$(CURDIR)/cal_env/V1.txt,$(PSD)
+  PP_OSG_FLAGS := --use-osg --use-osg-cip --use-osg-file-transfer \
+                  --ile-additional-files-to-transfer $(PP_OSG_XFER)
+else
+  PP_OSG_FLAGS :=
+endif
+
 .PHONY: pp-run pp-run-build pp-coinc
 
 pp-coinc: ci_coinc.xml
@@ -411,7 +433,12 @@ ci_coinc.xml:
 	  --ifo H1 --ifo L1 --ifo V1 --output $(CURDIR)/ci_coinc.xml --injected-snr 17.5
 
 # Build the runnable pipeline (no submit) and validate the runnable bits threaded through.
+# OSG=1 (or SINGULARITY_RIFT_IMAGE set) layers on the container/OSG flags for CIT.
 pp-run-build: cal_env/H1.txt ci_coinc.xml
+ifeq ($(OSG),1)
+	@test -n "$(SINGULARITY_RIFT_IMAGE)" || (echo "OSG=1 but SINGULARITY_RIFT_IMAGE is not set (CIT is container-only: export it first)" && false)
+	@echo "  [OSG] container mode: SINGULARITY_RIFT_IMAGE=$(SINGULARITY_RIFT_IMAGE)"
+endif
 	rm -rf $(PP_RUN_REAL)
 	$(ENV) util_RIFT_pseudo_pipe.py \
 	  --use-ini $(CURDIR)/calmarg_ci.ini --use-coinc $(CURDIR)/ci_coinc.xml --use-rundir $(PP_RUN_REAL) \
@@ -419,7 +446,13 @@ pp-run-build: cal_env/H1.txt ci_coinc.xml
 	  --assume-nospin --approx IMRPhenomD --ile-sampler-method AV \
 	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
 	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
-	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30
+	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30 \
+	  $(PP_OSG_FLAGS)
+ifeq ($(OSG),1)
+	@# --use-osg-file-transfer expects a frames_dir of .gwf in the rundir; link the CI frames
+	ln -sfn $(CI_DEMO)/zero_noise_mdc $(PP_RUN_REAL)/frames_dir
+	@echo "  [OSG] linked CI frames -> $(PP_RUN_REAL)/frames_dir (transferred per job)"
+endif
 	@grep -q "zero_noise.cache"   $(PP_RUN_REAL)/args_ile.txt || (echo "FAIL: not the real CI cache" && false)
 	@grep -q "FAKE-STRAIN"        $(PP_RUN_REAL)/args_ile.txt || (echo "FAIL: not the FAKE-STRAIN channels" && false)
 	@grep -q "1000000014"         $(PP_RUN_REAL)/args_ile.txt || (echo "FAIL: not the CI event time" && false)
