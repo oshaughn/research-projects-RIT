@@ -461,12 +461,13 @@ endif
 	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30 \
 	  $(PP_DISK_FLAGS) $(PP_OSG_FLAGS)
 ifeq ($(OSG),1)
-	@# --use-osg-file-transfer expects a frames_dir of .gwf in the rundir; link the CI frames
-	ln -sfn $(CI_DEMO)/zero_noise_mdc $(PP_RUN_REAL)/frames_dir
+	@# --use-osg-file-transfer expects a frames_dir of .gwf in the rundir.  Must be a FULL
+	@# COPY, not a symlink: condor refuses "Transfer of symlinks to directories is not supported".
+	rm -rf $(PP_RUN_REAL)/frames_dir; cp -r $(CI_DEMO)/zero_noise_mdc $(PP_RUN_REAL)/frames_dir
 	@# The args reference per-IFO <IFO>-psd.xml.gz (basename, transferred); populate them from
 	@# the CI PSD so the files exist in the run dir AND carry the real PSD (not fiducial).
 	for ifo in H1 L1 V1; do cp $(PSD) $(PP_RUN_REAL)/$$ifo-psd.xml.gz; done
-	@echo "  [OSG] linked CI frames -> frames_dir, copied CI PSD -> {H1,L1,V1}-psd.xml.gz"
+	@echo "  [OSG] copied CI frames -> frames_dir (full copy), CI PSD -> {H1,L1,V1}-psd.xml.gz"
 endif
 ifeq ($(OSG),1)
 	@grep -q "local.cache" $(PP_RUN_REAL)/args_ile.txt 2>/dev/null || echo "  [OSG] note: cache is local.cache (built on the remote worker), not zero_noise.cache"
