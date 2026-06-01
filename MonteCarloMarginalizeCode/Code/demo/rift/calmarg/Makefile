@@ -419,8 +419,14 @@ endif
 OSG ?= 0
 ifeq ($(OSG),1)
   PP_OSG_XFER  := $(CURDIR)/cal_env/H1.txt,$(CURDIR)/cal_env/L1.txt,$(CURDIR)/cal_env/V1.txt,$(PSD)
+  # Container: request ~4 GB extra disk over the MB-scale shared-FS baseline, for the .sif
+  # image transfer + unpack on the worker (ILE, CIP, and general/worker jobs).
+  PP_OSG_DISK  ?= 4G
   PP_OSG_FLAGS := --use-osg --use-osg-cip --use-osg-file-transfer \
-                  --ile-additional-files-to-transfer $(PP_OSG_XFER)
+                  --ile-additional-files-to-transfer $(PP_OSG_XFER) \
+                  --internal-ile-request-disk $(PP_OSG_DISK) \
+                  --internal-cip-request-disk $(PP_OSG_DISK) \
+                  --internal-general-request-disk $(PP_OSG_DISK)
 else
   PP_OSG_FLAGS :=
 endif
