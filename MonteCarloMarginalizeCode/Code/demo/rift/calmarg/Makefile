@@ -426,6 +426,17 @@ else
   PP_DMARG_FLAGS :=
 endif
 
+# Recovered CALIBRATION posterior in the final fairdraw output (opt-in; default ON for the
+# runnable targets so it gets tested).  Writes a self-contained sibling <out>_<event>_cal.dat
+# with the full draw (intrinsic + extrinsic + cal_<IFO>_amp_<k>/cal_<IFO>_phase_<k>) -- the
+# recovered cal posterior is those columns.  PP_CALPOST=0 to disable.
+PP_CALPOST  ?= 1
+ifeq ($(PP_CALPOST),1)
+  PP_CALPOST_FLAGS := --calmarg-export-posterior
+else
+  PP_CALPOST_FLAGS :=
+endif
+
 .PHONY: extr extr-build extr-validate
 
 extr-build: cal_env/H1.txt
@@ -537,7 +548,7 @@ endif
 	  --assume-nospin --approx IMRPhenomD --ile-sampler-method AV \
 	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
 	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
-	  $(PP_DMARG_FLAGS) \
+	  $(PP_DMARG_FLAGS) $(PP_CALPOST_FLAGS) \
 	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30 \
 	  $(PP_DISK_FLAGS) $(PP_OSG_FLAGS) $(PP_PILOT_FLAGS)
 ifeq ($(OSG),1)
@@ -632,7 +643,7 @@ extr-run-build: cal_env/H1.txt ci_coinc.xml
 	  --assume-nospin --approx IMRPhenomD --ile-sampler-method GMM \
 	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
 	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
-	  --extrinsic-handoff $(PP_DMARG_FLAGS) \
+	  --extrinsic-handoff $(PP_DMARG_FLAGS) $(PP_CALPOST_FLAGS) \
 	  --force-initial-grid-size $(EXTR_GRID0) --n-output-samples-last $(EXTR_GRIDN) \
 	  --manual-extra-ile-args "--n-chunk $(EXTR_NCHUNK) --n-max $(EXTR_NMAX)" \
 	  --internal-force-iterations $(EXTR_NIT) \

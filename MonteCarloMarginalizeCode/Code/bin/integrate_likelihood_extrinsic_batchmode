@@ -842,12 +842,16 @@ if opts.calibration_envelope_directory:
      cal_fmin_ifo[ifo] = flow_ifo_dict[ifo] if opts.fmin_ifo else opts.fmin_template
   # Graceful fallback: a seeded run is given a per-iteration breadcrumb path, but the
   # FIRST iteration (and any iteration before a pilot has run) has no breadcrumb yet.  If
-  # the path is missing, fall back to the broad prior -- so the SAME fixed ILE args work
-  # across all DAG iterations.
-  if opts.calibration_proposal_breadcrumb and not os.path.exists(opts.calibration_proposal_breadcrumb):
-     print(" Calibration proposal breadcrumb {} not present yet; falling back to PRIOR cal draws.".format(
-           opts.calibration_proposal_breadcrumb))
-     opts.calibration_proposal_breadcrumb = None
+  # the path is missing OR EMPTY, fall back to the broad prior -- so the SAME fixed ILE args
+  # work across all DAG iterations.  The iteration-0 placeholder is a 0-byte file (created so
+  # OSG file transfer of cal_consolidated_$(macroiterationprev).npz does not fail); on OSG it
+  # IS transferred in, so it exists but is empty -> np.load raises EOFError.  Treat empty (or
+  # otherwise unreadable) as "not present yet".
+  if opts.calibration_proposal_breadcrumb:
+     _bc_path = opts.calibration_proposal_breadcrumb
+     if not (os.path.exists(_bc_path) and os.path.getsize(_bc_path) > 0):
+        print(" Calibration proposal breadcrumb {} missing or empty (iteration-0 placeholder); falling back to PRIOR cal draws.".format(_bc_path))
+        opts.calibration_proposal_breadcrumb = None
   if opts.calibration_dump_responsibilities:
      # PILOT (Option C): KEEP the cal node vectors so the per-realization responsibilities
      # accumulated below can be fitted into a proposal (util_CalPilotFit.py).  Deterministic
@@ -1437,7 +1441,7 @@ if opts.sampler_method == "GMM":
     # Extrinsic handoff: SEED the per-group GMMs from a learned proposal breadcrumb (the
     # previous iteration's posterior).  Keys are dim-group index tuples, matched by name to
     # sampler.params_ordered -- so they line up with pair_ra_dec / pair_d_incl / pair_phi_psi.
-    if opts.extrinsic_proposal_breadcrumb and os.path.exists(opts.extrinsic_proposal_breadcrumb):
+    if opts.extrinsic_proposal_breadcrumb and os.path.exists(opts.extrinsic_proposal_breadcrumb) and os.path.getsize(opts.extrinsic_proposal_breadcrumb) > 0:
       try:
         import RIFT.calmarg.breadcrumbs as _ebcmod, RIFT.calmarg.extrinsic_handoff as _ehmod
         _ebc = _ebcmod.load(opts.extrinsic_proposal_breadcrumb)
