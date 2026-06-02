@@ -152,6 +152,38 @@ need a source iteration that converged reasonably (`n_eff` in the hundreds) -- i
 broadens the seed so the sampler can contract it -- good practice for a warm start, but it
 mitigates rather than rescues a genuinely degenerate source.
 
+## Measured blocker: the GMM sampler does not converge on real sharp ILE peaks
+
+Trying to demonstrate the seed ACCELERATING convergence on the CI point (network SNR ~17.5,
+lnLmax ~ 90-115) surfaced a hard limit of the *seedable* sampler itself, independent of the
+handoff and of calibration:
+
+| config (single CI point, GMM sampler)        | n_eff at ~200k samples |
+|----------------------------------------------|------------------------|
+| GMM + calmarg (n_cal=20)                      | ~1.0   (256k)          |
+| GMM, vanilla (no calmarg)                     | 1.00007 (196k, 50 it)  |
+
+The ensemble (GMM) sampler collapses its mixture onto the single dominant sample at a sharp,
+high-SNR peak and then stops improving -- n_eff is pinned at 1 with or without calmarg.
+(The AV sampler, by contrast, reached n_eff in the hundreds at a few x10^6 samples in the
+earlier calmarg tune runs -- AV's adaptive tessellation handles these peaks; GMM does not.)
+
+Consequence for the handoff: the GMM->GMM extrinsic handoff is correct and safe, but on real
+high-SNR ILE likelihoods the GMM SOURCE iteration never converges to a good proposal, so there
+is nothing useful to hand off, and the cold GMM baseline is equally stuck -- there is no
+acceleration to measure.  The handoff's value is therefore gated on a *seedable sampler that
+actually converges*:
+  - **seedable / partial-reset AV (task #30, #25)** -- the real unlock: AV converges on these
+    peaks but resets every integrate() and has no seed path.  This is now the critical-path
+    item for making the extrinsic handoff pay off on production data.
+  - or a **cross-sampler handoff**: converge with AV, fit the GMM to AV's posterior samples
+    (fit_extrinsic_proposal already does exactly this from any sampler's weighted samples),
+    and seed a GMM/flow refinement.  The save side already accepts arbitrary samples+weights;
+    only the "harvest AV's _rvs and fit" wiring would be new.
+
+The handoff plumbing (save -> consolidate -> seed, all groups, GPU-correct) is done and is the
+right substrate; the demonstration of speed-up waits on one of the above.
+
 ## Why GMM first, and the AV limitation (task #30)
 
 The adaptive Voronoi sampler (AV, `mcsampler`) is the default extrinsic sampler and is more
