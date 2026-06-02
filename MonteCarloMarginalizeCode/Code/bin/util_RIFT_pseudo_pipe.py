@@ -167,6 +167,8 @@ parser.add_argument("--calmarg-pilot-top-fraction",default=0.05,type=float,help=
 parser.add_argument("--calmarg-pilot-max-points",default=32,type=int,help="Cap on harvested pilot points per iteration. Default 32.")
 parser.add_argument("--calmarg-first-cip-sigma-cut",default=100.0,type=float,help="With --calmarg-pilot: relax the first CIP stage's --sigma-cut to this value, so cold-start (prior-cal) iteration-0 points -- which have large MC error -- are not all stripped by CIP's default 0.6.  Threaded to helper_LDG_Events.py. Default 100 (effectively keep all cold-start points).")
 parser.add_argument("--calmarg-burn-in-neff",default=None,type=float,help="In-loop calmarg: burn the extrinsic sampler in on the cheap zero-cal likelihood to this n_eff before the full cal-marginalized integration (warm start; the extrinsic posterior is ~cal-independent). Threaded to ILE as --calibration-burn-in-neff.")
+parser.add_argument("--extrinsic-handoff",action='store_true',help="Extrinsic handoff (GMM sampler only): each iteration's wide ILE jobs write a per-event extrinsic GMM proposal (--extrinsic-proposal-output) of their extrinsic posterior; a per-iteration consolidation picks the most representative one and SEEDS the next iteration's wide ILE jobs via --extrinsic-proposal-breadcrumb, so the extrinsic sampler starts on the answer instead of cold.  Requires --ile-sampler-method GMM.  See RIFT/calmarg/DESIGN_extrinsic_handoff.md.")
+parser.add_argument("--extrinsic-handoff-select",default="lnL",help="Metric the extrinsic consolidation ranks per-event proposals by (lnL|neff|n_samples). Default lnL (most peak-representative).")
 parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
@@ -1074,6 +1076,27 @@ if opts.calmarg_envelope_directory:
             open(os.getcwd() + "/cal_consolidated_-1.npz", "a").close()   # placeholder for iteration 0
         else:
             line += " --calibration-proposal-breadcrumb {}/cal_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
+
+# Extrinsic handoff (independent of calmarg).  Each wide ILE job WRITES its run's extrinsic
+# GMM proposal, and is SEEDED from the previous iteration's consolidated proposal.  Only the
+# GMM sampler builds the seedable gmm_dict, so warn if a different sampler is selected.
+if opts.extrinsic_handoff:
+    if opts.ile_sampler_method != 'GMM':
+        print("  WARNING: --extrinsic-handoff seeds the ensemble (GMM) sampler's gmm_dict, but --ile-sampler-method is {}; the seed is a no-op for that sampler.  Pass --ile-sampler-method GMM.".format(opts.ile_sampler_method))
+    # output: per-event proposal breadcrumb (basename; written relative to the ILE initialdir
+    # on a shared FS, or to job scratch + transferred back on OSG).  $(macroevent) is the
+    # per-node event macro, so each wide ILE job gets a distinct file.
+    line += " --extrinsic-proposal-output extr_proposal_$(macroiteration)_$(macroevent).npz "
+    # seed: from iteration N-1's consolidated proposal.  Mirror the cal breadcrumb path
+    # (OSG basename + transfer + iteration-0 placeholder vs shared-FS absolute path).
+    if opts.use_osg_file_transfer:
+        line += " --extrinsic-proposal-breadcrumb extr_consolidated_$(macroiterationprev).npz "
+        _ext_bc_xfer = os.getcwd() + "/extr_consolidated_$(macroiterationprev).npz"
+        opts.ile_additional_files_to_transfer = (opts.ile_additional_files_to_transfer + "," + _ext_bc_xfer) if opts.ile_additional_files_to_transfer else _ext_bc_xfer
+        open(os.getcwd() + "/extr_consolidated_-1.npz", "a").close()   # placeholder for iteration 0
+    else:
+        line += " --extrinsic-proposal-breadcrumb {}/extr_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
+
 with open('args_ile.txt','w') as f:
         f.write(line)
 
@@ -1517,6 +1540,8 @@ if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
 if opts.calmarg_pilot:
     cmd += " --calmarg-pilot --calmarg-pilot-cadence {} --calmarg-pilot-max-it {} --calmarg-pilot-top-fraction {} --calmarg-pilot-max-points {} ".format(
         opts.calmarg_pilot_cadence, opts.calmarg_pilot_max_it, opts.calmarg_pilot_top_fraction, opts.calmarg_pilot_max_points)
+if opts.extrinsic_handoff:
+    cmd += " --extrinsic-handoff --extrinsic-handoff-select {} ".format(opts.extrinsic_handoff_select)
 if opts.assume_eccentric:
     cmd += " --use-eccentricity "
     if opts.sample_eccentricity_squared:

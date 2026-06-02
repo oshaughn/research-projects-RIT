@@ -80,15 +80,45 @@ GMM against a *shuffled* `params_ordered`, and confirms the seeded sky GMM repro
 sky modes with ~the right mode fractions.  `python -m RIFT.calmarg.breadcrumbs` confirms the
 cal-Gaussian + extrinsic-GMM coexist and round-trip.  Both PASS.
 
-## How it plugs into the pilot DAG (next)
+## Pipeline wiring (implemented)
 
-The cal pilot already establishes the handoff plumbing: a stage harvests one iteration's
-output, fits a proposal, consolidates, and seeds iteration N+1 via a breadcrumb file that is
-transferred on OSG.  The extrinsic handoff reuses that exact path -- the wide ILE jobs write
-`--extrinsic-proposal-output`, a consolidation picks/merges the best, and the next iteration's
-ILE jobs read `--extrinsic-proposal-breadcrumb`.  Because cal and extrinsic live in ONE
-breadcrumb object, this can ride on the same file the cal pilot already transfers.  (Pipeline
-wiring not yet added -- the module + ILE hooks are the proof-of-concept.)
+The handoff is wired end-to-end through the pipeline, gated by `--extrinsic-handoff` and
+**standalone** (it does NOT require the cal pilot -- it works on a plain fused / vanilla run):
+
+- **`util_RIFT_pseudo_pipe.py --extrinsic-handoff`** adds to `args_ile.txt`:
+  - `--extrinsic-proposal-output extr_proposal_$(macroiteration)_$(macroevent).npz` -- each
+    wide ILE job writes its own per-event proposal ($(macroevent) is the per-node macro);
+  - `--extrinsic-proposal-breadcrumb .../extr_consolidated_$(macroiterationprev).npz` -- the
+    seed from the previous iteration (OSG: basename + auto-added to the ILE transfer list +
+    an `extr_consolidated_-1.npz` placeholder for iteration 0; shared FS: absolute path).
+  It warns if `--ile-sampler-method` is not GMM (the seed is a no-op for other samplers).
+
+- **`util_ExtrinsicConsolidate.py`** (new) picks the single most representative per-event
+  proposal (default by lnL -- nearest the peak; `--select neff|n_samples` also available) and
+  writes `extr_consolidated_<it>.npz`.  It ALWAYS writes output (empty if nothing valid), so
+  the next iteration's seed/transfer never fails; unreadable/placeholder inputs are skipped.
+
+- **`dag_utils_generic.write_extrconsolidate_sub`** builds the consolidation job in the
+  **local universe** on the submit node: it is pure-python file selection (no GPU/ILE/
+  container/frames), and on OSG the per-event ILE outputs are transferred back to
+  `<wd>/iteration_<it>_ile` (ILE's default output transfer), so a local-universe job reads
+  them from the shared FS with no per-event input transfer (which condor cannot glob).
+
+- **`create_event_parameter_pipeline_BasicIteration`** creates one consolidation node per
+  iteration, gated behind that iteration's `unify` node (all ILE done -> per-event proposals
+  present), and makes iteration N+1's wide ILE jobs depend on the iteration-N consolidation:
+      unify_{it}  ->  EXTRCONSOLIDATE_{it}  ->  wide ILE_{it+1}
+  (the consolidate barrier and the seed barrier), exactly mirroring the cal-pilot wiring.
+
+`make extr-build` (demo/rift/calmarg) builds a pipeline with `--extrinsic-handoff
+--ile-sampler-method GMM` and validates the whole thread offline (args_ile.txt flags,
+EXTRCONSOLIDATE.sub, and the unify->consolidate->next-ILE DAG edges).
+
+Because cal and extrinsic live in ONE breadcrumb object, a future refinement could ride the
+extrinsic proposal on the cal pilot's existing consolidation/transfer instead of a separate
+node; the standalone path was chosen first so the handoff works without the (heavier) cal
+pilot.  The convergence-subdag extension (`--first-iteration-jumpstart`) does not yet carry
+`--extrinsic-handoff` -- same limitation as `--calmarg-pilot`.
 
 ## Why GMM first, and the AV limitation (task #30)
 

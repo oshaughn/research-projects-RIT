@@ -2180,8 +2180,12 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           _good = _good & np.isfinite(_ext_samples[_p])
         _ext_samples = {p: v[_good] for p, v in _ext_samples.items() if p in _ext_bounds}
         _ext = _ehmod.fit_extrinsic_proposal(_ext_samples, log_weights=_lw[_good], bounds=_ext_bounds)
+        # store the true lnL (peak-referenced) + sample count so a downstream consolidation
+        # can pick the most representative (near-peak / best-converged) proposal to hand on.
         _ebcmod.save(opts.extrinsic_proposal_output, extrinsic=_ext,
                      meta=dict(event=int(indx_event), n_samples=int(_good.sum()),
+                               lnL=float(log_res + manual_avoid_overflow_logarithm),
+                               neff=float(neff),
                                groups=[g['params'] for g in _ext['groups']]))
         print(" Extrinsic proposal WRITTEN to {} ({} groups: {})".format(
             opts.extrinsic_proposal_output, len(_ext['groups']), [g['params'] for g in _ext['groups']]))

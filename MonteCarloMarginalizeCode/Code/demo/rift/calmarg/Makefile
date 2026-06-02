@@ -402,6 +402,55 @@ pp-validate:
 
 pp: pp-build
 
+# --- EXTRINSIC HANDOFF offline build-validate (separate rundir; never touches pp/run dirs) ---
+# Builds a pipeline with the extrinsic handoff (GMM sampler) and confirms the per-event
+# proposal output, the seed breadcrumb, and the EXTRCONSOLIDATE consolidation node all thread
+# through.  Offline -- no GPU/condor/data run needed for the threading check.
+# See RIFT/calmarg/DESIGN_extrinsic_handoff.md.
+PP_EXTR_RUN := $(CURDIR)/rundir_pp_extr
+
+.PHONY: extr extr-build extr-validate
+
+extr-build: cal_env/H1.txt
+	@test -s "$(PP_INI)"   || (echo "missing zero-spin ini $(PP_INI)" && false)
+	@test -s "$(PP_COINC)" || (echo "missing coinc $(PP_COINC)" && false)
+	rm -rf $(PP_EXTR_RUN); touch $(CURDIR)/foo.cache
+	$(ENV) util_RIFT_pseudo_pipe.py \
+	  --use-ini $(PP_INI) --use-coinc $(PP_COINC) --use-rundir $(PP_EXTR_RUN) \
+	  --fake-data-cache $(CURDIR)/foo.cache \
+	  --assume-nospin --approx IMRPhenomD --ile-sampler-method GMM \
+	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling $(PP_SRATE) \
+	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
+	  --extrinsic-handoff \
+	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30
+	$(MAKE) extr-validate
+
+extr-validate:
+	@test -s "$(PP_EXTR_RUN)/args_ile.txt" || (echo "FAIL: pseudo_pipe produced no args_ile.txt" && false)
+	@echo "--- args_ile.txt (extrinsic handoff flags) ---"
+	@grep -oE -- "--sampler-method [A-Za-z_]+|--extrinsic-proposal-output [^ ]+|--extrinsic-proposal-breadcrumb [^ ]+" $(PP_EXTR_RUN)/args_ile.txt | sort -u
+	@grep -q -- "--sampler-method GMM"             $(PP_EXTR_RUN)/args_ile.txt || (echo "FAIL: extrinsic handoff needs the GMM sampler (--sampler-method GMM absent)" && false)
+	@grep -q -- "--extrinsic-proposal-output"      $(PP_EXTR_RUN)/args_ile.txt || (echo "FAIL: per-event --extrinsic-proposal-output not threaded to ILE" && false)
+	@grep -q -- "--extrinsic-proposal-breadcrumb"  $(PP_EXTR_RUN)/args_ile.txt || (echo "FAIL: seed --extrinsic-proposal-breadcrumb not threaded to ILE" && false)
+	@test -s "$(PP_EXTR_RUN)/EXTRCONSOLIDATE.sub" || (echo "FAIL: no EXTRCONSOLIDATE.sub consolidation stage" && false)
+	@echo "--- EXTRCONSOLIDATE.sub ---"
+	@grep -E "universe|executable|arguments|initialdir" $(PP_EXTR_RUN)/EXTRCONSOLIDATE.sub | head
+	@grep -q "util_ExtrinsicConsolidate.py" $(PP_EXTR_RUN)/EXTRCONSOLIDATE.sub || (echo "FAIL: EXTRCONSOLIDATE.sub does not run util_ExtrinsicConsolidate.py" && false)
+	@grep -q "universe = local"             $(PP_EXTR_RUN)/EXTRCONSOLIDATE.sub || (echo "FAIL: EXTRCONSOLIDATE should be a local-universe job" && false)
+	@DAG=$$(ls $(PP_EXTR_RUN)/*BasicIterationWorkflow.dag 2>/dev/null | head -1); \
+	  test -n "$$DAG" || (echo "FAIL: no per-iteration DAG produced" && false); \
+	  grep -q "util_ExtrinsicConsolidate_py" $$DAG || (echo "FAIL: no EXTRCONSOLIDATE node in the DAG" && false); \
+	  EC=$$(grep -oE "util_ExtrinsicConsolidate_py-[0-9a-f]+" $$DAG | head -1); \
+	  grep -qE "PARENT unify_sh-[0-9a-f]+ CHILD $$EC" $$DAG || (echo "FAIL: EXTRCONSOLIDATE not gated behind the iteration's unify (ILE barrier)" && false); \
+	  grep -qE "PARENT $$EC CHILD integrate_likelihood_extrinsic_batchmode" $$DAG || (echo "FAIL: next-iteration ILE jobs do not depend on EXTRCONSOLIDATE (seed barrier missing)" && false)
+	@echo "OK: extrinsic handoff threaded EVERYTHING --"
+	@echo "    --sampler-method GMM + per-event --extrinsic-proposal-output + seed --extrinsic-proposal-breadcrumb in args_ile.txt;"
+	@echo "    EXTRCONSOLIDATE.sub (local universe, util_ExtrinsicConsolidate.py);"
+	@echo "    DAG wiring: unify_{it} -> EXTRCONSOLIDATE_{it} -> wide ILE_{it+1} (consolidate barrier + seed barrier)."
+	@echo "    (Offline build-validate; NOTE the ILE binary change is execute-point -- rebuild the container before an OSG/CIT run.)"
+
+extr: extr-build
+
 # --- RUNNABLE top-level pipeline on the CI fake data (breadcrumb for later) ----------
 # Unlike pp-build (offline threading check), this builds a pipeline that ACTUALLY RUNS on
 # the zero-noise CI data and SUBMITS it to condor: real coinc (util_SimInspiralToCoinc.py

@@ -245,6 +245,8 @@ parser.add_argument("--calmarg-pilot-cadence",default=1,type=int,help="Run a cal
 parser.add_argument("--calmarg-pilot-max-it",default=3,type=int,help="Stop launching cal pilots after this iteration (cal is boring -> freeze the proposal once learned).  Default 3.")
 parser.add_argument("--calmarg-pilot-top-fraction",default=0.05,type=float,help="Fraction of highest-lnL composite points the pilot harvests for full cal.")
 parser.add_argument("--calmarg-pilot-max-points",default=32,type=int,help="Cap on harvested pilot points per iteration.")
+parser.add_argument("--extrinsic-handoff",action='store_true',help="Extrinsic handoff (GMM sampler): each iteration's wide ILE jobs write a per-event extrinsic proposal (--extrinsic-proposal-output), a per-iteration LOCAL-universe consolidation job (util_ExtrinsicConsolidate.py) picks the most representative one -> extr_consolidated_<it>.npz, which SEEDS wide_{N+1} via --extrinsic-proposal-breadcrumb.  Requires the wide ILE args to already carry those flags (added by util_RIFT_pseudo_pipe.py --extrinsic-handoff).")
+parser.add_argument("--extrinsic-handoff-select",default="lnL",help="Metric the extrinsic consolidation ranks per-event proposals by (lnL|neff|n_samples). Default lnL (most peak-representative).")
 parser.add_argument("--first-iteration-jumpstart",action='store_true',help="No ILE jobs the first iteration.  Assumes you already have .composite files and want to get going. Particularly helpful for subdag systems")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Configure last iteration to extract *one* set of extrinsic parameters from each intrinsic point. [This is highly inefficient, but people like having one extrinsic point per intrinsic point.]  Requires --convert-args")
 parser.add_argument("--last-iteration-extrinsic-nsamples",default=3000,type=int,help="Construct this number of extrinsic samples")
@@ -1145,6 +1147,22 @@ if opts.calmarg_pilot:
     calpilot_job.write_sub_file()
 
 
+##   EXTRINSIC handoff consolidation job (see RIFT/calmarg/DESIGN_extrinsic_handoff.md).
+##   Pure-python LOCAL-universe job: picks the most representative per-event extrinsic
+##   proposal of iteration $(macroiteration) -> extr_consolidated_<it>.npz, seeding wide_{N+1}.
+extrconsolidate_job = None
+extrconsolidate_node_per_iteration = {}
+if opts.extrinsic_handoff:
+    extrconsolidate_log_dir = opts.working_directory + "/iteration_$(macroiteration)_ile/logs/"
+    extrconsolidate_job, extrconsolidate_job_name = dag_utils.write_extrconsolidate_sub(
+        tag='EXTRCONSOLIDATE', log_dir=extrconsolidate_log_dir,
+        working_directory=opts.working_directory, select=opts.extrinsic_handoff_select)
+    extrconsolidate_job.add_condor_cmd("initialdir", opts.working_directory)
+    if opts.use_full_submit_paths:
+        extrconsolidate_job.set_sub_file(opts.working_directory + "/" + extrconsolidate_job.get_sub_file())
+    extrconsolidate_job.write_sub_file()
+
+
 ##   fetch job.  Fetch is before CURRENT iteration, so it is just-in-time and can be used at iteration 0
 if fetch_args:
     fetch_job, fetch_job_name = dag_utils.write_puff_sub(tag='FETCH',log_dir=None,arg_str=fetch_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/fetch-$(macroiteration).xml.gz',out_dir=opts.working_directory,exe=opts.fetch_ext_grid_exe,universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
@@ -1623,6 +1641,14 @@ for it in np.arange(it_start,opts.n_iterations):
             if calpilot_job and ((it-1) in calpilot_node_per_iteration):
                 for _ile_node in ile_node_list_per_iteration[it]:
                     _ile_node.add_parent(calpilot_node_per_iteration[it-1])
+            # Extrinsic handoff: the wide ILE jobs of iteration `it` are SEEDED from the
+            # extrinsic proposal consolidated from the PREVIOUS iteration -> depend on
+            # extrconsolidate_{it-1} so extr_consolidated_{it-1}.npz exists (the seed barrier).
+            # The ILE args carry --extrinsic-proposal-breadcrumb .../extr_consolidated_$(macroiterationprev).npz;
+            # a missing/empty file (early iterations) falls back to the cold default inside ILE.
+            if extrconsolidate_job and ((it-1) in extrconsolidate_node_per_iteration):
+                for _ile_node in ile_node_list_per_iteration[it]:
+                    _ile_node.add_parent(extrconsolidate_node_per_iteration[it-1])
 #       for event in np.arange(indx_max): #np.arange(n_jobs_this_time):
 #         # Add task per ILE operation
 #         ile_node = pipeline.CondorDAGNode(ile_job)
@@ -1931,6 +1957,19 @@ for it in np.arange(it_start,opts.n_iterations):
         calpilot_node.add_parent(unify_node)   # need iteration it's (non-empty) composite
         dag.add_node(calpilot_node)
         calpilot_node_per_iteration[it] = calpilot_node
+
+    # Extrinsic handoff consolidation for this iteration.  Runs IN PARALLEL with CIP/puff
+    # (does NOT gate them) -- it depends on unify_node, which guarantees all of iteration
+    # it's ILE jobs finished (so the per-event extr_proposal_<it>_*.npz are present), and
+    # emits extr_consolidated_<it>.npz, which SEEDS the wide ILE jobs of iteration it+1.
+    if extrconsolidate_job:
+        extrconsolidate_node = pipeline.CondorDAGNode(extrconsolidate_job)
+        extrconsolidate_node.add_macro("macroiteration", it)
+        extrconsolidate_node.set_category("EXTRCONSOLIDATE")
+        extrconsolidate_node.set_retry(opts.general_retries)
+        extrconsolidate_node.add_parent(unify_node)   # all of iteration it's ILE jobs done
+        dag.add_node(extrconsolidate_node)
+        extrconsolidate_node_per_iteration[it] = extrconsolidate_node
 
 
 
