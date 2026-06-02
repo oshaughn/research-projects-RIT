@@ -107,3 +107,21 @@ class RFFInterpolator(BaseInterpolator):
     def _lnL_whitened(self, xw):
         phi = self._features(xw, self.params["log_ell"], self.params["log_sf"])[0]
         return phi @ self.w_mean
+
+    # --- serialization -------------------------------------------------- #
+    def _export_params(self):
+        return {
+            "omega": self.omega,
+            "b": self.b,
+            "w_mean": self.w_mean,
+            "log_ell": self.params["log_ell"],
+            "log_sf": self.params["log_sf"],
+        }
+
+    def _import_params(self, p):
+        self.omega = jnp.asarray(p["omega"])
+        self.b = jnp.asarray(p["b"])
+        self.w_mean = jnp.asarray(p["w_mean"])
+        self.n_features = int(self.omega.shape[0])
+        self.params = {"log_ell": jnp.asarray(p["log_ell"]),
+                       "log_sf": jnp.asarray(p["log_sf"])}

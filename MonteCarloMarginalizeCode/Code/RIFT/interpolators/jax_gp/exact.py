@@ -72,3 +72,22 @@ class ExactGPInterpolator(BaseInterpolator):
     def _lnL_whitened(self, xw):
         _, cond_gp = self.gp.condition(self.yw, jnp.atleast_2d(xw))
         return cond_gp.loc[0]
+
+    # --- serialization -------------------------------------------------- #
+    def _export_params(self):
+        # Exact GP must carry its full training set -- that is the price of exact.
+        return {
+            "Xw": self.Xw,
+            "yw": self.yw,
+            "log_amp": self.params["log_amp"],
+            "log_scale": self.params["log_scale"],
+            "log_sn": self.params["log_sn"],
+        }
+
+    def _import_params(self, p):
+        self.Xw = jnp.asarray(p["Xw"])
+        self.yw = jnp.asarray(p["yw"])
+        self.params = {"log_amp": jnp.asarray(p["log_amp"]),
+                       "log_scale": jnp.asarray(p["log_scale"]),
+                       "log_sn": jnp.asarray(p["log_sn"])}
+        self.gp = self._build_gp(self.params, self.Xw)

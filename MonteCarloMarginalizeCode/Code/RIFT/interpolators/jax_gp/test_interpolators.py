@@ -13,6 +13,8 @@ What they pin down:
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 
@@ -58,8 +60,52 @@ def _check_method(method, rmse_tol, fd_tol):
     return rmse, rel
 
 
+def _check_export_roundtrip(method):
+    import tempfile
+    import jax
+    from . import export
+    rng = np.random.default_rng(1)
+    d, n = 4, 500
+    X = rng.normal(size=(n, d))
+    y = _target(X)
+    model = _make(method).fit(X, y)
+
+    Xt = rng.normal(size=(50, d))
+    pred_before = model.predict(Xt)
+    x0 = Xt[0]
+    v0, g0 = model.lnL_and_grad(x0)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        base = export.save(model, os.path.join(tmp, "fit"),
+                           coord_names=["a", "b", "c", "e"])
+        assert export.exists(base)
+        loaded = export.load(base)
+
+    pred_after = loaded.predict(Xt)
+    assert np.allclose(pred_before, pred_after, atol=1e-5), method
+    v1, g1 = loaded.lnL_and_grad(x0)
+    assert np.isclose(v0, v1, atol=1e-5), method
+    assert np.allclose(g0, g1, atol=1e-5), method
+    # and the reloaded model is still differentiable via jax directly
+    gj = jax.grad(loaded.lnL_physical)(np.asarray(x0))
+    assert np.allclose(np.asarray(gj), g1, atol=1e-5), method
+    assert loaded.coord_names == ["a", "b", "c", "e"]
+
+
 def test_exact():
     _check_method("exact", rmse_tol=0.05, fd_tol=1e-3)
+
+
+def test_export_roundtrip_rff():
+    _check_export_roundtrip("rff")
+
+
+def test_export_roundtrip_svgp():
+    _check_export_roundtrip("svgp")
+
+
+def test_export_roundtrip_exact():
+    _check_export_roundtrip("exact")
 
 
 def test_rff():
@@ -74,4 +120,6 @@ if __name__ == "__main__":
     for m in ("exact", "rff", "svgp"):
         rmse, rel = _check_method(m, rmse_tol=0.30 if m != "exact" else 0.05,
                                   fd_tol=1e-2 if m != "exact" else 1e-3)
-        print("{:6s} OK  rmse={:.4f}  AD-vs-FD relerr={:.2e}".format(m, rmse, rel))
+        _check_export_roundtrip(m)
+        print("{:6s} OK  rmse={:.4f}  AD-vs-FD relerr={:.2e}  export round-trip OK"
+              .format(m, rmse, rel))

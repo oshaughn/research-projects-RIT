@@ -130,3 +130,23 @@ class SVGPInterpolator(BaseInterpolator):
         ws = jsla.solve_triangular(self._Luu, Kus, lower=True)               # [M,1]
         t = jsla.solve_triangular(self._Lg, ws, lower=True)[:, 0]            # [M]
         return t @ self._c
+
+    # --- serialization -------------------------------------------------- #
+    def _export_params(self):
+        # Only the M-sized closed-form factors are needed -- not the training set.
+        return {
+            "Z": self._Z,
+            "Luu": self._Luu,
+            "Lg": self._Lg,
+            "c": self._c,
+            "log_amp": self._la,
+            "log_scale": self._ls,
+        }
+
+    def _import_params(self, p):
+        self._Z = jnp.asarray(p["Z"])
+        self._Luu = jnp.asarray(p["Luu"])
+        self._Lg = jnp.asarray(p["Lg"])
+        self._c = jnp.asarray(p["c"])
+        self._la = jnp.asarray(p["log_amp"])
+        self._ls = jnp.asarray(p["log_scale"])

@@ -35,6 +35,8 @@ class BaseInterpolator(abc.ABC):
 
     #: short name, overridden by subclasses (matches CIP ``--fit-method`` suffix)
     name = "base"
+    #: bumped if the on-disk export layout changes incompatibly
+    SCHEMA_VERSION = 1
 
     def __init__(self, jitter=1e-6):
         self.jitter = float(jitter)
@@ -88,6 +90,58 @@ class BaseInterpolator(abc.ABC):
     @abc.abstractmethod
     def _lnL_whitened(self, xw):
         """Pure-JAX: whitened coord vector ``[d]`` -> scalar lnL (whitened units)."""
+
+    # ------------------------------------------------------------------ #
+    # serialization hooks (implemented per method)                        #
+    # ------------------------------------------------------------------ #
+    @abc.abstractmethod
+    def _export_params(self):
+        """Return a dict of NumPy arrays sufficient to rebuild ``_lnL_whitened``."""
+
+    @abc.abstractmethod
+    def _import_params(self, params):
+        """Restore method-specific state from the dict produced by ``_export_params``."""
+
+    def export_state(self):
+        """Return ``(meta, arrays)`` fully describing the fitted model.
+
+        ``arrays`` holds the whitening vectors and method parameters (NumPy);
+        ``meta`` holds scalars and identifying info.  Together they round-trip
+        through :mod:`RIFT.interpolators.jax_gp.export`.
+        """
+        if not self._fitted:
+            raise RuntimeError("export_state() called before fit()")
+        arrays = {
+            "x_mean": np.asarray(self.x_mean),
+            "x_std": np.asarray(self.x_std),
+        }
+        arrays.update({"_param_" + k: np.asarray(v)
+                       for k, v in self._export_params().items()})
+        meta = {
+            "schema": self.SCHEMA_VERSION,
+            "method": self.name,
+            "d": int(np.asarray(self.x_mean).shape[0]),
+            "y_mean": float(self.y_mean),
+            "y_std": float(self.y_std),
+            "jitter": float(self.jitter),
+        }
+        return meta, arrays
+
+    @classmethod
+    def from_state(cls, meta, arrays):
+        """Reconstruct a (predict-only) model from ``export_state`` output."""
+        obj = cls.__new__(cls)               # bypass __init__: ctor args are unknown
+        BaseInterpolator.__init__(obj, jitter=meta.get("jitter", 1e-6))
+        obj.x_mean = jnp.asarray(arrays["x_mean"])
+        obj.x_std = jnp.asarray(arrays["x_std"])
+        obj.y_mean = float(meta["y_mean"])
+        obj.y_std = float(meta["y_std"])
+        params = {k[len("_param_"):]: arrays[k]
+                  for k in arrays if k.startswith("_param_")}
+        obj._import_params(params)
+        obj._fitted = True
+        obj._lnL_whitened_v = jax.jit(jax.vmap(obj._lnL_whitened))
+        return obj
 
     # ------------------------------------------------------------------ #
     # prediction (CIP contract)                                          #
