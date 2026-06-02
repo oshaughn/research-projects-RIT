@@ -184,6 +184,47 @@ actually converges*:
 The handoff plumbing (save -> consolidate -> seed, all groups, GPU-correct) is done and is the
 right substrate; the demonstration of speed-up waits on one of the above.
 
+## Seed adaptation: FREEZE by default (`--extrinsic-proposal-adapt`)
+
+Re-fitting a seeded GMM group on the first batch is fragile on these likelihoods: with
+`adapt=True` the sampler's `_train` calls the GMM fit, whose `_initialize` does
+`random.choice(p=weights)` and dies on the pathological first-batch weights
+("probabilities are not non-negative") -> `_reset()` -> the seed is discarded.  `_train`
+already skips groups whose `gmm_adapt[group]` is False, so the ILE seed path now FREEZES the
+seeded groups by default (`gmm_adapt=False`); `--extrinsic-proposal-adapt` opts back into
+adaptation.  Freezing is also the right semantics for a handed-off (especially cross-sampler)
+proposal: trust it as-is rather than let GMM's adaptation degrade it.  Result: with freeze the
+seeded run completes with **0 resets** and the seed actually drives sampling.
+
+## Cross-sampler AV->GMM seed: partial result, integral still wrong (open)
+
+Per the chosen plan, converged iteration-0 with **AV** (which does make progress on this
+point: n_eff ~7 at 400k, lnLmax ~143), fit the GMM to AV's posterior samples
+(`fit_extrinsic_proposal` reads any sampler's `_rvs`), consolidated, and seeded a **frozen**
+GMM run:
+
+- the seed lands cleanly (all 3 groups), **0 resets**, and n_eff rises from the cold ~1 to
+  **~5-10** -- the seed mechanism is injecting structure.
+- BUT the seeded GMM's INTEGRAL is wrong: `sqrt(2 lnLmax)` prints `nan` and Z comes out
+  ~1e-4 (vs the cold GMM's valid ~1e43 and AV's lnLmax~143).  High n_eff in the WRONG region
+  is worse than honest low n_eff: the frozen proposal is importance-sampling a region that is
+  consistent-but-displaced from the true posterior.
+
+Two suspects, not yet isolated (needs a focused audit, no more blind GPU time):
+1. **coordinate convention** -- AV vs GMM may store extrinsic samples in `_rvs` under
+   different conventions (e.g. angle vs cosine for inclination/declination; the sampler adds
+   `inclination`/`declination` on `[-1,1]` = cosine when `--*-cosine-sampler` is set, but it
+   is not obvious AV's `_rvs` uses the same).  A mismatch would place the fitted GMM in the
+   wrong frame.  Same-sampler GMM->GMM has no such mismatch and round-trips cleanly.
+2. **`cov_inflate` out of bounds** -- inflating the seed covariance (x2) can push a sampled
+   `distance` outside `[1,1000]` (or other hard edges) where the likelihood returns NaN,
+   contaminating lnLmax.  Worth testing `cov_inflate=1` and clipping proposed samples.
+
+Net: the handoff machinery, the freeze, and the AV-source convergence all work; the
+cross-sampler numeric correctness is one debugging session away (audit `_rvs` conventions +
+inflation/bounds).  The same-sampler GMM->GMM path is already numerically clean -- it just
+needs a sampler that converges as a source, i.e. seedable AV (below).
+
 ## Why GMM first, and the AV limitation (task #30)
 
 The adaptive Voronoi sampler (AV, `mcsampler`) is the default extrinsic sampler and is more

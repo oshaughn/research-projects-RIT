@@ -246,6 +246,7 @@ optp.add_option("--calibration-burn-in-neff",default=None,type=float, help="Opt-
 optp.add_option("--calibration-burn-in-nmax",default=None,type=int, help="Cap on the number of samples drawn during the zero-cal burn-in (default: the run's --n-max). Keeps the burn-in bounded if it cannot reach --calibration-burn-in-neff.")
 optp.add_option("--extrinsic-proposal-breadcrumb",default=None, help="Opt-in (GMM sampler): SEED the extrinsic GMM sampler from a learned proposal breadcrumb (RIFT.calmarg.extrinsic_handoff): the per-group GMMs from a previous iteration's posterior pre-fill gmm_dict, so the sampler starts on the posterior instead of cold.  The extrinsic posterior barely moves iteration-to-iteration.  Groups matched by parameter name; missing groups fall back to the default.")
 optp.add_option("--extrinsic-proposal-output",default=None, help="Opt-in (GMM sampler): after the integration, fit the run's extrinsic posterior samples to a per-group GMM and WRITE it as a proposal breadcrumb (to seed a later iteration via --extrinsic-proposal-breadcrumb).")
+optp.add_option("--extrinsic-proposal-adapt",action='store_true',default=False, help="With --extrinsic-proposal-breadcrumb: let the SEEDED extrinsic GMM groups keep adapting (re-fit each iteration).  Default OFF = the seeded groups are FROZEN: a handed-off proposal (especially from a different, better-converged sampler) is trusted as-is, since the GMM's own adaptation is fragile on sharp ILE peaks (a bad batch re-fit triggers _reset and discards the seed).  Freeze keeps the good seed; enable adapt only if the source posterior may have drifted.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
 optp.add_option("--force-gpu-only", action="store_true", help="Hard fail if no GPU present (assessed by cupy not loading)")
@@ -1418,12 +1419,17 @@ if opts.sampler_method == "GMM":
       try:
         import RIFT.calmarg.breadcrumbs as _ebcmod, RIFT.calmarg.extrinsic_handoff as _ehmod
         _ebc = _ebcmod.load(opts.extrinsic_proposal_breadcrumb)
-        _seed = _ehmod.gmm_dict_from_breadcrumb(_ebc.get('extrinsic'), sampler.params_ordered, adapt=True, existing_keys=list(gmm_dict.keys()))
+        _ext_adapt = bool(getattr(opts, 'extrinsic_proposal_adapt', False))
+        _seed = _ehmod.gmm_dict_from_breadcrumb(_ebc.get('extrinsic'), sampler.params_ordered, adapt=_ext_adapt, existing_keys=list(gmm_dict.keys()))
         for _k, _m in _seed.items():
           if _k in gmm_dict:
             gmm_dict[_k] = _m
-            gmm_adapt[_k] = True   # let the seeded proposal keep adapting (extrinsics drift slightly)
-        print(" Extrinsic GMM SEEDED from {} for dim-groups {}".format(opts.extrinsic_proposal_breadcrumb, list(_seed.keys())))
+            # Default FROZEN (gmm_adapt False): _train skips these groups, so the handed-off
+            # proposal drives sampling unmodified.  Re-fitting a seeded model on a bad first
+            # batch raises in the GMM init and triggers _reset -> the seed would be discarded.
+            gmm_adapt[_k] = _ext_adapt
+        print(" Extrinsic GMM SEEDED ({}) from {} for dim-groups {}".format(
+            "adapting" if _ext_adapt else "frozen", opts.extrinsic_proposal_breadcrumb, list(_seed.keys())))
       except Exception as _e_eh:
         print(" WARNING: could not seed extrinsic GMM from {} ({}); using default proposal.".format(opts.extrinsic_proposal_breadcrumb, _e_eh))
 #    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,tuple([0]):None,tuple([1]):None} 
