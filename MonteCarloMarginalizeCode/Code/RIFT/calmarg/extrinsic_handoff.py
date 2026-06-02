@@ -88,15 +88,27 @@ def fit_extrinsic_proposal(samples, log_weights, groups=None, bounds=None,
     return dict(kind="gmm", groups=out_groups)
 
 
-def reconstruct_gmm(group, max_iters=1000, adapt=True):
+def reconstruct_gmm(group, max_iters=1000, adapt=True, cov_inflate=2.0):
     """Rebuild a RIFT gaussian_mixture_model.gmm from a stored breadcrumb group.
     adapt=True -> the seeded components keep adapting in the next run (extrinsics drift a
-    little); adapt=False freezes them."""
+    little); adapt=False freezes them.
+
+    cov_inflate (>=1) widens the seeded covariances (in the model's normalized frame) before
+    handing off.  A warm-start proposal should be a bit BROADER than the source posterior: the
+    ensemble sampler can contract a too-wide proposal but a too-tight one starves (all first-
+    batch samples land in one spot -> zero effective weight -> the sampler discards the seed
+    via _reset()).  This matters most when the source iteration was under-converged.  2.0 (in
+    covariance, ~1.4x in width) is a safe default.
+
+    All model arrays (means/covariances/weights AND bounds) are moved onto the model's device
+    (cupy on GPU): the sampler's score()/_normalize write into an xpy.empty array, so a
+    leftover numpy `self.bounds` raises 'non-scalar numpy.ndarray cannot be used for fill'."""
     GMM = _gmm_module()
-    means = np.asarray(group["means"]); covs = np.asarray(group["covariances"])
+    means = np.asarray(group["means"]); covs = np.asarray(group["covariances"], dtype=float) * float(cov_inflate)
     weights = np.asarray(group["weights"], dtype=float); bounds = np.asarray(group["bounds"], dtype=float)
     k = means.shape[0]
     model = GMM.gmm(k, bounds, max_iters=max_iters)
+    model.bounds = model.identity_convert_togpu(bounds)          # must match self.xpy (GPU)
     model.means = [model.identity_convert_togpu(means[i]) for i in range(k)]
     model.covariances = [model.identity_convert_togpu(covs[i]) for i in range(k)]
     model.weights = model.identity_convert_togpu(weights)
@@ -105,21 +117,47 @@ def reconstruct_gmm(group, max_iters=1000, adapt=True):
     return model
 
 
-def gmm_dict_from_breadcrumb(extrinsic, params_ordered, adapt=True):
+def _permute_group(group, perm):
+    """Return a copy of a breadcrumb group with its parameter columns reordered by `perm`
+    (perm[j] = source column index that should land at output position j)."""
+    means = np.asarray(group["means"])[:, perm]
+    covs = np.asarray(group["covariances"])[:, perm][:, :, perm]
+    bounds = np.asarray(group["bounds"])[perm]
+    return dict(params=[group["params"][j] for j in perm], means=means,
+                covariances=covs, weights=group["weights"], bounds=bounds)
+
+
+def gmm_dict_from_breadcrumb(extrinsic, params_ordered, adapt=True, existing_keys=None, cov_inflate=2.0):
     """Build a gmm_dict {dim_group_tuple: gmm} to SEED mcsamplerEnsemble, from a breadcrumb
     'extrinsic' dict.  dim_group_tuple are indices into `params_ordered` (the sampler's
     parameter order this run), looked up by parameter NAME -- so the handoff is robust to a
     different parameter ordering between runs.  Groups whose params are not all present in
-    params_ordered this run are skipped (with no error)."""
+    params_ordered this run are skipped (with no error).
+
+    `existing_keys` (the sampler's actual gmm_dict keys this run) makes the seed robust to the
+    WITHIN-group parameter ORDER: the sampler may pair, e.g., (psi, phi_orb) while the
+    breadcrumb stored (phi_orb, psi).  We match each breadcrumb group to the existing key with
+    the same dim SET, then permute the stored means/covariances/bounds columns into that key's
+    dim order -- so the seeded model lines up with how the sampler will draw/score it.  Without
+    existing_keys the key is just the breadcrumb's own param order."""
     if extrinsic is None or extrinsic.get("kind") != "gmm":
         return {}
     name_to_idx = {p: i for i, p in enumerate(params_ordered)}
+    key_by_set = {frozenset(k): tuple(k) for k in existing_keys} if existing_keys is not None else None
     gmm_dict = {}
     for group in extrinsic["groups"]:
         if not all(p in name_to_idx for p in group["params"]):
             continue
-        dim_group = tuple(name_to_idx[p] for p in group["params"])
-        gmm_dict[dim_group] = reconstruct_gmm(group, adapt=adapt)
+        grp_idx = [name_to_idx[p] for p in group["params"]]   # dim index of each stored column
+        if key_by_set is not None:
+            target = key_by_set.get(frozenset(grp_idx))
+            if target is None:
+                continue                                      # sampler has no matching group
+        else:
+            target = tuple(grp_idx)
+        perm = [grp_idx.index(dim) for dim in target]         # reorder stored cols -> target order
+        g = group if perm == list(range(len(perm))) else _permute_group(group, perm)
+        gmm_dict[target] = reconstruct_gmm(g, adapt=adapt, cov_inflate=cov_inflate)
     return gmm_dict
 
 

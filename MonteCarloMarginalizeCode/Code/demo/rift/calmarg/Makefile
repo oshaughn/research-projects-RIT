@@ -570,6 +570,78 @@ pp-run-pilot-build:
 pp-run-pilot:
 	$(MAKE) pp-run PP_PILOT=1 PP_NIT=2 PP_RUN_REAL=$(CURDIR)/rundir_pp_pilot
 
+# --- EXTRINSIC HANDOFF: small real GPU+condor smoke run on cardassia --------------------
+# Confirms the seeded extrinsic handoff actually runs: GMM sampler (so gmm_dict seeding is
+# live), --extrinsic-handoff on, on the CI fake data.  Deliberately TINY so it gets through
+# many intrinsic points per condor job (few restarts) and reaches the seeded 2nd iteration
+# fast:  300 initial intrinsic points, 200/generation, 50 intrinsic evals PER ILE job
+# (IMRPhenomD), >=2 iterations so iteration-1 ILE is seeded by iteration-0's consolidation.
+# Separate rundir (rundir_pp_extr_run) -- never clobbers pp-run / pilot runs.
+# Single GPU on cardassia:  CUDA_VISIBLE_DEVICES=0 make extr-run
+EXTR_RUN      := $(CURDIR)/rundir_pp_extr_run
+EXTR_NIT      ?= 2          # need >=2 so the iteration-0 proposal seeds iteration-1
+EXTR_GRID0    ?= 300        # initial intrinsic grid points
+EXTR_GRIDN    ?= 200        # intrinsic points proposed per generation (CIP output)
+EXTR_PER_JOB  ?= 50         # intrinsic evaluations per ILE condor job (minimize restarts)
+EXTR_NCHUNK   ?= 4000       # extrinsic block size; small keeps the NVS 510 off its watchdog
+EXTR_NMAX     ?= 40000      # HARD cap on extrinsic samples/point -- the helper sets 4,000,000
+                            # (production); with slow calmarg convergence that is hours/point on
+                            # the NVS 510.  40000 -> ~20 s/point (measured), enough to fit+hand off.
+EXTR_NEFF     ?= 30         # n_eff target -- smoke just confirms seeding; jobs stop at n-max
+
+.PHONY: extr-run extr-run-build
+
+# Several knobs live in calmarg_ci.ini's [rift-pseudo-pipe] section, and an ini value
+# OVERRIDES the CLI -- so the per-job / per-generation / n_eff sizes must be set IN the ini,
+# not on the command line.  Derive a run-specific ini from calmarg_ci.ini, overriding only
+# those three lines (sed), leaving the shared ini untouched (so pp-run is unaffected).
+EXTR_INI := $(CURDIR)/extr_calmarg_ci.ini
+
+extr-run-build: cal_env/H1.txt ci_coinc.xml
+	rm -rf $(EXTR_RUN)
+	sed -e 's/^ile-jobs-per-worker=.*/ile-jobs-per-worker=$(EXTR_PER_JOB)/' \
+	    -e 's/^n-output-samples=.*/n-output-samples=$(EXTR_GRIDN)/' \
+	    -e 's/^ile-n-eff=.*/ile-n-eff=$(EXTR_NEFF)/' \
+	    $(CURDIR)/calmarg_ci.ini > $(EXTR_INI)
+	$(ENV) util_RIFT_pseudo_pipe.py \
+	  --use-ini $(EXTR_INI) --use-coinc $(CURDIR)/ci_coinc.xml --use-rundir $(EXTR_RUN) \
+	  --fake-data-cache $(CACHE) --use-online-psd-file $(PSD) \
+	  --assume-nospin --approx IMRPhenomD --ile-sampler-method GMM \
+	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
+	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
+	  --extrinsic-handoff \
+	  --force-initial-grid-size $(EXTR_GRID0) --n-output-samples-last $(EXTR_GRIDN) \
+	  --manual-extra-ile-args "--n-chunk $(EXTR_NCHUNK) --n-max $(EXTR_NMAX)" \
+	  --internal-force-iterations $(EXTR_NIT) \
+	  --internal-ile-request-disk 4M --internal-cip-request-disk 4M --internal-general-request-disk 4M
+	@# the n-max bound must land AFTER the helper's production --n-max 4000000 (argparse last-wins);
+	@# the manual-extra args are appended last, so the effective n-max is the bounded value.
+	@awk '{for(i=1;i<=NF;i++)if($$i=="--n-max")v=$$(i+1)} END{print "  effective --n-max =",v}' $(EXTR_RUN)/args_ile.txt
+	@awk '/--n-max/{n=split($$0,a," "); for(i=1;i<=n;i++)if(a[i]=="--n-max")last=a[i+1]} END{exit (last==$(EXTR_NMAX))?0:1}' $(EXTR_RUN)/args_ile.txt \
+	  || (echo "FAIL: effective --n-max is not the bounded $(EXTR_NMAX) (jobs would run to the 4,000,000 production cap)" && false)
+	@# confirm the per-job size took (ini value is overridden by the derived ini to $(EXTR_PER_JOB))
+	@grep -q -- "--ile-n-events-to-analyze $(EXTR_PER_JOB)" $(EXTR_RUN)/command-single.sh 2>/dev/null \
+	  || echo "  NOTE: verify --ile-n-events-to-analyze=$(EXTR_PER_JOB) in the builder invocation above"
+	@# confirm the handoff threaded through into the runnable pipeline
+	@grep -q -- "--sampler-method GMM"            $(EXTR_RUN)/args_ile.txt || (echo "FAIL: GMM sampler not set" && false)
+	@grep -q -- "--extrinsic-proposal-output"     $(EXTR_RUN)/args_ile.txt || (echo "FAIL: per-event extrinsic output not threaded" && false)
+	@grep -q -- "--extrinsic-proposal-breadcrumb" $(EXTR_RUN)/args_ile.txt || (echo "FAIL: extrinsic seed breadcrumb not threaded" && false)
+	@grep -q -- "--n-chunk $(EXTR_NCHUNK)"        $(EXTR_RUN)/args_ile.txt || (echo "FAIL: n-chunk not threaded (NVS 510 watchdog guard)" && false)
+	@test -s "$(EXTR_RUN)/EXTRCONSOLIDATE.sub"    || (echo "FAIL: no EXTRCONSOLIDATE.sub" && false)
+	@test -s "$(EXTR_RUN)/$(PP_DAG)"              || (echo "FAIL: no top-level DAG" && false)
+	@echo "OK: tiny GMM extrinsic-handoff pipeline built on CI data --"
+	@echo "    $(EXTR_GRID0) initial / $(EXTR_GRIDN) per-gen intrinsic, $(EXTR_PER_JOB) evals/ILE job, n-chunk $(EXTR_NCHUNK),"
+	@echo "    $(EXTR_NIT) iterations (iter-1 ILE seeded by iter-0's EXTRCONSOLIDATE).  Submit with: make extr-run"
+
+# Build + SUBMIT.  After it runs, the iteration-1 ILE *.out logs should print
+#   ' Extrinsic GMM SEEDED from .../extr_consolidated_0.npz for dim-groups [...]'
+# and extr_consolidated_0.npz / extr_proposal_0_*.npz should appear in the rundir.
+extr-run: extr-run-build
+	cd $(EXTR_RUN) && $(ENV) condor_submit_dag -f $(PP_DAG)
+	@echo "Submitted.  Watch:  condor_q ; tail -f $(EXTR_RUN)/$(PP_DAG).dagman.out"
+	@echo "Confirm seeding:  grep -l 'Extrinsic GMM SEEDED' $(EXTR_RUN)/iteration_1_ile/logs/*.out"
+	@test -n "$$LIGO_USER_NAME" || echo "  *** WARNING: LIGO_USER_NAME unset (jobs may not queue at CIT). ***"
+
 clean:
-	rm -f distance_marg.npz out_*.dat *.xml.gz lowsnr.cache snr_*.dat snr-report.txt foo.cache ci_coinc.xml
-	rm -rf cal_env lowsnr_mdc rundir_dag rundir_tune rundir_pp rundir_pp_run rundir_pp_pilot
+	rm -f distance_marg.npz out_*.dat *.xml.gz lowsnr.cache snr_*.dat snr-report.txt foo.cache ci_coinc.xml extr_calmarg_ci.ini
+	rm -rf cal_env lowsnr_mdc rundir_dag rundir_tune rundir_pp rundir_pp_run rundir_pp_pilot rundir_pp_extr rundir_pp_extr_run

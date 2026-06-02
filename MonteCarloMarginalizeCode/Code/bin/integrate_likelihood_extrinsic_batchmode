@@ -1418,7 +1418,7 @@ if opts.sampler_method == "GMM":
       try:
         import RIFT.calmarg.breadcrumbs as _ebcmod, RIFT.calmarg.extrinsic_handoff as _ehmod
         _ebc = _ebcmod.load(opts.extrinsic_proposal_breadcrumb)
-        _seed = _ehmod.gmm_dict_from_breadcrumb(_ebc.get('extrinsic'), sampler.params_ordered, adapt=True)
+        _seed = _ehmod.gmm_dict_from_breadcrumb(_ebc.get('extrinsic'), sampler.params_ordered, adapt=True, existing_keys=list(gmm_dict.keys()))
         for _k, _m in _seed.items():
           if _k in gmm_dict:
             gmm_dict[_k] = _m

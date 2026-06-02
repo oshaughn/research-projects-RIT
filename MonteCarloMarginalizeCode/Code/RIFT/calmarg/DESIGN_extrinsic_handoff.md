@@ -120,6 +120,38 @@ node; the standalone path was chosen first so the handoff works without the (hea
 pilot.  The convergence-subdag extension (`--first-iteration-jumpstart`) does not yet carry
 `--extrinsic-handoff` -- same limitation as `--calmarg-pilot`.
 
+## Real-GPU validation (cardassia, NVS 510) and what it taught us
+
+Ran the full loop interactively on one intrinsic point, GMM sampler + calmarg-fused, on the
+CI data:  iteration-0 writes `extr_proposal_0_0.npz` -> `util_ExtrinsicConsolidate` picks it
+-> iteration-1 ILE loads it and prints `Extrinsic GMM SEEDED ... for dim-groups
+[(4,5),(3,2),(0,1)]` (all three standard groups) -> integrates -> writes
+`extr_proposal_1_0.npz`.  End-to-end the plumbing works on real hardware.  Two bugs only the
+GPU run surfaced, now fixed:
+
+1. **bounds left on the host.** `reconstruct_gmm` set means/covs/weights onto the GPU but
+   left `self.bounds` as numpy.  The sampler's `score()`/`_normalize` write into an
+   `xpy.empty` (cupy) array, so a numpy `self.bounds` raised
+   `ValueError: non-scalar numpy.ndarray cannot be used for fill`.  Fix: `model.bounds =
+   identity_convert_togpu(bounds)`.
+2. **within-group parameter ORDER.** The sampler keys the phase/pol group as
+   `(psi, phi_orb)=(0,1)` but the breadcrumb stored `(phi_orb, psi)=(1,0)`, so that seed was
+   silently dropped (key mismatch).  Fix: `gmm_dict_from_breadcrumb(existing_keys=...)` matches
+   each breadcrumb group to the sampler's actual gmm_dict key by dim-SET and permutes the
+   stored means/covariances/bounds columns into that key's order.
+
+**Seed quality depends on the SOURCE iteration's convergence.**  When the ensemble sampler
+hits a bad batch it calls `_reset()`, which sets every `gmm_dict[k]=None` -- i.e. it
+**discards the seed and continues cold**.  This is the correct safety net: a bad seed is
+thrown away, never corrupting the result.  In a deliberately tiny smoke (`--n-max 40000` on
+the NVS 510 -> iteration-0 `n_eff ~ 1`), the iteration-0 proposal is near-degenerate, so the
+seeded first batch produces zero/NaN effective weights and the sampler resets to cold.  The
+handoff is then correct-but-cosmetic.  To see the seed actually ACCELERATE convergence you
+need a source iteration that converged reasonably (`n_eff` in the hundreds) -- i.e. a real
+`--n-max` (millions) and/or a larger GPU.  A modest `cov_inflate` (default 2.0, ~1.4x width)
+broadens the seed so the sampler can contract it -- good practice for a warm start, but it
+mitigates rather than rescues a genuinely degenerate source.
+
 ## Why GMM first, and the AV limitation (task #30)
 
 The adaptive Voronoi sampler (AV, `mcsampler`) is the default extrinsic sampler and is more
