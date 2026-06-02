@@ -177,12 +177,22 @@ class HyperCoordSpec:
         ``coords_nofit``   : "delta_mc s1z s2z"   (optional)
         ``likelihood_factor``: (module, function, ini)  (any element may be None)
         """
-        params = parse_parameter_list(coords_fit)
-        ranges = parse_range_string(coords_sample)
-        unknown = set(ranges) - set(params)
+        params  = parse_parameter_list(coords_fit)
+        implied = parse_parameter_list(coords_implied)
+        nofit   = parse_parameter_list(coords_nofit)
+        ranges  = parse_range_string(coords_sample)
+        # coords-sample provides INTEGRATION ranges, so it has to cover every
+        # name in the MC SAMPLING basis -- which is coords-fit + coords-nofit.
+        # (implied names are fit-only and don't need a sample range.)  Pre-
+        # decoupling this was just coords-fit because nofit/implied were
+        # rarely used and the sampling basis was forced to equal the fit
+        # basis; now we have to allow the nofit names too.
+        sampling_basis = set(params) | set(nofit)
+        unknown = set(ranges) - sampling_basis
         if unknown:
             raise ValueError(
-                f"coords-sample names a parameter not in coords-fit: {sorted(unknown)!r}"
+                f"coords-sample names a parameter not in coords-fit or "
+                f"coords-nofit: {sorted(unknown)!r}"
             )
         lf: Optional[Tuple[str, Optional[str], Optional[str]]] = None
         if likelihood_factor:
@@ -195,8 +205,8 @@ class HyperCoordSpec:
             name=name or None,
             parameters=params,
             parameter_ranges=ranges,
-            implied=parse_parameter_list(coords_implied),
-            nofit=parse_parameter_list(coords_nofit),
+            implied=implied,
+            nofit=nofit,
             likelihood_factor=lf,
         )
 
@@ -210,13 +220,30 @@ class HyperCoordSpec:
         environment (singularity image, OSG worker) and not necessarily
         on the submit host.
         """
-        if not self.parameters:
-            raise ValueError("HyperCoordSpec requires at least one fitting parameter.")
-        missing = [p for p in self.parameters if p not in self.parameter_ranges]
+        # The fit basis is coords-fit + coords-implied; the sampling basis is
+        # coords-fit + coords-nofit.  Both must be non-empty for the run to
+        # make sense.  Pre-decoupling this only required coords-fit -- now
+        # an "EOS-style fit in a transformed basis" config can legally have
+        # empty coords-fit (everything goes through implied + nofit).
+        if not self.parameters and not self.implied:
+            raise ValueError(
+                "HyperCoordSpec requires at least one fit dimension "
+                "(coords-fit or coords-implied)."
+            )
+        if not self.parameters and not self.nofit:
+            raise ValueError(
+                "HyperCoordSpec requires at least one MC sampling dimension "
+                "(coords-fit or coords-nofit)."
+            )
+        # Every name in the SAMPLING basis must have an integration range
+        # (the integrator reads prior_range_map[p] for p in low_level_coord_names).
+        sampling_names = list(self.parameters) + list(self.nofit)
+        missing = [p for p in sampling_names if p not in self.parameter_ranges]
         if missing:
             raise ValueError(
-                f"No integration range supplied for parameter(s): {missing!r}. "
-                "Every entry in coords-fit must appear in coords-sample."
+                f"No integration range supplied for sampling parameter(s): "
+                f"{missing!r}. Every entry in coords-fit and coords-nofit must "
+                "appear in coords-sample."
             )
         for p, (lo, hi) in self.parameter_ranges.items():
             if not lo < hi:
@@ -266,7 +293,9 @@ class HyperCoordSpec:
             bits.append(f"--parameter-implied {p}")
         for p in self.nofit:
             bits.append(f"--parameter-nofit {p}")
-        for p in self.parameters:
+        # Integration ranges cover the MC SAMPLING basis (parameters + nofit).
+        # Implied coordinates are fit-only and don't have a sampling range.
+        for p in list(self.parameters) + list(self.nofit):
             lo, hi = self.parameter_ranges[p]
             bits.append(
                 f"--integration-parameter-range {p}:[{self._fmt_num(lo)},{self._fmt_num(hi)}]"
@@ -290,12 +319,16 @@ class HyperCoordSpec:
     def to_puff_args(self, force_away: float = 0.03, puff_factor: float = 0.5) -> str:
         """Emit the puff-stage arg block.
 
-        By default we puff in every fitting parameter; this is what every
-        existing hyperpipe example does. Extra flags can be appended by the
-        caller.
+        The puff lane reads / writes grid files in the data-file column
+        basis, which is the MC sampling basis (coords-fit + coords-nofit).
+        Pre-decoupling this only emitted --parameter for coords-fit because
+        the sampling basis was forced to equal the fit basis; once those
+        diverge (EOSPosterior with --parameter-implied for a transformed
+        fit basis), the puff lane must continue to operate on the data-
+        file columns -- i.e. coords-fit + coords-nofit.
         """
         bits = [f"--force-away {force_away}", f"--puff-factor {puff_factor}"]
-        for p in self.parameters:
+        for p in list(self.parameters) + list(self.nofit):
             bits.append(f"--parameter {p}")
         return " ".join(bits)
 
@@ -304,8 +337,12 @@ class HyperCoordSpec:
 
         Mirrors the args_test.txt pattern from the Gaussian demo:
             ``--parameter x --parameter y --parameter z --method JS --threshold 0.05``
+
+        Like the puff lane, this operates on the SAMPLING basis (coords-fit
+        + coords-nofit) -- the convergence-test driver reads grid / posterior
+        files whose columns are in the sampling basis.
         """
-        bits = [f"--parameter {p}" for p in self.parameters]
+        bits = [f"--parameter {p}" for p in list(self.parameters) + list(self.nofit)]
         bits.append(f"--method {method}")
         bits.append(f"--threshold {threshold}")
         return " ".join(bits)
