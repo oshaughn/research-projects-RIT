@@ -22,8 +22,13 @@ pip install RIFT[jax-interp]      # jax, optax, equinox, tinygp
 | method (`--fit-method`) | class | approach | cost | notes |
 |---|---|---|---|---|
 | `gp-jax-rff`   | `RFFInterpolator`   | random Fourier features GP (Bayesian linear regression in feature space) | O(N M²) | cheapest export; weaker on sharp/non-stationary peaks |
-| `gp-jax-svgp`  | `SVGPInterpolator`  | Titsias collapsed sparse GP (SGPR), M inducing points | O(N M²) | scalable production-regime default; hand-rolled pure JAX |
+| `gp-jax-svgp`  | `SVGPInterpolator`  | Titsias collapsed sparse GP (SGPR), M inducing points (k-means init) | O(N M²) | scalable production-regime default; hand-rolled pure JAX |
 | `gp-jax-exact` | `ExactGPInterpolator` | exact GP (tinygp) | O(N³) | accuracy reference baseline only — not for production N |
+
+All three use **ARD** (per-dimension lengthscales), which matters for the strongly
+anisotropic / curved degeneracies in real lnL surfaces (mc–eta, lambda1–lambda2):
+on the curved `banana_ridge` benchmark it lifts gradient-cosine-vs-truth from
+~0.78 to ~0.95–1.0.
 
 ## Shared interface (`interface.BaseInterpolator`)
 
@@ -81,6 +86,17 @@ is available.
 python -m RIFT.interpolators.jax_gp.benchmark.harness --d 8 --N 2000 8000 \
     --methods rff svgp exact
 ```
+
+`benchmark/scaling_study.py` sweeps the scalable methods across dimension, N, and
+surface shape, writing one JSON line per cell as it completes (crash-resilient):
+
+```
+python -m RIFT.interpolators.jax_gp.benchmark.scaling_study --out study.jsonl \
+    --dims 8 12 --N 2000 20000 --methods svgp rff
+```
+
+`benchmark/datasets.py` (`load_ile_net`) loads real RIFT ILE `.net`/`.composite`
+output so methods can be tested on production lnL surfaces, not only synthetics.
 
 ## Tests
 
