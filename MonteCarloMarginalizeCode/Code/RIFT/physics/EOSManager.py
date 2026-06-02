@@ -753,6 +753,48 @@ class EOSLindblomSpectralSoundSpeedVersusPressure(EOSConcrete):
 
 
 # https://github.com/oshaughn/RIT-matters/blob/master/communications/20230130-ROSKediaYelikar-EOSManagerSpectralUpdates/demo_reprimand.py
+# --- RePrimAnd version-compatibility shims --------------------------------------
+# RePrimAnd's Python API changed (>= ~1.4): the NS-accuracy factory was renamed
+# tov_acc_simple -> star_acc_simple (with two leading bool flags), and
+# make_tov_branch_stable replaced num_samp/mgrav_min with mg_cut_low_rel/
+# mg_cut_low_abs/gm1_step.  These helpers target the modern API (tested vs 1.7)
+# but transparently fall back to the legacy one, so RIFT works with either.
+#   docs: https://wokast.github.io/RePrimAnd/  (tov_solver_ref, ns_seqs_ref)
+def _pyr_interval(lo, hi):
+    """Closed interval object across pyreprimand versions."""
+    for nm in ("range", "interval", "range_t"):
+        f = getattr(pyr, nm, None)
+        if f is not None:
+            return f(lo, hi)
+    raise AttributeError("pyreprimand: no interval/range constructor found")
+
+def _pyr_star_acc(acc_tov, acc_deform, minsteps, need_deform=True, need_bulk=False):
+    """NS-solution accuracy spec across pyreprimand versions.
+
+    Modern: star_acc_simple(need_deform, need_bulk, acc_tov, acc_deform, minsteps).
+    Legacy: tov_acc_simple(acc_tov, acc_deform, minsteps).
+    """
+    if hasattr(pyr, "star_acc_simple"):
+        return pyr.star_acc_simple(need_deform, need_bulk, acc_tov, acc_deform, minsteps)
+    return pyr.tov_acc_simple(acc_tov, acc_deform, minsteps)
+
+def _pyr_tov_branch(eos, acc, mgrav_min=0.0):
+    """Stable TOV branch across pyreprimand versions.
+
+    Modern make_tov_branch_stable(eos, acc, mg_cut_low_rel=0.2, mg_cut_low_abs=0.0,
+        gm1_initial=1.2, gm1_step=0.004, max_margin=1e-2).
+    Legacy make_tov_branch_stable(eos, acc, num_samp=..., mgrav_min=...).
+    We map the old absolute low-mass cutoff mgrav_min -> mg_cut_low_abs (and turn
+    off the relative cutoff so the absolute one is authoritative).
+    """
+    try:
+        return pyr.make_tov_branch_stable(eos, acc, mg_cut_low_rel=0.0,
+                                          mg_cut_low_abs=mgrav_min)
+    except TypeError:
+        return pyr.make_tov_branch_stable(eos, acc, num_samp=2000,
+                                          mgrav_min=mgrav_min)
+
+
 class EOSReprimand(EOSConcrete):
     """Pass param_dict as the dictionary of 'pseudo_enthalpy','rest_mass_density','energy_density','pressure','sound_speed_over_c' for being resolved into a TOV sequence. CGS Units only except sound_speed_over_c.
     Instead you can send a lalsim_eos which processes lalsim eos object type and produces a TOV sequence.
@@ -812,7 +854,7 @@ class EOSReprimand(EOSConcrete):
         eps_0 = 0.0  # energy density at zero pressure
         pts_per_mag =800  # points log spaced per decaded in some parameter
         isentropic = True
-        rgrho = pyr.range(min(rho_unew)*1.0000001, max(rho_unew) / 1.0000001)
+        rgrho = _pyr_interval(min(rho_unew)*1.0000001, max(rho_unew) / 1.0000001)
         
         # Instantiate EOS
         if specific_internal_energy: self.pyr_eos = pyr.make_eos_barotr_spline(rho_unew, spec_int_energy_unew, press_unew, cs, temp, efrac, isentropic, rgrho, n_poly, unew, pts_per_mag)
@@ -866,14 +908,14 @@ def make_mr_lambda_reprimand(eos,n_bins=800,save_tov_sequence=False,read_tov_seq
     assert has_reprimand
     
     #Make TOV sequence
-    acc_tov=RePrimAnd_scale*1e-2; acc_deform=RePrimAnd_scale; minsteps=500; num_samp=2000; mgrav_min=0.3
-    acc = pyr.tov_acc_simple(acc_tov, acc_deform, minsteps)
-    try: seq = pyr.make_tov_branch_stable(eos, acc, num_samp=num_samp, mgrav_min=mgrav_min)
-    except:
-        if read_tov_sequence:
-            sol_units = pyr.units.geom_solar(msun_si=lal.MSUN_SI)
-            seq = pyr.load_star_branch(eos, sol_units)
-        else: raise Exception("No EOS supplied.")
+    acc_tov=RePrimAnd_scale*1e-2; acc_deform=RePrimAnd_scale; minsteps=500; mgrav_min=0.3
+    acc = _pyr_star_acc(acc_tov, acc_deform, minsteps)   # modern star_acc_simple (legacy tov_acc_simple fallback)
+    if read_tov_sequence:
+        # load a previously saved branch (modern: load_star_branch(fname, units))
+        sol_units = pyr.units.geom_solar(msun_si=lal.MSUN_SI)
+        seq = pyr.load_star_branch("tov.seq.h5", sol_units)
+    else:
+        seq = _pyr_tov_branch(eos, acc, mgrav_min=mgrav_min)   # modern make_tov_branch_stable
     if save_tov_sequence:
             try:
                 #bpath = p.parent
