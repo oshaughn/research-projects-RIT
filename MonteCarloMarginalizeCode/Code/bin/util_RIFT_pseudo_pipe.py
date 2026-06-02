@@ -1074,11 +1074,22 @@ if opts.calmarg_envelope_directory:
             # in from the submit node, produced at runtime by calpilot_{N-1}), and add it to
             # the ILE transfer list.  Also create a placeholder cal_consolidated_-1.npz so
             # condor's transfer for the FIRST iteration (prev=-1, never produced) does not
-            # fail -- ILE's breadcrumb load is try/except and falls back to the prior.
+            # fail.  Write a VALID 'prior' breadcrumb (proposal == prior -> seeding from it ==
+            # cold prior draws, zero weights) rather than a 0-byte file: that way iteration 0
+            # LOADS cleanly even on an older ILE binary that does not guard against an empty
+            # placeholder (belt-and-suspenders; the size-guard in the ILE is the other half).
             line += " --calibration-proposal-breadcrumb cal_consolidated_$(macroiterationprev).npz "
             _bc_xfer = os.getcwd() + "/cal_consolidated_$(macroiterationprev).npz"
             opts.ile_additional_files_to_transfer = (opts.ile_additional_files_to_transfer + "," + _bc_xfer) if opts.ile_additional_files_to_transfer else _bc_xfer
-            open(os.getcwd() + "/cal_consolidated_-1.npz", "a").close()   # placeholder for iteration 0
+            _cal_ph_path = os.getcwd() + "/cal_consolidated_-1.npz"
+            try:
+                import RIFT.calmarg.generate_realizations as _genr_ph, RIFT.calmarg.breadcrumbs as _bcr_ph
+                _cal_ph = _genr_ph.prior_cal_breadcrumb_dict(cal_dir, list(event_dict["IFOs"]),
+                              fmin_template, srate/2. - 1., opts.calmarg_spline_count)
+                _bcr_ph.save(_cal_ph_path, cal=_cal_ph, meta=dict(placeholder=True, iteration=-1))
+            except Exception as _e_calph:
+                print("  WARNING: could not build prior cal placeholder ({}); writing 0-byte placeholder (needs the ILE empty-breadcrumb guard).".format(_e_calph))
+                open(_cal_ph_path, "a").close()
         else:
             line += " --calibration-proposal-breadcrumb {}/cal_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
 
@@ -1098,7 +1109,14 @@ if opts.extrinsic_handoff:
         line += " --extrinsic-proposal-breadcrumb extr_consolidated_$(macroiterationprev).npz "
         _ext_bc_xfer = os.getcwd() + "/extr_consolidated_$(macroiterationprev).npz"
         opts.ile_additional_files_to_transfer = (opts.ile_additional_files_to_transfer + "," + _ext_bc_xfer) if opts.ile_additional_files_to_transfer else _ext_bc_xfer
-        open(os.getcwd() + "/extr_consolidated_-1.npz", "a").close()   # placeholder for iteration 0
+        # valid EMPTY breadcrumb placeholder (loads cleanly -> extrinsic=None -> no seed/cold),
+        # rather than a 0-byte file that np.load chokes on.
+        _ext_ph_path = os.getcwd() + "/extr_consolidated_-1.npz"
+        try:
+            import RIFT.calmarg.breadcrumbs as _bcr_ph
+            _bcr_ph.save(_ext_ph_path, meta=dict(placeholder=True, iteration=-1))
+        except Exception:
+            open(_ext_ph_path, "a").close()
     else:
         line += " --extrinsic-proposal-breadcrumb {}/extr_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
 

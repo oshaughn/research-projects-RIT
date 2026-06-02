@@ -97,6 +97,34 @@ def node_prior(fname, fmin, fmax, n_spline_points):
                 n_nodes_amp=int(n_spline_points))
 
 
+def prior_cal_breadcrumb_dict(env_dir, dets, fmin, fmax, n_spline_points, fmin_ifo=None):
+    """Build the 'cal' breadcrumb dict for the broad PRIOR, with proposal == prior.
+
+    Suitable as an iteration-0 placeholder breadcrumb: seeding from it
+    (seed_realizations_from_breadcrumb) draws cal realizations from the prior with ZERO
+    importance weights (log prior - log proposal = 0), i.e. it is equivalent to the cold
+    prior draws -- but, unlike a 0-byte placeholder, it LOADS cleanly (so an older ILE binary
+    that does not guard against an empty placeholder will not crash on it).
+
+    Layout matches seed_realizations_from_breadcrumb: the full node vector is concatenated per
+    detector in `dets` order as [det0_amp_0..,det0_phase_0..,det1_amp..,...]; dim = 2N*len(dets).
+    """
+    import os
+    means = []; sigmas = []; node_log_f = None
+    for ifo in dets:
+        fmin_here = fmin
+        if fmin_ifo and ifo in fmin_ifo:
+            fmin_here = fmin_ifo[ifo]
+        pr = node_prior(os.path.join(env_dir, ifo + ".txt"), fmin_here, fmax, n_spline_points)
+        means.append(pr["mean"]); sigmas.append(pr["sigma"])
+        if node_log_f is None:
+            node_log_f = pr["node_log_f"]
+    prior_mean = np.concatenate(means); prior_sigma = np.concatenate(sigmas)
+    return dict(proposal_mean=prior_mean, proposal_cov=np.diag(prior_sigma ** 2),
+                prior_mean=prior_mean, prior_sigma=prior_sigma,
+                node_log_f=node_log_f, n_nodes_amp=int(n_spline_points), dets=list(dets))
+
+
 def _draw_amp_phase_nodes(dat_amp, dat_phase, n_spline_points, n_realizations):
     """Draw amp/phase spline nodes from the prior, in the EXACT random-number order
     create_realizations() has always used (so seeded behavior is byte-identical)."""
