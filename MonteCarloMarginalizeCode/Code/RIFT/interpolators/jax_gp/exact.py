@@ -17,7 +17,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import optax
-from tinygp import kernels, GaussianProcess
+from tinygp import kernels, transforms, GaussianProcess
 
 from .interface import BaseInterpolator
 
@@ -32,14 +32,15 @@ class ExactGPInterpolator(BaseInterpolator):
 
     def _build_gp(self, params, Xw):
         amp2 = jnp.exp(2.0 * params["log_amp"])
-        scale = jnp.exp(params["log_scale"])
+        inv_scale = jnp.exp(-params["log_scale"])     # [d] -> ARD (per-dim lengthscale)
         sn2 = jnp.exp(2.0 * params["log_sn"])
-        kernel = amp2 * kernels.ExpSquared(scale)
+        kernel = amp2 * transforms.Linear(inv_scale, kernels.ExpSquared())
         return GaussianProcess(kernel, Xw, diag=sn2 + self.jitter, mean=0.0)
 
     def _fit_whitened(self, Xw, yw, yerr_w):
         self.Xw = Xw
         self.yw = yw
+        d = Xw.shape[1]
         if yerr_w is not None:
             base_noise = float(jnp.maximum(jnp.mean(yerr_w ** 2), 1e-4))
         else:
@@ -47,7 +48,7 @@ class ExactGPInterpolator(BaseInterpolator):
 
         params = {
             "log_amp": jnp.asarray(0.0),
-            "log_scale": jnp.asarray(0.0),
+            "log_scale": jnp.zeros(d),                    # ARD: per-dim lengthscale
             "log_sn": jnp.asarray(0.5 * np.log(base_noise)),
         }
 

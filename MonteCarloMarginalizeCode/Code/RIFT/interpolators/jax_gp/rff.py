@@ -41,9 +41,11 @@ class RFFInterpolator(BaseInterpolator):
 
     # --- feature map ---------------------------------------------------- #
     def _features(self, X, log_ell, log_sf):
-        """phi(X): [n,d] -> [n,M].  Single point [d] is promoted to [1,M]."""
+        """phi(X): [n,d] -> [n,M].  Single point [d] is promoted to [1,M].
+
+        ``log_ell`` is a per-dimension (ARD) lengthscale vector [d]."""
         X = jnp.atleast_2d(X)
-        ell = jnp.exp(log_ell)
+        ell = jnp.exp(log_ell)                            # [d] -> ARD
         sf2 = jnp.exp(2.0 * log_sf)
         proj = (X / ell) @ self.omega.T + self.b          # [n, M]
         return jnp.sqrt(2.0 * sf2 / self.n_features) * jnp.cos(proj)
@@ -79,7 +81,7 @@ class RFFInterpolator(BaseInterpolator):
             return 0.5 * (quad + logdet + n * jnp.log(2.0 * jnp.pi))
 
         params = {
-            "log_ell": jnp.asarray(0.0),
+            "log_ell": jnp.zeros(d),                      # ARD: per-dim lengthscale
             "log_sf": jnp.asarray(0.0),
             "log_sn": jnp.asarray(0.5 * np.log(base_noise)),
         }

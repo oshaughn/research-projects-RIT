@@ -44,14 +44,29 @@ class SVGPInterpolator(BaseInterpolator):
         self.lr = float(lr)
         self.seed = int(seed)
 
-    # --- RBF kernel ----------------------------------------------------- #
+    # --- ARD RBF kernel (per-dimension lengthscales) -------------------- #
     def _kernel(self, X1, X2, log_amp, log_scale):
         amp2 = jnp.exp(2.0 * log_amp)
-        scale = jnp.exp(log_scale)
+        scale = jnp.exp(log_scale)               # [d] -> ARD; per-dim lengthscale
         return amp2 * jnp.exp(-0.5 * _sqdist(X1 / scale, X2 / scale))
 
     def _kdiag(self, log_amp):
         return jnp.exp(2.0 * log_amp)
+
+    # --- inducing-point initialization ---------------------------------- #
+    def _init_inducing(self, Xw, M):
+        """k-means centroids (better coverage than a random subset); fall back to
+        a random subset if scikit-learn is unavailable."""
+        if M >= len(Xw):
+            return Xw
+        try:
+            from sklearn.cluster import MiniBatchKMeans
+            km = MiniBatchKMeans(n_clusters=M, random_state=self.seed,
+                                 n_init=3, batch_size=max(256, 3 * M))
+            return km.fit(Xw).cluster_centers_
+        except Exception:
+            rng = np.random.default_rng(self.seed)
+            return Xw[rng.choice(len(Xw), size=M, replace=False)]
 
     # --- collapsed ELBO (Titsias) -------------------------------------- #
     def _neg_elbo(self, params, Xw, yw):
@@ -83,9 +98,7 @@ class SVGPInterpolator(BaseInterpolator):
     def _fit_whitened(self, Xw, yw, yerr_w):
         n, d = Xw.shape
         M = min(self.n_inducing, max(2, n // 2))
-        key = jax.random.PRNGKey(self.seed)
-        idx = jax.random.choice(key, n, shape=(M,), replace=False)
-        Z0 = Xw[idx]
+        Z0 = self._init_inducing(np.asarray(Xw), M)
 
         if yerr_w is not None:
             base_noise = float(jnp.maximum(jnp.mean(yerr_w ** 2), 1e-4))
@@ -93,9 +106,9 @@ class SVGPInterpolator(BaseInterpolator):
             base_noise = 0.01
 
         params = {
-            "Z": Z0,
+            "Z": jnp.asarray(Z0),
             "log_amp": jnp.asarray(0.0),
-            "log_scale": jnp.asarray(0.0),
+            "log_scale": jnp.zeros(d),                # ARD: one lengthscale per dim
             "log_sn": jnp.asarray(0.5 * np.log(base_noise)),
         }
         opt = optax.adam(self.lr)
