@@ -775,7 +775,10 @@ def _pyr_star_acc(acc_tov, acc_deform, minsteps, need_deform=True, need_bulk=Fal
     Legacy: tov_acc_simple(acc_tov, acc_deform, minsteps).
     """
     if hasattr(pyr, "star_acc_simple"):
-        return pyr.star_acc_simple(need_deform, need_bulk, acc_tov, acc_deform, minsteps)
+        # modern star_acc_simple takes keyword-only args: (*, need_deform, ...)
+        return pyr.star_acc_simple(need_deform=need_deform, need_bulk=need_bulk,
+                                   acc_tov=acc_tov, acc_deform=acc_deform,
+                                   minsteps=minsteps)
     return pyr.tov_acc_simple(acc_tov, acc_deform, minsteps)
 
 def _pyr_tov_branch(eos, acc, mgrav_min=0.0):
@@ -791,8 +794,11 @@ def _pyr_tov_branch(eos, acc, mgrav_min=0.0):
         return pyr.make_tov_branch_stable(eos, acc, mg_cut_low_rel=0.0,
                                           mg_cut_low_abs=mgrav_min)
     except TypeError:
-        return pyr.make_tov_branch_stable(eos, acc, num_samp=2000,
-                                          mgrav_min=mgrav_min)
+        try:
+            return pyr.make_tov_branch_stable(eos, acc)            # modern defaults
+        except TypeError:                                         # legacy API
+            return pyr.make_tov_branch_stable(eos, acc, num_samp=2000,
+                                              mgrav_min=mgrav_min)
 
 
 class EOSReprimand(EOSConcrete):
