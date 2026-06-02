@@ -208,12 +208,24 @@ def validate_config(cfg) -> None:
     if not isinstance(_get(arch, "n-samples-per-job"), int) or _get(arch, "n-samples-per-job") <= 0:
         raise ValueError("arch.n-samples-per-job must be a positive integer.")
 
-    # post: at least one of (coords-fit) must be set
+    # post: must have at least one fit dim AND at least one MC sampling dim.
+    # Fit basis = coords-fit + coords-implied; MC basis = coords-fit + coords-nofit.
+    # Pre-decoupling this only required coords-fit, because the fit basis was
+    # forced to equal the MC basis -- now an EOS-style "fit in a transformed
+    # basis" config can legally have empty coords-fit (everything routed via
+    # coords-implied + coords-nofit through the coordinate plugin).
     post = _get(cfg, "post")
-    if not _get(post, "coords-fit"):
+    has_fit  = bool(_get(post, "coords-fit")) or bool(_get(post, "coords-implied"))
+    has_samp = bool(_get(post, "coords-fit")) or bool(_get(post, "coords-nofit"))
+    if not has_fit:
         raise ValueError(
-            "post.coords-fit must list at least one parameter "
-            "(e.g. 'x y z')."
+            "post: must list at least one fit dimension "
+            "(coords-fit or coords-implied; e.g. 'x y z' or 'u v w')."
+        )
+    if not has_samp:
+        raise ValueError(
+            "post: must list at least one MC sampling dimension "
+            "(coords-fit or coords-nofit; e.g. 'x y z')."
         )
 
     # init: must have either file or generation set
