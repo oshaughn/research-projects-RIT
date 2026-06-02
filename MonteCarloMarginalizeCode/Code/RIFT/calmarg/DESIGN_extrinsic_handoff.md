@@ -246,12 +246,15 @@ save/seed path; the cross-sampler seed is now numerically correct:
    survive).
 4. **distance sampled against a hard bound.** The real source of the persistent `nan` lnLmax:
    with distance SAMPLED on `[1,1000]`, a seeded distance Gaussian spills past the bound ->
-   NaN likelihood.  The calmarg path is meant to run with DISTANCE MARGINALIZATION
-   (`--distance-marginalization` + a lookup table from `util_InitMargTable`), which removes
-   distance from the extrinsic sampler entirely.  With distmarg on, the seeded run's lnLmax is
-   finite and the integral is valid.  NOTE: the pseudo_pipe/extr-run args do NOT currently
-   add `--distance-marginalization` even when the calmarg fused kernel is requested -- that is
-   a demo/pipeline gap to close (the fused kernel is a distmarg kernel).
+   NaN likelihood.  Distance marginalization (`--distance-marginalization` + a lookup table
+   from `util_InitMargTable`) removes distance from the extrinsic sampler entirely; with it on,
+   the seeded run's lnLmax is finite and the integral is valid.  Distmarg is OPTIONAL with the
+   fused kernel, not required -- the fused kernel has both a non-distmarg kernel
+   (`Q_fused_calmarg_cupy`) and a distmarg kernel (`Q_fused_calmarg_distmarg_cupy`), and the
+   ILE binary wires whichever applies.  In the pipeline it is `--internal-marginalize-distance`
+   (which composes cleanly with `--calmarg-fused-kernel`); in the demo it is the `PP_DMARG=1`
+   toggle.  RECOMMENDED with `--extrinsic-handoff` precisely because it removes the distance
+   dimension + its hard bound from the seeded GMM proposal.
 
 Measured, distmarg on, single CI point (SNR~17.5), all fixes in:
 - AV source converges to n_eff~4.7 (lnLmax~152), writes a clean 2-group (sky, phase/pol) proposal.

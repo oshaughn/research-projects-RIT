@@ -409,6 +409,23 @@ pp: pp-build
 # See RIFT/calmarg/DESIGN_extrinsic_handoff.md.
 PP_EXTR_RUN := $(CURDIR)/rundir_pp_extr
 
+# OPTIONAL distance marginalization for the pseudo_pipe calmarg path.  The fused calmarg kernel
+# does NOT require distmarg -- it has both a non-distmarg kernel (Q_fused_calmarg_cupy) and a
+# distmarg kernel (Q_fused_calmarg_distmarg_cupy), and the ILE binary wires whichever applies.
+# PP_DMARG=1 adds --internal-marginalize-distance, so the helper builds the lookup table
+# (util_InitMargTable) and distance is marginalized ANALYTICALLY -- it leaves the extrinsic
+# sampler entirely.  RECOMMENDED with --extrinsic-handoff: it removes the distance dimension
+# (and its hard [1,PP_DMAX] bound) from the GMM proposal, so a seeded distance Gaussian can't
+# spill past the bound into NaN likelihood.  (Distinct from the direct-ILE dag-build DMARG knob,
+# which uses a pre-built --distance-marginalization-lookup-table.)
+PP_DMARG    ?= 0
+PP_DMAX     ?= 1000
+ifeq ($(PP_DMARG),1)
+  PP_DMARG_FLAGS := --internal-marginalize-distance --internal-distance-max $(PP_DMAX)
+else
+  PP_DMARG_FLAGS :=
+endif
+
 .PHONY: extr extr-build extr-validate
 
 extr-build: cal_env/H1.txt
@@ -421,9 +438,9 @@ extr-build: cal_env/H1.txt
 	  --assume-nospin --approx IMRPhenomD --ile-sampler-method GMM \
 	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling $(PP_SRATE) \
 	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
-	  --extrinsic-handoff \
+	  --extrinsic-handoff $(PP_DMARG_FLAGS) \
 	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30
-	$(MAKE) extr-validate
+	$(MAKE) extr-validate PP_DMARG=$(PP_DMARG)
 
 extr-validate:
 	@test -s "$(PP_EXTR_RUN)/args_ile.txt" || (echo "FAIL: pseudo_pipe produced no args_ile.txt" && false)
@@ -432,6 +449,11 @@ extr-validate:
 	@grep -q -- "--sampler-method GMM"             $(PP_EXTR_RUN)/args_ile.txt || (echo "FAIL: extrinsic handoff needs the GMM sampler (--sampler-method GMM absent)" && false)
 	@grep -q -- "--extrinsic-proposal-output"      $(PP_EXTR_RUN)/args_ile.txt || (echo "FAIL: per-event --extrinsic-proposal-output not threaded to ILE" && false)
 	@grep -q -- "--extrinsic-proposal-breadcrumb"  $(PP_EXTR_RUN)/args_ile.txt || (echo "FAIL: seed --extrinsic-proposal-breadcrumb not threaded to ILE" && false)
+	@if [ "$(PP_DMARG)" = "1" ]; then \
+	   grep -q -- "--distance-marginalization" $(PP_EXTR_RUN)/args_ile.txt || (echo "FAIL: PP_DMARG=1 but --distance-marginalization not threaded" && false); \
+	   grep -q -- "--distance-marginalization-lookup-table" $(PP_EXTR_RUN)/args_ile.txt || (echo "FAIL: PP_DMARG=1 but no distance-marginalization lookup table" && false); \
+	   echo "  [PP_DMARG=1] distance marginalization ON: distance is marginalized analytically and removed from the GMM sampler"; \
+	 else echo "  [PP_DMARG=0] distance SAMPLED (fused kernel without distmarg -- valid; pass PP_DMARG=1 to marginalize)"; fi
 	@test -s "$(PP_EXTR_RUN)/EXTRCONSOLIDATE.sub" || (echo "FAIL: no EXTRCONSOLIDATE.sub consolidation stage" && false)
 	@echo "--- EXTRCONSOLIDATE.sub ---"
 	@grep -E "universe|executable|arguments|initialdir" $(PP_EXTR_RUN)/EXTRCONSOLIDATE.sub | head
@@ -515,6 +537,7 @@ endif
 	  --assume-nospin --approx IMRPhenomD --ile-sampler-method AV \
 	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
 	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
+	  $(PP_DMARG_FLAGS) \
 	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30 \
 	  $(PP_DISK_FLAGS) $(PP_OSG_FLAGS) $(PP_PILOT_FLAGS)
 ifeq ($(OSG),1)
@@ -609,7 +632,7 @@ extr-run-build: cal_env/H1.txt ci_coinc.xml
 	  --assume-nospin --approx IMRPhenomD --ile-sampler-method GMM \
 	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
 	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
-	  --extrinsic-handoff \
+	  --extrinsic-handoff $(PP_DMARG_FLAGS) \
 	  --force-initial-grid-size $(EXTR_GRID0) --n-output-samples-last $(EXTR_GRIDN) \
 	  --manual-extra-ile-args "--n-chunk $(EXTR_NCHUNK) --n-max $(EXTR_NMAX)" \
 	  --internal-force-iterations $(EXTR_NIT) \
