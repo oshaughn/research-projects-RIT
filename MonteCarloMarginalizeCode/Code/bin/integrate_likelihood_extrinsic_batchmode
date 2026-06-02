@@ -244,6 +244,8 @@ optp.add_option("--calibration-dump-responsibilities",default=None, help="Opt-in
 optp.add_option("--calibration-pilot-extrinsic",default=256,type=int, help="Pilot only: number of uniform-prior extrinsic samples used to extrinsic-marginalize the per-realization cal responsibility at each intrinsic point. Cal is ~extrinsic-independent, so a modest batch suffices.")
 optp.add_option("--calibration-burn-in-neff",default=None,type=float, help="Opt-in: before the production cal-marginalized integration, BURN IN the extrinsic sampler on the cheap ZERO-CAL (n_cal=1) likelihood until this effective sample count, then switch to the full cal-marginalized likelihood. The extrinsic posterior is ~cal-independent. CAVEAT: the AV sampler RESETS between integrate() calls (no seedable AV yet), so this gives AV no speedup (correctness-safe only). It can warm-start GMM/portfolio (model reuse). Awaiting a seedable / boundary-shifting AV; see DESIGN_adaptive_driver.md. No effect unless calmarg is active.")
 optp.add_option("--calibration-burn-in-nmax",default=None,type=int, help="Cap on the number of samples drawn during the zero-cal burn-in (default: the run's --n-max). Keeps the burn-in bounded if it cannot reach --calibration-burn-in-neff.")
+optp.add_option("--extrinsic-proposal-breadcrumb",default=None, help="Opt-in (GMM sampler): SEED the extrinsic GMM sampler from a learned proposal breadcrumb (RIFT.calmarg.extrinsic_handoff): the per-group GMMs from a previous iteration's posterior pre-fill gmm_dict, so the sampler starts on the posterior instead of cold.  The extrinsic posterior barely moves iteration-to-iteration.  Groups matched by parameter name; missing groups fall back to the default.")
+optp.add_option("--extrinsic-proposal-output",default=None, help="Opt-in (GMM sampler): after the integration, fit the run's extrinsic posterior samples to a per-group GMM and WRITE it as a proposal breadcrumb (to seed a later iteration via --extrinsic-proposal-breadcrumb).")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
 optp.add_option("--force-gpu-only", action="store_true", help="Hard fail if no GPU present (assessed by cupy not loading)")
@@ -1405,10 +1407,25 @@ if opts.sampler_method == "GMM":
          pair_phi_psi = sampler_param_tuple(sampler, ['psi'])
          adapt_phase = True
          n_phase = 2
-    gmm_dict = {pair_ra_dec:None,pair_d_incl:None,pair_phi_psi:default_phipsi} 
+    gmm_dict = {pair_ra_dec:None,pair_d_incl:None,pair_phi_psi:default_phipsi}
     gmm_adapt = {pair_ra_dec: True, pair_d_incl: True, pair_phi_psi: False}
     if opts.internal_rotate_phase:
       gmm_adapt[pair_phi_psi] = True
+    # Extrinsic handoff: SEED the per-group GMMs from a learned proposal breadcrumb (the
+    # previous iteration's posterior).  Keys are dim-group index tuples, matched by name to
+    # sampler.params_ordered -- so they line up with pair_ra_dec / pair_d_incl / pair_phi_psi.
+    if opts.extrinsic_proposal_breadcrumb and os.path.exists(opts.extrinsic_proposal_breadcrumb):
+      try:
+        import RIFT.calmarg.breadcrumbs as _ebcmod, RIFT.calmarg.extrinsic_handoff as _ehmod
+        _ebc = _ebcmod.load(opts.extrinsic_proposal_breadcrumb)
+        _seed = _ehmod.gmm_dict_from_breadcrumb(_ebc.get('extrinsic'), sampler.params_ordered, adapt=True)
+        for _k, _m in _seed.items():
+          if _k in gmm_dict:
+            gmm_dict[_k] = _m
+            gmm_adapt[_k] = True   # let the seeded proposal keep adapting (extrinsics drift slightly)
+        print(" Extrinsic GMM SEEDED from {} for dim-groups {}".format(opts.extrinsic_proposal_breadcrumb, list(_seed.keys())))
+      except Exception as _e_eh:
+        print(" WARNING: could not seed extrinsic GMM from {} ({}); using default proposal.".format(opts.extrinsic_proposal_breadcrumb, _e_eh))
 #    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,tuple([0]):None,tuple([1]):None} 
 #    if len(psd_dict.keys()) > 2:
 #        n_sky=2  # presumably we have localized better, avoid failure modes
@@ -2131,6 +2148,45 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     else:
       log_res = res
       sqrt_var_over_res =  numpy.exp(var/2 - log_res)
+
+    # Extrinsic handoff: after the integration, fit the run's extrinsic POSTERIOR to a
+    # per-group GMM and write it as a breadcrumb, so a later iteration can seed its extrinsic
+    # sampler (--extrinsic-proposal-breadcrumb).  The extrinsic posterior barely moves
+    # iteration-to-iteration, so this lets the next run start on the answer.  Wrapped so a
+    # harvest/fit failure can never break a production integration.
+    if opts.extrinsic_proposal_output:
+      try:
+        import RIFT.calmarg.extrinsic_handoff as _ehmod, RIFT.calmarg.breadcrumbs as _ebcmod
+        _rvs = sampler._rvs
+        # importance log-weights (lnL + ln prior - ln sampling-prior), same recipe the
+        # distance-grid export uses; handle the GMM sampler's raw-integrand storage.
+        if 'log_weights' in _rvs:
+          _lw = np.array(_rvs['log_weights'], dtype=float)
+        elif 'log_integrand' in _rvs:
+          _lw = np.array(_rvs['log_integrand'] + _rvs['log_joint_prior'] - _rvs['log_joint_s_prior'], dtype=float)
+        elif 'integrand' in _rvs and 'joint_prior' in _rvs and 'joint_s_prior' in _rvs:
+          _ig = np.asarray(_rvs['integrand'], dtype=float); _jp = np.asarray(_rvs['joint_prior'], dtype=float); _jsp = np.asarray(_rvs['joint_s_prior'], dtype=float)
+          _keep = (_ig > 0) & (_jp > 0) & (_jsp > 0)
+          _lw = np.full(len(_ig), -np.inf); _lw[_keep] = np.log(_ig[_keep]) + np.log(_jp[_keep]) - np.log(_jsp[_keep])
+        else:
+          raise Exception("no weights in sampler._rvs (keys={})".format(list(_rvs.keys())))
+        # extrinsic samples + bounds for the standard groups that this run actually sampled.
+        _ext_params = [p for grp in _ehmod.STANDARD_GROUPS for p in grp]
+        _ext_samples = {p: np.array(_rvs[p], dtype=float).reshape(-1) for p in _ext_params if p in _rvs}
+        _ext_bounds = {p: (float(sampler.llim[p]), float(sampler.rlim[p])) for p in _ext_samples if p in sampler.llim}
+        # restrict to finite-weight, fully-bounded samples
+        _good = np.isfinite(_lw)
+        for _p in list(_ext_samples):
+          _good = _good & np.isfinite(_ext_samples[_p])
+        _ext_samples = {p: v[_good] for p, v in _ext_samples.items() if p in _ext_bounds}
+        _ext = _ehmod.fit_extrinsic_proposal(_ext_samples, log_weights=_lw[_good], bounds=_ext_bounds)
+        _ebcmod.save(opts.extrinsic_proposal_output, extrinsic=_ext,
+                     meta=dict(event=int(indx_event), n_samples=int(_good.sum()),
+                               groups=[g['params'] for g in _ext['groups']]))
+        print(" Extrinsic proposal WRITTEN to {} ({} groups: {})".format(
+            opts.extrinsic_proposal_output, len(_ext['groups']), [g['params'] for g in _ext['groups']]))
+      except Exception as _e_eho:
+        print(" WARNING: could not write extrinsic proposal to {} ({}); continuing.".format(opts.extrinsic_proposal_output, _e_eho))
 
     # Report results
     if opts.output_file and opts.sim_grid:
