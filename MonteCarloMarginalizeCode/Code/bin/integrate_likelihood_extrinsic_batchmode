@@ -244,6 +244,10 @@ optp.add_option("--calibration-dump-responsibilities",default=None, help="Opt-in
 optp.add_option("--calibration-pilot-extrinsic",default=256,type=int, help="Pilot only: number of uniform-prior extrinsic samples used to extrinsic-marginalize the per-realization cal responsibility at each intrinsic point. Cal is ~extrinsic-independent, so a modest batch suffices.")
 optp.add_option("--calibration-burn-in-neff",default=None,type=float, help="Opt-in: before the production cal-marginalized integration, BURN IN the extrinsic sampler on the cheap ZERO-CAL (n_cal=1) likelihood until this effective sample count, then switch to the full cal-marginalized likelihood. The extrinsic posterior is ~cal-independent. CAVEAT: the AV sampler RESETS between integrate() calls (no seedable AV yet), so this gives AV no speedup (correctness-safe only). It can warm-start GMM/portfolio (model reuse). Awaiting a seedable / boundary-shifting AV; see DESIGN_adaptive_driver.md. No effect unless calmarg is active.")
 optp.add_option("--calibration-burn-in-nmax",default=None,type=int, help="Cap on the number of samples drawn during the zero-cal burn-in (default: the run's --n-max). Keeps the burn-in bounded if it cannot reach --calibration-burn-in-neff.")
+optp.add_option("--calibration-export-posterior",action='store_true',default=False, help="Opt-in (final fairdraw export, calmarg active): for each fair-draw output sample, draw ONE calibration realization in proportion to its posterior weight (L_c * w_c, from the per-realization likelihood components) and write a SELF-CONTAINED sibling <output>_<event>_cal.dat with the FULL draw -- intrinsic + extrinsic + the drawn realization's spline-node values as labeled columns cal_<IFO>_amp_<k>/cal_<IFO>_phase_<k>.  The recovered cal posterior is then those columns, plottable with the standard tooling.  Requires --calibration-envelope-directory; retains the cal node vectors.")
+optp.add_option("--extrinsic-proposal-breadcrumb",default=None, help="Opt-in (GMM sampler): SEED the extrinsic GMM sampler from a learned proposal breadcrumb (RIFT.calmarg.extrinsic_handoff): the per-group GMMs from a previous iteration's posterior pre-fill gmm_dict, so the sampler starts on the posterior instead of cold.  The extrinsic posterior barely moves iteration-to-iteration.  Groups matched by parameter name; missing groups fall back to the default.")
+optp.add_option("--extrinsic-proposal-output",default=None, help="Opt-in (GMM sampler): after the integration, fit the run's extrinsic posterior samples to a per-group GMM and WRITE it as a proposal breadcrumb (to seed a later iteration via --extrinsic-proposal-breadcrumb).")
+optp.add_option("--extrinsic-proposal-adapt",action='store_true',default=False, help="With --extrinsic-proposal-breadcrumb: let the SEEDED extrinsic GMM groups keep adapting (re-fit each iteration).  Default OFF = the seeded groups are FROZEN: a handed-off proposal (especially from a different, better-converged sampler) is trusted as-is, since the GMM's own adaptation is fragile on sharp ILE peaks (a bad batch re-fit triggers _reset and discards the seed).  Freeze keeps the good seed; enable adapt only if the source posterior may have drifted.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
 optp.add_option("--force-gpu-only", action="store_true", help="Hard fail if no GPU present (assessed by cupy not loading)")
@@ -806,6 +810,28 @@ calibration_realization_dict = {}
 calibration_log_weights = None   # Phase-0 importance weights log(prior/proposal); None => uniform (prior draws)
 _calpilot = None                 # pilot bookkeeping (node draws + prior) when dumping responsibilities
 _calpilot_logresp_list = []      # per-intrinsic-point per-realization log-responsibilities, accumulated
+# Cal node vectors retained for --calibration-export-posterior (final fairdraw cal-posterior columns):
+calibration_nodes = None         # (n_cal, 2*n_nodes_amp*len(dets)) per-det [amp_0..,phase_0..] blocks
+calibration_node_dets = None     # detector order matching the node blocks
+calibration_n_nodes_amp = None   # spline nodes per detector per (amp|phase)
+def _cal_setup_prior_with_nodes(psd_dict):
+    """Populate calibration_realization_dict from broad-PRIOR cal draws.  When
+    --calibration-export-posterior is set, RETAIN the node vectors too (via
+    draw_prior_realizations_with_nodes, same prior as create_realizations) so the final
+    fairdraw can emit the recovered cal posterior; otherwise just build the realizations."""
+    global calibration_realization_dict, calibration_nodes, calibration_node_dets, calibration_n_nodes_amp
+    import RIFT.calmarg.generate_realizations as _genr
+    if opts.calibration_export_posterior:
+        _ret = _genr.draw_prior_realizations_with_nodes(
+            opts.calibration_envelope_directory, list(psd_dict.keys()), 1./P.deltaF, P.deltaT,
+            opts.fmin_template, fmax, opts.calibration_spline_count, opts.calibration_n_realizations,
+            fmin_ifo=cal_fmin_ifo, rng=np.random.default_rng(getattr(opts,'seed',None)))
+        calibration_realization_dict = _ret['realizations']
+        calibration_nodes = _ret['nodes']; calibration_node_dets = list(_ret['dets']); calibration_n_nodes_amp = int(_ret['n_nodes_amp'])
+    else:
+        for ifo in psd_dict:
+            fname = opts.calibration_envelope_directory + "/" + ifo + ".txt"
+            calibration_realization_dict[ifo] = _genr.create_realizations(fname, 1./P.deltaF, P.deltaT, cal_fmin_ifo[ifo], fmax, opts.calibration_spline_count, opts.calibration_n_realizations)
 if opts.calibration_envelope_directory:
 #  t_ref_wind = opts.calibration_n_realizations * t_ref_wind  # changes length of buffer, should produce longer window. DOES NOT WORK PROPERLY
   import RIFT.calmarg.generate_realizations
@@ -816,12 +842,16 @@ if opts.calibration_envelope_directory:
      cal_fmin_ifo[ifo] = flow_ifo_dict[ifo] if opts.fmin_ifo else opts.fmin_template
   # Graceful fallback: a seeded run is given a per-iteration breadcrumb path, but the
   # FIRST iteration (and any iteration before a pilot has run) has no breadcrumb yet.  If
-  # the path is missing, fall back to the broad prior -- so the SAME fixed ILE args work
-  # across all DAG iterations.
-  if opts.calibration_proposal_breadcrumb and not os.path.exists(opts.calibration_proposal_breadcrumb):
-     print(" Calibration proposal breadcrumb {} not present yet; falling back to PRIOR cal draws.".format(
-           opts.calibration_proposal_breadcrumb))
-     opts.calibration_proposal_breadcrumb = None
+  # the path is missing OR EMPTY, fall back to the broad prior -- so the SAME fixed ILE args
+  # work across all DAG iterations.  The iteration-0 placeholder is a 0-byte file (created so
+  # OSG file transfer of cal_consolidated_$(macroiterationprev).npz does not fail); on OSG it
+  # IS transferred in, so it exists but is empty -> np.load raises EOFError.  Treat empty (or
+  # otherwise unreadable) as "not present yet".
+  if opts.calibration_proposal_breadcrumb:
+     _bc_path = opts.calibration_proposal_breadcrumb
+     if not (os.path.exists(_bc_path) and os.path.getsize(_bc_path) > 0):
+        print(" Calibration proposal breadcrumb {} missing or empty (iteration-0 placeholder); falling back to PRIOR cal draws.".format(_bc_path))
+        opts.calibration_proposal_breadcrumb = None
   if opts.calibration_dump_responsibilities:
      # PILOT (Option C): KEEP the cal node vectors so the per-realization responsibilities
      # accumulated below can be fitted into a proposal (util_CalPilotFit.py).  Deterministic
@@ -867,6 +897,9 @@ if opts.calibration_envelope_directory:
              _bc, 1./P.deltaF, P.deltaT, opts.fmin_template, fmax,
              opts.calibration_spline_count, opts.calibration_n_realizations,
              fmin_ifo=cal_fmin_ifo, rng=_rng)
+       if opts.calibration_export_posterior:
+          calibration_nodes = _seed_nodes
+          calibration_node_dets = list(_bc["cal"]["dets"]); calibration_n_nodes_amp = int(_bc["cal"]["n_nodes_amp"])
        print(" Calibration realizations SEEDED from proposal breadcrumb {} ; neff(cal weights)~{:.1f}/{}".format(
              opts.calibration_proposal_breadcrumb,
              RIFT.calmarg.adaptive.neff_from_logweights(calibration_log_weights),
@@ -877,13 +910,9 @@ if opts.calibration_envelope_directory:
        print(" WARNING: could not seed from breadcrumb {} ({}); falling back to PRIOR cal draws.".format(
              opts.calibration_proposal_breadcrumb, _e_bc))
        opts.calibration_proposal_breadcrumb = None
-       for ifo in psd_dict:
-          fname = opts.calibration_envelope_directory + "/" + ifo + ".txt"
-          calibration_realization_dict[ifo] = RIFT.calmarg.generate_realizations.create_realizations(fname, 1./P.deltaF, P.deltaT, cal_fmin_ifo[ifo], fmax, opts.calibration_spline_count, opts.calibration_n_realizations)
+       _cal_setup_prior_with_nodes(psd_dict)
   else:
-     for ifo in psd_dict:
-        fname = opts.calibration_envelope_directory + "/" + ifo + ".txt"
-        calibration_realization_dict[ifo] = RIFT.calmarg.generate_realizations.create_realizations(fname, 1./P.deltaF, P.deltaT, cal_fmin_ifo[ifo], fmax, opts.calibration_spline_count, opts.calibration_n_realizations)
+     _cal_setup_prior_with_nodes(psd_dict)
 
   
 
@@ -1405,10 +1434,30 @@ if opts.sampler_method == "GMM":
          pair_phi_psi = sampler_param_tuple(sampler, ['psi'])
          adapt_phase = True
          n_phase = 2
-    gmm_dict = {pair_ra_dec:None,pair_d_incl:None,pair_phi_psi:default_phipsi} 
+    gmm_dict = {pair_ra_dec:None,pair_d_incl:None,pair_phi_psi:default_phipsi}
     gmm_adapt = {pair_ra_dec: True, pair_d_incl: True, pair_phi_psi: False}
     if opts.internal_rotate_phase:
       gmm_adapt[pair_phi_psi] = True
+    # Extrinsic handoff: SEED the per-group GMMs from a learned proposal breadcrumb (the
+    # previous iteration's posterior).  Keys are dim-group index tuples, matched by name to
+    # sampler.params_ordered -- so they line up with pair_ra_dec / pair_d_incl / pair_phi_psi.
+    if opts.extrinsic_proposal_breadcrumb and os.path.exists(opts.extrinsic_proposal_breadcrumb) and os.path.getsize(opts.extrinsic_proposal_breadcrumb) > 0:
+      try:
+        import RIFT.calmarg.breadcrumbs as _ebcmod, RIFT.calmarg.extrinsic_handoff as _ehmod
+        _ebc = _ebcmod.load(opts.extrinsic_proposal_breadcrumb)
+        _ext_adapt = bool(getattr(opts, 'extrinsic_proposal_adapt', False))
+        _seed = _ehmod.gmm_dict_from_breadcrumb(_ebc.get('extrinsic'), sampler.params_ordered, adapt=_ext_adapt, existing_keys=list(gmm_dict.keys()))
+        for _k, _m in _seed.items():
+          if _k in gmm_dict:
+            gmm_dict[_k] = _m
+            # Default FROZEN (gmm_adapt False): _train skips these groups, so the handed-off
+            # proposal drives sampling unmodified.  Re-fitting a seeded model on a bad first
+            # batch raises in the GMM init and triggers _reset -> the seed would be discarded.
+            gmm_adapt[_k] = _ext_adapt
+        print(" Extrinsic GMM SEEDED ({}) from {} for dim-groups {}".format(
+            "adapting" if _ext_adapt else "frozen", opts.extrinsic_proposal_breadcrumb, list(_seed.keys())))
+      except Exception as _e_eh:
+        print(" WARNING: could not seed extrinsic GMM from {} ({}); using default proposal.".format(opts.extrinsic_proposal_breadcrumb, _e_eh))
 #    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,tuple([0]):None,tuple([1]):None} 
 #    if len(psd_dict.keys()) > 2:
 #        n_sky=2  # presumably we have localized better, avoid failure modes
@@ -2132,6 +2181,50 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       log_res = res
       sqrt_var_over_res =  numpy.exp(var/2 - log_res)
 
+    # Extrinsic handoff: after the integration, fit the run's extrinsic POSTERIOR to a
+    # per-group GMM and write it as a breadcrumb, so a later iteration can seed its extrinsic
+    # sampler (--extrinsic-proposal-breadcrumb).  The extrinsic posterior barely moves
+    # iteration-to-iteration, so this lets the next run start on the answer.  Wrapped so a
+    # harvest/fit failure can never break a production integration.
+    if opts.extrinsic_proposal_output:
+      try:
+        import RIFT.calmarg.extrinsic_handoff as _ehmod, RIFT.calmarg.breadcrumbs as _ebcmod
+        _rvs = sampler._rvs
+        # TRUE importance log-weight = lnL + ln(prior) - ln(sampling_prior).  Build it from the
+        # raw, UNTEMPERED components and prefer them over any stored 'log_weights': the GPU/AV
+        # sampler (mcsamplerGPU) stores log_weights = tempering_exp*lnL + ln(prior) - ln(s_prior)
+        # (the adapt-weight-exponent, e.g. 0.1, baked in) -- fitting the GMM to those flattened
+        # weights places the proposal in the WRONG region.  GMM's own _rvs has no tempering.
+        if 'log_integrand' in _rvs and 'log_joint_prior' in _rvs and 'log_joint_s_prior' in _rvs:
+          _lw = np.array(_rvs['log_integrand'] + _rvs['log_joint_prior'] - _rvs['log_joint_s_prior'], dtype=float)
+        elif 'integrand' in _rvs and 'joint_prior' in _rvs and 'joint_s_prior' in _rvs:
+          _ig = np.asarray(_rvs['integrand'], dtype=float); _jp = np.asarray(_rvs['joint_prior'], dtype=float); _jsp = np.asarray(_rvs['joint_s_prior'], dtype=float)
+          _keep = (_ig > 0) & (_jp > 0) & (_jsp > 0)
+          _lw = np.full(len(_ig), -np.inf); _lw[_keep] = np.log(_ig[_keep]) + np.log(_jp[_keep]) - np.log(_jsp[_keep])
+        else:
+          raise Exception("no weights in sampler._rvs (keys={})".format(list(_rvs.keys())))
+        # extrinsic samples + bounds for the standard groups that this run actually sampled.
+        _ext_params = [p for grp in _ehmod.STANDARD_GROUPS for p in grp]
+        _ext_samples = {p: np.array(_rvs[p], dtype=float).reshape(-1) for p in _ext_params if p in _rvs}
+        _ext_bounds = {p: (float(sampler.llim[p]), float(sampler.rlim[p])) for p in _ext_samples if p in sampler.llim}
+        # restrict to finite-weight, fully-bounded samples
+        _good = np.isfinite(_lw)
+        for _p in list(_ext_samples):
+          _good = _good & np.isfinite(_ext_samples[_p])
+        _ext_samples = {p: v[_good] for p, v in _ext_samples.items() if p in _ext_bounds}
+        _ext = _ehmod.fit_extrinsic_proposal(_ext_samples, log_weights=_lw[_good], bounds=_ext_bounds)
+        # store the true lnL (peak-referenced) + sample count so a downstream consolidation
+        # can pick the most representative (near-peak / best-converged) proposal to hand on.
+        _ebcmod.save(opts.extrinsic_proposal_output, extrinsic=_ext,
+                     meta=dict(event=int(indx_event), n_samples=int(_good.sum()),
+                               lnL=float(log_res + manual_avoid_overflow_logarithm),
+                               neff=float(neff),
+                               groups=[g['params'] for g in _ext['groups']]))
+        print(" Extrinsic proposal WRITTEN to {} ({} groups: {})".format(
+            opts.extrinsic_proposal_output, len(_ext['groups']), [g['params'] for g in _ext['groups']]))
+      except Exception as _e_eho:
+        print(" WARNING: could not write extrinsic proposal to {} ({}); continuing.".format(opts.extrinsic_proposal_output, _e_eho))
+
     # Report results
     if opts.output_file and opts.sim_grid:
       fname_output_txt = opts.output_file +"_"+str(indx_event)+"_" + ".grid"
@@ -2465,6 +2558,46 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict, n_cal=n_cal_for_likelihood, cal_log_weights=calibration_log_weights)
         samples["loglikelihood" ] = samples["lnL_raw"]  # export the non-time-marginalized likelihood, if we are in the final stages
 #        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
+        # Recovered CALIBRATION posterior (opt-in): for each fair-draw sample, draw ONE cal
+        # realization in proportion to its posterior weight (per-realization L_c * importance
+        # weight w_c) and write a SELF-CONTAINED sibling <out>_<event>_cal.dat with the FULL
+        # draw -- intrinsic + extrinsic + the drawn realization's spline nodes as labeled
+        # cal_<IFO>_amp_<k>/cal_<IFO>_phase_<k> columns.  (The main XML/.dat schema cannot carry
+        # arbitrary columns, so the cal posterior rides this sibling file, row-aligned.)
+        _cal_nodes = calibration_nodes; _cal_dets = calibration_node_dets; _cal_namp = calibration_n_nodes_amp
+        if (_cal_nodes is None) and (_calpilot is not None) and (_calpilot.get('nodes') is not None):
+            _cal_nodes = _calpilot['nodes']; _cal_dets = list(_calpilot['dets']); _cal_namp = int(_calpilot['n_nodes_amp'])
+        if opts.calibration_export_posterior and calibration_marginalization and n_cal_for_likelihood and n_cal_for_likelihood > 1 and _cal_nodes is not None:
+          try:
+            from scipy.special import logsumexp as _logsumexp   # 'scipy' is shadowed as a local later in analyze_event
+            _tv = xpy_default.linspace(-t_ref_wind, t_ref_wind, int((t_ref_wind)*2/P.deltaT))
+            # per-realization, time-integrated lnL at each fair-draw sample (P holds the sample
+            # extrinsic arrays, just set by resample_samples).  return_cal_components forces the
+            # loop method and returns shape (n_samples, n_cal).
+            _comp = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(_tv,
+                       P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict, epochDict,
+                       Lmax=opts.l_max, xpy=xpy_default, n_cal=n_cal_for_likelihood,
+                       cal_method='loop', return_cal_components=True)
+            _comp = np.atleast_2d(np.asarray(identity_convert(_comp), dtype=float))   # (n_samples, n_cal)
+            _calw = np.zeros(n_cal_for_likelihood) if calibration_log_weights is None else np.asarray(identity_convert(calibration_log_weights), dtype=float)
+            _logp = _comp + _calw[None, :]                                  # posterior weight per (sample, realization)
+            _logp = _logp - _logsumexp(_logp, axis=1, keepdims=True)
+            _wp = np.exp(_logp); _ns = _comp.shape[0]
+            _idx = np.array([np.random.choice(n_cal_for_likelihood, p=_wp[_i]) for _i in range(_ns)])
+            _nodes_drawn = np.asarray(_cal_nodes)[_idx]                     # (n_samples, 2*namp*ndet)
+            for _i_det, _ifo in enumerate(_cal_dets):
+                _base = _i_det * 2 * _cal_namp
+                for _k in range(_cal_namp):
+                    samples["cal_%s_amp_%d"   % (_ifo, _k)] = _nodes_drawn[:, _base + _k]
+                    samples["cal_%s_phase_%d" % (_ifo, _k)] = _nodes_drawn[:, _base + _cal_namp + _k]
+            _ekeys = sorted(k for k in samples if isinstance(k, str) and np.ndim(samples[k]) == 1 and np.size(samples[k]) == _ns)
+            _mat = np.column_stack([np.asarray(samples[k], dtype=float) for k in _ekeys])
+            _fn_cal = opts.output_file + "_" + str(indx_event) + "_cal.dat"
+            np.savetxt(_fn_cal, _mat, header=" ".join(_ekeys))
+            print(" Calibration posterior (full fair draws + cal nodes) -> {} ; {} samples x {} cols ({} cal cols over {})".format(
+                  _fn_cal, _ns, len(_ekeys), 2*_cal_namp*len(_cal_dets), _cal_dets))
+          except Exception as _e_cep:
+            print(" WARNING: --calibration-export-posterior failed ({}); skipping cal-posterior export.".format(_e_cep))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         # Extra metadata
       dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha": P.meanPerAno, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}

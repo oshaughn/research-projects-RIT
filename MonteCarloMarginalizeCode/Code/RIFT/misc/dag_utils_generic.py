@@ -2873,6 +2873,62 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
     return job, sub_name
 
 
+def write_extrconsolidate_sub(tag='extrconsolidate', exe=None, log_dir=None, universe="local",
+                              working_directory=None, request_memory=2048, select="lnL",
+                              max_runtime_minutes=30, **kwargs):
+    """Submit file for the EXTRINSIC handoff consolidation stage (see
+    RIFT/calmarg/DESIGN_extrinsic_handoff.md).  Runs util_ExtrinsicConsolidate.py.
+
+    After iteration $(macroiteration)'s wide ILE jobs each drop a per-event extrinsic
+    proposal breadcrumb (extr_proposal_$(macroiteration)_<event>.npz, written by ILE
+    --extrinsic-proposal-output), this job picks the single most representative one and
+    writes  <wd>/extr_consolidated_$(macroiteration).npz , which SEEDS the wide ILE jobs of
+    iteration $(macroiteration)+1 via --extrinsic-proposal-breadcrumb.
+
+    Runs in the LOCAL universe on the submit node: it is pure-python file selection (no GPU,
+    no ILE, no container, no frames).  On OSG the per-event ILE outputs are transferred back
+    to <wd>/iteration_<it>_ile on the submit node (ILE's transfer_output_files default), so a
+    local-universe job reads them directly from the shared FS -- no per-event input transfer
+    (which condor cannot glob anyway).  The output breadcrumb is ALWAYS written (empty if no
+    valid input), so the next iteration's seed/transfer never fails.
+
+    Macros expected at instantiation: macroiteration.
+    """
+    exe = exe or which("util_ExtrinsicConsolidate.py")
+    wd = working_directory
+    job = pipeline.CondorDAGJob(universe=universe, executable=exe)
+    sub_name = tag + '.sub'
+    job.set_sub_file(sub_name)
+
+    # per-event proposals land in the ILE initialdir; pick best -> consolidated breadcrumb in
+    # wd (where wide_{N+1} ILE's --extrinsic-proposal-breadcrumb path points).
+    job.add_opt("input-glob", wd + "/iteration_$(macroiteration)_ile/extr_proposal_$(macroiteration)_*.npz")
+    job.add_opt("output", wd + "/extr_consolidated_$(macroiteration).npz")
+    job.add_opt("iteration", "$(macroiteration)")
+    job.add_opt("select", select)
+
+    uniq_str = "$(macroiteration)-$(cluster)-$(process)"
+    job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    if default_resolved_env:
+        job.add_condor_cmd('environment', default_resolved_env)
+    else:
+        job.add_condor_cmd('getenv', default_getenv_value)
+    job.add_condor_cmd('request_memory', str(request_memory) + "M")
+
+    try:
+        job.add_condor_cmd('accounting_group', os.environ['LIGO_ACCOUNTING'])
+        job.add_condor_cmd('accounting_group_user', os.environ['LIGO_USER_NAME'])
+    except:
+        print(" LIGO accounting information not available.  Add manually to %s !" % sub_name)
+    if not (max_runtime_minutes is None):
+        remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60 * max_runtime_minutes)
+        job.add_condor_cmd('periodic_remove', remove_str)
+    return job, sub_name
+
+
 def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe="vanilla",arg_str=None,log_dir=None, use_eos=False,ncopies=1,no_grid=False, max_runtime_minutes=60,extra_text='',**kwargs):
     """
     Write a submit file for launching a consolidation job
