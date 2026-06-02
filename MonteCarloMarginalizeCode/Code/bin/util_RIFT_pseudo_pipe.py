@@ -167,6 +167,7 @@ parser.add_argument("--calmarg-pilot-top-fraction",default=0.05,type=float,help=
 parser.add_argument("--calmarg-pilot-max-points",default=32,type=int,help="Cap on harvested pilot points per iteration. Default 32.")
 parser.add_argument("--calmarg-first-cip-sigma-cut",default=100.0,type=float,help="With --calmarg-pilot: relax the first CIP stage's --sigma-cut to this value, so cold-start (prior-cal) iteration-0 points -- which have large MC error -- are not all stripped by CIP's default 0.6.  Threaded to helper_LDG_Events.py. Default 100 (effectively keep all cold-start points).")
 parser.add_argument("--calmarg-burn-in-neff",default=None,type=float,help="In-loop calmarg: burn the extrinsic sampler in on the cheap zero-cal likelihood to this n_eff before the full cal-marginalized integration (warm start; the extrinsic posterior is ~cal-independent). Threaded to ILE as --calibration-burn-in-neff.")
+parser.add_argument("--calmarg-export-posterior",action='store_true',help="In-loop calmarg: at the final fairdraw export, also write the RECOVERED calibration posterior -- for each fair-draw sample, draw one cal realization in proportion to its posterior weight and write a self-contained sibling <output>_<event>_cal.dat with the full draw (intrinsic + extrinsic + cal_<IFO>_amp_<k>/cal_<IFO>_phase_<k> node columns). Threaded to ILE as --calibration-export-posterior (fires only at the extrinsic/fairdraw stage).")
 parser.add_argument("--extrinsic-handoff",action='store_true',help="Extrinsic handoff (GMM sampler only): each iteration's wide ILE jobs write a per-event extrinsic GMM proposal (--extrinsic-proposal-output) of their extrinsic posterior; a per-iteration consolidation picks the most representative one and SEEDS the next iteration's wide ILE jobs via --extrinsic-proposal-breadcrumb, so the extrinsic sampler starts on the answer instead of cold.  Requires --ile-sampler-method GMM.  See RIFT/calmarg/DESIGN_extrinsic_handoff.md.")
 parser.add_argument("--extrinsic-handoff-select",default="lnL",help="Metric the extrinsic consolidation ranks per-event proposals by (lnL|neff|n_samples). Default lnL (most peak-representative).")
 parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
@@ -1060,6 +1061,10 @@ if opts.calmarg_envelope_directory:
         line += " --calibration-fused-kernel "
     if opts.calmarg_burn_in_neff:
         line += " --calibration-burn-in-neff {} ".format(opts.calmarg_burn_in_neff)
+    if opts.calmarg_export_posterior:
+        # recovered cal posterior columns; harmless on the wide stage (only fires at the
+        # fairdraw/extrinsic stage, which has --save-samples + --resample-time-marginalization).
+        line += " --calibration-export-posterior "
     if opts.calmarg_pilot:
         # Option C: wide ILE jobs are SEEDED from the previous iteration's consolidated cal
         # proposal.  The $(macroiterationprev) condor macro resolves per node; ILE falls
