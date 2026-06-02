@@ -2164,11 +2164,12 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       try:
         import RIFT.calmarg.extrinsic_handoff as _ehmod, RIFT.calmarg.breadcrumbs as _ebcmod
         _rvs = sampler._rvs
-        # importance log-weights (lnL + ln prior - ln sampling-prior), same recipe the
-        # distance-grid export uses; handle the GMM sampler's raw-integrand storage.
-        if 'log_weights' in _rvs:
-          _lw = np.array(_rvs['log_weights'], dtype=float)
-        elif 'log_integrand' in _rvs:
+        # TRUE importance log-weight = lnL + ln(prior) - ln(sampling_prior).  Build it from the
+        # raw, UNTEMPERED components and prefer them over any stored 'log_weights': the GPU/AV
+        # sampler (mcsamplerGPU) stores log_weights = tempering_exp*lnL + ln(prior) - ln(s_prior)
+        # (the adapt-weight-exponent, e.g. 0.1, baked in) -- fitting the GMM to those flattened
+        # weights places the proposal in the WRONG region.  GMM's own _rvs has no tempering.
+        if 'log_integrand' in _rvs and 'log_joint_prior' in _rvs and 'log_joint_s_prior' in _rvs:
           _lw = np.array(_rvs['log_integrand'] + _rvs['log_joint_prior'] - _rvs['log_joint_s_prior'], dtype=float)
         elif 'integrand' in _rvs and 'joint_prior' in _rvs and 'joint_s_prior' in _rvs:
           _ig = np.asarray(_rvs['integrand'], dtype=float); _jp = np.asarray(_rvs['joint_prior'], dtype=float); _jsp = np.asarray(_rvs['joint_s_prior'], dtype=float)

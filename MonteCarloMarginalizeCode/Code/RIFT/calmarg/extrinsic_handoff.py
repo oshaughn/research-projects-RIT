@@ -67,6 +67,18 @@ def fit_extrinsic_proposal(samples, log_weights, groups=None, bounds=None,
     n = len(next(iter(samples.values())))
     lw = np.zeros(n) if log_weights is None else np.asarray(log_weights, dtype=float)
 
+    # Effective sample size of the importance weights (Kish).  The source run may have a low
+    # ESS (calmarg makes the extrinsic integral hard); fitting too many mixture components to
+    # too few effective samples STARVES the EM fit -- a component collapses onto ~1 sample and
+    # its covariance goes singular/NaN, poisoning the whole seeded proposal.  Cap components by
+    # ESS below (mirrors the cal pilot's d(d+1)/2 reasoning).
+    _lwf = lw[np.isfinite(lw)]
+    if len(_lwf):
+        _w = np.exp(_lwf - _lwf.max())
+        ess = float((_w.sum() ** 2) / np.sum(_w ** 2))
+    else:
+        ess = float(n)
+
     out_groups = []
     for grp in groups:
         if not all(p in samples for p in grp):
@@ -74,7 +86,8 @@ def fit_extrinsic_proposal(samples, log_weights, groups=None, bounds=None,
         d = len(grp)
         sample_array = np.column_stack([np.asarray(samples[p], dtype=float) for p in grp])
         grp_bounds = np.array([list(bounds[p]) for p in grp], dtype=float)   # (d, 2)
-        k = min(n_comp, max(1, sample_array.shape[0]))
+        # need >~ (d+2) effective samples per component for a non-degenerate covariance
+        k = min(n_comp, max(1, int(ess // (d + 2))), max(1, sample_array.shape[0]))
         model = GMM.gmm(k, grp_bounds, max_iters=max_iters)
         # the model may run on cupy (GPU); move inputs onto its device first.
         model.fit(model.identity_convert_togpu(sample_array),
@@ -83,22 +96,32 @@ def fit_extrinsic_proposal(samples, log_weights, groups=None, bounds=None,
         means = np.array([np.asarray(model.identity_convert(m)) for m in model.means])      # (k, d)
         covs = np.array([np.asarray(model.identity_convert(c)) for c in model.covariances])  # (k, d, d)
         weights = np.asarray(model.identity_convert(model.weights), dtype=float).reshape(-1)  # (k,)
+        # DROP degenerate components.  When the source run is starved (few effective samples
+        # vs n_comp x d), the EM fit collapses a component onto ~1 sample -> singular/NaN
+        # covariance and NaN mean.  A single NaN component poisons the whole seeded proposal
+        # (NaN sampling-prior -> NaN lnL -> wrong integral).  Keep only finite, positive-weight
+        # components and renormalize; if none survive, skip the group (it stays cold = safe).
+        good = (np.isfinite(means).all(axis=1) & np.isfinite(covs).reshape(len(covs), -1).all(axis=1)
+                & np.isfinite(weights) & (weights > 0))
+        if not good.any():
+            continue
+        means, covs, weights = means[good], covs[good], weights[good]
+        weights = weights / weights.sum()
         out_groups.append(dict(params=list(grp), means=means, covariances=covs,
                                weights=weights, bounds=grp_bounds))
     return dict(kind="gmm", groups=out_groups)
 
 
-def reconstruct_gmm(group, max_iters=1000, adapt=True, cov_inflate=2.0):
+def reconstruct_gmm(group, max_iters=1000, adapt=True, cov_inflate=1.0):
     """Rebuild a RIFT gaussian_mixture_model.gmm from a stored breadcrumb group.
     adapt=True -> the seeded components keep adapting in the next run (extrinsics drift a
     little); adapt=False freezes them.
 
-    cov_inflate (>=1) widens the seeded covariances (in the model's normalized frame) before
-    handing off.  A warm-start proposal should be a bit BROADER than the source posterior: the
-    ensemble sampler can contract a too-wide proposal but a too-tight one starves (all first-
-    batch samples land in one spot -> zero effective weight -> the sampler discards the seed
-    via _reset()).  This matters most when the source iteration was under-converged.  2.0 (in
-    covariance, ~1.4x in width) is a safe default.
+    cov_inflate (>=1) widens the seeded covariances (in the model's normalized frame).  Default
+    1.0 (no inflation): a FROZEN seed (the default seeding mode) should match the source
+    posterior, not be widened -- inflating only pushes samples past hard bounds (e.g. distance),
+    where the likelihood is NaN.  Inflation is only useful for the adapt=True path (broaden so
+    the sampler can contract); the freeze path makes it unnecessary.
 
     All model arrays (means/covariances/weights AND bounds) are moved onto the model's device
     (cupy on GPU): the sampler's score()/_normalize write into an xpy.empty array, so a
@@ -127,7 +150,7 @@ def _permute_group(group, perm):
                 covariances=covs, weights=group["weights"], bounds=bounds)
 
 
-def gmm_dict_from_breadcrumb(extrinsic, params_ordered, adapt=True, existing_keys=None, cov_inflate=2.0):
+def gmm_dict_from_breadcrumb(extrinsic, params_ordered, adapt=True, existing_keys=None, cov_inflate=1.0):
     """Build a gmm_dict {dim_group_tuple: gmm} to SEED mcsamplerEnsemble, from a breadcrumb
     'extrinsic' dict.  dim_group_tuple are indices into `params_ordered` (the sampler's
     parameter order this run), looked up by parameter NAME -- so the handoff is robust to a

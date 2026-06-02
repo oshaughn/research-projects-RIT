@@ -225,6 +225,48 @@ cross-sampler numeric correctness is one debugging session away (audit `_rvs` co
 inflation/bounds).  The same-sampler GMM->GMM path is already numerically clean -- it just
 needs a sampler that converges as a source, i.e. seedable AV (below).
 
+## Cross-sampler AV->GMM: numerics RESOLVED; benefit gated by GMM convergence
+
+Debugging the wrong-integral above (per user's steer) found and fixed FOUR real issues in the
+save/seed path; the cross-sampler seed is now numerically correct:
+
+1. **tempered weights (save side).** The GPU/AV sampler (mcsamplerGPU) stores
+   `_rvs['log_weights'] = tempering_exp*lnL + ln(prior) - ln(s_prior)` -- the adapt-weight-
+   exponent (e.g. 0.1) baked in.  Fitting the GMM to those flattened weights displaces the
+   proposal.  Fix: build the weight from the raw, UNTEMPERED components
+   (`log_integrand + log_joint_prior - log_joint_s_prior`) and prefer them over `log_weights`.
+   (GMM's own `_rvs` has no tempering -> GMM->GMM was already fine.)  This alone took the
+   seeded n_eff from ~5 to ~26.
+2. **cov_inflate.** Inflating a FROZEN seed only widens it out of bounds; default is now 1.0
+   (freeze handles robustness; inflation was for the adapt=True path).
+3. **starved fit -> NaN component.** A low-ESS source over-parameterized (n_comp=4 vs few
+   effective samples) collapses a mixture component to a singular/NaN covariance, and one NaN
+   component poisons the whole seeded proposal.  Fix: cap n_comp by the weight ESS
+   (`k <= ESS/(d+2)`) and drop any non-finite component (renormalize; skip the group if none
+   survive).
+4. **distance sampled against a hard bound.** The real source of the persistent `nan` lnLmax:
+   with distance SAMPLED on `[1,1000]`, a seeded distance Gaussian spills past the bound ->
+   NaN likelihood.  The calmarg path is meant to run with DISTANCE MARGINALIZATION
+   (`--distance-marginalization` + a lookup table from `util_InitMargTable`), which removes
+   distance from the extrinsic sampler entirely.  With distmarg on, the seeded run's lnLmax is
+   finite and the integral is valid.  NOTE: the pseudo_pipe/extr-run args do NOT currently
+   add `--distance-marginalization` even when the calmarg fused kernel is requested -- that is
+   a demo/pipeline gap to close (the fused kernel is a distmarg kernel).
+
+Measured, distmarg on, single CI point (SNR~17.5), all fixes in:
+- AV source converges to n_eff~4.7 (lnLmax~152), writes a clean 2-group (sky, phase/pol) proposal.
+- seeded GMM: 0 resets, FINITE lnLmax, VALID integral -- but n_eff ~1.0, ~the same as the
+  cold GMM (~1.0-1.3).  The seed neither helps nor hurts.
+
+**Conclusion.** The handoff (save -> consolidate -> seed) is now numerically correct and safe
+end-to-end on real GPU data.  But it does not ACCELERATE on this point because the seedable
+sampler (GMM) does not converge here (n_eff~1 cold AND seeded), and the AV source (n_eff~5) is
+too under-converged to provide a strongly-informative seed.  GMM is seedable but weak; AV
+converges but is not seedable.  This is now hard evidence that the payoff requires a
+**seedable / partial-reset AV (task #30, #25)** -- or a converged source (lower SNR / much
+larger sample budget / better GPU) so the GMM seed has real information to carry.  The numeric
+substrate is done; the win is one of those two regimes away.
+
 ## Why GMM first, and the AV limitation (task #30)
 
 The adaptive Voronoi sampler (AV, `mcsampler`) is the default extrinsic sampler and is more
