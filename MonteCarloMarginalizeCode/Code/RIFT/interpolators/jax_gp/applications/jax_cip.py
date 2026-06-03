@@ -26,6 +26,21 @@ The legacy CIP remains the production path; this is the JAX-native track for the
 AD use cases (differentiable sampling, population inference), which are
 qualitatively different and cleaner to manage on their own.
 
+CLI: this tool accepts the legacy CIP argument surface *inclusively*
+(parse_known_args swallows args it does not use), reads ``--fname``, honours
+``--parameter`` / ``--parameter-implied`` / ``--parameter-nofit`` / ``--lnL-offset``
+/ ``--cap-points`` / ``--sigma-cut`` / ``--n-output-samples``, and writes the same
+output the pipeline consumes (``--fname-output-samples`` -> ChooseWaveformParams
+XML + ``_lnL.dat``). So the SAME pipeline command line can hot-swap legacy CIP for
+this path.
+
+STATUS: the I/O / coordinate / CLI contract is the deliverable and is exercised
+end-to-end. Posterior-sample *quality* is still WIP -- NUTS mixing (ESS) on the
+sharp real-BNS RFF surrogate is poor (the surrogate is not perfectly smooth and the
+posterior is multiscale); it localizes the right region (mc recovered to ~1e-4) but
+the samples are autocorrelated. Improving this (smoother surrogate; flow sampler;
+better priors/Jacobians) is the science-grade follow-up tracked in DESIGN.md.
+
 Note: performance numbers here are on an old CPU box; production hardware is far
 faster -- treat timings as relative, not absolute.
 """
@@ -49,6 +64,12 @@ from numpyro.infer import MCMC, NUTS
 from numpyro.diagnostics import effective_sample_size
 
 PHYS = ["m1", "m2", "s1z", "s2z", "lambda1", "lambda2"]
+
+# Default BNS coordinate system (matches the recommended CIP flags):
+#   --parameter delta_mc --parameter-implied mu1 mu2 LambdaTilde DeltaLambdaTilde
+#   --parameter-nofit mc s1z s2z lambda1 lambda2
+DEFAULT_FIT_COORDS = list(BNS_FIT_COORDS)                       # what the GP fits
+DEFAULT_LOW_LEVEL = ["mc", "delta_mc", "s1z", "s2z", "lambda1", "lambda2"]  # what we sample
 
 
 def _fit_surrogate(net_path, sigma_cut, lnL_offset, cap_points,
@@ -95,8 +116,12 @@ def sample_lnL(lnL_fn, loc, scale, bounds=None, num_warmup=500, num_samples=2000
         theta = numpyro.sample("theta", prior)
         numpyro.factor("lnL", lnL_fn(theta))
 
-    mcmc = MCMC(NUTS(numpyro_model), num_warmup=num_warmup,
-                num_samples=num_samples, progress_bar=False)
+    # dense_mass: the intrinsic posterior is multiscale + correlated (mc razor-sharp,
+    # tides broad); a dense mass matrix adapts to that geometry, where a diagonal one
+    # mixes poorly. Higher target_accept stabilizes the sharp directions.
+    kernel = NUTS(numpyro_model, dense_mass=True, target_accept_prob=0.9)
+    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples,
+                progress_bar=False)
     t0 = time.time()
     mcmc.run(jax.random.PRNGKey(seed))
     samples = np.asarray(mcmc.get_samples()["theta"])
@@ -164,23 +189,171 @@ def run(net_path, lnL_offset=20.0, cap_points=6000, n_features=512,
     return out
 
 
-def main(argv=None):
+def _physical_to_lowlevel(X6, low_level_names):
+    """Input physical columns (m1,m2,s1z,s2z,lambda1,lambda2) -> low-level coords."""
+    m1, m2, s1z, s2z, l1, l2 = X6.T
+    src = {
+        "m1": m1, "m2": m2, "s1z": s1z, "s2z": s2z, "lambda1": l1, "lambda2": l2,
+        "mc": (m1 * m2) ** 0.6 / (m1 + m2) ** 0.2,
+        "delta_mc": (m1 - m2) / (m1 + m2),
+        "eta": m1 * m2 / (m1 + m2) ** 2, "q": m2 / m1,
+    }
+    return np.column_stack([src[n] for n in low_level_names])
+
+
+def _write_output(samples, low_level_names, lnL_vals, opts):
+    """Write posterior samples in the legacy CIP format: an XML of
+    ChooseWaveformParams (physical params) + a ``<fname>_lnL.dat``, plus a minimal
+    integral-result file -- so the pipeline's downstream stages find what they
+    expect when jax_cip is hot-swapped for the legacy CIP."""
+    import lal
+    import lalsimulation as lalsim
+    import RIFT.lalsimutils as lalsimutils
+
+    P0 = lalsimutils.ChooseWaveformParams()
+    try:
+        P0.approx = lalsim.GetApproximantFromString(opts.approx_output)
+    except Exception:
+        pass
+    P0.fref, P0.fmin = opts.fref, opts.fmin
+
+    n = min(len(samples), opts.n_output_samples)
+    P_list = []
+    for s in samples[:n]:
+        d = {low_level_names[i]: float(s[i]) for i in range(len(low_level_names))}
+        if "m1" in d and "m2" in d:
+            m1, m2 = d["m1"], d["m2"]
+        else:  # from (mc, delta_mc)
+            dmc = d.get("delta_mc", 0.0)
+            eta = 0.25 * (1.0 - dmc ** 2)
+            mtot = d["mc"] * eta ** (-0.6)
+            m1, m2 = 0.5 * mtot * (1.0 + dmc), 0.5 * mtot * (1.0 - dmc)
+        P = P0.manual_copy()
+        P.m1, P.m2 = m1 * lal.MSUN_SI, m2 * lal.MSUN_SI
+        P.s1z, P.s2z = d.get("s1z", 0.0), d.get("s2z", 0.0)
+        P.lambda1, P.lambda2 = d.get("lambda1", 0.0), d.get("lambda2", 0.0)
+        if P.m2 > P.m1:
+            P.swap_components()   # enforce m2 <= m1, as the legacy CIP does
+        P_list.append(P)
+
+    lalsimutils.ChooseWaveformParams_array_to_xml(
+        P_list, fname=opts.fname_output_samples, fref=P0.fref)
+    np.savetxt(opts.fname_output_samples + "_lnL.dat", np.asarray(lnL_vals[:n]))
+    np.savetxt(opts.fname_output_integral + ".dat", [float(np.max(lnL_vals))])
+    print("  wrote {}.xml.gz  +  {}_lnL.dat  ({} samples)".format(
+        opts.fname_output_samples, opts.fname_output_samples, n))
+
+
+def run_pipeline(opts, ignored):
+    """Legacy-CIP-compatible flow: --fname in, posterior-sample XML out.
+
+    Builds fit coordinates from --parameter/--parameter-implied, samples the
+    low-level coordinates (--parameter + --parameter-nofit) with NUTS, and writes
+    the same output files the pipeline consumes.
+    """
+    if ignored:
+        print("[jax_cip] accepted but unused legacy args: "
+              + " ".join(sorted(set(a for a in ignored if a.startswith("--")))))
+    fit_coords = list((opts.parameter or []) + (opts.parameter_implied or []))
+    low_level = list((opts.parameter or []) + (opts.parameter_nofit or []))
+    if not fit_coords:
+        fit_coords, low_level = DEFAULT_FIT_COORDS, DEFAULT_LOW_LEVEL
+        print("[jax_cip] no --parameter* given; default BNS coords:", fit_coords)
+    print("[jax_cip] fit coords = {} ; sampling low-level = {}".format(
+        fit_coords, low_level))
+
+    X6, y, yerr, _ = load_ile_net(opts.fname, sigma_cut=opts.sigma_cut,
+                                  return_errors=True)
+    tf_phys_to_fit = jax.vmap(coordinates.make_transform(PHYS, fit_coords))
+    Xfit = np.asarray(tf_phys_to_fit(X6))
+
+    keep = y > (y.max() - opts.lnL_offset)
+    X6, Xfit, y, yerr = X6[keep], Xfit[keep], y[keep], yerr[keep]
+    rng = np.random.default_rng(opts.seed)
+    if 0 < opts.cap_points < len(y):
+        sel = rng.choice(len(y), size=opts.cap_points, replace=False)
+        X6, Xfit, y, yerr = X6[sel], Xfit[sel], y[sel], yerr[sel]
+
+    t0 = time.time()
+    model = get_interpolator("rff")(n_features=opts.n_features,
+                                    n_opt_steps=opts.n_opt_steps,
+                                    seed=opts.seed).fit(Xfit, y, y_errors=yerr)
+    model.coord_names = list(fit_coords)
+    print("[jax_cip] RFF fit on {} pts in {:.1f}s".format(len(y), time.time() - t0))
+
+    Xlow = _physical_to_lowlevel(X6, low_level)
+    lo, hi = Xlow.min(0), Xlow.max(0)
+    pad = 0.02 * (hi - lo)
+    bounds = (lo - pad, hi + pad)
+
+    tf_low_to_fit = coordinates.make_transform(low_level, fit_coords)
+
+    def lnL_low(theta):
+        return model.lnL_physical(tf_low_to_fit(theta))
+
+    res = sample_lnL(lnL_low, Xlow.mean(0), 3.0 * Xlow.std(0), bounds=bounds,
+                     num_warmup=opts.num_warmup, num_samples=opts.num_samples,
+                     seed=opts.seed)
+    print("[jax_cip] NUTS in low-level coords: {:.1f}s, ESS(min) {:.0f}".format(
+        res["wall_clock"], res["ess_min"]))
+    for i, name in enumerate(low_level):
+        print("    {:9s} {:12.5g} +/- {:.3g}".format(
+            name, res["mean"][i], res["std"][i]))
+
+    samples = res["samples"]
+    lnL_at = np.asarray(jax.vmap(lnL_low)(jnp.asarray(samples)))
+    _write_output(samples, low_level, lnL_at, opts)
+    return {"model": model, "result": res}
+
+
+def _build_parser():
+    """Parser mirroring the legacy CIP names we act on; everything else is
+    swallowed by parse_known_args so the SAME command line hot-swaps."""
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--net", required=True, help="RIFT ILE .net file")
+    # I/O (legacy names)
+    p.add_argument("--fname", default=None, help="input ILE .dat/.net file")
+    p.add_argument("--net", default=None, help="alias for --fname")
+    p.add_argument("--fname-output-samples", default="output-ILE-samples")
+    p.add_argument("--fname-output-integral", default="integral_result")
+    p.add_argument("--n-output-samples", type=int, default=3000)
+    # coordinates (legacy names; append)
+    p.add_argument("--parameter", action="append")
+    p.add_argument("--parameter-implied", action="append")
+    p.add_argument("--parameter-nofit", action="append")
+    # cuts (legacy names)
     p.add_argument("--lnL-offset", type=float, default=20.0)
-    p.add_argument("--cap-points", type=int, default=6000)
+    p.add_argument("--cap-points", type=int, default=8000)
+    p.add_argument("--sigma-cut", type=float, default=0.6)
+    # waveform metadata for the output XML (legacy names)
+    p.add_argument("--approx-output", default="IMRPhenomD_NRTidalv2")
+    p.add_argument("--fref", type=float, default=20.0)
+    p.add_argument("--fmin", type=float, default=20.0)
+    # JAX-specific knobs (harmless extras the pipeline won't pass)
     p.add_argument("--n-features", type=int, default=512)
     p.add_argument("--n-opt-steps", type=int, default=300)
-    p.add_argument("--sigma-cut", type=float, default=0.6)
     p.add_argument("--num-warmup", type=int, default=500)
     p.add_argument("--num-samples", type=int, default=2000)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--physical-sampling", action="store_true",
-                   help="also run the cautionary NUTS-in-physical-coords contrast")
-    a = p.parse_args(argv)
-    run(a.net, a.lnL_offset, a.cap_points, a.n_features, a.n_opt_steps,
-        a.sigma_cut, a.num_warmup, a.num_samples, a.seed,
-        physical_sampling=a.physical_sampling)
+    p.add_argument("--demo", action="store_true",
+                   help="run the console analysis demo instead of writing output")
+    p.add_argument("--physical-sampling", action="store_true")
+    return p
+
+
+def main(argv=None):
+    opts, ignored = _build_parser().parse_known_args(argv)
+    if opts.fname is None and opts.net is not None:
+        opts.fname = opts.net
+    if opts.demo:
+        if not opts.fname:
+            raise SystemExit("--fname/--net required for --demo")
+        run(opts.fname, opts.lnL_offset, opts.cap_points, opts.n_features,
+            opts.n_opt_steps, opts.sigma_cut, opts.num_warmup, opts.num_samples,
+            opts.seed, physical_sampling=opts.physical_sampling)
+        return
+    if not opts.fname:
+        raise SystemExit("--fname (or --net) is required")
+    run_pipeline(opts, ignored)
 
 
 if __name__ == "__main__":
