@@ -176,3 +176,28 @@ def make_transform(low_level_names, fit_coord_names):
         return jnp.stack([_coord_value(n, P) for n in fit_coord_names])
 
     return transform
+
+
+def physical_lnL(model, low_level_names):
+    """Compose an exported model's lnL (in its fit coords) with the physical->fit
+    transform, returning a pure-JAX ``lnL(theta_physical)``.
+
+    ``model`` must expose ``lnL_physical`` (the lnL in its *fit* coordinates) and
+    ``coord_names`` (those fit-coordinate names) -- i.e. anything from
+    ``export.load`` or a freshly fitted interpolator with ``coord_names`` set.
+    ``low_level_names`` are the physical parameters you want to sample/differentiate
+    in (e.g. ['m1','m2','s1z','s2z','lambda1','lambda2']).
+
+    The returned callable is pure JAX, so ``jax.grad`` gives the gradient in
+    physical parameters (the coordinate Jacobian is handled by autodiff).
+    """
+    fit_names = getattr(model, "coord_names", None)
+    if not fit_names:
+        raise ValueError("model has no coord_names; cannot build physical lnL")
+    tf = make_transform(low_level_names, fit_names)
+    lnL_fit = model.lnL_physical  # 'physical' here == the model's fit coordinates
+
+    def lnL_phys(theta_phys):
+        return lnL_fit(tf(theta_phys))
+
+    return lnL_phys
