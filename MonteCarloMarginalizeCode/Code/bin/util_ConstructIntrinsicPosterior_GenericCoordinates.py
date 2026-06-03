@@ -2383,7 +2383,9 @@ elif opts.fit_method == 'weighted_nearest':
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_nearest(X,Y,y_errors=Y_err)
 elif opts.fit_method.startswith('gp-jax'):
-    jax_method = opts.fit_method.replace('gp-jax-','').replace('gp-jax','') or 'svgp'
+    # RFF is the chosen default jax method (fast, accurate, cheapest to export);
+    # svgp/exact remain available as backstop / validation.
+    jax_method = opts.fit_method.replace('gp-jax-','').replace('gp-jax','') or 'rff'
     print(" FIT METHOD ", opts.fit_method, " IS jax_gp : ", jax_method)
     X=X[indx_ok]
     Y=Y[indx_ok] - lnL_shift

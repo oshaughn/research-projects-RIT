@@ -67,6 +67,19 @@ not a nicety:
      extrinsic integral itself is differentiable, and (b) a derivative-aware
      sampler. Larger effort; longer-term.
 
+## Downselect decision (current)
+
+**RFF is the default jax method**; SVGP and exact are kept as **backstop /
+validation** code. Rationale: no scaling reason favors SVGP (both are O(N M²) time,
+O(N M) memory, linear in N), and RFF is empirically faster *and* more accurate on
+our benchmarks with the smaller constant factor (fixed feature basis; no k-means or
+inducing-point optimization). SVGP is retained because (a) it is the principled
+inducing-point method and a useful cross-check, and (b) its adaptive inducing points
+and calibrated predictive variance are the natural seed for a future
+uncertainty-driven **active-learning / sample-placement** loop (reduce function
+evaluations further). The GP will **not** replace RF in the standard CIP stack;
+its value is the AD use cases below.
+
 ## Long-term roadmap
 
 Ordered roughly by dependency, not committed dates:

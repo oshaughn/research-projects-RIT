@@ -41,7 +41,7 @@ def get_interpolator(name):
     ``rff``, ``exact``, ``svgp``.
     """
     name = name.lower().replace("gp-jax-", "").replace("gp_jax_", "")
-    if name == "rff":
+    if name in ("", "rff"):                 # RFF is the default jax method
         from .rff import RFFInterpolator
         return RFFInterpolator
     if name == "exact":
