@@ -62,6 +62,31 @@ The exported lnL is differentiable in the *fit* coordinates the GP was trained o
 physical parameters would require a JAX reimplementation of CIP's coordinate
 transforms — out of scope here, noted as future work.
 
+## Coordinates matter (a lot)
+
+The single biggest lever on fit quality is **which coordinates you fit in** — not
+the interpolator. A stationary GP fits a far simpler surface in RIFT's decorrelated
+coordinates than in raw `(m1, m2, s1z, s2z, lambda1, lambda2)`. For low-mass / BNS
+(e.g. GW170817), fit in `mu1, mu2, delta_mc, LambdaTilde, DeltaLambdaTilde`, where
+`mu1, mu2` are Morisaki's orthogonalized PN-phase combinations (`RIFT/misc/tools.py`)
+that decorrelate chirp-mass/mass-ratio/spin at low mass.
+
+In CIP this is done with the parameter flags, e.g.:
+
+```
+--parameter-implied mu1 --parameter-implied mu2 --parameter-nofit mc \
+--parameter delta_mc --parameter-nofit s1z --parameter-nofit s2z \
+--parameter-implied LambdaTilde --parameter-implied DeltaLambdaTilde \
+--parameter-nofit lambda1 --parameter-nofit lambda2
+```
+
+`--parameter` / `--parameter-implied` form the fit coordinates the GP sees;
+`--parameter-nofit` are sampled but only used to derive the implied ones. The
+conversion is `lalsimutils.convert_waveform_coordinates`; CIP applies it before the
+fit. For offline experiments, `benchmark/datasets.to_fit_coordinates` /
+`BNS_FIT_COORDS` wrap the same transform. On GW170817, naive→good coordinates cut
+SVGP peak-weighted rmse from ~3.0 to ~2.2 nats (and the dimension from 6 to 5).
+
 ## Use from CIP
 
 ```
