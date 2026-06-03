@@ -1605,6 +1605,104 @@ class EOSSequenceLandry:
         my_eos  = EOSFromTabularData(name=name_to_use, eos_data=dat_copy,**kwargs)  # tabular data inputs need to be cgs and in correct units
         return my_eos
 
+class EOSSequenceNMB(EOSSequenceLandry):
+    """Drop-in reader for the NuclearMatter-Backend ``NSSequence`` HDF5 format.
+
+    The NSSequence file stores every quantity as a function of central
+    pseudo-enthalpy h_c (monotone along the sequence), with an explicit ``stable``
+    flag, in a single ``(n_eos, n_pts, n_fields)`` dataset (see
+    docs/rift-sequence-audit.md in NuclearMatter-Backend).  This subclass reads that
+    file, extracts the **stable rising branch** (M increasing up to M_max) for each
+    EOS into the same in-memory ``eos_ns_tov`` dict of {M,R,Lambda} structured arrays
+    that EOSSequenceLandry uses -- so all inherited accessors
+    (``lambda_of_m_indx``, ``R_of_m_indx``, ``m_max_of_indx``, ``lookup_closest``,
+    ``oned_order_values``) work unchanged and are branch-safe by construction.
+
+    Only ``load_ns`` is honoured (TOV sequence); the optional microphysical EOS
+    tables are not read here (use the legacy emitter / EOSSequenceLandry for those).
+    """
+
+    @staticmethod
+    def _stable_rising(M, R, Lam, stable):
+        ok = np.isfinite(M) & (M > 0)
+        M, R, Lam, st = M[ok], R[ok], Lam[ok], stable[ok] > 0.5
+        if M.size < 2:
+            return M, R, Lam
+        imax = int(np.argmax(np.where(st, M, -np.inf)))
+        M, R, Lam = M[:imax + 1], R[:imax + 1], Lam[:imax + 1]
+        o = np.argsort(M)
+        return M[o], R[o], Lam[o]
+
+    def __init__(self, name=None, fname=None, load_eos=False, load_ns=True,
+                 oned_order_name=None, oned_order_mass=None, no_sort=True,
+                 verbose=False, eos_tables_units=None):
+        import json
+        import h5py
+        self.name = name
+        self.fname = fname
+        self.eos_ids = None
+        self.eos_names = None
+        self.eos_tables = None
+        self.eos_tables_units = None
+        self.eos_ns_tov = None
+        self.oned_order_name = None
+        self.oned_order_mass = oned_order_mass
+        self.oned_order_values = None
+        self.oned_order_indx_original = None
+        self.oned_order_indx_sorted = None
+        self.oned_order_sorted = False
+        self.verbose = verbose
+
+        with h5py.File(self.fname, 'r') as f:
+            rep = str(f.attrs.get("representation", "tabular_hc/1"))
+            if not rep.startswith("tabular"):
+                raise NotImplementedError(
+                    "EOSSequenceNMB: representation {!r} not supported "
+                    "(reserved for future compressed/functional representations)".format(rep))
+            fields = json.loads(f.attrs["fields"])
+            col = {k: j for j, k in enumerate(fields)}
+            seq = f["sequence"][:]                      # (n_eos, n_pts, n_fields)
+
+        n_eos = seq.shape[0]
+        self.eos_names = np.array(["eos_{}".format(k) for k in range(n_eos)], dtype=str)
+        self.eos_ids = list(range(n_eos))
+        self.eos_ns_tov = {}
+        for k in range(n_eos):
+            s = seq[k]
+            M, R, Lam = self._stable_rising(s[:, col["M"]], s[:, col["R"]],
+                                            s[:, col["Lambda"]], s[:, col["stable"]])
+            rec = np.zeros(M.size, dtype=[("M", "f8"), ("R", "f8"), ("Lambda", "f8")])
+            rec["M"], rec["R"], rec["Lambda"] = M, R, Lam
+            self.eos_ns_tov["eos_{}".format(k)] = rec
+
+        # Build the 1-D ordering statistic exactly as EOSSequenceLandry does.
+        create_order = False
+        if oned_order_name in ('R', 'r'):
+            create_order, self.oned_order_name = True, 'R'
+        if oned_order_name in ('Lambda', 'lambda'):
+            create_order, self.oned_order_name = True, 'Lambda'
+        if not self.oned_order_mass:
+            create_order = False
+        if create_order:
+            self.oned_order_indx_original = np.arange(len(self.eos_names))
+            vals = np.zeros(len(self.eos_names))
+            for indx in range(len(self.eos_names)):
+                if self.oned_order_name == 'Lambda':
+                    vals[indx] = self.lambda_of_m_indx(self.oned_order_mass, indx)
+                else:
+                    vals[indx] = self.R_of_m_indx(self.oned_order_mass, indx)
+            self.oned_order_indx_sorted = np.argsort(vals)
+            if no_sort:
+                self.oned_order_values = vals
+            else:
+                self.eos_names = self.eos_names[self.oned_order_indx_sorted]
+                self.oned_order_values = vals[self.oned_order_indx_sorted]
+                self.oned_order_indx_original = self.oned_order_indx_original[self.oned_order_indx_sorted]
+                self.oned_order_indx_sorted = np.arange(len(self.eos_names))
+                self.oned_order_sorted = True
+        return None
+
+
 ####
 #### General lalsimulation interfacing
 ####
