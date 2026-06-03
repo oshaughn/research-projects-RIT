@@ -93,12 +93,39 @@ Ordered roughly by dependency, not committed dates:
 3. **Population-inference hookup.** Provide a clean numpyro-friendly loader so an
    exported per-event lnL drops into an AD population model. (Adjacent: the
    `gwkokab` work.)
-4. **Derivative-aware sampler for CIP.** Swap/augment the CIP integrator with an
-   HMC/flow sampler that consumes `lnL_and_grad` from the exported GP. This is
-   where the GP's AD pays for its fit cost — large-SNR efficiency.
+4. **Derivative-aware sampler (clean JAX path).** Done in prototype:
+   `applications/jax_cip.py` runs numpyro NUTS on the differentiable RFF fit in
+   decorrelated coords (GW170817: ESS ~ few hundred in ~10s, sensible posterior).
+   Next: priors/Jacobians for science-grade posteriors, convergence diagnostics,
+   and broader coordinate/event coverage. Built as a separate path, not a legacy
+   CIP retrofit (see Architecture above).
 5. **ILE cupy→JAX likelihood port + derivative-aware extrinsic sampler.** The big
    one: a differentiable ILE likelihood end-to-end. Enables differentiable
    extrinsic marginalization, not just a differentiable surrogate of its output.
+
+## Architecture: clean JAX path, not a CIP retrofit
+
+Decision: rather than shoehorn JAX into the ~2000-line legacy CIP (a Rube-Goldberg
+risk), the JAX use cases live in a **separate, clean pure-JAX path**
+(`applications/jax_cip.py`): load ILE → good fit coords → differentiable RFF fit →
+numpyro NUTS → physical-parameter AD hook. The legacy CIP stays the production
+path, untouched. The two will inevitably drift in feature parity, but the JAX use
+cases are *qualitatively different* (gradient sampling, AD population inference)
+and far simpler to manage on their own than as a bolt-on. Coordinate transforms
+are reimplemented in pure JAX (`coordinates.py`) but validated against the legacy
+NumPy source of truth; the legacy transforms are not modified.
+
+**Sampling lesson (demonstrated on GW170817):** sample in the *decorrelated fit*
+coordinates (mu1, mu2, …), with the prior bounded to the training support. There
+NUTS mixes well and returns a sensible posterior (LambdaTilde ~ 226). Sampling in
+raw physical (m1, m2) reintroduces the curved chirp-mass degeneracy the mu coords
+exist to remove, and a diagonal-metric sampler chokes (ESS ~ 3). The
+physical-parameter *gradient* is still produced (the population-inference hook),
+evaluated at in-support points — it just isn't used as the sampling geometry.
+
+**Performance caveat:** all timings in this repo were measured on an old CPU box
+with a weak GPU. Production hardware is far faster; treat the numbers as *relative*
+(method-vs-method, scaling trends), not absolute targets.
 
 ## Design choices (and why)
 
