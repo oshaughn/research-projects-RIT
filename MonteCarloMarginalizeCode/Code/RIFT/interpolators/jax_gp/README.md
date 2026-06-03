@@ -123,6 +123,24 @@ python -m RIFT.interpolators.jax_gp.benchmark.scaling_study --out study.jsonl \
 `benchmark/datasets.py` (`load_ile_net`) loads real RIFT ILE `.net`/`.composite`
 output so methods can be tested on production lnL surfaces, not only synthetics.
 
+## Applications (`applications/`)
+
+The use cases that justify a differentiable surrogate over the faster non-AD RF:
+
+- `export_artifact.py` — CLI packaging a RIFT ILE `.net` file into a self-contained
+  differentiable lnL export (good fit coordinates, MC errors, peak cut):
+  ```
+  python -m RIFT.interpolators.jax_gp.applications.export_artifact \
+      --net all.net --out gw170817_rff --coords bns
+  ```
+- `diff_sampler.py` — gradient-based sampling (numpyro NUTS / flowMC) of the fitted
+  lnL vs a gradient-free baseline, demonstrating the high-SNR efficiency win:
+  ```
+  python -m RIFT.interpolators.jax_gp.applications.diff_sampler --demo synthetic
+  ```
+
+See `DESIGN.md` for the rationale and roadmap, and `applications/{ARTIFACT,SAMPLER_NOTES}.md`.
+
 ## Tests
 
 ```

@@ -117,11 +117,25 @@ Ordered roughly by dependency, not committed dates:
   physical parameters needs a JAX reimplementation of the coordinate transforms —
   deferred (would also be needed for a fully-AD CIP sampler).
 
-## Current benchmark findings (evidence, not final)
+## Current benchmark findings
 
-- RFF currently **beats** SVGP on the synthetic sweep and is faster
-  (d=12, N=2000: RFF rmse 0.26 vs SVGP 1.14; both grad-cosine ≈ 1.0). RFF is the
-  strong AD candidate today; SVGP needs the tuning in roadmap step 2.
-- Both scalable methods improve with N (good scaling) and have near-exact gradients.
-- On GW170817 the GP modestly beats RF on accuracy but not on speed — exactly the
-  tradeoff above: we buy AD (and the few-evaluations regime), not raw throughput.
+- **Scaling sweep (16 cells: {svgp,rff} × d∈{8,12} × N∈{2k,20k} × {correlated_gaussian,
+  sharp_peak}) — RFF beats SVGP on every cell and is faster.** E.g. correlated_gaussian
+  d=12 N=20k: RFF rmse 0.21 vs SVGP 0.58; sharp_peak d=12 N=20k: RFF 0.08 vs SVGP 0.25.
+  Both improve with N and have grad-cosine ≈ 0.99–1.0. This is why RFF is the default;
+  making SVGP competitive is roadmap step 2.
+- On GW170817 the GP modestly beats RF on accuracy but not on speed — we buy AD (and the
+  few-evaluations regime), not raw throughput.
+
+## AD applications (built — see `applications/`)
+
+The use cases that justify the GP, now prototyped:
+
+- **`export_artifact.py`** — packages a real ILE run into a self-contained
+  differentiable lnL (e.g. a 30 KB GW170817 RFF export in BNS coords). This is the
+  "package it sanely" product downstream users consume.
+- **`diff_sampler.py`** — gradient-based sampling (numpyro NUTS, flowMC) of the
+  fitted lnL. On a sharp synthetic posterior NUTS recovers the analytic answer at
+  **~300× higher ESS-per-lnL-evaluation** than a matched-budget gradient-free
+  random walk — a direct demonstration of the high-SNR sampling payoff (roadmap
+  step 4, here on the surrogate; the real CIP-integrator swap is the next step).
