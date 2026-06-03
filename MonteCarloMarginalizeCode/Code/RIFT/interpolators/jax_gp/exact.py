@@ -45,9 +45,22 @@ class ExactGPInterpolator(BaseInterpolator):
         # Per-point MC variance on lnL (0 if not provided -> homoscedastic).
         self.yvar = (yerr_w ** 2) if yerr_w is not None else jnp.zeros(Xw.shape[0])
 
+        # CONSTRAIN the lengthscale to ~the peak width (high-lnL spread). Free
+        # marginal-likelihood fitting drives it long (global trend / far anchors) ->
+        # under-curved peak -> posterior too broad. Bounding it forces the sharp
+        # curvature to be captured (cf. sklearn length_scale_bounds in legacy CIP).
+        yw_np = np.asarray(yw)
+        dlnL = (yw_np.max() - yw_np) * self.y_std        # raw lnL below the peak
+        peak_mask = dlnL < 2.0                           # ~near-peak (curvature) region
+        if int(peak_mask.sum()) < max(20, 3 * d):
+            peak_mask = dlnL < 10.0
+        peak_std = np.clip(np.std(np.asarray(Xw)[peak_mask], axis=0), 1e-3, 3.0)
+        log_ls_lo = jnp.asarray(np.log(0.2 * peak_std))
+        log_ls_hi = jnp.asarray(np.log(1.0 * peak_std))
+
         params = {
             "log_amp": jnp.asarray(0.0),
-            "log_scale": jnp.zeros(d),                    # ARD: per-dim lengthscale
+            "log_scale": jnp.asarray(np.log(peak_std)),   # ARD: peak-matched init
             "log_sn": jnp.asarray(0.5 * np.log(0.01)),
         }
 
@@ -62,7 +75,9 @@ class ExactGPInterpolator(BaseInterpolator):
         def step(params, state):
             loss, g = jax.value_and_grad(nll)(params)
             updates, state = opt.update(g, state)
-            return optax.apply_updates(params, updates), state, loss
+            params = optax.apply_updates(params, updates)
+            params["log_scale"] = jnp.clip(params["log_scale"], log_ls_lo, log_ls_hi)
+            return params, state, loss
 
         for _ in range(self.n_opt_steps):
             params, state, _loss = step(params, state)

@@ -54,19 +54,31 @@ class SVGPInterpolator(BaseInterpolator):
         return jnp.exp(2.0 * log_amp)
 
     # --- inducing-point initialization ---------------------------------- #
-    def _init_inducing(self, Xw, M):
-        """k-means centroids (better coverage than a random subset); fall back to
-        a random subset if scikit-learn is unavailable."""
+    def _init_inducing(self, Xw, M, yw=None):
+        """Place inducing points where the POSTERIOR mass is (k-means on points
+        resampled by exp(lnL)). Spreading them over the whole training range (plain
+        k-means) leaves the sharp peak under-covered, so the ELBO can't support a
+        short lengthscale and the GP over-smooths. Concentrating them near the peak
+        lets a short lengthscale resolve the sharp direction (e.g. mc/mu1)."""
+        Xw = np.asarray(Xw)
         if M >= len(Xw):
             return Xw
+        rng = np.random.default_rng(self.seed)
+        idx = np.arange(len(Xw))
+        if yw is not None:
+            w = np.exp(np.asarray(yw) - np.asarray(yw).max())
+            w = w / w.sum()
+            # oversample the posterior region, but keep some broad coverage too
+            n_draw = min(len(Xw), 20 * M)
+            idx = rng.choice(len(Xw), size=n_draw, replace=True, p=w)
+        pts = Xw[idx]
         try:
             from sklearn.cluster import MiniBatchKMeans
             km = MiniBatchKMeans(n_clusters=M, random_state=self.seed,
                                  n_init=3, batch_size=max(256, 3 * M))
-            return km.fit(Xw).cluster_centers_
+            return km.fit(pts).cluster_centers_
         except Exception:
-            rng = np.random.default_rng(self.seed)
-            return Xw[rng.choice(len(Xw), size=M, replace=False)]
+            return pts[rng.choice(len(pts), size=M, replace=False)]
 
     # --- collapsed ELBO (Titsias, heteroscedastic) --------------------- #
     def _neg_elbo(self, params, Xw, yw, yvar):
@@ -102,14 +114,36 @@ class SVGPInterpolator(BaseInterpolator):
     def _fit_whitened(self, Xw, yw, yerr_w):
         n, d = Xw.shape
         M = min(self.n_inducing, max(2, n // 2))
-        Z0 = self._init_inducing(np.asarray(Xw), M)
+        Z0 = self._init_inducing(np.asarray(Xw), M, yw=np.asarray(yw))
         # Per-point MC variance on lnL (0 -> homoscedastic learnable noise only).
         yvar = (yerr_w ** 2) if yerr_w is not None else jnp.zeros(n)
+
+        # ARD lengthscale init = whitened spread of the PEAK-REGION points (top-decile
+        # in lnL), per dimension. A flat init (lengthscale 1.0 in whitened units) is
+        # ~100x too long for sharp directions (e.g. mu1/mc), so Adam can't reach the
+        # short lengthscale that resolves the peak -> the GP over-smooths and the
+        # posterior comes out far too broad. Starting at the peak width fixes this:
+        # sharp directions get short lengthscales, broad ones (tides) stay long.
+        yw_np = np.asarray(yw)
+        dlnL = (yw_np.max() - yw_np) * self.y_std        # raw lnL below the peak
+        peak_mask = dlnL < 2.0                           # ~near-peak (curvature) region
+        if int(peak_mask.sum()) < max(20, 3 * d):
+            peak_mask = dlnL < 10.0
+        peak_std = np.clip(np.std(np.asarray(Xw)[peak_mask], axis=0), 1e-3, 3.0)
+        log_scale0 = jnp.asarray(np.log(peak_std))
+        # CONSTRAIN the lengthscale to ~the peak width (bounds from the high-lnL
+        # spread). Free hyperparameter fitting drives the lengthscale long (pulled by
+        # the global trend / far-field anchors), so the GP under-curves the peak and
+        # the posterior comes out far too broad. Bounding it (cf. sklearn's
+        # length_scale_bounds in the legacy CIP GP) forces the fit to capture the
+        # sharp curvature. Projected (clipped) gradient steps enforce the box.
+        log_ls_lo = jnp.asarray(np.log(0.2 * peak_std))
+        log_ls_hi = jnp.asarray(np.log(1.0 * peak_std))
 
         params = {
             "Z": jnp.asarray(Z0),
             "log_amp": jnp.asarray(0.0),
-            "log_scale": jnp.zeros(d),                # ARD: one lengthscale per dim
+            "log_scale": log_scale0,                  # ARD: per-dim, peak-matched init
             "log_sn": jnp.asarray(0.5 * np.log(0.01)),
         }
         opt = optax.adam(self.lr)
@@ -119,7 +153,9 @@ class SVGPInterpolator(BaseInterpolator):
         def step(params, state):
             loss, g = jax.value_and_grad(self._neg_elbo)(params, Xw, yw, yvar)
             updates, state = opt.update(g, state)
-            return optax.apply_updates(params, updates), state, loss
+            params = optax.apply_updates(params, updates)
+            params["log_scale"] = jnp.clip(params["log_scale"], log_ls_lo, log_ls_hi)
+            return params, state, loss
 
         for _ in range(self.n_opt_steps):
             params, state, _loss = step(params, state)
