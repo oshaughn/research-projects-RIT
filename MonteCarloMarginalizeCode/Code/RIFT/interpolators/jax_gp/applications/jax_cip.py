@@ -131,40 +131,39 @@ def sample_lnL(lnL_fn, loc, scale, bounds=None, num_warmup=500, num_samples=2000
             "mean": samples.mean(0), "std": samples.std(0)}
 
 
-def sample_flow_is(lnL_fn, loc, scale, n_samples=8000, prior_sigma=3.0,
-                   n_chains=30, n_local=60, n_global=60, n_train_loops=8,
-                   n_prod_loops=2, n_epochs=15, seed=0,
+def sample_flow_is(lnL_fn, lo, hi, scale_hint=None, init_theta=None,
+                   n_samples=8000, n_chains=30, n_local=60, n_global=60,
+                   n_train_loops=8, n_prod_loops=2, n_epochs=15, seed=0,
                    rq_n_bins=12, rq_n_layers=6):
-    """Flow-based importance sampling -- the efficient alternative to long NUTS.
+    """Flow-based importance sampling on the CLI prior box (sigmoid-into-box).
 
-    A flowMC run (gradient MALA local moves + normalizing-flow training) explores
-    the target and *learns a normalizing flow* q(theta) ~ posterior. We then use
-    that flow as the sampling model: draw i.i.d. samples from it and importance-
-    weight by exp(lnL + log_prior - log_q). Efficiency (ESS) is set by how well the
-    flow matches the posterior, NOT by MCMC autocorrelation -- so a well-trained
-    flow gives near-i.i.d. samples, and the weights also yield the evidence Z.
+    A flowMC run (gradient MALA + normalizing-flow training) learns a flow q over an
+    unconstrained latent u; a per-coordinate sigmoid maps u into the prior box
+    ``theta = lo + (hi-lo)*sigmoid(u)``, so EVERY draw is inside the prior support by
+    construction. The CLI ranges (--mc-range / --chi-max / --lambda-* / --eta-range)
+    ARE the prior and are trusted exactly -- the grid may extend past them on purpose,
+    but we sample only the prior. The flow then absorbs the box geometry (including
+    sharp directions like mc within a narrow --mc-range) into its learned shape.
 
-    Sampling is done in whitened coordinates ``theta = loc + scale * u`` with a broad
-    Normal prior on ``u`` (smooth, so the real-valued flow is well-posed; the GP's
-    mean-reversion outside the training region keeps importance weights from chasing
-    extrapolation).
-
-    Returns equal-weight resampled ``samples`` plus ``ess``, ``ess_frac``, ``logZ``.
+    i.i.d. flow draws + weights exp(lnL + log_jac - log_q) give near-i.i.d. samples and
+    the evidence Z. (Efficiency improves with a narrower CLI box and more flow training.)
     """
     import jax
     import jax.numpy as jnp
     from flowMC.Sampler import Sampler
     from flowMC.resource_strategy_bundle.RQSpline_MALA import RQSpline_MALA_Bundle
 
-    loc = jnp.asarray(loc); scale = jnp.asarray(scale); d = int(loc.shape[0])
-    inv_sig2 = 1.0 / prior_sigma ** 2
-    log_prior_norm = -0.5 * d * np.log(2.0 * np.pi * prior_sigma ** 2)
+    lo = jnp.asarray(lo); hi = jnp.asarray(hi); span = hi - lo
+    d = int(lo.shape[0])
 
-    def log_prior(u):
-        return -0.5 * jnp.sum(u ** 2) * inv_sig2 + log_prior_norm
+    def theta_of_u(u):
+        return lo + span * jax.nn.sigmoid(u)
+
+    def log_jac(u):
+        return jnp.sum(jnp.log(span) + jax.nn.log_sigmoid(u) + jax.nn.log_sigmoid(-u))
 
     def target(u, data=None):
-        return lnL_fn(loc + scale * u) + log_prior(u)
+        return lnL_fn(theta_of_u(u)) + log_jac(u)
 
     key = jax.random.PRNGKey(seed)
     key, kb, ks, ki, kd = jax.random.split(key, 5)
@@ -174,27 +173,33 @@ def sample_flow_is(lnL_fn, loc, scale, n_samples=8000, prior_sigma=3.0,
         n_training_loops=n_train_loops, n_production_loops=n_prod_loops,
         n_epochs=n_epochs, rq_spline_n_bins=rq_n_bins, rq_spline_n_layers=rq_n_layers)
     sampler = Sampler(d, n_chains, ks, resource_strategy_bundles=bundle)
-    init = 0.3 * jax.random.normal(ki, (n_chains, d))
+    if init_theta is not None:
+        frac = np.clip((np.asarray(init_theta, float) - np.asarray(lo))
+                       / np.asarray(span), 1e-3, 1 - 1e-3)
+        u0 = np.log(frac / (1 - frac))
+        init = jnp.asarray(u0)[None, :] + 0.3 * jax.random.normal(ki, (n_chains, d))
+    else:
+        init = 0.3 * jax.random.normal(ki, (n_chains, d))
     t0 = time.time()
     sampler.sample(init, {})
     train_wall = time.time() - t0
 
     flow = sampler.resources["model"]
-    u = flow.sample(kd, n_samples)                       # i.i.d. flow draws [N, d]
-    log_q = jax.vmap(flow.log_prob)(u)
-    log_p = jax.vmap(target)(u)
-    log_w = np.array(log_p - log_q, dtype=np.float64)      # copy -> writable
-    logZ = float(_logsumexp(log_w) - np.log(n_samples))   # evidence over the prior
-    log_w = log_w - log_w.max()
+    u = flow.sample(kd, n_samples)
+    theta = np.asarray(jax.vmap(theta_of_u)(u))
+    log_q = np.asarray(jax.vmap(flow.log_prob)(u))
+    log_p = np.asarray(jax.vmap(target)(u))
+    log_w = np.array(log_p - log_q, dtype=np.float64)
+    logZ = float(_logsumexp(log_w) - np.log(n_samples))
+    log_w = log_w - np.max(log_w)
     w = np.exp(log_w); w = w / w.sum()
     ess = float(1.0 / np.sum(w ** 2))
 
     rng = np.random.default_rng(seed)
     idx = rng.choice(n_samples, size=n_samples, replace=True, p=w)
-    u_np = np.asarray(u)[idx]
-    samples = np.asarray(loc) + np.asarray(scale) * u_np
+    samples = theta[idx]
     return {"samples": samples, "ess": ess, "ess_frac": ess / n_samples,
-            "train_wall": train_wall, "logZ": logZ,
+            "train_wall": train_wall, "logZ": logZ, "frac_in_box": 1.0,
             "mean": samples.mean(0), "std": samples.std(0)}
 
 
@@ -259,6 +264,56 @@ def run(net_path, lnL_offset=20.0, cap_points=6000, n_features=512,
         out["physical_result"] = pres
 
     return out
+
+
+def _parse_pair(s):
+    """Parse a legacy '[a,b]' range string -> [float, float] (or None)."""
+    if not s:
+        return None
+    try:
+        import ast
+        v = ast.literal_eval(s)
+        return [float(v[0]), float(v[1])]
+    except Exception:
+        return None
+
+
+def _coord_box(low_level, opts, Xlow):
+    """Per-coord uniform-prior box [lo, hi] honouring the legacy range args
+    (--mc-range / --eta-range / --mtot-range / --chi-max / --lambda-min/max),
+    falling back to the legacy prior_range_map defaults, then the data range.
+
+    This is the authoritative support: the pipeline passes the correct narrow
+    --mc-range for the event, so mc is NOT a wide default and we do not waste the
+    sampler outside the measured region.
+    """
+    import math
+    chi_max = float(getattr(opts, "chi_max", 1.0) or 1.0)
+    lam_min = float(getattr(opts, "lambda_min", 0.01) or 0.0)
+    lam_max = float(getattr(opts, "lambda_max", 4000.0) or 4000.0)
+    mc_r = _parse_pair(getattr(opts, "mc_range", None))
+    eta_r = _parse_pair(getattr(opts, "eta_range", None))
+    mtot_r = _parse_pair(getattr(opts, "mtot_range", None))
+    dmc_r = None
+    if eta_r:   # eta = 0.25(1 - delta_mc^2)  ->  delta_mc = sqrt(1 - 4 eta)
+        d_hi = math.sqrt(max(0.0, 1.0 - 4.0 * eta_r[0]))
+        d_lo = math.sqrt(max(0.0, 1.0 - 4.0 * min(eta_r[1], 0.25)))
+        dmc_r = [max(0.0, d_lo), min(0.999, d_hi)]
+    explicit = {"mc": mc_r, "eta": eta_r, "mtot": mtot_r, "delta_mc": dmc_r}
+    defaults = {
+        "mc": [0.9, 250.0], "eta": [0.01, 0.2499999], "mtot": [1.0, 300.0],
+        "delta_mc": [0.0, 0.9], "q": [0.01, 1.0],
+        "s1z": [-0.999 * chi_max, 0.999 * chi_max],
+        "s2z": [-0.999 * chi_max, 0.999 * chi_max],
+        "lambda1": [lam_min, lam_max], "lambda2": [lam_min, lam_max],
+    }
+    lo, hi = [], []
+    for i, n in enumerate(low_level):
+        r = explicit.get(n) or defaults.get(n)
+        if r is None:
+            r = [float(Xlow[:, i].min()), float(Xlow[:, i].max())]
+        lo.append(r[0]); hi.append(r[1])
+    return np.array(lo), np.array(hi)
 
 
 def _physical_to_lowlevel(X6, low_level_names):
@@ -353,12 +408,26 @@ def run_pipeline(opts, ignored):
                                     n_opt_steps=opts.n_opt_steps,
                                     seed=opts.seed).fit(Xfit, y, y_errors=yerr)
     model.coord_names = list(fit_coords)
-    print("[jax_cip] RFF fit on {} pts in {:.1f}s".format(len(y), time.time() - t0))
+    fit_wall = time.time() - t0
+    print("[jax_cip] RFF fit on {} pts in {:.1f}s".format(len(y), fit_wall))
 
     Xlow = _physical_to_lowlevel(X6, low_level)
-    lo, hi = Xlow.min(0), Xlow.max(0)
-    pad = 0.02 * (hi - lo)
-    bounds = (lo - pad, hi + pad)
+    # Uniform-prior box from the pipeline's range args (authoritative support).
+    box_lo, box_hi = _coord_box(low_level, opts, Xlow)
+    if "mc" in low_level and _parse_pair(getattr(opts, "mc_range", None)) is None:
+        print("[jax_cip] WARNING: no --mc-range given -> wide default mc box; pass "
+              "the event's --mc-range so the sampler isn't wasted off-peak.")
+    # TRUST the CLI ranges as the prior box (the grid may deliberately extend past
+    # them; we sample only the prior). Use the in-prior MAP to seed the flow chains.
+    in_prior = np.all((Xlow >= box_lo) & (Xlow <= box_hi), axis=1)
+    if int(in_prior.sum()) < 10:
+        raise SystemExit("jax_cip: fewer than 10 evaluations inside the prior box; "
+                         "check the --mc-range / --chi-max / --lambda-* ranges.")
+    init_theta = Xlow[in_prior][np.argmax(y[in_prior])]
+    print("[jax_cip] {} / {} evals in prior box; sampling the prior support "
+          "{}".format(int(in_prior.sum()), len(y),
+                      {n: [round(float(box_lo[i]), 4), round(float(box_hi[i]), 4)]
+                       for i, n in enumerate(low_level)}))
 
     tf_low_to_fit = coordinates.make_transform(low_level, fit_coords)
 
@@ -367,20 +436,28 @@ def run_pipeline(opts, ignored):
 
     logZ = None
     if opts.sampler == "flow":
-        # Train a normalizing flow (flowMC) and use it as the sampling model:
-        # i.i.d. draws + importance weights -> efficiency decoupled from MCMC mixing,
-        # and an evidence estimate. The local MALA moves do the peak-finding.
-        res = sample_flow_is(lnL_low, Xlow.mean(0), Xlow.std(0),
+        # Train a normalizing flow (flowMC) and use it as the sampling model: i.i.d.
+        # draws + importance weights -> efficiency decoupled from MCMC mixing, plus an
+        # evidence estimate. Affine map scaled to posterior width; the CLI range box is
+        # a hard support clip on the weights (lambda>=0, mc-range, chi-max respected).
+        res = sample_flow_is(lnL_low, box_lo, box_hi, init_theta=init_theta,
                              n_samples=max(opts.num_samples, 8000),
                              n_train_loops=opts.flow_train_loops, seed=opts.seed)
         logZ = res["logZ"]
-        print("[jax_cip] flow-IS: train {:.1f}s, ESS {:.0f} ({:.0%} of draws), "
-              "logZ={:.2f}".format(res["train_wall"], res["ess"],
-                                   res["ess_frac"], logZ))
+        sample_wall = res["train_wall"]
+        total = fit_wall + sample_wall
+        print("[jax_cip] flow-IS: train {:.1f}s, ESS {:.0f} ({:.1%} of draws), "
+              "{:.0%} in-box, logZ={:.2f}".format(
+                  sample_wall, res["ess"], res["ess_frac"],
+                  res["frac_in_box"], logZ))
+        print("[jax_cip] runtime/effective-sample = {:.3f}s "
+              "(total {:.0f}s: fit {:.0f}s + flow {:.0f}s, ESS {:.0f})".format(
+                  total / max(res["ess"], 1e-9), total, fit_wall, sample_wall,
+                  res["ess"]))
     else:
-        res = sample_lnL(lnL_low, Xlow.mean(0), 3.0 * Xlow.std(0), bounds=bounds,
-                         num_warmup=opts.num_warmup, num_samples=opts.num_samples,
-                         seed=opts.seed)
+        res = sample_lnL(lnL_low, Xlow.mean(0), 3.0 * Xlow.std(0),
+                         bounds=(box_lo, box_hi), num_warmup=opts.num_warmup,
+                         num_samples=opts.num_samples, seed=opts.seed)
         print("[jax_cip] NUTS in low-level coords: {:.1f}s, ESS(min) {:.0f}".format(
             res["wall_clock"], res["ess_min"]))
     for i, name in enumerate(low_level):
@@ -411,6 +488,13 @@ def _build_parser():
     p.add_argument("--lnL-offset", type=float, default=20.0)
     p.add_argument("--cap-points", type=int, default=8000)
     p.add_argument("--sigma-cut", type=float, default=0.6)
+    # prior-support ranges (legacy names) -> the uniform-prior box per coordinate
+    p.add_argument("--mc-range", default=None, help="chirp-mass range '[mc1,mc2]'")
+    p.add_argument("--eta-range", default=None, help="eta range '[e1,e2]'")
+    p.add_argument("--mtot-range", default=None, help="total-mass range '[m1,m2]'")
+    p.add_argument("--chi-max", type=float, default=1.0)
+    p.add_argument("--lambda-min", type=float, default=0.01)
+    p.add_argument("--lambda-max", type=float, default=4000.0)
     # waveform metadata for the output XML (legacy names)
     p.add_argument("--approx-output", default="IMRPhenomD_NRTidalv2")
     p.add_argument("--fref", type=float, default=20.0)
