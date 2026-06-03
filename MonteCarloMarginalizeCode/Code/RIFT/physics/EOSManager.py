@@ -1646,6 +1646,30 @@ class EOSSequenceNMB(EOSSequenceLandry):
         return None
 
 
+def EOSSequenceFromFile(fname=None, **kwargs):
+    """Open an EOS sequence file, auto-detecting the format.
+
+    Returns an ``EOSSequenceNMB`` for NuclearMatter-Backend ``NSSequence`` files
+    (identified by the ``representation`` / ``schema_version`` HDF5 attribute) and an
+    ``EOSSequenceLandry`` otherwise.  Both expose the identical consumer API
+    (``oned_order_values``, ``lambda_of_m_indx``, ``R_of_m_indx``, ``m_max_of_indx``,
+    ``lookup_closest``), so callers can pass either format transparently.
+    """
+    import h5py
+    is_nmb = False
+    try:
+        with h5py.File(fname, 'r') as f:
+            a = f.attrs
+            rep = str(a.get("representation", ""))
+            schema = str(a.get("schema_version", ""))
+            is_nmb = rep.startswith("tabular") or schema.startswith("nmbackend")
+    except Exception:
+        is_nmb = False
+    if is_nmb:
+        return EOSSequenceNMB(fname=fname, **kwargs)
+    return EOSSequenceLandry(fname=fname, **kwargs)
+
+
 ####
 #### General lalsimulation interfacing
 ####
