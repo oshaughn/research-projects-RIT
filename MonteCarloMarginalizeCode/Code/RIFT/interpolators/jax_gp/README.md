@@ -138,6 +138,17 @@ The use cases that justify a differentiable surrogate over the faster non-AD RF:
   ```
   python -m RIFT.interpolators.jax_gp.applications.diff_sampler --demo synthetic
   ```
+- `jax_cip.py` — a clean, standalone pure-JAX posterior path (load ILE → fit →
+  NUTS) with a **legacy-CIP-compatible CLI** for pipeline-level hot-swap: it
+  accepts the legacy argument surface inclusively, honours `--parameter*` /
+  `--fname` / cuts / `--n-output-samples`, and writes the same
+  `--fname-output-samples` XML + `_lnL.dat`. (I/O contract done; NUTS sample
+  quality on sharp real surrogates is the science-grade follow-up — see DESIGN.md.)
+  ```
+  python -m RIFT.interpolators.jax_gp.applications.jax_cip --fname all.net \
+      --parameter delta_mc --parameter-implied mu1 mu2 LambdaTilde DeltaLambdaTilde \
+      --parameter-nofit mc s1z s2z lambda1 lambda2 --fname-output-samples out
+  ```
 
 See `DESIGN.md` for the rationale and roadmap, and `applications/{ARTIFACT,SAMPLER_NOTES}.md`.
 
