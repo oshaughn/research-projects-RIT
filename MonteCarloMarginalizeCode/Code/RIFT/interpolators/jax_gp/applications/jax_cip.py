@@ -82,12 +82,9 @@ def _fit_surrogate(net_path, sigma_cut, lnL_offset, cap_points,
         np.column_stack([mc, dmc, s1z, s2z, l1, l2]),
         ["mc", "delta_mc", "s1z", "s2z", "lambda1", "lambda2"], BNS_FIT_COORDS)
 
-    keep = y > (y.max() - lnL_offset)
-    X6, Xfit, y, yerr = X6[keep], Xfit[keep], y[keep], yerr[keep]
-    rng = np.random.default_rng(seed)
-    if 0 < cap_points < len(y):
-        sel = rng.choice(len(y), size=cap_points, replace=False)
-        X6, Xfit, y, yerr = X6[sel], Xfit[sel], y[sel], yerr[sel]
+    # Tree-ring (lnL-band stratified) downselection (demo path; default rings).
+    sel = _tree_ring_select(y, cap_points if cap_points > 0 else len(y), seed=seed)
+    X6, Xfit, y, yerr = X6[sel], Xfit[sel], y[sel], yerr[sel]
 
     model = get_interpolator("rff")(n_features=n_features, n_opt_steps=n_opt_steps,
                                     seed=seed).fit(Xfit, y, y_errors=yerr)
@@ -266,6 +263,49 @@ def run(net_path, lnL_offset=20.0, cap_points=6000, n_features=512,
     return out
 
 
+def _tree_ring_select(y, n_keep, ring_edges=(2.0, 5.0, 10.0, 20.0, 40.0),
+                      min_per_ring=120, seed=0):
+    """Stratified downselection by lnL band ("tree rings").
+
+    Random capping concentrates training points near the peak, leaving the GP with
+    no anchors on the falloff -- so the fitted peak drifts (e.g. to the mc-range edge)
+    and the surrogate is locally wrong where it matters. Instead, partition points into
+    rings by how far below the peak they sit (delta = lnLmax - lnL), keep dense coverage
+    in the inner rings and a FEW anchor points in each outer (low-lnL) ring. Those
+    far-field anchors regularize the falloff and stop the peak from running away.
+
+    Returns indices to keep (<= ~n_keep, plus the per-ring floors).
+    """
+    rng = np.random.default_rng(seed)
+    y = np.asarray(y)
+    delta = y.max() - y                      # >= 0, distance below the peak
+    # Cap at the outermost edge -- do NOT include the extreme low-lnL tail: a wide
+    # dynamic range makes the RFF surrogate ring/overshoot near the peak. The rings
+    # add a few anchors on the *near* falloff to keep the peak from drifting.
+    edges = [0.0] + list(ring_edges)
+    weights = np.array([0.5 ** i for i in range(len(edges) - 1)])  # inner rings denser
+    weights = weights / weights.sum()
+    keep = []
+    for i, (a, b) in enumerate(zip(edges[:-1], edges[1:])):
+        idx = np.where((delta >= a) & (delta < b))[0]
+        if len(idx) == 0:
+            continue
+        k = min(len(idx), max(min_per_ring, int(weights[i] * n_keep)))
+        keep.append(rng.choice(idx, size=k, replace=False))
+    return np.concatenate(keep)
+
+
+def _parse_list(s, default):
+    """Parse a '[a,b,c]' string -> tuple of floats, else the default."""
+    if not s:
+        return tuple(default)
+    try:
+        import ast
+        return tuple(float(x) for x in ast.literal_eval(s))
+    except Exception:
+        return tuple(default)
+
+
 def _parse_pair(s):
     """Parse a legacy '[a,b]' range string -> [float, float] (or None)."""
     if not s:
@@ -396,20 +436,31 @@ def run_pipeline(opts, ignored):
     tf_phys_to_fit = jax.vmap(coordinates.make_transform(PHYS, fit_coords))
     Xfit = np.asarray(tf_phys_to_fit(X6))
 
-    keep = y > (y.max() - opts.lnL_offset)
-    X6, Xfit, y, yerr = X6[keep], Xfit[keep], y[keep], yerr[keep]
-    rng = np.random.default_rng(opts.seed)
-    if 0 < opts.cap_points < len(y):
-        sel = rng.choice(len(y), size=opts.cap_points, replace=False)
-        X6, Xfit, y, yerr = X6[sel], Xfit[sel], y[sel], yerr[sel]
+    # Tree-ring (lnL-band stratified) downselection: dense near the peak + a few
+    # far-field anchors per ring, so the GP sees the falloff and the peak stays put.
+    ring_edges = tuple(_parse_list(opts.downselect_rings, (2.0, 5.0, 10.0, 20.0, 40.0)))
+    sel = _tree_ring_select(y, opts.cap_points if opts.cap_points > 0 else len(y),
+                            ring_edges=ring_edges, seed=opts.seed)
+    X6, Xfit, y, yerr = X6[sel], Xfit[sel], y[sel], yerr[sel]
+    print("[jax_cip] tree-ring downselect: {} pts across rings (lnL bands {})".format(
+        len(y), ring_edges))
 
     t0 = time.time()
-    model = get_interpolator("rff")(n_features=opts.n_features,
-                                    n_opt_steps=opts.n_opt_steps,
-                                    seed=opts.seed).fit(Xfit, y, y_errors=yerr)
+    cls = get_interpolator(opts.jax_fit_method)
+    kw = {"seed": opts.seed}
+    # RFF can ring/overshoot on a sharp peak -> spurious IS spikes (ESS collapse).
+    # SVGP/exact give a smooth posterior mean that does not overshoot.
+    if opts.jax_fit_method in ("rff", "gp-jax-rff"):
+        kw.update(n_features=opts.n_features, n_opt_steps=opts.n_opt_steps)
+    elif opts.jax_fit_method in ("svgp", "gp-jax-svgp"):
+        kw.update(n_inducing=opts.n_features, n_opt_steps=opts.n_opt_steps)
+    else:
+        kw.update(n_opt_steps=opts.n_opt_steps)
+    model = cls(**kw).fit(Xfit, y, y_errors=yerr)
     model.coord_names = list(fit_coords)
     fit_wall = time.time() - t0
-    print("[jax_cip] RFF fit on {} pts in {:.1f}s".format(len(y), fit_wall))
+    print("[jax_cip] {} fit on {} pts in {:.1f}s".format(
+        opts.jax_fit_method, len(y), fit_wall))
 
     Xlow = _physical_to_lowlevel(X6, low_level)
     # Uniform-prior box from the pipeline's range args (authoritative support).
@@ -488,6 +539,9 @@ def _build_parser():
     p.add_argument("--lnL-offset", type=float, default=20.0)
     p.add_argument("--cap-points", type=int, default=8000)
     p.add_argument("--sigma-cut", type=float, default=0.6)
+    p.add_argument("--downselect-rings", default=None,
+                   help="tree-ring lnL-band edges '[2,5,10,20,40]' (delta below peak) "
+                        "for stratified downselection that keeps far-field anchors")
     # prior-support ranges (legacy names) -> the uniform-prior box per coordinate
     p.add_argument("--mc-range", default=None, help="chirp-mass range '[mc1,mc2]'")
     p.add_argument("--eta-range", default=None, help="eta range '[e1,e2]'")
@@ -505,7 +559,13 @@ def _build_parser():
                         "it as the sampling model with importance weights; nuts: "
                         "plain numpyro NUTS")
     p.add_argument("--flow-train-loops", type=int, default=5)
-    p.add_argument("--n-features", type=int, default=512)
+    p.add_argument("--jax-fit-method", default="svgp",
+                   choices=["rff", "svgp", "exact"],
+                   help="surrogate: svgp (default; smooth inducing-point GP, no "
+                        "overshoot -> high IS efficiency) | rff (fast, but rings on "
+                        "sharp peaks -> IS ESS collapse) | exact (smooth, small N only)")
+    p.add_argument("--n-features", type=int, default=512,
+                   help="RFF features / SVGP inducing points")
     p.add_argument("--n-opt-steps", type=int, default=300)
     p.add_argument("--num-warmup", type=int, default=500)
     p.add_argument("--num-samples", type=int, default=2000)
