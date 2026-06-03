@@ -514,6 +514,13 @@ elif opts.using_eos!=None and not(opts.using_eos_for_prior):
         spec_params['gamma4']=spec_param_array[3]
         eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
         my_eos = eos_base
+    elif eos_name.startswith('nmbseq:'):
+        # fixed single EOS realization from a sequence file (tabular or pca):
+        #   --using-eos nmbseq:<sequence_file.h5>:<index>
+        # The exact per-EOS-evidence ("painful") mode for sequence draws.
+        _, seq_fname, seq_indx = eos_name.split(':')
+        my_eos = EOSManager.EOSSequenceSingleIndex(fname=seq_fname,
+                                                   index=int(seq_indx))
     elif 'lal_' in eos_name:
         eos_name = eos_name.replace('lal_','')
         my_eos = EOSManager.EOSLALSimulation(name=eos_name)
