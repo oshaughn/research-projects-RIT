@@ -24,6 +24,7 @@ pip install RIFT[jax-interp]      # jax, optax, equinox, tinygp
 | `gp-jax-rff`   | `RFFInterpolator`   | random Fourier features GP (Bayesian linear regression in feature space) | O(N M²) | cheapest export; weaker on sharp/non-stationary peaks |
 | `gp-jax-svgp`  | `SVGPInterpolator`  | Titsias collapsed sparse GP (SGPR), M inducing points (k-means init) | O(N M²) | scalable production-regime default; hand-rolled pure JAX |
 | `gp-jax-exact` | `ExactGPInterpolator` | exact GP (tinygp) | O(N³) | accuracy reference baseline only — not for production N |
+| `gp-jax-quadgp`| `QuadraticPlusGPInterpolator` | Fisher-curvature quadratic core + GP residual (`--quadgp-residual {svgp,exact,rff}`) | core of the chosen residual | PE-grade on razor-sharp peaks (mc-exact); the surrogate to export for downstream use |
 
 All three use **ARD** (per-dimension lengthscales), which matters for the strongly
 anisotropic / curved degeneracies in real lnL surfaces (mc–eta, lambda1–lambda2):
@@ -61,6 +62,11 @@ The exported lnL is differentiable in the *fit* coordinates the GP was trained o
 (recorded in `meta.json` as `coord_names`). Pushing the derivative back to raw
 physical parameters would require a JAX reimplementation of CIP's coordinate
 transforms — out of scope here, noted as future work.
+
+All four methods export, including `quadgp`: it nests a *full* residual model, so it
+embeds that sub-model in the same bundle (residual arrays namespaced `_resid_*` in the
+`.npz`, residual meta under `meta["resid_meta"]`) — a single `export.save`/`export.load`
+round-trips the whole quadratic-core + residual surrogate and it stays `jax.grad`-able.
 
 ## Coordinates matter (a lot)
 
@@ -159,5 +165,5 @@ python -m RIFT.interpolators.jax_gp.test_interpolators
 ```
 
 Checks recovery of a known target, AD-vs-finite-difference gradient agreement,
-and export round-trip (including `jax.grad` on the reloaded model) for all three
-methods.
+and export round-trip (including `jax.grad` on the reloaded model) for the three
+base GP methods plus `quadgp` with both `svgp` and `exact` residuals.

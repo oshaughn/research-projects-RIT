@@ -87,7 +87,10 @@ inline scripts in the session, or fit `get_interpolator("quadgp")(...)` and IS i
 low-level coords (order: mc, delta_mc, s1z, s2z, lambda1, lambda2 — don't swap mc/delta_mc).
 
 ## Key files
-- `quad_gp.py` — quadratic core + GP residual (mc-exact). Export is TODO (nested resid).
+- `quad_gp.py` — quadratic core + GP residual (mc-exact). Export DONE: overrides
+  `export_state`/`from_state` to embed the nested residual model (its arrays under a
+  `_resid_` prefix, its meta under `meta["resid_meta"]`); round-trips cross-process and
+  stays `jax.grad`-able after load (see `test_export_roundtrip_quadgp_*`).
 - `svgp.py` / `exact.py` — constrained-lengthscale GPs (peak-matched bounds).
 - `coordinates.py` — pure-JAX Morisaki/tidal transforms (validated vs lalsimutils).
 - `applications/jax_cip.py` — pipeline: tree-ring downselect, fit, samplers

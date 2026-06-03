@@ -68,7 +68,8 @@ def _build_fit_coordinates(X6, coords):
 
 def build_artifact(net_path, out_base, coords="bns", method="rff",
                    sigma_cut=0.6, lnL_offset=40.0, cap_points=8000,
-                   n_features=512, n_opt_steps=300, seed=0):
+                   n_features=512, n_opt_steps=300, seed=0,
+                   quadgp_residual="svgp"):
     """Build and persist a differentiable lnL artifact from an ILE ``.net`` file.
 
     The pipeline mirrors CIP's fit preparation: load + de-dupe + ``sigma_cut`` the
@@ -87,7 +88,12 @@ def build_artifact(net_path, out_base, coords="bns", method="rff",
     coords : {"bns", "raw"}, optional
         Fit-coordinate system (see :func:`_build_fit_coordinates`).
     method : str, optional
-        jax_gp interpolator name (``"rff"``, ``"exact"``, ``"svgp"``).
+        jax_gp interpolator name (``"rff"``, ``"exact"``, ``"svgp"``, ``"quadgp"``).
+        ``"quadgp"`` is the PE-grade quadratic-core + GP-residual surrogate; its
+        residual backend is selected by ``quadgp_residual``.
+    quadgp_residual : str, optional
+        Residual GP for ``method="quadgp"`` (``"svgp"``, ``"exact"``, ``"rff"``);
+        ignored otherwise.
     sigma_cut : float, optional
         Drop ILE points whose reported ``sigma_lnL`` exceeds this (CIP default 0.6).
     lnL_offset : float, optional
@@ -142,6 +148,12 @@ def build_artifact(net_path, out_base, coords="bns", method="rff",
                  ("seed", seed)):
         if k in cls.__init__.__code__.co_varnames:
             kwargs[k] = v
+    if method in ("quadgp", "quad", "quad-gp"):
+        # quadgp forwards unknown kwargs to its residual GP via **gp_kwargs, so we
+        # set the residual backend and pass the RFF feature count through to it.
+        kwargs["gp_method"] = quadgp_residual
+        if quadgp_residual == "rff":
+            kwargs["n_features"] = n_features
     model = cls(**kwargs).fit(Xtr, ytr, y_errors=etr)
 
     # 7. export + reload, and verify the round-trip is faithful + differentiable
@@ -168,6 +180,7 @@ def build_artifact(net_path, out_base, coords="bns", method="rff",
         "out_base": out_base,
         "coords": coords,
         "method": method,
+        "quadgp_residual": quadgp_residual if method in ("quadgp", "quad", "quad-gp") else None,
         "coord_names": coord_names,
         "n_train": int(len(ytr)),
         "n_holdout": int(len(yho)),
@@ -192,7 +205,10 @@ def main(argv=None):
     p.add_argument("--coords", choices=("bns", "raw"), default="bns",
                    help="fit coordinate system (default: bns)")
     p.add_argument("--method", default="rff",
-                   help="jax_gp interpolator: rff|exact|svgp (default: rff)")
+                   help="jax_gp interpolator: rff|exact|svgp|quadgp (default: rff)")
+    p.add_argument("--quadgp-residual", default="svgp",
+                   choices=("svgp", "exact", "rff"),
+                   help="residual GP backend when --method quadgp (default: svgp)")
     p.add_argument("--sigma-cut", type=float, default=0.6,
                    help="drop ILE points with sigma_lnL above this (default: 0.6)")
     p.add_argument("--lnL-offset", type=float, default=40.0,
@@ -210,7 +226,8 @@ def main(argv=None):
         net_path=args.net, out_base=args.out, coords=args.coords,
         method=args.method, sigma_cut=args.sigma_cut, lnL_offset=args.lnL_offset,
         cap_points=args.cap_points, n_features=args.n_features,
-        n_opt_steps=args.n_opt_steps, seed=args.seed)
+        n_opt_steps=args.n_opt_steps, seed=args.seed,
+        quadgp_residual=args.quadgp_residual)
     print(json.dumps(meta, indent=2))
     return meta
 

@@ -26,6 +26,11 @@ def _target(X):
 
 def _make(method):
     from . import get_interpolator
+    if method.startswith("quadgp-"):
+        # quadgp with an explicit residual backend, e.g. "quadgp-svgp"
+        resid = method.split("-", 1)[1]
+        kw = {"n_inducing": 128} if resid == "svgp" else {}
+        return get_interpolator("quadgp")(gp_method=resid, n_opt_steps=150, **kw)
     cls = get_interpolator(method)
     if method == "rff":
         return cls(n_features=400, n_opt_steps=150)
@@ -141,6 +146,14 @@ def test_export_roundtrip_exact():
     _check_export_roundtrip("exact")
 
 
+def test_export_roundtrip_quadgp_exact():
+    _check_export_roundtrip("quadgp-exact")
+
+
+def test_export_roundtrip_quadgp_svgp():
+    _check_export_roundtrip("quadgp-svgp")
+
+
 def test_rff():
     _check_method("rff", rmse_tol=0.30, fd_tol=1e-2)
 
@@ -157,3 +170,6 @@ if __name__ == "__main__":
         we, ne = _check_heteroscedastic(m)
         print("{:6s} OK  rmse={:.4f}  AD-vs-FD relerr={:.2e}  export OK  "
               "hetero rmse(with/without err)={:.3f}/{:.3f}".format(m, rmse, rel, we, ne))
+    for m in ("quadgp-exact", "quadgp-svgp"):
+        _check_export_roundtrip(m)
+        print("{:13s} export round-trip OK".format(m))

@@ -108,11 +108,45 @@ class QuadraticPlusGPInterpolator(BaseInterpolator):
     def _lnL_whitened(self, xw):
         return self._eval_Q(xw) + self._resid.lnL_physical(xw)
 
-    # --- serialization (TODO: nested-resid export) ---------------------- #
+    # --- serialization -------------------------------------------------- #
+    # quadgp is the one method that nests a *full* sub-interpolator (the
+    # residual GP) inside itself, so it cannot round-trip through the base
+    # array-only export.  _export_params/_import_params carry just the
+    # quadratic core; export_state/from_state are overridden below to embed
+    # the residual model -- which round-trips through its own export_state --
+    # alongside it.  The on-disk contract (export.save/load -> export_state/
+    # from_state) is unchanged: the residual's arrays are namespaced under a
+    # "_resid_" prefix and its meta is nested under meta["resid_meta"].
+    _RESID_PREFIX = "_resid_"
+
     def _export_params(self):
-        raise NotImplementedError(
-            "quadgp export not yet implemented (nested residual GP); fit + predict + "
-            "lnL_and_grad work for in-process sampling.")
+        return {
+            "c0": np.asarray(self._c0),
+            "c1": np.asarray(self._c1),
+            "H": np.asarray(self._H),
+        }
 
     def _import_params(self, p):
-        raise NotImplementedError("quadgp export not yet implemented")
+        self._c0 = jnp.asarray(p["c0"])
+        self._c1 = jnp.asarray(p["c1"])
+        self._H = jnp.asarray(p["H"])
+
+    def export_state(self):
+        meta, arrays = super().export_state()
+        resid_meta, resid_arrays = self._resid.export_state()
+        meta["resid_meta"] = resid_meta
+        arrays.update({self._RESID_PREFIX + k: v for k, v in resid_arrays.items()})
+        return meta, arrays
+
+    @classmethod
+    def from_state(cls, meta, arrays):
+        from . import get_interpolator
+        pre = cls._RESID_PREFIX
+        resid_arrays = {k[len(pre):]: v for k, v in arrays.items() if k.startswith(pre)}
+        core_arrays = {k: v for k, v in arrays.items() if not k.startswith(pre)}
+        obj = super().from_state(meta, core_arrays)   # restores whitening + quadratic core
+        resid_meta = meta["resid_meta"]
+        rcls = get_interpolator(resid_meta["method"])
+        obj._resid = rcls.from_state(resid_meta, resid_arrays)
+        obj.gp_method = resid_meta["method"]          # keep a re-export self-consistent
+        return obj
