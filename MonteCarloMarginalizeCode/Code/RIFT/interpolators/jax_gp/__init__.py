@@ -50,4 +50,7 @@ def get_interpolator(name):
     if name == "svgp":
         from .svgp import SVGPInterpolator
         return SVGPInterpolator
+    if name in ("quadgp", "quad", "quad-gp"):
+        from .quad_gp import QuadraticPlusGPInterpolator
+        return QuadraticPlusGPInterpolator
     raise ValueError("Unknown jax_gp interpolator: {!r}".format(name))
