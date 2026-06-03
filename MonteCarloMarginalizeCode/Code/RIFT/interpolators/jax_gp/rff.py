@@ -59,31 +59,31 @@ class RFFInterpolator(BaseInterpolator):
         self.omega = jax.random.normal(k1, (M, d))        # fixed frequencies
         self.b = jax.random.uniform(k2, (M,), minval=0.0, maxval=2.0 * jnp.pi)
 
-        if yerr_w is not None:
-            base_noise = float(jnp.maximum(jnp.mean(yerr_w ** 2), 1e-4))
-        else:
-            base_noise = 0.01
+        # Per-point Monte-Carlo variance on lnL (heteroscedastic noise). A small
+        # learnable floor (log_sn) is always added for model mismatch / when the
+        # reported errors are absent or underestimated.
+        yvar = (yerr_w ** 2) if yerr_w is not None else jnp.zeros(n)
         eyeM = jnp.eye(M)
 
         def nlml(params):
-            # Negative log marginal likelihood of y ~ N(0, Phi Phi^T + sn2 I_n),
-            # evaluated via the M-dimensional system A = Phi^T Phi + sn2 I_M and
-            # the Sylvester determinant identity
-            #   |Phi Phi^T + sn2 I_n| = sn2^(n-M) |A|.
+            # Negative log marginal likelihood of y ~ N(0, D + Phi Phi^T), with
+            # D = diag(nvar). Evaluated in feature (M-dim) space via
+            #   |D + Phi Phi^T| = |D| * |I + Phi^T D^{-1} Phi|.
             Phi = self._features(Xw, params["log_ell"], params["log_sf"])
-            sn2 = jnp.exp(2.0 * params["log_sn"])
-            A = Phi.T @ Phi + sn2 * eyeM + self.jitter * eyeM
+            nvar = yvar + jnp.exp(2.0 * params["log_sn"]) + self.jitter
+            beta = 1.0 / nvar
+            A = (Phi * beta[:, None]).T @ Phi + (1.0 + self.jitter) * eyeM
             L = jnp.linalg.cholesky(A)
-            Phiy = Phi.T @ yw
-            alpha = jax.scipy.linalg.cho_solve((L, True), Phiy)
-            quad = (yw @ yw - Phiy @ alpha) / sn2
-            logdet = (n - M) * jnp.log(sn2) + 2.0 * jnp.sum(jnp.log(jnp.diag(L)))
+            Pb = Phi.T @ (beta * yw)
+            c = jax.scipy.linalg.cho_solve((L, True), Pb)
+            quad = jnp.sum(beta * yw ** 2) - Pb @ c
+            logdet = jnp.sum(jnp.log(nvar)) + 2.0 * jnp.sum(jnp.log(jnp.diag(L)))
             return 0.5 * (quad + logdet + n * jnp.log(2.0 * jnp.pi))
 
         params = {
             "log_ell": jnp.zeros(d),                      # ARD: per-dim lengthscale
             "log_sf": jnp.asarray(0.0),
-            "log_sn": jnp.asarray(0.5 * np.log(base_noise)),
+            "log_sn": jnp.asarray(0.5 * np.log(0.01)),
         }
         opt = optax.adam(self.lr)
         state = opt.init(params)
@@ -98,12 +98,13 @@ class RFFInterpolator(BaseInterpolator):
             params, state, _loss = step(params, state)
         self.params = {k: jax.lax.stop_gradient(v) for k, v in params.items()}
 
-        # Posterior weight mean: w = A^{-1} Phi^T y, mean prediction = phi(x*) . w
+        # Posterior weight mean: w = (I + Phi^T D^{-1} Phi)^{-1} Phi^T D^{-1} y
         Phi = self._features(Xw, self.params["log_ell"], self.params["log_sf"])
-        sn2 = jnp.exp(2.0 * self.params["log_sn"])
-        A = Phi.T @ Phi + sn2 * eyeM + self.jitter * eyeM
+        nvar = yvar + jnp.exp(2.0 * self.params["log_sn"]) + self.jitter
+        beta = 1.0 / nvar
+        A = (Phi * beta[:, None]).T @ Phi + (1.0 + self.jitter) * eyeM
         L = jnp.linalg.cholesky(A)
-        self.w_mean = jax.scipy.linalg.cho_solve((L, True), Phi.T @ yw)
+        self.w_mean = jax.scipy.linalg.cho_solve((L, True), Phi.T @ (beta * yw))
 
     # --- prediction ----------------------------------------------------- #
     def _lnL_whitened(self, xw):

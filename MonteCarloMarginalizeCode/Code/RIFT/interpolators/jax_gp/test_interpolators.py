@@ -92,8 +92,41 @@ def _check_export_roundtrip(method):
     assert loaded.coord_names == ["a", "b", "c", "e"]
 
 
+def _check_heteroscedastic(method):
+    """Per-point errors should down-weight noisy labels: fitting WITH the reported
+    errors should recover the truth better than ignoring them."""
+    rng = np.random.default_rng(3)
+    d, n = 3, 700
+    X = rng.normal(size=(n, d))
+    A = np.diag([1.0, 0.6, 1.4])
+    truth = -0.5 * np.einsum("ni,ij,nj->n", X, A, X)
+    # heteroscedastic noise: half the points are very noisy
+    sigma = np.where(rng.random(n) < 0.5, 1.5, 0.05)
+    y = truth + sigma * rng.normal(size=n)
+
+    Xt = rng.normal(size=(300, d))
+    tt = -0.5 * np.einsum("ni,ij,nj->n", Xt, A, Xt)
+
+    def rmse(m):
+        return float(np.sqrt(np.mean((m.predict(Xt) - tt) ** 2)))
+
+    with_err = rmse(_make(method).fit(X, y, y_errors=sigma))
+    no_err = rmse(_make(method).fit(X, y))
+    assert with_err <= no_err + 1e-3, \
+        "{}: using errors did not help ({:.3f} vs {:.3f})".format(method, with_err, no_err)
+    return with_err, no_err
+
+
 def test_exact():
     _check_method("exact", rmse_tol=0.05, fd_tol=1e-3)
+
+
+def test_heteroscedastic_svgp():
+    _check_heteroscedastic("svgp")
+
+
+def test_heteroscedastic_exact():
+    _check_heteroscedastic("exact")
 
 
 def test_export_roundtrip_rff():
@@ -121,5 +154,6 @@ if __name__ == "__main__":
         rmse, rel = _check_method(m, rmse_tol=0.30 if m != "exact" else 0.05,
                                   fd_tol=1e-2 if m != "exact" else 1e-3)
         _check_export_roundtrip(m)
-        print("{:6s} OK  rmse={:.4f}  AD-vs-FD relerr={:.2e}  export round-trip OK"
-              .format(m, rmse, rel))
+        we, ne = _check_heteroscedastic(m)
+        print("{:6s} OK  rmse={:.4f}  AD-vs-FD relerr={:.2e}  export OK  "
+              "hetero rmse(with/without err)={:.3f}/{:.3f}".format(m, rmse, rel, we, ne))

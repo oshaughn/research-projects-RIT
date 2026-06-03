@@ -41,6 +41,10 @@ def gradient_metrics(model, truth, Xt, n_points=64, rng=None):
     import jax
     rng = np.random.default_rng(0) if rng is None else rng
     Xt = np.asarray(Xt)
+    # Non-AD models (e.g. random forest) expose no grad_fn -- report NaN, which
+    # is itself the headline result: they cannot provide gradients.
+    if not hasattr(model, "grad_fn"):
+        return (np.nan, np.nan)
     idx = rng.choice(len(Xt), size=min(n_points, len(Xt)), replace=False)
     gt_all = truth.grad(Xt[idx])
     vg = jax.vmap(model.grad_fn())                       # (theta) -> (lnL, grad)

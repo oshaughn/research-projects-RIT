@@ -30,30 +30,29 @@ class ExactGPInterpolator(BaseInterpolator):
         self.n_opt_steps = int(n_opt_steps)
         self.lr = float(lr)
 
-    def _build_gp(self, params, Xw):
+    def _build_gp(self, params, Xw, yvar):
         amp2 = jnp.exp(2.0 * params["log_amp"])
         inv_scale = jnp.exp(-params["log_scale"])     # [d] -> ARD (per-dim lengthscale)
-        sn2 = jnp.exp(2.0 * params["log_sn"])
+        # Heteroscedastic noise: reported per-point MC variance + a learnable floor.
+        diag = yvar + jnp.exp(2.0 * params["log_sn"]) + self.jitter
         kernel = amp2 * transforms.Linear(inv_scale, kernels.ExpSquared())
-        return GaussianProcess(kernel, Xw, diag=sn2 + self.jitter, mean=0.0)
+        return GaussianProcess(kernel, Xw, diag=diag, mean=0.0)
 
     def _fit_whitened(self, Xw, yw, yerr_w):
         self.Xw = Xw
         self.yw = yw
         d = Xw.shape[1]
-        if yerr_w is not None:
-            base_noise = float(jnp.maximum(jnp.mean(yerr_w ** 2), 1e-4))
-        else:
-            base_noise = 0.01
+        # Per-point MC variance on lnL (0 if not provided -> homoscedastic).
+        self.yvar = (yerr_w ** 2) if yerr_w is not None else jnp.zeros(Xw.shape[0])
 
         params = {
             "log_amp": jnp.asarray(0.0),
             "log_scale": jnp.zeros(d),                    # ARD: per-dim lengthscale
-            "log_sn": jnp.asarray(0.5 * np.log(base_noise)),
+            "log_sn": jnp.asarray(0.5 * np.log(0.01)),
         }
 
         def nll(params):
-            gp = self._build_gp(params, Xw)
+            gp = self._build_gp(params, Xw, self.yvar)
             return -gp.log_probability(yw)
 
         opt = optax.adam(self.lr)
@@ -68,7 +67,7 @@ class ExactGPInterpolator(BaseInterpolator):
         for _ in range(self.n_opt_steps):
             params, state, _loss = step(params, state)
         self.params = {k: jax.lax.stop_gradient(v) for k, v in params.items()}
-        self.gp = self._build_gp(self.params, Xw)
+        self.gp = self._build_gp(self.params, Xw, self.yvar)
 
     def _lnL_whitened(self, xw):
         _, cond_gp = self.gp.condition(self.yw, jnp.atleast_2d(xw))
@@ -80,6 +79,7 @@ class ExactGPInterpolator(BaseInterpolator):
         return {
             "Xw": self.Xw,
             "yw": self.yw,
+            "yvar": self.yvar,
             "log_amp": self.params["log_amp"],
             "log_scale": self.params["log_scale"],
             "log_sn": self.params["log_sn"],
@@ -88,7 +88,8 @@ class ExactGPInterpolator(BaseInterpolator):
     def _import_params(self, p):
         self.Xw = jnp.asarray(p["Xw"])
         self.yw = jnp.asarray(p["yw"])
+        self.yvar = jnp.asarray(p["yvar"])
         self.params = {"log_amp": jnp.asarray(p["log_amp"]),
                        "log_scale": jnp.asarray(p["log_scale"]),
                        "log_sn": jnp.asarray(p["log_sn"])}
-        self.gp = self._build_gp(self.params, self.Xw)
+        self.gp = self._build_gp(self.params, self.Xw, self.yvar)

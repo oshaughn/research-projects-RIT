@@ -68,30 +68,34 @@ class SVGPInterpolator(BaseInterpolator):
             rng = np.random.default_rng(self.seed)
             return Xw[rng.choice(len(Xw), size=M, replace=False)]
 
-    # --- collapsed ELBO (Titsias) -------------------------------------- #
-    def _neg_elbo(self, params, Xw, yw):
+    # --- collapsed ELBO (Titsias, heteroscedastic) --------------------- #
+    def _neg_elbo(self, params, Xw, yw, yvar):
         Z = params["Z"]
         la, ls, lsn = params["log_amp"], params["log_scale"], params["log_sn"]
         n = Xw.shape[0]
         M = Z.shape[0]
-        sn2 = jnp.exp(2.0 * lsn)
+        # Per-point noise D = diag(nvar): reported MC variance + learnable floor.
+        nvar = yvar + jnp.exp(2.0 * lsn) + self.jitter         # [n]
+        beta = 1.0 / nvar
         eyeM = jnp.eye(M)
 
         Kuu = self._kernel(Z, Z, la, ls) + self.jitter * eyeM
         Kuf = self._kernel(Z, Xw, la, ls)                       # [M, n]
         Luu = jnp.linalg.cholesky(Kuu)
         V = jsla.solve_triangular(Luu, Kuf, lower=True)         # [M, n]
-        G = eyeM + (V @ V.T) / sn2                              # [M, M]
-        Lg = jnp.linalg.cholesky(G)
-        Vy = V @ yw                                            # [M]
-        c = jsla.solve_triangular(Lg, Vy / sn2, lower=True)    # [M]
+        Vb = V * jnp.sqrt(beta)[None, :]
+        A = eyeM + Vb @ Vb.T                                    # I + V D^{-1} V^T
+        LA = jnp.linalg.cholesky(A)
+        b = V @ (beta * yw)                                     # [M]
+        c = jsla.solve_triangular(LA, b, lower=True)            # [M]
 
-        # log N(y | 0, sn2 I + Qff)
-        logdet = n * jnp.log(sn2) + 2.0 * jnp.sum(jnp.log(jnp.diag(Lg)))
-        quad = (yw @ yw - sn2 * (c @ c)) / sn2  # = (y.y - (Vy/sn).G^{-1}.(Vy/sn))/sn2
+        # log N(y | 0, D + Qff), via |D+Qff| = |D| |A|
+        logdet = jnp.sum(jnp.log(nvar)) + 2.0 * jnp.sum(jnp.log(jnp.diag(LA)))
+        quad = jnp.sum(beta * yw ** 2) - c @ c
         log_marg = -0.5 * (n * jnp.log(2.0 * jnp.pi) + logdet + quad)
-        # Titsias trace penalty: -(1/2 sn2)(tr Kff - tr Qff)
-        trace_term = (n * self._kdiag(la) - jnp.sum(V * V)) / (2.0 * sn2)
+        # Titsias trace penalty: -(1/2) tr(D^{-1}(Kff - Qff))
+        qff_diag = jnp.sum(V * V, axis=0)                       # diag(Qff) [n]
+        trace_term = 0.5 * jnp.sum(beta * (self._kdiag(la) - qff_diag))
         return -(log_marg - trace_term)
 
     # --- fit ------------------------------------------------------------ #
@@ -99,24 +103,21 @@ class SVGPInterpolator(BaseInterpolator):
         n, d = Xw.shape
         M = min(self.n_inducing, max(2, n // 2))
         Z0 = self._init_inducing(np.asarray(Xw), M)
-
-        if yerr_w is not None:
-            base_noise = float(jnp.maximum(jnp.mean(yerr_w ** 2), 1e-4))
-        else:
-            base_noise = 0.01
+        # Per-point MC variance on lnL (0 -> homoscedastic learnable noise only).
+        yvar = (yerr_w ** 2) if yerr_w is not None else jnp.zeros(n)
 
         params = {
             "Z": jnp.asarray(Z0),
             "log_amp": jnp.asarray(0.0),
             "log_scale": jnp.zeros(d),                # ARD: one lengthscale per dim
-            "log_sn": jnp.asarray(0.5 * np.log(base_noise)),
+            "log_sn": jnp.asarray(0.5 * np.log(0.01)),
         }
         opt = optax.adam(self.lr)
         state = opt.init(params)
 
         @jax.jit
         def step(params, state):
-            loss, g = jax.value_and_grad(self._neg_elbo)(params, Xw, yw)
+            loss, g = jax.value_and_grad(self._neg_elbo)(params, Xw, yw, yvar)
             updates, state = opt.update(g, state)
             return optax.apply_updates(params, updates), state, loss
 
@@ -124,17 +125,18 @@ class SVGPInterpolator(BaseInterpolator):
             params, state, _loss = step(params, state)
         self.params = {k: jax.lax.stop_gradient(v) for k, v in params.items()}
 
-        # Cache the closed-form predictive-mean factors.
+        # Cache the closed-form predictive-mean factors (heteroscedastic).
         Z = self.params["Z"]
         la, ls, lsn = self.params["log_amp"], self.params["log_scale"], self.params["log_sn"]
-        sn2 = jnp.exp(2.0 * lsn)
+        beta = 1.0 / (yvar + jnp.exp(2.0 * lsn) + self.jitter)
         eyeM = jnp.eye(Z.shape[0])
         Kuu = self._kernel(Z, Z, la, ls) + self.jitter * eyeM
         Kuf = self._kernel(Z, Xw, la, ls)
         self._Luu = jnp.linalg.cholesky(Kuu)
         V = jsla.solve_triangular(self._Luu, Kuf, lower=True)
-        self._Lg = jnp.linalg.cholesky(eyeM + (V @ V.T) / sn2)
-        self._c = jsla.solve_triangular(self._Lg, (V @ yw) / sn2, lower=True)  # [M]
+        Vb = V * jnp.sqrt(beta)[None, :]
+        self._Lg = jnp.linalg.cholesky(eyeM + Vb @ Vb.T)         # = LA
+        self._c = jsla.solve_triangular(self._Lg, V @ (beta * yw), lower=True)  # [M]
         self._Z, self._la, self._ls = Z, la, ls
 
     # --- prediction ----------------------------------------------------- #

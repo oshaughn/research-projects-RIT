@@ -54,8 +54,9 @@ def to_fit_coordinates(X_low, low_level_names, fit_coord_names):
 
 
 def load_ile_net(path, fit_params=DEFAULT_FIT_PARAMS, cols=None,
-                 lnL_col="lnL", dedupe=True, max_rows=None):
-    """Load an ILE ``.net`` file into (X, y, coord_names).
+                 lnL_col="lnL", err_col="sigma_lnL", sigma_cut=None,
+                 dedupe=True, return_errors=False, max_rows=None):
+    """Load an ILE ``.net`` file into (X, y[, yerr], coord_names).
 
     Parameters
     ----------
@@ -63,28 +64,52 @@ def load_ile_net(path, fit_params=DEFAULT_FIT_PARAMS, cols=None,
     fit_params : sequence of column names (keys of ``cols``) -> columns of X
     cols : dict name->index (defaults to the standard RIFT layout)
     lnL_col : which column is the target lnL
-    dedupe : collapse repeated intrinsic points, keeping the max lnL per point
+    err_col : which column is the per-point lnL Monte-Carlo error (sigma_lnL).
+        In RIFT ILE output this is the "sigma/L" column (= sigma_L/L = std of lnL).
+    sigma_cut : if set, drop points with reported error above this (CIP default 0.6)
+    dedupe : collapse repeated intrinsic points. With errors this is an
+        inverse-variance combine (the statistically correct merge of repeated MC
+        evaluations); without, it keeps the max lnL.
+    return_errors : also return the per-point lnL error array
     max_rows : optional cap for quick experiments
 
     Returns
     -------
     X : ndarray [n, d]
-    y : ndarray [n]            lnL values
-    coord_names : list[str]    the fit parameter names (axes of X)
+    y : ndarray [n]                    lnL values
+    yerr : ndarray [n]                 (only if return_errors) per-point sigma_lnL
+    coord_names : list[str]            the fit parameter names (axes of X)
     """
     cols = dict(ILE_COLS) if cols is None else cols
     data = np.loadtxt(path, max_rows=max_rows)
     X = np.column_stack([data[:, cols[p]] for p in fit_params]).astype(np.float64)
     y = data[:, cols[lnL_col]].astype(np.float64)
+    yerr = data[:, cols[err_col]].astype(np.float64) if err_col in cols else None
 
-    # Drop non-finite rows (failed evaluations).
     ok = np.isfinite(y) & np.all(np.isfinite(X), axis=1)
+    if yerr is not None:
+        ok &= np.isfinite(yerr)
+        if sigma_cut is not None:
+            ok &= yerr <= sigma_cut
     X, y = X[ok], y[ok]
+    yerr = yerr[ok] if yerr is not None else None
 
     if dedupe:
         keys, inv = np.unique(X, axis=0, return_inverse=True)
-        ymax = np.full(len(keys), -np.inf)
-        np.maximum.at(ymax, inv, y)
-        X, y = keys, ymax
+        if yerr is not None:
+            # inverse-variance combine of repeated evaluations of the same point
+            w = 1.0 / np.clip(yerr, 1e-3, None) ** 2
+            wsum = np.zeros(len(keys)); wy = np.zeros(len(keys))
+            np.add.at(wsum, inv, w)
+            np.add.at(wy, inv, w * y)
+            y = wy / wsum
+            yerr = 1.0 / np.sqrt(wsum)
+        else:
+            ymax = np.full(len(keys), -np.inf)
+            np.maximum.at(ymax, inv, y)
+            y = ymax
+        X = keys
 
+    if return_errors:
+        return X, y, yerr, list(fit_params)
     return X, y, list(fit_params)
