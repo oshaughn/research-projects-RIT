@@ -1775,6 +1775,43 @@ class EOSSequencePCA(EOSSequenceNMB):
             self.oned_order_sorted = True
 
 
+class EOSSequenceSingleIndex:
+    """A SINGLE EOS realization drawn from a sequence file, exposed with the
+    fixed-EOS (``--using-eos``) interface: ``lambda_from_m(m_Msun)``.
+
+    This enables the exact per-EOS-evidence pattern (one full CIP evidence per
+    realization, MARG-style) for tabular/compressed sequence files -- the
+    reference computation against which the ordering-statistic (tabular
+    hyperpipeline) approximation is validated.
+    """
+
+    def __init__(self, fname=None, index=0, name=None):
+        self.name = name or "nmbseq_{}_{}".format(fname, index)
+        self.fname = fname
+        self.index = int(index)
+        self._seq = EOSSequenceFromFile(fname=fname, load_ns=True, no_sort=True)
+        if not (0 <= self.index < len(self._seq.eos_names)):
+            raise ValueError("EOS index {} out of range (n={})".format(
+                self.index, len(self._seq.eos_names)))
+        self.mMaxMsun = float(self._seq.m_max_of_indx(self.index))
+
+    def lambda_from_m(self, m):
+        # unit auto-detection as in EOSConcrete.lambda_from_m
+        m_Msun = m / lal.MSUN_SI if m > 1e15 else m
+        if m_Msun > 0.999 * self.mMaxMsun:
+            return 1e-8
+        val = self._seq.lambda_of_m_indx(m_Msun, self.index)
+        return float(val) if np.isfinite(val) else 1e-8
+
+    def lambda_from_m_vector(self, m):
+        if not isinstance(m, np.ndarray):
+            return self.lambda_from_m(m)
+        return np.array([self.lambda_from_m(x) for x in m])
+
+    def R_from_m(self, m_Msun):
+        return self._seq.R_of_m_indx(m_Msun, self.index)
+
+
 def EOSSequenceFromFile(fname=None, **kwargs):
     """Open an EOS sequence file, auto-detecting the format.
 
