@@ -226,6 +226,32 @@ def sample_mixture_is(lnL_fn, lo, hi, gmean, gcov, init_theta=None, alpha=0.5,
             "mean": samples.mean(0), "std": samples.std(0)}
 
 
+def _muframe_proposal(low_level, fit_coords, Xlow_prior, y_prior, box_lo, box_hi):
+    """Proposal (mean, cov) for low-level IS built in the Morisaki (fit) frame.
+
+    The posterior is razor-sharp + decorrelated in the mu coords, so its covariance
+    there is well-conditioned and near-diagonal (the physical low-level covariance is
+    near-singular in the mc direction). We compute the lnL-weighted covariance in fit
+    coords and pull it back to low-level via the JAX Jacobian J = d(fit)/d(low) at the
+    peak: precision P_low = J^T C_fit^-1 J + diag(1/prior_var). The prior term fills
+    the unconstrained direction (the anti-symmetric spin the 5 fit coords drop) at its
+    prior width and keeps P_low invertible. No inverse transform, no Rube-Goldberg.
+    """
+    import jax
+    import jax.numpy as jnp
+    tf = coordinates.make_transform(low_level, fit_coords)
+    Xfit = np.asarray(jax.vmap(tf)(jnp.asarray(Xlow_prior)))
+    wp = np.exp(y_prior - y_prior.max()); wp /= wp.sum()
+    C_fit = np.atleast_2d(np.cov(Xfit.T, aweights=wp))
+    peak_low = Xlow_prior[np.argmax(y_prior)]
+    J = np.asarray(jax.jacobian(tf)(jnp.asarray(peak_low)))           # [n_fit, n_low]
+    prior_var = ((np.asarray(box_hi) - np.asarray(box_lo)) ** 2) / 12.0
+    P_low = J.T @ np.linalg.inv(C_fit) @ J + np.diag(1.0 / prior_var)
+    cov_low = np.linalg.inv(P_low)
+    gmean = (Xlow_prior * wp[:, None]).sum(0)
+    return gmean, 0.5 * (cov_low + cov_low.T)
+
+
 def sample_gaussian_is(lnL_fn, mean, cov, lo, hi, n_samples=40000, inflate=1.3,
                        seed=0):
     """Importance sampling with a Gaussian proposal matched to the posterior.
@@ -590,7 +616,11 @@ def run_pipeline(opts, ignored):
     elif meth in ("svgp", "gp-jax-svgp"):
         model = cls(n_inducing=opts.n_features, n_opt_steps=opts.n_opt_steps, seed=opts.seed)
     elif meth == "quadgp":
-        model = cls(gp_method="exact", n_opt_steps=opts.n_opt_steps)
+        if opts.quadgp_residual == "svgp":
+            model = cls(gp_method="svgp", n_opt_steps=opts.n_opt_steps,
+                        n_inducing=opts.n_features, seed=opts.seed)
+        else:
+            model = cls(gp_method="exact", n_opt_steps=opts.n_opt_steps)
     else:  # exact (no seed arg)
         model = cls(n_opt_steps=opts.n_opt_steps)
     model = model.fit(Xfit, y, y_errors=yerr)
@@ -624,10 +654,9 @@ def run_pipeline(opts, ignored):
 
     logZ = None
     if opts.sampler in ("gaussian", "mixture"):
-        Xp, yp = Xlow[in_prior], y[in_prior]
-        wp = np.exp(yp - yp.max()); wp /= wp.sum()
-        gmean = (Xp * wp[:, None]).sum(0)
-        gcov = np.cov(Xp.T, aweights=wp)
+        # Proposal built in the Morisaki (fit) frame -> well-conditioned covariance.
+        gmean, gcov = _muframe_proposal(low_level, fit_coords, Xlow[in_prior],
+                                        y[in_prior], box_lo, box_hi)
         t1 = time.time()
         if opts.sampler == "mixture":
             # Defensive: Gaussian core (sharp peak) + flow wings (non-Gaussian tails).
@@ -639,8 +668,8 @@ def run_pipeline(opts, ignored):
         else:
             res = sample_gaussian_is(lnL_low, gmean, gcov, box_lo, box_hi,
                                      n_samples=max(40000, 8 * opts.num_samples),
-                                     seed=opts.seed)
-            tag = "gaussian-IS"
+                                     inflate=1.1, seed=opts.seed)
+            tag = "gaussian-IS (mu-frame proposal)"
         logZ = res["logZ"]; sample_wall = time.time() - t1
         total = fit_wall + sample_wall
         print("[jax_cip] {}: {:.1f}s, ESS {:.0f} ({:.1%}), {:.0%} in-box, "
@@ -755,6 +784,9 @@ def _build_parser():
                         "it as the sampling model with importance weights; nuts: "
                         "plain numpyro NUTS")
     p.add_argument("--flow-train-loops", type=int, default=5)
+    p.add_argument("--quadgp-residual", choices=["exact", "svgp"], default="exact",
+                   help="residual GP backend for quadgp: exact (O(N^3), <~8k) or svgp "
+                        "(scalable -> far more data; residual is smooth so no oversmooth)")
     p.add_argument("--jax-fit-method", default="svgp",
                    choices=["rff", "svgp", "exact", "quadgp"],
                    help="surrogate: svgp (default; smooth inducing-point GP, no "
