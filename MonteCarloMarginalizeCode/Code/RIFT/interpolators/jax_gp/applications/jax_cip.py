@@ -128,6 +128,42 @@ def sample_lnL(lnL_fn, loc, scale, bounds=None, num_warmup=500, num_samples=2000
             "mean": samples.mean(0), "std": samples.std(0)}
 
 
+def sample_gaussian_is(lnL_fn, mean, cov, lo, hi, n_samples=40000, inflate=1.3,
+                       seed=0):
+    """Importance sampling with a Gaussian proposal matched to the posterior.
+
+    For a SHARP surrogate (quadgp), a normalizing flow struggles to learn the razor-
+    thin peak, but a Gaussian proposal matched to the (data lnL-weighted) posterior
+    covariance nails it: draw theta ~ N(mean, inflate^2 cov), clip to the prior box,
+    and weight by exp(lnL(theta) - log N). The proposal already sits on the peak, so
+    ESS is high and the surrogate's non-Gaussian structure is corrected by the weights.
+    """
+    import jax
+    import jax.numpy as jnp
+    d = len(mean)
+    cov = inflate ** 2 * (np.asarray(cov) + 1e-12 * np.eye(d))
+    rng = np.random.default_rng(seed)
+    th = rng.multivariate_normal(np.asarray(mean), cov, size=n_samples)
+    in_box = np.all((th >= np.asarray(lo)) & (th <= np.asarray(hi)), axis=1)
+    th = th[in_box]
+    L = np.linalg.cholesky(cov)
+    dx = th - np.asarray(mean)
+    sol = np.linalg.solve(L, dx.T).T
+    log_q = -0.5 * np.sum(sol ** 2, axis=1) - np.sum(np.log(np.diag(L))) \
+        - 0.5 * d * np.log(2 * np.pi)
+    lnL = np.asarray(jax.jit(jax.vmap(lnL_fn))(jnp.asarray(th)))
+    log_w = np.array(lnL - log_q, dtype=np.float64)
+    logZ = float(_logsumexp(log_w) - np.log(n_samples))
+    log_w -= log_w.max()
+    w = np.exp(log_w); w = w / w.sum()
+    ess = float(1.0 / np.sum(w ** 2))
+    idx = rng.choice(len(th), size=min(8000, len(th)), replace=True, p=w)
+    samples = th[idx]
+    return {"samples": samples, "ess": ess, "ess_frac": ess / n_samples,
+            "train_wall": 0.0, "logZ": logZ, "frac_in_box": float(in_box.mean()),
+            "mean": samples.mean(0), "std": samples.std(0)}
+
+
 def sample_flow_is(lnL_fn, lo, hi, scale_hint=None, init_theta=None,
                    n_samples=8000, n_chains=30, n_local=60, n_global=60,
                    n_train_loops=8, n_prod_loops=2, n_epochs=15, seed=0,
@@ -447,16 +483,19 @@ def run_pipeline(opts, ignored):
 
     t0 = time.time()
     cls = get_interpolator(opts.jax_fit_method)
-    kw = {"seed": opts.seed}
-    # RFF can ring/overshoot on a sharp peak -> spurious IS spikes (ESS collapse).
-    # SVGP/exact give a smooth posterior mean that does not overshoot.
-    if opts.jax_fit_method in ("rff", "gp-jax-rff"):
-        kw.update(n_features=opts.n_features, n_opt_steps=opts.n_opt_steps)
-    elif opts.jax_fit_method in ("svgp", "gp-jax-svgp"):
-        kw.update(n_inducing=opts.n_features, n_opt_steps=opts.n_opt_steps)
-    else:
-        kw.update(n_opt_steps=opts.n_opt_steps)
-    model = cls(**kw).fit(Xfit, y, y_errors=yerr)
+    meth = opts.jax_fit_method
+    # RFF rings/overshoots on a sharp peak (IS ESS collapse); SVGP/exact are smooth but
+    # over-smooth unless constrained; quadgp (quadratic Fisher core + GP residual) is
+    # the PE-grade choice for the razor-sharp mc direction.
+    if meth in ("rff", "gp-jax-rff"):
+        model = cls(n_features=opts.n_features, n_opt_steps=opts.n_opt_steps, seed=opts.seed)
+    elif meth in ("svgp", "gp-jax-svgp"):
+        model = cls(n_inducing=opts.n_features, n_opt_steps=opts.n_opt_steps, seed=opts.seed)
+    elif meth == "quadgp":
+        model = cls(gp_method="exact", n_opt_steps=opts.n_opt_steps)
+    else:  # exact (no seed arg)
+        model = cls(n_opt_steps=opts.n_opt_steps)
+    model = model.fit(Xfit, y, y_errors=yerr)
     model.coord_names = list(fit_coords)
     fit_wall = time.time() - t0
     print("[jax_cip] {} fit on {} pts in {:.1f}s".format(
@@ -486,6 +525,32 @@ def run_pipeline(opts, ignored):
         return model.lnL_physical(tf_low_to_fit(theta))
 
     logZ = None
+    if opts.sampler == "gaussian":
+        # Gaussian-IS: proposal matched to the DATA lnL-weighted posterior covariance.
+        # The right sampler for a SHARP surrogate (quadgp) -- a flow can't learn the
+        # razor-thin peak, but a peak-matched Gaussian proposal nails it (high ESS).
+        Xp, yp = Xlow[in_prior], y[in_prior]
+        wp = np.exp(yp - yp.max()); wp /= wp.sum()
+        gmean = (Xp * wp[:, None]).sum(0)
+        gcov = np.cov(Xp.T, aweights=wp)
+        t1 = time.time()
+        res = sample_gaussian_is(lnL_low, gmean, gcov, box_lo, box_hi,
+                                 n_samples=max(40000, 8 * opts.num_samples),
+                                 seed=opts.seed)
+        logZ = res["logZ"]; sample_wall = time.time() - t1
+        total = fit_wall + sample_wall
+        print("[jax_cip] gaussian-IS: {:.1f}s, ESS {:.0f} ({:.1%}), {:.0%} in-box, "
+              "logZ={:.2f}".format(sample_wall, res["ess"], res["ess_frac"],
+                                   res["frac_in_box"], logZ))
+        print("[jax_cip] runtime/effective-sample = {:.3f}s (total {:.0f}s)".format(
+            total / max(res["ess"], 1e-9), total))
+        for i, name in enumerate(low_level):
+            print("    {:9s} {:12.5g} +/- {:.3g}".format(
+                name, res["mean"][i], res["std"][i]))
+        samples = res["samples"]
+        lnL_at = np.asarray(jax.vmap(lnL_low)(jnp.asarray(samples)))
+        _write_output(samples, low_level, lnL_at, opts, logZ=logZ)
+        return {"model": model, "result": res}
     if opts.sampler == "flow":
         # Train a normalizing flow (flowMC) and use it as the sampling model: i.i.d.
         # draws + importance weights -> efficiency decoupled from MCMC mixing, plus an
@@ -554,13 +619,13 @@ def _build_parser():
     p.add_argument("--fref", type=float, default=20.0)
     p.add_argument("--fmin", type=float, default=20.0)
     # JAX-specific knobs (harmless extras the pipeline won't pass)
-    p.add_argument("--sampler", choices=["flow", "nuts"], default="flow",
+    p.add_argument("--sampler", choices=["flow", "nuts", "gaussian"], default="flow",
                    help="flow (default): train a normalizing flow (flowMC) and use "
                         "it as the sampling model with importance weights; nuts: "
                         "plain numpyro NUTS")
     p.add_argument("--flow-train-loops", type=int, default=5)
     p.add_argument("--jax-fit-method", default="svgp",
-                   choices=["rff", "svgp", "exact"],
+                   choices=["rff", "svgp", "exact", "quadgp"],
                    help="surrogate: svgp (default; smooth inducing-point GP, no "
                         "overshoot -> high IS efficiency) | rff (fast, but rings on "
                         "sharp peaks -> IS ESS collapse) | exact (smooth, small N only)")
