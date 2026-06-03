@@ -26,6 +26,32 @@ ILE_COLS = {
 
 DEFAULT_FIT_PARAMS = ("m1", "m2", "s1z", "s2z", "lambda1", "lambda2")
 
+# Good low-mass / BNS fit coordinates (decorrelated). mu1,mu2 are Morisaki's
+# orthogonalized PN-phase combinations; LambdaTilde/DeltaLambdaTilde the standard
+# tidal combinations. Far easier for a GP than raw (m1,m2,lambda1,lambda2).
+BNS_FIT_COORDS = ("mu1", "mu2", "delta_mc", "LambdaTilde", "DeltaLambdaTilde")
+
+
+def mc_delta_from_m1m2(m1, m2):
+    """(m1, m2) -> (chirp mass, delta_mc=(m1-m2)/(m1+m2))."""
+    m1 = np.asarray(m1, float); m2 = np.asarray(m2, float)
+    mc = (m1 * m2) ** 0.6 / (m1 + m2) ** 0.2
+    return mc, (m1 - m2) / (m1 + m2)
+
+
+def to_fit_coordinates(X_low, low_level_names, fit_coord_names):
+    """Map low-level intrinsic columns to RIFT fit coordinates.
+
+    Thin wrapper over ``lalsimutils.convert_waveform_coordinates`` -- the same
+    transform CIP applies before fitting. Requires RIFT (lalsimutils) importable.
+    ``X_low`` columns must be in ``low_level_names`` order.
+    """
+    import RIFT.lalsimutils as lsu
+    return lsu.convert_waveform_coordinates(
+        np.asarray(X_low, dtype=np.float64),
+        coord_names=list(fit_coord_names),
+        low_level_coord_names=list(low_level_names))
+
 
 def load_ile_net(path, fit_params=DEFAULT_FIT_PARAMS, cols=None,
                  lnL_col="lnL", dedupe=True, max_rows=None):
