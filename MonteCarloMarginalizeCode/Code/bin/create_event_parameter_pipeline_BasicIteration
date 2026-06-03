@@ -1675,7 +1675,19 @@ for it in np.arange(it_start,opts.n_iterations):
     if puff_args and puff_cadence:
      if it>it_start and it <= puff_max_it  and (it-1)%puff_cadence ==0:  # we made a puffball last iteration, so run it through ILE now
         print(" ILE jobs for puffball on iteration ", it)
-        add_batch_ILE_nodes_to_dag(dag, ilePuff_job, parent_fit_node, con_node, indx_max, n_group_here, it, n_retries=opts.ile_retries,node_list_dict=ile_node_list_per_iteration,extra_parent_nodes=[last_puff_node])
+        # The puffball ILE jobs run with the SAME args_ile as the normal wide ILE, so they read
+        # the same iteration-(it-1) seed breadcrumb (--calibration/--extrinsic-proposal-breadcrumb).
+        # The normal-ILE seed barriers (above) were applied via ile_node_list_per_iteration BEFORE
+        # these jobs existed, so thread the same barriers here via extra_parent_nodes: the puffball
+        # ILE must also wait for last_puff_node (the puff side path) AND, when pilots/handoff are
+        # active, for the it-1 consolidation that PRODUCES the seed file (else the puff jobs race
+        # it and silently fall back to the prior).
+        _puff_extra = [last_puff_node]
+        if calpilot_job and ((it-1) in calpilot_node_per_iteration):
+            _puff_extra.append(calpilot_node_per_iteration[it-1])
+        if extrconsolidate_job and ((it-1) in extrconsolidate_node_per_iteration):
+            _puff_extra.append(extrconsolidate_node_per_iteration[it-1])
+        add_batch_ILE_nodes_to_dag(dag, ilePuff_job, parent_fit_node, con_node, indx_max, n_group_here, it, n_retries=opts.ile_retries,node_list_dict=ile_node_list_per_iteration,extra_parent_nodes=_puff_extra)
         # for event in np.arange(indx_max):
         #     ile_node = pipeline.CondorDAGNode(ilePuff_job)  # only difference is here: uses puffball, which by construction is the same size/ perturbed points
         #     ile_node.set_retry(opts.ile_retries)
