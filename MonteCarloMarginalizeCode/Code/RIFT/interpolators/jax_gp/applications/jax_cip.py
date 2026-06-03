@@ -128,6 +128,104 @@ def sample_lnL(lnL_fn, loc, scale, bounds=None, num_warmup=500, num_samples=2000
             "mean": samples.mean(0), "std": samples.std(0)}
 
 
+def _train_box_flow(lnL_fn, lo, hi, init_theta=None, n_chains=30, n_local=40,
+                    n_global=40, n_train_loops=8, n_prod_loops=2, n_epochs=12,
+                    seed=0, rq_n_bins=12, rq_n_layers=6):
+    """Train a flowMC normalizing flow over the prior box (sigmoid latent).
+
+    Returns (flow, theta_of_u, log_jac, d) where theta_of_u/log_jac are pure-JAX.
+    """
+    import jax
+    import jax.numpy as jnp
+    from flowMC.Sampler import Sampler
+    from flowMC.resource_strategy_bundle.RQSpline_MALA import RQSpline_MALA_Bundle
+    lo = jnp.asarray(lo); hi = jnp.asarray(hi); span = hi - lo
+    d = int(lo.shape[0])
+
+    def theta_of_u(u):
+        return lo + span * jax.nn.sigmoid(u)
+
+    def log_jac(u):
+        return jnp.sum(jnp.log(span) + jax.nn.log_sigmoid(u) + jax.nn.log_sigmoid(-u))
+
+    def target(u, data=None):
+        return lnL_fn(theta_of_u(u)) + log_jac(u)
+
+    key = jax.random.PRNGKey(seed)
+    key, kb, ks, ki = jax.random.split(key, 4)
+    bundle = RQSpline_MALA_Bundle(
+        rng_key=kb, n_chains=n_chains, n_dims=d, logpdf=target, n_local_steps=n_local,
+        n_global_steps=n_global, n_training_loops=n_train_loops,
+        n_production_loops=n_prod_loops, n_epochs=n_epochs,
+        rq_spline_n_bins=rq_n_bins, rq_spline_n_layers=rq_n_layers)
+    sampler = Sampler(d, n_chains, ks, resource_strategy_bundles=bundle)
+    if init_theta is not None:
+        frac = np.clip((np.asarray(init_theta, float) - np.asarray(lo))
+                       / np.asarray(span), 1e-3, 1 - 1e-3)
+        u0 = np.log(frac / (1 - frac))
+        init = jnp.asarray(u0)[None, :] + 0.3 * jax.random.normal(ki, (n_chains, d))
+    else:
+        init = 0.3 * jax.random.normal(ki, (n_chains, d))
+    sampler.sample(init, {})
+    return sampler.resources["model"], theta_of_u, log_jac, d
+
+
+def sample_mixture_is(lnL_fn, lo, hi, gmean, gcov, init_theta=None, alpha=0.5,
+                      inflate=1.2, n_samples=40000, n_train_loops=8, seed=0):
+    """Defensive mixture importance sampling: q = alpha N(peak, Fisher) + (1-alpha) flow.
+
+    The Gaussian core covers the razor-sharp peak (where the flow can't learn the thin
+    feature); the trained flow covers the non-Gaussian wings (where the Gaussian
+    under-covers). The mixture keeps weights bounded -- no region with high target but
+    ~zero proposal. Densities are combined in physical (low-level) theta space.
+    """
+    import jax
+    import jax.numpy as jnp
+    flow, theta_of_u, log_jac, d = _train_box_flow(
+        lnL_fn, lo, hi, init_theta=init_theta, n_train_loops=n_train_loops, seed=seed)
+    train_wall_marker = time.time()
+    lo = np.asarray(lo); hi = np.asarray(hi); span = hi - lo
+    gcov = inflate ** 2 * (np.asarray(gcov) + 1e-12 * np.eye(d))
+    Lg = np.linalg.cholesky(gcov)
+
+    def log_qg(th):
+        dx = th - np.asarray(gmean)
+        sol = np.linalg.solve(Lg, dx.T).T
+        return -0.5 * np.sum(sol ** 2, 1) - np.sum(np.log(np.diag(Lg))) \
+            - 0.5 * d * np.log(2 * np.pi)
+
+    def log_qf(th):
+        frac = np.clip((th - lo) / span, 1e-7, 1 - 1e-7)
+        u = np.log(frac / (1 - frac))
+        lqu = np.asarray(jax.vmap(flow.log_prob)(jnp.asarray(u)))
+        lj = np.asarray(jax.vmap(log_jac)(jnp.asarray(u)))
+        return lqu - lj
+
+    rng = np.random.default_rng(seed)
+    ng = n_samples // 2
+    th_g = rng.multivariate_normal(np.asarray(gmean), gcov, ng)
+    kf = jax.random.PRNGKey(seed + 7)
+    u_f = flow.sample(kf, n_samples - ng)
+    th_f = np.asarray(jax.vmap(theta_of_u)(u_f))
+    th = np.vstack([th_g, th_f])
+    in_box = np.all((th >= lo) & (th <= hi), axis=1)
+    th = th[in_box]
+
+    log_qmix = np.logaddexp(np.log(alpha) + log_qg(th),
+                            np.log(1.0 - alpha) + log_qf(th))
+    lnL = np.asarray(jax.jit(jax.vmap(lnL_fn))(jnp.asarray(th)))
+    log_w = np.array(lnL - log_qmix, dtype=np.float64)
+    logZ = float(_logsumexp(log_w) - np.log(n_samples))
+    log_w -= log_w.max()
+    w = np.exp(log_w); w = w / w.sum()
+    ess = float(1.0 / np.sum(w ** 2))
+    idx = rng.choice(len(th), size=min(8000, len(th)), replace=True, p=w)
+    samples = th[idx]
+    return {"samples": samples, "ess": ess, "ess_frac": ess / n_samples,
+            "train_wall": 0.0, "logZ": logZ, "frac_in_box": float(in_box.mean()),
+            "mean": samples.mean(0), "std": samples.std(0)}
+
+
 def sample_gaussian_is(lnL_fn, mean, cov, lo, hi, n_samples=40000, inflate=1.3,
                        seed=0):
     """Importance sampling with a Gaussian proposal matched to the posterior.
@@ -525,7 +623,39 @@ def run_pipeline(opts, ignored):
         return model.lnL_physical(tf_low_to_fit(theta))
 
     logZ = None
-    if opts.sampler == "gaussian":
+    if opts.sampler in ("gaussian", "mixture"):
+        Xp, yp = Xlow[in_prior], y[in_prior]
+        wp = np.exp(yp - yp.max()); wp /= wp.sum()
+        gmean = (Xp * wp[:, None]).sum(0)
+        gcov = np.cov(Xp.T, aweights=wp)
+        t1 = time.time()
+        if opts.sampler == "mixture":
+            # Defensive: Gaussian core (sharp peak) + flow wings (non-Gaussian tails).
+            res = sample_mixture_is(lnL_low, box_lo, box_hi, gmean, gcov,
+                                    init_theta=init_theta,
+                                    n_samples=max(40000, 8 * opts.num_samples),
+                                    n_train_loops=opts.flow_train_loops, seed=opts.seed)
+            tag = "mixture-IS (Gauss core + flow wings)"
+        else:
+            res = sample_gaussian_is(lnL_low, gmean, gcov, box_lo, box_hi,
+                                     n_samples=max(40000, 8 * opts.num_samples),
+                                     seed=opts.seed)
+            tag = "gaussian-IS"
+        logZ = res["logZ"]; sample_wall = time.time() - t1
+        total = fit_wall + sample_wall
+        print("[jax_cip] {}: {:.1f}s, ESS {:.0f} ({:.1%}), {:.0%} in-box, "
+              "logZ={:.2f}".format(tag, sample_wall, res["ess"], res["ess_frac"],
+                                   res["frac_in_box"], logZ))
+        print("[jax_cip] runtime/effective-sample = {:.3f}s (total {:.0f}s)".format(
+            total / max(res["ess"], 1e-9), total))
+        for i, name in enumerate(low_level):
+            print("    {:9s} {:12.5g} +/- {:.3g}".format(
+                name, res["mean"][i], res["std"][i]))
+        samples = res["samples"]
+        lnL_at = np.asarray(jax.vmap(lnL_low)(jnp.asarray(samples)))
+        _write_output(samples, low_level, lnL_at, opts, logZ=logZ)
+        return {"model": model, "result": res}
+    if opts.sampler == "_gaussian_unused":
         # Gaussian-IS: proposal matched to the DATA lnL-weighted posterior covariance.
         # The right sampler for a SHARP surrogate (quadgp) -- a flow can't learn the
         # razor-thin peak, but a peak-matched Gaussian proposal nails it (high ESS).
@@ -619,7 +749,8 @@ def _build_parser():
     p.add_argument("--fref", type=float, default=20.0)
     p.add_argument("--fmin", type=float, default=20.0)
     # JAX-specific knobs (harmless extras the pipeline won't pass)
-    p.add_argument("--sampler", choices=["flow", "nuts", "gaussian"], default="flow",
+    p.add_argument("--sampler", choices=["flow", "nuts", "gaussian", "mixture"],
+                   default="flow",
                    help="flow (default): train a normalizing flow (flowMC) and use "
                         "it as the sampling model with importance weights; nuts: "
                         "plain numpyro NUTS")
