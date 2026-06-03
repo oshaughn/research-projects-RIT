@@ -131,6 +131,78 @@ def sample_lnL(lnL_fn, loc, scale, bounds=None, num_warmup=500, num_samples=2000
             "mean": samples.mean(0), "std": samples.std(0)}
 
 
+def sample_flow_is(lnL_fn, loc, scale, n_samples=8000, prior_sigma=3.0,
+                   n_chains=30, n_local=60, n_global=60, n_train_loops=8,
+                   n_prod_loops=2, n_epochs=15, seed=0,
+                   rq_n_bins=12, rq_n_layers=6):
+    """Flow-based importance sampling -- the efficient alternative to long NUTS.
+
+    A flowMC run (gradient MALA local moves + normalizing-flow training) explores
+    the target and *learns a normalizing flow* q(theta) ~ posterior. We then use
+    that flow as the sampling model: draw i.i.d. samples from it and importance-
+    weight by exp(lnL + log_prior - log_q). Efficiency (ESS) is set by how well the
+    flow matches the posterior, NOT by MCMC autocorrelation -- so a well-trained
+    flow gives near-i.i.d. samples, and the weights also yield the evidence Z.
+
+    Sampling is done in whitened coordinates ``theta = loc + scale * u`` with a broad
+    Normal prior on ``u`` (smooth, so the real-valued flow is well-posed; the GP's
+    mean-reversion outside the training region keeps importance weights from chasing
+    extrapolation).
+
+    Returns equal-weight resampled ``samples`` plus ``ess``, ``ess_frac``, ``logZ``.
+    """
+    import jax
+    import jax.numpy as jnp
+    from flowMC.Sampler import Sampler
+    from flowMC.resource_strategy_bundle.RQSpline_MALA import RQSpline_MALA_Bundle
+
+    loc = jnp.asarray(loc); scale = jnp.asarray(scale); d = int(loc.shape[0])
+    inv_sig2 = 1.0 / prior_sigma ** 2
+    log_prior_norm = -0.5 * d * np.log(2.0 * np.pi * prior_sigma ** 2)
+
+    def log_prior(u):
+        return -0.5 * jnp.sum(u ** 2) * inv_sig2 + log_prior_norm
+
+    def target(u, data=None):
+        return lnL_fn(loc + scale * u) + log_prior(u)
+
+    key = jax.random.PRNGKey(seed)
+    key, kb, ks, ki, kd = jax.random.split(key, 5)
+    bundle = RQSpline_MALA_Bundle(
+        rng_key=kb, n_chains=n_chains, n_dims=d, logpdf=target,
+        n_local_steps=n_local, n_global_steps=n_global,
+        n_training_loops=n_train_loops, n_production_loops=n_prod_loops,
+        n_epochs=n_epochs, rq_spline_n_bins=rq_n_bins, rq_spline_n_layers=rq_n_layers)
+    sampler = Sampler(d, n_chains, ks, resource_strategy_bundles=bundle)
+    init = 0.3 * jax.random.normal(ki, (n_chains, d))
+    t0 = time.time()
+    sampler.sample(init, {})
+    train_wall = time.time() - t0
+
+    flow = sampler.resources["model"]
+    u = flow.sample(kd, n_samples)                       # i.i.d. flow draws [N, d]
+    log_q = jax.vmap(flow.log_prob)(u)
+    log_p = jax.vmap(target)(u)
+    log_w = np.array(log_p - log_q, dtype=np.float64)      # copy -> writable
+    logZ = float(_logsumexp(log_w) - np.log(n_samples))   # evidence over the prior
+    log_w = log_w - log_w.max()
+    w = np.exp(log_w); w = w / w.sum()
+    ess = float(1.0 / np.sum(w ** 2))
+
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(n_samples, size=n_samples, replace=True, p=w)
+    u_np = np.asarray(u)[idx]
+    samples = np.asarray(loc) + np.asarray(scale) * u_np
+    return {"samples": samples, "ess": ess, "ess_frac": ess / n_samples,
+            "train_wall": train_wall, "logZ": logZ,
+            "mean": samples.mean(0), "std": samples.std(0)}
+
+
+def _logsumexp(a):
+    m = np.max(a)
+    return m + np.log(np.sum(np.exp(a - m)))
+
+
 def run(net_path, lnL_offset=20.0, cap_points=6000, n_features=512,
         n_opt_steps=300, sigma_cut=0.6, num_warmup=500, num_samples=2000,
         seed=0, physical_sampling=False):
@@ -201,7 +273,7 @@ def _physical_to_lowlevel(X6, low_level_names):
     return np.column_stack([src[n] for n in low_level_names])
 
 
-def _write_output(samples, low_level_names, lnL_vals, opts):
+def _write_output(samples, low_level_names, lnL_vals, opts, logZ=None):
     """Write posterior samples in the legacy CIP format: an XML of
     ChooseWaveformParams (physical params) + a ``<fname>_lnL.dat``, plus a minimal
     integral-result file -- so the pipeline's downstream stages find what they
@@ -239,7 +311,9 @@ def _write_output(samples, low_level_names, lnL_vals, opts):
     lalsimutils.ChooseWaveformParams_array_to_xml(
         P_list, fname=opts.fname_output_samples, fref=P0.fref)
     np.savetxt(opts.fname_output_samples + "_lnL.dat", np.asarray(lnL_vals[:n]))
-    np.savetxt(opts.fname_output_integral + ".dat", [float(np.max(lnL_vals))])
+    # evidence: the flow-IS logZ if available, else a max-lnL placeholder
+    np.savetxt(opts.fname_output_integral + ".dat",
+               [float(logZ) if logZ is not None else float(np.max(lnL_vals))])
     print("  wrote {}.xml.gz  +  {}_lnL.dat  ({} samples)".format(
         opts.fname_output_samples, opts.fname_output_samples, n))
 
@@ -291,18 +365,31 @@ def run_pipeline(opts, ignored):
     def lnL_low(theta):
         return model.lnL_physical(tf_low_to_fit(theta))
 
-    res = sample_lnL(lnL_low, Xlow.mean(0), 3.0 * Xlow.std(0), bounds=bounds,
-                     num_warmup=opts.num_warmup, num_samples=opts.num_samples,
-                     seed=opts.seed)
-    print("[jax_cip] NUTS in low-level coords: {:.1f}s, ESS(min) {:.0f}".format(
-        res["wall_clock"], res["ess_min"]))
+    logZ = None
+    if opts.sampler == "flow":
+        # Train a normalizing flow (flowMC) and use it as the sampling model:
+        # i.i.d. draws + importance weights -> efficiency decoupled from MCMC mixing,
+        # and an evidence estimate. The local MALA moves do the peak-finding.
+        res = sample_flow_is(lnL_low, Xlow.mean(0), Xlow.std(0),
+                             n_samples=max(opts.num_samples, 8000),
+                             n_train_loops=opts.flow_train_loops, seed=opts.seed)
+        logZ = res["logZ"]
+        print("[jax_cip] flow-IS: train {:.1f}s, ESS {:.0f} ({:.0%} of draws), "
+              "logZ={:.2f}".format(res["train_wall"], res["ess"],
+                                   res["ess_frac"], logZ))
+    else:
+        res = sample_lnL(lnL_low, Xlow.mean(0), 3.0 * Xlow.std(0), bounds=bounds,
+                         num_warmup=opts.num_warmup, num_samples=opts.num_samples,
+                         seed=opts.seed)
+        print("[jax_cip] NUTS in low-level coords: {:.1f}s, ESS(min) {:.0f}".format(
+            res["wall_clock"], res["ess_min"]))
     for i, name in enumerate(low_level):
         print("    {:9s} {:12.5g} +/- {:.3g}".format(
             name, res["mean"][i], res["std"][i]))
 
     samples = res["samples"]
     lnL_at = np.asarray(jax.vmap(lnL_low)(jnp.asarray(samples)))
-    _write_output(samples, low_level, lnL_at, opts)
+    _write_output(samples, low_level, lnL_at, opts, logZ=logZ)
     return {"model": model, "result": res}
 
 
@@ -329,6 +416,11 @@ def _build_parser():
     p.add_argument("--fref", type=float, default=20.0)
     p.add_argument("--fmin", type=float, default=20.0)
     # JAX-specific knobs (harmless extras the pipeline won't pass)
+    p.add_argument("--sampler", choices=["flow", "nuts"], default="flow",
+                   help="flow (default): train a normalizing flow (flowMC) and use "
+                        "it as the sampling model with importance weights; nuts: "
+                        "plain numpyro NUTS")
+    p.add_argument("--flow-train-loops", type=int, default=5)
     p.add_argument("--n-features", type=int, default=512)
     p.add_argument("--n-opt-steps", type=int, default=300)
     p.add_argument("--num-warmup", type=int, default=500)
