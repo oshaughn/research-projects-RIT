@@ -94,11 +94,17 @@ Ordered roughly by dependency, not committed dates:
    exported per-event lnL drops into an AD population model. (Adjacent: the
    `gwkokab` work.)
 4. **Derivative-aware sampler (clean JAX path).** Done in prototype:
-   `applications/jax_cip.py` runs numpyro NUTS on the differentiable RFF fit in
-   decorrelated coords (GW170817: ESS ~ few hundred in ~10s, sensible posterior).
-   Next: priors/Jacobians for science-grade posteriors, convergence diagnostics,
-   and broader coordinate/event coverage. Built as a separate path, not a legacy
-   CIP retrofit (see Architecture above).
+   `applications/jax_cip.py`. Default sampler is **flow-as-sampling-model**, not
+   NUTS-only: a flowMC run trains a normalizing flow q(theta) while gradient MALA
+   moves explore, then we draw i.i.d. from the flow and importance-weight by
+   exp(lnL + log_prior - log_q). This *decouples ESS from MCMC autocorrelation*
+   (efficiency becomes a flow-training knob — "beat on the flow") and yields the
+   **evidence Z** for free. On GW170817 this gave physical tidal values (lambda1 ~
+   240-470) and logZ ~ 490 where NUTS-only stalled (ESS ~ 3, spurious lambdas);
+   ESS rose ~1%→6% as flow training increased. Next: physical-support priors
+   (lambda>=0, |delta_mc|<1) via a constrained base so IS can't chase GP
+   extrapolation; iterate the flow toward ESS~1; prior Jacobians for science-grade
+   evidence. Built as a separate path, not a legacy CIP retrofit (Architecture above).
 5. **ILE cupy→JAX likelihood port + derivative-aware extrinsic sampler.** The big
    one: a differentiable ILE likelihood end-to-end. Enables differentiable
    extrinsic marginalization, not just a differentiable surrogate of its output.
