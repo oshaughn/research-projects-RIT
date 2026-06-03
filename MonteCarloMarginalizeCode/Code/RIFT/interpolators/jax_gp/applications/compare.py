@@ -76,15 +76,26 @@ def load_param_from_xml(fname, param="mc"):
     return np.asarray(vals, float)
 
 
+def load_param_pooled(fnames, param="mc"):
+    """Concatenate a parameter across several XMLs (pool e.g. 10 benchmark runs)."""
+    import glob
+    files = []
+    for f in fnames:
+        files.extend(sorted(glob.glob(f)) or [f])
+    return np.concatenate([load_param_from_xml(f, param) for f in files])
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--a", required=True, help="samples XML A (e.g. jax_cip output)")
-    p.add_argument("--b", required=True, help="samples XML B (e.g. CIP+RF benchmark)")
+    p.add_argument("--a", required=True, nargs="+",
+                   help="samples XML(s) A (e.g. jax_cip output; globs ok)")
+    p.add_argument("--b", required=True, nargs="+",
+                   help="samples XML(s) B (e.g. the 10 CIP+RF benchmark runs; globs ok)")
     p.add_argument("--param", default="mc")
     p.add_argument("--bins", type=int, default=80)
     a = p.parse_args(argv)
-    va = load_param_from_xml(a.a, a.param)
-    vb = load_param_from_xml(a.b, a.param)
+    va = load_param_pooled(a.a, a.param)
+    vb = load_param_pooled(a.b, a.param)
     js, se = js_with_stderr(va, vb, bins=a.bins)
     print("param={} : A n={} mean={:.6g}  B n={} mean={:.6g}".format(
         a.param, len(va), va.mean(), len(vb), vb.mean()))
