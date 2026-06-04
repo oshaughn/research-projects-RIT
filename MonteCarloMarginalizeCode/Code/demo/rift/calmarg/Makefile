@@ -437,6 +437,14 @@ else
   PP_CALPOST_FLAGS :=
 endif
 
+# CIP throughput: by default RIFT runs ONE CIP worker per iteration targeting a large n_eff
+# (~500, the cip-cap-neff), which is slow.  Spread the work over PP_CIP_EXPLODE parallel CIP
+# workers and lower the n_eff target so EACH worker is light: with PP_CIP_EXPLODE=8 and
+# PP_CIP_NEFF=160 the cap is split ~160/8 -> n_eff ~20 per worker (8x parallel, ~20/job vs ~500).
+PP_CIP_EXPLODE ?= 8
+PP_CIP_NEFF    ?= 160
+PP_CIP_FLAGS   := --cip-explode-jobs $(PP_CIP_EXPLODE) --internal-cip-cap-neff $(PP_CIP_NEFF)
+
 .PHONY: extr extr-build extr-validate
 
 extr-build: cal_env/H1.txt
@@ -548,7 +556,7 @@ endif
 	  --assume-nospin --approx IMRPhenomD --ile-sampler-method AV \
 	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
 	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
-	  $(PP_DMARG_FLAGS) $(PP_CALPOST_FLAGS) \
+	  $(PP_DMARG_FLAGS) $(PP_CALPOST_FLAGS) $(PP_CIP_FLAGS) \
 	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30 \
 	  $(PP_DISK_FLAGS) $(PP_OSG_FLAGS) $(PP_PILOT_FLAGS)
 ifeq ($(OSG),1)
@@ -643,7 +651,7 @@ extr-run-build: cal_env/H1.txt ci_coinc.xml
 	  --assume-nospin --approx IMRPhenomD --ile-sampler-method GMM \
 	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
 	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
-	  --extrinsic-handoff $(PP_DMARG_FLAGS) $(PP_CALPOST_FLAGS) \
+	  --extrinsic-handoff $(PP_DMARG_FLAGS) $(PP_CALPOST_FLAGS) $(PP_CIP_FLAGS) \
 	  --force-initial-grid-size $(EXTR_GRID0) --n-output-samples-last $(EXTR_GRIDN) \
 	  --manual-extra-ile-args "--n-chunk $(EXTR_NCHUNK) --n-max $(EXTR_NMAX)" \
 	  --internal-force-iterations $(EXTR_NIT) \
