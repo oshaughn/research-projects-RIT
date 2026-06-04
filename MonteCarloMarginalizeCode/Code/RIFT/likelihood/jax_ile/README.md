@@ -31,8 +31,9 @@ marginalization, and **analytic distance marginalization**.
 
 - `detector.py` — `compute_detamresponse`, `time_delay_from_earth_center`
   (JAX ports of `vectorized_lal_tools`, validated to ~1e-16).
-- `spherical.py` — spin-(-2) spherical harmonics for `l = 2,3,4` (coefficients
-  imported from the production table; validated to ~1e-16).
+- `spherical.py` — spin-(-2) spherical harmonics for `l = 2 .. 8` (coefficients
+  imported from the production table; `python spherical.py` validates every
+  `(l,m)` against `lal.SpinWeightedSphericalHarmonic` to ~2e-16).
 - `core.py` — the fused likelihood:
   - `fused_log_likelihood(...)` — time-marginalized lnL at fixed distance over
     `(ra, dec, psi, incl, phiref, distMpc)`.
@@ -133,7 +134,6 @@ then a final importance / AV pass for the evidence.  The likelihood and its
 gradients — the hard, exactness-critical part — are in place and validated for
 that next stage.
 
-Not yet ported (structured for, but out of scope tonight): in-loop calibration
-marginalization (`n_cal>1`) and the lookup-table distance marginalization (we
-use direct grid quadrature instead, which is AD-friendly and needs no
-precomputed table); `l > 4` spherical harmonics.
+Not yet ported (structured for): in-loop calibration marginalization
+(`n_cal>1`) and the lookup-table distance marginalization (we use direct grid
+quadrature instead, which is AD-friendly and needs no precomputed table).
