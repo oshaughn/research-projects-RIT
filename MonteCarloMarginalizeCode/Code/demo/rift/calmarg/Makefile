@@ -630,6 +630,11 @@ EXTR_NMAX     ?= 40000      # HARD cap on extrinsic samples/point -- the helper 
                             # (production); with slow calmarg convergence that is hours/point on
                             # the NVS 510.  40000 -> ~20 s/point (measured), enough to fit+hand off.
 EXTR_NEFF     ?= 30         # n_eff target -- smoke just confirms seeding; jobs stop at n-max
+# The extrinsic handoff forces --sampler-method GMM on the WIDE stages (the gmm_dict seed needs
+# GMM).  The FINAL extrinsic stage merely EXTRACTS samples and is much more efficient with the AV
+# sampler, so swap it via a post-build search/replace on the generated ILE_extr.sub (a deploy
+# step here -- the pipeline source stays sampler-neutral).  EXTR_EXTRINSIC_AV=0 to keep GMM.
+EXTR_EXTRINSIC_AV ?= 1
 
 .PHONY: extr-run extr-run-build
 
@@ -656,6 +661,12 @@ extr-run-build: cal_env/H1.txt ci_coinc.xml
 	  --manual-extra-ile-args "--n-chunk $(EXTR_NCHUNK) --n-max $(EXTR_NMAX)" \
 	  --internal-force-iterations $(EXTR_NIT) \
 	  --internal-ile-request-disk 4M --internal-cip-request-disk 4M --internal-general-request-disk 4M
+	@# AV for the FINAL extrinsic stage (efficiency): post-build search/replace on the generated
+	@# ILE_extr.sub -- the wide stages keep GMM for the handoff seed, the extraction stage uses AV.
+	@if [ "$(EXTR_EXTRINSIC_AV)" = "1" ]; then \
+	   find $(EXTR_RUN) -name 'ILE_extr.sub' -exec sed -i 's/--sampler-method GMM/--sampler-method AV/g' {} + ; \
+	   echo "  [extr] final extrinsic stage -> AV (post-build sed on ILE_extr.sub; wide stages stay GMM)" ; \
+	 fi
 	@# the n-max bound must land AFTER the helper's production --n-max 4000000 (argparse last-wins);
 	@# the manual-extra args are appended last, so the effective n-max is the bounded value.
 	@awk '{for(i=1;i<=NF;i++)if($$i=="--n-max")v=$$(i+1)} END{print "  effective --n-max =",v}' $(EXTR_RUN)/args_ile.txt
