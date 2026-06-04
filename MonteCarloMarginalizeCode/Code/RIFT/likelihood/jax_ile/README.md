@@ -155,7 +155,15 @@ sample the 5-D angular posterior).  Implemented in `samplers.py`.
 network SNR 40,80,160,320,640 (by scaling distance), runs one flowMC evaluation
 per source (threading the re-used flow), and records sky recovery / evidence /
 neff / wall time — the data for the skymap-vs-SNR figure and the high-SNR
-efficiency comparison vs the adaptive (AV) integrator.
+efficiency comparison vs the adaptive (AV) integrator.  Preliminary small-budget
+run (H1/L1/V1): the flow **recovers the truth sky at every SNR through 640**, the
+90% sky credible area shrinks with SNR (≈0.05 deg² at 40 → 3.6e-5 deg² at 80 →
+sub-sample-resolution above), and **flow re-use cuts the per-event wall time ~2×**
+(first event ≈114 s, warm-started events ≈60 s).  The simple moment-matched
+Gaussian importance evidence is reliable only at moderate SNR (it is flagged
+`nan` once `neff` collapses, since `logZ ≤ lnL_max` is violated by an
+ill-conditioned proposal at sub-resolution peaks) — a robust narrow-peak evidence
+estimator is future work; sky recovery is the high-SNR deliverable.
 
 Validation (standard injection, truth sky RA,DEC=(1.20,-0.40)): both samplers
 recover the truth sky and **agree on the evidence** — `multistart-nuts`

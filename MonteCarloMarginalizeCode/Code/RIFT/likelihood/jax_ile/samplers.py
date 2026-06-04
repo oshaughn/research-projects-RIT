@@ -228,14 +228,36 @@ def _gaussian_logq(theta, mu, cov):
 
 
 def _moment_match(theta, logL):
-    """Weighted mean/cov of ``theta`` with weights ``propto exp(logL)``."""
+    """Weighted mean/cov of ``theta`` with weights ``propto exp(logL)``.
+
+    The covariance eigenvalues are floored at a small *relative* level so the
+    proposal stays invertible/well-conditioned even when the posterior is
+    extremely narrow (high SNR) or degenerate in some direction -- otherwise the
+    Gaussian log-density's ``slogdet`` term blows up.
+    """
     w = np.exp(logL - np.max(logL))
     w = w / np.sum(w)
     mu = np.sum(w[:, None] * theta, axis=0)
     d = theta - mu[None, :]
     cov = (w[:, None, None] * d[:, :, None] * d[:, None, :]).sum(axis=0)
-    cov += 1e-9 * np.eye(theta.shape[1]) * (np.trace(cov) / theta.shape[1] + 1e-12)
+    cov = 0.5 * (cov + cov.T)
+    evals, V = np.linalg.eigh(cov)
+    emax = float(np.max(evals)) if evals.size else 0.0
+    floor = max(1e-10 * emax, 1e-300)
+    evals = np.clip(evals, floor, None)
+    cov = (V * evals) @ V.T
     return mu, cov
+
+
+def _finalize_evidence(logZ, sigma_over_Z, neff, max_lnL):
+    """Flag an importance-evidence estimate as unreliable (nan) when it cannot
+    be trusted: log Z must satisfy ``log Z <= lnL_max`` for a normalized prior
+    (Z = E_prior[L] <= L_max), and a low ``neff`` means the proposal failed to
+    bracket the (possibly sub-resolution-narrow) peak."""
+    if (not np.isfinite(logZ)) or (np.isfinite(max_lnL) and logZ > max_lnL + 5.0) \
+            or (np.isfinite(neff) and neff < 1.5):
+        return np.nan, np.nan, neff
+    return logZ, sigma_over_Z, neff
 
 
 def _mixture_logq(theta, mus, covs, weights):
@@ -440,6 +462,8 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
         lnL_is[valid] = eval_lnL(like, th_is[valid])
     logw = np.where(valid, lnL_is + logp - logq, -np.inf)
     logZ, sigma_over_Z, neff = evidence_from_logweights(logw)
+    logZ, sigma_over_Z, neff = _finalize_evidence(
+        logZ, sigma_over_Z, neff, float(np.max(lnL)) if len(lnL) else np.nan)
 
     return dict(theta=theta, lnL=lnL, seeds=seeds, seed_lnL=seed_lnL,
                 logZ=logZ, sigma_over_Z=sigma_over_Z, neff=neff)
@@ -569,6 +593,8 @@ def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
             lnL_is[valid] = eval_lnL(like, th_is[valid])
         logw = np.where(valid, lnL_is + logp - logq, -np.inf)
         logZ, sigma_over_Z, neff = evidence_from_logweights(logw)
+        logZ, sigma_over_Z, neff = _finalize_evidence(
+            logZ, sigma_over_Z, neff, float(np.max(lnL)) if len(lnL) else np.nan)
 
     return dict(theta=theta, lnL=lnL, logZ=logZ, sigma_over_Z=sigma_over_Z,
                 neff=neff, flow_state=flow_state)

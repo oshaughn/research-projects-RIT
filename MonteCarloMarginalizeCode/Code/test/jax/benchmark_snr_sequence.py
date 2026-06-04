@@ -85,14 +85,24 @@ def sky_distance(theta, lnL):
 
 
 def sky_credible_area(theta, lnL, frac=0.9):
-    """Rough 90% sky credible area (deg^2) from importance-weighted draws."""
+    """Weighted 90% sky credible solid angle (deg^2) about the mean direction.
+
+    Uses the proper spherical metric: unit source vectors, the weight-weighted
+    mean direction, the weighted ``frac`` quantile of the angular offset, and
+    the spherical-cap solid angle ``2 pi (1 - cos beta_q)``.  Robust at high SNR
+    where the posterior collapses to a point (area -> 0 smoothly).
+    """
     w = np.exp(lnL - lnL.max()); w /= w.sum()
-    order = np.argsort(w)[::-1]
-    csum = np.cumsum(w[order])
-    keep = order[:np.searchsorted(csum, frac) + 1]
-    ra, dec = theta[keep, 0], theta[keep, 1]
-    # crude area: bounding spread on the sphere
-    return float(np.std(ra) * np.std(np.sin(dec)) * (180/np.pi)**2 * 4)
+    ra, dec = theta[:, 0], theta[:, 1]
+    n = np.stack([np.cos(dec) * np.cos(ra), np.cos(dec) * np.sin(ra), np.sin(dec)], -1)
+    nbar = (w[:, None] * n).sum(0)
+    nbar /= np.linalg.norm(nbar)
+    beta = np.arccos(np.clip(n @ nbar, -1, 1))          # angular offset, rad
+    order = np.argsort(beta)
+    cq = np.searchsorted(np.cumsum(w[order]), frac)
+    beta_q = beta[order[min(cq, len(beta) - 1)]]
+    omega = 2 * np.pi * (1 - np.cos(beta_q))             # spherical-cap sr
+    return float(omega * (180 / np.pi) ** 2)
 
 
 def main():
