@@ -22,11 +22,20 @@ NEW (the point of this driver):
     gradient-ascend the (narrow) likelihood peak, form a Fisher approximation,
     and run efficient (gradient-aware) importance sampling.
   * DISTANCE MARGINALIZATION is performed analytically inside the JAX
-    likelihood (``--distance-marginalization``, default ON).  The bare factored
-    likelihood diverges on amplitude slivers (template power -> 0, e.g.
-    inclination -> pi); marginalizing distance against the volumetric prior
-    regulates this and yields a smooth, bounded objective over the five
-    angular/sky parameters -- exactly how production ILE behaves.
+    likelihood when ``--distance-marginalization`` is passed (ILE-compatible
+    flag, default OFF).  The bare factored likelihood diverges on amplitude
+    slivers (template power -> 0, e.g. inclination -> pi); marginalizing
+    distance against the volumetric prior regulates this and yields a smooth,
+    bounded objective over the five angular/sky parameters.  Required by
+    ``--mode nuts``.
+
+Full ILE argument compatibility: every integrate_likelihood_extrinsic_batchmode
+option is accepted so this can be dropped into a production command line.
+Implemented options are used; the rest are silently ignored (and reported);
+science-changing options we do not implement (calibration marginalization, ROM,
+NR templates, supplementary-likelihood, zero-likelihood, maximize-only) cause a
+hard failure rather than a misleading result.  --sim-xml / --sim-grid and
+--n-events-to-analyze enable batch processing of multiple intrinsic templates.
 
 Run modes (``--mode``):
   prior-mc    : brute-force importance sampling from the physical prior
@@ -73,6 +82,173 @@ FULL_NAMES = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
 
 
 # ---------------------------------------------------------------------------
+# Drop-in ILE argument compatibility
+# ---------------------------------------------------------------------------
+# Every option of integrate_likelihood_extrinsic_batchmode is accepted so this
+# driver can be substituted into an existing production command line.  Options
+# we implement are defined explicitly in build_parser(); the rest are registered
+# here as accepted-but-ignored (with the correct arity so parsing succeeds), and
+# a small set that would silently change the *science* if ignored is failed on.
+
+# Boolean (zero-argument) ILE options (action=store_true/false).
+_ILE_BOOL_OPTS = {
+    "--check-good-enough", "--zero-likelihood", "--random-event",
+    "--soft-fail-event-range", "--fmin-template-correct-for-lmax",
+    "--internal-use-gwpy", "--nr-lookup", "--nr-hybrid-use", "--rom-use-basis",
+    "--rom-integrate-intrinsic", "--nr-perturbative-extraction",
+    "--nr-perturbative-extraction-full", "--nr-use-provided-strain",
+    "--no-memory", "--use-gwsignal", "--maximize-only", "--time-marginalization",
+    "--resample-time-marginalization", "--distance-marginalization",
+    "--calibration-fused-kernel", "--calibration-export-posterior",
+    "--extrinsic-proposal-adapt", "--vectorized", "--gpu", "--force-gpu-only",
+    "--force-xpy", "--save-samples", "--save-samples-process-params",
+    "--internal-hard-fail-on-error", "--internal-soft-fail-on-cuda-error",
+    "--internal-make-empty-file-on-error", "--internal-waveform-fd-no-condition",
+    "--verbose", "--save-eccentricity", "--fairdraw-extrinsic-output",
+    "--convergence-tests-on", "--no-adapt", "--force-adapt-all",
+    "--force-reset-all", "--no-adapt-distance", "--no-adapt-after-first",
+    "--adapt-adapt", "--adapt-log", "--d-prior-redshift",
+    "--declination-cosine-sampler", "--inclination-cosine-sampler",
+    "--internal-rotate-phase", "--internal-sky-network-coordinates",
+    "--internal-sky-network-coordinates-raw", "--auto-logarithm-offset",
+    "--pin-distance-to-sim", "--export-eos-index",
+    "--export-marginal-distance-grid", "--adapt-intrinsic",
+}
+# ILE options taking repeated values (action=append).
+_ILE_APPEND_OPTS = {"--channel-name", "--psd-file"}
+# The full ILE option set (so anything not implemented is still accepted).
+_ILE_ALL_OPTS = {
+    "--adapt-adapt", "--adapt-floor-level", "--adapt-intrinsic", "--adapt-log",
+    "--adapt-weight-exponent", "--amp-order", "--approximant",
+    "--auto-logarithm-offset", "--cache-file", "--calibration-burn-in-neff",
+    "--calibration-burn-in-nmax", "--calibration-dump-responsibilities",
+    "--calibration-envelope-directory", "--calibration-export-posterior",
+    "--calibration-fused-kernel", "--calibration-n-realizations",
+    "--calibration-pilot-extrinsic", "--calibration-proposal-breadcrumb",
+    "--calibration-spline-count", "--channel-name", "--check-good-enough",
+    "--coinc-xml", "--convergence-tests-on", "--data-end-time",
+    "--data-integration-window-half", "--data-start-time",
+    "--declination-cosine-sampler", "--deff-lambda", "--distance-marginalization",
+    "--distance-marginalization-lookup-table", "--distance-slice-skip-threshold",
+    "--distance-slice-wing-neff", "--distance-slice-wing-nmax", "--d-max",
+    "--d-min", "--d-prior", "--d-prior-redshift", "--eff-lambda", "--e-freq",
+    "--event", "--event-time", "--export-distance-slices", "--export-eos-index",
+    "--export-marginal-distance-grid", "--extrinsic-proposal-adapt",
+    "--extrinsic-proposal-breadcrumb", "--extrinsic-proposal-output",
+    "--fairdraw-extrinsic-output", "--fairdraw-extrinsic-output-n-max", "--fmax",
+    "--fmin-ifo", "--fmin-template", "--fmin-template-correct-for-lmax",
+    "--force-adapt-all", "--force-gpu-only", "--force-reset-all", "--force-xpy",
+    "--gpu", "--inclination-cosine-sampler",
+    "--internal-data-storage-window-half", "--internal-hard-fail-on-error",
+    "--internal-make-empty-file-on-error", "--internal-precompute-ignore-threshold",
+    "--internal-rotate-phase", "--internal-sky-network-coordinates",
+    "--internal-sky-network-coordinates-raw", "--internal-soft-fail-on-cuda-error",
+    "--internal-use-gwpy", "--internal-waveform-extra-kwargs",
+    "--internal-waveform-extra-lalsuite-args", "--internal-waveform-fd-no-condition",
+    "--internal-waveform-taper", "--interpolate-time", "--inv-spec-trunc-time",
+    "--l-max", "--manual-logarithm-offset", "--mass1", "--mass2",
+    "--maximize-only", "--n-chunk", "--n-distance-slice-core", "--n-eff",
+    "--n-events-to-analyze", "--n-fairdraw-extrinsic-samples", "--n-max",
+    "--n-distance-slice-wing", "--no-adapt", "--no-adapt-after-first",
+    "--no-adapt-distance", "--no-memory", "--nr-hybrid-method", "--nr-hybrid-use",
+    "--nr-index", "--nr-lookup", "--nr-lookup-group", "--nr-params",
+    "--nr-perturbative-extraction", "--nr-perturbative-extraction-full",
+    "--nr-use-provided-strain", "--output-file", "--output-format",
+    "--parameter", "--parameter-range", "--pin-distance-to-sim", "--psd-file",
+    "--psd-window-shape", "--random-event", "--reference-freq",
+    "--resample-time-marginalization", "--restricted-mode-list-file",
+    "--rom-group", "--rom-integrate-intrinsic", "--rom-limit-basis-size-to",
+    "--rom-param", "--rom-use-basis", "--sampler-method", "--sampler-portfolio",
+    "--sampler-portfolio-args", "--sampler-xpy", "--save-eccentricity",
+    "--save-samples", "--save-samples-process-params", "--seed", "--sim-grid",
+    "--sim-xml", "--skymap-file", "--soft-fail-event-range", "--spin1z",
+    "--spin2z", "--srate", "--srate-internal",
+    "--srate-resample-time-marginalization",
+    "--supplementary-likelihood-factor-code",
+    "--supplementary-likelihood-factor-function",
+    "--supplementary-likelihood-factor-ini", "--time-marginalization",
+    "--use-gwsignal", "--use-gwsignal-lmax-nyquist", "--vectorized", "--verbose",
+    "--window-shape", "--zero-likelihood",
+}
+
+
+def _register_compat_options(optp):
+    """Add every ILE option we do not already define, as accepted-but-ignored."""
+    import optparse
+    known = set()
+    for opt in optp._get_all_options():
+        known.update(opt._long_opts)
+    g = OptionGroup(optp, "ILE compatibility (accepted; ignored unless implemented)")
+    for name in sorted(_ILE_ALL_OPTS):
+        if name in known:
+            continue
+        if name in _ILE_BOOL_OPTS:
+            g.add_option(name, action="store_true", default=False,
+                         help=optparse.SUPPRESS_HELP)
+        elif name in _ILE_APPEND_OPTS:
+            g.add_option(name, action="append", default=[],
+                         help=optparse.SUPPRESS_HELP)
+        else:
+            g.add_option(name, default=None, help=optparse.SUPPRESS_HELP)
+    optp.add_option_group(g)
+
+
+def _dest(name):
+    return name.lstrip("-").replace("-", "_")
+
+
+def check_critical_and_report(opts, optp):
+    """Fail on science-changing options we do not implement; report the rest."""
+    def is_set(name):
+        v = getattr(opts, _dest(name), None)
+        return bool(v) if name in _ILE_BOOL_OPTS else (v is not None and v != [])
+
+    fatal = []
+    if getattr(opts, "calibration_n_realizations", None) not in (None, 1) \
+            or is_set("--calibration-export-posterior") \
+            or is_set("--calibration-envelope-directory"):
+        fatal.append("calibration marginalization (--calibration-*) is not implemented")
+    if is_set("--rom-use-basis") or is_set("--rom-group") or is_set("--rom-param"):
+        fatal.append("ROM-basis waveforms (--rom-*) are not implemented")
+    if any(is_set(x) for x in ("--supplementary-likelihood-factor-code",
+                               "--supplementary-likelihood-factor-function",
+                               "--supplementary-likelihood-factor-ini")):
+        fatal.append("supplementary likelihood factors are not implemented")
+    if is_set("--nr-lookup") or is_set("--nr-params") or is_set("--nr-index"):
+        fatal.append("NR-waveform templates (--nr-*) are not implemented")
+    if is_set("--zero-likelihood"):
+        fatal.append("--zero-likelihood is not implemented")
+    if is_set("--maximize-only"):
+        fatal.append("--maximize-only is not implemented (this driver integrates)")
+    if fatal:
+        optp.error("Cannot run as a faithful drop-in: " + "; ".join(fatal)
+                   + ".  (These would silently change the result if ignored.)")
+
+    # Report accepted-but-ignored options that were actually passed.
+    ignored = []
+    implemented = {"--cache-file", "--channel-name", "--psd-file",
+                   "--data-start-time", "--data-end-time", "--window-shape",
+                   "--psd-window-shape", "--mass1", "--mass2", "--spin1z",
+                   "--spin2z", "--eff-lambda", "--deff-lambda", "--approximant",
+                   "--l-max", "--event-time", "--fmin-template",
+                   "--reference-freq", "--fmax", "--srate",
+                   "--data-integration-window-half",
+                   "--internal-data-storage-window-half", "--d-min", "--d-max",
+                   "--d-prior", "--n-max", "--n-chunk", "--output-file",
+                   "--event", "--save-samples", "--verbose", "--seed",
+                   "--sim-xml", "--sim-grid", "--n-events-to-analyze",
+                   "--random-event", "--distance-marginalization",
+                   "--time-marginalization", "--vectorized", "--use-gwsignal"}
+    for name in sorted(_ILE_ALL_OPTS - implemented):
+        if is_set(name):
+            ignored.append(name)
+    if ignored:
+        print("Note: the following ILE options are accepted but IGNORED by the "
+              "JAX driver (not yet implemented; behavior may differ from ILE):")
+        print("   " + " ".join(ignored))
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 def build_parser():
@@ -108,8 +284,23 @@ def build_parser():
     g.add_option("--mass2", type=float, default=None, help="m2 (solar masses)")
     g.add_option("--spin1z", type=float, default=0.0)
     g.add_option("--spin2z", type=float, default=0.0)
+    g.add_option("--eff-lambda", type=float, default=None,
+                 help="Tidal Lambda-tilde; converted to lambda1,lambda2.")
+    g.add_option("--deff-lambda", type=float, default=None,
+                 help="Tidal delta-Lambda-tilde.")
     g.add_option("--approximant", default="IMRPhenomD")
     g.add_option("--l-max", type=int, default=2)
+    g.add_option("--sim-xml", default=None,
+                 help="ligolw XML of intrinsic params (ChooseWaveformParams array). "
+                      "Selects event(s) via --event / --n-events-to-analyze.")
+    g.add_option("--sim-grid", default=None,
+                 help="ASCII grid file (names=True header) of intrinsic params.")
+    g.add_option("--event", type=int, default=0,
+                 help="Index of the first event to analyze from --sim-xml/--sim-grid.")
+    g.add_option("--n-events-to-analyze", type=int, default=1,
+                 help="Number of consecutive events to analyze (batch loop).")
+    g.add_option("--random-event", action="store_true", default=False,
+                 help="Draw events at random from the table instead of in order.")
     optp.add_option_group(g)
 
     g = OptionGroup(optp, "Conditioning / windows / frequencies")
@@ -131,13 +322,12 @@ def build_parser():
     g.add_option("--num-samples", type=int, default=2000,
                  help="NUTS posterior samples per chain (--mode nuts).")
     g.add_option("--num-chains", type=int, default=1)
-    g.add_option("--distance-marginalization", action="store_true", default=True,
-                 help="Marginalize distance analytically (default ON; needed to "
-                      "regulate the factored-likelihood amplitude degeneracy).")
-    g.add_option("--no-distance-marginalization", action="store_false",
-                 dest="distance_marginalization",
-                 help="Sample distance explicitly instead (6-D, may be "
-                      "sliver-dominated without care).")
+    # ILE-compatible semantics: store_true, default OFF.  When ON, distance is
+    # marginalized analytically (5-D angular problem, well conditioned); when
+    # OFF, distance is sampled explicitly (6-D).  Required for --mode nuts.
+    g.add_option("--distance-marginalization", action="store_true", default=False,
+                 help="Marginalize distance analytically (regulates the "
+                      "factored-likelihood amplitude degeneracy; required for nuts).")
     g.add_option("--n-max", type=int, default=300000)
     g.add_option("--n-chunk", type=int, default=8000)
     g.add_option("--d-min", type=float, default=1.0, help="Min distance (Mpc).")
@@ -152,10 +342,13 @@ def build_parser():
 
     g = OptionGroup(optp, "Output")
     g.add_option("--output-file", default=None)
-    g.add_option("--event", type=int, default=0)
     g.add_option("--save-samples", action="store_true", default=False)
     g.add_option("--verbose", action="store_true", default=False)
     optp.add_option_group(g)
+
+    # Register every remaining ILE option for drop-in compatibility (accepted,
+    # silently ignored unless implemented; science-critical ones fail below).
+    _register_compat_options(optp)
     return optp
 
 
@@ -168,6 +361,9 @@ def make_template(opts, fiducial_epoch, deltaF, deltaT):
     P.m2 = opts.mass2 * MSUN
     P.s1z = opts.spin1z
     P.s2z = opts.spin2z
+    if opts.eff_lambda is not None:
+        P.lambda1, P.lambda2 = lalsimutils.tidal_lambda_from_tilde(
+            opts.mass1, opts.mass2, opts.eff_lambda, opts.deff_lambda or 0.0)
     P.fmin = opts.fmin_template
     P.fref = opts.reference_freq
     P.deltaT = deltaT
@@ -178,6 +374,70 @@ def make_template(opts, fiducial_epoch, deltaF, deltaT):
     P.tref = fiducial_epoch
     P.dist = 1000.0 * 1e6 * PC
     return P
+
+
+def load_templates(opts, fiducial_epoch, deltaF, deltaT):
+    """Return a list of intrinsic templates (ChooseWaveformParams).
+
+    Mirrors the production driver's --sim-xml / --sim-grid / --mass1,--mass2
+    handling, including the [event : event+n_events] slice and the
+    extrinsic-zeroing / fiducial-distance conventions.  Extrinsic parameters
+    (sky, distance, inclination, phase, psi) are placeholders -- they are the
+    quantities this code samples/marginalizes.
+    """
+    def _finalize(P):
+        P.radec = True
+        P.fref = opts.reference_freq
+        P.fmin = opts.fmin_template
+        P.deltaT = deltaT
+        P.deltaF = deltaF
+        P.fmax = 0.0
+        P.tref = fiducial_epoch
+        P.dist = 1000.0 * 1e6 * PC  # fiducial template distance (= distMpcRef)
+        if opts.approximant:
+            P.approx = lalsim.GetApproximantFromString(opts.approximant)
+        return P
+
+    if opts.sim_xml:
+        P_all = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
+        if opts.random_event:
+            idx = np.random.choice(len(P_all),
+                                   size=min(opts.n_events_to_analyze, len(P_all)),
+                                   replace=False)
+            P_list = [P_all[i] for i in idx]
+        else:
+            if len(P_all) <= opts.event:
+                print(" Event index out of range; soft exit"); sys.exit(0)
+            hi = min(len(P_all), opts.event + opts.n_events_to_analyze)
+            P_list = list(P_all[opts.event:hi])
+        return [_finalize(P) for P in P_list]
+
+    if opts.sim_grid:
+        grid = np.genfromtxt(opts.sim_grid, names=True)
+        grid = np.atleast_1d(grid)
+        names = list(grid.dtype.names)
+        params = [n for n in names if n in set(lalsimutils.valid_params)]
+        if len(grid) <= opts.event:
+            print(" Event index out of range; soft exit"); sys.exit(0)
+        hi = min(len(grid), opts.event + opts.n_events_to_analyze)
+        P_list = []
+        for row in grid[opts.event:hi]:
+            P = lalsimutils.ChooseWaveformParams()
+            for name in params:
+                val = float(row[name])
+                if hasattr(P, name):
+                    setattr(P, name, val)
+                else:
+                    P.assign_param(name, val)
+            if P.m1 < 1e15:           # masses given in solar masses -> SI
+                P.m1 *= MSUN; P.m2 *= MSUN
+            P_list.append(_finalize(P))
+        return P_list
+
+    # single template from --mass1/--mass2
+    if opts.mass1 is None or opts.mass2 is None:
+        raise SystemExit("Provide --mass1/--mass2, or --sim-xml / --sim-grid.")
+    return [make_template(opts, fiducial_epoch, deltaF, deltaT)]
 
 
 def load_injection(opts, fiducial_epoch):
@@ -213,9 +473,7 @@ def load_frames(opts, fiducial_epoch):
         psd_dict[inst] = lalsimutils.resample_psd_series(
             psd_dict[inst], data_dict[inst].deltaF)
     detectors = list(data_dict.keys())
-    deltaF = data_dict[detectors[0]].deltaF
-    P_template = make_template(opts, fiducial_epoch, deltaF, deltaT)
-    return P_template, data_dict, psd_dict, detectors, False
+    return data_dict, psd_dict, detectors, False
 
 
 # ---------------------------------------------------------------------------
@@ -358,8 +616,8 @@ def run_nuts(like, opts, rng, with_distance):
     """
     if with_distance:
         raise SystemExit("--mode nuts requires distance marginalization (the "
-                         "bare 6-D likelihood is degenerate); drop "
-                         "--no-distance-marginalization.")
+                         "bare 6-D likelihood is degenerate); pass "
+                         "--distance-marginalization.")
     import numpyro
     import numpyro.distributions as dist
     from numpyro.infer import MCMC, NUTS
@@ -449,19 +707,19 @@ def run_map(like, opts, rng, dim, with_distance):
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
-def write_dat(opts, P, logZ, sigma_over_Z, ntotal, neff):
+def write_dat(opts, P, out_index, event_id, logZ, sigma_over_Z, ntotal, neff):
     if not opts.output_file:
         return
     m1, m2 = P.m1 / MSUN, P.m2 / MSUN
-    fname = opts.output_file + "_" + str(opts.event) + "_" + ".dat"
-    row = np.array([[opts.event, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y,
+    fname = opts.output_file + "_" + str(out_index) + "_" + ".dat"
+    row = np.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y,
                      P.s2z, logZ, sigma_over_Z, ntotal, neff]])
     np.savetxt(fname, row,
                header="event_id m1 m2 s1x s1y s1z s2x s2y s2z lnL sigma_lnL ntotal neff")
     print("Wrote %s" % fname)
 
 
-def write_samples(opts, theta, lnL, with_distance):
+def write_samples(opts, out_index, theta, lnL, with_distance):
     if not (opts.output_file and opts.save_samples) or theta is None:
         return
     good = np.isfinite(lnL)
@@ -474,40 +732,22 @@ def write_samples(opts, theta, lnL, with_distance):
         cols = np.column_stack([theta[good, 0], theta[good, 1], theta[good, 3],
                                 theta[good, 2], theta[good, 4], lnL[good]])
         hdr = "right_ascension declination inclination psi phi_orb loglikelihood"
-    sname = opts.output_file + "_" + str(opts.event) + "_samples.dat"
+    sname = opts.output_file + "_" + str(out_index) + "_samples.dat"
     np.savetxt(sname, cols, header=hdr)
     print("Wrote %s (%d samples)" % (sname, int(good.sum())))
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-def main(argv=None):
-    optp = build_parser()
-    opts, _ = optp.parse_args(argv)
-    if opts.mass1 is None or opts.mass2 is None:
-        optp.error("--mass1 and --mass2 are required")
-    if opts.event_time is None:
-        if opts.inj_mode:
-            opts.event_time = 1126259462.0
-        else:
-            optp.error("--event-time is required (frame mode)")
-    fiducial_epoch = opts.event_time
-    rng = np.random.default_rng(opts.seed)
-
-    if opts.inj_mode:
-        P, data_dict, psd_dict, detectors, analyticPSD_Q = load_injection(opts, fiducial_epoch)
-    else:
-        if not opts.cache_file or not opts.channel_name:
-            optp.error("frame mode requires --cache-file and --channel-name (or --inj-mode)")
-        P, data_dict, psd_dict, detectors, analyticPSD_Q = load_frames(opts, fiducial_epoch)
-
-    print("Detectors:", detectors)
+def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
+                rng, out_index, event_id):
+    """Build the JAX likelihood for one intrinsic template and run --mode."""
     print("Building JAX likelihood (PrecomputeLikelihoodTerms + pack)...")
     like_data, extras = build_data_from_precompute(
         P.copy(), data_dict, psd_dict, fiducial_epoch,
         opts.internal_data_storage_window_half, opts.data_integration_window_half,
-        opts.l_max, opts.fmax, analyticPSD_Q=analyticPSD_Q, verbose=opts.verbose)
+        opts.l_max, opts.fmax,
+        analyticPSD_Q=analyticPSD_Q, verbose=opts.verbose,
+        use_gwsignal=bool(getattr(opts, "use_gwsignal", False)),
+        use_gwsignal_approx=(opts.approximant if getattr(opts, "use_gwsignal", False) else None))
     print("  modes:", like_data.lms, "  guessed SNR:", extras["guess_snr"])
 
     with_distance = not opts.distance_marginalization
@@ -532,8 +772,8 @@ def main(argv=None):
         for nm, v in zip(names, theta_map):
             print("   %-8s = %.6f" % (nm, v))
         print("Fisher diag:", np.array2string(np.diag(fish), precision=4))
-        write_dat(opts, P, lnL_map, float("nan"), 0, float("nan"))
-        return
+        write_dat(opts, P, out_index, event_id, lnL_map, float("nan"), 0, float("nan"))
+        return lnL_map
 
     if opts.mode == "prior-mc":
         logZ, sig, neff, ntot, theta, lnL = run_prior_mc(like, opts, rng, dim, with_distance)
@@ -542,11 +782,63 @@ def main(argv=None):
     else:
         logZ, sig, neff, ntot, theta, lnL = run_laplace_is(like, opts, rng, dim, with_distance)
 
-    print("\n==== Result ====")
+    print("\n==== Result (event %d) ====" % event_id)
     print("  log evidence (lnL marginal over extrinsic) = %.5f" % logZ)
     print("  sigma_lnL = %.4g    neff = %.1f    ntotal = %d" % (sig, neff, ntot))
-    write_dat(opts, P, logZ, sig, ntot, neff)
-    write_samples(opts, theta, lnL, with_distance)
+    write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff)
+    write_samples(opts, out_index, theta, lnL, with_distance)
+    return logZ
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+def main(argv=None):
+    optp = build_parser()
+    opts, _ = optp.parse_args(argv)
+    check_critical_and_report(opts, optp)
+
+    if opts.event_time is None:
+        if opts.inj_mode:
+            opts.event_time = 1126259462.0
+        else:
+            optp.error("--event-time is required (frame mode)")
+    fiducial_epoch = opts.event_time
+    rng = np.random.default_rng(opts.seed)
+    deltaT = 1.0 / opts.srate
+
+    # --- data (loaded once; shared across the intrinsic batch) ---
+    if opts.inj_mode:
+        if opts.mass1 is None or opts.mass2 is None:
+            optp.error("--inj-mode requires --mass1 and --mass2")
+        P_inj, data_dict, psd_dict, detectors, analyticPSD_Q = load_injection(opts, fiducial_epoch)
+        deltaF = data_dict[detectors[0]].deltaF
+        P_list = [P_inj]            # injection mode is single-event
+    else:
+        if not opts.cache_file or not opts.channel_name:
+            optp.error("frame mode requires --cache-file and --channel-name (or --inj-mode)")
+        data_dict, psd_dict, detectors, analyticPSD_Q = load_frames(opts, fiducial_epoch)
+        deltaF = data_dict[detectors[0]].deltaF
+        P_list = load_templates(opts, fiducial_epoch, deltaF, deltaT)
+
+    print("Detectors:", detectors)
+    print("Analyzing %d event(s) [event index base = %d]" % (len(P_list), opts.event))
+
+    # --- batch loop over intrinsic templates ---
+    for out_index, P in enumerate(P_list):
+        P.deltaT = deltaT
+        P.deltaF = deltaF
+        event_id = opts.event if (opts.sim_xml or opts.sim_grid or opts.inj_mode) else -1
+        print("\n======== event %d (output index %d) : m1=%.3f m2=%.3f ========"
+              % (event_id, out_index, P.m1 / MSUN, P.m2 / MSUN))
+        try:
+            analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q,
+                        fiducial_epoch, rng, out_index, event_id)
+        except Exception as e:
+            if getattr(opts, "soft_fail_event_range", False):
+                print("  event %d failed (soft-fail): %s" % (event_id, e))
+                continue
+            raise
 
 
 if __name__ == "__main__":

@@ -98,7 +98,26 @@ right object for gradient-based exploration.
 ## Driver
 
 `bin/integrate_likelihood_extrinsic_jax` mirrors the ILE CLI/output conventions
-and uses the JAX likelihood.  Modes (`--mode`):
+and uses the JAX likelihood.
+
+**Drop-in argument compatibility.**  Every
+`integrate_likelihood_extrinsic_batchmode` option is accepted, so the driver can
+be substituted directly into an existing production command line.  Implemented
+options are used; unimplemented non-critical options are silently accepted and
+reported (`Note: ... accepted but IGNORED ...`); options that would silently
+change the *science* if ignored — calibration marginalization (`--calibration-*`),
+ROM-basis waveforms (`--rom-*`), NR templates (`--nr-*`),
+supplementary-likelihood factors, `--zero-likelihood`, `--maximize-only` — cause
+a hard failure instead of a misleading result.
+
+**Intrinsic input + batch.**  `--sim-xml` / `--sim-grid` load intrinsic
+templates (with `--event` / `--n-events-to-analyze` selecting a slice), exactly
+as ILE does; tidal `--eff-lambda`/`--deff-lambda` are converted to
+`lambda1,lambda2`.  Multiple events are processed in a batch loop, each writing
+`<output>_<index>_.dat` (and `_samples.dat`).  `--inj-mode` synthesizes
+zero-noise data for self-tests (single event).
+
+Modes (`--mode`):
 
 - `prior-mc` — brute-force importance sampling from the physical prior (robust, slow).
 - `laplace-is` — prior-seeded adaptive Gaussian importance sampling (default).
