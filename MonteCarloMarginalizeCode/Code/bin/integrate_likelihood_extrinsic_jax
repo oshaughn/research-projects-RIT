@@ -316,7 +316,12 @@ def build_parser():
 
     g = OptionGroup(optp, "Extrinsic exploration / sampling")
     g.add_option("--mode", default="laplace-is",
-                 choices=["prior-mc", "laplace-is", "map", "nuts"])
+                 choices=["prior-mc", "laplace-is", "map", "nuts",
+                          "multistart-nuts", "flowmc"],
+                 help="Extrinsic exploration: prior-mc | laplace-is | map | "
+                      "nuts (single-chain) | multistart-nuts (mode-covering) | "
+                      "flowmc (normalizing-flow). The last three need "
+                      "--distance-marginalization.")
     g.add_option("--num-warmup", type=int, default=500,
                  help="NUTS warmup iterations (--mode nuts).")
     g.add_option("--num-samples", type=int, default=2000,
@@ -775,7 +780,24 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         write_dat(opts, P, out_index, event_id, lnL_map, float("nan"), 0, float("nan"))
         return lnL_map
 
-    if opts.mode == "prior-mc":
+    if opts.mode in ("multistart-nuts", "flowmc"):
+        if with_distance:
+            raise SystemExit("--mode %s requires --distance-marginalization "
+                             "(it samples the 5-D angular posterior)." % opts.mode)
+        from RIFT.likelihood.jax_ile import samplers as _samplers
+        n_starts = opts.num_chains if opts.num_chains and opts.num_chains > 1 else 8
+        if opts.mode == "multistart-nuts":
+            res = _samplers.multistart_nuts(
+                like, opts.d_min, opts.d_max, n_starts=n_starts,
+                num_warmup=opts.num_warmup, num_samples=opts.num_samples,
+                seed=opts.seed, verbose=opts.verbose)
+        else:
+            res = _samplers.flowmc_sample(
+                like, opts.d_min, opts.d_max, n_chains=max(n_starts, 20),
+                seed=opts.seed, verbose=opts.verbose)
+        theta, lnL = res["theta"], res["lnL"]
+        logZ, sig, neff, ntot = res["logZ"], res["sigma_over_Z"], res["neff"], len(theta)
+    elif opts.mode == "prior-mc":
         logZ, sig, neff, ntot, theta, lnL = run_prior_mc(like, opts, rng, dim, with_distance)
     elif opts.mode == "nuts":
         logZ, sig, neff, ntot, theta, lnL = run_nuts(like, opts, rng, with_distance)

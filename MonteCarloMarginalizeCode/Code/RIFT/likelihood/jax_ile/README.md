@@ -121,9 +121,27 @@ Modes (`--mode`):
 
 - `prior-mc` — brute-force importance sampling from the physical prior (robust, slow).
 - `laplace-is` — prior-seeded adaptive Gaussian importance sampling (default).
-- `nuts` — **gradient-based NUTS** (numpyro) over the distance-marginalized
-  angular posterior, seeded at the best prior draw; the AD payoff demonstration.
+- `nuts` — single-chain gradient NUTS (numpyro) over the distance-marginalized
+  angular posterior, seeded at the best prior draw.
+- `multistart-nuts` — **mode-covering** NUTS: a pilot prior scan picks several
+  well-separated high-lnL seeds (one per resolvable sky mode), runs a NUTS chain
+  from each, pools them, and forms a Gaussian-**mixture** importance estimate of
+  the evidence (one component per mode → usable `neff` on a multimodal posterior).
+- `flowmc` — **normalizing-flow sampler** (flowMC RQSpline+MALA): trains a flow on
+  the multimodal target using the exact JAX gradient, captures all modes at once,
+  with a flow-seeded importance evidence.  Fast and the recommended sampler.
 - `map` — gradient-ascend the angular peak + report Fisher.
+
+`multistart-nuts`, `flowmc` and `nuts` require `--distance-marginalization` (they
+sample the 5-D angular posterior).  Implemented in `samplers.py`.
+
+Validation (standard injection, truth sky RA,DEC=(1.20,-0.40)): both samplers
+recover the truth sky and **agree on the evidence** — `multistart-nuts`
+`logZ≈524.09` (`neff≈200`) and `flowmc` `logZ≈524.16` (`neff≈20`, ~4 min on CPU)
+— versus a single Gaussian / single chain that gave `neff≈2-4`.  (The highest-lnL
+*orientation* differs from the injected one: the ψ/φ_ref polarization-phase
+degeneracy admits an equal-or-higher-likelihood orientation; the sky is what is
+recovered.)
 
 Self-test (no frames needed):
 
@@ -139,19 +157,24 @@ with `--save-samples`, `out_0_samples.dat`.
 ## Status and next steps
 
 **Done & validated:** the AD likelihood core (1e-13 vs reference), gradients,
-distance marginalization, the wrapper, the CLI driver + ILE-format I/O, NUTS
-sampling of a single mode.
+distance marginalization (vectorized, fast reverse-mode), the wrapper, the CLI
+driver + ILE-format I/O + full ILE argument compatibility + batch processing,
+spherical harmonics l=2..8 (vs lal), network-frame sky coordinates, and
+multimodal sampling via **multi-start NUTS** and **flowMC** (both recover the
+truth sky and agree on the evidence; see the Driver section).
 
-**Known limitation / next step:** the extrinsic likelihood is strongly
-**multimodal** (the detector time-delay ring gives many discrete sky modes) and
-extremely peaked (lnL ~ several hundred).  A single NUTS chain or a single
-Gaussian proposal resolves *one* mode, so the global evidence estimate has low
-`neff` and the methods disagree.  The intended closeout (per the project plan)
-is to use the AD likelihood + gradients with **multi-start NUTS** and/or
-**flowMC** (a normalizing-flow sampler, already installed) to cover all modes,
-then a final importance / AV pass for the evidence.  The likelihood and its
-gradients — the hard, exactness-critical part — are in place and validated for
-that next stage.
+**Multimodality** — the detector time-delay ring (discrete sky modes) plus the
+phase/polarization degeneracy — is the central difficulty and is now handled by
+the mode-covering samplers above.  Further hardening available to compound:
+- the network-frame sky coordinates (`coordinates.py`) fold the time-delay ring
+  onto a constant-polar-angle line; sampling the sky in `(cos theta_n, phi_n)`
+  (where the sky prior is simply uniform, since rotation preserves the sphere
+  measure) should sharpen mode separation — wiring this into the samplers is the
+  natural next step;
+- `polarization_phase_fold` folds the ψ/φ_ref quadrupole degeneracy into a
+  fundamental domain.
+- flowMC is the fast, recommended sampler; multi-start NUTS is the slower but
+  gradient-exact cross-check (NUTS on CPU is still costly — GPU would help).
 
 Not yet ported (structured for): in-loop calibration marginalization
 (`n_cal>1`) and the lookup-table distance marginalization (we use direct grid
