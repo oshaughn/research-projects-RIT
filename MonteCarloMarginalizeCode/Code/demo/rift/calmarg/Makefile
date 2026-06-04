@@ -518,7 +518,10 @@ OSG ?= 0
 ifeq ($(OSG),1)
   # Container: ~4 GB disk for the .sif transfer + unpack (vs the MB-scale shared-FS baseline)
   PP_DISK ?= 4G
-  PP_OSG_FLAGS := --use-osg --use-osg-cip --use-osg-file-transfer
+  # --condor-local-nonworker: at CIT the fast 'internal' jobs (consolidate/unify/puff/cal-
+  # consolidation/etc.) have no execute-point access, so vanilla-universe submission fails;
+  # this runs them locally (non-NFS / flock_local) instead.  Required whenever OSG is active.
+  PP_OSG_FLAGS := --use-osg --use-osg-cip --use-osg-file-transfer --condor-local-nonworker
   # On OSG the cal envelopes are auto-added to the transfer list by util_RIFT_pseudo_pipe.py
   # (referenced as '.'); the PSD is provided as run-dir <IFO>-psd.xml.gz (copied below), which
   # RIFT lists + transfers by basename.  So do NOT pass --use-online-psd-file (it would force
