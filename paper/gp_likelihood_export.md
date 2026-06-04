@@ -1,0 +1,89 @@
+# A differentiable GP likelihood surrogate for RIFT, and how we test it
+
+*Methods draft. Reproducible test: `MonteCarloMarginalizeCode/Code/demo/rift/
+export_likelihoods/head_to_head/` (`make all`). Snapshot on the BNS GW170817 example;
+revisit as code/settings change — science is tested, never finished.*
+
+## 1. Goal
+
+Export RIFT's intrinsic likelihood as a **portable, differentiable** `lnL(θ)` that
+downstream users (population inference, differentiable samplers) can evaluate and
+`jax.grad` with no RIFT dependency — and show it is accurate enough **for inference**
+against RIFT's production random-forest (RF) fit.
+
+## 2. Surrogate
+
+`quadgp` = a quadratic **Fisher core** (posterior-weighted quadratic, exact local
+curvature, sharp eigen-directions only) **plus a GP residual** on `lnL − Q`. A single
+stationary GP cannot match a razor-sharp, near-Gaussian `lnL` peak to the few-percent
+width PE needs; the quadratic captures the sharp curvature by construction and the GP
+fits the smooth remainder. Pure JAX, so the export is differentiable. Fit in RIFT's
+decorrelated CIP coordinates (for BNS: `mu1, mu2, delta_mc, LambdaTilde,
+DeltaLambdaTilde`).
+
+## 3. Building the fit: RF as an on-support oracle
+
+RF is RIFT's robust, evaluate-anywhere fit; we treat it as an **accuracy oracle on its
+support** (the region the ILE points cover). Key choices, each learned the hard way:
+
+- **On-support design.** Place training/evaluation points where the oracle is valid —
+  the real high-`lnL` points (the ones that inform `lnL`, peak-outward) — not a
+  Gaussian-ellipsoid guess. An off-support Gaussian design wanders where RF extrapolates
+  as a blocky constant; both the targets and the comparison are then meaningless there.
+- **Average away MC noise.** Use the oracle's smoothed value (or a noise-modelled fit),
+  not the raw per-point `lnL`, as the target.
+- **Two-tier dynamic range.** Fit accurately over the posterior region **plus a buffer**
+  (strong external mass/spin priors can pull the effective posterior into our tail); we
+  rarely probe joint `P ≲ 10⁻³`, `d ≲ 15`. *Beyond* the buffer, no accuracy is needed,
+  but the surrogate must **return smoothly toward zero** with no ringing — enforced by
+  far-field **residual→0 anchors** (insurance against phantom tail features under a
+  strong external prior).
+- **Boundaries.** A general per-coordinate boundary + special-locus framework (clip at
+  hard limits, never step across); equal mass (`delta_mc→0`) and zero spin default ON
+  for BNS/aligned. On GW170817 the high-`lnL` band reaches the equal-mass and tidal-zero
+  boundaries, so this is required, not optional.
+
+## 4. Sampling: mu-frame-preconditioned NUTS
+
+The posterior is a razor-thin ridge in `mc`; importance sampling is proposal-limited and
+plain NUTS cannot find a step size. We precondition NUTS's dense mass matrix with a
+well-conditioned covariance built in the decorrelated (mu) frame and pulled back to the
+sampling coordinates (mapped through the box reparameterization), so NUTS mixes *and*
+explores the weakly-constrained directions by construction.
+
+## 5. How we test it (two questions)
+
+### 5.1 Surface agreement (necessary, but over-strict)
+
+Relative `lnL` error over the dynamic range, on a fair **leave-some-out** split:
+
+![Relative lnL error vs lnL](figures/relerr_vs_lnL.png)
+
+*Left:* GP − RF (surrogate vs surrogate). *Right:* GP − data and RF − data on held-out
+points. The two smoothers agree far better than either matches the per-point data,
+because RF and GP make the **same** (correlated) smoothing error near the razor-sharp
+peak — so the raw "surface RMS vs data" is a pessimistic proxy dominated by sharp-peak
+resolution (and partly by MC noise in the evaluations), not by anything that need spoil
+inference.
+
+### 5.2 Posterior agreement (the metric that matters)
+
+The GP posterior (mu-frame NUTS) against the production RF+AV benchmark:
+
+![Corner: GP vs RF+AV benchmark](figures/corner_test.png)
+
+On GW170817 the 1-D marginals agree to **JS ≈ 0.004–0.05 bits**, and the razor-sharp
+chirp-mass width is reproduced to ≈5 % (`σ_mc` 7.2×10⁻⁵ vs 6.9×10⁻⁵) despite the larger
+pointwise *surface* residual — the quadratic core carries the sharp curvature through to
+the posterior. The benchmark PE itself is not pristine, so `~10⁻³` JS is not the bar;
+the test is whether inference is **wildly wrong**, and it is not.
+
+## 6. Status and caveats
+
+Tested-so-far on one BNS example. Surface RMS is dominated by sharp-peak resolution and
+is correlated between RF and GP, so it neither certifies nor condemns the fit on its own
+— gate on the posterior. The mild residual is `delta_mc` (JS ≈ 0.05, slightly broad). A
+lower-MC-noise reference run would be needed to certify *surface* accuracy below the
+current floor; the posterior result already shows inference-grade behavior. Next:
+the parameter-combination ladder (`../validation/`) and packaging the export with the
+training evaluations (for out-of-sample detection) and coordinate-management tools.

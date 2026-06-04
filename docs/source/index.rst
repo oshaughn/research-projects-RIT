@@ -27,6 +27,7 @@ Rapid inference via Iterative FiTting: this algorithm provides a framework for e
    hyperpipe
    troubleshooting
    api_samples_utils
+   gp_likelihood_export
    executables/index
    physics/index
 
