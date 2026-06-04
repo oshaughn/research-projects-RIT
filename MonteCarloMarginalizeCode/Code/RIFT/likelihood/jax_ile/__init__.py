@@ -45,6 +45,12 @@ from .wrapper import (
     build_data_from_precompute,
     EXTRINSIC_PARAM_ORDER,
 )
+from .coordinates import (
+    build_network_frame,
+    equatorial_to_network,
+    network_to_equatorial,
+    polarization_phase_fold,
+)
 
 __all__ = [
     "JAXLikelihoodData",
@@ -56,4 +62,8 @@ __all__ = [
     "JAXExtrinsicLikelihood",
     "build_data_from_precompute",
     "EXTRINSIC_PARAM_ORDER",
+    "build_network_frame",
+    "equatorial_to_network",
+    "network_to_equatorial",
+    "polarization_phase_fold",
 ]
