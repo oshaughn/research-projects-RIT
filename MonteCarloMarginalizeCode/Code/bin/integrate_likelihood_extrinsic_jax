@@ -1,0 +1,553 @@
+#!/usr/bin/env python
+"""
+integrate_likelihood_extrinsic_jax
+==================================
+
+A JAX, automatic-differentiation-based driver for the RIFT ILE extrinsic
+likelihood.  It mirrors the *structure* and the relevant CLI/output conventions
+of ``integrate_likelihood_extrinsic_batchmode`` but replaces the Monte-Carlo
+likelihood evaluation with the differentiable JAX likelihood in
+``RIFT.likelihood.jax_ile`` (a reimplementation of the production
+``DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop`` "fused" code branch,
+validated to ~1e-13 against the numpy reference).
+
+REUSED unchanged from production RIFT (deliberately not reinvented):
+  * frame reading            -> lalsimutils.frame_data_to_non_herm_hoff
+  * PSD handling             -> lalsimutils.get_psd_series_from_xmldoc / resample
+  * waveform + inner products-> factored_likelihood.PrecomputeLikelihoodTerms
+  * array packing / epoch    -> factored_likelihood.PackLikelihoodDataStructuresAsArrays
+
+NEW (the point of this driver):
+  * the extrinsic -> lnL map is pure-JAX and AD-compatible, so we can
+    gradient-ascend the (narrow) likelihood peak, form a Fisher approximation,
+    and run efficient (gradient-aware) importance sampling.
+  * DISTANCE MARGINALIZATION is performed analytically inside the JAX
+    likelihood (``--distance-marginalization``, default ON).  The bare factored
+    likelihood diverges on amplitude slivers (template power -> 0, e.g.
+    inclination -> pi); marginalizing distance against the volumetric prior
+    regulates this and yields a smooth, bounded objective over the five
+    angular/sky parameters -- exactly how production ILE behaves.
+
+Run modes (``--mode``):
+  prior-mc    : brute-force importance sampling from the physical prior
+                (robust, slow; the classic ILE estimator).
+  laplace-is  : prior-seeded *adaptive* Gaussian importance sampling
+                (efficient for narrow peaks).  [default]
+  map         : gradient-ascend the angular peak + report Fisher (AD demo).
+
+Output (matches ILE conventions):
+  <output>_<event>_.dat :
+     event_id m1 m2 s1x s1y s1z s2x s2y s2z  lnL sigma_lnL ntotal neff
+     ``lnL`` = log marginal likelihood (evidence) over extrinsic parameters,
+     ``sigma_lnL = sqrt(var)/Z`` (ILE's ``sqrt(var)/res``).  Masses in M_sun.
+  <output>_<event>_samples.dat (--save-samples) : per-sample extrinsic params +
+     loglikelihood with ILE-style column names.
+"""
+
+from __future__ import print_function
+
+import sys
+from optparse import OptionParser, OptionGroup
+
+import numpy as np
+
+import jax
+jax.config.update("jax_enable_x64", True)
+
+import lal
+import lalsimulation as lalsim
+
+import RIFT.lalsimutils as lalsimutils
+from RIFT.likelihood.jax_ile import build_data_from_precompute
+from RIFT.likelihood.jax_ile.wrapper import (
+    JAXExtrinsicLikelihood, JAXDistanceMarginalizedLikelihood,
+)
+
+MSUN = lal.MSUN_SI
+PC = lal.PC_SI
+
+# Angular parameter order for the distance-marginalized (default) path.
+ANG_NAMES = ("ra", "dec", "psi", "incl", "phiref")
+# Full extrinsic order for the fixed-distance path.
+FULL_NAMES = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+def build_parser():
+    optp = OptionParser(usage="%prog [options]", description=__doc__)
+
+    g = OptionGroup(optp, "Data input (frame mode)")
+    g.add_option("--cache-file", default=None)
+    g.add_option("--channel-name", action="append", default=[],
+                 help="instrument=channel. Repeatable.")
+    g.add_option("--psd-file", action="append", default=[],
+                 help="instrument=psd.xml.gz. Repeatable.")
+    g.add_option("--data-start-time", type=float, default=None)
+    g.add_option("--data-end-time", type=float, default=None)
+    g.add_option("--window-shape", type=float, default=0.0)
+    optp.add_option_group(g)
+
+    g = OptionGroup(optp, "Data input (injection / self-test mode)")
+    g.add_option("--inj-mode", action="store_true", default=False,
+                 help="Synthesize zero-noise data from the template at the "
+                      "truth sky location (no frames; for testing).")
+    g.add_option("--inj-ra", type=float, default=1.2)
+    g.add_option("--inj-dec", type=float, default=-0.4)
+    g.add_option("--inj-psi", type=float, default=0.7)
+    g.add_option("--inj-incl", type=float, default=0.9)
+    g.add_option("--inj-phiref", type=float, default=2.1)
+    g.add_option("--inj-distance", type=float, default=600.0)
+    g.add_option("--inj-detectors", default="H1,L1,V1")
+    g.add_option("--inj-deltaF", type=float, default=0.25)
+    optp.add_option_group(g)
+
+    g = OptionGroup(optp, "Intrinsic template parameters")
+    g.add_option("--mass1", type=float, default=None, help="m1 (solar masses)")
+    g.add_option("--mass2", type=float, default=None, help="m2 (solar masses)")
+    g.add_option("--spin1z", type=float, default=0.0)
+    g.add_option("--spin2z", type=float, default=0.0)
+    g.add_option("--approximant", default="IMRPhenomD")
+    g.add_option("--l-max", type=int, default=2)
+    optp.add_option_group(g)
+
+    g = OptionGroup(optp, "Conditioning / windows / frequencies")
+    g.add_option("--event-time", type=float, default=None,
+                 help="GPS geocenter event time (fiducial epoch).")
+    g.add_option("--fmin-template", type=float, default=30.0)
+    g.add_option("--reference-freq", type=float, default=30.0)
+    g.add_option("--fmax", type=float, default=1000.0)
+    g.add_option("--srate", type=float, default=4096.0)
+    g.add_option("--data-integration-window-half", type=float, default=75e-3)
+    g.add_option("--internal-data-storage-window-half", type=float, default=0.15)
+    optp.add_option_group(g)
+
+    g = OptionGroup(optp, "Extrinsic exploration / sampling")
+    g.add_option("--mode", default="laplace-is",
+                 choices=["prior-mc", "laplace-is", "map", "nuts"])
+    g.add_option("--num-warmup", type=int, default=500,
+                 help="NUTS warmup iterations (--mode nuts).")
+    g.add_option("--num-samples", type=int, default=2000,
+                 help="NUTS posterior samples per chain (--mode nuts).")
+    g.add_option("--num-chains", type=int, default=1)
+    g.add_option("--distance-marginalization", action="store_true", default=True,
+                 help="Marginalize distance analytically (default ON; needed to "
+                      "regulate the factored-likelihood amplitude degeneracy).")
+    g.add_option("--no-distance-marginalization", action="store_false",
+                 dest="distance_marginalization",
+                 help="Sample distance explicitly instead (6-D, may be "
+                      "sliver-dominated without care).")
+    g.add_option("--n-max", type=int, default=300000)
+    g.add_option("--n-chunk", type=int, default=8000)
+    g.add_option("--d-min", type=float, default=1.0, help="Min distance (Mpc).")
+    g.add_option("--d-max", type=float, default=10000.0, help="Max distance (Mpc).")
+    g.add_option("--distance-grid-points", type=int, default=256)
+    g.add_option("--phase-marginalization", action="store_true", default=False)
+    g.add_option("--interp", default="linear", choices=["linear", "nearest"])
+    g.add_option("--proposal-inflate", type=float, default=3.0,
+                 help="Scale on the adaptive Gaussian proposal covariance.")
+    g.add_option("--seed", type=int, default=0)
+    optp.add_option_group(g)
+
+    g = OptionGroup(optp, "Output")
+    g.add_option("--output-file", default=None)
+    g.add_option("--event", type=int, default=0)
+    g.add_option("--save-samples", action="store_true", default=False)
+    g.add_option("--verbose", action="store_true", default=False)
+    optp.add_option_group(g)
+    return optp
+
+
+# ---------------------------------------------------------------------------
+# Data loading
+# ---------------------------------------------------------------------------
+def make_template(opts, fiducial_epoch, deltaF, deltaT):
+    P = lalsimutils.ChooseWaveformParams()
+    P.m1 = opts.mass1 * MSUN
+    P.m2 = opts.mass2 * MSUN
+    P.s1z = opts.spin1z
+    P.s2z = opts.spin2z
+    P.fmin = opts.fmin_template
+    P.fref = opts.reference_freq
+    P.deltaT = deltaT
+    P.deltaF = deltaF
+    P.fmax = 0.0
+    P.approx = lalsim.GetApproximantFromString(opts.approximant)
+    P.radec = True
+    P.tref = fiducial_epoch
+    P.dist = 1000.0 * 1e6 * PC
+    return P
+
+
+def load_injection(opts, fiducial_epoch):
+    detectors = opts.inj_detectors.split(",")
+    deltaT = 1.0 / opts.srate
+    P = make_template(opts, fiducial_epoch, opts.inj_deltaF, deltaT)
+    P.phi, P.theta = opts.inj_ra, opts.inj_dec
+    P.psi, P.incl, P.phiref = opts.inj_psi, opts.inj_incl, opts.inj_phiref
+    P.dist = opts.inj_distance * 1e6 * PC
+    data_dict, psd_dict = {}, {}
+    for det in detectors:
+        Pdet = P.copy(); Pdet.detector = det
+        data_dict[det] = lalsimutils.non_herm_hoff(Pdet)
+        psd_dict[det] = lalsim.SimNoisePSDaLIGOZeroDetHighPower
+    P_template = make_template(opts, fiducial_epoch, opts.inj_deltaF, deltaT)
+    return P_template, data_dict, psd_dict, detectors, True
+
+
+def load_frames(opts, fiducial_epoch):
+    deltaT = 1.0 / opts.srate
+    data_dict, psd_dict = {}, {}
+    for inst, chan in map(lambda c: c.split("="), opts.channel_name):
+        if opts.verbose:
+            print("Reading channel %s:%s from %s" % (inst, chan, opts.cache_file))
+        data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(
+            opts.cache_file, inst + ":" + chan,
+            start=opts.data_start_time, stop=opts.data_end_time,
+            window_shape=opts.window_shape, deltaT=deltaT)
+    for inst, psdf in map(lambda c: c.split("="), opts.psd_file):
+        if opts.verbose:
+            print("Reading PSD for %s from %s" % (inst, psdf))
+        psd_dict[inst] = lalsimutils.get_psd_series_from_xmldoc(psdf, inst)
+        psd_dict[inst] = lalsimutils.resample_psd_series(
+            psd_dict[inst], data_dict[inst].deltaF)
+    detectors = list(data_dict.keys())
+    deltaF = data_dict[detectors[0]].deltaF
+    P_template = make_template(opts, fiducial_epoch, deltaF, deltaT)
+    return P_template, data_dict, psd_dict, detectors, False
+
+
+# ---------------------------------------------------------------------------
+# Priors (the angular block is shared; distance added only when NOT marginalized)
+# ---------------------------------------------------------------------------
+def sample_prior(n, opts, rng, with_distance):
+    ra = rng.uniform(0.0, 2 * np.pi, n)
+    dec = np.arcsin(rng.uniform(-1.0, 1.0, n))
+    psi = rng.uniform(0.0, np.pi, n)
+    incl = np.arccos(rng.uniform(-1.0, 1.0, n))
+    phiref = rng.uniform(0.0, 2 * np.pi, n)
+    cols = [ra, dec, psi, incl, phiref]
+    if with_distance:
+        u = rng.uniform(0.0, 1.0, n)
+        dmin3, dmax3 = opts.d_min ** 3, opts.d_max ** 3
+        cols.append((dmin3 + u * (dmax3 - dmin3)) ** (1.0 / 3.0))
+    theta = np.stack(cols, axis=-1)
+    return theta, log_prior(theta, opts, with_distance)
+
+
+def log_prior(theta, opts, with_distance):
+    ra, dec, psi, incl, phiref = [theta[..., i] for i in range(5)]
+    inb = ((ra >= 0) & (ra <= 2 * np.pi) & (dec >= -np.pi / 2) & (dec <= np.pi / 2)
+           & (psi >= 0) & (psi <= np.pi) & (incl >= 0) & (incl <= np.pi)
+           & (phiref >= 0) & (phiref <= 2 * np.pi))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        logp = (np.log(np.cos(dec)) - np.log(2.0)
+                + np.log(np.sin(incl)) - np.log(2.0)
+                - np.log(2 * np.pi) - np.log(np.pi) - np.log(2 * np.pi))
+        if with_distance:
+            dist = theta[..., 5]
+            inb = inb & (dist >= opts.d_min) & (dist <= opts.d_max)
+            dmin3, dmax3 = opts.d_min ** 3, opts.d_max ** 3
+            logp = logp + np.log(3.0) + 2 * np.log(dist) - np.log(dmax3 - dmin3)
+    return np.where(inb, logp, -np.inf)
+
+
+# ---------------------------------------------------------------------------
+# Batched lnL
+# ---------------------------------------------------------------------------
+def eval_lnL(like, theta, opts, with_distance):
+    N = theta.shape[0]
+    out = np.empty(N)
+    for i in range(0, N, opts.n_chunk):
+        sl = slice(i, min(i + opts.n_chunk, N))
+        cols = [theta[sl, j] for j in range(theta.shape[1])]
+        out[sl] = np.asarray(like.log_likelihood(*cols))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Evidence helpers
+# ---------------------------------------------------------------------------
+def evidence_from_logweights(logw):
+    """(logZ, sigma/Z, neff) for Z = E[w] from log importance weights."""
+    fin = np.isfinite(logw)
+    logw = logw[fin]
+    if logw.size == 0:
+        return -np.inf, np.inf, 0.0
+    m = np.max(logw)
+    w = np.exp(logw - m)
+    n = len(w)
+    Zhat = np.mean(w)
+    logZ = m + np.log(Zhat)
+    sigma_over_Z = np.sqrt(np.var(w) / n) / Zhat
+    neff = (np.sum(w) ** 2) / np.sum(w ** 2)
+    return logZ, sigma_over_Z, neff
+
+
+def _gaussian_logq(theta, mu, cov):
+    diff = theta - mu[None, :]
+    sol = np.linalg.solve(cov, diff.T).T
+    return (-0.5 * np.einsum("ij,ij->i", diff, sol)
+            - 0.5 * theta.shape[1] * np.log(2 * np.pi)
+            - 0.5 * np.linalg.slogdet(cov)[1])
+
+
+def _moment_match(theta, logL):
+    w = np.exp(logL - np.max(logL))
+    w = w / np.sum(w)
+    mu = np.sum(w[:, None] * theta, axis=0)
+    d = theta - mu[None, :]
+    cov = (w[:, None, None] * d[:, :, None] * d[:, None, :]).sum(axis=0)
+    cov += 1e-9 * np.eye(theta.shape[1]) * (np.trace(cov) / theta.shape[1] + 1e-12)
+    return mu, cov
+
+
+# ---------------------------------------------------------------------------
+# Estimators
+# ---------------------------------------------------------------------------
+def run_prior_mc(like, opts, rng, dim, with_distance):
+    theta, _ = sample_prior(opts.n_max, opts, rng, with_distance)
+    lnL = eval_lnL(like, theta, opts, with_distance)
+    logZ, sig, neff = evidence_from_logweights(lnL)  # draw from prior -> w = L
+    return logZ, sig, neff, opts.n_max, theta, lnL
+
+
+def run_laplace_is(like, opts, rng, dim, with_distance, n_adapt=2):
+    """Prior-seeded adaptive Gaussian importance sampling (Z = E_q[L p / q])."""
+    n_pilot = min(opts.n_max // 4, 40000)
+    theta_p, _ = sample_prior(n_pilot, opts, rng, with_distance)
+    lnL_p = eval_lnL(like, theta_p, opts, with_distance)
+    logL_p = lnL_p + log_prior(theta_p, opts, with_distance)
+    mu, cov = _moment_match(theta_p, logL_p)
+
+    per_round = max(opts.n_max // (n_adapt + 1), 1)
+    all_theta, all_logw, all_lnL = [], [], []
+    for r in range(n_adapt + 1):
+        cov_use = cov * opts.proposal_inflate
+        Lc = np.linalg.cholesky(cov_use + 1e-12 * np.eye(dim))
+        z = rng.standard_normal((per_round, dim))
+        theta = mu[None, :] + z @ Lc.T
+        logq = _gaussian_logq(theta, mu, cov_use)
+        logp = log_prior(theta, opts, with_distance)
+        valid = np.isfinite(logp)
+        lnL = np.full(per_round, -np.inf)
+        if valid.any():
+            lnL[valid] = eval_lnL(like, theta[valid], opts, with_distance)
+        logw = np.where(valid, lnL + logp - logq, -np.inf)
+        all_theta.append(theta); all_logw.append(logw); all_lnL.append(lnL)
+        good = np.isfinite(logw)
+        if r < n_adapt and good.sum() > 50:
+            mu, cov = _moment_match(theta[good], logw[good])
+
+    theta = np.concatenate(all_theta); logw = np.concatenate(all_logw)
+    lnL = np.concatenate(all_lnL)
+    logZ, sig, neff = evidence_from_logweights(logw)
+    return logZ, sig, neff, len(theta), theta, lnL
+
+
+def run_nuts(like, opts, rng, with_distance):
+    """Gradient-based NUTS over the distance-marginalized angular posterior.
+
+    Demonstrates the AD payoff: NUTS uses the exact JAX gradient of the
+    (smooth, distance-marginalized) log-likelihood to climb and sample the
+    narrow extrinsic peak efficiently -- where brute-force MC stalls.  The
+    posterior samples then seed a high-neff importance estimate of the evidence
+    (a Gaussian proposal moment-matched to the NUTS draws), and are written out
+    as the per-sample product (the natural seed for a flowMC / AV closeout).
+    """
+    if with_distance:
+        raise SystemExit("--mode nuts requires distance marginalization (the "
+                         "bare 6-D likelihood is degenerate); drop "
+                         "--no-distance-marginalization.")
+    import numpyro
+    import numpyro.distributions as dist
+    from numpyro.infer import MCMC, NUTS
+    import jax.numpy as jnp
+
+    two_pi = float(2 * np.pi)
+
+    def model():
+        ra = numpyro.sample("ra", dist.Uniform(0.0, two_pi))
+        sin_dec = numpyro.sample("sin_dec", dist.Uniform(-1.0, 1.0))
+        psi = numpyro.sample("psi", dist.Uniform(0.0, float(np.pi)))
+        cos_incl = numpyro.sample("cos_incl", dist.Uniform(-1.0, 1.0))
+        phiref = numpyro.sample("phiref", dist.Uniform(0.0, two_pi))
+        dec = jnp.arcsin(sin_dec)
+        incl = jnp.arccos(cos_incl)
+        lnL = like._scalar(jnp.stack([ra, dec, psi, incl, phiref]))
+        numpyro.factor("loglike", lnL)
+
+    # Seed NUTS at the best prior draw so it climbs the GLOBAL mode rather than
+    # one of the (many) secondary sky modes from the detector time-delay ring.
+    seed_theta, _ = sample_prior(4000, opts, rng, with_distance=False)
+    seed_lnL = eval_lnL(like, seed_theta, opts, with_distance=False)
+    th0 = seed_theta[np.argmax(seed_lnL)]
+    init_vals = {
+        "ra": float(th0[0]), "sin_dec": float(np.sin(th0[1])),
+        "psi": float(th0[2]), "cos_incl": float(np.cos(th0[3])),
+        "phiref": float(th0[4]),
+    }
+    print("  NUTS seeded at best-of-%d prior draw (lnL=%.2f)"
+          % (len(seed_theta), seed_lnL.max()))
+    from numpyro.infer import init_to_value
+    key = jax.random.PRNGKey(opts.seed)
+    kernel = NUTS(model, target_accept_prob=0.8,
+                  init_strategy=init_to_value(values=init_vals))
+    mcmc = MCMC(kernel, num_warmup=opts.num_warmup,
+                num_samples=opts.num_samples, num_chains=opts.num_chains,
+                progress_bar=opts.verbose)
+    mcmc.run(key)
+    s = mcmc.get_samples()
+    ra = np.asarray(s["ra"]); dec = np.arcsin(np.asarray(s["sin_dec"]))
+    psi = np.asarray(s["psi"]); incl = np.arccos(np.asarray(s["cos_incl"]))
+    phiref = np.asarray(s["phiref"])
+    theta = np.stack([ra, dec, psi, incl, phiref], axis=-1)
+    lnL = eval_lnL(like, theta, opts, with_distance=False)
+    print("  NUTS drew %d samples; lnL in [%.2f, %.2f], peak at:"
+          % (len(theta), lnL.min(), lnL.max()))
+    for nm, v in zip(ANG_NAMES, theta[np.argmax(lnL)]):
+        print("     %-8s = %.5f" % (nm, v))
+
+    # NUTS-seeded importance estimate of the evidence (Gaussian proposal
+    # moment-matched to the posterior draws -> high neff vs prior seeding).
+    mu, cov = _moment_match(theta, np.zeros(len(theta)))  # posterior moments
+    n_is = min(opts.n_max, 40000)
+    Lc = np.linalg.cholesky(cov * opts.proposal_inflate + 1e-12 * np.eye(5))
+    z = rng.standard_normal((n_is, 5))
+    th_is = mu[None, :] + z @ Lc.T
+    logq = _gaussian_logq(th_is, mu, cov * opts.proposal_inflate)
+    logp = log_prior(th_is, opts, with_distance=False)
+    valid = np.isfinite(logp)
+    lnL_is = np.full(n_is, -np.inf)
+    if valid.any():
+        lnL_is[valid] = eval_lnL(like, th_is[valid], opts, with_distance=False)
+    logw = np.where(valid, lnL_is + logp - logq, -np.inf)
+    logZ, sig, neff = evidence_from_logweights(logw)
+    return logZ, sig, neff, n_is, theta, lnL
+
+
+def run_map(like, opts, rng, dim, with_distance):
+    """Gradient-ascend the (well-conditioned, distance-marginalized) peak."""
+    from scipy.optimize import minimize
+    ang_bounds = [(0, 2 * np.pi), (-np.pi / 2 + 1e-3, np.pi / 2 - 1e-3),
+                  (0, np.pi), (1e-3, np.pi - 1e-3), (0, 2 * np.pi)]
+    bounds = ang_bounds + ([(opts.d_min, opts.d_max)] if with_distance else [])
+    theta_seed, _ = sample_prior(4000, opts, rng, with_distance)
+    lnL_seed = eval_lnL(like, theta_seed, opts, with_distance)
+    x0 = theta_seed[np.argmax(lnL_seed)]
+
+    def negf(x):
+        v, g = like.value_and_grad(x)
+        return -float(v), -np.asarray(g)
+
+    res = minimize(negf, x0, jac=True, method="L-BFGS-B", bounds=bounds,
+                   options={"maxiter": 400})
+    return res.x, -res.fun
+
+
+# ---------------------------------------------------------------------------
+# Output
+# ---------------------------------------------------------------------------
+def write_dat(opts, P, logZ, sigma_over_Z, ntotal, neff):
+    if not opts.output_file:
+        return
+    m1, m2 = P.m1 / MSUN, P.m2 / MSUN
+    fname = opts.output_file + "_" + str(opts.event) + "_" + ".dat"
+    row = np.array([[opts.event, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y,
+                     P.s2z, logZ, sigma_over_Z, ntotal, neff]])
+    np.savetxt(fname, row,
+               header="event_id m1 m2 s1x s1y s1z s2x s2y s2z lnL sigma_lnL ntotal neff")
+    print("Wrote %s" % fname)
+
+
+def write_samples(opts, theta, lnL, with_distance):
+    if not (opts.output_file and opts.save_samples) or theta is None:
+        return
+    good = np.isfinite(lnL)
+    if with_distance:
+        cols = np.column_stack([theta[good, 0], theta[good, 1], theta[good, 5],
+                                theta[good, 3], theta[good, 2], theta[good, 4],
+                                lnL[good]])
+        hdr = "right_ascension declination distance inclination psi phi_orb loglikelihood"
+    else:
+        cols = np.column_stack([theta[good, 0], theta[good, 1], theta[good, 3],
+                                theta[good, 2], theta[good, 4], lnL[good]])
+        hdr = "right_ascension declination inclination psi phi_orb loglikelihood"
+    sname = opts.output_file + "_" + str(opts.event) + "_samples.dat"
+    np.savetxt(sname, cols, header=hdr)
+    print("Wrote %s (%d samples)" % (sname, int(good.sum())))
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+def main(argv=None):
+    optp = build_parser()
+    opts, _ = optp.parse_args(argv)
+    if opts.mass1 is None or opts.mass2 is None:
+        optp.error("--mass1 and --mass2 are required")
+    if opts.event_time is None:
+        if opts.inj_mode:
+            opts.event_time = 1126259462.0
+        else:
+            optp.error("--event-time is required (frame mode)")
+    fiducial_epoch = opts.event_time
+    rng = np.random.default_rng(opts.seed)
+
+    if opts.inj_mode:
+        P, data_dict, psd_dict, detectors, analyticPSD_Q = load_injection(opts, fiducial_epoch)
+    else:
+        if not opts.cache_file or not opts.channel_name:
+            optp.error("frame mode requires --cache-file and --channel-name (or --inj-mode)")
+        P, data_dict, psd_dict, detectors, analyticPSD_Q = load_frames(opts, fiducial_epoch)
+
+    print("Detectors:", detectors)
+    print("Building JAX likelihood (PrecomputeLikelihoodTerms + pack)...")
+    like_data, extras = build_data_from_precompute(
+        P.copy(), data_dict, psd_dict, fiducial_epoch,
+        opts.internal_data_storage_window_half, opts.data_integration_window_half,
+        opts.l_max, opts.fmax, analyticPSD_Q=analyticPSD_Q, verbose=opts.verbose)
+    print("  modes:", like_data.lms, "  guessed SNR:", extras["guess_snr"])
+
+    with_distance = not opts.distance_marginalization
+    if opts.distance_marginalization:
+        print("Distance marginalization: ON (grid=%d, d in [%g,%g] Mpc)"
+              % (opts.distance_grid_points, opts.d_min, opts.d_max))
+        like = JAXDistanceMarginalizedLikelihood(
+            like_data, opts.d_min, opts.d_max, n_grid=opts.distance_grid_points,
+            interp=opts.interp, phase_marginalization=opts.phase_marginalization)
+        dim = 5
+    else:
+        like = JAXExtrinsicLikelihood(
+            like_data, interp=opts.interp,
+            phase_marginalization=opts.phase_marginalization)
+        dim = 6
+
+    if opts.mode == "map":
+        theta_map, lnL_map = run_map(like, opts, rng, dim, with_distance)
+        fish = like.fisher(theta_map)
+        names = FULL_NAMES if with_distance else ANG_NAMES
+        print("peak lnL = %.5f" % lnL_map)
+        for nm, v in zip(names, theta_map):
+            print("   %-8s = %.6f" % (nm, v))
+        print("Fisher diag:", np.array2string(np.diag(fish), precision=4))
+        write_dat(opts, P, lnL_map, float("nan"), 0, float("nan"))
+        return
+
+    if opts.mode == "prior-mc":
+        logZ, sig, neff, ntot, theta, lnL = run_prior_mc(like, opts, rng, dim, with_distance)
+    elif opts.mode == "nuts":
+        logZ, sig, neff, ntot, theta, lnL = run_nuts(like, opts, rng, with_distance)
+    else:
+        logZ, sig, neff, ntot, theta, lnL = run_laplace_is(like, opts, rng, dim, with_distance)
+
+    print("\n==== Result ====")
+    print("  log evidence (lnL marginal over extrinsic) = %.5f" % logZ)
+    print("  sigma_lnL = %.4g    neff = %.1f    ntotal = %d" % (sig, neff, ntot))
+    write_dat(opts, P, logZ, sig, ntot, neff)
+    write_samples(opts, theta, lnL, with_distance)
+
+
+if __name__ == "__main__":
+    main()
