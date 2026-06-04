@@ -253,7 +253,8 @@ def _mixture_logq(theta, mus, covs, weights):
 def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
                     num_samples=500, n_prior_pilot=8000, seed=0,
                     target_accept=0.8, min_sep=0.3, proposal_inflate=2.0,
-                    n_is=40000, verbose=False, chain_progress_bar=False):
+                    n_is=40000, sky_coords="equatorial",
+                    verbose=False, chain_progress_bar=False):
     """Multimodal posterior sampling by multi-start gradient-based NUTS.
 
     A pilot prior scan locates several well-separated, high-lnL seeds (one per
@@ -321,43 +322,85 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
         print("  chose %d seeds (lnL): %s" %
               (len(seeds), np.array2string(seed_lnL, precision=1)))
 
-    # numpyro model: physical priors + the JAX likelihood as a factor.  Using
-    # the sin_dec/cos_incl parameterization keeps the sampler in an unbounded,
-    # well-conditioned space and matches the prior Jacobians automatically.
-    def model():
-        ra = numpyro.sample("ra", dist.Uniform(0.0, _TWO_PI))
-        sin_dec = numpyro.sample("sin_dec", dist.Uniform(-1.0, 1.0))
-        psi = numpyro.sample("psi", dist.Uniform(0.0, _PI))
-        cos_incl = numpyro.sample("cos_incl", dist.Uniform(-1.0, 1.0))
-        phiref = numpyro.sample("phiref", dist.Uniform(0.0, _TWO_PI))
-        dec = jnp.arcsin(sin_dec)
-        incl = jnp.arccos(cos_incl)
-        lnL = like._scalar(jnp.stack([ra, dec, psi, incl, phiref]))
-        numpyro.factor("loglike", lnL)
+    # Optional: sample the sky in NETWORK-frame coordinates (polar axis = the
+    # baseline of the first two detectors), which folds the time-delay ring onto
+    # a constant-polar-angle line.  Falls back to equatorial if <2 detectors.
+    net = None
+    if sky_coords == "network":
+        names = like.data.detector_names
+        if len(names) >= 2:
+            from . import coordinates as _C
+            loc1 = np.asarray(like.data.detectors[names[0]]["location"])
+            loc2 = np.asarray(like.data.detectors[names[1]]["location"])
+            R = _C.build_network_frame(loc1, loc2, like.data.gmst)
+            net = (_C, R, float(like.data.gmst))
+            if verbose:
+                print("  sky sampled in network frame (baseline %s-%s)"
+                      % (names[0], names[1]))
+        elif verbose:
+            print("  network sky coords requested but <2 detectors; equatorial")
+
+    # numpyro model + per-seed init/extract helpers.  sin_dec/cos_incl (or
+    # cos_theta_n/phi_n in the network frame) keep the sampler in a
+    # well-conditioned space with the prior Jacobians handled automatically;
+    # the uniform sky prior is uniform in (cos_theta_n, phi_n) too, since the
+    # rotation preserves the sphere measure.
+    if net is None:
+        def model():
+            ra = numpyro.sample("ra", dist.Uniform(0.0, _TWO_PI))
+            sin_dec = numpyro.sample("sin_dec", dist.Uniform(-1.0, 1.0))
+            psi = numpyro.sample("psi", dist.Uniform(0.0, _PI))
+            cos_incl = numpyro.sample("cos_incl", dist.Uniform(-1.0, 1.0))
+            phiref = numpyro.sample("phiref", dist.Uniform(0.0, _TWO_PI))
+            lnL = like._scalar(jnp.stack(
+                [ra, jnp.arcsin(sin_dec), psi, jnp.arccos(cos_incl), phiref]))
+            numpyro.factor("loglike", lnL)
+
+        def make_init(th0):
+            return {"ra": float(th0[0]), "sin_dec": float(np.sin(th0[1])),
+                    "psi": float(th0[2]), "cos_incl": float(np.cos(th0[3])),
+                    "phiref": float(th0[4])}
+
+        def extract(s):
+            return np.stack([np.asarray(s["ra"]), np.arcsin(np.asarray(s["sin_dec"])),
+                             np.asarray(s["psi"]), np.arccos(np.asarray(s["cos_incl"])),
+                             np.asarray(s["phiref"])], axis=-1)
+    else:
+        _C, R, gmst = net
+
+        def model():
+            cos_tn = numpyro.sample("cos_theta_n", dist.Uniform(-1.0, 1.0))
+            phi_n = numpyro.sample("phi_n", dist.Uniform(0.0, _TWO_PI))
+            psi = numpyro.sample("psi", dist.Uniform(0.0, _PI))
+            cos_incl = numpyro.sample("cos_incl", dist.Uniform(-1.0, 1.0))
+            phiref = numpyro.sample("phiref", dist.Uniform(0.0, _TWO_PI))
+            ra, dec = _C.network_to_equatorial(jnp.arccos(cos_tn), phi_n, R, gmst)
+            lnL = like._scalar(jnp.stack([ra, dec, psi, jnp.arccos(cos_incl), phiref]))
+            numpyro.factor("loglike", lnL)
+
+        def make_init(th0):
+            tn, pn = _C.equatorial_to_network(float(th0[0]), float(th0[1]), R, gmst)
+            return {"cos_theta_n": float(np.cos(float(tn))),
+                    "phi_n": float(float(pn) % _TWO_PI),
+                    "psi": float(th0[2]), "cos_incl": float(np.cos(th0[3])),
+                    "phiref": float(th0[4])}
+
+        def extract(s):
+            tn = np.arccos(np.asarray(s["cos_theta_n"]))
+            ra, dec = _C.network_to_equatorial(tn, np.asarray(s["phi_n"]), R, gmst)
+            return np.stack([np.asarray(ra), np.asarray(dec), np.asarray(s["psi"]),
+                             np.arccos(np.asarray(s["cos_incl"])),
+                             np.asarray(s["phiref"])], axis=-1)
 
     # -- 2. one NUTS chain per seed, pooled --------------------------------
-    per_chain = []     # (num_samples, 5) per seed
+    per_chain = []     # (num_samples, 5) per seed, in equatorial theta5
     for k in range(n_starts):
-        th0 = seeds[k]
-        init_vals = {
-            "ra": float(th0[0]), "sin_dec": float(np.sin(th0[1])),
-            "psi": float(th0[2]), "cos_incl": float(np.cos(th0[3])),
-            "phiref": float(th0[4]),
-        }
         kernel = NUTS(model, target_accept_prob=target_accept,
-                      init_strategy=init_to_value(values=init_vals))
+                      init_strategy=init_to_value(values=make_init(seeds[k])))
         mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples,
                     num_chains=1, progress_bar=chain_progress_bar)
         mcmc.run(jax.random.PRNGKey(seed + 1 + k))
-        s = mcmc.get_samples()
-        th = np.stack([
-            np.asarray(s["ra"]),
-            np.arcsin(np.asarray(s["sin_dec"])),
-            np.asarray(s["psi"]),
-            np.arccos(np.asarray(s["cos_incl"])),
-            np.asarray(s["phiref"]),
-        ], axis=-1)
-        per_chain.append(th)
+        per_chain.append(extract(mcmc.get_samples()))
         if verbose:
             print("  chain %d/%d done (seed lnL=%.2f)" %
                   (k + 1, n_starts, seed_lnL[k]))
@@ -408,31 +451,40 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
 def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
                   n_global_steps=20, n_training_loops=4, n_production_loops=4,
                   n_epochs=10, n_prior_pilot=8000, seed=0, mala_step_size=0.01,
-                  verbose=False):
+                  reuse_state=None, verbose=False):
     """Sample the multimodal extrinsic posterior with flowMC (normalizing flow).
 
     flowMC interleaves a local MALA kernel with a global normalizing-flow
     proposal; the flow learns the full multimodal geometry (the discrete sky
     blobs + phase/polarization structure) in one run, so it can hop between
-    modes that a single local chain could not.  The chains are initialized at
-    high-lnL prior draws so they start inside the posterior support.
+    modes that a single local chain could not.
 
     Target ``logpdf(theta5, data) = lnL(theta5) + log_prior(theta5)`` built from
     ``like._scalar`` (JAX-traceable, so flowMC's gradient-based MALA works) and
     :func:`_log_prior_jax`.
 
-    flowMC entrypoint (this installed version, "resource/strategy" API):
-        ``flowMC.resource_strategy_bundle.RQSpline_MALA.RQSpline_MALA_Bundle``
-        bundles an RQ-spline flow + MALA local sampler; pass it to
-        ``flowMC.Sampler.Sampler(..., resource_strategy_bundles=bundle)`` and
-        call ``sampler.sample(initial_position, {})``.  Production draws land in
-        the ``positions_production`` Buffer resource (``.data``).
+    Flow re-use across evaluation points
+    ------------------------------------
+    ``reuse_state`` (the dict returned in ``result['flow_state']`` from a
+    previous call) bootstraps this run from a previously-trained flow:
+
+      * its trained normalizing-flow ``model`` is swapped into the bundle's
+        ``model`` resource (warm-starting the flow weights), and
+      * its ``positions`` (shape ``(n_chains, 5)``) initialize the chains.
+
+    For a *batch* of nearby intrinsic templates (``--n-events-to-analyze``) the
+    posterior geometry changes only slowly, so the re-used flow is a strong
+    initialization -- the partial-flow-reuse efficiency gain (most visible at
+    scale, and at high SNR where peaks are narrow).  Re-use degrades gracefully:
+    a model-shape/version mismatch falls back to a fresh flow, mismatched
+    ``positions`` fall back to a high-lnL prior draw.
 
     Returns
     -------
-    dict with keys ``theta`` ``(N, 5)``, ``lnL`` ``(N,)``, plus ``logZ``,
-    ``sigma_over_Z``, ``neff`` (importance estimate built from the flowMC draws
-    via a moment-matched Gaussian proposal, matching the NUTS path's style).
+    dict with keys ``theta`` ``(N, 5)``, ``lnL`` ``(N,)``, ``logZ``,
+    ``sigma_over_Z``, ``neff`` (moment-matched-Gaussian importance estimate),
+    and ``flow_state`` = ``{'model': <trained flow>, 'positions': (n_chains,5)}``
+    to pass as ``reuse_state`` to the next evaluation point.
     """
     from flowMC.Sampler import Sampler
     from flowMC.resource_strategy_bundle.RQSpline_MALA import RQSpline_MALA_Bundle
@@ -453,15 +505,31 @@ def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
         n_training_loops=n_training_loops, n_production_loops=n_production_loops,
         n_epochs=n_epochs, mala_step_size=mala_step_size, verbose=verbose)
 
+    # --- flow re-use: warm-start the flow weights from a previous run ---
+    if reuse_state is not None and reuse_state.get("model") is not None:
+        try:
+            bundle.resources["model"] = reuse_state["model"]
+            if verbose:
+                print("  flowMC: re-using trained flow from previous point")
+        except Exception as e:   # version / shape mismatch -> fresh flow
+            if verbose:
+                print("  flowMC: flow re-use failed (%r); fresh flow" % e)
+
     sampler = Sampler(n_dim=n_dim, n_chains=n_chains, rng_key=skey,
                       resource_strategy_bundles=bundle)
 
-    # initialize chains at high-lnL prior draws (one per chain), so the local
-    # sampler starts in the support and the flow sees the posterior early.
-    pilot = sample_prior(max(n_prior_pilot, n_chains), rng)
-    pilot_lnL = eval_lnL(like, pilot)
-    top = np.argsort(pilot_lnL)[::-1][:n_chains]
-    init = jnp.asarray(pilot[top])
+    # --- chain initialization: re-used positions, else high-lnL prior draws ---
+    init = None
+    if reuse_state is not None and reuse_state.get("positions") is not None:
+        pos = np.asarray(reuse_state["positions"])
+        if pos.shape == (n_chains, n_dim) and np.all(np.isfinite(pos)) \
+                and np.all(np.isfinite(log_prior(pos))):
+            init = jnp.asarray(pos)
+    if init is None:
+        pilot = sample_prior(max(n_prior_pilot, n_chains), rng)
+        pilot_lnL = eval_lnL(like, pilot)
+        top = np.argsort(pilot_lnL)[::-1][:n_chains]
+        init = jnp.asarray(pilot[top])
 
     sampler.sample(init, {})
     prod = np.asarray(sampler.resources["positions_production"].data)
@@ -471,6 +539,18 @@ def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
     finite = np.all(np.isfinite(theta), axis=1) & np.isfinite(log_prior(theta))
     theta = theta[finite]
     lnL = eval_lnL(like, theta) if len(theta) else np.array([])
+
+    # --- state to bootstrap the next evaluation point ---
+    try:
+        trained_model = sampler.resources["model"]
+    except Exception:
+        trained_model = None
+    if len(theta) >= n_chains:                       # warm-start positions:
+        top = np.argsort(lnL)[::-1][:n_chains]        # the n_chains best draws
+        next_positions = theta[top]
+    else:
+        next_positions = None
+    flow_state = {"model": trained_model, "positions": next_positions}
 
     # importance evidence from the flowMC draws (moment-matched Gaussian)
     logZ = sigma_over_Z = neff = np.nan
@@ -490,8 +570,8 @@ def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
         logw = np.where(valid, lnL_is + logp - logq, -np.inf)
         logZ, sigma_over_Z, neff = evidence_from_logweights(logw)
 
-    return dict(theta=theta, lnL=lnL, logZ=logZ,
-                sigma_over_Z=sigma_over_Z, neff=neff)
+    return dict(theta=theta, lnL=lnL, logZ=logZ, sigma_over_Z=sigma_over_Z,
+                neff=neff, flow_state=flow_state)
 
 
 # ---------------------------------------------------------------------------

@@ -59,6 +59,7 @@ enters when converting between ``(ra, dec)`` and the ECEF source vector.
 All functions are pure ``jax.numpy`` and automatic-differentiation friendly.
 """
 
+import numpy as np
 import jax.numpy as jnp
 
 # Speed of light (LAL value), matching detector.py.
@@ -143,6 +144,15 @@ def build_network_frame(loc1, loc2, gmst):
         ``R.T @ v_network`` maps back.  ``R @ R.T = I`` and ``det(R) = +1``.
     """
     del gmst  # not needed: baseline and ehat_src share the ECEF frame
+    # Host-side guard (build_network_frame is called once at setup with concrete
+    # locations): a network frame needs two *distinct* detectors.  A single- (or
+    # duplicate-) detector network has no baseline -> raise clearly instead of
+    # producing NaNs; callers should fall back to equatorial sky sampling.
+    _bl = np.asarray(loc2, dtype=float) - np.asarray(loc1, dtype=float)
+    if np.linalg.norm(_bl) < 1.0:   # metres; real baselines are ~10^6 m
+        raise ValueError(
+            "build_network_frame: degenerate baseline (|loc2-loc1| < 1 m); "
+            "a network sky frame requires two distinct detectors.")
     loc1 = jnp.asarray(loc1, dtype=jnp.result_type(float))
     loc2 = jnp.asarray(loc2, dtype=jnp.result_type(float))
 

@@ -327,6 +327,9 @@ def build_parser():
     g.add_option("--num-samples", type=int, default=2000,
                  help="NUTS posterior samples per chain (--mode nuts).")
     g.add_option("--num-chains", type=int, default=1)
+    g.add_option("--no-flow-reuse", action="store_true", default=False,
+                 help="Disable bootstrapping the trained flow across "
+                      "--n-events-to-analyze (re-train from scratch each event).")
     # ILE-compatible semantics: store_true, default OFF.  When ON, distance is
     # marginalized analytically (5-D angular problem, well conditioned); when
     # OFF, distance is sampled explicitly (6-D).  Required for --mode nuts.
@@ -340,6 +343,11 @@ def build_parser():
     g.add_option("--distance-grid-points", type=int, default=256)
     g.add_option("--phase-marginalization", action="store_true", default=False)
     g.add_option("--interp", default="linear", choices=["linear", "nearest"])
+    g.add_option("--sky-coordinates", default="equatorial",
+                 choices=["equatorial", "network"],
+                 help="Optional: 'network' samples the sky in the two-detector "
+                      "baseline frame (folds the time-delay ring); multistart-nuts "
+                      "only, falls back to equatorial if <2 detectors.")
     g.add_option("--proposal-inflate", type=float, default=3.0,
                  help="Scale on the adaptive Gaussian proposal covariance.")
     g.add_option("--seed", type=int, default=0)
@@ -743,8 +751,12 @@ def write_samples(opts, out_index, theta, lnL, with_distance):
 
 
 def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
-                rng, out_index, event_id):
-    """Build the JAX likelihood for one intrinsic template and run --mode."""
+                rng, out_index, event_id, flow_state=None):
+    """Build the JAX likelihood for one intrinsic template and run --mode.
+
+    Returns ``(value, flow_state)`` where ``flow_state`` is the trained-flow
+    state to bootstrap the next event (``--mode flowmc`` only; ``None`` else).
+    """
     print("Building JAX likelihood (PrecomputeLikelihoodTerms + pack)...")
     like_data, extras = build_data_from_precompute(
         P.copy(), data_dict, psd_dict, fiducial_epoch,
@@ -778,8 +790,9 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             print("   %-8s = %.6f" % (nm, v))
         print("Fisher diag:", np.array2string(np.diag(fish), precision=4))
         write_dat(opts, P, out_index, event_id, lnL_map, float("nan"), 0, float("nan"))
-        return lnL_map
+        return lnL_map, None
 
+    out_flow_state = None
     if opts.mode in ("multistart-nuts", "flowmc"):
         if with_distance:
             raise SystemExit("--mode %s requires --distance-marginalization "
@@ -790,11 +803,13 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             res = _samplers.multistart_nuts(
                 like, opts.d_min, opts.d_max, n_starts=n_starts,
                 num_warmup=opts.num_warmup, num_samples=opts.num_samples,
-                seed=opts.seed, verbose=opts.verbose)
+                seed=opts.seed, sky_coords=opts.sky_coordinates,
+                verbose=opts.verbose)
         else:
             res = _samplers.flowmc_sample(
                 like, opts.d_min, opts.d_max, n_chains=max(n_starts, 20),
-                seed=opts.seed, verbose=opts.verbose)
+                seed=opts.seed, reuse_state=flow_state, verbose=opts.verbose)
+            out_flow_state = res.get("flow_state")  # bootstrap the next event
         theta, lnL = res["theta"], res["lnL"]
         logZ, sig, neff, ntot = res["logZ"], res["sigma_over_Z"], res["neff"], len(theta)
     elif opts.mode == "prior-mc":
@@ -809,7 +824,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     print("  sigma_lnL = %.4g    neff = %.1f    ntotal = %d" % (sig, neff, ntot))
     write_dat(opts, P, out_index, event_id, logZ, sig, ntot, neff)
     write_samples(opts, out_index, theta, lnL, with_distance)
-    return logZ
+    return logZ, out_flow_state
 
 
 # ---------------------------------------------------------------------------
@@ -847,6 +862,9 @@ def main(argv=None):
     print("Analyzing %d event(s) [event index base = %d]" % (len(P_list), opts.event))
 
     # --- batch loop over intrinsic templates ---
+    # For --mode flowmc the trained normalizing flow is threaded from one event
+    # to the next (partial-flow re-use), unless --no-flow-reuse is given.
+    flow_state = None
     for out_index, P in enumerate(P_list):
         P.deltaT = deltaT
         P.deltaF = deltaF
@@ -854,8 +872,12 @@ def main(argv=None):
         print("\n======== event %d (output index %d) : m1=%.3f m2=%.3f ========"
               % (event_id, out_index, P.m1 / MSUN, P.m2 / MSUN))
         try:
-            analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q,
-                        fiducial_epoch, rng, out_index, event_id)
+            _, new_flow_state = analyze_one(
+                opts, P, data_dict, psd_dict, analyticPSD_Q,
+                fiducial_epoch, rng, out_index, event_id,
+                flow_state=(None if opts.no_flow_reuse else flow_state))
+            if not opts.no_flow_reuse and new_flow_state is not None:
+                flow_state = new_flow_state
         except Exception as e:
             if getattr(opts, "soft_fail_event_range", False):
                 print("  event %d failed (soft-fail): %s" % (event_id, e))

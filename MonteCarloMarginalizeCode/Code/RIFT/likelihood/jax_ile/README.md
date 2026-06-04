@@ -135,6 +135,28 @@ Modes (`--mode`):
 `multistart-nuts`, `flowmc` and `nuts` require `--distance-marginalization` (they
 sample the 5-D angular posterior).  Implemented in `samplers.py`.
 
+**Efficiency / robustness options:**
+- **Flow re-use across a batch** (`--mode flowmc` + `--n-events-to-analyze`):
+  the trained normalizing flow is bootstrapped from one intrinsic template to
+  the next (its NF weights warm-start the next event and its posterior draws
+  initialize the chains).  For nearby templates the posterior changes slowly, so
+  this is the partial-flow-reuse win — most visible at scale and at high SNR.
+  `--no-flow-reuse` disables it (re-train each event).  Validated: a re-used run
+  recovers the truth sky with neff ≥ the fresh run (`test/jax/test_flow_reuse.py`).
+- **Network sky coordinates** (`--sky-coordinates network`, `multistart-nuts`
+  only): sample the sky in the two-detector baseline frame `(cosθ_n, φ_n)` to
+  fold the time-delay ring (the prior stays uniform there).  Falls back to
+  equatorial if fewer than two detectors.
+- **Variable / single-detector networks**: the likelihood and samplers handle
+  any number of detectors (including one — rare but supported); only the network
+  sky frame needs ≥2 detectors and degrades gracefully when it can't be built.
+
+**High-SNR benchmark:** `test/jax/benchmark_snr_sequence.py` builds injections at
+network SNR 40,80,160,320,640 (by scaling distance), runs one flowMC evaluation
+per source (threading the re-used flow), and records sky recovery / evidence /
+neff / wall time — the data for the skymap-vs-SNR figure and the high-SNR
+efficiency comparison vs the adaptive (AV) integrator.
+
 Validation (standard injection, truth sky RA,DEC=(1.20,-0.40)): both samplers
 recover the truth sky and **agree on the evidence** — `multistart-nuts`
 `logZ≈524.09` (`neff≈200`) and `flowmc` `logZ≈524.16` (`neff≈20`, ~4 min on CPU)
