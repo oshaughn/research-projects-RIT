@@ -30,37 +30,47 @@ exported surrogate is good enough and not biased.
   (matches the paper's `posterior_samples-6.dat`, LambdaTilde 343±183 ✓). 50k pooled
   samples cached at `/home/oshaughn/jaxcip_benchmark/out/cip_rf_*.xml.gz`.
   `applications/compare.py` computes JS (bits) with a bootstrap stderr.
+  **CAVEAT (RO): the RF benchmark is a REFERENCE, not assumed-converged ground truth.**
+  Those runs were short — harvested to accumulate likelihoods, not tuned for perfect
+  sampling convergence. So part of the residual JS may be the *benchmark*, not our
+  surrogate. SAFEST validation (TODO): re-benchmark BOTH the surrogate and a fresh RF
+  run from the SAME initial lnL grid (use the 'large' grid from the tabular runs or
+  Atul's runs), so the comparison isolates surrogate-vs-RF with no grid/convergence
+  confound. Current numbers are good enough for downstream teams to code against.
 
-## Current JS (quadgp + svgp-residual 10.8k + mu-frame gaussian-IS, vs benchmark)
-| mc | s1z | s2z | LambdaTilde | lambda1 | delta_mc |
-|---|---|---|---|---|---|
-| 0.035 | 0.053 | 0.067 | 0.116 | 0.152 | **0.356** |
+## Current JS (quadgp + svgp-residual 10.8k, vs benchmark) — sampler comparison
+| sampler | mc | delta_mc | s1z | s2z | lambda1 | lambda2 | LambdaTilde |
+|---|---|---|---|---|---|---|---|
+| mu-frame gaussian-IS | 0.035 | **0.356** | 0.053 | 0.067 | 0.152 | — | 0.116 |
+| **mu-frame NUTS (`nuts-mu`)** | **0.023** | **0.056** | **0.008** | **0.008** | **0.016** | **0.015** | **0.028** |
 
-From catastrophic (~0.5–0.7) → ~0.04–0.15, with mc essentially exact. **NOT at the
-few×10⁻³ bar.** delta_mc regressed (too narrow).
+**NUTS-in-mu DONE and it confirmed the diagnosis: it was the sampler.** Every marginal
+improved; delta_mc (the worst IS regression) 6.4×; spins ~8e-3 ≈ at the bar. From
+catastrophic IS (0.04–0.36) → uniformly small JS. Still NOT uniformly few×10⁻³ (mc 0.023,
+LambdaTilde 0.028, delta_mc 0.056) — but the residual now behaves **surrogate/data-limited,
+not sampler-limited** (spins, where the surrogate is best, are at the bar; gap is in the mc
+width ~16% too broad + the broadest dirs). Single-seed JS is noisy on razor-sharp mc.
 
-## THE diagnosed bottleneck (start here)
-**It's the sampler, not the surrogate.** ESS ~170 → the importance sampler is
-*proposal-limited*: it under-explores the weakly-constrained directions (delta_mc, λ),
-which then come out too narrow. More data fixed the surrogate's mc bias but cannot fix
-an under-exploring sampler — that's why refinements now trade one marginal against
-another.
+## What `nuts-mu` is (DONE; `sample_nuts_muframe` in applications/jax_cip.py)
+NUTS in **low-level** coords (output + box are natural; the 5→6 fit→low map isn't
+invertible so we can't sample in fit coords), **preconditioned** with the mu-frame
+covariance: `_muframe_proposal` builds a well-conditioned cov in the fit frame and pulls
+it back to low-level (`P_low = Jᵀ C_fit⁻¹ J + diag(1/prior_var)`). numpyro reparam's the
+Uniform box as `theta = lo+(hi-lo)·sigmoid(u)`, so we seed the dense mass matrix with that
+cov **mapped into u-space** by the local sigmoid Jacobian (`imm = S⁻¹ gcov S⁻¹`,
+`S = (hi-lo)·s·(1-s)` at the peak); init at the peak; adapt_mass_matrix=True re-adapts.
+Unit-tested on a 4-orders-of-mag-anisotropic correlated Gaussian (ESS ~4–5k/6k, 0 div,
+σ recovered 0.5%). Run via `--sampler nuts-mu --num-chains N`. Demo:
+`demo/rift/export_likelihoods/`.
 
-### Next step (highest value): NUTS in the (now well-conditioned) mu frame
-Early NUTS failed because the raw posterior was a razor-thin, ill-conditioned ridge.
-But the mu-frame construction makes the geometry **well-conditioned and axis-aligned**,
-so NUTS should finally mix — and unlike IS it explores the wings by construction. Plan:
-1. Run NUTS on `lnL_low` but with a **mass matrix = the mu-frame `gcov`** from
-   `_muframe_proposal` (or sample in whitened-by-`gcov` coordinates). numpyro NUTS
-   supports `dense_mass=True`; seed/precondition it with `gcov`.
-2. Keep the prior box (sigmoid reparam or hard prior) and the quadgp surrogate.
-3. Re-measure JS on **all four** marginals vs the benchmark. Target few×10⁻³.
-Fallback if NUTS still struggles: **iterate the IS proposal** — fit a Gaussian (or flow)
-to the reweighted draws, repeat until the proposal == posterior (ESS → 1).
-
-### Then: exact-residual comparison
-Run the same with `--quadgp-residual exact` at ~5–8k (slow, offline) and compare JS to
-the svgp-residual run — does the inducing-point approximation cost accuracy at scale?
+### Next step (highest value): close the last factor (now surrogate/data, not sampler)
+1. **More/uncapped data + `--quadgp-residual exact` cross-check** at the largest tractable
+   N — does the inducing-point approx cost accuracy at scale? Push mc width + LambdaTilde down.
+2. **Reduce the 14 divergences** (raise target_accept; check if they cluster at box edges in
+   the weakly-constrained dirs).
+3. **Multi-seed JS + bootstrap** for publication-grade error bars (single-seed mc JS is noisy).
+4. **Tighten the quadratic-core mc localization** (residual ~16% mc width is the dominant
+   remaining bias on the sharpest direction).
 
 ## How to run
 ```bash

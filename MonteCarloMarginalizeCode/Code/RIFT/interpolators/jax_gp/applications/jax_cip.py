@@ -60,7 +60,7 @@ import jax
 import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, init_to_value
 from numpyro.diagnostics import effective_sample_size
 
 PHYS = ["m1", "m2", "s1z", "s2z", "lambda1", "lambda2"]
@@ -126,6 +126,66 @@ def sample_lnL(lnL_fn, loc, scale, bounds=None, num_warmup=500, num_samples=2000
     ess = np.asarray(effective_sample_size(samples[None, ...]))
     return {"samples": samples, "wall_clock": wall, "ess_min": float(np.min(ess)),
             "mean": samples.mean(0), "std": samples.std(0)}
+
+
+def sample_nuts_muframe(lnL_fn, gmean, gcov, lo, hi, num_warmup=1000,
+                        num_samples=4000, num_chains=2, target_accept=0.95,
+                        adapt_mass=True, seed=0):
+    """NUTS in low-level coords, *preconditioned* with the mu-frame covariance.
+
+    Plain NUTS stalled here (HANDOFF): the low-level posterior is a razor-thin,
+    ill-conditioned ridge in mc, so warmup never found a workable step size / mass
+    matrix.  ``_muframe_proposal`` gives a well-conditioned covariance ``gcov`` in
+    *low-level* coordinates -- the sharp mc direction and its correlations are
+    resolved in the decorrelated Morisaki (fit) frame, then pulled back -- so we
+    seed NUTS's dense mass matrix with it.  The dynamics then see an approximately
+    isotropic geometry from the first step, and, unlike importance sampling, NUTS
+    explores the weakly-constrained directions (delta_mc, tides) by construction
+    rather than being proposal-limited (the diagnosed IS failure mode).
+
+    The prior is Uniform over the CLI box.  numpyro samples in the unconstrained
+    reparameterization ``theta = lo + (hi-lo) sigmoid(u)``, so the seeded mass
+    matrix -- specified in *u*-space -- is the low-level ``gcov`` mapped through the
+    local Jacobian ``dtheta/du = (hi-lo) s (1-s)`` of that sigmoid at the peak.
+    With ``adapt_mass=True`` numpyro re-adapts from this seed during warmup; the
+    seed's job is to bootstrap the step-size search that previously collapsed.
+    """
+    lo = np.asarray(lo, float); hi = np.asarray(hi, float)
+    gmean = np.asarray(gmean, float); gcov = np.asarray(gcov, float)
+    d = len(gmean)
+    span = hi - lo
+    frac = np.clip((gmean - lo) / span, 1e-4, 1 - 1e-4)
+    S = span * frac * (1.0 - frac)            # d(theta)/d(u) at the peak (per coord)
+    Sinv = 1.0 / S
+    imm = Sinv[:, None] * gcov * Sinv[None, :]    # low-level cov -> unconstrained u-space
+    imm = 0.5 * (imm + imm.T) + 1e-12 * np.eye(d)
+
+    prior = dist.Uniform(jnp.asarray(lo), jnp.asarray(hi)).to_event(1)
+
+    def numpyro_model():
+        theta = numpyro.sample("theta", prior)
+        numpyro.factor("lnL", lnL_fn(theta))
+
+    kernel = NUTS(numpyro_model, dense_mass=True, adapt_mass_matrix=adapt_mass,
+                  inverse_mass_matrix=jnp.asarray(imm),
+                  target_accept_prob=target_accept,
+                  init_strategy=init_to_value(values={"theta": jnp.asarray(gmean)}))
+    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples,
+                num_chains=num_chains, chain_method="sequential",
+                progress_bar=False)
+    t0 = time.time()
+    mcmc.run(jax.random.PRNGKey(seed), extra_fields=("diverging",))
+    wall = time.time() - t0
+
+    chains = np.asarray(mcmc.get_samples(group_by_chain=True)["theta"])   # [C, N, d]
+    ess = np.asarray(effective_sample_size(chains))                       # [d]
+    samples = chains.reshape(-1, d)
+    n_div = int(np.sum(np.asarray(mcmc.get_extra_fields()["diverging"])))
+    return {"samples": samples, "wall_clock": wall,
+            "ess": float(np.min(ess)), "ess_min": float(np.min(ess)),
+            "ess_frac": float(np.min(ess) / samples.shape[0]),
+            "ess_per_dim": ess, "n_divergences": n_div, "frac_in_box": 1.0,
+            "logZ": None, "mean": samples.mean(0), "std": samples.std(0)}
 
 
 def _train_box_flow(lnL_fn, lo, hi, init_theta=None, n_chains=30, n_local=40,
@@ -653,11 +713,33 @@ def run_pipeline(opts, ignored):
         return model.lnL_physical(tf_low_to_fit(theta))
 
     logZ = None
-    if opts.sampler in ("gaussian", "mixture"):
-        # Proposal built in the Morisaki (fit) frame -> well-conditioned covariance.
+    if opts.sampler in ("gaussian", "mixture", "nuts-mu"):
+        # Proposal/preconditioner built in the Morisaki (fit) frame -> well-conditioned cov.
         gmean, gcov = _muframe_proposal(low_level, fit_coords, Xlow[in_prior],
                                         y[in_prior], box_lo, box_hi)
         t1 = time.time()
+        if opts.sampler == "nuts-mu":
+            # Gradient-based NUTS preconditioned with the mu-frame covariance. Unlike
+            # importance sampling it is NOT proposal-limited -> it explores the weakly-
+            # constrained directions (delta_mc, tides) the IS proposal under-covered.
+            res = sample_nuts_muframe(lnL_low, gmean, gcov, box_lo, box_hi,
+                                      num_warmup=opts.num_warmup,
+                                      num_samples=opts.num_samples,
+                                      num_chains=opts.num_chains, seed=opts.seed)
+            sample_wall = time.time() - t1
+            total = fit_wall + sample_wall
+            print("[jax_cip] NUTS (mu-frame preconditioned): {:.1f}s, ESS(min) {:.0f} "
+                  "({:.1%}), {} divergences".format(
+                      sample_wall, res["ess"], res["ess_frac"], res["n_divergences"]))
+            print("[jax_cip] runtime/effective-sample = {:.3f}s (total {:.0f}s)".format(
+                total / max(res["ess"], 1e-9), total))
+            for i, name in enumerate(low_level):
+                print("    {:9s} {:12.5g} +/- {:.3g}".format(
+                    name, res["mean"][i], res["std"][i]))
+            samples = res["samples"]
+            lnL_at = np.asarray(jax.vmap(lnL_low)(jnp.asarray(samples)))
+            _write_output(samples, low_level, lnL_at, opts, logZ=None)
+            return {"model": model, "result": res}
         if opts.sampler == "mixture":
             # Defensive: Gaussian core (sharp peak) + flow wings (non-Gaussian tails).
             res = sample_mixture_is(lnL_low, box_lo, box_hi, gmean, gcov,
@@ -778,11 +860,16 @@ def _build_parser():
     p.add_argument("--fref", type=float, default=20.0)
     p.add_argument("--fmin", type=float, default=20.0)
     # JAX-specific knobs (harmless extras the pipeline won't pass)
-    p.add_argument("--sampler", choices=["flow", "nuts", "gaussian", "mixture"],
+    p.add_argument("--sampler",
+                   choices=["flow", "nuts", "nuts-mu", "gaussian", "mixture"],
                    default="flow",
                    help="flow (default): train a normalizing flow (flowMC) and use "
-                        "it as the sampling model with importance weights; nuts: "
-                        "plain numpyro NUTS")
+                        "it as the sampling model with importance weights; nuts-mu: "
+                        "NUTS preconditioned with the mu-frame covariance (explores "
+                        "weakly-constrained dirs, not proposal-limited); gaussian: "
+                        "mu-frame Gaussian importance sampling; nuts: plain numpyro NUTS")
+    p.add_argument("--num-chains", type=int, default=2,
+                   help="NUTS chains for --sampler nuts-mu (default: 2)")
     p.add_argument("--flow-train-loops", type=int, default=5)
     p.add_argument("--quadgp-residual", choices=["exact", "svgp"], default="exact",
                    help="residual GP backend for quadgp: exact (O(N^3), <~8k) or svgp "
