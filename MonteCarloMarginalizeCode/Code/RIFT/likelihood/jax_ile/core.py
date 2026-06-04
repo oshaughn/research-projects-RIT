@@ -298,7 +298,8 @@ def fused_log_likelihood(data, ra, dec, psi, incl, phiref, distMpc,
 
 def fused_log_likelihood_distmarg(data, ra, dec, psi, incl, phiref,
                                   x_grid, log_w_grid,
-                                  interp="linear", phase_marginalization=False):
+                                  interp="linear", phase_marginalization=False,
+                                  grid_block=64):
     """Distance- AND time-marginalized factored log-likelihood, lnL(angles).
 
     Marginalizes the luminosity distance analytically (numerical quadrature over
@@ -334,22 +335,42 @@ def fused_log_likelihood_distmarg(data, ra, dec, psi, incl, phiref,
     K = jnp.abs(kappa_unit) if phase_marginalization else kappa_unit.real
     R = rho_sq_unit
 
-    # running log-sum-exp over the distance grid (carry: m, s) -> (S, npts)
-    a = x_grid                    # (G,)
+    # log-sum-exp over the distance grid -> (S, npts), done in a few *vectorized*
+    # blocks combined by a running log-sum-exp.  The block loop is a plain Python
+    # loop (unrolled at trace time), NOT a lax.scan: this removes the
+    # G-step sequential dependency that made reverse-mode AD (NUTS gradients)
+    # slow, while a finite block size keeps the (S, npts, block) working set
+    # bounded.  Mathematically identical to the previous scan.
+    a = x_grid                     # (G,)
     b = -0.5 * jnp.square(x_grid)  # (G,)
-
-    def step(carry, g):
-        m, s = carry
-        e = K * a[g] + R * b[g] + log_w_grid[g]      # (S, npts)
-        m_new = jnp.maximum(m, e)
-        s_new = s * jnp.exp(m - m_new) + jnp.exp(e - m_new)
-        return (m_new, s_new), None
-
-    S, npts = K.shape
-    init = (jnp.full((S, npts), -jnp.inf), jnp.zeros((S, npts)))
-    (m_f, s_f), _ = jax.lax.scan(step, init, jnp.arange(x_grid.shape[0]))
-    lnL_t = m_f + jnp.log(s_f)
+    lnL_t = _logsumexp_grid_blocked(K, R, a, b, log_w_grid, grid_block)
     return _time_marginalize(lnL_t, data.w_t)
+
+
+def _logsumexp_grid_blocked(K, R, a, b, log_w, block):
+    """Stable log sum_g exp(K*a_g + R*b_g + log_w_g) over the grid axis.
+
+    K, R: (S, npts).  a, b, log_w: (G,).  Returns (S, npts).  Processed in
+    vectorized blocks of ``block`` grid points combined by a running
+    log-sum-exp (Python loop -> unrolled, AD-fast).
+    """
+    G = a.shape[0]
+    block = int(block) if block else G
+    S, npts = K.shape
+    m = jnp.full((S, npts), -jnp.inf)
+    s = jnp.zeros((S, npts))
+    for start in range(0, G, block):
+        sl = slice(start, min(start + block, G))
+        # (S, npts, blk)
+        e = (K[:, :, None] * a[None, None, sl]
+             + R[:, :, None] * b[None, None, sl]
+             + log_w[None, None, sl])
+        m_blk = jnp.max(e, axis=-1)                              # (S, npts)
+        s_blk = jnp.sum(jnp.exp(e - m_blk[:, :, None]), axis=-1)  # (S, npts)
+        m_new = jnp.maximum(m, m_blk)
+        s = s * jnp.exp(m - m_new) + s_blk * jnp.exp(m_blk - m_new)
+        m = m_new
+    return m + jnp.log(s)
 
 
 def make_distance_grid(d_min, d_max, n_grid=256, d_prior="euclidean",
