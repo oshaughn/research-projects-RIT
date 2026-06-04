@@ -475,7 +475,7 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
 def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
                   n_global_steps=20, n_training_loops=4, n_production_loops=4,
                   n_epochs=10, n_prior_pilot=8000, seed=0, mala_step_size=0.01,
-                  reuse_state=None, verbose=False):
+                  reuse_state=None, temper=1.0, verbose=False):
     """Sample the multimodal extrinsic posterior with flowMC (normalizing flow).
 
     flowMC interleaves a local MALA kernel with a global normalizing-flow
@@ -515,9 +515,16 @@ def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
 
     n_dim = 5
 
+    # Likelihood tempering (a la old-RIFT's adapt-weight-exponent / GMM sampler):
+    # sample the broadened target L^{1/T} pi (T = temper >= 1) so the flow learns
+    # the full support and does not collapse onto the (possibly sub-resolution)
+    # MAP at high SNR.  The true posterior (T=1) is recovered by reweighting the
+    # tempered draws with w propto L^{1 - 1/T} (returned as ``post_weight``).
+    inv_T = 1.0 / float(temper)
+
     def logpdf(theta5, data):
-        # JAX-traceable target: lnL + log-prior (both finite-on-support).
-        return like._scalar(theta5) + _log_prior_jax(theta5)
+        # JAX-traceable tempered target: lnL/T + log-prior (both finite-on-support).
+        return inv_T * like._scalar(theta5) + _log_prior_jax(theta5)
 
     rng = np.random.default_rng(seed)
     key = jax.random.PRNGKey(seed)
@@ -576,6 +583,15 @@ def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
         next_positions = None
     flow_state = {"model": trained_model, "positions": next_positions}
 
+    # posterior reweighting: tempered draws ~ L^{1/T} pi -> true posterior L pi
+    # by w propto L^{1-1/T}.  (Uniform when temper==1.)  Used for the skymap /
+    # any posterior summary built from the (broadened, collapse-free) draws.
+    if len(lnL):
+        lw = (1.0 - inv_T) * lnL
+        post_weight = np.exp(lw - lw.max()); post_weight /= post_weight.sum()
+    else:
+        post_weight = np.array([])
+
     # importance evidence from the flowMC draws (moment-matched Gaussian)
     logZ = sigma_over_Z = neff = np.nan
     if len(theta) >= 6:
@@ -597,7 +613,8 @@ def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
             logZ, sigma_over_Z, neff, float(np.max(lnL)) if len(lnL) else np.nan)
 
     return dict(theta=theta, lnL=lnL, logZ=logZ, sigma_over_Z=sigma_over_Z,
-                neff=neff, flow_state=flow_state)
+                neff=neff, flow_state=flow_state, post_weight=post_weight,
+                temper=float(temper))
 
 
 # ---------------------------------------------------------------------------

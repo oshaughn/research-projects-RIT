@@ -12,11 +12,18 @@ Two tasks (``--task``):
              precompute and the SAME random extrinsic samples, and write the
              (lnL_jax - lnL_ref) vs lnL_ref scatter -- the lnL-equality target.
 
-  snr      : the high-SNR study done the CHEAP way -- keep the frame data fixed
-             and SCALE THE PSD (S -> S/k^2 multiplies the network SNR by k), so a
-             single dataset yields an SNR sequence with no re-injection.  At each
-             SNR run one flowMC extrinsic evaluation and record sky recovery,
-             90% sky credible area, evidence/neff and wall time.
+  snr      : sky-recovery study (a recovery test, NOT a speed test) done the
+             CHEAP way -- keep the frame data fixed and SCALE THE PSD
+             (S -> S*scale moves the effective network SNR), so a single dataset
+             yields an SNR sequence with no re-injection.  At each SNR a FRESH
+             flow is trained from scratch (no re-use across SNRs -- re-use would
+             propagate flow collapse), and several independent runs are POOLED
+             for a well-resolved (5-10k sample) skymap; likelihood tempering
+             (T>=1, a la old-RIFT's adapt-weight-exponent) regularizes against
+             flow mode-collapse.  Records sky recovery, sky spread, neff and
+             wall time.  NOTE: at the extreme-SNR end the sky posterior becomes
+             narrow AND multimodal (the detector time-delay ring), which remains
+             challenging for the flow within a modest training budget.
 
 Inputs are taken from ``--data-dir`` (expects ``event_params.json``, per-IFO
 ``<IFO>-psd.xml.gz``) and ``--frame-dir`` (the ``.gwf`` files; default = data-dir's
@@ -131,6 +138,37 @@ def network_snr(data_dict, psd_dict, fmin, fmax):
 
 
 # ---------------------------------------------------------------------------
+def fisher_sky(like, theta5_seed, d_min=1.0, d_max=20000.0):
+    """MAP-refine from a seed and return the AD-Fisher sky ellipse.
+
+    Returns (area90_deg2, ra0, dec0, cov2x2) where cov2x2 is the (RA*cosDec, Dec)
+    covariance from the inverse observed Fisher.  Analytic (from the Hessian of
+    the differentiable lnL), so it never collapses and shrinks as ~1/SNR^2 --
+    the Laplace prediction the differentiable likelihood enables for free."""
+    from scipy.optimize import minimize
+    bounds = [(0, 2 * np.pi), (-np.pi / 2 + 1e-3, np.pi / 2 - 1e-3),
+              (0, np.pi), (1e-3, np.pi - 1e-3), (0, 2 * np.pi)]
+
+    def negf(x):
+        v, g = like.value_and_grad(x)
+        return -float(v), -np.asarray(g)
+    res = minimize(negf, np.asarray(theta5_seed, float), jac=True,
+                   method="L-BFGS-B", bounds=bounds, options={"maxiter": 200})
+    th0 = res.x
+    F = np.asarray(like.fisher(th0))            # 5x5 observed Fisher (-Hessian)
+    # regularize + invert; take the (ra,dec) block in the cos(dec) sky metric
+    F = 0.5 * (F + F.T)
+    w, V = np.linalg.eigh(F)
+    w = np.clip(w, 1e-6 * max(np.max(np.abs(w)), 1e-30), None)
+    cov = (V * (1.0 / w)) @ V.T
+    cdec = np.cos(th0[1])
+    J = np.diag([cdec, 1.0])                    # (ra,dec)->(ra*cosdec, dec)
+    cov_sky = J @ cov[:2, :2] @ J.T
+    det = max(float(np.linalg.det(cov_sky)), 0.0)
+    area = float(-2 * np.log(0.1) * np.pi * np.sqrt(det) * (180 / np.pi) ** 2)
+    return area, float(th0[0]), float(th0[1]), cov_sky
+
+
 def _pack_reference(extras, detectors):
     ln, rh, cu, cv, ep = {}, {}, {}, {}, {}
     for det in detectors:
@@ -227,9 +265,14 @@ def task_snr(params, data_dir, frame_dir, opts):
     snr0 = float(ex0["guess_snr"])
     print("baseline signal SNR estimate (psd_scale=1): %.2f" % snr0)
 
-    rows, flow_state, sky_by_snr = [], None, []
+    # tempering schedule: keep the *tempered* effective SNR near a resolvable
+    # level so the flow learns the full support (no collapse); T=1 below that.
+    snr_resolve = opts.snr_resolve
+
+    rows, sky_by_snr = [], []
     for snr_t in targets:
         psd_scale = (snr0 / snr_t) ** 2          # S -> S*scale ; SNR -> SNR0/sqrt(scale)
+        temper = max(1.0, (snr_t / snr_resolve) ** 2) if opts.temper < 0 else opts.temper
         dd, pp, _ = load_real(params, data_dir, frame_dir, opts.srate, psd_scale=psd_scale)
         deltaF = dd[dets[0]].deltaF
         P = make_template(params, 1.0 / opts.srate, deltaF, fid)
@@ -238,33 +281,52 @@ def task_snr(params, data_dir, frame_dir, opts):
             analyticPSD_Q=False, verbose=False)
         snr_real = float(exj["guess_snr"])
         like = JAXDistanceMarginalizedLikelihood(data, 1.0, 20000.0, n_grid=256)
+
+        # FRESH flow for each SNR (NO re-use -- this is a recovery test, and a
+        # re-used flow would propagate collapse) and POOL several independent
+        # runs to get a well-resolved (5-10k sample) skymap.
         t0 = time.time()
-        res = samplers.flowmc_sample(like, 1.0, 20000.0, n_prior_pilot=opts.n_prior_pilot,
-                                     reuse_state=flow_state, seed=opts.seed)
-        flow_state = res.get("flow_state")
+        th_all, lnL_all = [], []
+        for r in range(opts.n_runs):
+            res = samplers.flowmc_sample(
+                like, 1.0, 20000.0, n_chains=opts.n_chains,
+                n_production_loops=opts.n_production_loops,
+                n_training_loops=opts.n_training_loops, n_epochs=opts.n_epochs,
+                n_prior_pilot=opts.n_prior_pilot, reuse_state=None,
+                temper=temper, seed=opts.seed + 1000 * r)
+            if len(res["theta"]):
+                th_all.append(res["theta"]); lnL_all.append(res["lnL"])
         wall = time.time() - t0
-        th, lnL = res["theta"], res["lnL"]
-        # weighted 90% sky credible area (deg^2) via the local tangent-plane
-        # Gaussian covariance -- finite even when the posterior is much narrower
-        # than the empirical sample spacing (high SNR).  90% area of a 2D
-        # Gaussian = -2 ln(0.1) * pi * sqrt(det Sigma).
-        if len(th):
-            w = np.exp(lnL - lnL.max()); w /= w.sum()
-            ra_m = float((w * th[:, 0]).sum()); dec_m = float((w * th[:, 1]).sum())
-            x = (th[:, 0] - ra_m) * np.cos(dec_m); y = th[:, 1] - dec_m
-            Sig = np.cov(np.stack([x, y]), aweights=w)
-            det = max(float(np.linalg.det(Sig)), 0.0)
-            area = float(-2 * np.log(0.1) * np.pi * np.sqrt(det) * (180 / np.pi) ** 2)
-            sky_by_snr.append((snr_real, th[:, 0].copy(), th[:, 1].copy(), w.copy()))
-        else:
-            area = np.nan; ra_m = dec_m = np.nan
-        row = [snr_real, psd_scale, float(lnL.max()) if len(lnL) else np.nan,
-               res["logZ"], res["neff"], area, ra_m, dec_m, len(th), wall]
+        if not th_all:
+            rows.append([snr_real, psd_scale, np.nan, np.nan, np.nan, np.nan,
+                         np.nan, np.nan, 0, wall, temper]); continue
+        th = np.concatenate(th_all); lnL = np.concatenate(lnL_all)
+
+        # posterior weights for the pooled, tempered draws: w propto L^{1-1/T}.
+        lw = (1.0 - 1.0 / temper) * lnL
+        w = np.exp(lw - lw.max()); w /= w.sum()
+        neff_post = 1.0 / np.sum(w ** 2)
+        ra_m = float((w * th[:, 0]).sum()); dec_m = float((w * th[:, 1]).sum())
+        x = (th[:, 0] - ra_m) * np.cos(dec_m); y = th[:, 1] - dec_m
+        Sig = np.cov(np.stack([x, y]), aweights=w)
+        det = max(float(np.linalg.det(Sig)), 0.0)
+        area = float(-2 * np.log(0.1) * np.pi * np.sqrt(det) * (180 / np.pi) ** 2)
+        # sky spread of the raw pooled draws (degrees): a multimodality / spread
+        # diagnostic (the time-delay ring is multimodal at high SNR, so a single
+        # ellipse is NOT appropriate -- we report the raw spread + neff instead).
+        sky_std = float(np.degrees(np.hypot(
+            np.std(th[:, 0]) * np.cos(dec_m), np.std(th[:, 1]))))
+        sky_by_snr.append((snr_real, th[:, 0].copy(), th[:, 1].copy(), w.copy()))
+        row = [snr_real, psd_scale, float(lnL.max()), sky_std, neff_post, area,
+               ra_m, dec_m, len(th), wall, temper]
         rows.append(row)
-        print("SNR=%6.1f (scale %.4g)  maxlnL=%9.1f  logZ=%9.3g  neff=%6.1f  "
-              "area90=%.3g deg^2  sky(RA,DEC)=(%.3f,%.3f)  N=%d  %.1fs"
-              % (snr_real, psd_scale, row[2], row[3], row[4], area, ra_m, dec_m, len(th), wall))
-    cols = "snr psd_scale maxlnL logZ neff area90_deg2 ra_mean dec_mean nsamp wall"
+        print("SNR=%6.1f (scale %.4g, T=%.1f)  maxlnL=%9.1f  neff_post=%6.1f  "
+              "area90=%.3g deg^2  sky_std=%.2f deg  sky(RA,DEC)=(%.3f,%.3f)  "
+              "N=%d (%d runs)  %.1fs"
+              % (snr_real, psd_scale, temper, row[2], neff_post, area, sky_std,
+                 ra_m, dec_m, len(th), opts.n_runs, wall))
+    cols = ("snr psd_scale maxlnL sky_std_deg neff_post area90_deg2 "
+            "ra_mean dec_mean nsamp wall temper")
     np.savetxt(opts.out_prefix + "_snr.dat", np.array(rows), header=cols)
     print("wrote %s_snr.dat" % opts.out_prefix)
     _skymap(sky_by_snr, opts.out_prefix + "_skymap.png",
@@ -272,8 +334,9 @@ def task_snr(params, data_dir, frame_dir, opts):
 
 
 def _skymap(sky_by_snr, path, label):
-    """Overlay the recovered sky samples at each SNR (zoomed to the region),
-    showing the credible region shrinking with SNR."""
+    """Posterior-weighted flowMC sky samples at each SNR (full sky), showing the
+    recovered sky sharpening with SNR.  No unimodal ellipse is drawn: the
+    time-delay sky structure is multimodal, so we show the actual draws."""
     if not sky_by_snr:
         return
     try:
@@ -282,23 +345,19 @@ def _skymap(sky_by_snr, path, label):
         import matplotlib.pyplot as plt
     except Exception as e:
         print("  (matplotlib unavailable: %r; skipping skymap)" % e); return
-    # zoom window from the lowest-SNR (broadest) sample set
-    ra0, dec0 = sky_by_snr[0][1], sky_by_snr[0][2]
-    cdec = np.cos(np.median(dec0))
-    fig, ax = plt.subplots(figsize=(6, 5))
+    fig, ax = plt.subplots(figsize=(7.0, 4.2))
     cmap = plt.get_cmap("viridis")
     for i, (snr, ra, dec, w) in enumerate(sky_by_snr):
         c = cmap(i / max(len(sky_by_snr) - 1, 1))
-        ax.scatter(np.degrees(ra), np.degrees(dec), s=4, alpha=0.35, color=c,
-                   label="SNR %.0f" % snr)
+        # size points by posterior weight so the credible region stands out
+        s = 2 + 40 * (w / w.max())
+        ax.scatter(np.degrees(ra), np.degrees(dec), s=s, alpha=0.3, color=c,
+                   label="SNR %.0f" % snr, edgecolors="none")
     ax.set_xlabel("RA [deg]"); ax.set_ylabel("Dec [deg]")
-    ax.set_title("GW240925 sky recovery vs SNR (single ILE eval, PSD-scaled)\n"
-                 "%s — credible region shrinks with SNR" % label)
-    # zoom to +/- a few deg around the lowest-SNR spread
-    rc, dc = np.degrees(np.median(ra0)), np.degrees(np.median(dec0))
-    span = max(3.0, np.degrees(np.std(ra0) * cdec) * 4, np.degrees(np.std(dec0)) * 4)
-    ax.set_xlim(rc - span, rc + span); ax.set_ylim(dc - span, dc + span)
-    ax.legend(markerscale=3, fontsize=8, loc="best")
+    ax.set_xlim(0, 360); ax.set_ylim(-90, 90)
+    ax.set_title("GW240925 sky recovery vs SNR (single ILE eval; PSD-scaled)\n"
+                 "posterior-weighted flowMC draws (point size ~ weight)")
+    ax.legend(markerscale=2, fontsize=8, loc="best")
     fig.tight_layout(); fig.savefig(path, dpi=130)
     print("  wrote %s" % path)
 
@@ -317,6 +376,19 @@ def main():
     ap.add_argument("--storage-window-half", type=float, default=0.15)
     ap.add_argument("--snr-targets", default="12,24,48,96")
     ap.add_argument("--n-prior-pilot", type=int, default=60000)
+    # SNR-demo sampling: FRESH flow per SNR, pooled over several runs for a
+    # well-resolved (5-10k sample) skymap; tempering regularizes against collapse.
+    ap.add_argument("--n-runs", type=int, default=4,
+                    help="independent fresh flowMC runs pooled per SNR")
+    ap.add_argument("--n-chains", type=int, default=50)
+    ap.add_argument("--n-production-loops", type=int, default=6)
+    ap.add_argument("--n-training-loops", type=int, default=5)
+    ap.add_argument("--n-epochs", type=int, default=8)
+    ap.add_argument("--temper", type=float, default=-1.0,
+                    help="likelihood temperature T (>1 regularizes vs collapse). "
+                         "<0 (default) auto-schedules T=(SNR/snr-resolve)^2.")
+    ap.add_argument("--snr-resolve", type=float, default=25.0,
+                    help="tempered effective SNR target for the auto temper schedule")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out-prefix", default="/tmp/jax_ile_demo")
     opts = ap.parse_args()
