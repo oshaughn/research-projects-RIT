@@ -795,13 +795,6 @@ if  (opts.last_iteration_extrinsic):
     ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(n_eff_last)  # modify convergence criteria so output of reasonable size/matching needs of extrinsic output
     #  - note we *disable* --no-adapt-after-first (if present), so each point is independent (e.g., in sky location)
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
-    # FINAL EXTRINSIC stage uses the efficient adaptive (AV) sampler even when the wide stages
-    # run GMM.  The final stage EXTRACTS extrinsic samples -- it does not benefit from GMM
-    # seeding (which only warm-starts the wide intrinsic-marginalization stages, e.g. the
-    # extrinsic handoff), and GMM is markedly slower / less robust on the sharp single-point
-    # extrinsic peak.  No effect when the wide sampler is already adaptive_cartesian*/AV.
-    if '--sampler-method GMM' in ile_args_extr:
-        ile_args_extr = ile_args_extr.replace('--sampler-method GMM', '--sampler-method adaptive_cartesian_gpu')
     if opts.last_iteration_export_marginal_distance_grid:
         ile_args_extr += " --export-marginal-distance-grid "
         ile_args_extr = ile_args_extr.replace("--distance-marginalization ", ' ')  # *currently* cannot use distance marginalization in the last step if we want distance grid output
