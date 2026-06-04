@@ -618,6 +618,203 @@ def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
 
 
 # ---------------------------------------------------------------------------
+# 3. Fisher-preconditioned importance sampling (high-SNR)
+# ---------------------------------------------------------------------------
+_BOUNDS5 = [(0.0, _TWO_PI), (-_PI / 2 + 1e-3, _PI / 2 - 1e-3),
+            (0.0, _PI), (1e-3, _PI - 1e-3), (0.0, _TWO_PI)]
+
+
+def _multistart_map(like, n_starts, n_prior_pilot, rng):
+    """Best MAP over the 5 angles from several high-lnL prior seeds."""
+    from scipy.optimize import minimize
+    pilot = sample_prior(n_prior_pilot, rng)
+    plnL = eval_lnL(like, pilot)
+    seeds = pilot[np.argsort(plnL)[::-1][:n_starts]]
+
+    def negf(x):
+        v, g = like.value_and_grad(x)
+        return -float(v), -np.asarray(g)
+
+    best = None
+    for s in seeds:
+        try:
+            r = minimize(negf, s, jac=True, method="L-BFGS-B",
+                         bounds=_BOUNDS5, options={"maxiter": 300})
+        except Exception:
+            continue
+        if best is None or -r.fun > best[1]:
+            best = (r.x, -r.fun)
+    if best is None:
+        i = int(np.argmax(plnL)); return pilot[i], float(plnL[i])
+    return best
+
+
+def _wrap_angles(theta):
+    """Wrap the periodic angles (ra, phiref mod 2pi; psi mod pi) into range.
+    dec, incl are non-periodic and left for the prior bounds to reject."""
+    t = np.array(theta, dtype=float)
+    t[:, 0] = np.mod(t[:, 0], _TWO_PI)      # ra
+    t[:, 2] = np.mod(t[:, 2], _PI)          # psi
+    t[:, 4] = np.mod(t[:, 4], _TWO_PI)      # phiref
+    return t
+
+
+def fisher_is_sample(like, n_samples=20000, n_starts=16, n_prior_pilot=20000,
+                     max_std=2.5, inflate=1.6, seed=0, chunk=8000,
+                     verbose=False):
+    """Fisher-preconditioned importance sampling of the angular posterior.
+
+    The differentiable likelihood makes the MAP and the local curvature
+    (observed Fisher = -Hessian of lnL) directly available, so at high SNR --
+    where the posterior is sharply peaked and well approximated by its Laplace
+    expansion -- we can build an importance proposal that *matches the posterior
+    shape* rather than hunting for it:
+
+      1. multi-start gradient ascent -> the MAP ``theta*`` (dominant mode);
+      2. observed Fisher ``F = -Hessian(lnL)`` at ``theta*`` (AD Hessian),
+         symmetrized and eigenvalue-floored (the psi/phi_ref degeneracy gives
+         near-flat directions; the floor caps their proposal width);
+      3. propose ``theta ~ N(theta*, inflate * F^{-1})`` -- whitened to the local
+         curvature, so it is narrow in well-constrained directions (sky at high
+         SNR) and broad in degenerate ones;
+      4. importance weights ``w propto L(theta) pi(theta) / q(theta)``.
+
+    Domain of validity (important).  This works cleanly when the posterior is
+    locally Gaussian -- i.e. when the constrained directions dominate.  It is
+    LIMITED by genuine non-Gaussian degeneracies: the polarization / orbital-
+    phase (psi, phi_ref) degeneracy of the quadrupole likelihood is a *curved*
+    near-flat ridge that a single Gaussian proposal cannot follow, so the
+    importance weights degrade (low neff) at high SNR even though the MAP and the
+    sky curvature are correct.  The returned ``neff`` self-diagnoses this: where
+    it is small, fold the known phase/polarization degeneracy first (see
+    :func:`polarization_phase_fold`) or use the gradient-MCMC variant
+    :func:`fisher_nuts_sample`, which follows the curved ridge.  Periodic angles
+    are wrapped; ``inflate`` / ``max_std`` trade coverage against efficiency.
+
+    Returns dict: ``theta`` (N,5), ``lnL`` (N,), ``post_weight`` (N,), ``logZ``,
+    ``sigma_over_Z``, ``neff``, ``theta_map`` (5,), ``cov`` (5,5).
+    """
+    rng = np.random.default_rng(seed)
+    th0, lnL0 = _multistart_map(like, n_starts, n_prior_pilot, rng)
+    if verbose:
+        print("  MAP lnL=%.3f at sky (RA,DEC)=(%.4f,%.4f)" % (lnL0, th0[0], th0[1]))
+
+    # Proposal covariance = inflate * F^{-1}, but with the per-direction VARIANCE
+    # *capped* at max_std^2.  The psi/phi_ref degeneracy gives near-flat (tiny or
+    # slightly-negative) Fisher eigenvalues whose F^{-1} variance would be
+    # enormous/ill-defined; capping at the prior scale (~max_std rad) makes the
+    # proposal broad-but-bounded along the ridge (covering the degenerate
+    # posterior) while staying tight (~1/SNR) in the well-constrained directions.
+    F = np.asarray(like.fisher(th0)); F = 0.5 * (F + F.T)
+    w, V = np.linalg.eigh(F)
+    var = inflate / np.clip(w, inflate / max_std ** 2, None)   # cap variance
+    cov = (V * var) @ V.T
+    cov = 0.5 * (cov + cov.T)
+    Lc = np.linalg.cholesky(cov + 1e-12 * np.eye(5) * np.trace(cov) / 5)
+
+    z = rng.standard_normal((n_samples, 5))
+    theta = _wrap_angles(th0[None, :] + z @ Lc.T)
+    logq = _gaussian_logq(th0[None, :] + z @ Lc.T, th0, cov)  # q on the raw draw
+    logp = log_prior(theta)
+    valid = np.isfinite(logp)
+    lnL = np.full(n_samples, -np.inf)
+    for i in range(0, n_samples, chunk):
+        sl = slice(i, i + chunk)
+        v = valid[sl]
+        if v.any():
+            idx = np.where(v)[0] + i
+            lnL[idx] = eval_lnL(like, theta[idx])
+    logw = np.where(valid, lnL + logp - logq, -np.inf)
+    logZ, sigma_over_Z, neff = evidence_from_logweights(logw)
+    logZ, sigma_over_Z, neff = _finalize_evidence(
+        logZ, sigma_over_Z, neff, float(lnL0))
+    fin = np.isfinite(logw)
+    pw = np.zeros(n_samples)
+    if fin.any():
+        m = np.max(logw[fin])
+        pw[fin] = np.exp(logw[fin] - m); pw /= pw.sum()
+    if verbose:
+        print("  Fisher-IS: neff=%.1f / %d  logZ=%.3f" % (neff, n_samples, logZ))
+    return dict(theta=theta, lnL=lnL, post_weight=pw, logZ=logZ,
+                sigma_over_Z=sigma_over_Z, neff=neff, theta_map=th0, cov=cov)
+
+
+def fisher_nuts_sample(like, num_warmup=300, num_samples=1500, num_chains=4,
+                       n_starts=12, n_prior_pilot=20000, max_std=2.5,
+                       target_accept=0.85, seed=0, verbose=False):
+    """Fisher-WHITENED NUTS -- the high-SNR "superb sampling" path.
+
+    A single Gaussian (importance) proposal cannot follow the *curved*
+    polarization/orbital-phase degeneracy ridge, so its weights collapse at high
+    SNR.  Instead we use the AD Fisher only to *precondition* the geometry and
+    let gradient MCMC do the sampling:
+
+      1. multi-start MAP -> theta*, observed Fisher F = -Hessian(lnL) there;
+      2. build a whitening map ``theta = theta* + A y`` with ``A = V diag(sqrt(v))``,
+         ``v = clip(1/eig(F), max_std^2)`` -- so each direction is O(1) in ``y``
+         (tight, ~1/SNR, directions and capped-broad degenerate directions alike);
+      3. run NUTS on ``y`` (target = lnL(theta(y)) + log pi(theta(y))).  In the
+         whitened frame the posterior has unit scale, so NUTS keeps a healthy
+         step size *at every SNR* (no vanishing-step slowdown), and -- being
+         gradient MCMC, not importance sampling -- it follows the curved ridge
+         and resolves the narrow sky without collapse.
+
+    Returns dict: ``theta`` (N,5), ``lnL`` (N,), ``post_weight`` (uniform),
+    ``theta_map``, ``cov``, ``neff`` (== N; MCMC draws are posterior samples).
+
+    Cost caveat: NUTS makes many gradient evaluations per sample, and each
+    distance-marginalized evaluation is ~milliseconds on CPU, so this is
+    GPU-territory for production high-SNR use -- on CPU it is correct but slow.
+    Whitening keeps the *conditioning* (step size) healthy at any SNR; it does
+    not reduce the per-evaluation cost.
+    """
+    import numpyro
+    import numpyro.distributions as dist
+    from numpyro.infer import MCMC, NUTS, init_to_value
+    import jax.numpy as jnp
+
+    rng = np.random.default_rng(seed)
+    th0, lnL0 = _multistart_map(like, n_starts, n_prior_pilot, rng)
+    F = np.asarray(like.fisher(th0)); F = 0.5 * (F + F.T)
+    w, V = np.linalg.eigh(F)
+    v = np.clip(1.0 / np.clip(w, 1.0 / max_std ** 2, None), 0.0, max_std ** 2)
+    A = jnp.asarray((V * np.sqrt(v)))          # theta = th0 + A @ y
+    th0j = jnp.asarray(th0)
+    _ra_lo, _ra_hi = 0.0, _TWO_PI
+
+    def model():
+        y = numpyro.sample("y", dist.Normal(0.0, 4.0).expand([5]))
+        th = th0j + A @ y
+        # physical log-prior (uniform sphere/orientation) as a factor; the
+        # vague N(0,4) on y is ~flat over the O(1) whitened posterior.
+        dec, incl = th[1], th[3]
+        in_dec = (dec > -_PI / 2) & (dec < _PI / 2)
+        in_incl = (incl > 0.0) & (incl < _PI)
+        logpri = jnp.where(in_dec & in_incl,
+                           jnp.log(jnp.clip(jnp.cos(dec), 1e-30, None))
+                           + jnp.log(jnp.clip(jnp.sin(incl), 1e-30, None)),
+                           -1e10)
+        lnL = like._scalar(jnp.stack([th[0], dec, th[2], incl, th[4]]))
+        numpyro.factor("post", lnL + logpri + 0.5 * jnp.sum((y / 4.0) ** 2))
+
+    kernel = NUTS(model, target_accept_prob=target_accept,
+                  init_strategy=init_to_value(values={"y": np.zeros(5)}))
+    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples,
+                num_chains=num_chains, chain_method="sequential",
+                progress_bar=verbose)
+    mcmc.run(jax.random.PRNGKey(seed))
+    y = np.asarray(mcmc.get_samples()["y"])               # (N,5)
+    theta = _wrap_angles(np.asarray(th0)[None, :] + y @ np.asarray(A).T)
+    lnL = eval_lnL(like, theta)
+    if verbose:
+        print("  Fisher-NUTS: %d samples, MAP lnL=%.2f" % (len(theta), lnL0))
+    return dict(theta=theta, lnL=lnL,
+                post_weight=np.full(len(theta), 1.0 / max(len(theta), 1)),
+                logZ=np.nan, sigma_over_Z=np.nan, neff=float(len(theta)),
+                theta_map=th0, cov=(V * v) @ V.T)
+
+
+# ---------------------------------------------------------------------------
 # Self-test
 # ---------------------------------------------------------------------------
 def _build_standard_injection_likelihood(verbose=False):
