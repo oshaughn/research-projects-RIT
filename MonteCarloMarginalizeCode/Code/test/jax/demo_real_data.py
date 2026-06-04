@@ -156,15 +156,33 @@ def fisher_sky(like, theta5_seed, d_min=1.0, d_max=20000.0):
                    method="L-BFGS-B", bounds=bounds, options={"maxiter": 200})
     th0 = res.x
     F = np.asarray(like.fisher(th0))            # 5x5 observed Fisher (-Hessian)
-    # regularize + invert; take the (ra,dec) block in the cos(dec) sky metric
     F = 0.5 * (F + F.T)
-    w, V = np.linalg.eigh(F)
-    w = np.clip(w, 1e-6 * max(np.max(np.abs(w)), 1e-30), None)
-    cov = (V * (1.0 / w)) @ V.T
+    # Add the PRIOR curvature so the marginal is well-posed.  The psi/phi_ref
+    # (and partly incl) directions are near-flat in the likelihood -- a genuine
+    # degeneracy -- but the posterior there is bounded by the uniform prior; a
+    # uniform prior of width W has Gaussian-equivalent precision 12/W^2.  Adding
+    # diag(12/W^2) makes F_eff positive-definite, and the (ra,dec) block of
+    # F_eff^{-1} is then the proper MARGINAL sky covariance (Schur complement
+    # over the orientation), finite and shrinking as ~1/SNR^2.  In the
+    # well-constrained sky directions F_likelihood >> F_prior, so the prior is
+    # negligible there; it only regularizes the degenerate orientation block.
+    W = np.array([2 * np.pi, np.pi, np.pi, np.pi, 2 * np.pi])   # ra,dec,psi,incl,phiref
+    F_eff = F + np.diag(12.0 / W ** 2)
+    # Laplace is only valid if the MAP is a genuine maximum (F_eff positive
+    # definite).  For this likelihood the distance-marginalized 5-D peak is a
+    # *degenerate ridge* (the polarization/orbital-phase direction), so -Hessian
+    # is typically indefinite and the Gaussian/Laplace sky marginal is undefined.
+    # Detect that honestly and return nan rather than a misleading 0/garbage.
+    evals = np.linalg.eigvalsh(F_eff)
+    if np.min(evals) <= 1e-8 * max(np.max(np.abs(evals)), 1e-30):
+        return float("nan"), float(th0[0]), float(th0[1]), None
+    cov = np.linalg.inv(F_eff)
     cdec = np.cos(th0[1])
     J = np.diag([cdec, 1.0])                    # (ra,dec)->(ra*cosdec, dec)
     cov_sky = J @ cov[:2, :2] @ J.T
-    det = max(float(np.linalg.det(cov_sky)), 0.0)
+    det = float(np.linalg.det(cov_sky))
+    if det <= 0:
+        return float("nan"), float(th0[0]), float(th0[1]), None
     area = float(-2 * np.log(0.1) * np.pi * np.sqrt(det) * (180 / np.pi) ** 2)
     return area, float(th0[0]), float(th0[1]), cov_sky
 
