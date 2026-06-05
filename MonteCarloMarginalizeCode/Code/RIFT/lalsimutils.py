@@ -1867,7 +1867,15 @@ class ChooseWaveformParams:
                     setattr(swigrow, simattr,0)
                 except:
                     True  # we don't really care if this doesn't happen
-            elif simattr in ["waveform", "source", "numrel_data", "taper","process_id"]:
+                continue
+            # Skip columns that are in the SCHEMA (validcolumns) but NOT present on this table
+            # INSTANCE.  igwn_ligolw / current lalsuite write only the columns actually set, so
+            # the schema view and the written columns drift apart -- e.g. ILE-written
+            # sim_inspiral tables lack waveform/source/numrel_data/taper (and may lack numeric
+            # columns too).  Bare getattr(row, missing) would raise AttributeError.
+            if not hasattr(row, simattr):
+                continue
+            if simattr in ["waveform", "source", "numrel_data", "taper","process_id"]:
                 # unicode -> char* doesn't work
                 setattr( swigrow, simattr, str(getattr(row, simattr)) )
             elif not(lalmetaio_old_style) and ('end_time_ns' in simattr ):

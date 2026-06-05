@@ -56,6 +56,59 @@ make compare       # print the marginalized lnL from the three runs
 make all
 ```
 
+## Make targets reference
+
+The demo has grown from the single-ILE correctness check into a ladder that goes all the way
+to a runnable condor pipeline.  Targets, grouped by what they exercise:
+
+**A. Numerical correctness + single-ILE (no condor)** — the original demo:
+| target | what |
+|---|---|
+| `inputs` | build the distmarg table + per-IFO cal envelopes |
+| `verify-exact` | DETERMINISTIC loop == fused == reference to ~1e-14 (the rigorous proof) |
+| `run-baseline` / `run-loop` / `run-fused` | one ILE: no cal / loop calmarg / fused calmarg |
+| `compare` | print the marginalized lnL from the three runs |
+| `all` | inputs + verify-exact + the three runs + compare |
+| `lowsnr-inputs` / `low-snr` | fainter copy of the source (~SNR 9) for a robust full-sampler check |
+
+**B. Direct-ILE DAG + n-max tuning (condor on one GPU, e.g. cardassia)** — hand-rolled DAG, no
+pseudo_pipe.  `DMARG_DAG`/`NCAL_DAG`/`NMAX_DAG`/`NEFF_DAG`/`NCHUNK_DAG` tunables; `FUSED=1`/`PILOT=1`:
+| target | what |
+|---|---|
+| `dag-build` / `dag-validate` / `dag-run` / `dag` | build / check / submit / build+submit a vanilla fused-calmarg DAG |
+| `tune-single` / `tune-condor` | one big ILE (python -u / a single condor submit) to push n_eff up at large `NMAX_DAG` |
+
+**C. Top-level pipeline via `util_RIFT_pseudo_pipe.py` — OFFLINE build-validate** (no GPU/condor;
+confirms everything threads through incl. TIME SAMPLES):
+| target | what |
+|---|---|
+| `pp-build` / `pp-validate` / `pp` | build + validate a full pipeline (AV sampler, calmarg+fused, time-resampling) |
+| `extr-build` / `extr-validate` / `extr` | same, with the **extrinsic handoff** (GMM seed) — checks the EXTRCONSOLIDATE node + seed wiring |
+
+**D. RUNNABLE pipeline on the CI fake data (condor; one GPU on cardassia, or OSG/CIT)**:
+| target | what |
+|---|---|
+| `pp-coinc` | build `ci_coinc.xml` from the injection (`util_SimInspiralToCoinc.py`) |
+| `pp-run-build` / `pp-run` | build / build+submit the real pipeline (real cache + PSD + FAKE-STRAIN, calmarg, time-resampling) |
+| `pp-run-pilot-build` / `pp-run-pilot` | same with the adaptive cal **pilots** enabled (separate `rundir_pp_pilot`) |
+| `extr-run-build` / `extr-run` | tiny GMM **extrinsic-handoff** GPU+condor run (separate `rundir_pp_extr_run`) |
+
+Runnable-target toggles (override on the make line):
+| toggle | default | meaning |
+|---|---|---|
+| `OSG` | `0` (auto `1` if `SINGULARITY_RIFT_IMAGE` set) | layer on `--use-osg*` + container + frame transfer for CIT (container-only) |
+| `PP_PILOT` | `0` | enable the cal pilots on `pp-run` |
+| `PP_DMARG` | `0` | OPTIONAL distance marginalization with the fused kernel (`--internal-marginalize-distance`); recommended with `--extrinsic-handoff` |
+| `PP_CALPOST` | `1` | write the recovered **calibration posterior** (`<out>_<event>_cal.dat`) at the final fairdraw |
+| `PP_NIT` | `2` | forced iteration count |
+
+> The runnable targets each start with their own `rm -rf <rundir>` and use **separate** run
+> directories, so launching one never clobbers another that is still running.
+
+**Helper utilities** (also runnable standalone): `util_ExtrinsicConsolidate.py` (pick the best
+per-event extrinsic proposal), `util_CalMakePriorBreadcrumb.py` (write/patch a valid iteration-0
+`cal_consolidated_-1.npz` prior placeholder — see "Pilot / OSG notes" below).
+
 ### Backends and review matrix
 
 The fused path has two interchangeable backends and works with or without distance
@@ -168,9 +221,44 @@ illegal memory access.
 --calmarg-n-realizations N         # default 100
 --calmarg-spline-count M           # default 10
 --calmarg-fused-kernel             # use the fused GPU kernel (else the loop method)
+--calmarg-export-posterior         # write the recovered cal posterior at the final fairdraw (see below)
+--internal-marginalize-distance    # OPTIONAL distance marginalization (composes with the fused kernel)
+--calmarg-pilot                    # adaptive cal pilots: learn a cal proposal and SEED wide_{N+1}
+--extrinsic-handoff                # GMM-seed handoff: carry the extrinsic posterior between iterations
 ```
 
-These append `--calibration-envelope-directory/--calibration-n-realizations/`
-`--calibration-spline-count/--calibration-fused-kernel` to the ILE arguments. To
-live-test on real data, copy your coinc, frames, PSD, and ini, then launch the pipe
-with these flags.
+These append the corresponding `--calibration-*` / `--extrinsic-*` flags to the ILE arguments.
+To live-test on real data, copy your coinc, frames, PSD, and ini, then launch the pipe with
+these flags.  Design notes for the advanced paths live next to the code:
+`RIFT/calmarg/DESIGN_adaptive_driver.md` (cal pilots) and
+`RIFT/calmarg/DESIGN_extrinsic_handoff.md` (extrinsic handoff).
+
+### Recovered calibration posterior
+
+With `--calmarg-export-posterior` (pipeline) / `--calibration-export-posterior` (ILE), the final
+fairdraw stage draws, per output sample, one calibration realization in proportion to its
+posterior weight and writes a **self-contained sibling `<output>_<event>_cal.dat`** with the
+FULL draw — intrinsic + extrinsic + the drawn realization's spline nodes as labeled columns
+`cal_<IFO>_amp_<k>` / `cal_<IFO>_phase_<k>`.  The recovered cal posterior is just those columns,
+plottable with the standard tooling (it should sit inside, and no wider than, the input envelope
+band).  In the demo this is `PP_CALPOST=1` (default on).
+
+### Pilot / OSG notes
+
+- **Iteration-0 placeholder.**  On OSG the cal pilots seed wide_{N+1} from a transferred
+  breadcrumb; iteration 0 has none yet, so pseudo_pipe writes a `cal_consolidated_-1.npz`
+  *placeholder*.  It is a **valid "prior" breadcrumb** (proposal == prior → seeding from it ==
+  cold prior draws, zero weights) so it loads cleanly on any ILE binary.  To (re)generate one for
+  an already-built run dir (e.g. to patch a run launched before this fix, without rebuilding the
+  container):
+  ```bash
+  util_CalMakePriorBreadcrumb.py --calibration-envelope-directory rundir/cal_env \
+      --ifo H1 --ifo L1 --ifo V1 --fmin 10 --fmax 2047 --calibration-spline-count 10 \
+      --output rundir/cal_consolidated_-1.npz
+  ```
+  (`--ifo` order / `--fmin` / `--fmax` / `--calibration-spline-count` must match the wide-ILE cal
+  settings so the node dimension `2·spline·n_ifo` lines up.)
+
+- **Execute-point vs pipeline-writer.**  Changes to the ILE binary / likelihood / `RIFT/calmarg`
+  need a **container rebuild** to take effect on OSG/CIT; changes to `util_RIFT_pseudo_pipe.py` /
+  `create_event_*` / `dag_utils*` / the Makefile are pipeline-writer only (no rebuild).

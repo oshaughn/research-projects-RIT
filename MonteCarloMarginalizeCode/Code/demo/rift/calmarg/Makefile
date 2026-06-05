@@ -341,6 +341,363 @@ dag-run:
 
 dag: dag-build
 
+# --- Top-level pipeline thread-through (util_RIFT_pseudo_pipe.py) -------------------
+# Unlike dag-build (which calls create_event_parameter_pipeline_BasicIteration directly
+# with a hand-written args_ile.txt), this exercises the FULL top-level builder:
+# util_RIFT_pseudo_pipe.py -> helper_LDG_Events.py -> args generation -> create_event_*.
+# Goal: confirm the calmarg flags AND the time-sample (time-resampling) options thread all
+# the way into args_ile.txt / the .sub files / the DAG.  Offline build-validate (the
+# established pattern: .travis/test-build.sh + demo/pipeline/zero_spin_phenomD), so no GPU
+# run needed.  Zero spin (reuses the zero-spin IMRPhenomD ini); iterations forced small.
+PP_RUN   := $(CURDIR)/rundir_pp
+PP_INI   ?= $(RIFT_CODE_ROOT)/demo/pipeline/zero_spin_phenomD/zero_spin_phenomD.ini
+PP_COINC ?= $(REPO_ROOT)/.travis/ref_ini/coinc.xml
+PP_NIT   ?= 2          # forced iteration count (small, under control)
+PP_SRATE ?= 4096       # time-resampling output rate (--srate-resample-time-marginalization)
+# PP_PILOT=1 adds the adaptive cal PILOT jobs to pp-run (harvest->dump->fit->consolidate->
+# seed wide_{N+1}).  Default 0 (vanilla).  `make pp-run-pilot` is the convenience wrapper.
+PP_PILOT ?= 0
+ifeq ($(PP_PILOT),1)
+  PP_PILOT_FLAGS := --calmarg-pilot --calmarg-pilot-cadence 1 --calmarg-pilot-max-it 1
+else
+  PP_PILOT_FLAGS :=
+endif
+
+.PHONY: pp pp-build pp-validate
+
+pp-build: cal_env/H1.txt
+	@test -s "$(PP_INI)"   || (echo "missing zero-spin ini $(PP_INI)" && false)
+	@test -s "$(PP_COINC)" || (echo "missing coinc $(PP_COINC)" && false)
+	rm -rf $(PP_RUN); touch $(CURDIR)/foo.cache
+	$(ENV) util_RIFT_pseudo_pipe.py \
+	  --use-ini $(PP_INI) --use-coinc $(PP_COINC) --use-rundir $(PP_RUN) \
+	  --fake-data-cache $(CURDIR)/foo.cache \
+	  --assume-nospin --approx IMRPhenomD --ile-sampler-method AV \
+	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling $(PP_SRATE) \
+	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
+	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30
+	$(MAKE) pp-validate
+
+# Confirm everything threaded through into the generated pipeline (no condor needed).
+pp-validate:
+	@test -s "$(PP_RUN)/args_ile.txt" || (echo "FAIL: pseudo_pipe produced no args_ile.txt" && false)
+	@echo "--- args_ile.txt ---"; cat $(PP_RUN)/args_ile.txt
+	@grep -q -- "--calibration-envelope-directory" $(PP_RUN)/args_ile.txt || (echo "FAIL: calmarg envelope not threaded to args_ile.txt" && false)
+	@grep -q -- "--calibration-n-realizations"     $(PP_RUN)/args_ile.txt || (echo "FAIL: calmarg n-realizations not threaded" && false)
+	@grep -q -- "--calibration-fused-kernel"       $(PP_RUN)/args_ile.txt || (echo "FAIL: calmarg fused-kernel not threaded" && false)
+	@grep -q -- "--time-marginalization"           $(PP_RUN)/args_ile.txt || (echo "FAIL: --time-marginalization absent (time integral)" && false)
+	@grep -q -- "--srate-resample-time-marginalization" $(PP_RUN)/args_ile.txt || (echo "FAIL: TIME SAMPLES (--srate-resample-time-marginalization) not threaded to ILE" && false)
+	@ls $(PP_RUN)/*.dag >/dev/null 2>&1 || (echo "FAIL: no top-level DAG produced" && false)
+	@test -s "$(PP_RUN)/ILE_extr.sub" || (echo "FAIL: no extrinsic (time-sample) stage ILE_extr.sub" && false)
+	@echo "--- ILE_extr.sub (the extrinsic / time-sample output stage) ---"
+	@grep -oE -- "--calibration-fused-kernel|--calibration-envelope-directory|--srate-resample-time-marginalization [0-9]+|--time-marginalization" $(PP_RUN)/ILE_extr.sub | sort -u
+	@grep -q -- "--calibration-fused-kernel"            $(PP_RUN)/ILE_extr.sub || (echo "FAIL: extrinsic stage missing calmarg" && false)
+	@grep -q -- "--srate-resample-time-marginalization" $(PP_RUN)/ILE_extr.sub || (echo "FAIL: extrinsic stage missing TIME SAMPLES resampling" && false)
+	@echo "OK: top-level util_RIFT_pseudo_pipe.py threaded EVERYTHING --"
+	@echo "    calmarg (envelope + n-realizations + fused-kernel) into args_ile.txt, ILE.sub AND ILE_extr.sub;"
+	@echo "    TIME SAMPLES (--srate-resample-time-marginalization) into the wide AND extrinsic (ILE_extr) stages"
+	@echo "    [--add-extrinsic-time-resampling drives the extrinsic stage at build time]; zero-spin IMRPhenomD;"
+	@echo "    $(PP_NIT) iterations; full DAG produced."
+	@echo "    (Offline build-validate -- the established pattern; no GPU/data run needed for the threading check.)"
+
+pp: pp-build
+
+# --- EXTRINSIC HANDOFF offline build-validate (separate rundir; never touches pp/run dirs) ---
+# Builds a pipeline with the extrinsic handoff (GMM sampler) and confirms the per-event
+# proposal output, the seed breadcrumb, and the EXTRCONSOLIDATE consolidation node all thread
+# through.  Offline -- no GPU/condor/data run needed for the threading check.
+# See RIFT/calmarg/DESIGN_extrinsic_handoff.md.
+PP_EXTR_RUN := $(CURDIR)/rundir_pp_extr
+
+# OPTIONAL distance marginalization for the pseudo_pipe calmarg path.  The fused calmarg kernel
+# does NOT require distmarg -- it has both a non-distmarg kernel (Q_fused_calmarg_cupy) and a
+# distmarg kernel (Q_fused_calmarg_distmarg_cupy), and the ILE binary wires whichever applies.
+# PP_DMARG=1 adds --internal-marginalize-distance, so the helper builds the lookup table
+# (util_InitMargTable) and distance is marginalized ANALYTICALLY -- it leaves the extrinsic
+# sampler entirely.  RECOMMENDED with --extrinsic-handoff: it removes the distance dimension
+# (and its hard [1,PP_DMAX] bound) from the GMM proposal, so a seeded distance Gaussian can't
+# spill past the bound into NaN likelihood.  (Distinct from the direct-ILE dag-build DMARG knob,
+# which uses a pre-built --distance-marginalization-lookup-table.)
+PP_DMARG    ?= 0
+PP_DMAX     ?= 1000
+ifeq ($(PP_DMARG),1)
+  PP_DMARG_FLAGS := --internal-marginalize-distance --internal-distance-max $(PP_DMAX)
+else
+  PP_DMARG_FLAGS :=
+endif
+
+# Recovered CALIBRATION posterior in the final fairdraw output (opt-in; default ON for the
+# runnable targets so it gets tested).  Writes a self-contained sibling <out>_<event>_cal.dat
+# with the full draw (intrinsic + extrinsic + cal_<IFO>_amp_<k>/cal_<IFO>_phase_<k>) -- the
+# recovered cal posterior is those columns.  PP_CALPOST=0 to disable.
+PP_CALPOST  ?= 1
+ifeq ($(PP_CALPOST),1)
+  PP_CALPOST_FLAGS := --calmarg-export-posterior
+else
+  PP_CALPOST_FLAGS :=
+endif
+
+# CIP throughput: by default RIFT runs ONE CIP worker per iteration targeting a large n_eff
+# (~500, the cip-cap-neff), which is slow.  Spread the work over PP_CIP_EXPLODE parallel CIP
+# workers and lower the n_eff target so EACH worker is light: with PP_CIP_EXPLODE=8 and
+# PP_CIP_NEFF=160 the cap is split ~160/8 -> n_eff ~20 per worker (8x parallel, ~20/job vs ~500).
+PP_CIP_EXPLODE ?= 8
+PP_CIP_NEFF    ?= 160
+PP_CIP_FLAGS   := --cip-explode-jobs $(PP_CIP_EXPLODE) --internal-cip-cap-neff $(PP_CIP_NEFF)
+
+.PHONY: extr extr-build extr-validate
+
+extr-build: cal_env/H1.txt
+	@test -s "$(PP_INI)"   || (echo "missing zero-spin ini $(PP_INI)" && false)
+	@test -s "$(PP_COINC)" || (echo "missing coinc $(PP_COINC)" && false)
+	rm -rf $(PP_EXTR_RUN); touch $(CURDIR)/foo.cache
+	$(ENV) util_RIFT_pseudo_pipe.py \
+	  --use-ini $(PP_INI) --use-coinc $(PP_COINC) --use-rundir $(PP_EXTR_RUN) \
+	  --fake-data-cache $(CURDIR)/foo.cache \
+	  --assume-nospin --approx IMRPhenomD --ile-sampler-method GMM \
+	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling $(PP_SRATE) \
+	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
+	  --extrinsic-handoff $(PP_DMARG_FLAGS) \
+	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30
+	$(MAKE) extr-validate PP_DMARG=$(PP_DMARG)
+
+extr-validate:
+	@test -s "$(PP_EXTR_RUN)/args_ile.txt" || (echo "FAIL: pseudo_pipe produced no args_ile.txt" && false)
+	@echo "--- args_ile.txt (extrinsic handoff flags) ---"
+	@grep -oE -- "--sampler-method [A-Za-z_]+|--extrinsic-proposal-output [^ ]+|--extrinsic-proposal-breadcrumb [^ ]+" $(PP_EXTR_RUN)/args_ile.txt | sort -u
+	@grep -q -- "--sampler-method GMM"             $(PP_EXTR_RUN)/args_ile.txt || (echo "FAIL: extrinsic handoff needs the GMM sampler (--sampler-method GMM absent)" && false)
+	@grep -q -- "--extrinsic-proposal-output"      $(PP_EXTR_RUN)/args_ile.txt || (echo "FAIL: per-event --extrinsic-proposal-output not threaded to ILE" && false)
+	@grep -q -- "--extrinsic-proposal-breadcrumb"  $(PP_EXTR_RUN)/args_ile.txt || (echo "FAIL: seed --extrinsic-proposal-breadcrumb not threaded to ILE" && false)
+	@if [ "$(PP_DMARG)" = "1" ]; then \
+	   grep -q -- "--distance-marginalization" $(PP_EXTR_RUN)/args_ile.txt || (echo "FAIL: PP_DMARG=1 but --distance-marginalization not threaded" && false); \
+	   grep -q -- "--distance-marginalization-lookup-table" $(PP_EXTR_RUN)/args_ile.txt || (echo "FAIL: PP_DMARG=1 but no distance-marginalization lookup table" && false); \
+	   echo "  [PP_DMARG=1] distance marginalization ON: distance is marginalized analytically and removed from the GMM sampler"; \
+	 else echo "  [PP_DMARG=0] distance SAMPLED (fused kernel without distmarg -- valid; pass PP_DMARG=1 to marginalize)"; fi
+	@test -s "$(PP_EXTR_RUN)/EXTRCONSOLIDATE.sub" || (echo "FAIL: no EXTRCONSOLIDATE.sub consolidation stage" && false)
+	@echo "--- EXTRCONSOLIDATE.sub ---"
+	@grep -E "universe|executable|arguments|initialdir" $(PP_EXTR_RUN)/EXTRCONSOLIDATE.sub | head
+	@grep -q "util_ExtrinsicConsolidate.py" $(PP_EXTR_RUN)/EXTRCONSOLIDATE.sub || (echo "FAIL: EXTRCONSOLIDATE.sub does not run util_ExtrinsicConsolidate.py" && false)
+	@grep -q "universe = local"             $(PP_EXTR_RUN)/EXTRCONSOLIDATE.sub || (echo "FAIL: EXTRCONSOLIDATE should be a local-universe job" && false)
+	@DAG=$$(ls $(PP_EXTR_RUN)/*BasicIterationWorkflow.dag 2>/dev/null | head -1); \
+	  test -n "$$DAG" || (echo "FAIL: no per-iteration DAG produced" && false); \
+	  grep -q "util_ExtrinsicConsolidate_py" $$DAG || (echo "FAIL: no EXTRCONSOLIDATE node in the DAG" && false); \
+	  EC=$$(grep -oE "util_ExtrinsicConsolidate_py-[0-9a-f]+" $$DAG | head -1); \
+	  grep -qE "PARENT unify_sh-[0-9a-f]+ CHILD $$EC" $$DAG || (echo "FAIL: EXTRCONSOLIDATE not gated behind the iteration's unify (ILE barrier)" && false); \
+	  grep -qE "PARENT $$EC CHILD integrate_likelihood_extrinsic_batchmode" $$DAG || (echo "FAIL: next-iteration ILE jobs do not depend on EXTRCONSOLIDATE (seed barrier missing)" && false)
+	@echo "OK: extrinsic handoff threaded EVERYTHING --"
+	@echo "    --sampler-method GMM + per-event --extrinsic-proposal-output + seed --extrinsic-proposal-breadcrumb in args_ile.txt;"
+	@echo "    EXTRCONSOLIDATE.sub (local universe, util_ExtrinsicConsolidate.py);"
+	@echo "    DAG wiring: unify_{it} -> EXTRCONSOLIDATE_{it} -> wide ILE_{it+1} (consolidate barrier + seed barrier)."
+	@echo "    (Offline build-validate; NOTE the ILE binary change is execute-point -- rebuild the container before an OSG/CIT run.)"
+
+extr: extr-build
+
+# --- RUNNABLE top-level pipeline on the CI fake data (breadcrumb for later) ----------
+# Unlike pp-build (offline threading check), this builds a pipeline that ACTUALLY RUNS on
+# the zero-noise CI data and SUBMITS it to condor: real coinc (util_SimInspiralToCoinc.py
+# from the injection), the real zero_noise.cache + CI PSD + FAKE-STRAIN channels (a
+# CI-matched ini), calmarg + time-resampling, zero spin, small forced iterations.  Produces
+# extrinsic-stage TIME SAMPLES with calmarg on.  Single GPU on cardassia (CUDA_VISIBLE_DEVICES=0).
+PP_RUN_REAL := $(CURDIR)/rundir_pp_run
+PP_DAG      := marginalize_intrinsic_parameters_BasicIterationWorkflow.dag
+
+# --- CIT / OSG container mode (auto-activates when SINGULARITY_RIFT_IMAGE is set) -----
+# CIT is container-only: you must `export SINGULARITY_RIFT_IMAGE=/path/to/rift.sif` and run
+# on OSG.  Exporting that env var (or passing OSG=1) auto-populates the OSG flags on pp-run:
+#   --use-osg            -> the builder adds --use-singularity (reads SINGULARITY_RIFT_IMAGE)
+#   --use-osg-cip        -> CIP jobs run in-container on OSG too
+#   --use-osg-file-transfer + a frames_dir -> transfer the CI frames (no CVMFS for fake data)
+#   --ile-additional-files-to-transfer -> ride the cal envelopes + PSD to the workers (no
+#                                          shared filesystem on OSG)
+# On a local shared-FS run (cardassia) leave SINGULARITY_RIFT_IMAGE unset / OSG=0 -> no-op.
+#   CIT:  export SINGULARITY_RIFT_IMAGE=/cvmfs/.../rift.sif ; make pp-run
+ifneq ($(SINGULARITY_RIFT_IMAGE),)
+  OSG ?= 1
+endif
+OSG ?= 0
+ifeq ($(OSG),1)
+  # Container: ~4 GB disk for the .sif transfer + unpack (vs the MB-scale shared-FS baseline)
+  PP_DISK ?= 4G
+  # --condor-local-nonworker: at CIT the fast 'internal' jobs (consolidate/unify/puff/cal-
+  # consolidation/etc.) have no execute-point access, so vanilla-universe submission fails;
+  # this runs them locally (non-NFS / flock_local) instead.  Required whenever OSG is active.
+  PP_OSG_FLAGS := --use-osg --use-osg-cip --use-osg-file-transfer --condor-local-nonworker
+  # On OSG the cal envelopes are auto-added to the transfer list by util_RIFT_pseudo_pipe.py
+  # (referenced as '.'); the PSD is provided as run-dir <IFO>-psd.xml.gz (copied below), which
+  # RIFT lists + transfers by basename.  So do NOT pass --use-online-psd-file (it would force
+  # an unreachable absolute path into the args).
+  PP_PSD_FLAG :=
+else
+  PP_DISK ?= 4M
+  PP_OSG_FLAGS :=
+  # Local shared FS: reference the CI PSD by absolute path (no transfer needed).
+  PP_PSD_FLAG := --use-online-psd-file $(PSD)
+endif
+# Disk requests for ALL THREE job types come from the CLI here, ALWAYS (baseline 4M local,
+# 4G container).  Must NOT also be set in the ini -- a [rift-pseudo-pipe] value there
+# OVERRIDES the CLI, which previously left ILE stuck at 4M while cip/general got bumped.
+PP_DISK_FLAGS := --internal-ile-request-disk $(PP_DISK) --internal-cip-request-disk $(PP_DISK) --internal-general-request-disk $(PP_DISK)
+
+.PHONY: pp-run pp-run-build pp-coinc
+
+pp-coinc: ci_coinc.xml
+ci_coinc.xml:
+	$(ENV) util_SimInspiralToCoinc.py --sim-xml $(SIM_XML) --event 0 \
+	  --ifo H1 --ifo L1 --ifo V1 --output $(CURDIR)/ci_coinc.xml --injected-snr 17.5
+
+# Build the runnable pipeline (no submit) and validate the runnable bits threaded through.
+# OSG=1 (or SINGULARITY_RIFT_IMAGE set) layers on the container/OSG flags for CIT.
+pp-run-build: cal_env/H1.txt ci_coinc.xml
+ifeq ($(OSG),1)
+	@test -n "$(SINGULARITY_RIFT_IMAGE)" || (echo "OSG=1 but SINGULARITY_RIFT_IMAGE is not set (CIT is container-only: export it first)" && false)
+	@echo "  [OSG] container mode: SINGULARITY_RIFT_IMAGE=$(SINGULARITY_RIFT_IMAGE)"
+endif
+	rm -rf $(PP_RUN_REAL)
+	$(ENV) util_RIFT_pseudo_pipe.py \
+	  --use-ini $(CURDIR)/calmarg_ci.ini --use-coinc $(CURDIR)/ci_coinc.xml --use-rundir $(PP_RUN_REAL) \
+	  --fake-data-cache $(CACHE) $(PP_PSD_FLAG) \
+	  --assume-nospin --approx IMRPhenomD --ile-sampler-method AV \
+	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
+	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
+	  $(PP_DMARG_FLAGS) $(PP_CALPOST_FLAGS) $(PP_CIP_FLAGS) \
+	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30 \
+	  $(PP_DISK_FLAGS) $(PP_OSG_FLAGS) $(PP_PILOT_FLAGS)
+ifeq ($(OSG),1)
+	@# --use-osg-file-transfer expects a frames_dir of .gwf in the rundir.  Must be a FULL
+	@# COPY, not a symlink: condor refuses "Transfer of symlinks to directories is not supported".
+	rm -rf $(PP_RUN_REAL)/frames_dir; cp -r $(CI_DEMO)/zero_noise_mdc $(PP_RUN_REAL)/frames_dir
+	@# The args reference per-IFO <IFO>-psd.xml.gz (basename, transferred); populate them from
+	@# the CI PSD so the files exist in the run dir AND carry the real PSD (not fiducial).
+	for ifo in H1 L1 V1; do cp $(PSD) $(PP_RUN_REAL)/$$ifo-psd.xml.gz; done
+	@echo "  [OSG] copied CI frames -> frames_dir (full copy), CI PSD -> {H1,L1,V1}-psd.xml.gz"
+endif
+ifeq ($(OSG),1)
+	@grep -q "local.cache" $(PP_RUN_REAL)/args_ile.txt 2>/dev/null || echo "  [OSG] note: cache is local.cache (built on the remote worker), not zero_noise.cache"
+else
+	@grep -q "zero_noise.cache"   $(PP_RUN_REAL)/args_ile.txt || (echo "FAIL: not the real CI cache" && false)
+endif
+	@grep -q "FAKE-STRAIN"        $(PP_RUN_REAL)/args_ile.txt || (echo "FAIL: not the FAKE-STRAIN channels" && false)
+	@grep -q "1000000014"         $(PP_RUN_REAL)/args_ile.txt || (echo "FAIL: not the CI event time" && false)
+	@grep -q -- "--srate-resample-time-marginalization" $(PP_RUN_REAL)/ILE_extr.sub || (echo "FAIL: extrinsic stage missing time resampling" && false)
+	@grep -q -- "--calibration-fused-kernel" $(PP_RUN_REAL)/ILE_extr.sub || (echo "FAIL: extrinsic stage missing calmarg" && false)
+	@test -s "$(PP_RUN_REAL)/$(PP_DAG)" || (echo "FAIL: no top-level DAG produced" && false)
+ifeq ($(PP_PILOT),1)
+	@test -s "$(PP_RUN_REAL)/CALPILOT.sub"                         || (echo "FAIL: PP_PILOT=1 but no CALPILOT.sub" && false)
+	@# the stage exe is named in CALPILOT.sub (local) OR in calpilot_pre.sh (OSG: the sub's
+	@# executable is the prescript, which builds local.cache then runs util_CalPilotStage.py)
+	@grep -qs "util_CalPilotStage.py" "$(PP_RUN_REAL)/CALPILOT.sub" "$(PP_RUN_REAL)/calpilot_pre.sh" || (echo "FAIL: neither CALPILOT.sub nor calpilot_pre.sh runs util_CalPilotStage.py" && false)
+	@grep -q "CALPILOT" "$(PP_RUN_REAL)/$(PP_DAG)"                 || (echo "FAIL: no CALPILOT job in DAG" && false)
+	@grep -q -- "--calibration-proposal-breadcrumb" "$(PP_RUN_REAL)/args_ile.txt" || (echo "FAIL: wide ILE args missing seed breadcrumb" && false)
+	@echo "OK: runnable cal-PILOT pipeline built on CI data -- CALPILOT (harvest->dump->fit->"
+	@echo "    consolidate) wired; wide ILE seeded via --calibration-proposal-breadcrumb; $(PP_NIT) iters."
+else
+	@echo "OK: runnable calmarg pipeline built on the CI fake data (real cache + PSD + FAKE-STRAIN,"
+	@echo "    event 1000000014.236, calmarg+fused, time-resampling, zero-spin, $(PP_NIT) iters)."
+endif
+
+# Build + SUBMIT to condor.  Watch: condor_q ; tail -f $(PP_RUN_REAL)/$(PP_DAG).dagman.out
+# Extrinsic time-sample output lands in the last iteration's extrinsic stage.
+pp-run: pp-run-build
+	cd $(PP_RUN_REAL) && $(ENV) condor_submit_dag -f $(PP_DAG)
+	@echo "Submitted.  Watch:  condor_q ; tail -f $(PP_RUN_REAL)/$(PP_DAG).dagman.out"
+	@# CIT requires accounting identity in the environment, else jobs never queue.
+	@test -n "$$LIGO_USER_NAME" || echo "  *** WARNING: LIGO_USER_NAME is unset -- condor jobs may not queue (required at CIT). export it. ***"
+	@{ test -n "$$LIGO_ACCOUNTING" || test -n "$$LIGO_ACCOUNTING_GROUP"; } || echo "  *** WARNING: LIGO_ACCOUNTING (a.k.a. LIGO_ACCOUNTING_GROUP) is unset -- condor jobs may not queue (required at CIT). export it. ***"
+
+# Runnable cal-PILOT pipeline: pp-run with the adaptive pilots enabled (harvest->dump->
+# fit->consolidate->seed wide_{N+1}).  Needs >=2 iterations so the seed is consumed.
+# Honours OSG (CIT) the same way as pp-run.
+# NOTE: uses a SEPARATE run directory (rundir_pp_pilot) so it does NOT clobber a vanilla
+# pp-run already running in rundir_pp_run.  (pp-run-build starts with `rm -rf`.)
+.PHONY: pp-run-pilot pp-run-pilot-build
+pp-run-pilot-build:
+	$(MAKE) pp-run-build PP_PILOT=1 PP_NIT=2 PP_RUN_REAL=$(CURDIR)/rundir_pp_pilot
+pp-run-pilot:
+	$(MAKE) pp-run PP_PILOT=1 PP_NIT=2 PP_RUN_REAL=$(CURDIR)/rundir_pp_pilot
+
+# --- EXTRINSIC HANDOFF: small real GPU+condor smoke run on cardassia --------------------
+# Confirms the seeded extrinsic handoff actually runs: GMM sampler (so gmm_dict seeding is
+# live), --extrinsic-handoff on, on the CI fake data.  Deliberately TINY so it gets through
+# many intrinsic points per condor job (few restarts) and reaches the seeded 2nd iteration
+# fast:  300 initial intrinsic points, 200/generation, 50 intrinsic evals PER ILE job
+# (IMRPhenomD), >=2 iterations so iteration-1 ILE is seeded by iteration-0's consolidation.
+# Separate rundir (rundir_pp_extr_run) -- never clobbers pp-run / pilot runs.
+# Single GPU on cardassia:  CUDA_VISIBLE_DEVICES=0 make extr-run
+EXTR_RUN      := $(CURDIR)/rundir_pp_extr_run
+EXTR_NIT      ?= 2          # need >=2 so the iteration-0 proposal seeds iteration-1
+EXTR_GRID0    ?= 300        # initial intrinsic grid points
+EXTR_GRIDN    ?= 200        # intrinsic points proposed per generation (CIP output)
+EXTR_PER_JOB  ?= 50         # intrinsic evaluations per ILE condor job (minimize restarts)
+EXTR_NCHUNK   ?= 4000       # extrinsic block size; small keeps the NVS 510 off its watchdog
+EXTR_NMAX     ?= 40000      # HARD cap on extrinsic samples/point -- the helper sets 4,000,000
+                            # (production); with slow calmarg convergence that is hours/point on
+                            # the NVS 510.  40000 -> ~20 s/point (measured), enough to fit+hand off.
+EXTR_NEFF     ?= 30         # n_eff target -- smoke just confirms seeding; jobs stop at n-max
+# The extrinsic handoff forces --sampler-method GMM on the WIDE stages (the gmm_dict seed needs
+# GMM).  The FINAL extrinsic stage merely EXTRACTS samples and is much more efficient with the AV
+# sampler, so swap it via a post-build search/replace on the generated ILE_extr.sub (a deploy
+# step here -- the pipeline source stays sampler-neutral).  EXTR_EXTRINSIC_AV=0 to keep GMM.
+EXTR_EXTRINSIC_AV ?= 1
+
+.PHONY: extr-run extr-run-build
+
+# Several knobs live in calmarg_ci.ini's [rift-pseudo-pipe] section, and an ini value
+# OVERRIDES the CLI -- so the per-job / per-generation / n_eff sizes must be set IN the ini,
+# not on the command line.  Derive a run-specific ini from calmarg_ci.ini, overriding only
+# those three lines (sed), leaving the shared ini untouched (so pp-run is unaffected).
+EXTR_INI := $(CURDIR)/extr_calmarg_ci.ini
+
+extr-run-build: cal_env/H1.txt ci_coinc.xml
+	rm -rf $(EXTR_RUN)
+	sed -e 's/^ile-jobs-per-worker=.*/ile-jobs-per-worker=$(EXTR_PER_JOB)/' \
+	    -e 's/^n-output-samples=.*/n-output-samples=$(EXTR_GRIDN)/' \
+	    -e 's/^ile-n-eff=.*/ile-n-eff=$(EXTR_NEFF)/' \
+	    $(CURDIR)/calmarg_ci.ini > $(EXTR_INI)
+	$(ENV) util_RIFT_pseudo_pipe.py \
+	  --use-ini $(EXTR_INI) --use-coinc $(CURDIR)/ci_coinc.xml --use-rundir $(EXTR_RUN) \
+	  --fake-data-cache $(CACHE) --use-online-psd-file $(PSD) \
+	  --assume-nospin --approx IMRPhenomD --ile-sampler-method GMM \
+	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
+	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
+	  --extrinsic-handoff $(PP_DMARG_FLAGS) $(PP_CALPOST_FLAGS) $(PP_CIP_FLAGS) \
+	  --force-initial-grid-size $(EXTR_GRID0) --n-output-samples-last $(EXTR_GRIDN) \
+	  --manual-extra-ile-args "--n-chunk $(EXTR_NCHUNK) --n-max $(EXTR_NMAX)" \
+	  --internal-force-iterations $(EXTR_NIT) \
+	  --internal-ile-request-disk 4M --internal-cip-request-disk 4M --internal-general-request-disk 4M
+	@# AV for the FINAL extrinsic stage (efficiency): post-build search/replace on the generated
+	@# ILE_extr.sub -- the wide stages keep GMM for the handoff seed, the extraction stage uses AV.
+	@if [ "$(EXTR_EXTRINSIC_AV)" = "1" ]; then \
+	   find $(EXTR_RUN) -name 'ILE_extr.sub' -exec sed -i 's/--sampler-method GMM/--sampler-method AV/g' {} + ; \
+	   echo "  [extr] final extrinsic stage -> AV (post-build sed on ILE_extr.sub; wide stages stay GMM)" ; \
+	 fi
+	@# the n-max bound must land AFTER the helper's production --n-max 4000000 (argparse last-wins);
+	@# the manual-extra args are appended last, so the effective n-max is the bounded value.
+	@awk '{for(i=1;i<=NF;i++)if($$i=="--n-max")v=$$(i+1)} END{print "  effective --n-max =",v}' $(EXTR_RUN)/args_ile.txt
+	@awk '/--n-max/{n=split($$0,a," "); for(i=1;i<=n;i++)if(a[i]=="--n-max")last=a[i+1]} END{exit (last==$(EXTR_NMAX))?0:1}' $(EXTR_RUN)/args_ile.txt \
+	  || (echo "FAIL: effective --n-max is not the bounded $(EXTR_NMAX) (jobs would run to the 4,000,000 production cap)" && false)
+	@# confirm the per-job size took (ini value is overridden by the derived ini to $(EXTR_PER_JOB))
+	@grep -q -- "--ile-n-events-to-analyze $(EXTR_PER_JOB)" $(EXTR_RUN)/command-single.sh 2>/dev/null \
+	  || echo "  NOTE: verify --ile-n-events-to-analyze=$(EXTR_PER_JOB) in the builder invocation above"
+	@# confirm the handoff threaded through into the runnable pipeline
+	@grep -q -- "--sampler-method GMM"            $(EXTR_RUN)/args_ile.txt || (echo "FAIL: GMM sampler not set" && false)
+	@grep -q -- "--extrinsic-proposal-output"     $(EXTR_RUN)/args_ile.txt || (echo "FAIL: per-event extrinsic output not threaded" && false)
+	@grep -q -- "--extrinsic-proposal-breadcrumb" $(EXTR_RUN)/args_ile.txt || (echo "FAIL: extrinsic seed breadcrumb not threaded" && false)
+	@grep -q -- "--n-chunk $(EXTR_NCHUNK)"        $(EXTR_RUN)/args_ile.txt || (echo "FAIL: n-chunk not threaded (NVS 510 watchdog guard)" && false)
+	@test -s "$(EXTR_RUN)/EXTRCONSOLIDATE.sub"    || (echo "FAIL: no EXTRCONSOLIDATE.sub" && false)
+	@test -s "$(EXTR_RUN)/$(PP_DAG)"              || (echo "FAIL: no top-level DAG" && false)
+	@echo "OK: tiny GMM extrinsic-handoff pipeline built on CI data --"
+	@echo "    $(EXTR_GRID0) initial / $(EXTR_GRIDN) per-gen intrinsic, $(EXTR_PER_JOB) evals/ILE job, n-chunk $(EXTR_NCHUNK),"
+	@echo "    $(EXTR_NIT) iterations (iter-1 ILE seeded by iter-0's EXTRCONSOLIDATE).  Submit with: make extr-run"
+
+# Build + SUBMIT.  After it runs, the iteration-1 ILE *.out logs should print
+#   ' Extrinsic GMM SEEDED from .../extr_consolidated_0.npz for dim-groups [...]'
+# and extr_consolidated_0.npz / extr_proposal_0_*.npz should appear in the rundir.
+extr-run: extr-run-build
+	cd $(EXTR_RUN) && $(ENV) condor_submit_dag -f $(PP_DAG)
+	@echo "Submitted.  Watch:  condor_q ; tail -f $(EXTR_RUN)/$(PP_DAG).dagman.out"
+	@echo "Confirm seeding:  grep -l 'Extrinsic GMM SEEDED' $(EXTR_RUN)/iteration_1_ile/logs/*.out"
+	@test -n "$$LIGO_USER_NAME" || echo "  *** WARNING: LIGO_USER_NAME unset (jobs may not queue at CIT). ***"
+
 clean:
-	rm -f distance_marg.npz out_*.dat *.xml.gz lowsnr.cache snr_*.dat snr-report.txt
-	rm -rf cal_env lowsnr_mdc rundir_dag
+	rm -f distance_marg.npz out_*.dat *.xml.gz lowsnr.cache snr_*.dat snr-report.txt foo.cache ci_coinc.xml extr_calmarg_ci.ini
+	rm -rf cal_env lowsnr_mdc rundir_dag rundir_tune rundir_pp rundir_pp_run rundir_pp_pilot rundir_pp_extr rundir_pp_extr_run

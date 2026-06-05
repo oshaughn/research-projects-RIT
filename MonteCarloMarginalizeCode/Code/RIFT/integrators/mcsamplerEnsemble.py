@@ -427,7 +427,10 @@ class MCSampler(object):
         self._rvs['integrand'] = self.identity_convert(value_array)
 
         if bFairdraw and not(n_extr is None):
-           n_extr = int(self.xpy.min([n_extr,1.5*eff_samp,1.5*neff]))
+           # scalars: use Python min on floats.  self.xpy.min([list]) fails on cupy
+           # (cupy.min has no list overload -> "'list' object has no attribute 'min'"),
+           # which crashed the GMM sampler's fairdraw export on GPU.
+           n_extr = int(min(float(n_extr), 1.5*float(eff_samp), 1.5*float(neff)))
            print(" Fairdraw size : ", n_extr)
            if return_lnI:
                ln_wt =  integrator.cumulative_values

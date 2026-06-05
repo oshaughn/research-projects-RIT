@@ -254,6 +254,35 @@ parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Reli
 parser.add_argument("--no-mod-psi",action="store_true",help="Default is to take psi mod pi. If present, does not do this")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
+# ---- User-supplied coordinate-convert plugin (additive; the hardcoded RIFT
+#      conversion path is untouched).  When --supplementary-coordinate-code is
+#      omitted these flags are a no-op and plotting behaves byte-identically
+#      to the legacy tool.  When supplied, the plugin runs AFTER the existing
+#      per-file postprocessing -- it can only ADD columns to the record array,
+#      never override or shadow a name the RIFT path already produced.  See
+#      RIFT.misc.coordinate_plugin for the plugin contract.
+parser.add_argument("--supplementary-coordinate-code", default=None, type=str,
+                    help="Coordinate conversion plugin spec. Accepts the literal 'rift_default', "
+                         "a filesystem path to a .py file, or an importable dotted module name. "
+                         "When set, the plugin is loaded and used to materialize additional "
+                         "named columns on every loaded posterior / composite file -- columns "
+                         "already produced by the RIFT hardcoded path (extract_combination_from_LI "
+                         "etc.) are NOT overridden.")
+parser.add_argument("--supplementary-coordinate-function", default=None, type=str,
+                    help="Entry-point callable inside the plugin module. Defaults to 'convert_coordinates'.")
+parser.add_argument("--supplementary-coordinate-ini", default=None, type=str,
+                    help="Optional ini file parsed and handed to the plugin's prepare() hook.")
+parser.add_argument("--supplementary-coordinate-chart", default=None, type=str,
+                    help="Which chart (coordinate system) defined by the plugin to use. Required only "
+                         "when the plugin defines multiple charts; otherwise auto-resolved.")
+parser.add_argument("--supplementary-coordinate-input-parameter", action='append', default=None,
+                    help="Existing posterior/composite column name to feed to the plugin as input. "
+                         "Repeat for each input column. If omitted, the plugin's CHARTS[chart] "
+                         "input_parameters / INPUT_PARAMETERS attribute is used.")
+parser.add_argument("--supplementary-coordinate-output-parameter", action='append', default=None,
+                    help="Name of a column the plugin should produce and add to the record arrays. "
+                         "Repeat for each output column. If omitted, the plugin's CHARTS[chart] "
+                         "parameters / OUTPUT_PARAMETERS attribute is used.")
 parser.add_argument("--verbose",action='store_true',help='print matplotlibrc data')
 opts=  parser.parse_args()
 
@@ -304,7 +333,131 @@ for indx in np.arange(len(dlist_ranges)):
     downselect_dict[dlist[indx]] = dlist_ranges[indx]
 if opts.downselect_parameter:
     print("Parameter downselect " , downselect_dict)
-    
+
+
+# ---------------------------------------------------------------------------
+# Optional coordinate-convert plugin.
+#
+# Loaded ONCE up front; the converter and the input/output name lists are
+# captured as module-level closures so the per-file materialize step below
+# is cheap.  Skipped entirely when --supplementary-coordinate-code is unset,
+# so the legacy invocation is byte-identical to the pre-plugin tool.
+#
+# Design note (don't break the hardcoded RIFT path): the plugin only ever
+# ADDS columns to a record array.  The `_materialize_plugin_columns`
+# helper skips any output name that already exists in samples.dtype.names,
+# so the converter cannot shadow a parameter produced by
+# `extract_combination_from_LI` or by the file-load hot loop's
+# `add_field`-based postprocessing.  The standard `samples[param] ... else
+# extract_combination_from_LI(...)` fallback at the plot-data extraction
+# sites just transparently finds the new columns when the user asks for
+# them.
+# ---------------------------------------------------------------------------
+_coord_plugin_converter = None
+_coord_plugin_in_names = []
+_coord_plugin_out_names = []
+if opts.supplementary_coordinate_code:
+    from RIFT.misc.coordinate_plugin import load_coordinate_converter
+
+    # Reuse the same loader util_ConstructEOSPosterior.py uses, so the
+    # plugin contract (CHARTS / prepare / register_priors / etc.) is
+    # exercised consistently across the codebase.  prior_map/prior_range_map
+    # are unused here (plotting doesn't sample anything) -- pass None so the
+    # loader doesn't try to install priors we'd ignore.
+    _coord_plugin_converter, _coord_plugin_module = load_coordinate_converter(
+        spec=opts.supplementary_coordinate_code,
+        function_name=opts.supplementary_coordinate_function,
+        ini_path=opts.supplementary_coordinate_ini,
+        coord_names=opts.supplementary_coordinate_output_parameter,
+        low_level_coord_names=opts.supplementary_coordinate_input_parameter,
+        chart=opts.supplementary_coordinate_chart,
+        opts=opts,
+        prior_map=None,
+        prior_range_map=None,
+    )
+
+    # Resolve the input/output name lists.  Priority: explicit CLI override
+    # > selected chart's declared names > module-level INPUT/OUTPUT_PARAMETERS.
+    _chart_spec = (
+        getattr(_coord_plugin_module, "CHARTS", {}).get(opts.supplementary_coordinate_chart)
+        if opts.supplementary_coordinate_chart
+        else None
+    )
+    if _chart_spec is None:
+        _charts = getattr(_coord_plugin_module, "CHARTS", None) or {}
+        if len(_charts) == 1:
+            _chart_spec = next(iter(_charts.values()))
+
+    _coord_plugin_out_names = list(
+        opts.supplementary_coordinate_output_parameter
+        or (_chart_spec.get("parameters") if _chart_spec else None)
+        or getattr(_coord_plugin_module, "OUTPUT_PARAMETERS", [])
+    )
+    _coord_plugin_in_names = list(
+        opts.supplementary_coordinate_input_parameter
+        or (_chart_spec.get("input_parameters") if _chart_spec else None)
+        or getattr(_coord_plugin_module, "INPUT_PARAMETERS", [])
+    )
+    if not _coord_plugin_out_names or not _coord_plugin_in_names:
+        raise ValueError(
+            "Coordinate plugin loaded but the input/output column names "
+            "could not be determined from CHARTS / INPUT_PARAMETERS / "
+            "OUTPUT_PARAMETERS. Pass --supplementary-coordinate-input-parameter "
+            "and --supplementary-coordinate-output-parameter explicitly."
+        )
+    print(
+        " plot_posterior_corner: coordinate plugin will materialize {} "
+        "from {} on every loaded posterior / composite file.".format(
+            _coord_plugin_out_names, _coord_plugin_in_names
+        )
+    )
+
+
+def _materialize_plugin_columns(samples, source_label=""):
+    """Return ``samples`` with the plugin's output columns spliced in.
+
+    Pure no-op when no plugin is loaded, when the plugin's required input
+    columns are missing from ``samples``, or when every output name is
+    already present (the legacy RIFT path wins by virtue of running first).
+    """
+    if _coord_plugin_converter is None:
+        return samples
+    missing_in = [n for n in _coord_plugin_in_names if n not in samples.dtype.names]
+    if missing_in:
+        print(
+            "  coordinate plugin: input column(s) {!r} missing from {!r}; "
+            "skipping conversion for this file.".format(missing_in, source_label or "samples")
+        )
+        return samples
+    # Names already in samples are NOT overridden -- the RIFT hardcoded path
+    # (and any per-file postprocessing) wins.  This is the only line that
+    # protects the legacy code path from a misconfigured plugin.
+    new_names = [n for n in _coord_plugin_out_names if n not in samples.dtype.names]
+    if not new_names:
+        return samples
+    x_in = np.column_stack(
+        [np.asarray(samples[n], dtype=float) for n in _coord_plugin_in_names]
+    )
+    y = _coord_plugin_converter(
+        x_in,
+        coord_names=_coord_plugin_out_names,
+        low_level_coord_names=_coord_plugin_in_names,
+    )
+    y = np.asarray(y, dtype=float)
+    if y.shape != (len(samples), len(_coord_plugin_out_names)):
+        raise ValueError(
+            "coordinate plugin returned shape {!r}, expected {!r}".format(
+                y.shape, (len(samples), len(_coord_plugin_out_names))
+            )
+        )
+    out = samples
+    for name in new_names:
+        col_indx = _coord_plugin_out_names.index(name)
+        out = add_field(out, [(name, float)])
+        out[name] = y[:, col_indx]
+    return out
+
+
 truth_P_list = None
 P_ref = None
 truth_dat = None
@@ -480,6 +633,11 @@ if opts.posterior_file:
             print("   {} : {} ", param, np.sum(indx_ok))
         samples = samples[indx_ok]
         
+
+    # Splice in any user-supplied coordinate-plugin output columns
+    # AFTER the legacy RIFT postprocessing has finished, never before.
+    # No-op when --supplementary-coordinate-code is unset.
+    samples = _materialize_plugin_columns(samples, source_label=fname)
 
     # Save samples
     posterior_list.append(samples)
@@ -657,6 +815,11 @@ if opts.composite_file:
             indx_ok = np.logical_and(indx_ok, np.logical_and(samples[param] > downselect_dict[param][0], samples[param]<=downselect_dict[param][1]))
         samples = samples[indx_ok]
 
+
+    # Same plugin hook as the posterior loop above: only ADDS columns,
+    # never overrides what the composite-file postprocessing produced.
+    samples      = _materialize_plugin_columns(samples,      source_label=fname)
+    samples_orig = _materialize_plugin_columns(samples_orig, source_label=fname + " (pre-lnL-cut)")
 
     composite_list.append(samples)
     composite_full_list.append(samples_orig)

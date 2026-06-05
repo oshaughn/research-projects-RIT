@@ -91,10 +91,12 @@ def main(argv=None):
     # --- 2. ILE dump (cheap: skips the extrinsic sampler) ---------------------------
     with open(opts.ile_args_file) as f:
         ile_args = f.read().strip()
-    # args_ile.txt convention: first token is the exe; the rest are args
+    # args_ile.txt convention: the first token is a placeholder ('X', stripped by
+    # create_event_parameter_pipeline) -- or, in some hand-written files, the exe path.
+    # Drop it either way; otherwise it is passed to ILE as a stray positional arg.
     toks = shlex.split(ile_args)
     ile_exe = opts.ile_exe or _which("integrate_likelihood_extrinsic_batchmode")
-    if toks and (toks[0].endswith("integrate_likelihood_extrinsic_batchmode") or toks[0].startswith("integrate")):
+    if toks and (toks[0] == "X" or "integrate_likelihood" in toks[0]):
         rest = " ".join(toks[1:])
     else:
         rest = ile_args

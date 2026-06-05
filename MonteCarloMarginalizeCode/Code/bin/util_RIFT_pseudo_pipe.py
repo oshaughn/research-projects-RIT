@@ -167,6 +167,9 @@ parser.add_argument("--calmarg-pilot-top-fraction",default=0.05,type=float,help=
 parser.add_argument("--calmarg-pilot-max-points",default=32,type=int,help="Cap on harvested pilot points per iteration. Default 32.")
 parser.add_argument("--calmarg-first-cip-sigma-cut",default=100.0,type=float,help="With --calmarg-pilot: relax the first CIP stage's --sigma-cut to this value, so cold-start (prior-cal) iteration-0 points -- which have large MC error -- are not all stripped by CIP's default 0.6.  Threaded to helper_LDG_Events.py. Default 100 (effectively keep all cold-start points).")
 parser.add_argument("--calmarg-burn-in-neff",default=None,type=float,help="In-loop calmarg: burn the extrinsic sampler in on the cheap zero-cal likelihood to this n_eff before the full cal-marginalized integration (warm start; the extrinsic posterior is ~cal-independent). Threaded to ILE as --calibration-burn-in-neff.")
+parser.add_argument("--calmarg-export-posterior",action='store_true',help="In-loop calmarg: at the final fairdraw export, also write the RECOVERED calibration posterior -- for each fair-draw sample, draw one cal realization in proportion to its posterior weight and write a self-contained sibling <output>_<event>_cal.dat with the full draw (intrinsic + extrinsic + cal_<IFO>_amp_<k>/cal_<IFO>_phase_<k> node columns). Threaded to ILE as --calibration-export-posterior (fires only at the extrinsic/fairdraw stage).")
+parser.add_argument("--extrinsic-handoff",action='store_true',help="Extrinsic handoff (GMM sampler only): each iteration's wide ILE jobs write a per-event extrinsic GMM proposal (--extrinsic-proposal-output) of their extrinsic posterior; a per-iteration consolidation picks the most representative one and SEEDS the next iteration's wide ILE jobs via --extrinsic-proposal-breadcrumb, so the extrinsic sampler starts on the answer instead of cold.  Requires --ile-sampler-method GMM.  See RIFT/calmarg/DESIGN_extrinsic_handoff.md.")
+parser.add_argument("--extrinsic-handoff-select",default="lnL",help="Metric the extrinsic consolidation ranks per-event proposals by (lnL|neff|n_samples). Default lnL (most peak-representative).")
 parser.add_argument("--distance-reweighting",action='store_true',help="Option to add job to DAG to reweight posterior samples due to different distance prior (LVK prod prior)")
 parser.add_argument("--extra-args-helper",action=None, help="Filename with arguments for the helper. Use to provide alternative channel names and other advanced configuration (--channel-name, data type)!")
 parser.add_argument("--manual-postfix",default='',type=str)
@@ -1043,16 +1046,80 @@ if opts.internal_ile_srate_time_resampling:
 # additionally requires GPU and falls back to the loop method otherwise.
 if opts.calmarg_envelope_directory:
     cal_dir = os.path.abspath(opts.calmarg_envelope_directory)
-    line += " --calibration-envelope-directory {} --calibration-n-realizations {} --calibration-spline-count {} ".format(cal_dir, opts.calmarg_n_realizations, opts.calmarg_spline_count)
+    cal_dir_arg = cal_dir
+    if opts.use_osg_file_transfer:
+        # OSG file transfer: the worker has no shared filesystem, so an absolute
+        # --calibration-envelope-directory path is unreachable.  The per-IFO <IFO>.txt
+        # envelope files are transferred FLAT into the job scratch dir, so reference them
+        # relative to '.', and auto-append them to the ILE transfer list (the user should
+        # not have to remember --ile-additional-files-to-transfer for these).
+        cal_dir_arg = '.'
+        _cal_files = ",".join("{}/{}.txt".format(cal_dir, ifo) for ifo in event_dict["IFOs"])
+        opts.ile_additional_files_to_transfer = (opts.ile_additional_files_to_transfer + "," + _cal_files) if opts.ile_additional_files_to_transfer else _cal_files
+    line += " --calibration-envelope-directory {} --calibration-n-realizations {} --calibration-spline-count {} ".format(cal_dir_arg, opts.calmarg_n_realizations, opts.calmarg_spline_count)
     if opts.calmarg_fused_kernel:
         line += " --calibration-fused-kernel "
     if opts.calmarg_burn_in_neff:
         line += " --calibration-burn-in-neff {} ".format(opts.calmarg_burn_in_neff)
+    if opts.calmarg_export_posterior:
+        # recovered cal posterior columns; harmless on the wide stage (only fires at the
+        # fairdraw/extrinsic stage, which has --save-samples + --resample-time-marginalization).
+        line += " --calibration-export-posterior "
     if opts.calmarg_pilot:
         # Option C: wide ILE jobs are SEEDED from the previous iteration's consolidated cal
         # proposal.  The $(macroiterationprev) condor macro resolves per node; ILE falls
-        # back to the broad prior when the file is absent (the first iterations).
-        line += " --calibration-proposal-breadcrumb {}/cal_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
+        # back to the broad prior when the file is absent/invalid (the first iterations).
+        if opts.use_osg_file_transfer:
+            # OSG: no shared FS -> reference the breadcrumb by BASENAME (it is transferred
+            # in from the submit node, produced at runtime by calpilot_{N-1}), and add it to
+            # the ILE transfer list.  Also create a placeholder cal_consolidated_-1.npz so
+            # condor's transfer for the FIRST iteration (prev=-1, never produced) does not
+            # fail.  Write a VALID 'prior' breadcrumb (proposal == prior -> seeding from it ==
+            # cold prior draws, zero weights) rather than a 0-byte file: that way iteration 0
+            # LOADS cleanly even on an older ILE binary that does not guard against an empty
+            # placeholder (belt-and-suspenders; the size-guard in the ILE is the other half).
+            line += " --calibration-proposal-breadcrumb cal_consolidated_$(macroiterationprev).npz "
+            _bc_xfer = os.getcwd() + "/cal_consolidated_$(macroiterationprev).npz"
+            opts.ile_additional_files_to_transfer = (opts.ile_additional_files_to_transfer + "," + _bc_xfer) if opts.ile_additional_files_to_transfer else _bc_xfer
+            _cal_ph_path = os.getcwd() + "/cal_consolidated_-1.npz"
+            try:
+                import RIFT.calmarg.generate_realizations as _genr_ph, RIFT.calmarg.breadcrumbs as _bcr_ph
+                _cal_ph = _genr_ph.prior_cal_breadcrumb_dict(cal_dir, list(event_dict["IFOs"]),
+                              fmin_template, srate/2. - 1., opts.calmarg_spline_count)
+                _bcr_ph.save(_cal_ph_path, cal=_cal_ph, meta=dict(placeholder=True, iteration=-1))
+            except Exception as _e_calph:
+                print("  WARNING: could not build prior cal placeholder ({}); writing 0-byte placeholder (needs the ILE empty-breadcrumb guard).".format(_e_calph))
+                open(_cal_ph_path, "a").close()
+        else:
+            line += " --calibration-proposal-breadcrumb {}/cal_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
+
+# Extrinsic handoff (independent of calmarg).  Each wide ILE job WRITES its run's extrinsic
+# GMM proposal, and is SEEDED from the previous iteration's consolidated proposal.  Only the
+# GMM sampler builds the seedable gmm_dict, so warn if a different sampler is selected.
+if opts.extrinsic_handoff:
+    if opts.ile_sampler_method != 'GMM':
+        print("  WARNING: --extrinsic-handoff seeds the ensemble (GMM) sampler's gmm_dict, but --ile-sampler-method is {}; the seed is a no-op for that sampler.  Pass --ile-sampler-method GMM.".format(opts.ile_sampler_method))
+    # output: per-event proposal breadcrumb (basename; written relative to the ILE initialdir
+    # on a shared FS, or to job scratch + transferred back on OSG).  $(macroevent) is the
+    # per-node event macro, so each wide ILE job gets a distinct file.
+    line += " --extrinsic-proposal-output extr_proposal_$(macroiteration)_$(macroevent).npz "
+    # seed: from iteration N-1's consolidated proposal.  Mirror the cal breadcrumb path
+    # (OSG basename + transfer + iteration-0 placeholder vs shared-FS absolute path).
+    if opts.use_osg_file_transfer:
+        line += " --extrinsic-proposal-breadcrumb extr_consolidated_$(macroiterationprev).npz "
+        _ext_bc_xfer = os.getcwd() + "/extr_consolidated_$(macroiterationprev).npz"
+        opts.ile_additional_files_to_transfer = (opts.ile_additional_files_to_transfer + "," + _ext_bc_xfer) if opts.ile_additional_files_to_transfer else _ext_bc_xfer
+        # valid EMPTY breadcrumb placeholder (loads cleanly -> extrinsic=None -> no seed/cold),
+        # rather than a 0-byte file that np.load chokes on.
+        _ext_ph_path = os.getcwd() + "/extr_consolidated_-1.npz"
+        try:
+            import RIFT.calmarg.breadcrumbs as _bcr_ph
+            _bcr_ph.save(_ext_ph_path, meta=dict(placeholder=True, iteration=-1))
+        except Exception:
+            open(_ext_ph_path, "a").close()
+    else:
+        line += " --extrinsic-proposal-breadcrumb {}/extr_consolidated_$(macroiterationprev).npz ".format(os.getcwd())
+
 with open('args_ile.txt','w') as f:
         f.write(line)
 
@@ -1496,6 +1563,8 @@ if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
 if opts.calmarg_pilot:
     cmd += " --calmarg-pilot --calmarg-pilot-cadence {} --calmarg-pilot-max-it {} --calmarg-pilot-top-fraction {} --calmarg-pilot-max-points {} ".format(
         opts.calmarg_pilot_cadence, opts.calmarg_pilot_max_it, opts.calmarg_pilot_top_fraction, opts.calmarg_pilot_max_points)
+if opts.extrinsic_handoff:
+    cmd += " --extrinsic-handoff --extrinsic-handoff-select {} ".format(opts.extrinsic_handoff_select)
 if opts.assume_eccentric:
     cmd += " --use-eccentricity "
     if opts.sample_eccentricity_squared:
