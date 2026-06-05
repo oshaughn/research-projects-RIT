@@ -377,13 +377,18 @@ def _logsumexp_grid_blocked(K, R, a, b, log_w, block):
 # φ_ref grid-sum marginalisation
 # ─────────────────────────────────────────────────────────────────────────────
 
-def phi_ref_grid(nphi: int) -> jnp.ndarray:
+def phi_ref_grid(nphi: int) -> np.ndarray:
     """Uniform grid of φ_ref values over [0, 2π), shape (nphi,).
+
+    Returns a **numpy** array (not JAX) so that Python ``for`` loops over it
+    inside ``jax.jit``-compiled functions produce concrete scalars rather than
+    abstract tracers.  Pass directly to the ``fused_log_likelihood_*phimarg``
+    functions; they handle conversion internally.
 
     32 points is exact and fast for l_max = 2 (m_max = 2 needs ≥ 4);
     use 64–128 for l_max ≥ 4 or production quality.  cogwheel uses 128.
     """
-    return jnp.linspace(0.0, 2.0 * jnp.pi, nphi, endpoint=False)
+    return np.linspace(0.0, 2.0 * np.pi, nphi, endpoint=False)
 
 
 def fused_log_likelihood_phimarg(data, ra, dec, psi, incl, distMpc,
@@ -402,15 +407,18 @@ def fused_log_likelihood_phimarg(data, ra, dec, psi, incl, distMpc,
     distMpc = jnp.asarray(distMpc, dtype=jnp.float64)
     invDist = data.distMpcRef / distMpc
     S = ra.shape[0]
-    nphi = phi_grid.shape[0]
+    # Ensure phi_grid is a concrete numpy array so the Python for-loop yields
+    # concrete scalars at JAX trace time (avoids ConcretizationTypeError).
+    phi_vals = np.asarray(phi_grid)
+    nphi = phi_vals.shape[0]
 
     # Running log-sum-exp over phi_grid; Python loop → unrolled at trace time.
     # Working set stays at (S, npts) per step; total: nphi × _accumulate_unit calls.
     m = jnp.full((S, data.npts), -jnp.inf, dtype=jnp.float64)
     s = jnp.zeros((S, data.npts), dtype=jnp.float64)
 
-    for phi_val in phi_grid:
-        phi_arr = jnp.full(S, float(phi_val), dtype=jnp.float64)
+    for phi_val in phi_vals:
+        phi_arr = jnp.full(S, phi_val, dtype=jnp.float64)
         kappa_unit, rho_sq_unit = _accumulate_unit(
             data, ra, dec, psi, incl, phi_arr, interp, False)
         kappa = kappa_unit * invDist[:, None]
@@ -421,8 +429,8 @@ def fused_log_likelihood_phimarg(data, ra, dec, psi, incl, distMpc,
         s = s * jnp.exp(m - m_new) + jnp.exp(lnL_t - m_new)
         m = m_new
 
-    lnL_t_marg = m + jnp.log(s) - jnp.log(float(nphi))   # (S, npts)
-    return _time_marginalize(lnL_t_marg, data.w_t)          # (S,)
+    lnL_t_marg = m + jnp.log(s) - jnp.log(nphi)   # (S, npts)
+    return _time_marginalize(lnL_t_marg, data.w_t)  # (S,)
 
 
 def fused_log_likelihood_distphimarg(data, ra, dec, psi, incl,
@@ -447,7 +455,9 @@ def fused_log_likelihood_distphimarg(data, ra, dec, psi, incl,
     """
     x_grid = jnp.asarray(x_grid, dtype=jnp.float64)
     log_w_grid = jnp.asarray(log_w_grid, dtype=jnp.float64)
-    nphi = phi_grid.shape[0]
+    # Concrete numpy array so the Python for-loop yields concrete scalars.
+    phi_vals = np.asarray(phi_grid)
+    nphi = phi_vals.shape[0]
     S = ra.shape[0]
     a = x_grid                              # (G,)
     b = -0.5 * jnp.square(x_grid)          # (G,)
@@ -457,8 +467,8 @@ def fused_log_likelihood_distphimarg(data, ra, dec, psi, incl,
     m = jnp.full((S, data.npts), -jnp.inf, dtype=jnp.float64)
     s = jnp.zeros((S, data.npts), dtype=jnp.float64)
 
-    for phi_val in phi_grid:
-        phi_arr = jnp.full(S, float(phi_val), dtype=jnp.float64)
+    for phi_val in phi_vals:
+        phi_arr = jnp.full(S, phi_val, dtype=jnp.float64)
         kappa_unit, rho_sq_unit = _accumulate_unit(
             data, ra, dec, psi, incl, phi_arr, interp, False)
         K = kappa_unit.real      # (S, npts)
@@ -471,7 +481,7 @@ def fused_log_likelihood_distphimarg(data, ra, dec, psi, incl,
         s = s * jnp.exp(m - m_new) + jnp.exp(lnL_t_dist - m_new)
         m = m_new
 
-    lnL_t_marg = m + jnp.log(s) - jnp.log(float(nphi))
+    lnL_t_marg = m + jnp.log(s) - jnp.log(nphi)
     return _time_marginalize(lnL_t_marg, data.w_t)
 
 
@@ -486,10 +496,11 @@ def phi_ref_conditional_lnL(data, ra, dec, psi, incl, distMpc,
     distMpc = jnp.asarray(distMpc, dtype=jnp.float64)
     invDist = data.distMpcRef / distMpc
     S = ra.shape[0]
+    phi_vals = np.asarray(phi_grid)  # concrete for Python loop
 
     lnL_per_phi = []
-    for phi_val in phi_grid:
-        phi_arr = jnp.full(S, float(phi_val), dtype=jnp.float64)
+    for phi_val in phi_vals:
+        phi_arr = jnp.full(S, phi_val, dtype=jnp.float64)
         kappa_unit, rho_sq_unit = _accumulate_unit(
             data, ra, dec, psi, incl, phi_arr, interp, False)
         kappa = kappa_unit * invDist[:, None]
