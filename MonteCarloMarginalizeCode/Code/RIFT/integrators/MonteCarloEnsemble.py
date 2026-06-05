@@ -95,7 +95,8 @@ class integrator:
     '''
 
     def __init__(self, d, bounds, gmm_dict, n_comp, n=None, prior=None,
-                user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,return_lnI=False,gmm_adapt=None,gmm_epsilon=None,tempering_exp=1,temper_log=False,lnw_failure_cut=None):
+                user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,return_lnI=False,gmm_adapt=None,gmm_epsilon=None,tempering_exp=1,temper_log=False,lnw_failure_cut=None,
+                tempering_adapt=False, ess_target=None, ess_floor=None):
         # if 'return_lnI' is active, 'integral' holds the *logarithm* of the integral.
         # user-specified parameters
         self.d = d
@@ -152,6 +153,22 @@ class integrator:
         self.cumulative_p_s = self.xpy.empty(0)
         self.tempering_exp=tempering_exp
         self.temper_log=temper_log
+        # --- ESS-based tempering self-protection / self-tuning -------------
+        # tempering_adapt: choose the refit exponent each chunk so the
+        #   effective sample size of the refit weights hits ess_target
+        #   (the user exponent becomes a cap, not a requirement).
+        # Always on (any settings): if the user exponent would leave the
+        #   refit with ESS < ess_floor, the exponent is clamped down for that
+        #   refit only. The evidence integral never uses these weights.
+        self.tempering_adapt = tempering_adapt
+        # largest number of mixture components in any group (for the floor)
+        if isinstance(n_comp, dict):
+            _k_max = max([v for v in n_comp.values()]) if len(n_comp)>0 else 1
+        else:
+            _k_max = n_comp if n_comp else 1
+        self.ess_floor = ess_floor if ess_floor else max(10.0, 2.0*_k_max)
+        self.ess_target = ess_target if ess_target else max(50.0, 0.05*self.n)
+        self.tempering_exp_running = tempering_exp  # last exponent actually used
         if L_cutoff is None:
             self.L_cutoff = -1
         else:
@@ -191,17 +208,82 @@ class integrator:
                 self.sample_array[:,dim] = temp_samples[:,index]
                 index += 1
 
+    def _log_ess(self, log_w):
+        """log of the Kish effective sample size of log-weights log_w."""
+        return 2.*_xpy_logsumexp(log_w) - _xpy_logsumexp(2.*log_w)
+
+    def _solve_tempering_exp(self, lnL, log_pq):
+        """
+        Choose the tempering exponent beta for THIS refit from the effective
+        sample size of  beta*lnL + log_pq  (log_pq = ln p - ln p_s).
+
+        - tempering_adapt: bisect so ESS(beta) ~ self.ess_target, with
+          beta <= beta_max = max(1, tempering_exp).  As the proposal converges
+          the lnL spread across the cloud shrinks and beta rises automatically.
+        - otherwise: keep the user exponent unless ESS(user) < self.ess_floor,
+          in which case bisect down to the floor (pure safety net; cannot
+          crash the fit regardless of settings).
+        Returns (beta, log_ess_at_beta).
+        """
+        ln_floor = self.xpy.log(self.ess_floor)
+        ln_target = self.xpy.log(self.ess_target)
+        beta_user = self.tempering_exp
+        if self.tempering_adapt:
+            beta_hi = max(1.0, beta_user)
+            ln_goal = ln_target
+        else:
+            beta_hi = beta_user
+            ln_goal = ln_floor
+            if self._log_ess(beta_user*lnL + log_pq) >= ln_floor:
+                return beta_user, self._log_ess(beta_user*lnL + log_pq)
+        # ESS is (near-)monotone decreasing in beta for peaked lnL; bisect.
+        if self._log_ess(beta_hi*lnL + log_pq) >= ln_goal:
+            return beta_hi, self._log_ess(beta_hi*lnL + log_pq)
+        lo, hi = 0.0, beta_hi
+        for _ in range(40):
+            mid = 0.5*(lo+hi)
+            if self._log_ess(mid*lnL + log_pq) >= ln_goal:
+                lo = mid
+            else:
+                hi = mid
+        return lo, self._log_ess(lo*lnL + log_pq)
+
     def _train(self):
         sample_array, value_array, sampling_prior_array = self.xpy.copy(self.sample_array), self.xpy.copy(self.value_array), self.xpy.copy(self.sampling_prior_array)
         if self.use_lnL:
             lnL = value_array
         else:
             lnL = self.xpy.log(value_array+regularize_log_scale)
-        
-        log_weights = self.tempering_exp*lnL + self.xpy.log(self.prior_array) - sampling_prior_array
+
+        # drop NaN evaluations up front (a NaN poisons every logsumexp below);
+        # -inf is fine (zero weight) and is kept.
+        prior_array = self.prior_array
+        mask_ok = ~self.xpy.isnan(lnL)
+        if not bool(self.xpy.all(mask_ok)):
+            sample_array = sample_array[mask_ok]
+            lnL = lnL[mask_ok]
+            sampling_prior_array = sampling_prior_array[mask_ok]
+            prior_array = prior_array[mask_ok]
+
+        # ln p - ln p_s  (NOTE: log of the sampling prior. The legacy code
+        # subtracted the *raw* sampling_prior_array from a log-quantity.)
+        log_pq = self.xpy.log(self.xpy.maximum(prior_array, 1e-300)) \
+                 - self.xpy.log(self.xpy.maximum(sampling_prior_array, 1e-300))
+
+        # ESS-protected/self-tuned tempering exponent for this refit
+        beta, log_ess = self._solve_tempering_exp(lnL, log_pq)
+        self.tempering_exp_running = beta
+        log_weights = beta*lnL + log_pq
         if self.temper_log:
             log_weights = self.xpy.log(self.xpy.maximum(lnL,1e-5))
-            
+        else:
+            # If even beta=0 leaves too few effective samples (proposal/prior
+            # pathologies), skip this refit: keep the current proposal rather
+            # than fit garbage (breadcrumb item 2).
+            if self.xpy.exp(log_ess) < min(self.ess_floor, self.d + 2):
+                print(" GMM refit skipped: ESS {:.1f} too low even untempered ".format(float(self.xpy.exp(log_ess))))
+                return
+
         for dim_group in self.gmm_dict: # iterate over grouped dimensions
             if self.gmm_adapt:
                 if (dim_group in self.gmm_adapt):
@@ -209,8 +291,11 @@ class integrator:
                         continue
             new_bounds = self.xpy.empty((len(dim_group), 2))
             new_bounds = self.bounds[dim_group]
+            if len(new_bounds.shape) < 2:
+                # 1-d group with flat bounds (per-dim default): GMM expects (d,2)
+                new_bounds = self.xpy.array([new_bounds])
             model = self.gmm_dict[dim_group]
-            temp_samples = self.xpy.empty((self.n, len(dim_group)))
+            temp_samples = self.xpy.empty((len(sample_array), len(dim_group)))
             index = 0
             for dim in dim_group:
                 temp_samples[:,index] = sample_array[:,dim]
