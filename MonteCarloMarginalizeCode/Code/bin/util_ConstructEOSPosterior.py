@@ -256,6 +256,16 @@ if not _user_params and not _user_nofit:
 else:
     low_level_coord_names = _user_params + _user_nofit  # MC basis
 
+# The "easy case": every fit coordinate is also a sampling coordinate (the
+# user supplied only --parameter calls, in the plugin's output basis).  The
+# MC samples are then ALREADY in the fit basis, so the per-sample
+# convert_coords is a pure column selection/permutation -- the plugin is
+# needed only for (a) the one-time conversion of the input grid into the
+# fit basis and (b) the inverse transform of the output samples back to the
+# fiducial (data-file) coordinates.  When this is False (--parameter-implied
+# present), every MC sample must be routed through the plugin.
+_per_sample_needs_plugin = not all(name in low_level_coord_names for name in coord_names)
+
 error_factor = len(coord_names)
 name_index_dict ={}
 for name in dat_orig_names:
@@ -273,7 +283,7 @@ print(" Coordinate names for Monte Carlo :, ", low_level_coord_names)
 ###
 
 param_ranges = {}
-for range_code  in opts.integration_parameter_range:
+for range_code  in (opts.integration_parameter_range or []):
     name, range_str  = range_code.split(':')
     range_expr =     eval(range_str)  # define. Better to split on , for example
     param_ranges[name]  = np.array(range_expr)
@@ -294,8 +304,13 @@ def uniform_prior(x):
 prior_map = {}
 for name in low_level_coord_names:
     prior_map[name] = uniform_prior
-    if not(name in param_ranges):
-        raise Exception(" {} not provided a parameter range ".format(name))  # change later, should fall back to using prior range from above
+# NOTE: range validation (every sampled name must have an integration range)
+# is deferred until AFTER the coordinate plugin is loaded, below.  The plugin
+# can install ranges for the names it produces (CHARTS[chart]['ranges']), and
+# for the remaining names we can auto-derive ranges by forward-transforming
+# the input grid.  Validating here -- as this script used to -- made the
+# chart-declared ranges unreachable dead code and forced the user to repeat
+# every range on the command line.
 
 
 prior_range_map = param_ranges
@@ -336,6 +351,8 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
       supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=coord_names)
 
 supplemental_coordinate_convert = None
+supplemental_coordinate_inverse = None
+_coord_plugin_in_names = None
 if opts.supplementary_coordinate_code:
     # Resolve the user-supplied coordinate-convert plugin.  The loader
     # accepts three forms in --supplementary-coordinate-code: the literal
@@ -347,18 +364,59 @@ if opts.supplementary_coordinate_code:
     # optionally define prepare() (one-shot setup, gets the parsed ini and
     # the active coord-name lists) and register_priors() (mutate prior_map
     # in place).  See RIFT.misc.coordinate_plugin for the full contract.
-    from RIFT.misc.coordinate_plugin import load_coordinate_converter
+    from RIFT.misc.coordinate_plugin import load_coordinate_converter, resolve_input_parameters
+    # Tell the loader (and the plugin's prepare hook) which basis the plugin
+    # will actually be fed as input.  In the easy case the per-sample path
+    # bypasses the plugin entirely, so the only inputs it ever sees are the
+    # data file's columns; declaring low_level_coord_names (= the plugin's
+    # OUTPUT basis in that case) would make a strict plugin reject its own
+    # documented usage.
+    _plugin_fed_input_names = low_level_coord_names if _per_sample_needs_plugin else dat_orig_names
     supplemental_coordinate_convert, _coord_plugin_module = load_coordinate_converter(
         spec=opts.supplementary_coordinate_code,
         function_name=opts.supplementary_coordinate_function,
         ini_path=opts.supplementary_coordinate_ini,
         coord_names=coord_names,
-        low_level_coord_names=low_level_coord_names,
+        low_level_coord_names=_plugin_fed_input_names,
         chart=opts.supplementary_coordinate_chart,
         opts=opts,
         prior_map=prior_map,
         prior_range_map=prior_range_map,
     )
+    # Optional inverse (plugin basis -> file basis), same hook the puff lane
+    # (util_HyperparameterPuffball.py) uses.  Needed to write the final
+    # posterior samples in fiducial coordinates when the sampling basis is
+    # not a subset of the data file's columns.
+    supplemental_coordinate_inverse = getattr(_coord_plugin_module, "inverse_convert_coordinates", None)
+    _coord_plugin_in_names = resolve_input_parameters(
+        _coord_plugin_module, chart=opts.supplementary_coordinate_chart
+    ) or list(dat_orig_names)
+
+# Auto-derive integration ranges for sampled names that are still missing one:
+# forward-transform the input grid into the sampling basis and use the
+# column-wise min/max.  Explicit --integration-parameter-range and
+# chart-declared ranges (installed by the loader above) always win; this is
+# only a fallback so the easy case needs no per-name range flags at all.
+if supplemental_coordinate_convert is not None:
+    _names_missing_range = [p for p in low_level_coord_names if p not in param_ranges]
+    if _names_missing_range:
+        try:
+            _dat_sampling_basis = supplemental_coordinate_convert(
+                dat[:, 2:],
+                coord_names=_names_missing_range,
+                low_level_coord_names=dat_orig_names,
+            )
+            for _k, _name in enumerate(_names_missing_range):
+                _vals = np.asarray(_dat_sampling_basis)[:, _k]
+                param_ranges[_name] = [np.min(_vals), np.max(_vals)]
+                print(" Integration range for {} auto-derived from transformed input grid : {} ".format(_name, param_ranges[_name]))
+        except Exception as _err:
+            print(" Could not auto-derive integration ranges for {} via the coordinate plugin ({}); supply --integration-parameter-range ".format(_names_missing_range, _err))
+
+# Deferred range validation (see note at the prior_map seeding above).
+for name in low_level_coord_names:
+    if not (name in param_ranges):
+        raise Exception(" {} not provided a parameter range ".format(name))
 
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel as C
@@ -563,10 +621,21 @@ else:
     Y_err = dat[:,1]
     if np.max(Y)<0 and lnL_shift ==0:
         lnL_shift  = -100 - np.max(Y)   # force it to be offset/positive -- may help some configurations. Remember our adaptivity is silly.
-    def convert_coords(x_in, _low=low_level_coord_names, _coord=coord_names):
-        # _low / _coord captured as defaults so the closure stays correct
-        # even if either list mutates later in the script.
-        return supplemental_coordinate_convert(x_in, coord_names=_coord, low_level_coord_names=_low)
+    if not _per_sample_needs_plugin:
+        # Easy case: the sampling basis contains every fit coordinate, so a
+        # Monte Carlo sample is already in the fit basis (up to column
+        # selection/order).  Do NOT route per-sample batches through the
+        # plugin -- its forward map expects file-basis inputs
+        # (INPUT_PARAMETERS), not its own outputs, and would either raise
+        # or, worse, silently apply the transform a second time.
+        _fit_col_of_sample = np.array([ low_level_coord_names.index(name) for name in coord_names ])
+        def convert_coords(x_in, _idx=_fit_col_of_sample):
+            return np.asarray(x_in)[:, _idx]
+    else:
+        def convert_coords(x_in, _low=low_level_coord_names, _coord=coord_names):
+            # _low / _coord captured as defaults so the closure stays correct
+            # even if either list mutates later in the script.
+            return supplemental_coordinate_convert(x_in, coord_names=_coord, low_level_coord_names=_low)
 # Save copies for later (plots)
 X_orig = X.copy()
 Y_orig = Y.copy()
@@ -937,61 +1006,60 @@ indx_list = np.random.choice(np.arange(len(weights)), p=p_norm.astype(np.float64
 
 dat_out = np.zeros( (opts.n_output_samples,2+len(dat_orig_names)) )
 
-# Initialize fixed parameters.
+# The output file is ALWAYS in the fiducial coordinates dat_orig_names (the
+# data file's own basis), regardless of what basis we fit or sampled in.
+# Each output column is one of three kinds:
 #
-# Output columns are dat_orig_names (the file's basis).  For any name in
-# dat_orig_names that is NOT in the sampling basis, we fill the output
-# column with the original grid's value -- it's a "constant" placeholder
-# for that column.
-#
-# Pre-decoupling this test was against coord_names (the fit basis), which
-# was the same list as low_level_coord_names whenever the fit basis equaled
-# the sampling basis -- the only case the code supported.  Now that
-# coord_names and low_level_coord_names can differ, the right question
-# for the output writer is "did we MC-sample this column?", not "did we
-# fit on it?".  Implied (fit-only) coords like R1.4 should NOT appear in
-# the output file (they aren't grid columns and dat_orig_names doesn't
-# carry them).
-if len(low_level_coord_names) < len(dat_orig_names):  # not needed if every grid column is sampled
+#   (1) directly sampled    : its name is in low_level_coord_names -- write
+#       the weighted posterior draws for it.
+#   (2) transform-covered   : the MC sampled in the plugin's output basis
+#       (names NOT in dat_orig_names); apply the plugin's
+#       inverse_convert_coordinates to the drawn samples to recover the
+#       fiducial columns the transform spans.
+#   (3) non-sampled extras  : global constants, derived quantities, nuisance
+#       parameters carried in the data file -- fill from input-grid rows
+#       selected AT RANDOM (row-coherently, so derived quantities stay
+#       consistent across columns within one output row).
+_sampled_file_cols   = [name for name in low_level_coord_names if name in name_index_dict]
+_sampled_plugin_cols = [name for name in low_level_coord_names if name not in name_index_dict]
+_covered_cols = set(_sampled_file_cols)
 
-    if len(dat) < opts.n_output_samples:
-        print(" NOTE: original data shorter than  requested output; adding",opts.n_output_samples-len(dat),"duplicate fill lines from original data.")
-        newlines = None
-        if opts.n_output_samples > 2*len(dat):
-            newlines = dat[:]
-            newlen = len(newlines)
-            while newlen < opts.n_output_samples:
-                newerlines = dat[:opts.n_output_samples-newlen] #will only get up to len(dat) lines
-                newlines = np.concatenate((newlines,newerlines), axis=0)
-                newlen = len(newlines)
-        else:
-            newlines = dat[:opts.n_output_samples-len(dat)] #duplicate lines to fill
-        dat = np.concatenate((dat,newlines), axis=0) #should be fine since dat isn't used after this
+# (1) directly sampled columns
+for name in _sampled_file_cols:
+    dat_out[:, name_index_dict[name]] = samples[name][indx_list]
 
-    for c in np.arange(len(dat_orig_names)):
-        if dat_orig_names[c] not in low_level_coord_names:
-            print("  Not sampled:", dat_orig_names[c], "; adding to output as constant from initial grid.")
-            outidx = name_index_dict[dat_orig_names[c]]   # write in correct place
-            if len(dat) > opts.n_output_samples:
-                dat_out[:,outidx] = dat[:opts.n_output_samples,outidx] #truncate original data to fit (not ideal)
-            else: #len(dat) <= n_output_samples (if dat was <, should now be =)
-                dat_out[:,outidx] = dat[:,outidx]
+# (2) inverse-transform plugin-basis draws back to fiducial coordinates
+if _sampled_plugin_cols:
+    if supplemental_coordinate_inverse is None:
+        print(" WARNING: sampled coordinate(s) {!r} are not data-file columns and the "
+              "coordinate plugin does not define inverse_convert_coordinates; their "
+              "posterior information CANNOT be written to the fiducial-coordinate "
+              "output file.  Add an inverse to the plugin.".format(_sampled_plugin_cols))
+    else:
+        _S_plugin = np.column_stack([ samples[name][indx_list] for name in _sampled_plugin_cols ])
+        _X_fiducial = np.asarray(
+            supplemental_coordinate_inverse(
+                _S_plugin,
+                coord_names=_sampled_plugin_cols,
+                low_level_coord_names=_coord_plugin_in_names,
+            ), dtype=float)
+        for _j, name in enumerate(_coord_plugin_in_names):
+            if name in name_index_dict and name not in _covered_cols:
+                dat_out[:, name_index_dict[name]] = _X_fiducial[:, _j]
+                _covered_cols.add(name)
 
-# Fill data from PE.
-#
-# samples[k] keys are the SAMPLING basis (low_level_coord_names).  We can
-# only write a column to the output file when (a) we sampled it, and (b)
-# its name is one of dat_orig_names (i.e. it has a column slot in the
-# output schema).  Skip sampled names that aren't in dat_orig_names with
-# a warning -- they'd correspond to a --parameter-nofit name that isn't
-# a data-file column, which is rare but valid and would only show up via
-# the corner plot, not the output file.
-for name in low_level_coord_names:
-    if name not in name_index_dict:
-        print("  Sampled coord {!r} is not a data-file column; not writing to output (would only appear in corner plots).".format(name))
-        continue
-    outindx = name_index_dict[name]
-    dat_out[:, outindx] = samples[name][indx_list]
+# (3) non-sampled extra columns: random input-grid rows (matches the
+# rift_O4d capability; random selection rather than truncation avoids the
+# bias of taking the first n_output_samples rows of a structured grid, and
+# replaces the old duplicate-fill bookkeeping when len(dat) is short).
+_extra_cols = [name for name in dat_orig_names if name not in _covered_cols]
+if _extra_cols:
+    print("  Not sampled:", _extra_cols, "; filling output from input-grid rows selected at random.")
+    _idx_fill = np.random.choice(np.arange(len(dat)), size=opts.n_output_samples,
+                                 replace=(len(dat) < opts.n_output_samples))
+    for name in _extra_cols:
+        outidx = name_index_dict[name]
+        dat_out[:, outidx] = dat[_idx_fill, outidx]
 
 # NOTE: if m1 or m2 is "constant" (i.e., not in samples), the possibility for m2 > m1 arises! Re-sort masses here to avoid; use below code.
 #if ("m1" not in coord_names) or ("m2" not in coord_names):

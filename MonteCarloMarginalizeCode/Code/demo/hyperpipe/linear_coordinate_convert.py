@@ -155,12 +155,18 @@ def prepare(config=None, coord_names=None, low_level_coord_names=None,
     # whole point of having a ``prepare`` hook -- catch misconfiguration
     # before we start fitting.
     if low_level_coord_names is not None:
-        missing_in = [p for p in low_level_coord_names if p not in INPUT_PARAMETERS]
+        # Direction matters: the plugin needs every one of ITS declared
+        # inputs to be available among the driver's columns.  The driver
+        # providing EXTRA columns (non-sampled nuisance parameters, global
+        # constants, derived quantities carried in the data file) is normal
+        # and harmless -- convert_coordinates ignores them via the in_perm
+        # column selection.
+        missing_in = [p for p in INPUT_PARAMETERS if p not in low_level_coord_names]
         if missing_in:
             raise ValueError(
-                "linear_coordinate_convert: driver requested low-level coords "
-                f"{missing_in!r} not declared in ini's input_parameters "
-                f"{INPUT_PARAMETERS!r}"
+                "linear_coordinate_convert: ini's input_parameters "
+                f"{missing_in!r} not available among the driver's columns "
+                f"{list(low_level_coord_names)!r}"
             )
     if coord_names is not None:
         missing_out = [p for p in coord_names if p not in OUTPUT_PARAMETERS]

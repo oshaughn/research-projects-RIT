@@ -108,6 +108,20 @@ Optional module-level attributes & hooks (all introspected by the loader):
       ``register_priors``; the hook is kept for plugins that want full
       programmatic control.
 
+  ``inverse_convert_coordinates(y_in, coord_names, low_level_coord_names,
+                                 chart=None, **kwargs)``
+      Optional but STRONGLY recommended for invertible transforms.  Maps
+      plugin-basis points back to the file basis: ``y_in`` has columns
+      named by ``coord_names`` (plugin-basis names) and the return value
+      has columns named by ``low_level_coord_names`` (file-basis names),
+      shape ``(N, len(low_level_coord_names))``.  Consumed by
+      ``util_HyperparameterPuffball.py`` / ``util_HyperparameterTracerUpdate.py``
+      (round-tripping the puff displacement) and by
+      ``util_ConstructEOSPosterior.py`` (writing the final posterior
+      samples in fiducial coordinates when the MC sampled in the plugin
+      basis).  Without it the EOS-posterior driver cannot express
+      plugin-basis samples in the output file, and warns.
+
   ``jacobian(x_in, coord_names, low_level_coord_names, chart=None, **kwargs)``
       Optional.  Returns per-row ``log|det J|`` for change-of-variables
       corrections.  Not consumed by the prototype loader -- documented here
@@ -429,13 +443,21 @@ def load_coordinate_converter(
     # Declarative sanity checks (warnings only).  Run *after* prepare so
     # plugins that populate INPUT_PARAMETERS / OUTPUT_PARAMETERS from their
     # ini file inside prepare() get a fair shake.
-    _warn_unknown_names(
-        declared_inputs,
-        low_level_coord_names,
-        "inputs",
-        "INPUT_PARAMETERS",
-        plugin_name,
-    )
+    #
+    # Direction matters and differs between inputs and outputs.  For
+    # INPUTS the failure mode is the plugin needing a column the driver
+    # cannot feed it -- extra available columns (e.g. non-sampled nuisance
+    # parameters carried in the data file) are harmless and must NOT warn.
+    if declared_inputs and low_level_coord_names:
+        _missing_inputs = [n for n in declared_inputs if n not in low_level_coord_names]
+        if _missing_inputs:
+            warnings.warn(
+                f"coordinate plugin {plugin_name!r}: declares input(s) "
+                f"{_missing_inputs!r} that the driver does not provide "
+                f"(available: {list(low_level_coord_names)!r})",
+                RuntimeWarning,
+                stacklevel=2,
+            )
     _warn_unknown_names(
         declared_outputs,
         coord_names,
@@ -481,3 +503,37 @@ def load_coordinate_converter(
         )
 
     return _wrapper, module
+
+
+def resolve_input_parameters(module, chart=None, cli_override=None):
+    """Return the FILE-basis column names the plugin maps from/to.
+
+    These are the names of the columns ``convert_coordinates`` consumes and
+    ``inverse_convert_coordinates`` produces.  Resolution priority:
+
+      1. ``cli_override`` (e.g. --supplementary-coordinate-input-parameter);
+      2. ``CHARTS[chart]['input_parameters']`` for the resolved chart (when
+         ``chart`` is None and the plugin has exactly one chart, that chart
+         is used);
+      3. the module-level ``INPUT_PARAMETERS`` attribute (often populated by
+         ``prepare()`` from the plugin's ini file).
+
+    Returns a list (possibly empty when the plugin declares nothing).  This
+    consolidates the resolution logic previously inlined in
+    ``util_HyperparameterPuffball.py`` so every driver resolves the same way.
+    """
+    if cli_override:
+        return list(cli_override)
+    charts = getattr(module, "CHARTS", None) or {}
+    chart_spec = None
+    if chart:
+        chart_spec = charts.get(chart)
+    elif len(charts) == 1:
+        chart_spec = next(iter(charts.values()))
+    elif charts:
+        default = getattr(module, "DEFAULT_CHART", None)
+        if default:
+            chart_spec = charts.get(default)
+    if chart_spec and chart_spec.get("input_parameters"):
+        return list(chart_spec["input_parameters"])
+    return list(getattr(module, "INPUT_PARAMETERS", []) or [])
