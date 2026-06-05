@@ -407,30 +407,29 @@ def fused_log_likelihood_phimarg(data, ra, dec, psi, incl, distMpc,
     distMpc = jnp.asarray(distMpc, dtype=jnp.float64)
     invDist = data.distMpcRef / distMpc
     S = ra.shape[0]
-    # Ensure phi_grid is a concrete numpy array so the Python for-loop yields
-    # concrete scalars at JAX trace time (avoids ConcretizationTypeError).
-    phi_vals = np.asarray(phi_grid)
-    nphi = phi_vals.shape[0]
+    # lax.scan traces the body ONCE regardless of nphi, so only one copy of
+    # _accumulate_unit lives in the XLA graph.  Memory is O(body), not O(nphi×body).
+    phi_grid_jax = jnp.asarray(phi_grid, dtype=jnp.float64)   # scan sequence
+    nphi = phi_grid_jax.shape[0]
 
-    # Running log-sum-exp over phi_grid; Python loop → unrolled at trace time.
-    # Working set stays at (S, npts) per step; total: nphi × _accumulate_unit calls.
-    m = jnp.full((S, data.npts), -jnp.inf, dtype=jnp.float64)
-    s = jnp.zeros((S, data.npts), dtype=jnp.float64)
-
-    for phi_val in phi_vals:
-        phi_arr = jnp.full(S, phi_val, dtype=jnp.float64)
+    def _phi_step(carry, phi_val):
+        m, s = carry
+        phi_arr = jnp.broadcast_to(phi_val, (S,)).astype(jnp.float64)
         kappa_unit, rho_sq_unit = _accumulate_unit(
             data, ra, dec, psi, incl, phi_arr, interp, False)
         kappa = kappa_unit * invDist[:, None]
         rho_sq = rho_sq_unit * jnp.square(invDist)[:, None]
-        lnL_t = kappa.real - 0.5 * rho_sq           # (S, npts)
-
+        lnL_t = kappa.real - 0.5 * rho_sq                      # (S, npts)
         m_new = jnp.maximum(m, lnL_t)
-        s = s * jnp.exp(m - m_new) + jnp.exp(lnL_t - m_new)
-        m = m_new
+        s_new = s * jnp.exp(m - m_new) + jnp.exp(lnL_t - m_new)
+        return (m_new, s_new), None
 
-    lnL_t_marg = m + jnp.log(s) - jnp.log(nphi)   # (S, npts)
-    return _time_marginalize(lnL_t_marg, data.w_t)  # (S,)
+    m0 = jnp.full((S, data.npts), -jnp.inf, dtype=jnp.float64)
+    s0 = jnp.zeros((S, data.npts), dtype=jnp.float64)
+    (m, s), _ = jax.lax.scan(_phi_step, (m0, s0), phi_grid_jax)
+
+    lnL_t_marg = m + jnp.log(s) - jnp.log(nphi)
+    return _time_marginalize(lnL_t_marg, data.w_t)
 
 
 def fused_log_likelihood_distphimarg(data, ra, dec, psi, incl,
@@ -455,31 +454,28 @@ def fused_log_likelihood_distphimarg(data, ra, dec, psi, incl,
     """
     x_grid = jnp.asarray(x_grid, dtype=jnp.float64)
     log_w_grid = jnp.asarray(log_w_grid, dtype=jnp.float64)
-    # Concrete numpy array so the Python for-loop yields concrete scalars.
-    phi_vals = np.asarray(phi_grid)
-    nphi = phi_vals.shape[0]
+    phi_grid_jax = jnp.asarray(phi_grid, dtype=jnp.float64)   # scan sequence
+    nphi = phi_grid_jax.shape[0]
     S = ra.shape[0]
     a = x_grid                              # (G,)
     b = -0.5 * jnp.square(x_grid)          # (G,)
 
-    # Outer loop over phi; inner distance logsumexp via _logsumexp_grid_blocked.
-    # Running log-sum-exp accumulates over phi steps.
-    m = jnp.full((S, data.npts), -jnp.inf, dtype=jnp.float64)
-    s = jnp.zeros((S, data.npts), dtype=jnp.float64)
-
-    for phi_val in phi_vals:
-        phi_arr = jnp.full(S, phi_val, dtype=jnp.float64)
+    # lax.scan: body traced once; XLA executes sequentially — O(body) memory,
+    # not O(nphi × body) as a Python loop unrolled into the graph would be.
+    def _phi_step(carry, phi_val):
+        m, s = carry
+        phi_arr = jnp.broadcast_to(phi_val, (S,)).astype(jnp.float64)
         kappa_unit, rho_sq_unit = _accumulate_unit(
             data, ra, dec, psi, incl, phi_arr, interp, False)
-        K = kappa_unit.real      # (S, npts)
-        R = rho_sq_unit          # (S, npts)
+        lnL_t = _logsumexp_grid_blocked(
+            kappa_unit.real, rho_sq_unit, a, b, log_w_grid, grid_block)
+        m_new = jnp.maximum(m, lnL_t)
+        s_new = s * jnp.exp(m - m_new) + jnp.exp(lnL_t - m_new)
+        return (m_new, s_new), None
 
-        # distance logsumexp for this phi: shape (S, npts)
-        lnL_t_dist = _logsumexp_grid_blocked(K, R, a, b, log_w_grid, grid_block)
-
-        m_new = jnp.maximum(m, lnL_t_dist)
-        s = s * jnp.exp(m - m_new) + jnp.exp(lnL_t_dist - m_new)
-        m = m_new
+    m0 = jnp.full((S, data.npts), -jnp.inf, dtype=jnp.float64)
+    s0 = jnp.zeros((S, data.npts), dtype=jnp.float64)
+    (m, s), _ = jax.lax.scan(_phi_step, (m0, s0), phi_grid_jax)
 
     lnL_t_marg = m + jnp.log(s) - jnp.log(nphi)
     return _time_marginalize(lnL_t_marg, data.w_t)
@@ -496,19 +492,20 @@ def phi_ref_conditional_lnL(data, ra, dec, psi, incl, distMpc,
     distMpc = jnp.asarray(distMpc, dtype=jnp.float64)
     invDist = data.distMpcRef / distMpc
     S = ra.shape[0]
-    phi_vals = np.asarray(phi_grid)  # concrete for Python loop
+    phi_grid_jax = jnp.asarray(phi_grid, dtype=jnp.float64)
 
-    lnL_per_phi = []
-    for phi_val in phi_vals:
-        phi_arr = jnp.full(S, phi_val, dtype=jnp.float64)
+    # lax.scan: body traced once; outputs stacked automatically → (nphi, S).
+    def _phi_step(_, phi_val):
+        phi_arr = jnp.broadcast_to(phi_val, (S,)).astype(jnp.float64)
         kappa_unit, rho_sq_unit = _accumulate_unit(
             data, ra, dec, psi, incl, phi_arr, interp, False)
         kappa = kappa_unit * invDist[:, None]
         rho_sq = rho_sq_unit * jnp.square(invDist)[:, None]
         lnL_t = kappa.real - 0.5 * rho_sq
-        lnL_per_phi.append(_time_marginalize(lnL_t, data.w_t))   # (S,)
+        return None, _time_marginalize(lnL_t, data.w_t)   # carry=None, out=(S,)
 
-    return jnp.stack(lnL_per_phi, axis=0)   # (nphi, S)
+    _, lnL_per_phi = jax.lax.scan(_phi_step, None, phi_grid_jax)
+    return lnL_per_phi   # (nphi, S)
 
 
 def make_distance_grid(d_min, d_max, n_grid=256, d_prior="euclidean",
