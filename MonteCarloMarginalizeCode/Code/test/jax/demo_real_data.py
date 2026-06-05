@@ -359,6 +359,22 @@ def task_snr(params, data_dir, frame_dir, opts):
             params.get("event", "event"))
 
 
+def _neff_from_weights(pw):
+    """Kish effective sample size from unnormalised weights."""
+    pw = np.asarray(pw, float)
+    pw = pw[pw > 0]
+    if pw.size == 0:
+        return 0.0
+    pw = pw / pw.sum()
+    return float(1.0 / np.sum(pw ** 2))
+
+
+def _write_partial(rows, cols, path):
+    """Overwrite the dat file with whatever rows we have so far."""
+    if rows:
+        np.savetxt(path, np.array(rows), header=cols)
+
+
 def task_snr_marg(params, data_dir, frame_dir, opts):
     """SNR sequence with φ_ref marginalised via grid sum — paper Fig. 6.
 
@@ -366,6 +382,17 @@ def task_snr_marg(params, data_dir, frame_dir, opts):
     4-D (ra, dec, psi, incl); the phi_ref-psi degeneracy ridge is absent
     from the target.  phi_ref is drawn from the conditional posterior after
     the main sampling step.  Works for any l_max.
+
+    DEPRECATION NOTE
+    ----------------
+    This function is a *standalone demo* used while the phi-marginalised
+    sampler is being debugged.  Once the integration into the production
+    ILE driver (``integrate_likelihood_extrinsic_jax``) is stable, the
+    authoritative SNR-sequence figure should be produced by running the
+    actual ILE executable (as ``task_snr`` does via ``demo_real_data.py``
+    scaffolding), not by this self-contained flowMC loop.  This function
+    will then be superseded but kept for reference.  TODO: add
+    ``--task snr_marg_ile`` once the ILE driver exposes the phi-marg path.
     """
     from RIFT.likelihood.jax_ile import samplers
 
@@ -374,6 +401,10 @@ def task_snr_marg(params, data_dir, frame_dir, opts):
     fmax = params.get("fmax", 896.0)
     iwh, swh = opts.integration_window_half, opts.storage_window_half
     nphi = opts.n_phi
+
+    cols = ("snr psd_scale maxlnL sky_std_deg neff_post area90_deg2 "
+            "ra_mean dec_mean nsamp wall temper nphi")
+    dat_path = opts.out_prefix + "_snr.dat"
 
     # Baseline SNR at psd_scale = 1.
     dd0, pp0, dets = load_real(params, data_dir, frame_dir, opts.srate)
@@ -399,32 +430,51 @@ def task_snr_marg(params, data_dir, frame_dir, opts):
         snr_real = float(exj["guess_snr"])
         like = JAXDistPhiMargLikelihood(data, 1.0, 20000.0, nphi=nphi, n_grid=256)
 
+        print("\n=== SNR %.0f (psd_scale=%.4g, T=%.1f, nphi=%d) ==="
+              % (snr_real, psd_scale, temper, nphi), flush=True)
+
         t0 = time.time()
         th_all, lnL_all, pw_all = [], [], []
         for r in range(opts.n_runs):
-            print("  run %d/%d  SNR=%.0f  T=%.1f  nphi=%d"
-                  % (r + 1, opts.n_runs, snr_real, temper, nphi), flush=True)
+            print("  run %d/%d" % (r + 1, opts.n_runs), flush=True)
             res = samplers.flowmc_sample_phimarg(
                 like, 1.0, 20000.0, n_chains=opts.n_chains,
                 n_production_loops=opts.n_production_loops,
                 n_training_loops=opts.n_training_loops, n_epochs=opts.n_epochs,
                 n_prior_pilot=opts.n_prior_pilot, reuse_state=None,
                 temper=temper, seed=opts.seed + 1000 * r, verbose=True)
+
             if len(res["theta"]):
-                th_all.append(res["theta"])    # (N, 4): ra, dec, psi, incl
+                th_all.append(res["theta"])
                 lnL_all.append(res["lnL"])
                 pw_all.append(res["post_weight"])
+
+                # Running n_eff after each completed run — ILE-style per-iteration report.
+                th_pool = np.concatenate(th_all)
+                pw_pool = np.concatenate(pw_all)
+                neff_run = _neff_from_weights(res["post_weight"])
+                neff_pool = _neff_from_weights(pw_pool)
+                print("    run n_eff=%.0f  pooled n_eff=%.0f / %d samples  "
+                      "maxlnL=%.1f  logZ=%.2f"
+                      % (neff_run, neff_pool, len(th_pool),
+                         float(res["lnL"].max()) if len(res["lnL"]) else float("nan"),
+                         float(res["logZ"]) if np.isfinite(res["logZ"]) else float("nan")),
+                      flush=True)
+
         wall = time.time() - t0
 
         if not th_all:
-            rows.append([snr_real, psd_scale, np.nan, np.nan, np.nan, np.nan,
-                         np.nan, np.nan, 0, wall, temper, nphi]); continue
+            row = [snr_real, psd_scale, np.nan, np.nan, np.nan, np.nan,
+                   np.nan, np.nan, 0, wall, temper, nphi]
+            rows.append(row)
+            _write_partial(rows, cols, dat_path)
+            continue
 
-        th = np.concatenate(th_all)     # (N, 4)
+        th = np.concatenate(th_all)
         lnL = np.concatenate(lnL_all)
         pw = np.concatenate(pw_all); pw /= pw.sum()
 
-        neff_post = 1.0 / np.sum(pw ** 2)
+        neff_post = _neff_from_weights(pw)
         ra_m = float((pw * th[:, 0]).sum()); dec_m = float((pw * th[:, 1]).sum())
         x = (th[:, 0] - ra_m) * np.cos(dec_m); y = th[:, 1] - dec_m
         Sig = np.cov(np.stack([x, y]), aweights=pw)
@@ -437,17 +487,19 @@ def task_snr_marg(params, data_dir, frame_dir, opts):
         row = [snr_real, psd_scale, float(lnL.max()), sky_std, neff_post, area,
                ra_m, dec_m, len(th), wall, temper, nphi]
         rows.append(row)
-        print("SNR=%6.1f (scale %.4g, T=%.1f, nphi=%d)  maxlnL=%9.1f  "
-              "neff_post=%6.1f  area90=%.3g deg^2  sky_std=%.2f deg  "
-              "sky(RA,DEC)=(%.3f,%.3f)  N=%d (%d runs)  %.1fs"
-              % (snr_real, psd_scale, temper, nphi, row[2], neff_post, area,
-                 sky_std, ra_m, dec_m, len(th), opts.n_runs, wall))
 
-    cols = ("snr psd_scale maxlnL sky_std_deg neff_post area90_deg2 "
-            "ra_mean dec_mean nsamp wall temper nphi")
-    np.savetxt(opts.out_prefix + "_snr.dat", np.array(rows), header=cols)
-    print("wrote %s_snr.dat" % opts.out_prefix)
+        print("  => maxlnL=%9.1f  neff_post=%.0f  area90=%.3g deg^2  "
+              "sky_std=%.2f deg  sky(RA,DEC)=(%.3f,%.3f)  N=%d  %.1fs"
+              % (row[2], neff_post, area, sky_std, ra_m, dec_m, len(th), wall),
+              flush=True)
+
+        # Write after every SNR point — partial results survive a crash.
+        _write_partial(rows, cols, dat_path)
+        print("  wrote %s  (%d/%d SNR points)"
+              % (dat_path, len(rows), len(targets)), flush=True)
+
     _skymap(sky_by_snr, opts.out_prefix + "_skymap.png", params.get("event", "event"))
+    print("done.")
 
 
 def _skymap(sky_by_snr, path, label):
