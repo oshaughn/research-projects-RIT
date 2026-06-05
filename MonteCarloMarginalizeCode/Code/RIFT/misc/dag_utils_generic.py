@@ -2810,7 +2810,7 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
             f.write("cp local_relative.cache local.cache \n")
             f.write('{0} "$@" \n'.format(exe))
         os.system("chmod a+x " + pre)
-        transfer_files += ['../' + pre, frames_dir]
+        transfer_files += [os.path.abspath(pre), frames_dir]
         exe = pre
 
     job = pipeline.CondorDAGJob(universe="vanilla", executable=exe)
