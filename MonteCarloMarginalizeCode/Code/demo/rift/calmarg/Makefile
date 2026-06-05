@@ -25,7 +25,7 @@ ENV := PYTHONPATH=$(RIFT_CODE_ROOT):$${PYTHONPATH:-} PATH=$(RIFT_CODE_ROOT)/bin:
 
 # Tunables.  NCHUNK/NMAX are kept small so the demo runs on a modest GPU; raise
 # them (and NEFF) for a production-quality run on a larger card.
-NCAL    ?= 40          # number of calibration realizations
+NCAL    ?= 100         # calibration realizations; >=100 required, 300 recommended (watch '[calmarg error] ... cal n_eff' in the ILE log)
 NCHUNK  ?= 1000        # extrinsic samples per evaluation block
 NMAX    ?= 2000        # max extrinsic samples
 NEFF    ?= 100         # target effective samples
@@ -187,7 +187,7 @@ FUSED         ?= 0
 N_IT_DAG      ?= 2        # >=2 so iteration 1 consumes the seed from calpilot_0 (PILOT=1)
 NPTS_GRID_DAG ?= 80       # initial intrinsic grid size
 NPTS_IT_DAG   ?= 12       # intrinsic points / ILE jobs per iteration
-NCAL_DAG      ?= 20
+NCAL_DAG      ?= 100      # >=100 required, 300 recommended; 20 collapsed cal n_eff to O(1) and made the 2d lnL surface pure noise
 NMAX_DAG      ?= 40000
 NEFF_DAG      ?= 15
 NCHUNK_DAG    ?= 10000

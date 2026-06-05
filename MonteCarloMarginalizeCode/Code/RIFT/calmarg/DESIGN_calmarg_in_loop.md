@@ -234,13 +234,70 @@ ILE precompute + cal envelopes + the bilby data_dump, evaluate the in-loop calma
 likelihood on the same extrinsic samples, and compare per-sample lnL and the
 log-evidence shift.  It needs frames/PSDs, so it runs on the stable host (not in CI).
 
+## Calibration MC error budget (implemented)
+
+The sampler's reported variance is the *extrinsic* sampling variance with the cal
+draw set held fixed — it is structurally blind to the Monte-Carlo error of the
+`(1/n_cal) sum_c` average.  Empirically (demo `pp-run`, wide envelopes, `NCAL_DAG=20`)
+this produced a 2d lnL surface with ~1.0 point-to-point noise quoted at sigma~0.18
+(chi^2/dof ~ 34 against a smooth surface fit).
+
+`adaptive.cal_mc_error_from_components(comp, cal_log_weights)` computes, from the
+per-realization components on a modest extrinsic-prior batch (`return_cal_components`,
+responsibilities are ~extrinsic-independent — same trick as the pilot):
+
+* `a_c = w_c Z_c / (n_cal Z)` — normalized per-draw contributions (sum to 1);
+* `Var(lnZ) ~= n_cal * Var_c(a_c)` (delta method; reproduces the lognormal
+  `(e^{sigma^2}-1)/n_cal`, validated in `test_cal_mc_error.py`);
+* `neff_cal = 1/sum a_c^2` — when `< 10` the estimate is a LOWER BOUND and the
+  point is flagged in the log.
+
+The driver folds this in quadrature into the reported sigma column and prints
+`[calmarg error] sigma_lnZ: extrinsic X (+) cal Y -> total Z ; cal n_eff ...`.
+The probe (`_cal_error_probe`) uses an ADAPTIVE extrinsic batch (doubling until the
+estimate stabilizes, capped by `--calibration-mc-error-extrinsic`, default 8192,
+0 disables) and draws distance from the RUN'S distance prior: the sampler's own
+`prior_pdf['distance']` when distance is sampled (uniform proposal + importance
+weight, so the cosmo/redshift variants are handled by construction), the `--d-prior`
+pdf when distance marginalization is active, or the PINNED value (warned: at fixed
+distance the distance/amplitude degeneracy cannot absorb amplitude-like cal
+perturbations, so the estimate is conservative).
+
+**Adaptive draw count** (`--calibration-neff-cal-target`, default 10;
+`--calibration-n-realizations-max`, default 8x initial): after the cal-block
+precompute, the same probe measures `neff_cal` at this intrinsic point; while below
+target the draw set is DOUBLED — fresh independent draws appended via
+`_draw_more_calibration_draws` (extends the realization dict, importance weights,
+and node bookkeeping in place), with an incremental `PrecomputeLikelihoodTerms` of
+only the new blocks concatenated onto the packed rholm arrays.  So
+`--calibration-n-realizations` is a *starting* size, not a trusted constant.
+`[calmarg adapt]` log lines record the escalation.
+
+**Sizing guidance** (toy-model scaling, see the paper repo
+`demos/calmarg/cal_envelope_scaling.py`): per-draw spread `sigma_lnL ~ rho^2 eps_A`
+(amplitude-envelope dominated, ~1.0 per 1% amplitude at network SNR 20), and
+`n_cal ~ (e^{sigma_lnL^2}-1)/sigma_target^2`.  GWTC-4-scale envelopes (<~2% / <~2 deg)
+need `n_cal ~ 100-1000` at SNR 20: **start at 100 and let the adaptive escalation
+work; 300 is a comfortable fixed choice**.  Beyond ~3% amplitude (or proportionally
+higher SNR) prior draws are hopeless; the learned-proposal machinery (pilot /
+breadcrumbs) targets that regime but is EXPERIMENTAL — it must be validated against
+the brute-force path before being relied on, and is deliberately kept out of the
+active/default paths.  Memory: realization blocks add ~0.3 MB/draw GPU-resident in
+the demo config (88 MB at n_cal=300); per-eval cost is linear in n_cal (fused
+kernel: ~0.25 s per 1000-sample chunk at n_cal=300 extrapolating the sm_30 timings
+above).
+
 ## Open items / future work
 
 * **Option C** fused kernel for maximum throughput; backtest vs Option B and vs the
   bilby postprocessor on a high-SNR / broad-prior event.
 * **Reproducibility:** `create_realizations` uses unseeded `np.random`; add a
-  `--calibration-seed` so a run's draw set is reproducible. Different ILE workers
-  currently draw independent sets (valid for the integral; worth pinning).
+  `--calibration-seed` so a run's draw set is reproducible.  DECISION (2026-06):
+  workers must KEEP drawing independent sets — common random numbers across
+  intrinsic points were considered and rejected (a shared draw set makes the lnL
+  surface artificially smooth and bakes its O(1/sqrt(n_eff_cal)) bias into the
+  posterior); the variance is instead disclosed via the cal MC error budget above
+  and beaten down with larger n_cal (now grown adaptively per point).
 * **Calibration-parameter export:** Option B does not record which realization was
   selected (acceptable per scope — parameter draws can be regenerated at the end as
   the current `--dump_cal_realization` path does).

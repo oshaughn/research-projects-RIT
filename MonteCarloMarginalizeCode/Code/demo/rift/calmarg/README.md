@@ -134,8 +134,37 @@ so it is the portable cross-check.
 
 Generated inputs:
 * `distance_marg.npz` — distance-marginalization lookup table (`util_InitMargTable`).
-* `cal_env/{H1,L1,V1}.txt` — synthetic calibration envelopes (amplitude 1-sigma 5–8%,
-  phase 1-sigma 3–4.8°, deliberately different per IFO; see `tools/make_cal_envelopes.py`).
+* `cal_env/{H1,L1,V1}.txt` — synthetic calibration envelopes at **GWTC-4/O4a scale**
+  (amplitude 1-sigma 1–1.6%, phase 1-sigma 1–1.6°, slightly different per IFO; the
+  LIGO O4a strain calibration error is bounded at ≲2% / ≲2° below 2 kHz,
+  arXiv:2508.18079).  `tools/make_cal_envelopes.py --wide` restores the original
+  deliberately-broad 5–8% / 3–4.8° envelopes — a STRESS TEST that collapses the cal
+  n_eff to O(1) at any practical `NCAL` (raw prior-draw marginalization cannot
+  resolve it; use it only to exercise the error diagnostics or the adaptive pilot).
+
+### Calibration MC error in the reported sigma
+
+The sigma column of `out_*.dat` now **includes the calibration MC error in
+quadrature** with the extrinsic sampling error (`--calibration-mc-error-extrinsic`,
+default on; the probe batch is adaptive and draws distance from the run's own
+distance prior).  The extrinsic integrator's variance is structurally blind to the
+spread over the fixed cal draw set, so the old sigma badly understated the truth
+whenever the per-point cal n_eff was small — at `NCAL_DAG=20` with wide envelopes
+this produced a 2d lnL surface with ~1.0 point-to-point noise quoted at sigma~0.18.
+Each ILE log now prints
+`[calmarg error] sigma_lnZ: extrinsic ... (+) cal ... -> total ... ; cal n_eff X / N`
+and warns when `cal n_eff < 10` (where the quoted sigma is only a lower bound).
+
+### Adaptive cal draw count
+
+The number of cal realizations is no longer trusted as given: after the cal-block
+precompute, ILE probes the effective draw count at each intrinsic point
+(`[calmarg adapt]` log lines) and **doubles the draw set** (fresh independent
+draws, incremental precompute of only the new blocks) until
+`--calibration-neff-cal-target` (default 10) is met or
+`--calibration-n-realizations-max` (default 8× the initial count) is reached.
+`NCAL` therefore sets the *starting* size; 100 is a sensible start with
+GWTC-4-scale envelopes, with headroom to 800 by default.
 
 Each `out_*_0_.dat` row is one intrinsic point. The columns end with
 `... lnL  sqrt_var  ntotal  neff`, so the **marginalized lnL is column `[-4]`** and
