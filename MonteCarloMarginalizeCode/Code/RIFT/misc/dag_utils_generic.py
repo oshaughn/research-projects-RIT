@@ -2747,7 +2747,7 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
                        max_points=32, request_memory=4096, request_gpu=True,
                        singularity_image=None, max_runtime_minutes=300,
                        use_osg=False, use_singularity=False, frames_dir=None,
-                       transfer_files=None, **kwargs):
+                       use_oauth_files=False, transfer_files=None, **kwargs):
     """Submit file for a calibration PILOT stage (Option C; see
     RIFT/calmarg/DESIGN_adaptive_driver.md): harvest top-lnL points from iteration
     $(macroiteration)'s composite, run ILE --calibration-dump-responsibilities on them,
@@ -2850,6 +2850,8 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
         requirements.append("HAS_SINGULARITY=?=TRUE")
     elif singularity_image:
         job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    if use_oauth_files:
+        job.add_condor_cmd('use_oauth_services', use_oauth_files)
 
     if on_osg:
         # absolute paths -> condor transfers each to the worker scratch dir by basename,

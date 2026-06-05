@@ -1145,6 +1145,7 @@ if opts.calmarg_pilot:
         universe="vanilla",
         singularity_image=(singularity_image if (opts.use_singularity or opts.use_osg or opts.condor_containerize_nonworker) else None),
         use_osg=opts.use_osg, use_singularity=opts.use_singularity, frames_dir=opts.frames_dir,
+        use_oauth_files=opts.use_oauth_files,
         transfer_files=(list(transfer_file_names_pilot_base) if opts.use_osg else None))
     calpilot_job.add_condor_cmd("initialdir", opts.working_directory + "/iteration_$(macroiteration)_cip")
     calpilot_job.add_condor_cmd('request_disk',opts.general_request_disk)
