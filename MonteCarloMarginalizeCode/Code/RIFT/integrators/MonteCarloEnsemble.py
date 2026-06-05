@@ -282,8 +282,31 @@ class integrator:
         beta, log_ess = self._solve_tempering_exp(lnL, log_pq)
         self.tempering_exp_running = beta
         log_weights = beta*lnL + log_pq
+        adapt_mode = 'beta'
+        # Honest ESS of the FULL posterior weights (beta=1): how reachable the
+        # posterior is from the current proposal cloud.
+        log_ess1 = self._log_ess(lnL + log_pq)
         if self.temper_log:
             log_weights = self.xpy.log(self.xpy.maximum(lnL,1e-5))
+        elif self.tempering_adapt and bool(log_ess1 < self.xpy.log(self.ess_floor)):
+            # BOOTSTRAP (rank-elite refit, cross-entropy-method style): while
+            # the posterior is out of reach of the cloud, beta-tempered
+            # honest weights equilibrate the proposal near the PRIOR (the
+            # solver keeps beta tiny while the cloud is broad, and the
+            # -ln p_s correction cancels incremental concentration) -- the
+            # proposal never localizes, exactly the eff_samp~1 stall seen in
+            # the ILE SNR sequence.  Rank weights are lnL-scale-free and
+            # compound: fit the top-k samples BY lnL (prior/proposal
+            # corrected within the elite set), so the threshold ratchets up
+            # every chunk like the AV sampler's volume shrinking.  Hand back
+            # to the honest beta-solver once ESS(beta=1) clears the floor,
+            # after which the refit target smoothly becomes L*p (beta->1).
+            k_elite = int(min(max(self.ess_target, self.ess_floor), len(lnL)//2))
+            if k_elite >= 2:
+                gamma = self.xpy.sort(lnL)[-k_elite]
+                neg_inf = -self.xpy.inf*self.xpy.ones(lnL.shape)
+                log_weights = self.xpy.where(lnL >= gamma, log_pq, neg_inf)
+                adapt_mode = 'elite'
         else:
             # If even beta=0 leaves too few effective samples (proposal/prior
             # pathologies), skip this refit: keep the current proposal rather
@@ -291,6 +314,11 @@ class integrator:
             if self.xpy.exp(log_ess) < min(self.ess_floor, self.d + 2):
                 print(" GMM refit skipped: ESS {:.1f} too low even untempered ".format(float(self.xpy.exp(log_ess))))
                 return
+        if getattr(self, '_verbose_diag', False):
+            print(" GMM adapt[{}]: mode={} beta={:.3g} ESS_beta={:.1f} ESS_1={:.3g} max_lnL={:.1f}".format(
+                self.iterations, adapt_mode, float(beta),
+                float(self.xpy.exp(log_ess)), float(self.xpy.exp(log_ess1)),
+                float(self.xpy.max(lnL))))
 
         for dim_group in self.gmm_dict: # iterate over grouped dimensions
             if self.gmm_adapt:
@@ -401,6 +429,7 @@ class integrator:
         tripwire_epsilon = kwargs["tripwire_epsilon"] if "tripwire_epsilon" in kwargs else 0.001
         self.use_lnL = use_lnL
         self.return_lnI = return_lnI
+        self._verbose_diag = verbose   # per-chunk adaptation diagnostics in _train
 
         err_count = 0
         cumulative_eval_time = 0
