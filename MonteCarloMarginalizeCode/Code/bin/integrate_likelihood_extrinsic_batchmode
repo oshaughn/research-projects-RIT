@@ -294,6 +294,9 @@ integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0
 integration_params.add_option("--adapt-floor-level", type=float, default=0.1, help="Floor to use with weights (likelihood integrand) when doing adaptive sampling. This is necessary to ensure the *sampling* prior is non zero during adaptive sampling and to prevent overconvergence. Default is 0.1 (no floor)")
 integration_params.add_option("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
 integration_params.add_option("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
+integration_params.add_option("--internal-gmm-correlate-all",action='store_true',help="GMM sampler: use a SINGLE full-dimension GMM group instead of the default (sky)(distance,inclination)(psi,phi) pairing. The default pairing targets quadrupole-dominated binaries with a large sky ring; a product of per-group GMMs cannot represent cross-group correlations (e.g. sky-phase), and for a strongly-localized single-peak source the factored proposal can stall at the prior. Component count from --internal-gmm-sky-components (default 2 in this mode).")
+integration_params.add_option("--internal-gmm-sky-components",type=int,default=None,help="GMM sampler: number of mixture components for the (ra,dec) group (default 4, sized for a large sky ring; use 1-2 for a well-localized single peak, e.g. 3+ IFOs / high SNR). With --internal-gmm-correlate-all, sets the single full-dimension group's component count.")
+integration_params.add_option("--internal-gmm-phase-components",type=int,default=None,help="GMM sampler: number of mixture components for the (psi,phi_orb) group (default 4; use 1-2 for a single dominant phase peak).")
 integration_params.add_option("--interpolate-time", default=False,help="If using time marginalization, compute using a continuously-interpolated array. (Default=false)")
 integration_params.add_option("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean), 'pseudo_cosmo', and 'cosmo'  and 'cosmo_sourceframe' .")
 integration_params.add_option("--d-prior-redshift", action='store_true', help="If true, distance prior is computed in redshift. This option MAY be enforced for 'cosmo' sampling")
@@ -1482,10 +1485,28 @@ if opts.sampler_method == "GMM":
          pair_phi_psi = sampler_param_tuple(sampler, ['psi'])
          adapt_phase = True
          n_phase = 2
-    gmm_dict = {pair_ra_dec:None,pair_d_incl:None,pair_phi_psi:default_phipsi}
-    gmm_adapt = {pair_ra_dec: True, pair_d_incl: True, pair_phi_psi: False}
-    if opts.internal_rotate_phase:
-      gmm_adapt[pair_phi_psi] = True
+    # user overrides for component counts (single-peak sources: the ring-sized
+    # defaults overfit a localized peak)
+    if opts.internal_gmm_sky_components:
+      n_sky = opts.internal_gmm_sky_components
+    if opts.internal_gmm_phase_components:
+      n_phase = opts.internal_gmm_phase_components
+    if opts.internal_gmm_correlate_all:
+      # SINGLE full-dimension group: a product of per-group GMMs cannot
+      # represent cross-group correlations (sky-phase etc.); for a localized
+      # single-peak source the factored proposal can stall at the prior
+      # (rank-elite refits included: the elite set looks broad in every
+      # per-group projection).  One joint GMM can compound on any structure
+      # a Gaussian mixture can represent.
+      pair_all = tuple(range(len(sampler.params_ordered)))
+      n_all = opts.internal_gmm_sky_components if opts.internal_gmm_sky_components else 2
+      gmm_dict = {pair_all: None}
+      gmm_adapt = {pair_all: True}
+    else:
+      gmm_dict = {pair_ra_dec:None,pair_d_incl:None,pair_phi_psi:default_phipsi}
+      gmm_adapt = {pair_ra_dec: True, pair_d_incl: True, pair_phi_psi: False}
+      if opts.internal_rotate_phase:
+        gmm_adapt[pair_phi_psi] = True
     # Extrinsic handoff: SEED the per-group GMMs from a learned proposal breadcrumb (the
     # previous iteration's posterior).  Keys are dim-group index tuples, matched by name to
     # sampler.params_ordered -- so they line up with pair_ra_dec / pair_d_incl / pair_phi_psi.
@@ -1510,7 +1531,10 @@ if opts.sampler_method == "GMM":
 #    if len(psd_dict.keys()) > 2:
 #        n_sky=2  # presumably we have localized better, avoid failure modes
 #    comp_dict = {tuple([2]):1,tuple([4]):1,(3,5):3,tuple([0]):n_sky,tuple([1]):n_sky} 
-    comp_dict = {pair_ra_dec:n_sky,pair_d_incl:n_d,pair_phi_psi:n_phase} 
+    if opts.internal_gmm_correlate_all:
+      comp_dict = {pair_all: n_all}
+    else:
+      comp_dict = {pair_ra_dec:n_sky,pair_d_incl:n_d,pair_phi_psi:n_phase}
     extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict, 'gmm_adapt':gmm_adapt}  # made up for now, should adjust
     print("GMM:",extra_args)
     print("GMM:",sampler.params_ordered)
