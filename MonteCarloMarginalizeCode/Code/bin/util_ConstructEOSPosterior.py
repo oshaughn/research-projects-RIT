@@ -297,6 +297,23 @@ for name in dat_orig_names:
 ###
 ### Prior functions : default is UNIFORM, since it is unmodeled and generic
 ###
+#
+# PRIORS AND THE CHANGE-OF-VARIABLES JACOBIAN.
+# We do NOT apply the Jacobian |det d(coord)/d(low_level_coord)| of the
+# coordinate transform here: the sampling-basis prior is taken to be
+# uniform (or whatever the plugin's chart installs), full stop.  The
+# assumption is that the user knows what they are doing and folds any
+# desired measure -- the transform Jacobian, a physically-motivated EOS
+# prior, anything non-uniform -- into a --supplementary-likelihood-factor
+# function, which is evaluated in the fitting/sampling coordinates and so
+# can express an arbitrary prior exactly.  For a linear/affine transform
+# the Jacobian is constant and a uniform input prior maps to a uniform
+# output prior, so the default is already correct there.  A nonlinear
+# plugin that wants the induced prior must supply that factor (or, in
+# future, populate the plugin's jacobian() hook -- see the TODO in
+# RIFT.misc.coordinate_plugin / the tracking issue on falling back to the
+# util_ConstructIntrinsicPosterior_GenericCoordinates default-prior
+# conventions).
 
 def uniform_prior(x):
     return np.ones(x.shape)
