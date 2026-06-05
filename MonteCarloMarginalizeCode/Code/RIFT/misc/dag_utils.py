@@ -1287,7 +1287,9 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
 def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla",
                        working_directory=None, ile_args_file=None, top_fraction=0.05,
                        max_points=32, request_memory=4096, request_gpu=True,
-                       singularity_image=None, max_runtime_minutes=300, **kwargs):
+                       use_singularity=False, singularity_image=None,
+                       use_oauth_files=False, transfer_files=None,
+                       max_runtime_minutes=300, **kwargs):
     """Submit file for a calibration PILOT stage (Option C; see
     RIFT/calmarg/DESIGN_adaptive_driver.md): harvest top-lnL points from iteration
     $(macroiteration)'s composite, run ILE --calibration-dump-responsibilities on them,
@@ -1297,7 +1299,25 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
     Produces  <wd>/cal_consolidated_$(macroiteration).npz  (consumed by wide_{N+1} ILE via
     --calibration-proposal-breadcrumb).
     """
+    if use_singularity and (singularity_image == None):
+        print(" FAIL : Need to specify singularity_image to use singularity ")
+        sys.exit(0)
+
+    singularity_image_used = "{}".format(singularity_image)  # make copy
+    extra_files = []
+    if singularity_image:
+        if 'osdf:' in singularity_image:
+            singularity_image_used = "./{}".format(singularity_image.split('/')[-1])
+            extra_files += [singularity_image]
+
     exe = exe or which("util_CalPilotStage.py")
+    if use_singularity:
+        exe_base = os.path.basename(exe)
+        singularity_base_exe_path = "/usr/bin/"
+        if 'SINGULARITY_BASE_EXE_DIR' in list(os.environ.keys()):
+            singularity_base_exe_path = os.environ['SINGULARITY_BASE_EXE_DIR']
+        exe = singularity_base_exe_path + exe_base
+
     wd = working_directory
     job = pipeline.CondorDAGJob(universe=universe, executable=exe)
     sub_name = tag + '.sub'
@@ -1325,8 +1345,13 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
     job.add_condor_cmd('request_memory', str(request_memory) + "M")
     if request_gpu:
         job.add_condor_cmd('request_GPUs', '1')          # the pilot runs ILE (GPU path)
-    if singularity_image:
-        job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    if use_singularity:
+        job.add_condor_cmd('request_CPUs', str(1))
+        job.add_condor_cmd('transfer_executable', 'False')
+        job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+        job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+    if use_oauth_files:
+        job.add_condor_cmd('use_oauth_services', use_oauth_files)
     try:
         job.add_condor_cmd('accounting_group', os.environ['LIGO_ACCOUNTING'])
         job.add_condor_cmd('accounting_group_user', os.environ['LIGO_USER_NAME'])
@@ -1335,6 +1360,14 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
     if not (max_runtime_minutes is None):
         remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60 * max_runtime_minutes)
         job.add_condor_cmd('periodic_remove', remove_str)
+    if not transfer_files is None:
+        if not isinstance(transfer_files, list):
+            fname_str = transfer_files + ' '.join(extra_files)
+        else:
+            fname_str = ','.join(transfer_files + extra_files)
+        fname_str = fname_str.strip()
+        job.add_condor_cmd('transfer_input_files', fname_str)
+        job.add_condor_cmd('should_transfer_files', 'YES')
     return job, sub_name
 
 

@@ -137,6 +137,52 @@ def neff_from_logweights(log_w):
     return float(np.exp(2 * logsumexp(log_w) - logsumexp(2 * log_w)))
 
 
+def cal_mc_error_from_components(comp, cal_log_weights=None, sample_log_weights=None):
+    """Calibration Monte-Carlo error budget for the cal-marginalized evidence.
+
+    The in-loop marginalization estimates Z = E_c[ w_c Z_c ] over n_cal iid cal
+    draws, where Z_c = int dtheta p(theta) L(theta, c).  The extrinsic sampler's
+    reported variance CANNOT see the spread over c (the draw set is held fixed for
+    the whole job), so this term must be estimated separately and added in
+    quadrature to the extrinsic sampling error.
+
+    comp : (n_samples, n_cal) RAW per-realization time-integrated lnL at a batch of
+        extrinsic samples (``return_cal_components=True`` output).
+    cal_log_weights : (n_cal,) importance log-weights log(prior/proposal);
+        None = prior draws (uniform).
+    sample_log_weights : (n_samples,) posterior log-weights of the extrinsic batch.
+        For a batch drawn from the extrinsic PRIOR pass None: the marginal lnL of
+        each sample (logsumexp_c of comp+cal_log_weights) is then the correct
+        importance weight.
+
+    Returns (sigma_lnZ_cal, neff_cal, a_c):
+      a_c       : (n_cal,) normalized posterior contribution of realization c,
+                  a_c = w_c Z_c / (n_cal Z); sums to 1.
+      sigma_lnZ_cal : delta-method standard error of lnZ from the cal MC average,
+                  Var(lnZ) ~= n_cal * Var_c(a_c).   (Lognormal cross-check: this
+                  reproduces (exp(sigma_lnL^2)-1)/n_cal.)
+      neff_cal  : Kish size 1 / sum_c a_c^2.  When neff_cal is O(1) the
+                  marginalization is dominated by a single draw and the error
+                  estimate itself is a LOWER BOUND -- treat the point as unreliable.
+    """
+    comp = np.atleast_2d(np.asarray(comp, dtype=float))
+    n_samples, n_cal = comp.shape
+    logw = np.zeros(n_cal) if cal_log_weights is None else np.asarray(cal_log_weights, dtype=float)
+    lc = comp + logw[None, :]                       # log( w_c L_jc )
+    lnL_marg = logsumexp(lc, axis=1)                # per-sample log sum_c w_c L_jc (norm cancels)
+    log_r = lc - lnL_marg[:, None]                  # responsibilities r_jc, sum_c r_jc = 1
+    if sample_log_weights is None:
+        slw = lnL_marg                              # prior-drawn batch -> weight by marginal L
+    else:
+        slw = np.asarray(sample_log_weights, dtype=float)
+    slw = slw - logsumexp(slw)                      # sum_j W_j = 1
+    log_a = logsumexp(slw[:, None] + log_r, axis=0) # a_c = sum_j W_j r_jc
+    a_c = np.exp(log_a - logsumexp(log_a))          # exact renormalization
+    var_lnZ = n_cal * np.var(a_c, ddof=1) if n_cal > 1 else 0.0
+    neff_cal = 1.0 / np.sum(a_c ** 2)
+    return float(np.sqrt(max(var_lnZ, 0.0))), float(neff_cal), a_c
+
+
 # ---------------------------------------------------------------------------
 # Adaptive loop
 # ---------------------------------------------------------------------------

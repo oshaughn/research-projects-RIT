@@ -183,6 +183,9 @@ class MCSampler(object):
       gmm_epsilon = kwargs['gmm_epsilon'] if "gmm_epsilon" in kwargs else None
       L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
       tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 1.0
+      tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
+      ess_target = kwargs["ess_target"] if "ess_target" in kwargs else None
+      ess_floor = kwargs["ess_floor"] if "ess_floor" in kwargs else None
       lnw_failure_cut = kwargs["lnw_failure_cut"] if "lnw_failure_cut" in kwargs else None
       nmax = kwargs["nmax"] if "nmax" in kwargs else 1e6
       neff = kwargs["neff"] if "neff" in kwargs else 1000
@@ -225,7 +228,8 @@ class MCSampler(object):
                 bounds[dims]=bounds_here
 
       self.integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp, n=self.n, prior=self.calc_pdf,
-                         user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_adapt=gmm_adapt,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp)
+                         user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_adapt=gmm_adapt,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp,
+                         tempering_adapt=tempering_adapt, ess_target=ess_target, ess_floor=ess_floor)
 
     def update_sampling_prior(self,ln_weights, n_history,tempering_exp=1,log_scale_weights=True,floor_integrated_probability=0,external_rvs=None,**kwargs):
       rvs_here = self._rvs
@@ -333,6 +337,11 @@ class MCSampler(object):
         gmm_epsilon = kwargs['gmm_epsilon'] if "gmm_epsilon" in kwargs else None
         L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 1.0
+        # --adapt-adapt: ESS-self-tuned refit exponent (previously silently
+        # dropped by this sampler; only mcsampler/mcsamplerGPU honored it)
+        tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
+        ess_target = kwargs["ess_target"] if "ess_target" in kwargs else None
+        ess_floor = kwargs["ess_floor"] if "ess_floor" in kwargs else None
         lnw_failure_cut = kwargs["lnw_failure_cut"] if "lnw_failure_cut" in kwargs else None
 
         max_err = kwargs["max_err"] if "max_err" in kwargs else 10
@@ -387,7 +396,8 @@ class MCSampler(object):
                 bounds[dims]=bounds_here
 
         integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp, n=n, prior=self.calc_pdf,
-                         user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_adapt=gmm_adapt,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp)
+                         user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_adapt=gmm_adapt,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp,
+                         tempering_adapt=tempering_adapt, ess_target=ess_target, ess_floor=ess_floor)
         if not direct_eval:
             func = self.evaluate
         if use_lnL:

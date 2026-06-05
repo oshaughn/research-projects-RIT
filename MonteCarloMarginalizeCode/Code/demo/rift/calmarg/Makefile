@@ -25,7 +25,7 @@ ENV := PYTHONPATH=$(RIFT_CODE_ROOT):$${PYTHONPATH:-} PATH=$(RIFT_CODE_ROOT)/bin:
 
 # Tunables.  NCHUNK/NMAX are kept small so the demo runs on a modest GPU; raise
 # them (and NEFF) for a production-quality run on a larger card.
-NCAL    ?= 40          # number of calibration realizations
+NCAL    ?= 100         # calibration realizations; >=100 required, 300 recommended (watch '[calmarg error] ... cal n_eff' in the ILE log)
 NCHUNK  ?= 1000        # extrinsic samples per evaluation block
 NMAX    ?= 2000        # max extrinsic samples
 NEFF    ?= 100         # target effective samples
@@ -187,7 +187,7 @@ FUSED         ?= 0
 N_IT_DAG      ?= 2        # >=2 so iteration 1 consumes the seed from calpilot_0 (PILOT=1)
 NPTS_GRID_DAG ?= 80       # initial intrinsic grid size
 NPTS_IT_DAG   ?= 12       # intrinsic points / ILE jobs per iteration
-NCAL_DAG      ?= 20
+NCAL_DAG      ?= 100      # >=100 required, 300 recommended; 20 collapsed cal n_eff to O(1) and made the 2d lnL surface pure noise
 NMAX_DAG      ?= 40000
 NEFF_DAG      ?= 15
 NCHUNK_DAG    ?= 10000
@@ -437,6 +437,14 @@ else
   PP_CALPOST_FLAGS :=
 endif
 
+# CIP throughput: by default RIFT runs ONE CIP worker per iteration targeting a large n_eff
+# (~500, the cip-cap-neff), which is slow.  Spread the work over PP_CIP_EXPLODE parallel CIP
+# workers and lower the n_eff target so EACH worker is light: with PP_CIP_EXPLODE=8 and
+# PP_CIP_NEFF=160 the cap is split ~160/8 -> n_eff ~20 per worker (8x parallel, ~20/job vs ~500).
+PP_CIP_EXPLODE ?= 8
+PP_CIP_NEFF    ?= 160
+PP_CIP_FLAGS   := --cip-explode-jobs $(PP_CIP_EXPLODE) --internal-cip-cap-neff $(PP_CIP_NEFF)
+
 .PHONY: extr extr-build extr-validate
 
 extr-build: cal_env/H1.txt
@@ -510,7 +518,10 @@ OSG ?= 0
 ifeq ($(OSG),1)
   # Container: ~4 GB disk for the .sif transfer + unpack (vs the MB-scale shared-FS baseline)
   PP_DISK ?= 4G
-  PP_OSG_FLAGS := --use-osg --use-osg-cip --use-osg-file-transfer
+  # --condor-local-nonworker: at CIT the fast 'internal' jobs (consolidate/unify/puff/cal-
+  # consolidation/etc.) have no execute-point access, so vanilla-universe submission fails;
+  # this runs them locally (non-NFS / flock_local) instead.  Required whenever OSG is active.
+  PP_OSG_FLAGS := --use-osg --use-osg-cip --use-osg-file-transfer --condor-local-nonworker
   # On OSG the cal envelopes are auto-added to the transfer list by util_RIFT_pseudo_pipe.py
   # (referenced as '.'); the PSD is provided as run-dir <IFO>-psd.xml.gz (copied below), which
   # RIFT lists + transfers by basename.  So do NOT pass --use-online-psd-file (it would force
@@ -548,7 +559,7 @@ endif
 	  --assume-nospin --approx IMRPhenomD --ile-sampler-method AV \
 	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
 	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
-	  $(PP_DMARG_FLAGS) $(PP_CALPOST_FLAGS) \
+	  $(PP_DMARG_FLAGS) $(PP_CALPOST_FLAGS) $(PP_CIP_FLAGS) \
 	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30 \
 	  $(PP_DISK_FLAGS) $(PP_OSG_FLAGS) $(PP_PILOT_FLAGS)
 ifeq ($(OSG),1)
@@ -622,6 +633,11 @@ EXTR_NMAX     ?= 40000      # HARD cap on extrinsic samples/point -- the helper 
                             # (production); with slow calmarg convergence that is hours/point on
                             # the NVS 510.  40000 -> ~20 s/point (measured), enough to fit+hand off.
 EXTR_NEFF     ?= 30         # n_eff target -- smoke just confirms seeding; jobs stop at n-max
+# The extrinsic handoff forces --sampler-method GMM on the WIDE stages (the gmm_dict seed needs
+# GMM).  The FINAL extrinsic stage merely EXTRACTS samples and is much more efficient with the AV
+# sampler, so swap it via a post-build search/replace on the generated ILE_extr.sub (a deploy
+# step here -- the pipeline source stays sampler-neutral).  EXTR_EXTRINSIC_AV=0 to keep GMM.
+EXTR_EXTRINSIC_AV ?= 1
 
 .PHONY: extr-run extr-run-build
 
@@ -643,11 +659,17 @@ extr-run-build: cal_env/H1.txt ci_coinc.xml
 	  --assume-nospin --approx IMRPhenomD --ile-sampler-method GMM \
 	  --add-extrinsic --add-extrinsic-time-resampling --internal-ile-srate-time-resampling 4096 \
 	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
-	  --extrinsic-handoff $(PP_DMARG_FLAGS) $(PP_CALPOST_FLAGS) \
+	  --extrinsic-handoff $(PP_DMARG_FLAGS) $(PP_CALPOST_FLAGS) $(PP_CIP_FLAGS) \
 	  --force-initial-grid-size $(EXTR_GRID0) --n-output-samples-last $(EXTR_GRIDN) \
 	  --manual-extra-ile-args "--n-chunk $(EXTR_NCHUNK) --n-max $(EXTR_NMAX)" \
 	  --internal-force-iterations $(EXTR_NIT) \
 	  --internal-ile-request-disk 4M --internal-cip-request-disk 4M --internal-general-request-disk 4M
+	@# AV for the FINAL extrinsic stage (efficiency): post-build search/replace on the generated
+	@# ILE_extr.sub -- the wide stages keep GMM for the handoff seed, the extraction stage uses AV.
+	@if [ "$(EXTR_EXTRINSIC_AV)" = "1" ]; then \
+	   find $(EXTR_RUN) -name 'ILE_extr.sub' -exec sed -i 's/--sampler-method GMM/--sampler-method AV/g' {} + ; \
+	   echo "  [extr] final extrinsic stage -> AV (post-build sed on ILE_extr.sub; wide stages stay GMM)" ; \
+	 fi
 	@# the n-max bound must land AFTER the helper's production --n-max 4000000 (argparse last-wins);
 	@# the manual-extra args are appended last, so the effective n-max is the bounded value.
 	@awk '{for(i=1;i<=NF;i++)if($$i=="--n-max")v=$$(i+1)} END{print "  effective --n-max =",v}' $(EXTR_RUN)/args_ile.txt

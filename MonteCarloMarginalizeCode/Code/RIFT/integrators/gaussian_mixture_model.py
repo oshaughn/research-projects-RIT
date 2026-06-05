@@ -95,8 +95,46 @@ if cupy_ok:
     _xpy_eigvals = cupy.linalg.eigvalsh
     _xpy_eig = cupy.linalg.eigh
 else:
-    _xpy_eigvals = np.linalg.eigvals
-    _xpy_eig = np.linalg.eig
+    # Symmetric routines on CPU as well: the inputs are covariance/correlation
+    # matrices.  eigvalsh/eigh are faster, return real eigenvalues (no spurious
+    # complex output from round-off asymmetry), and match the GPU path.
+    _xpy_eigvals = np.linalg.eigvalsh
+    _xpy_eig = np.linalg.eigh
+
+
+def _near_psd_impl(x, epsilon, xpy):
+    '''
+    Shared, hardened nearest-PSD projection for covariance matrices.
+
+    Never raises on degenerate input: non-finite entries or non-positive
+    variances are repaired with an epsilon-scaled diagonal fallback before
+    the (symmetric, eigh-based) projection, and the projection loop is
+    bounded.  Inputs are in normalized [-1,1] coordinates so an O(epsilon)
+    diagonal is always a meaningful scale.
+    '''
+    n = x.shape[0]
+    # repair non-finite entries: they cannot reach the eigensolver
+    if not bool(xpy.all(xpy.isfinite(x))):
+        diag = xpy.diag(x).copy()
+        diag = xpy.where(xpy.isfinite(diag) & (diag > 0), diag, epsilon*xpy.ones(n))
+        x = xpy.diag(diag)
+    # floor non-positive variances so the correlation rescaling is defined
+    diag = xpy.diag(x)
+    if bool(xpy.any(diag <= 0)):
+        floor = xpy.maximum(diag, epsilon)
+        x = x + xpy.diag(floor - diag)
+    x = 0.5 * (x + x.T)   # symmetrize: eigh assumes it, round-off breaks it
+    for _ in range(10):   # bounded: the legacy `while True` could spin forever
+        var_list = xpy.sqrt(xpy.diag(x))
+        y = x / (var_list[:, None] * var_list[None, :])
+        if bool(xpy.min(_xpy_eigvals(y)) > epsilon):
+            return x
+        eigval, eigvec = _xpy_eig(y)
+        val_psd = xpy.maximum(eigval, epsilon)
+        near_corr = eigvec @ xpy.diag(val_psd) @ eigvec.T
+        near_cov = near_corr * (var_list[:, None] * var_list[None, :])
+        x = 0.5 * (near_cov.real + near_cov.real.T)
+    return x
 
 
 def gpu_logpdf(x, mean, cov, xpy):
@@ -170,9 +208,18 @@ class estimator:
         self.identity_convert_togpu = identity_convert_togpu
 
     def _initialize(self, n, sample_array, log_sample_weights=None):
-        p_weights = self.xpy.exp(log_sample_weights - self.xpy.max(log_sample_weights)).flatten()
-        p_weights[self.xpy.isnan(p_weights)] = 0 # zero out the nan weights
-        p_weights /= self.xpy.sum(p_weights)
+        if log_sample_weights is None:
+            log_sample_weights = self.xpy.zeros(n)
+        finite_max = self.xpy.max(self.xpy.where(self.xpy.isfinite(log_sample_weights), log_sample_weights, -self.xpy.inf))
+        if not bool(self.xpy.isfinite(finite_max)):
+            finite_max = 0.0   # no finite weights at all: fall back to uniform
+        p_weights = self.xpy.exp(log_sample_weights - finite_max).flatten()
+        p_weights[~self.xpy.isfinite(p_weights)] = 0 # zero out the nan/inf weights
+        w_sum = self.xpy.sum(p_weights)
+        if not bool(w_sum > 0):
+            p_weights = self.xpy.ones(n)
+            w_sum = 1.0 * n
+        p_weights /= w_sum
         self.means = sample_array[self.xpy.random.choice(n, self.k, p=p_weights.astype(sample_array.dtype)), :]
         self.covariances = [self.xpy.identity(self.d)] * self.k
         self.weights = self.xpy.ones(self.k) / self.k
@@ -210,26 +257,49 @@ class estimator:
 
     def _m_step(self, n, sample_array):
         '''
-        Maximization step
+        Maximization step.
+
+        Works in the log domain: self.p_nk holds *log* responsibilities
+        (including the normalized log sample weights).  Normalizing within
+        each component via logsumexp BEFORE exponentiating keeps the
+        means/covariances well-defined even when the raw weights span
+        thousands of nats (high-SNR refits): the dominant responsibilities
+        are O(1) by construction instead of all underflowing to zero.
         '''
-        p_nk = self.xpy.exp(self.p_nk)
-        weights = self.xpy.sum(p_nk, axis=0)   # weight of a single component
+        log_p_nk = self.p_nk
+        # per-component log total responsibility (log of the old `weights`)
+        log_w = _xpy_logsumexp(log_p_nk, axis=0)
         for index in range(self.k):
           if self.adapt[index]:
-            # (16.1.6)
-            w = weights[index]   # should be 1 for a single component, note
-            p_k = p_nk[:,index]
-            mean = self.xpy.sum(self.xpy.multiply(sample_array, p_k[:,self.xpy.newaxis]), axis=0)
-            mean /= w
-            self.means[index] = mean
-            # (16.1.6)
+            if not bool(self.xpy.isfinite(log_w[index])):
+                # component received zero/non-finite weight: keep previous params
+                continue
+            # responsibilities normalized within this component: sum to 1
+            r_k = self.xpy.exp(log_p_nk[:,index] - log_w[index])
+            mean = self.xpy.sum(self.xpy.multiply(sample_array, r_k[:,self.xpy.newaxis]), axis=0)
             diff = sample_array - mean
-            cov = self.xpy.dot((p_k[:,self.xpy.newaxis] * diff).T, diff) / w
-            self.covariances[index] = self._near_psd(cov)
+            cov = self.xpy.dot((r_k[:,self.xpy.newaxis] * diff).T, diff)
+            # Guard BEFORE _near_psd (breadcrumb item 1): a degenerate weighted
+            # covariance (all responsibility on ~1 sample, ESS < d+1) or any
+            # non-finite entry must not reach the eigensolver.  Keep the
+            # previous covariance (identity at init) and only update the mean.
+            ess_k = 1.0 / self.xpy.sum(r_k**2)
+            cov_ok = bool(self.xpy.all(self.xpy.isfinite(cov))) \
+                and bool(self.xpy.trace(cov) > 0) \
+                and bool(ess_k >= self.d + 1)
+            self.means[index] = mean
+            if cov_ok:
+                self.covariances[index] = self._near_psd(cov)
             # (16.17)
-        weights /= self.xpy.sum(p_nk[:,self.adapt])
-        weights /= self.xpy.sum(weights)
-        self.weights = weights
+        # mixture weights via logsumexp over ALL components (the legacy
+        # double normalization cancels to exactly this softmax)
+        log_w_safe = self.xpy.where(self.xpy.isfinite(log_w), log_w, -self.xpy.inf*self.xpy.ones(self.k))
+        log_norm = _xpy_logsumexp(log_w_safe)
+        if bool(self.xpy.isfinite(log_norm)):
+            weights = self.xpy.exp(log_w_safe - log_norm)
+            w_sum = self.xpy.sum(weights)
+            if bool(w_sum > 0) and bool(self.xpy.all(self.xpy.isfinite(weights))):
+                self.weights = weights / w_sum
 
 
     def _tol(self, n):
@@ -243,35 +313,8 @@ class estimator:
         '''
         Calculates the nearest postive semi-definite matrix for a correlation/covariance matrix
         '''
-        n = x.shape[0]
-        var_list = self.xpy.array([self.xpy.sqrt(x[i,i]) for i in range(n)])
-        # Use broadcasting for y instead of nested list comprehension
-        y = x / (var_list[:, None] * var_list[None, :])
-        while True:
-            epsilon = self.epsilon
-            if self.xpy.min(_xpy_eigvals(y)) > epsilon:
-                return x
+        return _near_psd_impl(x, self.epsilon, self.xpy)
 
-            var_list = self.xpy.array([self.xpy.sqrt(x[i,i]) for i in range(n)])
-            y = x / (var_list[:, None] * var_list[None, :])
-
-            eigval, eigvec = _xpy_eig(y)
-            val = self.xpy.maximum(eigval, epsilon)
-            vec = eigvec
-
-            # Standard PSD projection:
-            val_psd = self.xpy.maximum(eigval, epsilon)
-            near_corr = vec @ self.xpy.diag(val_psd) @ vec.T
-            
-            # Re-scale back to covariance
-            near_cov = near_corr * (var_list[:, None] * var_list[None, :])
-            
-            if self.xpy.isreal(near_cov).all():
-                break
-            else:
-                x = near_cov.real
-        return near_cov
-    
     def fit(self, sample_array, log_sample_weights):
         '''
         Fit the model to data
@@ -324,10 +367,15 @@ class gmm:
     More sophisticated implementation built on top of estimator class
     '''
 
-    def __init__(self, k, bounds, max_iters=1000,epsilon=None,tempering_coeff=1e-8):
+    def __init__(self, k, bounds, max_iters=1000,epsilon=None,tempering_coeff=1e-8,memory_factor=3.0):
         self.k = k
         self.bounds = bounds
         self.max_iters = max_iters
+        # update() merge memory: the old model enters the merge with weight
+        # min(N, memory_factor*M) instead of the full cumulative N, so an
+        # early bad fit cannot accumulate unbounded inertia (the proposal can
+        # always recover within ~memory_factor chunks).
+        self.memory_factor = memory_factor
         self.means = [None] * k
         self.covariances =[None] * k
         self.weights = [None] * k
@@ -403,8 +451,13 @@ class gmm:
 
     def _merge(self, new_model, M):
         '''
-        Merge corresponding components of new model and old model
+        Merge corresponding components of new model and old model.
+
+        The old model's merge weight is capped at memory_factor*M (bounded
+        memory): with the legacy cumulative self.N an early bad fit dominated
+        every later merge and the proposal could never recover.
         '''
+        N_merge = min(self.N, self.memory_factor * M) if self.memory_factor else self.N
         order = self._match_components(new_model)
         for i in range(self.k):
             j = order[i]
@@ -414,22 +467,22 @@ class gmm:
             temp_cov = new_model.covariances[j]
             old_weight = self.weights[i]
             temp_weight = new_model.weights[j]
-            denominator = (self.N * old_weight) + (M * temp_weight)
+            denominator = (N_merge * old_weight) + (M * temp_weight)
             
-            mean = (self.N * old_weight * old_mean) + (M * temp_weight * temp_mean)
+            mean = (N_merge * old_weight * old_mean) + (M * temp_weight * temp_mean)
             mean /= denominator
             
-            cov1 = (self.N * old_weight * old_cov) + (M * temp_weight * temp_cov)
+            cov1 = (N_merge * old_weight * old_cov) + (M * temp_weight * temp_cov)
             cov1 /= denominator
             
             # outer product for means
-            cov2 = (self.N * old_weight * self.xpy.outer(old_mean, old_mean)) + (M * temp_weight * self.xpy.outer(temp_mean, temp_mean))
+            cov2 = (N_merge * old_weight * self.xpy.outer(old_mean, old_mean)) + (M * temp_weight * self.xpy.outer(temp_mean, temp_mean))
             cov2 /= denominator
             
             cov = cov1 + cov2 - self.xpy.outer(mean, mean)
             cov = self._near_psd(cov)
             
-            weight = denominator / (self.N + M)
+            weight = denominator / (N_merge + M)
             
             self.means[i] = mean
             self.covariances[i] = cov
@@ -439,32 +492,15 @@ class gmm:
         '''
         Calculates the nearest postive semi-definite matrix for a correlation/covariance matrix
         '''
-        n = x.shape[0]
-        var_list = self.xpy.array([self.xpy.sqrt(x[i,i]) for i in range(n)])
-        y = x / (var_list[:, None] * var_list[None, :])
-        while True:
-            epsilon = self.epsilon
-            if self.xpy.min(_xpy_eigvals(y)) > epsilon:
-                return x
-
-            var_list = self.xpy.array([self.xpy.sqrt(x[i,i]) for i in range(n)])
-            y = x / (var_list[:, None] * var_list[None, :])
-
-            eigval, eigvec = _xpy_eig(y)
-            val_psd = self.xpy.maximum(eigval, epsilon)
-            near_corr = eigvec @ self.xpy.diag(val_psd) @ eigvec.T
-            near_cov = near_corr * (var_list[:, None] * var_list[None, :])
-            if self.xpy.isreal(near_cov).all():
-                break
-            else:
-                x = near_cov.real
-        return near_cov
+        return _near_psd_impl(x, self.epsilon, self.xpy)
 
     def update(self, sample_array, log_sample_weights=None):
         '''
         Updates the model with new data without doing a full retraining.
         '''
-        self.tempering_coeff /= 2
+        # halve the covariance regularizer but FLOOR it: an unbounded decay
+        # (the legacy behavior) eventually leaves sharp refits unregularized
+        self.tempering_coeff = max(self.tempering_coeff / 2, 1e-12)
         new_model = estimator(self.k, self.max_iters, self.tempering_coeff)
         
         # Filter non-finite
@@ -523,10 +559,15 @@ class gmm:
                 my_cdf = norm(loc=mean_cpu, scale=sigma_cpu).cdf
                 normalization_constant += w * (my_cdf(bounds_norm_cpu[1]) - my_cdf(bounds_norm_cpu[0]))
         
+        # Floors: a sharply-truncated component can drive the mvnun
+        # normalization to 0 (0/0 -> NaN), and exactly-zero scores later become
+        # log(0) = -inf in the integrator's weights.  1e-300 keeps the log
+        # finite without affecting any sample that carries real weight.
+        normalization_constant = max(float(normalization_constant), 1e-300)
         scores /= normalization_constant
         vol = self.xpy.prod(self.bounds[:,1] - self.bounds[:,0])
         scores *= (2.0**self.d) / vol
-        return scores
+        return self.xpy.maximum(scores, 1e-300)
 
     def sample(self, n, use_bounds=True):
         '''
