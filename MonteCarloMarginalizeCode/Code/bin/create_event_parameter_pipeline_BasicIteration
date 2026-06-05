@@ -1130,6 +1130,7 @@ if opts.calmarg_pilot:
         universe="vanilla",
         singularity_image=(singularity_image if opts.condor_containerize_nonworker else None))
     calpilot_job.add_condor_cmd("initialdir", opts.working_directory + "/iteration_$(macroiteration)_cip")
+    calpilot_job.add_condor_cmd('request_disk',opts.general_request_disk)
     if opts.use_full_submit_paths:
         calpilot_job.set_sub_file(opts.working_directory + "/" + calpilot_job.get_sub_file())
     calpilot_job.write_sub_file()
