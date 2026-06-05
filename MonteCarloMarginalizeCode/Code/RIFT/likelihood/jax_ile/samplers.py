@@ -1008,6 +1008,218 @@ def fisher_nuts_sample(like, num_warmup=300, num_samples=1500, num_chains=4,
                 theta_map=th0, cov=(V * v) @ V.T)
 
 
+def _pad_phi(theta4):
+    """Pad ``(N, 4)`` theta4 with a zero phiref column so the 5-D angular-
+    distance helpers (:func:`_pick_well_separated`, :func:`cluster_modes`)
+    apply unchanged (the dphi term is then identically zero)."""
+    theta4 = np.atleast_2d(theta4)
+    return np.concatenate([theta4, np.zeros((len(theta4), 1))], axis=1)
+
+
+def _multistart_map_4(like, n_starts, n_prior_pilot, rng, min_sep=0.3,
+                      n_modes=4, verbose=False):
+    """Distinct local maxima of the 4-D (dist+phi-marginalised) lnL.
+
+    Pilot prior scan -> well-separated high-lnL seeds -> L-BFGS-B (AD
+    gradient) from each -> cluster the optimized endpoints into distinct
+    modes.  Returns ``(modes (k,4), mode_lnL (k,))`` with ``k <= n_modes``,
+    sorted by lnL (best first).
+    """
+    from scipy.optimize import minimize
+    pilot = sample_prior_4(max(n_prior_pilot, n_starts), rng)
+    plnL = eval_lnL_4(like, pilot, desc="pilot")
+    seeds5, _ = _pick_well_separated(_pad_phi(pilot), plnL, n_starts,
+                                     min_sep=min_sep)
+    seeds = seeds5[:, :4]
+
+    def negf(x):
+        v, g = like.value_and_grad(x)
+        return -float(v), -np.asarray(g)
+
+    ends, ends_lnL = [], []
+    for s in seeds:
+        try:
+            r = minimize(negf, s, jac=True, method="L-BFGS-B",
+                         bounds=_BOUNDS4, options={"maxiter": 300})
+            ends.append(r.x); ends_lnL.append(-r.fun)
+        except Exception:
+            continue
+    if not ends:
+        i = int(np.argmax(plnL))
+        return pilot[i:i + 1], plnL[i:i + 1]
+    ends = np.asarray(ends); ends_lnL = np.asarray(ends_lnL)
+
+    # cluster optimizer endpoints -> distinct modes, best-first
+    modes, mode_lnL = [], []
+    for rep, idx in cluster_modes(_pad_phi(ends), min_sep=min_sep):
+        j = idx[np.argmax(ends_lnL[idx])]
+        modes.append(ends[j]); mode_lnL.append(ends_lnL[j])
+    order = np.argsort(mode_lnL)[::-1][:n_modes]
+    modes = np.asarray(modes)[order]; mode_lnL = np.asarray(mode_lnL)[order]
+    # drop modes overwhelmingly below the best (no posterior mass)
+    keep = mode_lnL > mode_lnL[0] - 30.0
+    if verbose:
+        print("  multistart MAP: %d distinct modes (lnL: %s); keeping %d"
+              % (len(modes), np.array2string(mode_lnL, precision=1),
+                 int(keep.sum())))
+    return modes[keep], mode_lnL[keep]
+
+
+def fisher_nuts_sample_phimarg(like, num_warmup=300, num_samples=1000,
+                               n_starts=12, n_modes=4, n_prior_pilot=20000,
+                               max_std=2.5, target_accept=0.85, n_is=40000,
+                               seed=0, verbose=False):
+    """Fisher-WHITENED NUTS on the 4-D (distance+phi_ref)-marginalised posterior.
+
+    The principled high-SNR path: no tempering, no importance-reweighting of a
+    broadened target.  Combines the two existing ingredients:
+
+      * :class:`~RIFT.likelihood.jax_ile.wrapper.JAXDistPhiMargLikelihood`
+        removes the curved psi/phi_ref ridge (the failure mode of the 5-D
+        Fisher proposal), leaving a 4-D posterior whose modes are locally
+        Gaussian at high SNR;
+      * Fisher whitening (as :func:`fisher_nuts_sample`) maps each mode to
+        O(1) scale so NUTS keeps a healthy step size at ANY SNR -- the sky
+        ring narrowing as 1/SNR no longer shrinks the step.
+
+    Multimodality (the discrete time-delay sky modes) is handled by
+    multi-start: distinct AD-gradient MAP modes are found first
+    (:func:`_multistart_map_4`), one whitened NUTS chain runs per mode, and
+    chains are pooled with per-mode posterior-mass weights.
+
+    Evidence: a Gaussian-mixture importance estimate (one moment-matched,
+    inflated component per mode chain), as :func:`multistart_nuts` -- NOT the
+    single-Gaussian estimator of :func:`flowmc_sample`, which collapses on a
+    multimodal ring.
+
+    Returns dict: ``theta`` (N,4), ``lnL`` (N,), ``post_weight`` (N,; uniform
+    within a chain, proportional to the mode's mass across chains), ``logZ``,
+    ``sigma_over_Z``, ``neff``, ``theta_map`` (4,), ``modes`` (k,4),
+    ``mode_lnL`` (k,), ``mode_logZ`` (k,).
+    """
+    import numpyro
+    import numpyro.distributions as dist
+    from numpyro.infer import MCMC, NUTS, init_to_value
+
+    rng = np.random.default_rng(seed)
+    _warmup_compile(like, verbose=verbose)
+    modes, mode_lnL = _multistart_map_4(like, n_starts, n_prior_pilot, rng,
+                                        n_modes=n_modes, verbose=verbose)
+    K = len(modes)
+
+    per_chain = []
+    for k in range(K):
+        th0 = modes[k]
+        F = np.asarray(like.fisher(th0)); F = 0.5 * (F + F.T)
+        w, V = np.linalg.eigh(F)
+        v = np.clip(1.0 / np.clip(w, 1.0 / max_std ** 2, None),
+                    0.0, max_std ** 2)
+        A = jnp.asarray(V * np.sqrt(v))         # theta = th0 + A @ y
+        th0j = jnp.asarray(th0)
+
+        def model():
+            y = numpyro.sample("y", dist.Normal(0.0, 4.0).expand([4]))
+            th = th0j + A @ y
+            dec, incl = th[1], th[3]
+            in_dec = (dec > -_PI / 2) & (dec < _PI / 2)
+            in_incl = (incl > 0.0) & (incl < _PI)
+            logpri = jnp.where(
+                in_dec & in_incl,
+                jnp.log(jnp.clip(jnp.cos(dec), 1e-30, None))
+                + jnp.log(jnp.clip(jnp.sin(incl), 1e-30, None)),
+                -1e10)
+            lnL = like._scalar(jnp.stack([th[0], dec, th[2], incl]))
+            # undo the N(0,4) pseudo-prior so the target is exactly lnL+logpri
+            numpyro.factor("post", lnL + logpri
+                           + 0.5 * jnp.sum((y / 4.0) ** 2))
+
+        kernel = NUTS(model, target_accept_prob=target_accept,
+                      init_strategy=init_to_value(values={"y": np.zeros(4)}))
+        mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples,
+                    num_chains=1, progress_bar=verbose)
+        mcmc.run(jax.random.PRNGKey(seed + 1 + k))
+        y = np.asarray(mcmc.get_samples()["y"])
+        th = th0[None, :] + y @ np.asarray(A).T
+        th[:, 0] = np.mod(th[:, 0], _TWO_PI)     # wrap ra
+        th[:, 2] = np.mod(th[:, 2], _PI)         # wrap psi
+        per_chain.append(th)
+        if verbose:
+            print("  mode %d/%d: NUTS done (MAP lnL=%.2f)" %
+                  (k + 1, K, mode_lnL[k]))
+
+    theta = np.concatenate(per_chain, axis=0)
+    lnL = eval_lnL_4(like, theta, desc="reweight")
+
+    # -- evidence: Gaussian-mixture IS, one component per mode chain --------
+    mus, covs = [], []
+    for th in per_chain:
+        if len(th) >= 6:
+            mu, cov = _moment_match(th, np.zeros(len(th)))
+            mus.append(mu); covs.append(cov * 2.0)
+    if not mus:
+        mu, cov = _moment_match(theta, np.zeros(len(theta)))
+        mus, covs = [mu], [cov * 2.0]
+    weights = np.full(len(mus), 1.0 / len(mus))
+
+    counts = rng.multinomial(n_is, weights)
+    draws, comp_of_draw = [], []
+    for c in range(len(mus)):
+        if counts[c] == 0:
+            continue
+        Lc = np.linalg.cholesky(covs[c] + 1e-12 * np.eye(4))
+        z = rng.standard_normal((counts[c], 4))
+        draws.append(mus[c][None, :] + z @ Lc.T)
+        comp_of_draw.append(np.full(counts[c], c))
+    th_is = np.concatenate(draws, axis=0)
+    comp_of_draw = np.concatenate(comp_of_draw)
+
+    logq = _mixture_logq(th_is, mus, covs, weights)
+    logp = log_prior_4(th_is)
+    valid = np.isfinite(logp)
+    lnL_is = np.full(len(th_is), -np.inf)
+    if valid.any():
+        lnL_is[valid] = eval_lnL_4(like, th_is[valid], desc="evidence")
+    logw = np.where(valid, lnL_is + logp - logq, -np.inf)
+    logZ, sigma_over_Z, neff = evidence_from_logweights(logw)
+    logZ, sigma_over_Z, neff = _finalize_evidence(
+        logZ, sigma_over_Z, neff, float(np.max(lnL)) if len(lnL) else np.nan)
+
+    # -- per-mode mass -> chain weights (pooled chains are equal-length, so
+    # subdominant modes are over-represented; reweight by mode evidence).
+    # Mass of mode k ~ sum of IS weights from draws nearest to component k
+    # (components are well-separated, so component label ~ mode label).
+    mode_logZ = np.full(len(mus), -np.inf)
+    fin = np.isfinite(logw)
+    if fin.any():
+        m = np.max(logw[fin])
+        for c in range(len(mus)):
+            sel = fin & (comp_of_draw == c)
+            if sel.any():
+                mode_logZ[c] = m + np.log(np.sum(np.exp(logw[sel] - m))
+                                          / max(counts[c], 1)) \
+                               + np.log(weights[c])
+    if np.isfinite(mode_logZ).any():
+        lw = mode_logZ - np.max(mode_logZ[np.isfinite(mode_logZ)])
+        mass = np.where(np.isfinite(lw), np.exp(lw), 0.0)
+    else:
+        mass = np.ones(len(mus))
+    mass = mass / mass.sum()
+    post_weight = np.concatenate([
+        np.full(len(per_chain[c]), mass[c] / max(len(per_chain[c]), 1))
+        for c in range(len(per_chain))])
+    post_weight = post_weight / post_weight.sum()
+
+    if verbose:
+        print("  Fisher-NUTS(phimarg): %d draws over %d modes; "
+              "logZ=%.3f  neff(IS)=%.1f  mode mass=%s"
+              % (len(theta), K, logZ, neff,
+                 np.array2string(mass, precision=3)))
+    return dict(theta=theta, lnL=lnL, post_weight=post_weight, logZ=logZ,
+                sigma_over_Z=sigma_over_Z, neff=neff,
+                theta_map=modes[0], modes=modes, mode_lnL=mode_lnL,
+                mode_logZ=mode_logZ, flow_state=None)
+
+
 # ---------------------------------------------------------------------------
 # Self-test
 # ---------------------------------------------------------------------------

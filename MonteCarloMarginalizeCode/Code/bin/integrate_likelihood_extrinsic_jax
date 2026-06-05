@@ -317,13 +317,17 @@ def build_parser():
     g = OptionGroup(optp, "Extrinsic exploration / sampling")
     g.add_option("--mode", default="laplace-is",
                  choices=["prior-mc", "laplace-is", "map", "nuts",
-                          "multistart-nuts", "flowmc", "flowmc-phimarg"],
+                          "multistart-nuts", "flowmc", "flowmc-phimarg",
+                          "nuts-phimarg"],
                  help="Extrinsic exploration: prior-mc | laplace-is | map | "
                       "nuts (single-chain) | multistart-nuts (mode-covering) | "
                       "flowmc (normalizing-flow, 5-D) | "
                       "flowmc-phimarg (phi_ref-marginalised flowMC, 4-D — removes "
-                      "the psi/phi_ref degeneracy ridge; recommended for high SNR). "
-                      "The last four need --distance-marginalization.")
+                      "the psi/phi_ref degeneracy ridge) | "
+                      "nuts-phimarg (Fisher-whitened multi-start NUTS on the 4-D "
+                      "phi_ref-marginalised posterior — whitening keeps the NUTS "
+                      "step size O(1) at any SNR; recommended for high SNR). "
+                      "The last five need --distance-marginalization.")
     g.add_option("--num-warmup", type=int, default=500,
                  help="NUTS warmup iterations (--mode nuts).")
     g.add_option("--num-samples", type=int, default=2000,
@@ -347,6 +351,21 @@ def build_parser():
     g.add_option("--n-phi", type=int, default=32,
                  help="phi_ref grid size for --mode flowmc-phimarg (default 32; "
                       "use 64-128 for l-max>=4 or production quality).")
+    # flowMC tuning (modes flowmc / flowmc-phimarg).  Defaults match
+    # samplers.flowmc_sample*; exposed so pipeline Makefiles can tune them.
+    g.add_option("--n-training-loops", type=int, default=4,
+                 help="flowMC training loops (flow fit refinements).")
+    g.add_option("--n-production-loops", type=int, default=4,
+                 help="flowMC production loops (post-training sampling).")
+    g.add_option("--n-epochs", type=int, default=10,
+                 help="flowMC NF training epochs per training loop.")
+    g.add_option("--n-local-steps", type=int, default=20,
+                 help="flowMC local (MALA) steps per loop.")
+    g.add_option("--n-global-steps", type=int, default=20,
+                 help="flowMC global (flow-proposal) steps per loop.")
+    g.add_option("--n-prior-pilot", type=int, default=8000,
+                 help="Prior pilot draws used to initialize chains (and to "
+                      "seed multi-start optimizers).")
     g.add_option("--interp", default="linear", choices=["linear", "nearest"])
     g.add_option("--sky-coordinates", default="equatorial",
                  choices=["equatorial", "network"],
@@ -781,11 +800,12 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     print("  modes:", like_data.lms, "  guessed SNR:", extras["guess_snr"])
 
     with_distance = not opts.distance_marginalization
-    if opts.mode == "flowmc-phimarg":
+    if opts.mode in ("flowmc-phimarg", "nuts-phimarg"):
         # phi_ref-marginalised: requires distance marginalisation (baked in);
         # produces a 4-D (ra, dec, psi, incl) posterior.
         if not opts.distance_marginalization:
-            raise SystemExit("--mode flowmc-phimarg requires --distance-marginalization.")
+            raise SystemExit("--mode %s requires --distance-marginalization."
+                             % opts.mode)
         from RIFT.likelihood.jax_ile.wrapper import JAXDistPhiMargLikelihood
         nphi = getattr(opts, "n_phi", 32)
         print("Distance + phi_ref marginalization: ON (grid=%d, nphi=%d, d in [%g,%g] Mpc)"
@@ -821,13 +841,21 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         return lnL_map, None
 
     out_flow_state = None
-    if opts.mode in ("multistart-nuts", "flowmc", "flowmc-phimarg"):
-        if opts.mode != "flowmc-phimarg" and with_distance:
+    if opts.mode in ("multistart-nuts", "flowmc", "flowmc-phimarg", "nuts-phimarg"):
+        if opts.mode not in ("flowmc-phimarg", "nuts-phimarg") and with_distance:
             raise SystemExit("--mode %s requires --distance-marginalization "
                              "(it samples the 5-D angular posterior)." % opts.mode)
         from RIFT.likelihood.jax_ile import samplers as _samplers
         n_starts = opts.num_chains if opts.num_chains and opts.num_chains > 1 else 8
-        if opts.mode == "multistart-nuts":
+        if opts.mode == "nuts-phimarg":
+            # Fisher-whitened multi-start NUTS on the 4-D phimarg posterior.
+            res = _samplers.fisher_nuts_sample_phimarg(
+                like, num_warmup=opts.num_warmup,
+                num_samples=opts.num_samples,
+                n_starts=max(n_starts, 8),
+                n_prior_pilot=opts.n_prior_pilot,
+                seed=opts.seed, verbose=opts.verbose)
+        elif opts.mode == "multistart-nuts":
             res = _samplers.multistart_nuts(
                 like, opts.d_min, opts.d_max, n_starts=n_starts,
                 num_warmup=opts.num_warmup, num_samples=opts.num_samples,
@@ -838,12 +866,23 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
             res = _samplers.flowmc_sample_phimarg(
                 like, opts.d_min, opts.d_max,
                 n_chains=max(n_starts, 20),
-                n_prior_pilot=getattr(opts, "n_prior_pilot", 8000),
+                n_local_steps=opts.n_local_steps,
+                n_global_steps=opts.n_global_steps,
+                n_training_loops=opts.n_training_loops,
+                n_production_loops=opts.n_production_loops,
+                n_epochs=opts.n_epochs,
+                n_prior_pilot=opts.n_prior_pilot,
                 seed=opts.seed, reuse_state=flow_state, verbose=opts.verbose)
             out_flow_state = res.get("flow_state")
         else:
             res = _samplers.flowmc_sample(
                 like, opts.d_min, opts.d_max, n_chains=max(n_starts, 20),
+                n_local_steps=opts.n_local_steps,
+                n_global_steps=opts.n_global_steps,
+                n_training_loops=opts.n_training_loops,
+                n_production_loops=opts.n_production_loops,
+                n_epochs=opts.n_epochs,
+                n_prior_pilot=opts.n_prior_pilot,
                 seed=opts.seed, reuse_state=flow_state, verbose=opts.verbose)
             out_flow_state = res.get("flow_state")  # bootstrap the next event
         theta, lnL = res["theta"], res["lnL"]
