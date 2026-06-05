@@ -265,6 +265,14 @@ class integrator:
             sampling_prior_array = sampling_prior_array[mask_ok]
             prior_array = prior_array[mask_ok]
 
+        # replace -inf lnL (zero likelihood) by a finite very-low value:
+        # beta=0 would otherwise produce 0*(-inf)=NaN in the tempered weights
+        if not bool(self.xpy.all(self.xpy.isfinite(lnL))):
+            lnL_min = self.xpy.min(self.xpy.where(self.xpy.isfinite(lnL), lnL, self.xpy.inf))
+            if not bool(self.xpy.isfinite(lnL_min)):
+                lnL_min = 0.0
+            lnL = self.xpy.where(self.xpy.isfinite(lnL), lnL, lnL_min - 1000.)
+
         # ln p - ln p_s  (NOTE: log of the sampling prior. The legacy code
         # subtracted the *raw* sampling_prior_array from a log-quantity.)
         log_pq = self.xpy.log(self.xpy.maximum(prior_array, 1e-300)) \
