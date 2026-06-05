@@ -317,11 +317,13 @@ def build_parser():
     g = OptionGroup(optp, "Extrinsic exploration / sampling")
     g.add_option("--mode", default="laplace-is",
                  choices=["prior-mc", "laplace-is", "map", "nuts",
-                          "multistart-nuts", "flowmc"],
+                          "multistart-nuts", "flowmc", "flowmc-phimarg"],
                  help="Extrinsic exploration: prior-mc | laplace-is | map | "
                       "nuts (single-chain) | multistart-nuts (mode-covering) | "
-                      "flowmc (normalizing-flow). The last three need "
-                      "--distance-marginalization.")
+                      "flowmc (normalizing-flow, 5-D) | "
+                      "flowmc-phimarg (phi_ref-marginalised flowMC, 4-D — removes "
+                      "the psi/phi_ref degeneracy ridge; recommended for high SNR). "
+                      "The last four need --distance-marginalization.")
     g.add_option("--num-warmup", type=int, default=500,
                  help="NUTS warmup iterations (--mode nuts).")
     g.add_option("--num-samples", type=int, default=2000,
@@ -342,6 +344,9 @@ def build_parser():
     g.add_option("--d-max", type=float, default=10000.0, help="Max distance (Mpc).")
     g.add_option("--distance-grid-points", type=int, default=256)
     g.add_option("--phase-marginalization", action="store_true", default=False)
+    g.add_option("--n-phi", type=int, default=32,
+                 help="phi_ref grid size for --mode flowmc-phimarg (default 32; "
+                      "use 64-128 for l-max>=4 or production quality).")
     g.add_option("--interp", default="linear", choices=["linear", "nearest"])
     g.add_option("--sky-coordinates", default="equatorial",
                  choices=["equatorial", "network"],
@@ -736,12 +741,20 @@ def write_samples(opts, out_index, theta, lnL, with_distance):
     if not (opts.output_file and opts.save_samples) or theta is None:
         return
     good = np.isfinite(lnL)
+    ndim = theta.shape[1] if theta.ndim == 2 else len(theta)
     if with_distance:
+        # 6-D: ra, dec, psi, incl, phiref, dist
         cols = np.column_stack([theta[good, 0], theta[good, 1], theta[good, 5],
                                 theta[good, 3], theta[good, 2], theta[good, 4],
                                 lnL[good]])
         hdr = "right_ascension declination distance inclination psi phi_orb loglikelihood"
+    elif ndim == 4:
+        # 4-D (flowmc-phimarg): ra, dec, psi, incl (phi_ref marginalised out)
+        cols = np.column_stack([theta[good, 0], theta[good, 1],
+                                theta[good, 3], theta[good, 2], lnL[good]])
+        hdr = "right_ascension declination inclination psi loglikelihood"
     else:
+        # 5-D: ra, dec, psi, incl, phiref
         cols = np.column_stack([theta[good, 0], theta[good, 1], theta[good, 3],
                                 theta[good, 2], theta[good, 4], lnL[good]])
         hdr = "right_ascension declination inclination psi phi_orb loglikelihood"
@@ -768,7 +781,22 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
     print("  modes:", like_data.lms, "  guessed SNR:", extras["guess_snr"])
 
     with_distance = not opts.distance_marginalization
-    if opts.distance_marginalization:
+    if opts.mode == "flowmc-phimarg":
+        # phi_ref-marginalised: requires distance marginalisation (baked in);
+        # produces a 4-D (ra, dec, psi, incl) posterior.
+        if not opts.distance_marginalization:
+            raise SystemExit("--mode flowmc-phimarg requires --distance-marginalization.")
+        from RIFT.likelihood.jax_ile.wrapper import JAXDistPhiMargLikelihood
+        nphi = getattr(opts, "n_phi", 32)
+        print("Distance + phi_ref marginalization: ON (grid=%d, nphi=%d, d in [%g,%g] Mpc)"
+              % (opts.distance_grid_points, nphi, opts.d_min, opts.d_max))
+        like = JAXDistPhiMargLikelihood(
+            like_data, opts.d_min, opts.d_max,
+            nphi=nphi, n_grid=opts.distance_grid_points,
+            interp=opts.interp)
+        with_distance = False   # distance is already marginalised inside like
+        dim = 4
+    elif opts.distance_marginalization:
         print("Distance marginalization: ON (grid=%d, d in [%g,%g] Mpc)"
               % (opts.distance_grid_points, opts.d_min, opts.d_max))
         like = JAXDistanceMarginalizedLikelihood(
@@ -793,8 +821,8 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         return lnL_map, None
 
     out_flow_state = None
-    if opts.mode in ("multistart-nuts", "flowmc"):
-        if with_distance:
+    if opts.mode in ("multistart-nuts", "flowmc", "flowmc-phimarg"):
+        if opts.mode != "flowmc-phimarg" and with_distance:
             raise SystemExit("--mode %s requires --distance-marginalization "
                              "(it samples the 5-D angular posterior)." % opts.mode)
         from RIFT.likelihood.jax_ile import samplers as _samplers
@@ -805,6 +833,14 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 num_warmup=opts.num_warmup, num_samples=opts.num_samples,
                 seed=opts.seed, sky_coords=opts.sky_coordinates,
                 verbose=opts.verbose)
+        elif opts.mode == "flowmc-phimarg":
+            # 4-D phi-marginalised flowMC; flow re-use across intrinsic batch.
+            res = _samplers.flowmc_sample_phimarg(
+                like, opts.d_min, opts.d_max,
+                n_chains=max(n_starts, 20),
+                n_prior_pilot=getattr(opts, "n_prior_pilot", 8000),
+                seed=opts.seed, reuse_state=flow_state, verbose=opts.verbose)
+            out_flow_state = res.get("flow_state")
         else:
             res = _samplers.flowmc_sample(
                 like, opts.d_min, opts.d_max, n_chains=max(n_starts, 20),
