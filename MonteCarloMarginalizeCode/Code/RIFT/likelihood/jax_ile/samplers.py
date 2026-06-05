@@ -664,15 +664,40 @@ def _log_prior_4_jax(theta4):
     return jnp.where(inb, logp, -1e30)
 
 
-def eval_lnL_4(like, theta, chunk=4000):
+def eval_lnL_4(like, theta, chunk=4000, desc="lnL"):
     """Evaluate the 4-param (phi-marginalised) lnL on an ``(N, 4)`` array."""
     theta = np.atleast_2d(theta)
     N = theta.shape[0]
     out = np.empty(N)
-    for i in range(0, N, chunk):
+    try:
+        from tqdm.auto import tqdm
+        chunks = list(range(0, N, chunk))
+        it = tqdm(chunks, desc=desc, unit="chunk", leave=False)
+    except ImportError:
+        it = range(0, N, chunk)
+    for i in it:
         sl = slice(i, min(i + chunk, N))
         out[sl] = np.asarray(like.log_likelihood(*[theta[sl, j] for j in range(4)]))
     return out
+
+
+def _warmup_compile(like, verbose=True):
+    """Trigger JIT compilation on a 2-sample dummy batch before the main work.
+
+    The first JAX call traces and compiles the XLA graph, which for a
+    phi-marginalised likelihood with lax.scan can take 30–120 s.  Doing it
+    explicitly with a message prevents the silent hang.
+    """
+    import time as _time
+    if verbose:
+        print("  [jax_ile] compiling JAX kernel … ", end="", flush=True)
+    t0 = _time.perf_counter()
+    dummy = np.zeros((2, 4))
+    dummy[:, 2] = 0.5   # psi in (0, pi)
+    dummy[:, 3] = 1.0   # incl in (0, pi)
+    _ = np.asarray(like.log_likelihood(*[dummy[:, j] for j in range(4)]))
+    if verbose:
+        print("done (%.1f s)" % (_time.perf_counter() - t0), flush=True)
 
 
 def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
@@ -726,20 +751,27 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
                 and np.all(np.isfinite(log_prior_4(pos))):
             init = jnp.asarray(pos)
     if init is None:
+        # Compile the JIT kernel before the pilot scan so the progress bar
+        # reflects actual likelihood evaluations, not silent compilation time.
+        _warmup_compile(like, verbose=verbose)
         pilot = sample_prior_4(max(n_prior_pilot, n_chains), rng)
-        pilot_lnL = eval_lnL_4(like, pilot)
+        pilot_lnL = eval_lnL_4(like, pilot, desc="pilot")
         top = np.argsort(pilot_lnL)[::-1][:n_chains]
         init = jnp.asarray(pilot[top])
+    else:
+        _warmup_compile(like, verbose=verbose)
 
     sampler = Sampler(n_dim=n_dim, n_chains=n_chains, rng_key=skey,
                       resource_strategy_bundles=bundle)
+    if verbose:
+        print("  [flowMC] sampling …", flush=True)
     sampler.sample(init, {})
     prod = np.asarray(sampler.resources["positions_production"].data)
     theta = prod.reshape(-1, n_dim)
 
     finite = np.all(np.isfinite(theta), axis=1) & np.isfinite(log_prior_4(theta))
     theta = theta[finite]
-    lnL = eval_lnL_4(like, theta) if len(theta) else np.array([])
+    lnL = eval_lnL_4(like, theta, desc="reweight") if len(theta) else np.array([])
 
     try:
         trained_model = sampler.resources["model"]

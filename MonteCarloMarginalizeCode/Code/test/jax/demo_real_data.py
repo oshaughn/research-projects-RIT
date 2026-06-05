@@ -402,12 +402,14 @@ def task_snr_marg(params, data_dir, frame_dir, opts):
         t0 = time.time()
         th_all, lnL_all, pw_all = [], [], []
         for r in range(opts.n_runs):
+            print("  run %d/%d  SNR=%.0f  T=%.1f  nphi=%d"
+                  % (r + 1, opts.n_runs, snr_real, temper, nphi), flush=True)
             res = samplers.flowmc_sample_phimarg(
                 like, 1.0, 20000.0, n_chains=opts.n_chains,
                 n_production_loops=opts.n_production_loops,
                 n_training_loops=opts.n_training_loops, n_epochs=opts.n_epochs,
                 n_prior_pilot=opts.n_prior_pilot, reuse_state=None,
-                temper=temper, seed=opts.seed + 1000 * r)
+                temper=temper, seed=opts.seed + 1000 * r, verbose=True)
             if len(res["theta"]):
                 th_all.append(res["theta"])    # (N, 4): ra, dec, psi, incl
                 lnL_all.append(res["lnL"])
