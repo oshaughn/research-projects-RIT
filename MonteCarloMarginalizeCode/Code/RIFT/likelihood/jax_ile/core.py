@@ -373,6 +373,133 @@ def _logsumexp_grid_blocked(K, R, a, b, log_w, block):
     return m + jnp.log(s)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# φ_ref grid-sum marginalisation
+# ─────────────────────────────────────────────────────────────────────────────
+
+def phi_ref_grid(nphi: int) -> jnp.ndarray:
+    """Uniform grid of φ_ref values over [0, 2π), shape (nphi,).
+
+    32 points is exact and fast for l_max = 2 (m_max = 2 needs ≥ 4);
+    use 64–128 for l_max ≥ 4 or production quality.  cogwheel uses 128.
+    """
+    return jnp.linspace(0.0, 2.0 * jnp.pi, nphi, endpoint=False)
+
+
+def fused_log_likelihood_phimarg(data, ra, dec, psi, incl, distMpc,
+                                  phi_grid, interp="linear"):
+    """Time-marginalized factored lnL with φ_ref marginalized via uniform grid sum.
+
+    Evaluates the standard factored lnL at each φ_ref in ``phi_grid`` and
+    integrates via logsumexp.  Works for **any l_max**; no QAS approximation.
+    rho² is re-evaluated at each grid point, so all φ_ref-dependent cross-terms
+    in the V matrix are handled correctly.
+
+    Parameters
+    ----------
+    phi_grid : (nphi,) float array from :func:`phi_ref_grid`.
+    """
+    distMpc = jnp.asarray(distMpc, dtype=jnp.float64)
+    invDist = data.distMpcRef / distMpc
+    S = ra.shape[0]
+    nphi = phi_grid.shape[0]
+
+    # Running log-sum-exp over phi_grid; Python loop → unrolled at trace time.
+    # Working set stays at (S, npts) per step; total: nphi × _accumulate_unit calls.
+    m = jnp.full((S, data.npts), -jnp.inf, dtype=jnp.float64)
+    s = jnp.zeros((S, data.npts), dtype=jnp.float64)
+
+    for phi_val in phi_grid:
+        phi_arr = jnp.full(S, float(phi_val), dtype=jnp.float64)
+        kappa_unit, rho_sq_unit = _accumulate_unit(
+            data, ra, dec, psi, incl, phi_arr, interp, False)
+        kappa = kappa_unit * invDist[:, None]
+        rho_sq = rho_sq_unit * jnp.square(invDist)[:, None]
+        lnL_t = kappa.real - 0.5 * rho_sq           # (S, npts)
+
+        m_new = jnp.maximum(m, lnL_t)
+        s = s * jnp.exp(m - m_new) + jnp.exp(lnL_t - m_new)
+        m = m_new
+
+    lnL_t_marg = m + jnp.log(s) - jnp.log(float(nphi))   # (S, npts)
+    return _time_marginalize(lnL_t_marg, data.w_t)          # (S,)
+
+
+def fused_log_likelihood_distphimarg(data, ra, dec, psi, incl,
+                                      x_grid, log_w_grid,
+                                      phi_grid, interp="linear",
+                                      grid_block=64):
+    """Distance- AND φ_ref-marginalized factored lnL over (ra, dec, psi, incl).
+
+    Marginalises over both luminosity distance (via quadrature grid, as in
+    :func:`fused_log_likelihood_distmarg`) and orbital phase φ_ref (via
+    uniform grid sum).  The result is a smooth 4-D function of
+    ``(ra, dec, psi, incl)`` only, with the curved φ_ref–psi degeneracy ridge
+    removed.
+
+    Both integrations are performed *before* time marginalization so the
+    per-bin lnL_t collapses cleanly.
+
+    Parameters
+    ----------
+    phi_grid : (nphi,) float array from :func:`phi_ref_grid`.
+    x_grid, log_w_grid : from :func:`make_distance_grid`.
+    """
+    x_grid = jnp.asarray(x_grid, dtype=jnp.float64)
+    log_w_grid = jnp.asarray(log_w_grid, dtype=jnp.float64)
+    nphi = phi_grid.shape[0]
+    S = ra.shape[0]
+    a = x_grid                              # (G,)
+    b = -0.5 * jnp.square(x_grid)          # (G,)
+
+    # Outer loop over phi; inner distance logsumexp via _logsumexp_grid_blocked.
+    # Running log-sum-exp accumulates over phi steps.
+    m = jnp.full((S, data.npts), -jnp.inf, dtype=jnp.float64)
+    s = jnp.zeros((S, data.npts), dtype=jnp.float64)
+
+    for phi_val in phi_grid:
+        phi_arr = jnp.full(S, float(phi_val), dtype=jnp.float64)
+        kappa_unit, rho_sq_unit = _accumulate_unit(
+            data, ra, dec, psi, incl, phi_arr, interp, False)
+        K = kappa_unit.real      # (S, npts)
+        R = rho_sq_unit          # (S, npts)
+
+        # distance logsumexp for this phi: shape (S, npts)
+        lnL_t_dist = _logsumexp_grid_blocked(K, R, a, b, log_w_grid, grid_block)
+
+        m_new = jnp.maximum(m, lnL_t_dist)
+        s = s * jnp.exp(m - m_new) + jnp.exp(lnL_t_dist - m_new)
+        m = m_new
+
+    lnL_t_marg = m + jnp.log(s) - jnp.log(float(nphi))
+    return _time_marginalize(lnL_t_marg, data.w_t)
+
+
+def phi_ref_conditional_lnL(data, ra, dec, psi, incl, distMpc,
+                              phi_grid, interp="linear"):
+    """Log-likelihood vs φ_ref given the other extrinsic parameters.
+
+    Returns a ``(nphi, S)`` array of time-marginalized lnL values, one per
+    φ_ref grid point.  Used to draw φ_ref from the conditional posterior after
+    the main (phi-marginalized) sampling step; the caller normalises and samples.
+    """
+    distMpc = jnp.asarray(distMpc, dtype=jnp.float64)
+    invDist = data.distMpcRef / distMpc
+    S = ra.shape[0]
+
+    lnL_per_phi = []
+    for phi_val in phi_grid:
+        phi_arr = jnp.full(S, float(phi_val), dtype=jnp.float64)
+        kappa_unit, rho_sq_unit = _accumulate_unit(
+            data, ra, dec, psi, incl, phi_arr, interp, False)
+        kappa = kappa_unit * invDist[:, None]
+        rho_sq = rho_sq_unit * jnp.square(invDist)[:, None]
+        lnL_t = kappa.real - 0.5 * rho_sq
+        lnL_per_phi.append(_time_marginalize(lnL_t, data.w_t))   # (S,)
+
+    return jnp.stack(lnL_per_phi, axis=0)   # (nphi, S)
+
+
 def make_distance_grid(d_min, d_max, n_grid=256, d_prior="euclidean",
                        distMpcRef=DIST_MPC_REF):
     """Build (x_grid, log_w_grid) for distance marginalization.

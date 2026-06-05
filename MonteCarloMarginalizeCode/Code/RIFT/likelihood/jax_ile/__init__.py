@@ -42,6 +42,7 @@ from .core import (
 )
 from .wrapper import (
     JAXExtrinsicLikelihood,
+    JAXDistPhiMargLikelihood,
     build_data_from_precompute,
     EXTRINSIC_PARAM_ORDER,
 )
@@ -60,6 +61,7 @@ __all__ = [
     "make_distance_grid",
     "make_log_likelihood",
     "JAXExtrinsicLikelihood",
+    "JAXDistPhiMargLikelihood",
     "build_data_from_precompute",
     "EXTRINSIC_PARAM_ORDER",
     "build_network_frame",

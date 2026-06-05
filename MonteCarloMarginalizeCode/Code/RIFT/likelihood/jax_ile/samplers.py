@@ -38,6 +38,8 @@ import jax.numpy as jnp
 
 # Parameter order used everywhere in this module.
 ANG_NAMES = ("ra", "dec", "psi", "incl", "phiref")
+# 4-D order when phi_ref is marginalised out.
+ANG_NAMES_NOPHI = ("ra", "dec", "psi", "incl")
 _TWO_PI = float(2 * np.pi)
 _PI = float(np.pi)
 
@@ -607,6 +609,166 @@ def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
         lnL_is = np.full(n_is, -np.inf)
         if valid.any():
             lnL_is[valid] = eval_lnL(like, th_is[valid])
+        logw = np.where(valid, lnL_is + logp - logq, -np.inf)
+        logZ, sigma_over_Z, neff = evidence_from_logweights(logw)
+        logZ, sigma_over_Z, neff = _finalize_evidence(
+            logZ, sigma_over_Z, neff, float(np.max(lnL)) if len(lnL) else np.nan)
+
+    return dict(theta=theta, lnL=lnL, logZ=logZ, sigma_over_Z=sigma_over_Z,
+                neff=neff, flow_state=flow_state, post_weight=post_weight,
+                temper=float(temper))
+
+
+# ---------------------------------------------------------------------------
+# 2b. flowMC with φ_ref marginalised (4-D sampler)
+# ---------------------------------------------------------------------------
+
+_BOUNDS4 = [(0.0, _TWO_PI), (-_PI / 2 + 1e-3, _PI / 2 - 1e-3),
+            (0.0, _PI), (1e-3, _PI - 1e-3)]
+
+
+def sample_prior_4(n, rng):
+    """Draw ``n`` prior samples of ``theta4 = (ra, dec, psi, incl)``."""
+    ra = rng.uniform(0.0, _TWO_PI, n)
+    dec = np.arcsin(rng.uniform(-1.0, 1.0, n))
+    psi = rng.uniform(0.0, _PI, n)
+    incl = np.arccos(rng.uniform(-1.0, 1.0, n))
+    return np.stack([ra, dec, psi, incl], axis=-1)
+
+
+def log_prior_4(theta):
+    """log prior density for ``theta4`` (numpy, batched).
+
+    ``-inf`` outside the support.  Includes ``cos(dec)`` and ``sin(incl)``
+    Jacobians from the uniform-sphere / uniform-cos parameterisations.
+    """
+    theta = np.atleast_2d(theta)
+    ra, dec, psi, incl = [theta[..., i] for i in range(4)]
+    inb = ((ra >= 0) & (ra <= _TWO_PI) & (dec >= -_PI / 2) & (dec <= _PI / 2)
+           & (psi >= 0) & (psi <= _PI) & (incl >= 0) & (incl <= _PI))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        logp = (np.log(np.cos(dec)) - np.log(2.0)
+                + np.log(np.sin(incl)) - np.log(2.0)
+                - np.log(_TWO_PI) - np.log(_PI))
+    return np.where(inb, logp, -np.inf)
+
+
+def _log_prior_4_jax(theta4):
+    """JAX-traceable log-prior for a single length-4 ``theta4`` vector."""
+    ra, dec, psi, incl = theta4[0], theta4[1], theta4[2], theta4[3]
+    inb = ((ra >= 0) & (ra <= _TWO_PI) & (dec >= -_PI / 2) & (dec <= _PI / 2)
+           & (psi >= 0) & (psi <= _PI) & (incl >= 0) & (incl <= _PI))
+    logp = (jnp.log(jnp.cos(dec)) - jnp.log(2.0)
+            + jnp.log(jnp.sin(incl)) - jnp.log(2.0)
+            - jnp.log(_TWO_PI) - jnp.log(_PI))
+    return jnp.where(inb, logp, -1e30)
+
+
+def eval_lnL_4(like, theta, chunk=4000):
+    """Evaluate the 4-param (phi-marginalised) lnL on an ``(N, 4)`` array."""
+    theta = np.atleast_2d(theta)
+    N = theta.shape[0]
+    out = np.empty(N)
+    for i in range(0, N, chunk):
+        sl = slice(i, min(i + chunk, N))
+        out[sl] = np.asarray(like.log_likelihood(*[theta[sl, j] for j in range(4)]))
+    return out
+
+
+def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
+                           n_global_steps=20, n_training_loops=4, n_production_loops=4,
+                           n_epochs=10, n_prior_pilot=8000, seed=0, mala_step_size=0.01,
+                           reuse_state=None, temper=1.0, verbose=False):
+    """flowMC with φ_ref marginalised — 4-D sampler over (ra, dec, psi, incl).
+
+    Identical in structure to :func:`flowmc_sample` except φ_ref is removed from
+    the sample space; the target is the φ_ref- and distance-marginalised posterior.
+    ``like`` must be a :class:`~RIFT.likelihood.jax_ile.wrapper.JAXDistPhiMargLikelihood`.
+
+    The degenerate φ_ref–psi ridge is absent after marginalisation, so the
+    sampler converges reliably at high SNR.  Draw φ_ref from its conditional
+    posterior after the sampling step via ``like.sample_phi_ref``.
+
+    Returns the same dict as :func:`flowmc_sample` (``theta`` is (N,4)).
+    """
+    from flowMC.Sampler import Sampler
+    from flowMC.resource_strategy_bundle.RQSpline_MALA import RQSpline_MALA_Bundle
+
+    n_dim = 4
+    inv_T = 1.0 / float(temper)
+
+    def logpdf(theta4, data):
+        return inv_T * like._scalar(theta4) + _log_prior_4_jax(theta4)
+
+    rng = np.random.default_rng(seed)
+    key = jax.random.PRNGKey(seed)
+    bkey, skey = jax.random.split(key)
+
+    bundle = RQSpline_MALA_Bundle(
+        rng_key=bkey, n_chains=n_chains, n_dims=n_dim, logpdf=logpdf,
+        n_local_steps=n_local_steps, n_global_steps=n_global_steps,
+        n_training_loops=n_training_loops, n_production_loops=n_production_loops,
+        n_epochs=n_epochs, mala_step_size=mala_step_size, verbose=verbose)
+
+    if reuse_state is not None and reuse_state.get("model") is not None:
+        try:
+            bundle.resources["model"] = reuse_state["model"]
+            if verbose:
+                print("  flowMC (phimarg): re-using trained flow from previous point")
+        except Exception as e:
+            if verbose:
+                print("  flowMC (phimarg): flow re-use failed (%r); fresh flow" % e)
+
+    init = None
+    if reuse_state is not None and reuse_state.get("positions") is not None:
+        pos = np.asarray(reuse_state["positions"])
+        if pos.shape == (n_chains, n_dim) and np.all(np.isfinite(pos)) \
+                and np.all(np.isfinite(log_prior_4(pos))):
+            init = jnp.asarray(pos)
+    if init is None:
+        pilot = sample_prior_4(max(n_prior_pilot, n_chains), rng)
+        pilot_lnL = eval_lnL_4(like, pilot)
+        top = np.argsort(pilot_lnL)[::-1][:n_chains]
+        init = jnp.asarray(pilot[top])
+
+    sampler = Sampler(n_dim=n_dim, n_chains=n_chains, rng_key=skey,
+                      resource_strategy_bundles=bundle)
+    sampler.sample(init, {})
+    prod = np.asarray(sampler.resources["positions_production"].data)
+    theta = prod.reshape(-1, n_dim)
+
+    finite = np.all(np.isfinite(theta), axis=1) & np.isfinite(log_prior_4(theta))
+    theta = theta[finite]
+    lnL = eval_lnL_4(like, theta) if len(theta) else np.array([])
+
+    try:
+        trained_model = sampler.resources["model"]
+    except Exception:
+        trained_model = None
+    next_positions = (theta[np.argsort(lnL)[::-1][:n_chains]]
+                      if len(theta) >= n_chains else None)
+    flow_state = {"model": trained_model, "positions": next_positions}
+
+    if len(lnL):
+        lw = (1.0 - inv_T) * lnL
+        post_weight = np.exp(lw - lw.max()); post_weight /= post_weight.sum()
+    else:
+        post_weight = np.array([])
+
+    logZ = sigma_over_Z = neff = np.nan
+    if len(theta) >= 6:
+        mu, cov = _moment_match(theta, np.zeros(len(theta)))
+        cov = cov * 2.0
+        Lc = np.linalg.cholesky(cov + 1e-12 * np.eye(n_dim))
+        n_is = 40000
+        z = rng.standard_normal((n_is, n_dim))
+        th_is = mu[None, :] + z @ Lc.T
+        logq = _gaussian_logq(th_is, mu, cov)
+        logp = log_prior_4(th_is)
+        valid = np.isfinite(logp)
+        lnL_is = np.full(n_is, -np.inf)
+        if valid.any():
+            lnL_is[valid] = eval_lnL_4(like, th_is[valid])
         logw = np.where(valid, lnL_is + logp - logq, -np.inf)
         logZ, sigma_over_Z, neff = evidence_from_logweights(logw)
         logZ, sigma_over_Z, neff = _finalize_evidence(

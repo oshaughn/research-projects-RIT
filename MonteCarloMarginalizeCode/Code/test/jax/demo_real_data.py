@@ -4,7 +4,7 @@ Demo / figure generator for the JAX ILE likelihood on REAL detector data.
 Reuses validation data already on hand (e.g. the calmarg_GW240925 GWOSC frames +
 PSDs, described by an ``event_params.json``) rather than re-inventing inputs.
 
-Two tasks (``--task``):
+Three tasks (``--task``):
 
   equality : run the JAX likelihood (interp='nearest', which reproduces the
              production discrete-shift path) AND the production numpy reference
@@ -24,6 +24,13 @@ Two tasks (``--task``):
              wall time.  NOTE: at the extreme-SNR end the sky posterior becomes
              narrow AND multimodal (the detector time-delay ring), which remains
              challenging for the flow within a modest training budget.
+
+  snr_marg : same SNR sequence as ``snr`` but with phi_ref marginalised via a
+             uniform grid sum (JAXDistPhiMargLikelihood + flowmc_sample_phimarg).
+             flowMC explores 4-D (ra, dec, psi, incl) only; the phi_ref-psi
+             degeneracy ridge is removed.  Works for any l_max.  Adds phi_ref
+             to the output by drawing from the conditional posterior after
+             sampling.  Use --n-phi to control the grid size (default 32).
 
 Inputs are taken from ``--data-dir`` (expects ``event_params.json``, per-IFO
 ``<IFO>-psd.xml.gz``) and ``--frame-dir`` (the ``.gwf`` files; default = data-dir's
@@ -56,7 +63,8 @@ import RIFT.lalsimutils as lalsimutils
 import RIFT.likelihood.factored_likelihood as FL
 from RIFT.likelihood.jax_ile import build_data_from_precompute
 from RIFT.likelihood.jax_ile.core import fused_log_likelihood
-from RIFT.likelihood.jax_ile.wrapper import JAXDistanceMarginalizedLikelihood
+from RIFT.likelihood.jax_ile.wrapper import (JAXDistanceMarginalizedLikelihood,
+                                              JAXDistPhiMargLikelihood)
 
 MSUN, PC = lal.MSUN_SI, lal.PC_SI
 _IFO_PREFIX = {"H1": "H", "L1": "L", "V1": "V"}
@@ -351,6 +359,95 @@ def task_snr(params, data_dir, frame_dir, opts):
             params.get("event", "event"))
 
 
+def task_snr_marg(params, data_dir, frame_dir, opts):
+    """SNR sequence with φ_ref marginalised via grid sum — paper Fig. 6.
+
+    Same PSD-scaled SNR sequence as ``task_snr`` but flowMC explores only
+    4-D (ra, dec, psi, incl); the phi_ref-psi degeneracy ridge is absent
+    from the target.  phi_ref is drawn from the conditional posterior after
+    the main sampling step.  Works for any l_max.
+    """
+    from RIFT.likelihood.jax_ile import samplers
+
+    targets = [float(x) for x in opts.snr_targets.split(",")]
+    fid = round(float(params["trigger_time"]))
+    fmax = params.get("fmax", 896.0)
+    iwh, swh = opts.integration_window_half, opts.storage_window_half
+    nphi = opts.n_phi
+
+    # Baseline SNR at psd_scale = 1.
+    dd0, pp0, dets = load_real(params, data_dir, frame_dir, opts.srate)
+    deltaF0 = dd0[dets[0]].deltaF
+    P0 = make_template(params, 1.0 / opts.srate, deltaF0, fid)
+    _, ex0 = build_data_from_precompute(P0.copy(), dd0, pp0, fid, swh, iwh,
+                                        opts.l_max, fmax, analyticPSD_Q=False, verbose=False)
+    snr0 = float(ex0["guess_snr"])
+    print("baseline SNR (psd_scale=1): %.2f   nphi=%d" % (snr0, nphi))
+
+    snr_resolve = opts.snr_resolve
+    rows, sky_by_snr = [], []
+
+    for snr_t in targets:
+        psd_scale = (snr0 / snr_t) ** 2
+        temper = max(1.0, (snr_t / snr_resolve) ** 2) if opts.temper < 0 else opts.temper
+        dd, pp, _ = load_real(params, data_dir, frame_dir, opts.srate, psd_scale=psd_scale)
+        deltaF = dd[dets[0]].deltaF
+        P = make_template(params, 1.0 / opts.srate, deltaF, fid)
+        data, exj = build_data_from_precompute(
+            P.copy(), dd, pp, fid, swh, iwh, opts.l_max, fmax,
+            analyticPSD_Q=False, verbose=False)
+        snr_real = float(exj["guess_snr"])
+        like = JAXDistPhiMargLikelihood(data, 1.0, 20000.0, nphi=nphi, n_grid=256)
+
+        t0 = time.time()
+        th_all, lnL_all, pw_all = [], [], []
+        for r in range(opts.n_runs):
+            res = samplers.flowmc_sample_phimarg(
+                like, 1.0, 20000.0, n_chains=opts.n_chains,
+                n_production_loops=opts.n_production_loops,
+                n_training_loops=opts.n_training_loops, n_epochs=opts.n_epochs,
+                n_prior_pilot=opts.n_prior_pilot, reuse_state=None,
+                temper=temper, seed=opts.seed + 1000 * r)
+            if len(res["theta"]):
+                th_all.append(res["theta"])    # (N, 4): ra, dec, psi, incl
+                lnL_all.append(res["lnL"])
+                pw_all.append(res["post_weight"])
+        wall = time.time() - t0
+
+        if not th_all:
+            rows.append([snr_real, psd_scale, np.nan, np.nan, np.nan, np.nan,
+                         np.nan, np.nan, 0, wall, temper, nphi]); continue
+
+        th = np.concatenate(th_all)     # (N, 4)
+        lnL = np.concatenate(lnL_all)
+        pw = np.concatenate(pw_all); pw /= pw.sum()
+
+        neff_post = 1.0 / np.sum(pw ** 2)
+        ra_m = float((pw * th[:, 0]).sum()); dec_m = float((pw * th[:, 1]).sum())
+        x = (th[:, 0] - ra_m) * np.cos(dec_m); y = th[:, 1] - dec_m
+        Sig = np.cov(np.stack([x, y]), aweights=pw)
+        det = max(float(np.linalg.det(Sig)), 0.0)
+        area = float(-2 * np.log(0.1) * np.pi * np.sqrt(det) * (180 / np.pi) ** 2)
+        sky_std = float(np.degrees(np.hypot(
+            np.std(th[:, 0]) * np.cos(dec_m), np.std(th[:, 1]))))
+        sky_by_snr.append((snr_real, th[:, 0].copy(), th[:, 1].copy(), pw.copy()))
+
+        row = [snr_real, psd_scale, float(lnL.max()), sky_std, neff_post, area,
+               ra_m, dec_m, len(th), wall, temper, nphi]
+        rows.append(row)
+        print("SNR=%6.1f (scale %.4g, T=%.1f, nphi=%d)  maxlnL=%9.1f  "
+              "neff_post=%6.1f  area90=%.3g deg^2  sky_std=%.2f deg  "
+              "sky(RA,DEC)=(%.3f,%.3f)  N=%d (%d runs)  %.1fs"
+              % (snr_real, psd_scale, temper, nphi, row[2], neff_post, area,
+                 sky_std, ra_m, dec_m, len(th), opts.n_runs, wall))
+
+    cols = ("snr psd_scale maxlnL sky_std_deg neff_post area90_deg2 "
+            "ra_mean dec_mean nsamp wall temper nphi")
+    np.savetxt(opts.out_prefix + "_snr.dat", np.array(rows), header=cols)
+    print("wrote %s_snr.dat" % opts.out_prefix)
+    _skymap(sky_by_snr, opts.out_prefix + "_skymap.png", params.get("event", "event"))
+
+
 def _skymap(sky_by_snr, path, label):
     """Posterior-weighted flowMC sky samples at each SNR (full sky), showing the
     recovered sky sharpening with SNR.  No unimodal ellipse is drawn: the
@@ -382,7 +479,7 @@ def _skymap(sky_by_snr, path, label):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--task", required=True, choices=["equality", "snr"])
+    ap.add_argument("--task", required=True, choices=["equality", "snr", "snr_marg"])
     ap.add_argument("--data-dir", required=True,
                     help="dir with event_params.json + <IFO>-psd.xml.gz")
     ap.add_argument("--frame-dir", default=None, help="dir with .gwf (default: data-dir/..)")
@@ -407,6 +504,9 @@ def main():
                          "<0 (default) auto-schedules T=(SNR/snr-resolve)^2.")
     ap.add_argument("--snr-resolve", type=float, default=25.0,
                     help="tempered effective SNR target for the auto temper schedule")
+    ap.add_argument("--n-phi", type=int, default=32,
+                    help="phi_ref grid size for snr_marg (default 32; use 64-128 for "
+                         "l_max>=4 or production quality)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out-prefix", default="/tmp/jax_ile_demo")
     opts = ap.parse_args()
@@ -416,8 +516,10 @@ def main():
     frame_dir = opts.frame_dir or os.path.dirname(os.path.abspath(opts.data_dir.rstrip("/")))
     if opts.task == "equality":
         task_equality(params, opts.data_dir, frame_dir, opts)
-    else:
+    elif opts.task == "snr":
         task_snr(params, opts.data_dir, frame_dir, opts)
+    else:
+        task_snr_marg(params, opts.data_dir, frame_dir, opts)
 
 
 if __name__ == "__main__":
