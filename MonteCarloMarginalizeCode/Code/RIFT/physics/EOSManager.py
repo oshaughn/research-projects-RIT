@@ -1554,6 +1554,241 @@ class EOSSequenceLandry:
         my_eos  = EOSFromTabularData(name=name_to_use, eos_data=dat_copy,**kwargs)  # tabular data inputs need to be cgs and in correct units
         return my_eos
 
+class EOSSequenceNMB(EOSSequenceLandry):
+    """Drop-in reader for the NuclearMatter-Backend ``NSSequence`` HDF5 format.
+
+    The NSSequence file stores every quantity as a function of central
+    pseudo-enthalpy h_c (monotone along the sequence), with an explicit ``stable``
+    flag, in a single ``(n_eos, n_pts, n_fields)`` dataset (see
+    docs/rift-sequence-audit.md in NuclearMatter-Backend).  This subclass reads that
+    file, extracts the **stable rising branch** (M increasing up to M_max) for each
+    EOS into the same in-memory ``eos_ns_tov`` dict of {M,R,Lambda} structured arrays
+    that EOSSequenceLandry uses -- so all inherited accessors
+    (``lambda_of_m_indx``, ``R_of_m_indx``, ``m_max_of_indx``, ``lookup_closest``,
+    ``oned_order_values``) work unchanged and are branch-safe by construction.
+
+    Only ``load_ns`` is honoured (TOV sequence); the optional microphysical EOS
+    tables are not read here (use the legacy emitter / EOSSequenceLandry for those).
+    """
+
+    @staticmethod
+    def _stable_rising(M, R, Lam, stable):
+        ok = np.isfinite(M) & (M > 0)
+        M, R, Lam, st = M[ok], R[ok], Lam[ok], stable[ok] > 0.5
+        if M.size < 2:
+            return M, R, Lam
+        imax = int(np.argmax(np.where(st, M, -np.inf)))
+        M, R, Lam = M[:imax + 1], R[:imax + 1], Lam[:imax + 1]
+        o = np.argsort(M)
+        return M[o], R[o], Lam[o]
+
+    def __init__(self, name=None, fname=None, load_eos=False, load_ns=True,
+                 oned_order_name=None, oned_order_mass=None, no_sort=True,
+                 verbose=False, eos_tables_units=None):
+        import json
+        import h5py
+        self.name = name
+        self.fname = fname
+        self.eos_ids = None
+        self.eos_names = None
+        self.eos_tables = None
+        self.eos_tables_units = None
+        self.eos_ns_tov = None
+        self.oned_order_name = None
+        self.oned_order_mass = oned_order_mass
+        self.oned_order_values = None
+        self.oned_order_indx_original = None
+        self.oned_order_indx_sorted = None
+        self.oned_order_sorted = False
+        self.verbose = verbose
+
+        with h5py.File(self.fname, 'r') as f:
+            rep = str(f.attrs.get("representation", "tabular_hc/1"))
+            if not rep.startswith("tabular"):
+                raise NotImplementedError(
+                    "EOSSequenceNMB: representation {!r} not supported "
+                    "(reserved for future compressed/functional representations)".format(rep))
+            fields = json.loads(f.attrs["fields"])
+            col = {k: j for j, k in enumerate(fields)}
+            seq = f["sequence"][:]                      # (n_eos, n_pts, n_fields)
+
+        n_eos = seq.shape[0]
+        self.eos_names = np.array(["eos_{}".format(k) for k in range(n_eos)], dtype=str)
+        self.eos_ids = list(range(n_eos))
+        self.eos_ns_tov = {}
+        for k in range(n_eos):
+            s = seq[k]
+            M, R, Lam = self._stable_rising(s[:, col["M"]], s[:, col["R"]],
+                                            s[:, col["Lambda"]], s[:, col["stable"]])
+            rec = np.zeros(M.size, dtype=[("M", "f8"), ("R", "f8"), ("Lambda", "f8")])
+            rec["M"], rec["R"], rec["Lambda"] = M, R, Lam
+            self.eos_ns_tov["eos_{}".format(k)] = rec
+
+        # Build the 1-D ordering statistic exactly as EOSSequenceLandry does.
+        create_order = False
+        if oned_order_name in ('R', 'r'):
+            create_order, self.oned_order_name = True, 'R'
+        if oned_order_name in ('Lambda', 'lambda'):
+            create_order, self.oned_order_name = True, 'Lambda'
+        if not self.oned_order_mass:
+            create_order = False
+        if create_order:
+            self.oned_order_indx_original = np.arange(len(self.eos_names))
+            vals = np.zeros(len(self.eos_names))
+            for indx in range(len(self.eos_names)):
+                if self.oned_order_name == 'Lambda':
+                    vals[indx] = self.lambda_of_m_indx(self.oned_order_mass, indx)
+                else:
+                    vals[indx] = self.R_of_m_indx(self.oned_order_mass, indx)
+            self.oned_order_indx_sorted = np.argsort(vals)
+            if no_sort:
+                self.oned_order_values = vals
+            else:
+                self.eos_names = self.eos_names[self.oned_order_indx_sorted]
+                self.oned_order_values = vals[self.oned_order_indx_sorted]
+                self.oned_order_indx_original = self.oned_order_indx_original[self.oned_order_indx_sorted]
+                self.oned_order_indx_sorted = np.arange(len(self.eos_names))
+                self.oned_order_sorted = True
+        return None
+
+
+class EOSSequencePCA(EOSSequenceNMB):
+    """Reader for the compressed NuclearMatter-Backend ``pca_hc/1`` representation.
+
+    The file stores a per-channel PCA decomposition of the M(u), R(u), logLambda(u)
+    curves (mean + basis ``components`` + per-EOS ``coeffs``).  We reconstruct each
+    EOS's curves, take the stable rising branch, and populate the same in-memory
+    ``eos_ns_tov`` dict EOSSequenceLandry/EOSSequenceNMB use -- so every inherited
+    accessor works unchanged.  Self-contained (numpy only); no nmbackend dependency.
+    """
+
+    def __init__(self, name=None, fname=None, load_eos=False, load_ns=True,
+                 oned_order_name=None, oned_order_mass=None, no_sort=True,
+                 verbose=False, eos_tables_units=None):
+        import json
+        import h5py
+        self.name = name; self.fname = fname
+        self.eos_ids = None; self.eos_names = None
+        self.eos_tables = None; self.eos_tables_units = None; self.eos_ns_tov = None
+        self.oned_order_name = None; self.oned_order_mass = oned_order_mass
+        self.oned_order_values = None
+        self.oned_order_indx_original = None; self.oned_order_indx_sorted = None
+        self.oned_order_sorted = False; self.verbose = verbose
+
+        with h5py.File(self.fname, 'r') as f:
+            channels = json.loads(f.attrs["channels"])
+            mean = f["mean"][:]                     # (3, n_pts)
+            comps = f["components"][:]              # (3, n_comp, n_pts)
+            coeffs = f["coeffs"][:]                 # (n_eos, 3, n_comp)
+        iM, iR, iL = (channels.index("M"), channels.index("R"),
+                      channels.index("logLambda"))
+        n_eos = coeffs.shape[0]
+        self.eos_names = np.array(["eos_{}".format(k) for k in range(n_eos)], dtype=str)
+        self.eos_ids = list(range(n_eos))
+        self.eos_ns_tov = {}
+        for k in range(n_eos):
+            rec_curves = mean + np.einsum("ck,ckp->cp", coeffs[k], comps)
+            M, R, Lam = rec_curves[iM], rec_curves[iR], np.exp(rec_curves[iL])
+            stable = np.concatenate([[True], np.diff(M) > 0])
+            Mb, Rb, Lb = self._stable_rising(M, R, Lam, stable.astype(float))
+            rec = np.zeros(Mb.size, dtype=[("M", "f8"), ("R", "f8"), ("Lambda", "f8")])
+            rec["M"], rec["R"], rec["Lambda"] = Mb, Rb, Lb
+            self.eos_ns_tov["eos_{}".format(k)] = rec
+        self._build_ordering(oned_order_name, no_sort)
+        return None
+
+    def _build_ordering(self, oned_order_name, no_sort):
+        create_order = False
+        if oned_order_name in ('R', 'r'):
+            create_order, self.oned_order_name = True, 'R'
+        if oned_order_name in ('Lambda', 'lambda'):
+            create_order, self.oned_order_name = True, 'Lambda'
+        if not self.oned_order_mass:
+            create_order = False
+        if not create_order:
+            return
+        self.oned_order_indx_original = np.arange(len(self.eos_names))
+        vals = np.zeros(len(self.eos_names))
+        for indx in range(len(self.eos_names)):
+            vals[indx] = (self.lambda_of_m_indx(self.oned_order_mass, indx)
+                          if self.oned_order_name == 'Lambda'
+                          else self.R_of_m_indx(self.oned_order_mass, indx))
+        self.oned_order_indx_sorted = np.argsort(vals)
+        if no_sort:
+            self.oned_order_values = vals
+        else:
+            self.eos_names = self.eos_names[self.oned_order_indx_sorted]
+            self.oned_order_values = vals[self.oned_order_indx_sorted]
+            self.oned_order_indx_original = self.oned_order_indx_original[self.oned_order_indx_sorted]
+            self.oned_order_indx_sorted = np.arange(len(self.eos_names))
+            self.oned_order_sorted = True
+
+
+class EOSSequenceSingleIndex:
+    """A SINGLE EOS realization drawn from a sequence file, exposed with the
+    fixed-EOS (``--using-eos``) interface: ``lambda_from_m(m_Msun)``.
+
+    This enables the exact per-EOS-evidence pattern (one full CIP evidence per
+    realization, MARG-style) for tabular/compressed sequence files -- the
+    reference computation against which the ordering-statistic (tabular
+    hyperpipeline) approximation is validated.
+    """
+
+    def __init__(self, fname=None, index=0, name=None):
+        self.name = name or "nmbseq_{}_{}".format(fname, index)
+        self.fname = fname
+        self.index = int(index)
+        self._seq = EOSSequenceFromFile(fname=fname, load_ns=True, no_sort=True)
+        if not (0 <= self.index < len(self._seq.eos_names)):
+            raise ValueError("EOS index {} out of range (n={})".format(
+                self.index, len(self._seq.eos_names)))
+        self.mMaxMsun = float(self._seq.m_max_of_indx(self.index))
+
+    def lambda_from_m(self, m):
+        # unit auto-detection as in EOSConcrete.lambda_from_m
+        m_Msun = m / lal.MSUN_SI if m > 1e15 else m
+        if m_Msun > 0.999 * self.mMaxMsun:
+            return 1e-8
+        val = self._seq.lambda_of_m_indx(m_Msun, self.index)
+        return float(val) if np.isfinite(val) else 1e-8
+
+    def lambda_from_m_vector(self, m):
+        if not isinstance(m, np.ndarray):
+            return self.lambda_from_m(m)
+        return np.array([self.lambda_from_m(x) for x in m])
+
+    def R_from_m(self, m_Msun):
+        return self._seq.R_of_m_indx(m_Msun, self.index)
+
+
+def EOSSequenceFromFile(fname=None, **kwargs):
+    """Open an EOS sequence file, auto-detecting the format.
+
+    Dispatches on the HDF5 ``representation`` / ``schema_version`` attribute:
+
+    * ``pca_hc``  (``nmbackend.pca``)  -> :class:`EOSSequencePCA`  (compressed);
+    * ``tabular`` (``nmbackend.nss``)  -> :class:`EOSSequenceNMB`  (tabular);
+    * anything else                    -> :class:`EOSSequenceLandry` (legacy/LCEHL).
+
+    All expose the identical consumer API (``oned_order_values``,
+    ``lambda_of_m_indx``, ``R_of_m_indx``, ``m_max_of_indx``, ``lookup_closest``), so
+    callers can pass any of the three file types transparently.
+    """
+    import h5py
+    rep = schema = ""
+    try:
+        with h5py.File(fname, 'r') as f:
+            rep = str(f.attrs.get("representation", ""))
+            schema = str(f.attrs.get("schema_version", ""))
+    except Exception:
+        rep = schema = ""
+    if rep.startswith("pca") or schema.startswith("nmbackend.pca"):
+        return EOSSequencePCA(fname=fname, **kwargs)
+    if rep.startswith("tabular") or schema.startswith("nmbackend"):
+        return EOSSequenceNMB(fname=fname, **kwargs)
+    return EOSSequenceLandry(fname=fname, **kwargs)
+
+
 ####
 #### General lalsimulation interfacing
 ####
