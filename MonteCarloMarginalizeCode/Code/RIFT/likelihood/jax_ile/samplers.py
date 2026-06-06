@@ -870,6 +870,18 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
         #   ln Z = \int_0^1 <lnL>_{inv_T} d(inv_T),  with Z(inv_T=0) = \int pi = 1.
         # Makes no single-peak/Gaussian assumption -> robust to the curved
         # (psi, phi_ref) degeneracy ridge that collapses the moment-matched IS.
+        #
+        # KNOWN BIAS (deferred; not now): logZ here is ~1% LOW vs a converged AV
+        # reference, growing slowly with SNR.  Root cause is the flow slightly
+        # under-reaching the true MAP (e.g. SNR40: flow lnLmax~779.9 vs AV 783.4),
+        # which biases <lnL>_{inv_T} -- and thus the integral -- low; it is NOT
+        # the TI estimator (shared by the Gaussian-IS path) and does not improve
+        # with more training.  It is consistent across the sequence, which is what
+        # matters for relative-lnL inference; absolute |dlnL|<1 (tolerance tightens
+        # ~SNR^2) is overwhelmed by neglected physical/discretization systematics.
+        # To reach absolute<1 eventually: AD-gradient MAP polish / Fisher-
+        # preconditioned final anneal stage (Fisher is indefinite on the ridge,
+        # so a naive Laplace correction does not work).
         betas = np.array([0.0] + ti_beta, dtype=float)
         means = np.array([prior_lnL_mean] + ti_mean, dtype=float)
         sems = np.array([prior_lnL_sem or 0.0] + ti_sem, dtype=float)
