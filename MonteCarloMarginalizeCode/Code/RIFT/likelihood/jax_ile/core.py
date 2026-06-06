@@ -402,24 +402,29 @@ def _distmarg_gh_logL(K, R, gh_xi, gh_logw, x_min, x_max):
     GH weights (nodes x_k = x* + sqrt(2)/sqrt(R) * xi_k).  Nodes outside the
     physical support [x_min, x_max] are masked.
     """
-    R = jnp.maximum(R, 1e-300)
+    R = jnp.maximum(R, 1e-30)
     xstar = K / R                                    # (S, npts)
     inv_sqrtR = 1.0 / jnp.sqrt(R)
     x_k = xstar[..., None] + jnp.sqrt(2.0) * inv_sqrtR[..., None] * gh_xi  # (S,npts,G)
     in_supp = (x_k > x_min) & (x_k < x_max)
-    safe_x = jnp.where(in_supp, x_k, 1.0)
+    safe_x = jnp.where(in_supp, x_k, 1.0)            # avoid log(<=0) in fwd AND bwd
     log_term = gh_logw - 4.0 * jnp.log(safe_x)       # GH weight * x^{-4} prior
     log_term = jnp.where(in_supp, log_term, -jnp.inf)
-    lse = jax.scipy.special.logsumexp(log_term, axis=-1)        # (S, npts)
+    # GRADIENT SAFETY: a fully out-of-support time-bin gives an all -inf row,
+    # whose logsumexp has a nan gradient (0/0 softmax) -- which MALA / MAP-polish
+    # then propagate into nan samples.  Dummy such rows to a finite value so the
+    # backward pass is finite, then override the result to -inf via the outer
+    # where (whose selected-against branch is now also finite -> finite grad).
+    any_supp = jnp.any(in_supp, axis=-1)             # (S, npts)
+    log_term = jnp.where(any_supp[..., None], log_term, 0.0)
+    lse = jax.scipy.special.logsumexp(log_term, axis=-1)        # (S, npts), finite
     # ln E[L] = 0.5 K^2/R + log(sqrt(2)/sqrt(R)) + 3 ln dref - ln Zprior + lse,
     #   Zprior = ∫_{d_min}^{d_max} d^2 dd = dref^3 (x_min^{-3} - x_max^{-3})/3, so
     #   3 ln dref - ln Zprior = ln 3 - ln(x_min^{-3} - x_max^{-3})  (dref cancels).
     # x_min/x_max are tracers under jit -> use jnp throughout.
     C0 = 0.5 * jnp.log(2.0) + jnp.log(3.0) - jnp.log(x_min ** (-3.0) - x_max ** (-3.0))
     val = 0.5 * K * K / R - 0.5 * jnp.log(R) + C0 + lse
-    # Noise time-bins can leave every GH node out of support (lse=-inf) while
-    # 0.5 K^2/R is +inf -> inf-inf=nan; such bins contribute nothing -> -inf.
-    return jnp.where(jnp.isfinite(lse), val, -jnp.inf)
+    return jnp.where(any_supp, val, -jnp.inf)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
