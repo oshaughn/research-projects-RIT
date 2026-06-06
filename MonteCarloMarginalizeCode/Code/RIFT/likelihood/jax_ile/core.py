@@ -392,6 +392,17 @@ def make_distance_gh(n_nodes):
 def _distmarg_gh_logL(K, R, gh_xi, gh_logw, x_min, x_max):
     """Per-(S,npts) distance-marginalized lnL via per-sample Gauss-Hermite.
 
+    STATUS (EXPERIMENTAL, env-gated, default OFF): forward values look correct,
+    but MALA / MAP-polish gradients still go nan after several anneal stages.
+    Root cause: the analytic Gaussian prefactor ``0.5*K^2/R`` has gradient
+    ~K^2/R^2 that blows up for small-R (noise) time-bins, corrupting the flow
+    production draws -> nan lnL.  FIX DIRECTION (not yet done): drop the K^2/R
+    factorization; feed the *adaptive* nodes x_k (centred on x*=K/R, scaled
+    1/sqrt(R)) into the SAME stable form the uniform grid uses --
+    logsumexp_k[ K*x_k - 0.5*R*x_k^2 + log_w_quad_k ] with trapezoidal weights
+    log_w_quad_k = log(Delta x_k * prior(x_k)) -- gradient-stable (no 1/R).
+    Until then use the uniform grid (DIST_GRID).
+
     Computes ``log E_{p(d)}[exp(K x - 0.5 R x^2)]`` with x = dref/d and the
     volumetric prior p(d) ∝ d^2 normalized over [d_min, d_max] (= the same
     "proper distance average" as :func:`make_distance_grid`), but with quadrature
