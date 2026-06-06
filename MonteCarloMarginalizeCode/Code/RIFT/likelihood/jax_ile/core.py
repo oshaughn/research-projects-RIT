@@ -48,10 +48,20 @@ matching the reference ``ifirst`` definition (which is ``round(pos)`` at
 dependence differentiable.
 """
 
+import os
 import numpy as np
 import jax
 import jax.numpy as jnp
 from scipy import integrate as _scipy_integrate
+
+# Adaptive (Gauss-Hermite) distance marginalization.  The distance integrand is
+# exp(K x - 0.5 R x^2) with x = d_ref/d -- a Gaussian in x (peak x*=K/R, width
+# 1/sqrt(R)) times the d^2 prior (∝ x^-4).  A uniform-in-d grid under-resolves
+# the peak (width ~ d0/SNR) at high SNR, biasing the distance average ~1% low.
+# GH nodes centred per-sample on x* with scale 1/sqrt(R) integrate it exactly at
+# any SNR with few nodes.  Enable with env JAX_ILE_DISTMARG_GH=<n_nodes> (e.g. 48);
+# 0 (default) keeps the legacy uniform grid.  See make_distance_grid.
+_DISTMARG_GH_N = int(os.environ.get("JAX_ILE_DISTMARG_GH", "0"))
 
 import lal
 import lalsimulation as lalsim
@@ -373,6 +383,45 @@ def _logsumexp_grid_blocked(K, R, a, b, log_w, block):
     return m + jnp.log(s)
 
 
+def make_distance_gh(n_nodes):
+    """Physicists' Gauss-Hermite nodes/log-weights for ∫ e^{-t^2} f(t) dt."""
+    xi, w = np.polynomial.hermite.hermgauss(int(n_nodes))
+    return jnp.asarray(xi, jnp.float64), jnp.asarray(np.log(w), jnp.float64)
+
+
+def _distmarg_gh_logL(K, R, gh_xi, gh_logw, x_min, x_max):
+    """Per-(S,npts) distance-marginalized lnL via per-sample Gauss-Hermite.
+
+    Computes ``log E_{p(d)}[exp(K x - 0.5 R x^2)]`` with x = dref/d and the
+    volumetric prior p(d) ∝ d^2 normalized over [d_min, d_max] (= the same
+    "proper distance average" as :func:`make_distance_grid`), but with quadrature
+    nodes centred per-sample on the analytic Gaussian peak x*=K/R, scale
+    1/sqrt(R) -- so the narrow high-SNR peak is resolved at every SNR.
+
+    In x the prior measure p(d)|dd/dx| ∝ x^{-4}; the Gaussian is absorbed into the
+    GH weights (nodes x_k = x* + sqrt(2)/sqrt(R) * xi_k).  Nodes outside the
+    physical support [x_min, x_max] are masked.
+    """
+    R = jnp.maximum(R, 1e-300)
+    xstar = K / R                                    # (S, npts)
+    inv_sqrtR = 1.0 / jnp.sqrt(R)
+    x_k = xstar[..., None] + jnp.sqrt(2.0) * inv_sqrtR[..., None] * gh_xi  # (S,npts,G)
+    in_supp = (x_k > x_min) & (x_k < x_max)
+    safe_x = jnp.where(in_supp, x_k, 1.0)
+    log_term = gh_logw - 4.0 * jnp.log(safe_x)       # GH weight * x^{-4} prior
+    log_term = jnp.where(in_supp, log_term, -jnp.inf)
+    lse = jax.scipy.special.logsumexp(log_term, axis=-1)        # (S, npts)
+    # ln E[L] = 0.5 K^2/R + log(sqrt(2)/sqrt(R)) + 3 ln dref - ln Zprior + lse,
+    #   Zprior = ∫_{d_min}^{d_max} d^2 dd = dref^3 (x_min^{-3} - x_max^{-3})/3, so
+    #   3 ln dref - ln Zprior = ln 3 - ln(x_min^{-3} - x_max^{-3})  (dref cancels).
+    # x_min/x_max are tracers under jit -> use jnp throughout.
+    C0 = 0.5 * jnp.log(2.0) + jnp.log(3.0) - jnp.log(x_min ** (-3.0) - x_max ** (-3.0))
+    val = 0.5 * K * K / R - 0.5 * jnp.log(R) + C0 + lse
+    # Noise time-bins can leave every GH node out of support (lse=-inf) while
+    # 0.5 K^2/R is +inf -> inf-inf=nan; such bins contribute nothing -> -inf.
+    return jnp.where(jnp.isfinite(lse), val, -jnp.inf)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # φ_ref grid-sum marginalisation
 # ─────────────────────────────────────────────────────────────────────────────
@@ -460,6 +509,15 @@ def fused_log_likelihood_distphimarg(data, ra, dec, psi, incl,
     a = x_grid                              # (G,)
     b = -0.5 * jnp.square(x_grid)          # (G,)
 
+    # Adaptive Gauss-Hermite distance marginalization (env JAX_ILE_DISTMARG_GH>0):
+    # resolves the narrowing high-SNR distance peak that the uniform-in-d grid
+    # under-samples.  Falls back to the legacy grid otherwise.
+    _use_gh = _DISTMARG_GH_N > 0
+    if _use_gh:
+        _gh_xi, _gh_logw = make_distance_gh(_DISTMARG_GH_N)
+        _x_min = jnp.min(x_grid)            # = dref/d_max  (tracer under jit)
+        _x_max = jnp.max(x_grid)            # = dref/d_min
+
     # lax.scan: body traced once; XLA executes sequentially — O(body) memory,
     # not O(nphi × body) as a Python loop unrolled into the graph would be.
     def _phi_step(carry, phi_val):
@@ -467,8 +525,13 @@ def fused_log_likelihood_distphimarg(data, ra, dec, psi, incl,
         phi_arr = jnp.broadcast_to(phi_val, (S,)).astype(jnp.float64)
         kappa_unit, rho_sq_unit = _accumulate_unit(
             data, ra, dec, psi, incl, phi_arr, interp, False)
-        lnL_t = _logsumexp_grid_blocked(
-            kappa_unit.real, rho_sq_unit, a, b, log_w_grid, grid_block)
+        if _use_gh:
+            lnL_t = _distmarg_gh_logL(
+                kappa_unit.real, rho_sq_unit, _gh_xi, _gh_logw,
+                _x_min, _x_max)
+        else:
+            lnL_t = _logsumexp_grid_blocked(
+                kappa_unit.real, rho_sq_unit, a, b, log_w_grid, grid_block)
         m_new = jnp.maximum(m, lnL_t)
         s_new = s * jnp.exp(m - m_new) + jnp.exp(lnL_t - m_new)
         return (m_new, s_new), None
