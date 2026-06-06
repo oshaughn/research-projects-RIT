@@ -322,12 +322,13 @@ parser.add_argument("--n-chunk",default=1e5,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF we have workers present, don't have the 'fail unless' statement active")
 parser.add_argument("--fail-unless-n-eff",default=None,type=float,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
-parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde.  Note 'polynomial' with --fit-order 0  will fit a constant")
+parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde|gp-jax-svgp|gp-jax-rff|gp-jax-exact.  Note 'polynomial' with --fit-order 0  will fit a constant. The gp-jax-* methods use the optional JAX interpolators (RIFT.interpolators.jax_gp) and support a differentiable export via --fit-save-jax.")
 parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
 parser.add_argument("--fit-load-quadratic-path",default="GW190814/annealing_mc_source_eta_chieff",help="Path in hdf5 file to specific covariance matrix to be used")
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
 parser.add_argument("--fit-load-gp",default=None,type=str,help="Filename of GP fit to load. Overrides fitting process, but user MUST correctly specify coordinate system to interpret the fit with.  Does not override loading and converting the data.")
 parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename of GP fit to save. ")
+parser.add_argument("--fit-save-jax",default=None,type=str,help="Base path for a self-contained, differentiable jax_gp export (writes <path>.npz + <path>.meta.json). Only used with --fit-method gp-jax-*. Reload with --fit-load-gp pointing at the same base path.")
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
 parser.add_argument("--no-plots",action='store_true')
@@ -1340,6 +1341,44 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
 
         return lambda x,x0=x_center,scl=length_scale_est: gp.predict( (x-x0 )/scl)
 
+def fit_jax(x,y,y_errors=None,method='svgp',coord_names=None):
+    """
+    JAX likelihood interpolators (RIFT.interpolators.jax_gp): gp-jax-{svgp,rff,exact}.
+
+    Returns a callable(X)->mean, exactly like the other fit_* methods, so it drops
+    into the dispatch below unchanged.  JAX is imported here (not at module scope)
+    so the production path never pulls in the JAX stack unless one of these methods
+    is explicitly selected.
+
+    If --fit-save-jax is set, additionally writes a self-contained, *differentiable*
+    export (a pure-JAX lnL(theta) bundle).  If --fit-load-gp is set, it is treated
+    as the base path of such an export and reloaded instead of refitting.
+    """
+    from RIFT.interpolators import jax_gp
+    from RIFT.interpolators.jax_gp import export as jax_export
+
+    if opts.fit_load_gp:
+        print(" Loading jax_gp export from ", opts.fit_load_gp)
+        model = jax_export.load(opts.fit_load_gp)
+        if opts.protect_coordinate_conversions:
+            return lalsimutils.RangeProtectReduce(lambda xx: model.predict(xx), -np.inf)
+        return lambda xx: model.predict(xx)
+
+    cls = jax_gp.get_interpolator(method)
+    model = cls()
+    model.fit(x, y, y_errors=y_errors)
+    print(" JAX fit ({}): std: ".format(method), np.std(y - model.predict(x)),
+          " using number of features ", len(y))
+
+    if opts.fit_save_jax:
+        jax_export.save(model, opts.fit_save_jax, coord_names=coord_names)
+        print(" Saved differentiable jax_gp export to ", opts.fit_save_jax,
+              " (.npz + .meta.json)")
+
+    if opts.protect_coordinate_conversions:
+        return lalsimutils.RangeProtectReduce(lambda xx: model.predict(xx), -np.inf)
+    return lambda xx: model.predict(xx)
+
 def map_funcs(func_list,obj):
     return [func(obj) for func in func_list]
 def fit_gp_pool(x,y,n_pool=10,**kwargs):
@@ -2343,6 +2382,24 @@ elif opts.fit_method == 'weighted_nearest':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_nearest(X,Y,y_errors=Y_err)
+elif opts.fit_method.startswith('gp-jax'):
+    # RFF is the chosen default jax method (fast, accurate, cheapest to export);
+    # svgp/exact remain available as backstop / validation.
+    jax_method = opts.fit_method.replace('gp-jax-','').replace('gp-jax','') or 'rff'
+    print(" FIT METHOD ", opts.fit_method, " IS jax_gp : ", jax_method)
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_jax(X,Y,y_errors=Y_err,method=jax_method,coord_names=coord_names)
 else:
     print(" NO KNOWN FIT METHOD ")
     sys.exit(55)

@@ -58,6 +58,15 @@ setuptools.setup(
    data_files=[('RIFT/likelihood',my_extra_source)],
    setup_requires=['setuptools','pip'],
    install_requires=REQUIREMENTS["install"],
+   # Optional JAX interpolator stack (RIFT.interpolators.jax_gp). Kept out of the
+   # base install so the production pipeline is unaffected; install with
+   #   pip install RIFT[jax-interp]
+   extras_require={
+        'jax-interp': ['jax', 'optax', 'equinox', 'tinygp'],
+        # AD applications of the differentiable export (gradient sampling, AD
+        # population inference): RIFT.interpolators.jax_gp.applications
+        'jax-apps': ['jax', 'optax', 'equinox', 'tinygp', 'numpyro', 'flowMC'],
+   },
    entry_points={
         'asimov.pipelines':
         ["rift = RIFT.asimov.rift:Rift"],
