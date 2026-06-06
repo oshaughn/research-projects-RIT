@@ -700,6 +700,43 @@ def _warmup_compile(like, verbose=True):
         print("done (%.1f s)" % (_time.perf_counter() - t0), flush=True)
 
 
+def _map_polish_4(like, seeds, n_steps=300, lr=3e-3):
+    """AD gradient-ascent polish of 4-D (ra,dec,psi,incl) seeds to the local MAP.
+
+    The flow under-reaches the true peak at high SNR (its best draw sits a few
+    nats below the MAP); a few hundred projected-gradient steps on the
+    JAX-traceable ``like._scalar`` climb the rest of the way.  Bounds are enforced
+    by clipping into the 4-D support each step.  Returns (best_theta, best_lnL,
+    [(theta_i, lnL_i), ...]) over the distinct seeds.
+    """
+    lo = np.array([b[0] for b in _BOUNDS4], float)
+    hi = np.array([b[1] for b in _BOUNDS4], float)
+    grad_f = jax.jit(jax.grad(lambda t: like._scalar(t)))
+    polished = []
+    best_t, best_v = None, -np.inf
+    for s in np.atleast_2d(np.asarray(seeds, float)):
+        t = jnp.asarray(np.clip(s, lo, hi))
+        step = lr
+        v_prev = float(like._scalar(t))
+        for _ in range(n_steps):
+            g = np.asarray(grad_f(t))
+            if not np.all(np.isfinite(g)):
+                break
+            t_new = np.clip(np.asarray(t) + step * g, lo, hi)
+            v_new = float(like._scalar(jnp.asarray(t_new)))
+            if v_new >= v_prev:            # accept + grow step
+                t = jnp.asarray(t_new); v_prev = v_new; step *= 1.2
+            else:                           # reject + shrink (backtracking)
+                step *= 0.5
+                if step < 1e-8:
+                    break
+        v = float(like._scalar(t))
+        polished.append((np.asarray(t), v))
+        if v > best_v:
+            best_v, best_t = v, np.asarray(t)
+    return best_t, best_v, polished
+
+
 def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
                            n_global_steps=20, n_training_loops=4, n_production_loops=4,
                            n_epochs=10, n_prior_pilot=8000, seed=0, mala_step_size=0.01,
@@ -858,6 +895,30 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
                       if len(theta) >= n_chains else None)
     flow_state = {"model": trained_model, "positions": next_positions}
 
+    # AD MAP-polish (high-SNR diagnostic): the flow under-reaches the sharp peak
+    # (its best draw is a few nats low), so gradient-ascend distinct high-lnL
+    # draws to the true local MAP; seeds spread over ring modes for multimodality.
+    map_theta = map_lnL = None
+    logZ_laplace = np.nan
+    if temper_adapt and len(theta) >= 1:
+        order = np.argsort(lnL)[::-1]
+        uniq = []
+        for i in order:
+            if all(np.linalg.norm(theta[i] - theta[j]) > 1e-2 for j in uniq):
+                uniq.append(i)
+            if len(uniq) >= 8:
+                break
+        seeds = theta[uniq] if uniq else theta[order[:1]]
+        try:
+            map_theta, map_lnL, _ = _map_polish_4(like, seeds)
+            if verbose:
+                print("  [map-polish] flow lnLmax=%.3f -> polished MAP=%.3f (gain %.3f)"
+                      % (float(np.max(lnL)), map_lnL,
+                         map_lnL - float(np.max(lnL))), flush=True)
+        except Exception as e:
+            if verbose:
+                print("  [map-polish] failed: %r" % e)
+
     if len(lnL):
         lw = (1.0 - inv_T) * lnL
         post_weight = np.exp(lw - lw.max()); post_weight /= post_weight.sum()
@@ -872,16 +933,17 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
         # (psi, phi_ref) degeneracy ridge that collapses the moment-matched IS.
         #
         # KNOWN BIAS (deferred; not now): logZ here is ~1% LOW vs a converged AV
-        # reference, growing slowly with SNR.  Root cause is the flow slightly
-        # under-reaching the true MAP (e.g. SNR40: flow lnLmax~779.9 vs AV 783.4),
-        # which biases <lnL>_{inv_T} -- and thus the integral -- low; it is NOT
-        # the TI estimator (shared by the Gaussian-IS path) and does not improve
-        # with more training.  It is consistent across the sequence, which is what
-        # matters for relative-lnL inference; absolute |dlnL|<1 (tolerance tightens
-        # ~SNR^2) is overwhelmed by neglected physical/discretization systematics.
-        # To reach absolute<1 eventually: AD-gradient MAP polish / Fisher-
-        # preconditioned final anneal stage (Fisher is indefinite on the ridge,
-        # so a naive Laplace correction does not work).
+        # reference.  This is NOT a peak-finding problem: an AD gradient MAP-polish
+        # of the flow draws gains ~0 (the flow already sits at the jax likelihood's
+        # phi-marginalized MAP, ~779.9 at SNR40).  The apparent "flow lnLmax 779.9
+        # vs AV 783.4" gap is just the phi marginalization (AV samples phi_orb;
+        # this likelihood marginalizes phi_ref) and CANCELS in the evidence.  So
+        # the residual ~1% is a genuine jax-TI-vs-AV *evidence* discrepancy
+        # (normalization / method), not under-reach -- needs a likelihood-norm
+        # audit (wrapper.py distance/phi-marg constants vs AV's distmarg table).
+        # It is consistent across the sequence, which is what matters for
+        # relative-lnL inference; absolute |dlnL|<1 (tolerance ~SNR^2) is
+        # overwhelmed by neglected physical/discretization systematics. Defer.
         betas = np.array([0.0] + ti_beta, dtype=float)
         means = np.array([prior_lnL_mean] + ti_mean, dtype=float)
         sems = np.array([prior_lnL_sem or 0.0] + ti_sem, dtype=float)
@@ -899,6 +961,25 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
             sigma_over_Z = float(np.sqrt(np.sum((w * sems) ** 2)))
             neff = (float(ti_min_step_ess) if np.isfinite(ti_min_step_ess)
                     else float(len(theta)))
+        if map_theta is not None:
+            # Laplace-at-(polished)-MAP evidence diagnostic.  Regularize the
+            # Hessian (|eigvals|) to tolerate the indefinite ridge; single-mode,
+            # so it under-counts multimodal time-delay-ring contributions --
+            # reported for comparison against TI, not as the primary estimate.
+            try:
+                H = np.asarray(jax.hessian(lambda t: like._scalar(t))(jnp.asarray(map_theta)))
+                wv = np.linalg.eigvalsh(-0.5 * (H + H.T))
+                wreg = np.maximum(np.abs(wv), 1e-6)
+                dim = map_theta.shape[0]
+                logZ_laplace = (map_lnL + float(log_prior_4(map_theta[None, :])[0])
+                                + 0.5 * dim * np.log(2 * np.pi)
+                                - 0.5 * float(np.sum(np.log(wreg))))
+                if verbose:
+                    print("  [evidence] TI logZ=%.3f  Laplace@MAP logZ=%.3f"
+                          % (logZ, logZ_laplace), flush=True)
+            except Exception as e:
+                if verbose:
+                    print("  [evidence] Laplace diag failed: %r" % e)
     elif len(theta) >= 6:
         mu, cov = _moment_match(theta, np.zeros(len(theta)))
         cov = cov * 2.0
@@ -919,7 +1000,9 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
 
     return dict(theta=theta, lnL=lnL, logZ=logZ, sigma_over_Z=sigma_over_Z,
                 neff=neff, flow_state=flow_state, post_weight=post_weight,
-                temper=float(1.0 / inv_T) if inv_T > 0 else float(temper))
+                temper=float(1.0 / inv_T) if inv_T > 0 else float(temper),
+                logZ_laplace=float(logZ_laplace),
+                lnL_map=(float(map_lnL) if map_lnL is not None else np.nan))
 
 
 # ---------------------------------------------------------------------------
