@@ -366,6 +366,28 @@ def build_parser():
     g.add_option("--n-prior-pilot", type=int, default=8000,
                  help="Prior pilot draws used to initialize chains (and to "
                       "seed multi-start optimizers).")
+    g.add_option("--adapt-weight-exponent", type=float, default=1.0,
+                 help="Static likelihood-tempering exponent beta (a la old-RIFT): "
+                      "flowMC samples the broadened target L^beta * pi and "
+                      "reweights to the true posterior. beta=1 (default) is OFF; "
+                      "beta<1 broadens (helps the flow find sharp high-SNR peaks). "
+                      "Maps to sampler temper = 1/beta (modes flowmc, flowmc-phimarg).")
+    g.add_option("--adapt-adapt", action="store_true", default=False,
+                 help="Adaptive likelihood tempering (flowmc-phimarg): anneal the "
+                      "tempering exponent inv_T from --temper-init up to 1.0, "
+                      "warm-starting the flow each stage, choosing each step so the "
+                      "tempered-reweight ESS stays >= --temper-ess-frac. The "
+                      "high-SNR path that avoids the static-tempering neff->1 "
+                      "collapse. Overrides --adapt-weight-exponent when set.")
+    g.add_option("--temper-init", type=float, default=0.02,
+                 help="Initial (widest) tempering exponent inv_T for --adapt-adapt.")
+    g.add_option("--temper-ess-frac", type=float, default=0.5,
+                 help="Target tempered-reweight ESS fraction per anneal step (--adapt-adapt).")
+    g.add_option("--temper-max-stages", type=int, default=16,
+                 help="Max anneal stages before forcing the final inv_T=1 pass (--adapt-adapt).")
+    g.add_option("--temper-max-dbeta", type=float, default=0.15,
+                 help="Cap on the inv_T step per anneal stage, so the thermodynamic-"
+                      "integration evidence trapezoid stays accurate (--adapt-adapt).")
     g.add_option("--interp", default="linear", choices=["linear", "nearest"])
     g.add_option("--sky-coordinates", default="equatorial",
                  choices=["equatorial", "network"],
@@ -863,6 +885,9 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 verbose=opts.verbose)
         elif opts.mode == "flowmc-phimarg":
             # 4-D phi-marginalised flowMC; flow re-use across intrinsic batch.
+            # Static tempering: beta = --adapt-weight-exponent -> temper = 1/beta.
+            _beta = float(opts.adapt_weight_exponent)
+            _temper = 1.0 / _beta if _beta > 0 else 1.0
             res = _samplers.flowmc_sample_phimarg(
                 like, opts.d_min, opts.d_max,
                 n_chains=max(n_starts, 20),
@@ -871,10 +896,16 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 n_training_loops=opts.n_training_loops,
                 n_production_loops=opts.n_production_loops,
                 n_epochs=opts.n_epochs,
-                n_prior_pilot=opts.n_prior_pilot,
+                n_prior_pilot=opts.n_prior_pilot, temper=_temper,
+                temper_adapt=opts.adapt_adapt, temper_init=opts.temper_init,
+                temper_ess_frac=opts.temper_ess_frac,
+                temper_max_stages=opts.temper_max_stages,
+                temper_max_dbeta=opts.temper_max_dbeta,
                 seed=opts.seed, reuse_state=flow_state, verbose=opts.verbose)
             out_flow_state = res.get("flow_state")
         else:
+            _beta = float(opts.adapt_weight_exponent)
+            _temper = 1.0 / _beta if _beta > 0 else 1.0
             res = _samplers.flowmc_sample(
                 like, opts.d_min, opts.d_max, n_chains=max(n_starts, 20),
                 n_local_steps=opts.n_local_steps,
@@ -882,7 +913,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 n_training_loops=opts.n_training_loops,
                 n_production_loops=opts.n_production_loops,
                 n_epochs=opts.n_epochs,
-                n_prior_pilot=opts.n_prior_pilot,
+                n_prior_pilot=opts.n_prior_pilot, temper=_temper,
                 seed=opts.seed, reuse_state=flow_state, verbose=opts.verbose)
             out_flow_state = res.get("flow_state")  # bootstrap the next event
         theta, lnL = res["theta"], res["lnL"]

@@ -703,7 +703,9 @@ def _warmup_compile(like, verbose=True):
 def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
                            n_global_steps=20, n_training_loops=4, n_production_loops=4,
                            n_epochs=10, n_prior_pilot=8000, seed=0, mala_step_size=0.01,
-                           reuse_state=None, temper=1.0, verbose=False):
+                           reuse_state=None, temper=1.0, temper_adapt=False,
+                           temper_init=0.02, temper_ess_frac=0.5, temper_max_stages=16,
+                           temper_max_dbeta=0.15, verbose=False):
     """flowMC with φ_ref marginalised — 4-D sampler over (ra, dec, psi, incl).
 
     Identical in structure to :func:`flowmc_sample` except φ_ref is removed from
@@ -720,31 +722,46 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
     from flowMC.resource_strategy_bundle.RQSpline_MALA import RQSpline_MALA_Bundle
 
     n_dim = 4
-    inv_T = 1.0 / float(temper)
-
-    def logpdf(theta4, data):
-        return inv_T * like._scalar(theta4) + _log_prior_4_jax(theta4)
-
     rng = np.random.default_rng(seed)
-    key = jax.random.PRNGKey(seed)
-    bkey, skey = jax.random.split(key)
 
-    bundle = RQSpline_MALA_Bundle(
-        rng_key=bkey, n_chains=n_chains, n_dims=n_dim, logpdf=logpdf,
-        n_local_steps=n_local_steps, n_global_steps=n_global_steps,
-        n_training_loops=n_training_loops, n_production_loops=n_production_loops,
-        n_epochs=n_epochs, mala_step_size=mala_step_size, verbose=verbose)
-
-    if reuse_state is not None and reuse_state.get("model") is not None:
+    # One flow training+production pass at a fixed tempering exponent inv_T,
+    # optionally warm-started from a previous flow model + chain positions.
+    # Returns (theta, lnL, trained_model).
+    def _one_pass(inv_T_pass, init_positions, init_model, pass_seed):
+        def logpdf(theta4, data):
+            return inv_T_pass * like._scalar(theta4) + _log_prior_4_jax(theta4)
+        key = jax.random.PRNGKey(pass_seed)
+        bkey, skey = jax.random.split(key)
+        bundle = RQSpline_MALA_Bundle(
+            rng_key=bkey, n_chains=n_chains, n_dims=n_dim, logpdf=logpdf,
+            n_local_steps=n_local_steps, n_global_steps=n_global_steps,
+            n_training_loops=n_training_loops, n_production_loops=n_production_loops,
+            n_epochs=n_epochs, mala_step_size=mala_step_size, verbose=verbose)
+        if init_model is not None:
+            try:
+                bundle.resources["model"] = init_model
+            except Exception as e:
+                if verbose:
+                    print("  flowMC (phimarg): flow re-use failed (%r); fresh flow" % e)
+        sampler = Sampler(n_dim=n_dim, n_chains=n_chains, rng_key=skey,
+                          resource_strategy_bundles=bundle)
+        if verbose:
+            print("  [flowMC] sampling (inv_T=%.4g) …" % inv_T_pass, flush=True)
+        sampler.sample(init_positions, {})
+        prod = np.asarray(sampler.resources["positions_production"].data)
+        th = prod.reshape(-1, n_dim)
+        ok = np.all(np.isfinite(th), axis=1) & np.isfinite(log_prior_4(th))
+        th = th[ok]
+        ll = eval_lnL_4(like, th, desc="reweight") if len(th) else np.array([])
         try:
-            bundle.resources["model"] = reuse_state["model"]
-            if verbose:
-                print("  flowMC (phimarg): re-using trained flow from previous point")
-        except Exception as e:
-            if verbose:
-                print("  flowMC (phimarg): flow re-use failed (%r); fresh flow" % e)
+            mdl = sampler.resources["model"]
+        except Exception:
+            mdl = None
+        return th, ll, mdl
 
+    # ---- initial chain positions: re-used, else high-lnL prior draws ----
     init = None
+    prior_lnL_mean = prior_lnL_sem = None   # beta=0 anchor for thermodynamic integration
     if reuse_state is not None and reuse_state.get("positions") is not None:
         pos = np.asarray(reuse_state["positions"])
         if pos.shape == (n_chains, n_dim) and np.all(np.isfinite(pos)) \
@@ -756,27 +773,87 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
         _warmup_compile(like, verbose=verbose)
         pilot = sample_prior_4(max(n_prior_pilot, n_chains), rng)
         pilot_lnL = eval_lnL_4(like, pilot, desc="pilot")
+        prior_lnL_mean = float(np.mean(pilot_lnL))
+        prior_lnL_sem = float(np.std(pilot_lnL) / max(1.0, np.sqrt(len(pilot_lnL))))
         top = np.argsort(pilot_lnL)[::-1][:n_chains]
         init = jnp.asarray(pilot[top])
     else:
         _warmup_compile(like, verbose=verbose)
 
-    sampler = Sampler(n_dim=n_dim, n_chains=n_chains, rng_key=skey,
-                      resource_strategy_bundles=bundle)
-    if verbose:
-        print("  [flowMC] sampling …", flush=True)
-    sampler.sample(init, {})
-    prod = np.asarray(sampler.resources["positions_production"].data)
-    theta = prod.reshape(-1, n_dim)
+    # thermodynamic integration needs a prior (beta=0) anchor even when warm-started
+    if temper_adapt and prior_lnL_mean is None:
+        anchor = sample_prior_4(max(n_prior_pilot, n_chains), rng)
+        anchor_lnL = eval_lnL_4(like, anchor, desc="prior-anchor")
+        prior_lnL_mean = float(np.mean(anchor_lnL))
+        prior_lnL_sem = float(np.std(anchor_lnL) / max(1.0, np.sqrt(len(anchor_lnL))))
 
-    finite = np.all(np.isfinite(theta), axis=1) & np.isfinite(log_prior_4(theta))
-    theta = theta[finite]
-    lnL = eval_lnL_4(like, theta, desc="reweight") if len(theta) else np.array([])
+    init_model = reuse_state.get("model") if reuse_state is not None else None
+    if init_model is not None and verbose:
+        print("  flowMC (phimarg): re-using trained flow from previous point")
 
-    try:
-        trained_model = sampler.resources["model"]
-    except Exception:
-        trained_model = None
+    if not temper_adapt:
+        # ---- single static tempering stage (default; temper=1 -> exact) ----
+        inv_T = 1.0 / float(temper)
+        theta, lnL, trained_model = _one_pass(inv_T, init, init_model, seed)
+    else:
+        # ---- adaptive likelihood tempering (a la mcsamplerGPU adapt-adapt) ----
+        # Anneal inv_T from temper_init up to 1.0; each step is the largest value
+        # whose tempered-reweight ESS from the current stage stays >= the target
+        # fraction (adaptive SMC tempering).  Flow + chain positions warm-start
+        # across stages, so the final inv_T=1 flow is tight on the true peak and
+        # the evidence step below no longer collapses to neff=1.  When ESS is
+        # poor we keep adapting on the tempered draws instead of giving up.
+        inv_T = min(max(float(temper_init), 1e-3), 1.0)
+        positions, trained_model = init, init_model
+        theta = np.empty((0, n_dim)); lnL = np.array([])
+        ti_beta = []; ti_mean = []; ti_sem = []   # ladder for thermodynamic integration
+        ti_min_step_ess = np.inf                   # bottleneck inter-stage ESS
+        stage = 0
+        while True:
+            theta, lnL, trained_model = _one_pass(inv_T, positions, trained_model,
+                                                  seed + stage)
+            if len(theta) >= n_chains:
+                positions = jnp.asarray(theta[np.argsort(lnL)[::-1][:n_chains]])
+            if len(lnL):
+                # <lnL>_{inv_T} estimated from this stage's tempered draws
+                ti_beta.append(float(inv_T))
+                ti_mean.append(float(np.mean(lnL)))
+                ti_sem.append(float(np.std(lnL) / max(1.0, np.sqrt(len(lnL)))))
+            if verbose:
+                print("  [temper-adapt] stage %d  inv_T=%.4g  ndraw=%d  maxlnL=%.2f"
+                      % (stage, inv_T, len(theta),
+                         float(np.max(lnL)) if len(lnL) else np.nan), flush=True)
+            stage += 1
+            if inv_T >= 1.0 or len(lnL) < 2:   # just sampled the exact target
+                break
+            # next inv_T: largest value in (inv_T, 1] with tempered ESS >= target
+            lnL_c = lnL - np.max(lnL)
+            def _ess(next_invT):
+                lw = (next_invT - inv_T) * lnL_c
+                w = np.exp(lw - lw.max())
+                return (w.sum() ** 2) / np.sum(w ** 2)
+            target = float(temper_ess_frac) * len(lnL)
+            if stage >= int(temper_max_stages):
+                inv_T_new = 1.0                 # safety stop: force the exact pass
+            elif _ess(1.0) >= target:
+                inv_T_new = 1.0
+            else:
+                lo, hi = inv_T, 1.0
+                for _ in range(40):
+                    mid = 0.5 * (lo + hi)
+                    if _ess(mid) >= target:
+                        lo = mid
+                    else:
+                        hi = mid
+                inv_T_new = lo
+            # Cap the step so the thermodynamic-integration trapezoid stays
+            # accurate: the ESS criterion controls sampling quality but allows
+            # large dbeta jumps that under-resolve the (concave) <lnL>(beta) curve.
+            if temper_max_dbeta and temper_max_dbeta > 0:
+                inv_T_new = min(inv_T_new, inv_T + float(temper_max_dbeta))
+            ti_min_step_ess = min(ti_min_step_ess, float(_ess(inv_T_new)))
+            inv_T = inv_T_new
+
     next_positions = (theta[np.argsort(lnL)[::-1][:n_chains]]
                       if len(theta) >= n_chains else None)
     flow_state = {"model": trained_model, "positions": next_positions}
@@ -788,7 +865,29 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
         post_weight = np.array([])
 
     logZ = sigma_over_Z = neff = np.nan
-    if len(theta) >= 6:
+    if temper_adapt and len(ti_beta) >= 1 and prior_lnL_mean is not None:
+        # ---- thermodynamic integration over the anneal ladder ----
+        #   ln Z = \int_0^1 <lnL>_{inv_T} d(inv_T),  with Z(inv_T=0) = \int pi = 1.
+        # Makes no single-peak/Gaussian assumption -> robust to the curved
+        # (psi, phi_ref) degeneracy ridge that collapses the moment-matched IS.
+        betas = np.array([0.0] + ti_beta, dtype=float)
+        means = np.array([prior_lnL_mean] + ti_mean, dtype=float)
+        sems = np.array([prior_lnL_sem or 0.0] + ti_sem, dtype=float)
+        order = np.argsort(betas)
+        betas, means, sems = betas[order], means[order], sems[order]
+        keep = np.concatenate([np.diff(betas) > 1e-12, [True]])  # drop duplicate betas
+        betas, means, sems = betas[keep], means[keep], sems[keep]
+        if len(betas) >= 2:
+            db = np.diff(betas)
+            logZ = float(np.sum(0.5 * (means[1:] + means[:-1]) * db))  # trapezoid
+            w = np.zeros_like(betas)                                   # variance weights
+            w[0] = 0.5 * db[0]; w[-1] = 0.5 * db[-1]
+            if len(betas) > 2:
+                w[1:-1] = 0.5 * (betas[2:] - betas[:-2])
+            sigma_over_Z = float(np.sqrt(np.sum((w * sems) ** 2)))
+            neff = (float(ti_min_step_ess) if np.isfinite(ti_min_step_ess)
+                    else float(len(theta)))
+    elif len(theta) >= 6:
         mu, cov = _moment_match(theta, np.zeros(len(theta)))
         cov = cov * 2.0
         Lc = np.linalg.cholesky(cov + 1e-12 * np.eye(n_dim))
@@ -808,7 +907,7 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
 
     return dict(theta=theta, lnL=lnL, logZ=logZ, sigma_over_Z=sigma_over_Z,
                 neff=neff, flow_state=flow_state, post_weight=post_weight,
-                temper=float(temper))
+                temper=float(1.0 / inv_T) if inv_T > 0 else float(temper))
 
 
 # ---------------------------------------------------------------------------
