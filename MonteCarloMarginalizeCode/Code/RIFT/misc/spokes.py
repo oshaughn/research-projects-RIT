@@ -207,7 +207,7 @@ def Line_to_spoke_entry(line,digits=4,is_eccentric=False):
 def ChooseWaveformParams_to_spoke_mass(P,digits=4):
     m1 = P.m1
     m2 = P.m2
-    return np.around((m1+m2)/lal.MSUN_SI, decimals=4)
+    return np.around((m1+m2)/lal.MSUN_SI, decimals=digits)
 
 
 def LoadSpokeDAT(fname, is_eccentric=False,digits=4):
@@ -235,7 +235,7 @@ def LoadSpokeXML(fname,is_eccentric=False,digits=4):
     sdHere = {}
     for P in P_list:
 #        spoke_id = str( [round(elem, 3) for elem in ChooseWaveformParams_to_spoke_label(P)])
-        spoke_id = str(ChooseWaveformParams_to_spoke_label(P,ise_eccentric=is_eccentric,digits=digits))
+        spoke_id = str(ChooseWaveformParams_to_spoke_label(P,is_eccentric=is_eccentric,digits=digits))
         if spoke_id in sdHere:
             sdHere[spoke_id].append(P)
         else:
@@ -269,4 +269,3 @@ def CleanSpokeEntries(spoke_entries,digits=4):
         spoke_entries_out.append([key,lnLmeanMinusLmax+lnLmax, sigmaNetOverL])
 
     return np.around(np.array(spoke_entries_out),decimals=digits)
-

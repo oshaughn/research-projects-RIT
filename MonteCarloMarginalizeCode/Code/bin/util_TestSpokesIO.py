@@ -47,7 +47,7 @@ if opts.fname and opts.mega_verbose:
  for key in sdHere:
     print(" Spoke : ", key)
     for P in sdHere[key]:
-        mtot = spokes.ChooseWaveformParams_to_spoke_mass(P)  # used so rounding is consistent
+        mtot = spokes.ChooseWaveformParams_to_spoke_mass(P,digits=opts.digits)  # used so rounding is consistent
         print(mtot)
 
 
@@ -60,7 +60,7 @@ if opts.fname_dat:
  print(" Spoke count : ", len(sdHere.keys()))
  fig_index =0
  for key in sdHere:
-    sdHereCleaned = spokes.CleanSpokeEntries(sdHere[key])
+    sdHereCleaned = spokes.CleanSpokeEntries(sdHere[key],digits=opts.digits)
     print(" Spoke ", key, len(sdHereCleaned))
     if opts.mega_verbose:
      for spoke_entry in sdHere[key]:
@@ -128,7 +128,7 @@ if opts.fname and opts.fname_dat:
          print(" Failed cross lookup for ", spoke_id, nCount, " failure count = ", nFailures)
          continue
       # Clean
-      sd_here =spokes.CleanSpokeEntries(sd_dat[spoke_id])
+      sd_here =spokes.CleanSpokeEntries(sd_dat[spoke_id],digits=opts.digits)
       # Refine: find mass values
       code, mvals_new = spokes.Refine(sd_here[:,0], sd_here[:,1])
       if mvals_new is None:
