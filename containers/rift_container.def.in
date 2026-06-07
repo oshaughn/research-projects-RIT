@@ -1,0 +1,74 @@
+# Parameterized apptainer definition for the RIFT container *family*.
+#
+# This is a TEMPLATE. Apptainer .def files take no build args, so
+# containers/build_family.sh renders a concrete .def per build-matrix entry by
+# substituting the @@PLACEHOLDERS@@ below, then runs `apptainer build`.
+#
+# Placeholders:
+#   @@BASE_IMAGE@@  - docker base image (e.g. nvidia/cuda:11.8.0-runtime-ubuntu22.04)
+#   @@CUPY_PKG@@    - cupy wheel matched to the base CUDA version (cupy-cuda11x / cupy-cuda12x)
+#
+# The top-level rift_container.def is left in place as the default single build;
+# this template + build_family.sh is the multi-target path.
+Bootstrap: docker
+From: @@BASE_IMAGE@@
+
+%files
+   # Stage the shared dependency list from the HOST build tree into the image,
+   # so the build does NOT depend on the cloned RIFT branch carrying this file
+   # (the clone below may be a branch/release that predates it). build_family.sh
+   # fills in the absolute host path of containers/requirements-container.txt.
+   @@REQFILE@@ /opt/requirements-container.txt
+
+%post
+   # Update the system and install essential libraries
+   apt-get update -y
+   apt-get install -y \
+           build-essential \
+           cmake \
+           g++ \
+           wget \
+           python3.10 \
+           python3.10-venv \
+           python3-pip \
+           curl \
+           bc \
+           locales \
+           git \
+           libkrb5-dev \
+           libgsl-dev
+
+   # Configure locale
+   locale-gen en_US.UTF-8
+
+   # Ensure Python symlink is in place
+   ln -s /usr/bin/python3.10 /usr/local/bin/python3
+   ln -s /usr/bin/python3 /usr/local/bin/python
+
+   # Set up RIFT installation, using MAIN SOURCE. Modify if you want a release version, or a different branch!
+   cd /opt
+   mkdir installed_RIFT
+   cd installed_RIFT
+   git clone https://github.com/oshaughn/research-projects-RIT.git
+   cd research-projects-RIT
+   #git checkout rift_O4c
+   pip3 install --upgrade pip
+   pip3 install --upgrade setuptools --break-system-packages
+   pip3 install -e .
+
+   # GPU-specific cupy variant, matched to the base image CUDA version.
+   pip3 install @@CUPY_PKG@@
+
+   # Shared dependency set -- single source of truth, also exercised by the CI
+   # dependency-resolution canary (containers/requirements-container.txt).
+   # Staged into the image via the %files section above (independent of the
+   # cloned branch).
+   pip3 install -r /opt/requirements-container.txt
+
+%environment
+   # Set environment variables
+   alias python=python3
+
+%labels
+   org.rift.base @@BASE_IMAGE@@
+   org.rift.cupy @@CUPY_PKG@@

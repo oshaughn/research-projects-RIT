@@ -137,6 +137,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--skip-reproducibility",action='store_true')
 parser.add_argument("--use-production-defaults",action='store_true',help="Use production defaults. Intended for use with tools like asimov or by nonexperts who just want something to run on a real event.  Will require manual setting of other arguments!")
 parser.add_argument("--use-subdags",action='store_true',help="Use CEPP_Alternate instead of CEPP_BasicIteration. Note this writes an adaptively-sized DAG each iteration, but doesn't otherwise optimize yet.")
+parser.add_argument("--pipeline-builder",default=None,choices=["BasicIteration","AlternateIteration"],help="Explicitly select the create_event_parameter_pipeline_* iteration builder, as a drop-in hot-swap for side-by-side A/B testing. Overrides the implicit --use-subdags routing. If unset, the builder is chosen by --use-subdags (Alternate) vs. the default (Basic).")
 parser.add_argument("--use-ile-subdags",action='store_true',help="Use ILE subdag system (new)")
 parser.add_argument("--bilby-ini-file",default=None,type=str,help="Pass ini file for parsing. Intended to use for calibration reweighting. Full path recommended")
 parser.add_argument("--bilby-pickle-file",default=None,type=str,help="Bilby Pickle file with event settings. Intended to use for calibration reweighting. Full path recommended")
@@ -294,6 +295,12 @@ parser.add_argument("--internal-ile-force-noreset-adapt",action='store_true',hel
 parser.add_argument("--internal-ile-adapt-log",action='store_true',help="Passthrough to ILE ")
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE via helper.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset for ILE")
+parser.add_argument("--export-marginal-distance-grid",action='store_true',help="Ask the ILE extrinsic stage to export per-intrinsic likelihood density grids in luminosity distance. Forces ILE lnL mode and disables distance marginalization. Requires the extrinsic stage (--add-extrinsic).")
+parser.add_argument("--export-distance-slices",default=0,type=int,help="If >0, ask the ILE extrinsic stage to export K-row .dslice files (Plan-B fixed-distance extrinsic-marginalized likelihoods). Forces ILE lnL mode and disables distance marginalization. Requires the extrinsic stage (--add-extrinsic).")
+parser.add_argument("--export-distance-slices-n-core",default=0,type=int,help="Passthrough: --n-distance-slice-core for the .dslice export.")
+parser.add_argument("--export-distance-slices-n-wing",default=0,type=int,help="Passthrough: --n-distance-slice-wing for the .dslice export.")
+parser.add_argument("--export-distance-slices-wing-delta-lnL",default=None,type=float,help="Passthrough: --distance-slice-wing-delta-lnL for the .dslice export (target lnL drop below peak for wing placement).")
+parser.add_argument("--export-distance-slices-skip-threshold",default=None,type=float,help="Passthrough: --distance-slice-skip-threshold for the .dslice export (absolute peak-lnL detectability cut).")
 parser.add_argument("--ile-additional-files-to-transfer",default=None,help="Comma-separated list of filenames. To append to the transfer file list for ILE jobs (only). Intended for surrogates in LAL_DATA_PATH for wide-ranging use")
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
@@ -740,6 +747,20 @@ if not(opts.cip_fit_method is None):
 
 if opts.internal_ile_use_lnL:
     cmd+= " --internal-ile-use-lnL "
+if opts.export_marginal_distance_grid or (opts.export_distance_slices and opts.export_distance_slices > 0):
+    # Per-distance likelihood export needs ILE lnL mode (forced here for the
+    # whole run, giving clean lnL-scaled helper args) and, *only at the export
+    # stage*, no distance marginalization.  We deliberately do NOT disable
+    # distance marginalization globally: the intrinsic iterations keep it (it
+    # is a large speedup).  Only the final extrinsic stage that emits the
+    # per-distance output has --distance-marginalization stripped, and that
+    # stripping is done by create_event_parameter_pipeline_* on the ILE_extr
+    # argument string -- not here.
+    opts.internal_ile_use_lnL = True
+    if "--internal-ile-use-lnL" not in cmd:
+        cmd += " --internal-ile-use-lnL "
+    if not opts.add_extrinsic:
+        print(" ==> WARNING: distance grid/slice export is emitted by the ILE extrinsic stage, but --add-extrinsic is not set; no per-distance output will be produced. <== ")
 if opts.internal_cip_use_lnL:
     cmd += " --internal-cip-use-lnL "
 if opts.internal_ile_data_tukey_window_time:
@@ -969,6 +990,15 @@ if not(opts.manual_extra_ile_args is None):
         line = line.replace('--declination-cosine-sampler', '')
 if opts.internal_ile_force_adapt_all:
     line += " --force-adapt-all "
+# NOTE on per-distance export (grid/slices): the --last-iteration-export-*
+# flags are *pipeline-builder* flags (consumed by
+# create_event_parameter_pipeline_*), NOT ILE flags, so they are added to the
+# CEPP command below -- not to this ILE argument string (args_ile.txt).  The
+# args_ile.txt here is the *intrinsic* ILE configuration and intentionally
+# keeps --distance-marginalization (a speedup); lnL mode was already forced
+# above, so --internal-use-lnL is present.  create_event_parameter_pipeline_*
+# strips --distance-marginalization only from the extrinsic (ILE_extr) stage
+# that emits the per-distance output.
 if not(opts.ile_sampler_method is None):
     line += " --sampler-method {} ".format(opts.ile_sampler_method)
 if opts.internal_ile_sky_network_coordinates:
@@ -1415,6 +1445,12 @@ if opts.internal_cip_request_memory:
 cepp = "create_event_parameter_pipeline_BasicIteration"
 if opts.use_subdags:
     cepp = "create_event_parameter_pipeline_AlternateIteration"
+if opts.pipeline_builder:  # explicit override wins, for clean side-by-side A/B testing of the two builders
+    if opts.use_subdags and opts.pipeline_builder != "AlternateIteration":
+        # use_subdags is set either by the user or force-set by --internal-use-amr (which REQUIRES the Alternate builder)
+        print(" WARNING: --pipeline-builder {} overrides --use-subdags routing; AMR/subdag runs require AlternateIteration ".format(opts.pipeline_builder))
+    cepp = "create_event_parameter_pipeline_" + opts.pipeline_builder
+print(" Pipeline builder (create_event_parameter_pipeline_*): ", cepp)
 cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if opts.ile_jobs_per_worker_first:
     cmd += " --ile-n-events-to-analyze-first {} ".format(opts.ile_jobs_per_worker_first)
@@ -1670,7 +1706,24 @@ if not(ile_condor_commands is None):
         for key, val in ile_condor_commands:
             f.write(key+ '  ' + val + '\n')
     cmd += " --ile-condor-commands `pwd`/ile_condor_commands.txt "
-    
+
+# Per-distance likelihood export on the extrinsic stage. These are
+# pipeline-builder flags consumed by create_event_parameter_pipeline_*, so
+# they are added to the CEPP command (not the ILE args). They only take effect
+# when the extrinsic stage exists (--add-extrinsic).
+if opts.export_marginal_distance_grid:
+    cmd += " --last-iteration-export-marginal-distance-grid "
+if opts.export_distance_slices and opts.export_distance_slices > 0:
+    cmd += " --last-iteration-export-distance-slices {} ".format(opts.export_distance_slices)
+    if opts.export_distance_slices_n_core:
+        cmd += " --last-iteration-export-distance-slices-n-core {} ".format(opts.export_distance_slices_n_core)
+    if opts.export_distance_slices_n_wing:
+        cmd += " --last-iteration-export-distance-slices-n-wing {} ".format(opts.export_distance_slices_n_wing)
+    if opts.export_distance_slices_wing_delta_lnL is not None:
+        cmd += " --last-iteration-export-distance-slices-wing-delta-lnL {} ".format(opts.export_distance_slices_wing_delta_lnL)
+    if opts.export_distance_slices_skip_threshold is not None:
+        cmd += " --last-iteration-export-distance-slices-skip-threshold {} ".format(opts.export_distance_slices_skip_threshold)
+
 print(cmd)
 os.system(cmd)
 

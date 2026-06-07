@@ -7,6 +7,28 @@ Repository for the rapid_PE / RIFT code, developed at RIT (forked long ago from 
 
 Please see INSTALL.md
 
+### Pixi development environments
+
+The root `pixi.toml` provides reproducible local-development environments for
+the RIFT science stack. The default environment intentionally keeps `swig`
+below 4.4.0 so local installs do not accidentally pick up the SWIG 4.4.x
+binding-generation behavior tracked in issue #136:
+
+```bash
+pixi install
+pixi run install-rift
+pixi run import-check
+```
+
+CI also resolves a comparison environment with `swig >=4.4.0`:
+
+```bash
+pixi run -e swig-pre44 swig-version
+pixi run -e swig-post44 swig-version
+pixi run -e swig-pre44 import-check
+pixi run -e swig-post44 import-check
+```
+
 ## Science
 
 If you are using this code for a production analysis, please contact us to make sure you follow the instructions included here!

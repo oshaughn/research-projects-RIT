@@ -1,0 +1,90 @@
+# Root pixi project for RIFT development and SWIG compatibility testing.
+#
+# Default local environment:
+#   pixi install
+#   pixi run install-rift
+#   pixi run import-check
+#
+# SWIG comparison environments:
+#   pixi run -e swig-pre44 swig-version
+#   pixi run -e swig-post44 swig-version
+#   pixi run -e swig-pre44 import-check
+#   pixi run -e swig-post44 import-check
+#
+# RIFT is sensitive to generated SWIG bindings. Keep the default development
+# environment on SWIG <4.4.0, but preserve a >=4.4.0 lane for deployment checks.
+
+[workspace]
+name = "rift-dev"
+version = "0.0.18.0rc0"
+description = "Development and CI environments for RIFT."
+authors = ["RIFT developers"]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-64", "osx-arm64"]
+
+[dependencies]
+python = ">=3.11,<3.13"
+pip = "*"
+setuptools = "*"
+wheel = "*"
+pytest = "*"
+coverage = "*"
+natsort = "*"
+numpy = "<2.0"
+h5py = "*"
+numba = ">=0.56"
+pandas = "*"
+corner = "*"
+scikit-learn = "*"
+matplotlib = "*"
+lalsuite = "==7.25"
+lalmetaio = "<=4.0.5"
+gwdatafind = ">=1.2"
+igwn-segments = "*"
+igwn-ligolw = "*"
+six = "*"
+"ligo.skymap" = "*"
+gwpy = "*"
+scipy = ">=1.9.3"
+htcondor = "*"
+pybind11 = ">=2.12"
+gsl = "*"
+hydra-core = "*"
+omegaconf = "*"
+pyyaml = "*"
+
+[pypi-dependencies]
+# requirements.txt currently spells this as precession[chip_avg], but the
+# published PyPI metadata exposes no chip_avg extra; the base package is what
+# pip/pixi can actually resolve.
+precession = "*"
+pyseobnr = "*"
+asimov = ">=0.5.6"
+asimov-gwdata = ">=0.4.0"
+
+[feature.swig-pre44.dependencies]
+swig = "<4.4.0"
+
+[feature.swig-post44.dependencies]
+swig = ">=4.4.0"
+
+[environments]
+default = ["swig-pre44"]
+swig-pre44 = ["swig-pre44"]
+swig-post44 = ["swig-post44"]
+
+[activation.env]
+GW_SURROGATE = ""
+RIFT_ROOT = "$PIXI_PROJECT_ROOT"
+RIFT_PY = "$PIXI_PROJECT_ROOT/MonteCarloMarginalizeCode/Code"
+RIFT_BIN = "$PIXI_PROJECT_ROOT/MonteCarloMarginalizeCode/Code/bin"
+PYTHONPATH = "$PIXI_PROJECT_ROOT/MonteCarloMarginalizeCode/Code:$PYTHONPATH"
+PATH = "$PIXI_PROJECT_ROOT/MonteCarloMarginalizeCode/Code/bin:$PATH"
+
+[tasks]
+install-rift = "python -m pip install --no-deps --editable ."
+swig-version = "swig -version"
+import-check = "python .travis/test-all-mod.py"
+help-check = "bash .travis/test-all-bin.sh"
+sim-manager-check = "python MonteCarloMarginalizeCode/Code/test/test_simulation_manager.py -v"
+test-likelihood = "python MonteCarloMarginalizeCode/Code/test/test_likelihood.py"

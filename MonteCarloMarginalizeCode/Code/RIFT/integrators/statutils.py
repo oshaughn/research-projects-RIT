@@ -1,4 +1,5 @@
 import numpy
+from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
 import scipy.special
 
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>, R. O'Shaughnessy"
@@ -38,12 +39,12 @@ def cumvar(arr, mean=None, var=None, n=0):
     for algorithm details.
 	"""
 	if mean and var:
-		m, s = numpy.zeros(len(arr)+1), numpy.zeros(len(arr)+1,dtype=numpy.float128)
+		m, s = numpy.zeros(len(arr)+1), numpy.zeros(len(arr)+1,dtype=RiftFloat)
 		m[0] = mean
 		s[0] = var*(n-1)
 		buf = numpy.array([0])
 	else:
-		m, s = numpy.zeros(arr.shape), numpy.zeros(arr.shape,dtype=numpy.float128)
+		m, s = numpy.zeros(arr.shape), numpy.zeros(arr.shape,dtype=RiftFloat)
 		m[0] = arr[0]
 		buf = numpy.array([])
 

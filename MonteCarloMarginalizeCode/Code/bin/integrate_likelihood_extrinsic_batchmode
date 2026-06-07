@@ -315,6 +315,13 @@ intrinsic_params.add_option("--eff-lambda", type=float, help="Value of effective
 intrinsic_params.add_option("--deff-lambda", type=float, help="Value of second effective tidal parameter. Optional, ignored if not given")
 intrinsic_params.add_option("--export-eos-index",action='store_true')
 intrinsic_params.add_option("--export-marginal-distance-grid",action='store_true')
+intrinsic_params.add_option("--export-distance-slices",type=int,default=0,help="If >0, after main extrinsic integration emit a per-event .dslice file with rows of fixed-d extrinsic-marginalized likelihoods. Total rows = --n-distance-slice-core + --n-distance-slice-wing. Requires --internal-use-lnL and no --distance-marginalization.")
+intrinsic_params.add_option("--n-distance-slice-core",type=int,default=0,help="Core slices via importance-reweight on existing Omega samples (cheap). If 0 and --export-distance-slices>0, defaults to ceil(K*0.6).")
+intrinsic_params.add_option("--n-distance-slice-wing",type=int,default=0,help="Wing slices via fresh Omega-only integrations at pinned distance (covers tails ~7 nats below peak). If 0 and --export-distance-slices>0, defaults to K - core.")
+intrinsic_params.add_option("--distance-slice-wing-nmax",type=int,default=20000,help="Max samples per wing fresh integration.")
+intrinsic_params.add_option("--distance-slice-wing-neff",type=int,default=30,help="n_eff target per wing fresh integration.")
+intrinsic_params.add_option("--distance-slice-skip-threshold",type=float,default=1.0,help="Absolute lnL scale: if the PEAK lnL across core slices is below this many nats, treat the event as effectively undetected and skip wing integrations. (lnL is a likelihood ratio vs noise, so this is an absolute detectability cut, not a relative-spread test.)")
+intrinsic_params.add_option("--distance-slice-wing-delta-lnL",type=float,default=7.0,help="Target lnL drop below peak used to place wing slice centers: wings span from the core edge out to where the parabolic lnL(1/d) model falls this many nats below peak (default 7 ~ prior weight <1e-3 outside). Falls back to log-uniform full-range placement if the parabolic fit is degenerate.")
 optp.add_option_group(intrinsic_params)
 
 
@@ -2013,68 +2020,211 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           else:
             numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z,  P.lambda1, P.lambda2, P.eos_table_index, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res,sampler.ntotal, neff ]]))  #dict_return["convergence_test_results"]["normal_integral]"
 
-        # Distance marginal grid. Only if NOT marginalize distance AND use lnL
+        # Per-intrinsic likelihood-vs-distance grid. Pure extrinsic-marginalized
+        # likelihood as a function of d_L: divides out the distance sampling
+        # prior so downstream can re-marginalize with any prior of choice.
         if opts.output_file and opts.export_marginal_distance_grid and not(opts.distance_marginalization) and opts.internal_use_lnL:
+          from RIFT.misc.distance_grid import build_distance_grid, save_distance_grid
           fname_output_dgrid = opts.output_file +"_"+str(indx_event)+"_" + ".dgrid"
-          npts_dgrid_out = opts.n_eff  # target samples
-          # compute CDF in distance and its inverse
-          # copy d grid  and weights, make CDF
-          dL = np.array(sampler._rvs["distance"] )
-          if 'log_weights' in sampler._rvs:
-            ln_wts = np.array(sampler._rvs['log_weights']) # assume present
-          elif 'log_integrand' in sampler._rvs:
-            ln_wts = np.array(sampler._rvs["log_integrand"] + sampler._rvs["log_joint_prior"] - sampler._rvs["log_joint_s_prior"])
+          dL = np.array(sampler._rvs["distance"])
+          rvs = sampler._rvs
+          if 'log_weights' in rvs:
+            ln_wts = np.array(rvs['log_weights'])
+          elif 'log_integrand' in rvs:
+            ln_wts = np.array(rvs['log_integrand'] + rvs['log_joint_prior'] - rvs['log_joint_s_prior'])
+          elif 'integrand' in rvs and 'joint_prior' in rvs and 'joint_s_prior' in rvs:
+            # mcsamplerEnsemble / GMM stores raw (non-log) integrand and priors.
+            # Drop rejected/out-of-support samples (zero integrand or zero prior
+            # contribution) by setting log weight to -inf.
+            integrand = np.asarray(rvs['integrand'])
+            jp = np.asarray(rvs['joint_prior'])
+            jsp = np.asarray(rvs['joint_s_prior'])
+            keep = (integrand > 0) & (jp > 0) & (jsp > 0)
+            ln_wts = np.full(len(integrand), -np.inf)
+            ln_wts[keep] = np.log(integrand[keep]) + np.log(jp[keep]) - np.log(jsp[keep])
           else:
-            raise Exception(" distance grid export: missing type")
-          indx_sort = np.argsort(dL); dL=dL[indx_sort]; ln_wts = ln_wts[indx_sort];
-          from scipy.special import logsumexp
-          ln_wts += -logsumexp(ln_wts) # normalize
-          ln_sums = np.log(np.cumsum(np.exp(ln_wts))) #CDF log.
-          # Some summary statistics, to help later
-          ln_dL_av = np.average(np.log(dL), weights=np.exp(ln_wts))
-          ln_dL_std = np.sqrt(np.average( (np.log(dL) - ln_dL_av)**2, weights=np.exp(ln_wts)))
-          # problem of CDF sometimes having zero derivative! Fix with small admixture of uniform probability
-          npts_grid = len(ln_sums)
-          eps_uniform  = 1e-3
-          # Check if gradient too small
-#          ln_sums = np.logaddexp(np.log(1-eps_uniform)+ ln_sums,  np.log(eps_uniform) +  (ln_sums[--1]  + np.log( np.arange(npts_grid) /npts_grid) ) )
-          # downselect grid, reduce to reasonalbe size of points points, chosen uniformly more or less
-          npts_target = opts.n_eff*10
-          p_random = np.arange(npts_target)/(npts_target+1)
-          p_random.sort()
-          indx_downselect = np.array( list(set( [ np.sum( np.exp(ln_sums) < p ) for p in p_random] )) ) # can include duplicates! Remove!
-          indx_downselect.sort()
-          dL = dL[indx_downselect]  # Selected d values for grid
-          ln_sums = ln_sums[indx_downselect]
-          # Interpolate CDF, then PDF
-          from scipy.interpolate import PchipInterpolator
-          intp_cdf = PchipInterpolator(dL, np.exp(ln_sums)) # not necessarily most stable ...
-          intp_pdf  = intp_cdf.derivative()
-          # dL values to EXPORT can be anything. We don't have to use the same.
-          dL_new = np.exp( np.random.normal(loc=ln_dL_av, scale=ln_dL_std, size=opts.n_eff ) )  # cover target range, use logarithmic scaling
-          dL_new = np.minimum( dL_new, np.max(dL))
-          dL_new = np.maximum( dL_new, np.min(dL))
-          dL = dL_new
-          pdf_vals = intp_pdf(dL)
-          indx_ok = pdf_vals > 0; dL=dL[indx_ok]; pdf_vals = pdf_vals[indx_ok]  # reject zero probabiliity points.
-          # compute revised lnL values. Note it is a constant
-          lnL_export=log_res + manual_avoid_overflow_logarithm + np.log(pdf_vals)
-          sigmaL = sqrt_var_over_res
-          # use labelled field names for export. Provide all by default
-          header = "lnL sigmaL m1 m2 s1x s1y s2z s2x s2y s2z lambda1 lambda2 eccentricity meanPerAno eos_index dist"
-          header_fields  = header.split()[2:-2]  # drop first two and last one (unit conversion)
-          dat = np.zeros( (len(dL), len(header.split()) ) )
-          dat[:,0] = lnL_export
-          dat[:,1] = sigmaL
-          dat[:,-1] = dL # units are in Mpc by default, or should be
-          for indx, name in enumerate(header_fields):
-            fac_here = 1
-            if name in ['m1', 'm2']:
-              fac_here = lal.MSUN_SI
-            dat[:,2+indx] = getattr(P, name)/fac_here
-          # Save field
-          np.savetxt(fname_output_dgrid, dat, header=header)
-          
+            raise Exception("distance grid export: cannot find weights in sampler._rvs (keys={})".format(list(rvs.keys())))
+          # Distance prior at each sample. Use the sampler's stored prior_pdf
+          # callable; this matches whatever ILE actually integrated against
+          # (volumetric, pseudo_cosmo, redshift, ...).
+          prior_pdf_d = sampler.prior_pdf["distance"]
+          pi_d_samp = np.asarray(prior_pdf_d(dL), dtype=float)
+          # Guard: prior must be strictly positive at sampled points
+          pi_d_samp = np.where(pi_d_samp > 0, pi_d_samp, np.finfo(float).tiny)
+          ln_prior_d_samp = np.log(pi_d_samp)
+          params_out = {
+              "m1": P.m1/lal.MSUN_SI,
+              "m2": P.m2/lal.MSUN_SI,
+              "s1x": P.s1x,
+              "s1y": P.s1y,
+              "s1z": P.s1z,
+              "s2x": P.s2x,
+              "s2y": P.s2y,
+              "s2z": P.s2z,
+              "lambda1": P.lambda1,
+              "lambda2": P.lambda2,
+              "eccentricity": P.eccentricity,
+              "meanPerAno": P.meanPerAno,
+              "eos_index": getattr(P, "eos_table_index", 0),
+          }
+          dgrid = build_distance_grid(
+              dL,
+              ln_wts,
+              log_res + manual_avoid_overflow_logarithm,
+              sqrt_var_over_res,
+              params_out,
+              ln_prior_d_at_samples=ln_prior_d_samp,
+              n_grid=opts.n_eff,
+          )
+          save_distance_grid(fname_output_dgrid, dgrid)
+
+        # Plan-B distance slices: K independent fixed-d extrinsic integrals.
+        # Produces a (K rows x intrinsic cols) table per ILE job; target size
+        # ~10x .composite when K~=10. See RIFT/misc/distance_slices.py.
+        if (opts.output_file and opts.export_distance_slices and opts.export_distance_slices > 0
+            and not(opts.distance_marginalization) and opts.internal_use_lnL):
+          from RIFT.misc import distance_slices
+          fname_output_dslice = opts.output_file + "_" + str(indx_event) + "_" + ".dslice"
+          K = int(opts.export_distance_slices)
+          # B2-reweight relies on a healthy main n_eff so that Omega samples
+          # are a good importance sample at every slice distance. GMM at low
+          # n_eff biases the reweighting silently; flag it so the user knows
+          # to switch sampler or raise n-max.
+          if opts.sampler_method == "GMM" and neff < 50:
+            print("  WARNING: --export-distance-slices with --sampler-method GMM at main n_eff={:.1f} (<50). ".format(neff)
+                  + "B2-reweight may be biased; prefer --sampler-method AV or raise --n-max.")
+          dL_samp = np.array(sampler._rvs["distance"])
+          # ln(pi_d) at samples uses the actual sampler prior (volumetric or
+          # pseudo-cosmo, whichever was registered).
+          prior_pdf_d = sampler.prior_pdf["distance"]
+          pi_d_samp = np.asarray(prior_pdf_d(dL_samp), float)
+          pi_d_samp = np.where(pi_d_samp > 0, pi_d_samp, np.finfo(float).tiny)
+          ln_pi_d_samp = np.log(pi_d_samp)
+          # ln(q_d) at samples; for the standard ILE path the proposal is the
+          # normalized sampler.pdf['distance'] divided by sampler._pdf_norm
+          # (for the basic mcsampler) or applied directly (Ensemble normalizes
+          # internally). For our purposes the joint_prior/joint_s_prior column
+          # already encodes the ratio across all dims, so we only need pi_d
+          # and q_d at the SAMPLES to isolate the Omega-only factor. Compute
+          # q_d as a normalized 1-D density on the supported range.
+          try:
+            q_d_raw = np.asarray(sampler.pdf["distance"](dL_samp), float)
+          except Exception:
+            q_d_raw = np.ones_like(dL_samp)
+          q_d_norm = float(getattr(sampler, "_pdf_norm", {}).get("distance", 1.0)) or 1.0
+          q_d_samp = q_d_raw / q_d_norm
+          q_d_samp = np.where(q_d_samp > 0, q_d_samp, np.finfo(float).tiny)
+          ln_q_d_samp = np.log(q_d_samp)
+          # Pick slice centers from the full posterior on d. Recover the
+          # log-importance weights with the same fallback chain we use for
+          # .dgrid.
+          rvs = sampler._rvs
+          if 'log_weights' in rvs:
+            ln_w_full = np.array(rvs['log_weights'])
+          elif 'log_integrand' in rvs:
+            ln_w_full = np.array(rvs['log_integrand'] + rvs['log_joint_prior'] - rvs['log_joint_s_prior'])
+          else:
+            integrand = np.asarray(rvs['integrand'])
+            jp = np.asarray(rvs['joint_prior']); jsp = np.asarray(rvs['joint_s_prior'])
+            keep = (integrand > 0) & (jp > 0) & (jsp > 0)
+            ln_w_full = np.full(len(integrand), -np.inf)
+            ln_w_full[keep] = np.log(integrand[keep]) + np.log(jp[keep]) - np.log(jsp[keep])
+          # Split K into core (reweight) and wing (fresh) slices.
+          n_core = int(opts.n_distance_slice_core) or int(np.ceil(0.6 * K))
+          n_wing = int(opts.n_distance_slice_wing) or (K - n_core)
+          n_core = max(1, min(n_core, K))
+          n_wing = max(0, min(n_wing, K - n_core))
+
+          # Core: importance-reweight at quantile centers of the posterior.
+          d_core = distance_slices.quantile_slice_centers(dL_samp, ln_w_full, n_core)
+          lnL_core, sigmaL_core, neff_core, ntotal_core = distance_slices.importance_reweight_slices(
+              sampler, like_to_integrate, d_core,
+              ln_prior_d_at_samples=ln_pi_d_samp,
+              ln_proposal_d_at_samples=ln_q_d_samp,
+              manual_overflow=manual_avoid_overflow_logarithm,
+              return_lnL=return_lnL,
+          )
+          ln_pi_d_core = np.log(np.maximum(prior_pdf_d(d_core), np.finfo(float).tiny))
+
+          if opts.sampler_method == "GMM" and neff < 50:
+            print("  WARNING: --export-distance-slices with --sampler-method GMM at main n_eff={:.1f} (<50). ".format(neff)
+                  + "B2-reweight may be biased; prefer --sampler-method AV or raise --n-max.")
+
+          # Wings: only run if (a) we asked for any, (b) core suggests a
+          # real distance posterior shape worth probing. Otherwise the
+          # likelihood is flat in d and fresh wings are wasted compute.
+          d_wings = np.array([])
+          lnL_wings = np.array([]); sigmaL_wings = np.array([]); neff_wings = np.array([]); ntotal_wings = np.array([], dtype=int)
+          if n_wing > 0:
+            if distance_slices.is_uninformative(lnL_core, threshold=opts.distance_slice_skip_threshold):
+              print("    : peak core lnL < {:.2f} nats (effectively undetected); skipping {} wing fresh integrations".format(
+                  opts.distance_slice_skip_threshold, n_wing))
+            else:
+              # Place wings via the parabolic lnL(1/d) model fit to the core,
+              # so wing budget concentrates where the likelihood has support.
+              lnL_peak_core = float(np.nanmax(lnL_core)) if np.any(np.isfinite(lnL_core)) else None
+              d_wings = distance_slices.pick_wing_centers(
+                  float(sampler.llim["distance"]),
+                  float(sampler.rlim["distance"]),
+                  d_core, n_wing,
+                  lnL_core=lnL_core, lnL_peak=lnL_peak_core,
+                  delta_lnL_target=opts.distance_slice_wing_delta_lnL,
+              )
+              if len(d_wings) == 0:
+                print("    : no room outside core for wing slices; skipping")
+              else:
+                print("    : running {} wing fresh integrations".format(len(d_wings)))
+                lnL_wings_raw, sigmaL_wings, neff_wings, ntotal_wings = distance_slices.fresh_sample_slices(
+                    sampler, like_to_integrate, d_wings,
+                    n_max=int(opts.distance_slice_wing_nmax),
+                    n_eff_target=int(opts.distance_slice_wing_neff),
+                    return_lnL=return_lnL,
+                )
+                # fresh_sample_slices returns ln integral of L_with_overflow;
+                # restore the overflow scale so wing lnL is on the same axis
+                # as the core slice (and as log_res).
+                lnL_wings = lnL_wings_raw + manual_avoid_overflow_logarithm
+
+          # Combine core + wings, sort by distance.
+          d_all = np.concatenate([np.asarray(d_core, float), np.asarray(d_wings, float)])
+          lnL_all = np.concatenate([lnL_core, lnL_wings])
+          sigmaL_all = np.concatenate([sigmaL_core, sigmaL_wings])
+          neff_all = np.concatenate([neff_core, neff_wings])
+          ntotal_all = np.concatenate([
+              np.full(len(d_core), ntotal_core, dtype=int),
+              np.asarray(ntotal_wings, dtype=int),
+          ])
+          method_all = np.concatenate([
+              np.full(len(d_core), distance_slices.METHOD_REWEIGHT, dtype=int),
+              np.full(len(d_wings), distance_slices.METHOD_FRESH, dtype=int),
+          ])
+          ln_pi_d_all = np.log(np.maximum(prior_pdf_d(d_all), np.finfo(float).tiny))
+          order = np.argsort(d_all)
+
+          try:
+            params_out  # noqa: F823
+          except NameError:
+            params_out = {
+                "m1": P.m1/lal.MSUN_SI, "m2": P.m2/lal.MSUN_SI,
+                "s1x": P.s1x, "s1y": P.s1y, "s1z": P.s1z,
+                "s2x": P.s2x, "s2y": P.s2y, "s2z": P.s2z,
+                "lambda1": P.lambda1, "lambda2": P.lambda2,
+                "eccentricity": P.eccentricity, "meanPerAno": P.meanPerAno,
+                "eos_index": getattr(P, "eos_table_index", 0),
+            }
+          # Pass per-row method (build_distance_slice_table accepts a scalar
+          # method; we extend by writing the method field directly after).
+          slice_table = distance_slices.build_distance_slice_table(
+              d_all[order], lnL_all[order], sigmaL_all[order], neff_all[order],
+              0, distance_slices.METHOD_REWEIGHT, params_out,
+              ln_prior_d_at_slices=ln_pi_d_all[order],
+          )
+          slice_table["ntotal"] = ntotal_all[order].astype(float)
+          slice_table["method"] = method_all[order].astype(float)
+          distance_slices.save_distance_slice_table(fname_output_dslice, slice_table)
+          print("    : wrote distance slices to {} ({} core + {} wings)".format(
+              fname_output_dslice, len(d_core), len(d_wings)))
+
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed
     if opts.save_samples and opts.output_file:

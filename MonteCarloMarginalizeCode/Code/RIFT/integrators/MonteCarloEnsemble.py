@@ -11,7 +11,41 @@ import traceback
 import time
 from scipy.special import logsumexp
 
+try:
+    import cupy
+    import cupyx.scipy.special
+    xpy_default = cupy
+    xpy_special_default = cupyx.scipy.special
+    identity_convert = cupy.asnumpy
+    identity_convert_togpu = cupy.asarray
+    cupy_ok = True
+except ImportError:
+    xpy_default = np
+    xpy_special_default = None
+    identity_convert = lambda x: x
+    identity_convert_togpu = lambda x: x
+    cupy_ok = False
+
 regularize_log_scale = 1e-64  # before taking np.log, add this, so we don't propagate infinities
+
+
+def _xpy_logsumexp(a, axis=None):
+    """Portable logsumexp (mirror of gaussian_mixture_model._xpy_logsumexp).
+
+    cupyx.scipy.special.logsumexp is absent in the CUDA 10.2 cupy build needed
+    for older (sm_30) GPUs, so implement the reduction with cupy primitives and
+    fall back to scipy on CPU.
+    """
+    if cupy_ok:
+        a = cupy.asarray(a)
+        a_max = cupy.amax(a, axis=axis, keepdims=True)
+        a_max = cupy.where(cupy.isfinite(a_max), a_max, cupy.zeros_like(a_max))
+        out = cupy.log(cupy.sum(cupy.exp(a - a_max), axis=axis, keepdims=True)) + a_max
+        if axis is None:
+            return out.reshape(())
+        return cupy.squeeze(out, axis=axis)
+    return logsumexp(a, axis=axis)
+
 
 try:
     from multiprocess import Pool
@@ -75,6 +109,11 @@ class integrator:
         self.proc_count = proc_count
         self.use_lnL = use_lnL
         self.return_lnI = return_lnI
+        
+        self.xpy = xpy_default
+        self.identity_convert = identity_convert
+        self.identity_convert_togpu = identity_convert_togpu
+        
         # constants
         self.t = 0.02 # percent estimated error threshold
         if n is None:
@@ -107,10 +146,10 @@ class integrator:
             self.total_value = None
         self.n_max = float('inf')
         # saved values
-        self.cumulative_samples = np.empty((0, d))
-        self.cumulative_values = np.empty(0)
-        self.cumulative_p = np.empty(0)
-        self.cumulative_p_s = np.empty(0)
+        self.cumulative_samples = self.xpy.empty((0, d))
+        self.cumulative_values = self.xpy.empty(0)
+        self.cumulative_p = self.xpy.empty(0)
+        self.cumulative_p_s = self.xpy.empty(0)
         self.tempering_exp=tempering_exp
         self.temper_log=temper_log
         if L_cutoff is None:
@@ -120,73 +159,63 @@ class integrator:
         
     def _calculate_prior(self):
         if self.prior is None:
-            self.prior_array = np.ones(self.n)
+            self.prior_array = self.xpy.ones(self.n)
         else:
             self.prior_array = self.prior(self.sample_array).flatten()
 
     def _sample(self):
-        self.sampling_prior_array = np.ones(self.n)
-        self.sample_array = np.empty((self.n, self.d))
+        self.sampling_prior_array = self.xpy.ones(self.n)
+        self.sample_array = self.xpy.empty((self.n, self.d))
         for dim_group in self.gmm_dict: # iterate over grouped dimensions
             # create a matrix of the left and right limits for this set of dimensions
-            new_bounds = np.empty((len(dim_group), 2))
+            new_bounds = self.xpy.empty((len(dim_group), 2))
             new_bounds = self.bounds[dim_group]
             if len(new_bounds.shape) < 2:
-                new_bounds = np.array([new_bounds])
-            # index = 0
-            # for dim in dim_group:
-            #     new_bounds[index] = self.bounds[dim]
-            #     index += 1
+                new_bounds = self.xpy.array([new_bounds])
             model = self.gmm_dict[dim_group]
             if model is None:
                 # sample uniformly for this group of dimensions
                 llim = new_bounds[:,0]
                 rlim = new_bounds[:,1]
-                temp_samples = np.random.uniform(llim, rlim, (self.n, len(dim_group)))
+                temp_samples = self.xpy.random.uniform(llim, rlim, (self.n, len(dim_group)))
                 # update responsibilities
-                vol = np.prod(rlim - llim)
+                vol = self.xpy.prod(rlim - llim)
                 self.sampling_prior_array *= 1.0 / vol
             else:
                 # sample from the gmm
-                temp_samples = model.sample(self.n)#, new_bounds)
+                temp_samples = model.sample(self.n)
                 # update responsibilities
-                self.sampling_prior_array *= model.score(temp_samples)#, new_bounds)
+                self.sampling_prior_array *= model.score(temp_samples)
             index = 0
             for dim in dim_group:
-                # put columns of temp_samples in final places in sample_array
                 self.sample_array[:,dim] = temp_samples[:,index]
                 index += 1
 
     def _train(self):
-        sample_array, value_array, sampling_prior_array = np.copy(self.sample_array), np.copy(self.value_array), np.copy(self.sampling_prior_array)
+        sample_array, value_array, sampling_prior_array = self.xpy.copy(self.sample_array), self.xpy.copy(self.value_array), self.xpy.copy(self.sampling_prior_array)
         if self.use_lnL:
             lnL = value_array
         else:
-            lnL = np.log(value_array+regularize_log_scale) # note we can get negative infinity here
-        log_weights = self.tempering_exp*lnL + np.log(self.prior_array) - sampling_prior_array
+            lnL = self.xpy.log(value_array+regularize_log_scale)
+        
+        log_weights = self.tempering_exp*lnL + self.xpy.log(self.prior_array) - sampling_prior_array
         if self.temper_log:
-            log_weights =np.log(np.maximum(lnL,1e-5))   # simplest to do it this way
+            log_weights = self.xpy.log(self.xpy.maximum(lnL,1e-5))
+            
         for dim_group in self.gmm_dict: # iterate over grouped dimensions
             if self.gmm_adapt:
                 if (dim_group in self.gmm_adapt):
-                    if not(self.gmm_adapt[dim_group]):   # disabling adaptation requires user *specifically request* not to use that dimension set; all other choices lead to adaptation
+                    if not(self.gmm_adapt[dim_group]):
                         continue
-            # create a matrix of the left and right limits for this set of dimensions
-            new_bounds = np.empty((len(dim_group), 2))
+            new_bounds = self.xpy.empty((len(dim_group), 2))
             new_bounds = self.bounds[dim_group]
-#            index = 0
-#            for dim in dim_group:
-#                new_bounds[index] = self.bounds[dim]
-#                index += 1
-            model = self.gmm_dict[dim_group] # get model for this set of dimensions
-            temp_samples = np.empty((self.n, len(dim_group)))
+            model = self.gmm_dict[dim_group]
+            temp_samples = self.xpy.empty((self.n, len(dim_group)))
             index = 0
             for dim in dim_group:
-                # get samples corresponding to the current model
                 temp_samples[:,index] = sample_array[:,dim]
                 index += 1
             if model is None:
-                # model doesn't exist yet
                 if isinstance(self.n_comp, int) and self.n_comp != 0:
                     model = GMM.gmm(self.n_comp, new_bounds,epsilon=self.gmm_epsilon)
                     model.fit(temp_samples, log_sample_weights=log_weights)
@@ -196,7 +225,6 @@ class integrator:
             else:
                 model.update(temp_samples, log_sample_weights=log_weights)
             try:
-                # Verify model can evaluated! Quick and dirty test to confirm not singular
                 model.score(temp_samples[:5])
                 self.gmm_dict[dim_group] = model
             except:
@@ -205,125 +233,81 @@ class integrator:
 
     def _calculate_results(self):
         if self.use_lnL:
-            lnL = np.copy(self.value_array) # changing the naming convention, just for this function, now that I know better
+            lnL = self.xpy.copy(self.value_array)
         else:
-            lnL = np.log(self.value_array+regularize_log_scale)
-        # strip off any samples with likelihoods less than our cutoff
-        mask = np.ones(lnL.shape,dtype=bool)
-        if not(self.L_cutoff is None):  # if not none
-            if not(np.isinf(self.L_cutoff)):  # and not infinite, then apply the cutoff
-                mask = lnL > (np.log(self.L_cutoff) if self.L_cutoff > 0 else -np.inf)
-#        print(mask, self.L_cutoff, lnL)
+            lnL = self.xpy.log(self.value_array+regularize_log_scale)
+        mask = self.xpy.ones(lnL.shape,dtype=bool)
+        if not(self.L_cutoff is None):
+            if not(self.xpy.isinf(self.L_cutoff)):
+                mask = lnL > (self.xpy.log(self.L_cutoff) if self.L_cutoff > 0 else -self.xpy.inf)
         lnL = lnL[mask]
         prior = self.prior_array[mask]
         sampling_prior = self.sampling_prior_array[mask]
         
-        # append to the cumulative arrays
-        self.cumulative_samples = np.append(self.cumulative_samples, self.sample_array[mask], axis=0)
-        self.cumulative_values = np.append(self.cumulative_values, lnL, axis=0)
-        self.cumulative_p = np.append(self.cumulative_p, prior, axis=0)
-        self.cumulative_p_s = np.append(self.cumulative_p_s, sampling_prior, axis=0)
+        self.cumulative_samples = self.xpy.append(self.cumulative_samples, self.sample_array[mask], axis=0)
+        self.cumulative_values = self.xpy.append(self.cumulative_values, lnL, axis=0)
+        self.cumulative_p = self.xpy.append(self.cumulative_p, prior, axis=0)
+        self.cumulative_p_s = self.xpy.append(self.cumulative_p_s, sampling_prior, axis=0)
         
-        # compute the log sample weights
-        log_weights = lnL + np.log(prior) - np.log(sampling_prior)
-        if np.any(np.isnan(log_weights)):
+        log_weights = lnL + self.xpy.log(prior) - self.xpy.log(sampling_prior)
+        if self.xpy.any(self.xpy.isnan(log_weights)):
             print(" NAN weight ")
             raise ValueError
         if self.terrible_lnw_threshold: 
-            if np.max(log_weights) <self.terrible_lnw_threshold:  #this is a terrible fit. Note the ABSOLUTE SCALE, which is problem dependent!
+            if self.xpy.max(log_weights) < self.terrible_lnw_threshold:
                 print(" TERRIBLE FIT ")
                 raise ValueError
 
-        # do a shift so that the highest log weight is 0, keeping track of the shift
-        log_scale_factor = np.max(log_weights) # don't insert nan here
+        log_scale_factor = self.xpy.max(log_weights)
         if not(self.return_lnI):
-            scale_factor = np.exp(log_scale_factor)
+            scale_factor = self.xpy.exp(log_scale_factor)
             log_weights -= log_scale_factor
-            summed_vals = scale_factor * np.sum(np.exp(log_weights))
+            summed_vals = scale_factor * self.xpy.sum(self.xpy.exp(log_weights))
             integral_value = summed_vals / self.n
         
-            # Calculate the log of the Monte Carlo integration error.
-            # Let `a` be the scale factor, and let `w` be the weights with the scale factor divided out (i.e. weight = a w), then
-            #     error^2 = var(a w) / N = a^2 var(w) / N.
-            # The point is that 0 <= w <= 1, so there's no potential for overflow here when calculating the variance.
-            # Since the scale factor `a` is potentially very large, squaring it could overflow; therefore, we keep out a factor of ln(a^2) = 2ln(a).
-            # Note that ln(a) is exactly the log_scale_factor variable defined above.
-            scaled_error_squared = np.var(np.exp(log_weights)) / self.n
+            scaled_error_squared = self.xpy.var(self.xpy.exp(log_weights)) / self.n
             log_error_scale_factor = 2. * log_scale_factor
         
             self.integral = (self.iterations * self.integral + integral_value) / (self.iterations + 1)
+            self.scaled_error_squared = (self.iterations * self.xpy.exp(self.log_error_scale_factor - log_error_scale_factor) * self.scaled_error_squared + scaled_error_squared) / (self.iterations + 1)
+            self.log_error_scale_factor = log_error_scale_factor
         
-            # Calculate the running average of the variance.
-            # This calculation is complicated by the scale factors: the previous running average is scaled by exp(self.log_error_scale_factor),
-            # which is currently the log_error_scale_factor from the previous iteration.
-            # We can avoid overflows by factoring our *new* log_error_scale_factor out of the running average, so that we exponentiate a smaller number.
-            self.scaled_error_squared = (self.iterations * np.exp(self.log_error_scale_factor - log_error_scale_factor) * self.scaled_error_squared + scaled_error_squared) / (self.iterations + 1)
-            self.log_error_scale_factor = log_error_scale_factor # having computed the running average, update this
-        
-            # calculate the effective samples
             self.total_value += summed_vals
-            self.max_value = max(scale_factor, self.max_value)
+            self.max_value = self.xpy.maximum(scale_factor, self.max_value)
             self.eff_samp = self.total_value / self.max_value
-        else: # using lnI return values
-            # Evaluate integral and effective sample count
-            # Note with lnI return values, no more need to keep track of a scale factor at all
-            log_sum_weights = logsumexp(log_weights) 
-            log_integral_here = log_sum_weights - np.log(self.n)
+        else:
+            log_sum_weights = _xpy_logsumexp(log_weights)
+
+            log_integral_here = log_sum_weights - self.xpy.log(self.n)
             if not(self.integral ):
-                self.integral = log_integral_here  
-                self.total_value = log_sum_weights  
+                self.integral = log_integral_here
+                self.total_value = log_sum_weights
                 self.max_value = log_scale_factor
             else:
-                self.integral = logsumexp([ self.integral +np.log(self.iterations), log_integral_here]) - np.log(self.iterations+1)
-                self.total_value= logsumexp([self.total_value, log_sum_weights])
-                self.max_value = np.max([self.max_value,np.max(log_weights)])
-            self.eff_samp = np.exp(self.total_value - (self.max_value  ))
+                self.integral = _xpy_logsumexp([ self.integral + self.xpy.log(self.iterations), log_integral_here]) - self.xpy.log(self.iterations+1)
+                self.total_value = _xpy_logsumexp([self.total_value, log_sum_weights])
+                self.max_value = self.xpy.maximum(self.max_value, self.xpy.max(log_weights))
+            self.eff_samp = self.xpy.exp(self.total_value - (self.max_value  ))
 
-            # Evaluate error squared, avoiding overflow
-            tmp_max = np.max(log_weights)
-            log_scaled_error_squared = np.log(np.var(np.exp(log_weights - tmp_max))) + 2*tmp_max   - np.log(self.n)
+            tmp_max = self.xpy.max(log_weights)
+            log_scaled_error_squared = self.xpy.log(self.xpy.var(self.xpy.exp(log_weights - tmp_max))) + 2*tmp_max - self.xpy.log(self.n)
             if not(self.scaled_error_squared):
                 self.scaled_error_squared = log_scaled_error_squared
             else:
-                self.scaled_error_squared = logsumexp([ self.scaled_error_squared + np.log(self.iterations), log_scaled_error_squared]) - np.log(self.iterations+1)
+                self.scaled_error_squared = _xpy_logsumexp([ self.scaled_error_squared + self.xpy.log(self.iterations), log_scaled_error_squared]) - self.xpy.log(self.iterations+1)
 
     def _reset(self):
-        ### reset GMMs
         for k in self.gmm_dict:
             self.gmm_dict[k] = None
         
 
     def integrate(self, func, min_iter=10, max_iter=20, var_thresh=0.0, max_err=10,
             neff=float('inf'), nmax=None, progress=False, epoch=None,verbose=True,force_no_adapt=False,use_lnL=False,return_lnI=False,**kwargs):
-        '''
-        Evaluate the integral
-
-        Parameters
-        ----------
-        func : function
-            Integrand function
-        min_iter : int
-            Minimum number of integrator iterations
-        max_iter : int
-            Maximum number of integrator iterations
-        var_thresh : float
-            Variance threshold for terminating integration
-        max_err : int
-            Maximum number of errors to catch before terminating integration
-        neff : float
-            Effective samples threshold for terminating integration
-        nmax : int
-            Maximum number of samples to draw
-        progress : bool
-            Print GMM parameters each iteration
-        n_adapt: number of *adaptations* we will perform, before freezing the GMM
-        '''
         n_adapt = int(kwargs["n_adapt"]) if "n_adapt" in kwargs else 100
-        tripwire_fraction = kwargs["tripwire_fraction"] if "tripwire_fraction" in kwargs else 2  # make it impossible to trigger
-        tripwire_epsilon = kwargs["tripwire_epsilon"] if "tripwire_epsilon" in kwargs else 0.001 # if we are not reasonably far away from unity, fail!
-        self.use_lnL = use_lnL   # option to override initialization of sampler : argument passed in another way
-        self.return_lnI = return_lnI   # option to override initialization of sampler : argument passed in another way
-
+        tripwire_fraction = kwargs["tripwire_fraction"] if "tripwire_fraction" in kwargs else 2
+        tripwire_epsilon = kwargs["tripwire_epsilon"] if "tripwire_epsilon" in kwargs else 0.001
+        self.use_lnL = use_lnL
+        self.return_lnI = return_lnI
 
         err_count = 0
         cumulative_eval_time = 0
@@ -337,7 +321,6 @@ class integrator:
 
             if force_no_adapt or self.iterations >= n_adapt:
                 adapting=False
-#            print('Iteration:', self.iterations)
             if err_count >= max_err:
                 print('Exiting due to errors...')
                 break
@@ -354,11 +337,13 @@ class integrator:
                 continue
             t1 = time.time()
             if self.proc_count is None:
-                self.value_array = func(np.copy(self.sample_array)).flatten()
+                # Ensure input to func is numpy for CPU-based user functions if needed, 
+                # but the user is encouraged to support xpy.
+                self.value_array = func(self.xpy.copy(self.sample_array)).flatten()
             else:
-                split_samples = np.array_split(self.sample_array, self.proc_count)
+                split_samples = self.xpy.array_split(self.sample_array, self.proc_count)
                 p = Pool(self.proc_count)
-                self.value_array = np.concatenate(p.map(func, split_samples), axis=0)
+                self.value_array = self.xpy.concatenate(p.map(func, split_samples), axis=0)
                 p.close()
             cumulative_eval_time += time.time() - t1
             self._calculate_prior()
@@ -375,10 +360,10 @@ class integrator:
                 continue
             self.iterations += 1
             self.ntotal += self.n
-            testval =self.scaled_error_squared
+            testval = self.scaled_error_squared
             if not(self.return_lnI):
-                testval = np.log(self.scaled_error_squared) + self.log_error_scale_factor
-            if self.iterations >= min_iter and testval < np.log(var_thresh):
+                testval = self.xpy.log(self.scaled_error_squared) + self.log_error_scale_factor
+            if self.iterations >= min_iter and testval < self.xpy.log(var_thresh):
                 break
             try:
                 if adapting:
@@ -400,10 +385,10 @@ class integrator:
             if epoch is not None and self.iterations % epoch == 0:
                 self._reset()
             if verbose:
-                # Standard mcsampler message, to monitor convergence
+                print(self.scaled_error_squared)
                 if not(self.return_lnI):
-                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*(np.log(self.integral))),  np.sqrt(self.scaled_error_squared )/self.integral/np.sqrt(self.iterations ) ) )
+                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, self.xpy.sqrt(2*self.xpy.max(self.cumulative_values)), self.xpy.sqrt(2*(self.xpy.log(self.integral))),  self.xpy.sqrt(self.scaled_error_squared )/self.integral/self.xpy.sqrt(self.iterations ) ) )
                 else:
-                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, np.sqrt(2*np.max(self.cumulative_values)), np.sqrt(2*self.integral), np.exp(0.5*(self.scaled_error_squared - self.integral*2) )/np.sqrt(self.iterations)))
+                    print(" : {} {} {} {} {} ".format((self.iterations-1)*self.n, self.eff_samp, self.xpy.sqrt(2*self.xpy.max(self.cumulative_values)), self.xpy.sqrt(2*self.integral), self.xpy.exp(0.5*(self.scaled_error_squared - self.integral*2) )/self.xpy.sqrt(self.iterations)))
         print('cumulative eval time: ', cumulative_eval_time)
         print('integrator iterations: ', self.iterations)
