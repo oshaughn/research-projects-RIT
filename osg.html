@@ -20,7 +20,7 @@
     <script src="_static/js/theme.js"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Signal Injections" href="injections.html" />
+    <link rel="next" title="Containers and multi-architecture deployment" href="containers.html" />
     <link rel="prev" title="RIFT pipeline examples: command-line" href="examples-noini.html" /> 
 </head>
 
@@ -54,6 +54,7 @@
 <li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="containers.html">Containers and multi-architecture deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="injections.html">Signal Injections</a></li>
 <li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting with RIFT</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
@@ -120,6 +121,12 @@ absolutely essential to extremely helpful:</p>
 <span class="go">SINGULARITY_RIFT_IMAGE=/cvmfs/singularity.opensciencegrid.org/james-clark/research-projects-rit/rift:production</span>
 </pre></div>
 </div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">SINGULARITY_RIFT_IMAGE</span></code> may also point at a YAML <em>container family</em>
+manifest (instead of a single image) to deploy images matched to each
+machine’s GPU capability.  See <a class="reference internal" href="containers.html"><span class="doc">Containers and multi-architecture deployment</span></a>.</p>
+</div>
 <p>Additionally, if you are using a waveform model implemented in <cite>gwsignal</cite>,
 you must export an extra environment variable:</p>
 <p>..code-block:: console</p>
@@ -137,7 +144,7 @@ you must export an extra environment variable:</p>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="examples-noini.html" class="btn btn-neutral float-left" title="RIFT pipeline examples: command-line" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="injections.html" class="btn btn-neutral float-right" title="Signal Injections" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="containers.html" class="btn btn-neutral float-right" title="Containers and multi-architecture deployment" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

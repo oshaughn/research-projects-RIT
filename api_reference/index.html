@@ -54,6 +54,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../containers.html">Containers and multi-architecture deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
@@ -242,6 +243,8 @@
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.delta_func_samp"><code class="docutils literal notranslate"><span class="pre">delta_func_samp()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.gauss_samp"><code class="docutils literal notranslate"><span class="pre">gauss_samp()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.gauss_samp_withfloor"><code class="docutils literal notranslate"><span class="pre">gauss_samp_withfloor()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.identity_convert"><code class="docutils literal notranslate"><span class="pre">identity_convert()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.identity_convert_togpu"><code class="docutils literal notranslate"><span class="pre">identity_convert_togpu()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.inv_uniform_cdf"><code class="docutils literal notranslate"><span class="pre">inv_uniform_cdf()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.pseudo_dist_samp"><code class="docutils literal notranslate"><span class="pre">pseudo_dist_samp()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.mcsamplerEnsemble.q_cdf_inv_vector"><code class="docutils literal notranslate"><span class="pre">q_cdf_inv_vector()</span></code></a></li>
@@ -306,6 +309,8 @@
 <li class="toctree-l2"><a class="reference internal" href="integrators/index.html#normalizing-flows-mc-sampler">Normalizing Flows MC Sampler</a></li>
 <li class="toctree-l2"><a class="reference internal" href="integrators/index.html#module-RIFT.integrators.MonteCarloEnsemble">Monte Carlo Ensemble</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#monte-carlo-integrator">Monte Carlo Integrator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.MonteCarloEnsemble.identity_convert"><code class="docutils literal notranslate"><span class="pre">identity_convert()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.MonteCarloEnsemble.identity_convert_togpu"><code class="docutils literal notranslate"><span class="pre">identity_convert_togpu()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.MonteCarloEnsemble.integrator"><code class="docutils literal notranslate"><span class="pre">integrator</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.MonteCarloEnsemble.integrator.integrate"><code class="docutils literal notranslate"><span class="pre">integrator.integrate()</span></code></a></li>
 </ul>
@@ -346,7 +351,7 @@
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="integrators/index.html#module-RIFT.integrators.gaussian_mixture_model">Gaussian Mixture Model</a><ul>
-<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#id32">Gaussian Mixture Model</a></li>
+<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#id31">Gaussian Mixture Model</a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.estimator"><code class="docutils literal notranslate"><span class="pre">estimator</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.estimator.fit"><code class="docutils literal notranslate"><span class="pre">estimator.fit()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.estimator.print_params"><code class="docutils literal notranslate"><span class="pre">estimator.print_params()</span></code></a></li>
@@ -360,6 +365,9 @@
 <li class="toctree-l4"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.gmm.update"><code class="docutils literal notranslate"><span class="pre">gmm.update()</span></code></a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.gpu_logpdf"><code class="docutils literal notranslate"><span class="pre">gpu_logpdf()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.identity_convert"><code class="docutils literal notranslate"><span class="pre">identity_convert()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.identity_convert_togpu"><code class="docutils literal notranslate"><span class="pre">identity_convert_togpu()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="integrators/index.html#RIFT.integrators.gaussian_mixture_model.mvnun"><code class="docutils literal notranslate"><span class="pre">mvnun()</span></code></a></li>
 </ul>
 </li>

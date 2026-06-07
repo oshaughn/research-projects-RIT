@@ -1,0 +1,356 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Containers and multi-architecture deployment &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=82021441" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=911654a9"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Signal Injections" href="injections.html" />
+    <link rel="prev" title="Using the OSG" href="osg.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osg.html">Using the OSG</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Containers and multi-architecture deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Containers and multi-architecture deployment</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/containers.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="containers-and-multi-architecture-deployment">
+<h1>Containers and multi-architecture deployment<a class="headerlink" href="#containers-and-multi-architecture-deployment" title="Link to this heading"></a></h1>
+<p>RIFT runs its compute jobs (ILE, CIP) inside a Singularity/Apptainer container
+on HTCondor pools such as the OSG.  Historically the environment variable
+<code class="docutils literal notranslate"><span class="pre">SINGULARITY_RIFT_IMAGE</span></code> names a <strong>single</strong> image, and every job is pinned to
+it:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">export</span> <span class="n">SINGULARITY_RIFT_IMAGE</span><span class="o">=/</span><span class="n">cvmfs</span><span class="o">/</span><span class="n">singularity</span><span class="o">.</span><span class="n">opensciencegrid</span><span class="o">.</span><span class="n">org</span><span class="o">/.../</span><span class="n">rift</span><span class="p">:</span><span class="n">production</span>
+</pre></div>
+</div>
+<p>That still works exactly as before.  This page documents two additions:</p>
+<ul class="simple">
+<li><p>a <strong>container *family*</strong> — point <code class="docutils literal notranslate"><span class="pre">SINGULARITY_RIFT_IMAGE</span></code> at a YAML
+<em>manifest</em> describing several images that target different GPU compute
+capabilities, and let HTCondor pick the right one per matched machine; and</p></li>
+<li><p>a <strong>multi-target build</strong> that produces such a family from one template.</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">SINGULARITY_RIFT_IMAGE</span></code> is a plain <code class="docutils literal notranslate"><span class="pre">.sif</span></code> path or a single
+<code class="docutils literal notranslate"><span class="pre">osdf://</span></code> URL, behavior is <strong>unchanged</strong> — the manifest machinery is never
+engaged.  A manifest is recognized purely by its <code class="docutils literal notranslate"><span class="pre">.yaml</span></code> / <code class="docutils literal notranslate"><span class="pre">.yml</span></code> suffix.</p>
+</div>
+<section id="deploying-a-container-family">
+<h2>Deploying a container family<a class="headerlink" href="#deploying-a-container-family" title="Link to this heading"></a></h2>
+<p>Set <code class="docutils literal notranslate"><span class="pre">SINGULARITY_RIFT_IMAGE</span></code> to a manifest file instead of a single image:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>export SINGULARITY_RIFT_IMAGE=`pwd`/rift_container_family.yaml
+</pre></div>
+</div>
+<p>Everything else — <code class="docutils literal notranslate"><span class="pre">util_RIFT_pseudo_pipe.py</span></code>, <code class="docutils literal notranslate"><span class="pre">--use-singularity</span></code>,
+<code class="docutils literal notranslate"><span class="pre">--use-osg</span></code> — is identical.  When the pipeline builds the ILE/CIP submit
+files it reads the manifest and emits an <em>expression-valued</em> container
+selection (see <a class="reference internal" href="#what-the-pipeline-generates">What the pipeline generates</a> below).</p>
+<section id="manifest-format">
+<h3>Manifest format<a class="headerlink" href="#manifest-format" title="Link to this heading"></a></h3>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">version</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+
+<span class="c1"># Machine ClassAd attribute the selection expression tests.</span>
+<span class="c1"># Default GPUs_Capability (see &quot;GPU attribute names&quot; below).</span>
+<span class="nt">capability_attr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GPUs_Capability</span>
+
+<span class="c1"># Catch-all image (innermost else of the selection); MUST be CPU-safe,</span>
+<span class="c1"># since it is also used when no GPU capability is advertised.</span>
+<span class="nt">fallback</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+
+<span class="nt">containers</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Broadly-compatible image for older machines. On CVMFS: referenced in</span>
+<span class="w">  </span><span class="c1"># place and lazy-fetched (only the selected image is ever pulled), never</span>
+<span class="w">  </span><span class="c1"># transferred.</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/cvmfs/singularity.opensciencegrid.org/oshaughn/rift_container_default.sif</span>
+<span class="w">    </span><span class="nt">cuda_capability_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3.5</span><span class="w">     </span><span class="c1"># inclusive lower bound for this image</span>
+<span class="w">    </span><span class="nt">cuda_capability_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8.0</span><span class="w">     </span><span class="c1"># informational; null = open-ended</span>
+<span class="w">    </span><span class="nt">note</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;cupy-cuda11x,</span><span class="nv"> </span><span class="s">ubuntu22.04/cuda11.8&quot;</span>
+
+<span class="w">  </span><span class="c1"># Newer image for higher-capability GPUs. Delivered via osdf: only the</span>
+<span class="w">  </span><span class="c1"># matched machine fetches it (selective transfer).</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">modern</span>
+<span class="w">    </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osdf:///igwn/staging/oshaughn/rift_containers/rift_container_modern.sif</span>
+<span class="w">    </span><span class="nt">cuda_capability_min</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8.0</span>
+<span class="w">    </span><span class="nt">cuda_capability_max</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
+<span class="w">    </span><span class="nt">note</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;cupy-cuda12x,</span><span class="nv"> </span><span class="s">ubuntu22.04/cuda12.4&quot;</span>
+</pre></div>
+</div>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">version</span></code></p></td>
+<td><p>Manifest schema version (currently <code class="docutils literal notranslate"><span class="pre">1</span></code>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">capability_attr</span></code></p></td>
+<td><p>Machine ClassAd attribute the selection expression tests (default
+<code class="docutils literal notranslate"><span class="pre">GPUs_Capability</span></code>).</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">fallback</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">label</span></code> of the catch-all image (innermost <code class="docutils literal notranslate"><span class="pre">else</span></code>); <strong>must be
+CPU-safe</strong>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers[].label</span></code></p></td>
+<td><p>Human id; also referenced by <code class="docutils literal notranslate"><span class="pre">fallback</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers[].image</span></code></p></td>
+<td><p>A CVMFS/local path (referenced in place, lazy-fetched) <strong>or</strong> an
+<code class="docutils literal notranslate"><span class="pre">osdf://</span></code> URL (selectively transferred).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers[].cuda_capability_min</span></code></p></td>
+<td><p>Inclusive lower capability bound for this image.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers[].cuda_capability_max</span></code></p></td>
+<td><p>Informational upper bound (<code class="docutils literal notranslate"><span class="pre">null</span></code> = open-ended).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers[].note</span></code></p></td>
+<td><p>Free text.</p></td>
+</tr>
+</tbody>
+</table>
+<p>A starting manifest lives at <code class="code docutils literal notranslate"><span class="pre">containers/rift_container_family.yaml</span></code> in the
+source tree.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>Keep the family consistent.</strong> A <em>single</em> <code class="docutils literal notranslate"><span class="pre">SINGULARITY_BASE_EXE_DIR</span></code> is
+applied to <strong>every</strong> image in the family — the ILE/CIP jobs locate the
+executable as <code class="docutils literal notranslate"><span class="pre">SINGULARITY_BASE_EXE_DIR</span> <span class="pre">+</span> <span class="pre">&lt;exe</span> <span class="pre">name&gt;</span></code>, with no per-image
+override. Every image in a manifest <strong>must install RIFT’s executables at the
+same in-container path</strong> (and share a common layout / Python / entrypoints).
+Build them from the same <code class="docutils literal notranslate"><span class="pre">rift_container.def.in</span></code> template
+(<code class="docutils literal notranslate"><span class="pre">build_family.sh</span></code> does this); do <strong>not</strong> hand-mix images with different
+internal layouts. The same applies to <code class="docutils literal notranslate"><span class="pre">SINGULARITY_BASE_EXE_DIR_HYPERPIPE</span></code>
+if you use hyperpipe.</p>
+</div>
+</section>
+</section>
+<section id="what-the-pipeline-generates">
+<h2>What the pipeline generates<a class="headerlink" href="#what-the-pipeline-generates" title="Link to this heading"></a></h2>
+<p>For a manifest, the ILE (and CIP) Condor submit files get:</p>
+<ul>
+<li><p><strong>``MY.SingularityImage``</strong> — an <em>unquoted</em> <code class="docutils literal notranslate"><span class="pre">ifThenElse</span></code> expression that
+selects the highest-capability image the matched machine can run, falling back
+to the <code class="docutils literal notranslate"><span class="pre">fallback</span></code> image (also used when the capability attribute is
+<code class="docutils literal notranslate"><span class="pre">undefined</span></code>, e.g. on a CPU-only CIP slot — hence the fallback must be
+CPU-safe):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">ifThenElse</span><span class="p">(</span><span class="n">TARGET</span><span class="o">.</span><span class="n">GPUs_Capability</span> <span class="o">&gt;=</span> <span class="mf">8.0</span><span class="p">,</span> <span class="s2">&quot;./rift_container_modern.sif&quot;</span><span class="p">,</span> <span class="s2">&quot;/cvmfs/.../rift_container_default.sif&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</li>
+<li><p><strong>Selective transfer</strong> — only <code class="docutils literal notranslate"><span class="pre">osdf://</span></code> images are fetched, and only on the
+machine that selected them, via a single HTCondor <code class="docutils literal notranslate"><span class="pre">$$()</span></code> match-time token
+appended to <code class="docutils literal notranslate"><span class="pre">transfer_input_files</span></code>.  CVMFS/local images are referenced in
+place and never transferred, so the <strong>whole family is never pulled</strong>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$$([ (TARGET.GPUs_Capability &gt;= 8.0 ? &quot;osdf:///.../rift_container_modern.sif&quot; : &quot;&quot;) ])
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">request_disk</span></code> is <strong>not</strong> auto-sized — set it to your largest single
+transferred image.</p>
+</li>
+<li><p><strong>``require_gpus`` floor</strong> — <code class="docutils literal notranslate"><span class="pre">Capability</span> <span class="pre">&gt;=</span> <span class="pre">&lt;lowest</span> <span class="pre">min</span> <span class="pre">across</span> <span class="pre">the</span> <span class="pre">family&gt;</span></code>,
+combined (<code class="docutils literal notranslate"><span class="pre">&amp;&amp;</span></code>) with any <code class="docutils literal notranslate"><span class="pre">RIFT_REQUIRE_GPUS</span></code> you set.  Both apply; neither
+is dropped.  This stops jobs matching a GPU that <em>no</em> image in the family
+supports.</p></li>
+</ul>
+</section>
+<section id="gpu-attribute-names">
+<h2>GPU attribute names<a class="headerlink" href="#gpu-attribute-names" title="Link to this heading"></a></h2>
+<p>Two different ClassAd namespaces are involved, and they are kept separate:</p>
+<ul>
+<li><p>The <strong>image selection</strong> <code class="docutils literal notranslate"><span class="pre">ifThenElse</span></code> reads the <em>machine</em> ad.  The default
+attribute is <code class="docutils literal notranslate"><span class="pre">GPUs_Capability</span></code>.  Override it per run with the environment
+variable <code class="docutils literal notranslate"><span class="pre">RIFT_GPU_CAPABILITY_ATTR</span></code>, or per manifest with <code class="docutils literal notranslate"><span class="pre">capability_attr</span></code>.
+Verify what your pool advertises:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">condor_status</span> <span class="o">-</span><span class="n">constraint</span> <span class="s1">&#39;TotalGPUs &gt; 0&#39;</span> <span class="o">-</span><span class="n">autoformat</span> <span class="n">GPUs_DeviceName</span> <span class="n">GPUs_Capability</span> <span class="n">GPUs_GlobalMemoryMb</span>
+</pre></div>
+</div>
+<p>Not every GPU host advertises this; on such hosts the expression collapses to
+the fallback image and the <code class="docutils literal notranslate"><span class="pre">require_gpus</span></code> floor does the steering.</p>
+</li>
+<li><p>The <strong>``require_gpus`` floor</strong> uses the require_gpus sub-ad attribute
+<code class="docutils literal notranslate"><span class="pre">Capability</span></code> (unprefixed — <em>not</em> <code class="docutils literal notranslate"><span class="pre">TARGET.</span></code>, <em>not</em> <code class="docutils literal notranslate"><span class="pre">GPUs_</span></code>).</p></li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>These mechanisms have been validated on a real HTCondor pool + GPU: the
+attribute names, the <code class="docutils literal notranslate"><span class="pre">require_gpus</span></code> floor (matching a compatible GPU and
+excluding an incompatible one), the <code class="docutils literal notranslate"><span class="pre">$$()</span></code> match-time image selection, and
+tolerance of the empty-result case for a manifest that mixes CVMFS and
+<code class="docutils literal notranslate"><span class="pre">osdf</span></code> entries.  The remaining item for a first real OSG run is that the
+pilot evaluates the expression-valued <code class="docutils literal notranslate"><span class="pre">MY.SingularityImage</span></code> and honors a
+relative <code class="docutils literal notranslate"><span class="pre">./name.sif</span></code> produced by it.</p>
+</div>
+</section>
+<section id="building-a-container-family">
+<h2>Building a container family<a class="headerlink" href="#building-a-container-family" title="Link to this heading"></a></h2>
+<p>The build lives under <code class="code docutils literal notranslate"><span class="pre">containers/</span></code>:</p>
+<ul class="simple">
+<li><p><code class="code docutils literal notranslate"><span class="pre">rift_container.def.in</span></code> — an Apptainer definition template with
+<code class="docutils literal notranslate"><span class="pre">&#64;&#64;BASE_IMAGE&#64;&#64;</span></code> / <code class="docutils literal notranslate"><span class="pre">&#64;&#64;CUPY_PKG&#64;&#64;</span></code> placeholders.</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">build_family.sh</span></code> — renders one <code class="docutils literal notranslate"><span class="pre">.def</span></code> per build-matrix entry and runs
+<code class="docutils literal notranslate"><span class="pre">apptainer</span> <span class="pre">build</span></code>.  The <strong>first</strong> matrix entry keeps the current production
+base image, so the family always includes a broadly-compatible image for older
+machines.</p></li>
+<li><p><code class="code docutils literal notranslate"><span class="pre">requirements-container.txt</span></code> — the shared, unpinned pip dependency set
+(the cupy wheel is the only per-entry difference).</p></li>
+</ul>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp"># </span>render<span class="w"> </span>the<span class="w"> </span>per-entry<span class="w"> </span>.def<span class="w"> </span>files<span class="w"> </span>only<span class="w"> </span><span class="o">(</span>no<span class="w"> </span>apptainer<span class="w"> </span>needed<span class="o">)</span>
+<span class="go">containers/build_family.sh --render-only ./container_family</span>
+
+<span class="gp"># </span>render<span class="w"> </span>and<span class="w"> </span>build<span class="w"> </span>each<span class="w"> </span>.sif<span class="w"> </span><span class="o">(</span>requires<span class="w"> </span>apptainer<span class="o">)</span>
+<span class="go">containers/build_family.sh ./container_family</span>
+
+<span class="gp"># </span>on<span class="w"> </span>shared<span class="w"> </span>clusters<span class="w"> </span><span class="o">(</span>e.g.<span class="w"> </span>CIT<span class="o">)</span>,<span class="w"> </span>build<span class="w"> </span>with<span class="w"> </span>--fakeroot<span class="w"> </span>to<span class="w"> </span>avoid<span class="w"> </span>the
+<span class="gp"># </span>unprivileged<span class="w"> </span>proot<span class="w"> </span>engine<span class="w"> </span><span class="o">(</span>whose<span class="w"> </span>mksquashfs<span class="w"> </span>step<span class="w"> </span>fails<span class="o">)</span>:
+<span class="go">containers/build_family.sh --fakeroot ./container_family</span>
+</pre></div>
+</div>
+<p>Each run also writes a <code class="docutils literal notranslate"><span class="pre">rift_container_family.generated.yaml</span></code> stub: fill in
+each <code class="docutils literal notranslate"><span class="pre">image:</span></code> with where you published the <code class="docutils literal notranslate"><span class="pre">.sif</span></code> (a CVMFS path or
+<code class="docutils literal notranslate"><span class="pre">osdf://</span></code> URL) and you have a deployable manifest.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>On clusters without setuid apptainer or unprivileged user namespaces, a plain
+build falls back to the <code class="docutils literal notranslate"><span class="pre">proot</span></code> engine and fails at <code class="docutils literal notranslate"><span class="pre">mksquashfs</span></code>
+(<code class="docutils literal notranslate"><span class="pre">ptrace(TRACEME):</span> <span class="pre">Operation</span> <span class="pre">not</span> <span class="pre">permitted</span></code>). Use <code class="docutils literal notranslate"><span class="pre">--fakeroot</span></code> (needs
+<code class="docutils literal notranslate"><span class="pre">/etc/subuid</span></code> + <code class="docutils literal notranslate"><span class="pre">/etc/subgid</span></code> entries), or <code class="docutils literal notranslate"><span class="pre">--sandbox</span></code> to build a
+directory that skips <code class="docutils literal notranslate"><span class="pre">mksquashfs</span></code> and convert it to a <code class="docutils literal notranslate"><span class="pre">.sif</span></code> later on a
+capable host. See the build-troubleshooting section of
+<code class="code docutils literal notranslate"><span class="pre">containers/README.md</span></code>.</p>
+</div>
+<p>The top-level <code class="code docutils literal notranslate"><span class="pre">rift_container.def</span></code> is unchanged and remains the default
+single-image build.</p>
+</section>
+<section id="catching-dependency-breakage-early-ci-canary">
+<h2>Catching dependency breakage early (CI canary)<a class="headerlink" href="#catching-dependency-breakage-early-ci-canary" title="Link to this heading"></a></h2>
+<p>The container ships an <em>unpinned</em> dependency set and clones RIFT at build time,
+so a fresh upstream release (for example <code class="docutils literal notranslate"><span class="pre">swig&gt;=4.4.0</span></code>) can silently break
+RIFT and only surface when a container rebuild fails.  Two <strong>non-blocking</strong> CI
+jobs guard against this — <code class="docutils literal notranslate"><span class="pre">container-dep-canary</span></code> (installs the same unpinned
+<code class="docutils literal notranslate"><span class="pre">containers/requirements-container.txt</span></code> set and runs the import check) and
+<code class="docutils literal notranslate"><span class="pre">container-swig-canary</span></code> (exercises the <code class="docutils literal notranslate"><span class="pre">pixi</span></code> <code class="docutils literal notranslate"><span class="pre">swig-post44</span></code> lane).  They
+run on every push/PR and on a weekly schedule, so a breaking upstream release is
+flagged even with no RIFT commit.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="osg.html" class="btn btn-neutral float-left" title="Using the OSG" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="injections.html" class="btn btn-neutral float-right" title="Signal Injections" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

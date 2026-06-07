@@ -51,6 +51,7 @@
 <li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
 <li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
 <li class="toctree-l1"><a class="reference internal" href="osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="containers.html">Containers and multi-architecture deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="injections.html">Signal Injections</a></li>
 <li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting with RIFT</a></li>
 <li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
@@ -1398,6 +1399,8 @@
 </li>
       <li><a href="api_reference/interpolators/index.html#RIFT.interpolators.internal_GP.GP_fit_function">GP_fit_function() (in module RIFT.interpolators.internal_GP)</a>
 </li>
+      <li><a href="api_reference/integrators/index.html#RIFT.integrators.gaussian_mixture_model.gpu_logpdf">gpu_logpdf() (in module RIFT.integrators.gaussian_mixture_model)</a>
+</li>
       <li><a href="RIFT/misc/amrlib.html#RIFT.misc.amrlib.grid_to_cells">grid_to_cells() (in module RIFT.misc.amrlib)</a>, <a href="api_reference/misc/index.html#RIFT.misc.amrlib.grid_to_cells">[1]</a>
 </li>
       <li><a href="RIFT/misc/amrlib.html#RIFT.misc.amrlib.grid_to_indices">grid_to_indices() (in module RIFT.misc.amrlib)</a>, <a href="api_reference/misc/index.html#RIFT.misc.amrlib.grid_to_indices">[1]</a>
@@ -1487,16 +1490,28 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.IdentifyEffectiveModesForDetector">IdentifyEffectiveModesForDetector() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.IdentifyEffectiveModesForDetector">[1]</a>
 </li>
-      <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.identity_convert">identity_convert() (in module RIFT.integrators.mcsamplerAdaptiveVolume)</a>
+      <li><a href="api_reference/integrators/index.html#RIFT.integrators.gaussian_mixture_model.identity_convert">identity_convert() (in module RIFT.integrators.gaussian_mixture_model)</a>
 
       <ul>
+        <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.identity_convert">(in module RIFT.integrators.mcsamplerAdaptiveVolume)</a>
+</li>
+        <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.identity_convert">(in module RIFT.integrators.mcsamplerEnsemble)</a>
+</li>
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.identity_convert">(in module RIFT.integrators.mcsamplerGPU)</a>
 </li>
+        <li><a href="api_reference/integrators/index.html#RIFT.integrators.MonteCarloEnsemble.identity_convert">(in module RIFT.integrators.MonteCarloEnsemble)</a>
+</li>
       </ul></li>
-      <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.identity_convert_togpu">identity_convert_togpu() (in module RIFT.integrators.mcsamplerAdaptiveVolume)</a>
+      <li><a href="api_reference/integrators/index.html#RIFT.integrators.gaussian_mixture_model.identity_convert_togpu">identity_convert_togpu() (in module RIFT.integrators.gaussian_mixture_model)</a>
 
       <ul>
+        <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.identity_convert_togpu">(in module RIFT.integrators.mcsamplerAdaptiveVolume)</a>
+</li>
+        <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerEnsemble.identity_convert_togpu">(in module RIFT.integrators.mcsamplerEnsemble)</a>
+</li>
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.identity_convert_togpu">(in module RIFT.integrators.mcsamplerGPU)</a>
+</li>
+        <li><a href="api_reference/integrators/index.html#RIFT.integrators.MonteCarloEnsemble.identity_convert_togpu">(in module RIFT.integrators.MonteCarloEnsemble)</a>
 </li>
       </ul></li>
       <li><a href="api_reference/simulation_manager/database.html#RIFT.simulation_manager.database.Index">Index (class in RIFT.simulation_manager.database)</a>
@@ -1539,10 +1554,10 @@
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.integrate_log">(RIFT.integrators.mcsamplerGPU.MCSampler method)</a>
 </li>
       </ul></li>
-      <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.MCSampler.integrate_vegas">integrate_vegas() (RIFT.integrators.mcsampler.MCSampler method)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.MCSampler.integrate_vegas">integrate_vegas() (RIFT.integrators.mcsampler.MCSampler method)</a>
+</li>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.MonteCarloEnsemble.integrator">integrator (class in RIFT.integrators.MonteCarloEnsemble)</a>
 </li>
       <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.internal_hlm_generator">internal_hlm_generator() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.internal_hlm_generator">[1]</a>
