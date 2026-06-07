@@ -224,6 +224,7 @@ jobs:
           # defensive in case it is added later.)
           grep -viE '^\s*cupy' containers/requirements-container.txt > /tmp/req-canary.txt
           python -m pip install -r /tmp/req-canary.txt --break-system-packages
+          python -m pip install pytest --break-system-packages
           python -m pip install --editable . --break-system-packages
       - name: Show resolved versions
         run: |
@@ -278,6 +279,7 @@ jobs:
           cd ..
           sphinx-build docs/source/ docs/build/
       - name: Deploy to GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/rift_O4d'
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
