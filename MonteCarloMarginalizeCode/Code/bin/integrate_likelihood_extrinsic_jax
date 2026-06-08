@@ -318,7 +318,7 @@ def build_parser():
     g.add_option("--mode", default="laplace-is",
                  choices=["prior-mc", "laplace-is", "map", "nuts",
                           "multistart-nuts", "flowmc", "flowmc-phimarg",
-                          "nuts-phimarg"],
+                          "flowmc-phipsimarg", "nuts-phimarg"],
                  help="Extrinsic exploration: prior-mc | laplace-is | map | "
                       "nuts (single-chain) | multistart-nuts (mode-covering) | "
                       "flowmc (normalizing-flow, 5-D) | "
@@ -351,6 +351,9 @@ def build_parser():
     g.add_option("--n-phi", type=int, default=32,
                  help="phi_ref grid size for --mode flowmc-phimarg (default 32; "
                       "use 64-128 for l-max>=4 or production quality).")
+    g.add_option("--n-psi", type=int, default=16,
+                 help="psi (polarization) grid size for --mode flowmc-phipsimarg "
+                      "(default 16; spin-2 -> exponential convergence).")
     # flowMC tuning (modes flowmc / flowmc-phimarg).  Defaults match
     # samplers.flowmc_sample*; exposed so pipeline Makefiles can tune them.
     g.add_option("--n-training-loops", type=int, default=4,
@@ -794,6 +797,11 @@ def write_samples(opts, out_index, theta, lnL, with_distance):
         cols = np.column_stack([theta[good, 0], theta[good, 1],
                                 theta[good, 3], theta[good, 2], lnL[good]])
         hdr = "right_ascension declination inclination psi loglikelihood"
+    elif ndim == 3:
+        # 3-D (flowmc-phipsimarg): ra, dec, incl (phi_ref AND psi marginalised out)
+        cols = np.column_stack([theta[good, 0], theta[good, 1],
+                                theta[good, 2], lnL[good]])
+        hdr = "right_ascension declination inclination loglikelihood"
     else:
         # 5-D: ra, dec, psi, incl, phiref
         cols = np.column_stack([theta[good, 0], theta[good, 1], theta[good, 3],
@@ -842,6 +850,25 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                   % (gi["d_peak"], gi["sigma_d"], gi["n"]))
         with_distance = False   # distance is already marginalised inside like
         dim = 4
+    elif opts.mode == "flowmc-phipsimarg":
+        # distance + phi_ref + psi marginalised: 3-D (ra, dec, incl) posterior.
+        if not opts.distance_marginalization:
+            raise SystemExit("--mode flowmc-phipsimarg requires --distance-marginalization.")
+        from RIFT.likelihood.jax_ile.wrapper import JAXDistPhiPsiMargLikelihood
+        nphi = getattr(opts, "n_phi", 32)
+        npsi = getattr(opts, "n_psi", 16)
+        print("Distance + phi_ref + psi marginalization: ON (grid=%d, nphi=%d, npsi=%d, d in [%g,%g] Mpc)"
+              % (opts.distance_grid_points, nphi, npsi, opts.d_min, opts.d_max))
+        like = JAXDistPhiPsiMargLikelihood(
+            like_data, opts.d_min, opts.d_max, nphi=nphi, npsi=npsi,
+            n_grid=opts.distance_grid_points, interp=opts.interp,
+            guess_snr=extras["guess_snr"])
+        if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
+            gi = like.dist_grid_info
+            print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
+                  % (gi["d_peak"], gi["sigma_d"], gi["n"]))
+        with_distance = False
+        dim = 3
     elif opts.distance_marginalization:
         print("Distance marginalization: ON (grid=%d, d in [%g,%g] Mpc)"
               % (opts.distance_grid_points, opts.d_min, opts.d_max))
@@ -867,8 +894,9 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         return lnL_map, None
 
     out_flow_state = None
-    if opts.mode in ("multistart-nuts", "flowmc", "flowmc-phimarg", "nuts-phimarg"):
-        if opts.mode not in ("flowmc-phimarg", "nuts-phimarg") and with_distance:
+    if opts.mode in ("multistart-nuts", "flowmc", "flowmc-phimarg",
+                     "flowmc-phipsimarg", "nuts-phimarg"):
+        if opts.mode not in ("flowmc-phimarg", "flowmc-phipsimarg", "nuts-phimarg") and with_distance:
             raise SystemExit("--mode %s requires --distance-marginalization "
                              "(it samples the 5-D angular posterior)." % opts.mode)
         from RIFT.likelihood.jax_ile import samplers as _samplers
@@ -887,8 +915,9 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 num_warmup=opts.num_warmup, num_samples=opts.num_samples,
                 seed=opts.seed, sky_coords=opts.sky_coordinates,
                 verbose=opts.verbose)
-        elif opts.mode == "flowmc-phimarg":
-            # 4-D phi-marginalised flowMC; flow re-use across intrinsic batch.
+        elif opts.mode in ("flowmc-phimarg", "flowmc-phipsimarg"):
+            # 4-D phi-marg (ra,dec,psi,incl) or 3-D phi+psi-marg (ra,dec,incl);
+            # flowmc_sample_phimarg is dimension-agnostic.  flow re-use across batch.
             # Static tempering: beta = --adapt-weight-exponent -> temper = 1/beta.
             _beta = float(opts.adapt_weight_exponent)
             _temper = 1.0 / _beta if _beta > 0 else 1.0
