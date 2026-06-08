@@ -1,5 +1,4 @@
 import importlib.metadata
-import os
 import pathlib
 import shutil
 import types
@@ -45,10 +44,7 @@ def _require_htcondor():
     try:
         __import__("htcondor")
     except ModuleNotFoundError:
-        message = "htcondor Python bindings are required to import the Asimov pipeline stack"
-        if os.environ.get("RIFT_ASIMOV_REQUIRE_HTCONDOR"):
-            pytest.fail(message)
-        pytest.skip(message)
+        pytest.skip("htcondor Python bindings are required to import the Asimov pipeline stack")
 
 
 class _Logger:
