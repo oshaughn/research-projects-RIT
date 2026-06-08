@@ -1051,11 +1051,11 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
         z = rng.standard_normal((n_is, n_dim))
         th_is = mu[None, :] + z @ Lc.T
         logq = _gaussian_logq(th_is, mu, cov)
-        logp = log_prior_4(th_is)
+        logp = _log_prior(th_is)
         valid = np.isfinite(logp)
         lnL_is = np.full(n_is, -np.inf)
         if valid.any():
-            lnL_is[valid] = eval_lnL_4(like, th_is[valid])
+            lnL_is[valid] = _eval_lnL(like, th_is[valid])
         logw = np.where(valid, lnL_is + logp - logq, -np.inf)
         logZ, sigma_over_Z, neff = evidence_from_logweights(logw)
         logZ, sigma_over_Z, neff = _finalize_evidence(
