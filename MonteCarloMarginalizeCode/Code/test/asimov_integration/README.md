@@ -17,6 +17,11 @@ object, and intercepts the external `util_RIFT_pseudo_pipe.py` call after
 checking that `RIFT.asimov.rift.Rift.build_dag` has assembled the expected
 command-line interface.
 
+The template-contract test renders the real `RIFT/asimov/rift.ini` Liquid
+template against realistic ledger-shaped objects.  It checks baseline ledger
+parsing, important optional blocks such as calibration/eccentricity/OSG/manual
+ILE args, and a deterministic randomized sweep over key scalar options.
+
 It does not submit jobs or require production frame/calibration storage.
 
 The RIFT Asimov integration is currently developed against the Asimov `0.5`
