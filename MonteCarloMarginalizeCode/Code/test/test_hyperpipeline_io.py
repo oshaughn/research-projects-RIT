@@ -73,6 +73,22 @@ def test_tides_with_eos_index():
     print("test_tides_with_eos_index: OK")
 
 
+def test_sky_columns():
+    cols = hpio.build_column_list(use_sky=True)
+    assert cols[-2:] == ("ecliptic_longitude", "ecliptic_latitude")
+    rows = [[-0.5, 0.02, 1.4, 1.35, 0,0,0, 0,0,0, 1.25, -0.4]]
+    arr = _roundtrip(cols, rows)
+    np.testing.assert_allclose(arr["ecliptic_longitude"], [1.25])
+    np.testing.assert_allclose(arr["ecliptic_latitude"], [-0.4])
+
+    legacy = hpio.to_legacy_dat(arr, use_sky=True)
+    ix = hpio.legacy_column_indices(use_sky=True)
+    np.testing.assert_allclose(legacy[:, ix["ecliptic_longitude"]], [1.25])
+    np.testing.assert_allclose(legacy[:, ix["ecliptic_latitude"]], [-0.4])
+    assert ix["lnL"] == 11
+    print("test_sky_columns: OK")
+
+
 def test_to_legacy_dat_default():
     """Hyperpipeline -> legacy positional matrix, default 10-col case."""
     cols = hpio.build_column_list()
@@ -269,6 +285,8 @@ class _FakeP(object):
         self.eccentricity = 0.0; self.meanPerAno = 0.0
         self.eos_table_index = 0.0
         self.dist = 0.0
+        self.phi = 0.0
+        self.theta = 0.0
         self.fref = 20.0
 
 
@@ -415,6 +433,30 @@ def test_column_alias_bridge():
     print("test_column_alias_bridge: OK")
 
 
+def test_sky_column_alias_bridge():
+    """Sky columns use explicit ecliptic names on disk and theta/phi on P."""
+    P = _FakeP()
+    P.phi = 1.3
+    P.theta = -0.2
+    cols = hpio.build_column_list(use_sky=True)
+    fname = tempfile.NamedTemporaryFile("w", suffix=".dat", delete=False).name
+    try:
+        hpio.write_grid_from_P_list(fname, [P], cols, lal_module=_FakeLal())
+        arr, hdr = hpio.read_table(fname)
+        assert hdr == cols
+        np.testing.assert_allclose(arr["ecliptic_longitude"], [1.3])
+        np.testing.assert_allclose(arr["ecliptic_latitude"], [-0.2])
+        P_back, _ = hpio.read_grid_to_P_list(
+            fname, P_factory=_FakeP, lal_module=_FakeLal(),
+            valid_params={"m1", "m2", "s1x", "s1y", "s1z", "s2x", "s2y",
+                          "s2z", "phi", "theta"})
+        assert abs(P_back[0].phi - 1.3) < 1e-12
+        assert abs(P_back[0].theta + 0.2) < 1e-12
+    finally:
+        os.unlink(fname)
+    print("test_sky_column_alias_bridge: OK")
+
+
 def test_grid_no_lal_module_passthrough():
     """When lal_module is None, no unit conversion happens (raw passthrough)."""
     P = _FakeP()
@@ -452,6 +494,7 @@ if __name__ == "__main__":
     test_default_roundtrip()
     test_eccentricity_columns()
     test_tides_with_eos_index()
+    test_sky_columns()
     test_to_legacy_dat_default()
     test_legacy_column_indices_consistency()
     test_sniff_distinguishes_legacy()
@@ -465,5 +508,6 @@ if __name__ == "__main__":
     test_grid_distance_unit_conversion()
     test_grid_auto_suffix_append()
     test_column_alias_bridge()
+    test_sky_column_alias_bridge()
     test_grid_no_lal_module_passthrough()
     print("\nAll hyperpipeline_io tests passed.")
