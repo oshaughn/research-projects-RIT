@@ -681,6 +681,56 @@ def eval_lnL_4(like, theta, chunk=4000, desc="lnL"):
     return out
 
 
+_BOUNDS3 = [(0.0, _TWO_PI), (-_PI / 2 + 1e-3, _PI / 2 - 1e-3),
+            (1e-3, _PI - 1e-3)]   # (ra, dec, incl) -- psi marginalized out
+
+
+def sample_prior_3(n, rng):
+    """Draw ``n`` prior samples of ``theta3 = (ra, dec, incl)`` (psi marginalized)."""
+    ra = rng.uniform(0.0, _TWO_PI, n)
+    dec = np.arcsin(rng.uniform(-1.0, 1.0, n))
+    incl = np.arccos(rng.uniform(-1.0, 1.0, n))
+    return np.stack([ra, dec, incl], axis=-1)
+
+
+def log_prior_3(theta):
+    """log prior density for ``theta3 = (ra, dec, incl)`` (numpy, batched)."""
+    theta = np.atleast_2d(theta)
+    ra, dec, incl = [theta[..., i] for i in range(3)]
+    inb = ((ra >= 0) & (ra <= _TWO_PI) & (dec >= -_PI / 2) & (dec <= _PI / 2)
+           & (incl >= 0) & (incl <= _PI))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        logp = (np.log(np.cos(dec)) - np.log(2.0)
+                + np.log(np.sin(incl)) - np.log(2.0) - np.log(_TWO_PI))
+    return np.where(inb, logp, -np.inf)
+
+
+def _log_prior_3_jax(theta3):
+    """JAX-traceable log-prior for a single length-3 ``theta3`` vector."""
+    ra, dec, incl = theta3[0], theta3[1], theta3[2]
+    inb = ((ra >= 0) & (ra <= _TWO_PI) & (dec >= -_PI / 2) & (dec <= _PI / 2)
+           & (incl >= 0) & (incl <= _PI))
+    logp = (jnp.log(jnp.cos(dec)) - jnp.log(2.0)
+            + jnp.log(jnp.sin(incl)) - jnp.log(2.0) - jnp.log(_TWO_PI))
+    return jnp.where(inb, logp, -1e30)
+
+
+def eval_lnL_3(like, theta, chunk=4000, desc="lnL"):
+    """Evaluate the 3-param (phi+psi-marginalised) lnL on an ``(N, 3)`` array."""
+    theta = np.atleast_2d(theta)
+    N = theta.shape[0]
+    out = np.empty(N)
+    try:
+        from tqdm.auto import tqdm
+        it = tqdm(list(range(0, N, chunk)), desc=desc, unit="chunk", leave=False)
+    except ImportError:
+        it = range(0, N, chunk)
+    for i in it:
+        sl = slice(i, min(i + chunk, N))
+        out[sl] = np.asarray(like.log_likelihood(*[theta[sl, j] for j in range(3)]))
+    return out
+
+
 def _warmup_compile(like, verbose=True):
     """Trigger JIT compilation on a 2-sample dummy batch before the main work.
 
