@@ -700,6 +700,18 @@ def make_distance_grid_adaptive(d_min, d_max, d_peak, sigma_d, d_prior="euclidea
     Trapezoidal weights normalized to a *proper distance average* (same convention
     as :func:`make_distance_grid`) -> drop-in for the stable logsumexp kernel, and
     being a *static* grid it is gradient-stable (unlike per-sample Gauss-Hermite).
+
+    LIMITATION (found in validation): a single static window is INSUFFICIENT here
+    because of the distance-inclination degeneracy -- the matched SNR rho_mf is
+    nearly constant across many (incl, psi) at DIFFERENT best-fit distances, so the
+    marginal distance posterior is broad (~factor 2-3), not one narrow peak.  A
+    window centred on one d_peak (e.g. 80 Mpc) misses the face-on tail (~200 Mpc);
+    covering the whole degeneracy at sigma_d resolution needs ~3*SNR points -> OOM
+    on an 11GB card.  CORRECT FIX = PER-SAMPLE adaptive nodes in the stable
+    logsumexp(K x - 0.5 R x^2 + log_w_quad) form, with node positions x_k =
+    stop_gradient(K/R + z_k/sqrt(R)) so each sample resolves its OWN peak with ~32
+    nodes (8x LESS memory than a 256 static grid) and the 1/R only enters through
+    stop_gradient -> gradient-stable.  That is a kernel change (TODO).
     """
     half = n_sigma * sigma_d                       # additive: peak is well-located
     d_lo = max(float(d_min), d_peak - half)
