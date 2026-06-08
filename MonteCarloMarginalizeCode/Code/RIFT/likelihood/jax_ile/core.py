@@ -615,7 +615,11 @@ def fused_log_likelihood_distphipsimarg(data, ra, dec, incl,
 
     m0 = jnp.full((S, data.npts), -jnp.inf, dtype=jnp.float64)
     s0 = jnp.zeros((S, data.npts), dtype=jnp.float64)
-    (m, s), _ = jax.lax.scan(_step, (m0, s0), pairs)
+    # Gradient checkpoint the scan body: the (phi,psi) grid is nphi*npsi steps
+    # (e.g. 512); without remat, reverse-mode (MALA / value_and_grad) stores every
+    # step's intermediates -> O(nstep) memory -> OOM.  remat recomputes in the
+    # backward pass -> memory O(1) in the grid size.
+    (m, s), _ = jax.lax.scan(jax.checkpoint(_step), (m0, s0), pairs)
     lnL_t_marg = m + jnp.log(s) - jnp.log(npair)
     return _time_marginalize(lnL_t_marg, data.w_t)
 
