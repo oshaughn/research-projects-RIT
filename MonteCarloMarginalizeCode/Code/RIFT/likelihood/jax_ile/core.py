@@ -560,6 +560,66 @@ def fused_log_likelihood_distphimarg(data, ra, dec, psi, incl,
     return _time_marginalize(lnL_t_marg, data.w_t)
 
 
+def psi_grid(npsi: int) -> np.ndarray:
+    """Uniform grid of polarization angle psi over [0, pi), shape (npsi,).
+
+    psi enters at spin-weight 2 (the antenna patterns rotate as cos2psi, sin2psi),
+    so the likelihood has period pi in psi and a low trig order; the grid average
+    of exp(lnL) converges exponentially.  16 points is ample for l_max=2.
+    """
+    return np.linspace(0.0, np.pi, npsi, endpoint=False)
+
+
+def fused_log_likelihood_distphipsimarg(data, ra, dec, incl,
+                                        x_grid, log_w_grid, phi_grid, psi_grid_,
+                                        interp="linear", grid_block=64):
+    """Distance-, phi_ref- AND psi-marginalized factored lnL over (ra, dec, incl).
+
+    Marginalizes luminosity distance (quadrature grid), orbital phase phi_ref and
+    polarization psi (uniform grid sums) -> a smooth 3-D function of (ra, dec, incl).
+    Removing psi (the spin-2 polarization) integrates out the dimension most
+    entangled with distance/inclination, stabilizing the distance integral and
+    leaving a lower-dimensional, better-conditioned target for the flow.
+    """
+    x_grid = jnp.asarray(x_grid, dtype=jnp.float64)
+    log_w_grid = jnp.asarray(log_w_grid, dtype=jnp.float64)
+    phi_g = jnp.asarray(phi_grid, dtype=jnp.float64)
+    psi_g = jnp.asarray(psi_grid_, dtype=jnp.float64)
+    S = ra.shape[0]
+    a = x_grid
+    b = -0.5 * jnp.square(x_grid)
+    # flatten the (phi, psi) grid into one scan sequence (sequential -> O(body) mem)
+    PHI, PSI = jnp.meshgrid(phi_g, psi_g, indexing="ij")
+    pairs = jnp.stack([PHI.reshape(-1), PSI.reshape(-1)], axis=-1)   # (nphi*npsi, 2)
+    npair = pairs.shape[0]
+    _use_gh = _DISTMARG_GH_N > 0
+    if _use_gh:
+        gh_xi, gh_logw = make_distance_gh(_DISTMARG_GH_N)
+        x_min = jnp.min(x_grid); x_max = jnp.max(x_grid)
+
+    def _step(carry, pair):
+        m, s = carry
+        phi_arr = jnp.broadcast_to(pair[0], (S,)).astype(jnp.float64)
+        psi_arr = jnp.broadcast_to(pair[1], (S,)).astype(jnp.float64)
+        kappa_unit, rho_sq_unit = _accumulate_unit(
+            data, ra, dec, psi_arr, incl, phi_arr, interp, False)
+        if _use_gh:
+            lnL_t = _distmarg_gh_logL(kappa_unit.real, rho_sq_unit,
+                                      gh_xi, gh_logw, x_min, x_max)
+        else:
+            lnL_t = _logsumexp_grid_blocked(
+                kappa_unit.real, rho_sq_unit, a, b, log_w_grid, grid_block)
+        m_new = jnp.maximum(m, lnL_t)
+        s_new = s * jnp.exp(m - m_new) + jnp.exp(lnL_t - m_new)
+        return (m_new, s_new), None
+
+    m0 = jnp.full((S, data.npts), -jnp.inf, dtype=jnp.float64)
+    s0 = jnp.zeros((S, data.npts), dtype=jnp.float64)
+    (m, s), _ = jax.lax.scan(_step, (m0, s0), pairs)
+    lnL_t_marg = m + jnp.log(s) - jnp.log(npair)
+    return _time_marginalize(lnL_t_marg, data.w_t)
+
+
 def phi_ref_conditional_lnL(data, ra, dec, psi, incl, distMpc,
                               phi_grid, interp="linear"):
     """Log-likelihood vs φ_ref given the other extrinsic parameters.
