@@ -611,17 +611,20 @@ def make_distance_grid(d_min, d_max, n_grid=256, d_prior="euclidean",
     return jnp.asarray(x), jnp.asarray(log_w)
 
 
-def estimate_distance_peak(data, guess_snr, n_sky=4000, seed=0, interp="linear"):
-    """Characteristic distance peak/width from the precompute + SNR hint.
+def estimate_distance_peak(data, guess_snr=None, n_sky=4000, seed=0, interp="linear"):
+    """Characteristic distance peak/width directly from the precompute.
 
     The distance integrand per (sky, time-bin) is exp(K x - 0.5 R x^2) with
     x = d_ref/d, K = Re(kappa_unit), R = rho_sq_unit (= <h|h> at d_ref).  The
-    matched-filter peak sits at x* = K/R with ln-peak 0.5 K^2/R = 0.5 rho_mf^2.
-    Using the network SNR hint rho_mf ~= guess_snr and the characteristic
-    R_max = max_sky rho_sq_unit gives K ~= guess_snr*sqrt(R_max), hence
-        x*    = guess_snr / sqrt(R_max),   d_peak  = d_ref / x*,
-        sigma_d / d_peak = 1/guess_snr.
-    Returns (d_peak, sigma_d) in Mpc.  Cheap: one random sky sweep, no grad.
+    matched-filter peak sits at x* = K/R (for K>0) with ln-peak 0.5 K^2/R =
+    0.5 rho_mf^2.  We sweep the sky and read off the best (largest K^2/R, K>0)
+    sample/time-bin: x* = K/R -> d_peak = d_ref/x*, and the fractional width is
+    sigma_d/d_peak = 1/rho_mf with rho_mf = sqrt(K^2/R).
+
+    This reads the *effective* SNR straight from the (PSD-scaled) data, so it is
+    robust to ``guess_snr`` being the unscaled template SNR.  ``guess_snr`` is
+    accepted only as a fallback if the sweep finds no K>0 sample.  Cheap: one
+    random sky sweep, no gradients.  Returns (d_peak, sigma_d) in Mpc.
     """
     rng = np.random.default_rng(seed)
     ra = rng.uniform(0.0, 2 * np.pi, n_sky)
@@ -629,14 +632,23 @@ def estimate_distance_peak(data, guess_snr, n_sky=4000, seed=0, interp="linear")
     psi = rng.uniform(0.0, np.pi, n_sky)
     incl = np.arccos(rng.uniform(-1.0, 1.0, n_sky))
     phiref = rng.uniform(0.0, 2 * np.pi, n_sky)
-    _, rho_sq_unit = _accumulate_unit(
+    kappa_unit, rho_sq_unit = _accumulate_unit(
         data, ra, dec, psi, incl, phiref, interp, False)
-    R_max = max(float(jnp.max(rho_sq_unit)), 1e-30)
+    K = np.asarray(kappa_unit.real)
+    R = np.maximum(np.asarray(rho_sq_unit), 1e-30)
     dref = float(data.distMpcRef)
-    snr = max(float(guess_snr), 1.0)
-    x_star = snr / np.sqrt(R_max)
+    snr2 = np.where(K > 0.0, K * K / R, -np.inf)    # matched SNR^2, peak on x>0 only
+    if not np.any(np.isfinite(snr2)):               # fallback to the SNR hint
+        snr = max(float(guess_snr or 1.0), 1.0)
+        R_max = max(float(np.max(R)), 1e-30)
+        x_star = snr / np.sqrt(R_max)
+        return dref / x_star, (dref / x_star) / snr
+    idx = np.unravel_index(int(np.argmax(snr2)), snr2.shape)
+    Kb, Rb = float(K[idx]), float(R[idx])
+    x_star = Kb / Rb
+    rho_mf = np.sqrt(Kb * Kb / Rb)
     d_peak = dref / x_star
-    sigma_d = d_peak / snr
+    sigma_d = d_peak / max(rho_mf, 1.0)
     return d_peak, sigma_d
 
 
