@@ -526,16 +526,18 @@ def plot_neff_data(path_to_main_folder, plot_title):
     run_diagnostics[plot_title]["CIP_neff"] = {}
 
     # read requested neff from CIP sub files
-    for i in range(4):
-        filename = f"{path}/CIP_worker{i}.sub"
+    CIP_file_names = ["CIP_worker.sub", "CIP_worker0.sub", "CIP_worker1.sub", "CIP_worker2.sub", "CIP_worker3.sub"]
+    for i, name in enumerate(CIP_file_names):
+        filename = f"{path_to_main_folder}/{name}"
         try:
             with open(filename, "r") as f:
                 content = f.read()
                 matches = re.findall(r"--n-eff\s+([+-]?\d+(?:\.\d+)?)", content)
                 if matches:
                     neff_value = float(matches[-1])
-                    ax.axhline(y=neff_value, linestyle="--", color=default_colors[i], alpha=1.0, linewidth=1.0, label=f"worker {i} neff")
-                    run_diagnostics[plot_title]["CIP_neff"][f"CIP_worker{i}"] = np.round(neff_value, 2)
+                    worker_label = name.replace(".sub", "")
+                    ax.axhline(y=neff_value, linestyle="--", color=default_colors[i], alpha=1.0, linewidth=1.0, label=f"{worker_label} neff")
+                    run_diagnostics[plot_title]["CIP_neff"][worker_label] = np.round(neff_value, 2)
                 else:
                     continue
         except Exception as e:
