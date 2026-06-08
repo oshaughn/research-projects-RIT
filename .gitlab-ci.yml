@@ -49,6 +49,7 @@ import_check:
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_lisa_response_import.py
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_lisa_lalsimutils_compat.py
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_lisa_operational_synthetic.py
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_lisa_helper_contract.py
 
 sim_manager_check:
   stage: unit tests
