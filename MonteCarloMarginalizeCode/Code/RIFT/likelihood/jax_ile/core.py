@@ -611,6 +611,70 @@ def make_distance_grid(d_min, d_max, n_grid=256, d_prior="euclidean",
     return jnp.asarray(x), jnp.asarray(log_w)
 
 
+def estimate_distance_peak(data, guess_snr, n_sky=4000, seed=0, interp="linear"):
+    """Characteristic distance peak/width from the precompute + SNR hint.
+
+    The distance integrand per (sky, time-bin) is exp(K x - 0.5 R x^2) with
+    x = d_ref/d, K = Re(kappa_unit), R = rho_sq_unit (= <h|h> at d_ref).  The
+    matched-filter peak sits at x* = K/R with ln-peak 0.5 K^2/R = 0.5 rho_mf^2.
+    Using the network SNR hint rho_mf ~= guess_snr and the characteristic
+    R_max = max_sky rho_sq_unit gives K ~= guess_snr*sqrt(R_max), hence
+        x*    = guess_snr / sqrt(R_max),   d_peak  = d_ref / x*,
+        sigma_d / d_peak = 1/guess_snr.
+    Returns (d_peak, sigma_d) in Mpc.  Cheap: one random sky sweep, no grad.
+    """
+    rng = np.random.default_rng(seed)
+    ra = rng.uniform(0.0, 2 * np.pi, n_sky)
+    dec = np.arcsin(rng.uniform(-1.0, 1.0, n_sky))
+    psi = rng.uniform(0.0, np.pi, n_sky)
+    incl = np.arccos(rng.uniform(-1.0, 1.0, n_sky))
+    phiref = rng.uniform(0.0, 2 * np.pi, n_sky)
+    _, rho_sq_unit = _accumulate_unit(
+        data, ra, dec, psi, incl, phiref, interp, False)
+    R_max = max(float(jnp.max(rho_sq_unit)), 1e-30)
+    dref = float(data.distMpcRef)
+    snr = max(float(guess_snr), 1.0)
+    x_star = snr / np.sqrt(R_max)
+    d_peak = dref / x_star
+    sigma_d = d_peak / snr
+    return d_peak, sigma_d
+
+
+def make_distance_grid_adaptive(d_min, d_max, d_peak, sigma_d, d_prior="euclidean",
+                                distMpcRef=DIST_MPC_REF, n_fine=128, n_coarse=64,
+                                n_sigma=8.0):
+    """Non-uniform distance grid: fine near the (SNR-set) peak, coarse on the tail.
+
+    Concentrates resolution where the distance posterior lives (width ~sigma_d,
+    so the high-SNR peak is resolved with few points) while keeping a coarse
+    full-range backbone so off-peak / broad-prior samples still get support.
+    Trapezoidal weights normalized to a *proper distance average* (same
+    convention as :func:`make_distance_grid`), so it is drop-in for the existing
+    stable logsumexp kernel -- and being a *static* grid it is gradient-stable
+    (unlike the per-sample Gauss-Hermite path).
+    """
+    d_lo = max(float(d_min), d_peak - n_sigma * sigma_d)
+    d_hi = min(float(d_max), d_peak + n_sigma * sigma_d)
+    if not (d_hi > d_lo):                         # degenerate -> fall back to uniform
+        return make_distance_grid(d_min, d_max, n_fine + n_coarse, d_prior, distMpcRef)
+    fine = np.linspace(d_lo, d_hi, int(n_fine))
+    coarse = np.linspace(float(d_min), float(d_max), int(n_coarse))
+    d = np.unique(np.concatenate([coarse, fine]))           # sorted, deduped
+    if d_prior in ("euclidean", "volumetric"):
+        pd = d ** 2
+    elif d_prior == "uniform":
+        pd = np.ones_like(d)
+    else:
+        raise NotImplementedError("d_prior=%r" % d_prior)
+    dd = np.empty_like(d)                                    # trapezoidal spacing
+    dd[1:-1] = 0.5 * (d[2:] - d[:-2])
+    dd[0] = d[1] - d[0]
+    dd[-1] = d[-1] - d[-2]
+    w = pd * dd
+    w = w / np.sum(w)
+    return jnp.asarray(distMpcRef / d), jnp.asarray(np.log(w))
+
+
 # Small accessor used above; attached here to keep JAXLikelihoodData lean and
 # to make the (tref - epoch_det) offset explicit per detector.
 def _tref_minus_epoch(self, det):

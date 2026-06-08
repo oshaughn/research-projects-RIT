@@ -22,9 +22,12 @@ import jax.numpy as jnp
 
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 
+import os
+
 from .core import (build_likelihood_data, fused_log_likelihood,
                    fused_log_likelihood_distmarg, fused_log_likelihood_distphimarg,
-                   make_distance_grid, phi_ref_grid, phi_ref_conditional_lnL,
+                   make_distance_grid, make_distance_grid_adaptive,
+                   estimate_distance_peak, phi_ref_grid, phi_ref_conditional_lnL,
                    DIST_MPC_REF)
 
 # Parameter order used throughout the wrapper's vectorized interface.
@@ -221,12 +224,27 @@ class JAXDistPhiMargLikelihood:
     ANGULAR_PARAM_ORDER = ("ra", "dec", "psi", "incl")
 
     def __init__(self, data, d_min, d_max, nphi=32, n_grid=256,
-                 d_prior="euclidean", interp="linear"):
+                 d_prior="euclidean", interp="linear", guess_snr=None):
         self.data = data
         self.nphi = int(nphi)
         self._phi_grid = phi_ref_grid(self.nphi)
-        self.x_grid, self.log_w_grid = make_distance_grid(
-            d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
+        # Adaptive distance quadrature: concentrate grid resolution on the
+        # distance posterior, whose peak/width are set from guess_snr + the
+        # precompute's max rho_sq_unit -- avoiding the uniform grid's high-SNR
+        # under-resolution (the ~1% evidence bias).  Static grid -> feeds the
+        # same stable logsumexp kernel and is gradient-stable.  Enable with env
+        # JAX_ILE_DISTGRID_ADAPTIVE=1; falls back to uniform otherwise.
+        if int(os.environ.get("JAX_ILE_DISTGRID_ADAPTIVE", "0")) and guess_snr:
+            d_peak, sigma_d = estimate_distance_peak(data, guess_snr)
+            self.x_grid, self.log_w_grid = make_distance_grid_adaptive(
+                d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef)
+            self.dist_grid_info = dict(mode="adaptive", d_peak=float(d_peak),
+                                       sigma_d=float(sigma_d),
+                                       n=int(self.x_grid.shape[0]))
+        else:
+            self.x_grid, self.log_w_grid = make_distance_grid(
+                d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
+            self.dist_grid_info = dict(mode="uniform", n=int(self.x_grid.shape[0]))
 
         xg, lwg, pg = self.x_grid, self.log_w_grid, self._phi_grid
 

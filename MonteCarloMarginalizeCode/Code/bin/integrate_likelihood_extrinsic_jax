@@ -835,7 +835,11 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
         like = JAXDistPhiMargLikelihood(
             like_data, opts.d_min, opts.d_max,
             nphi=nphi, n_grid=opts.distance_grid_points,
-            interp=opts.interp)
+            interp=opts.interp, guess_snr=extras["guess_snr"])
+        if getattr(like, "dist_grid_info", {}).get("mode") == "adaptive":
+            gi = like.dist_grid_info
+            print("  distance grid: ADAPTIVE  d_peak=%.3g Mpc  sigma_d=%.3g Mpc  npts=%d"
+                  % (gi["d_peak"], gi["sigma_d"], gi["n"]))
         with_distance = False   # distance is already marginalised inside like
         dim = 4
     elif opts.distance_marginalization:
