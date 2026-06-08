@@ -653,8 +653,8 @@ def estimate_distance_peak(data, guess_snr=None, n_sky=4000, seed=0, interp="lin
 
 
 def make_distance_grid_adaptive(d_min, d_max, d_peak, sigma_d, d_prior="euclidean",
-                                distMpcRef=DIST_MPC_REF, n_fine_max=512, n_coarse=64,
-                                range_factor=5.0, oversample=4.0):
+                                distMpcRef=DIST_MPC_REF, n_fine_max=384, n_coarse=48,
+                                range_factor=4.0, oversample=4.0):
     """Non-uniform distance grid: fine near the (SNR-set) peak, coarse on the tail.
 
     Concentrates resolution where the distance posterior lives while staying
