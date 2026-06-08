@@ -742,10 +742,14 @@ def _warmup_compile(like, verbose=True):
     if verbose:
         print("  [jax_ile] compiling JAX kernel … ", end="", flush=True)
     t0 = _time.perf_counter()
-    dummy = np.zeros((2, 4))
-    dummy[:, 2] = 0.5   # psi in (0, pi)
-    dummy[:, 3] = 1.0   # incl in (0, pi)
-    _ = np.asarray(like.log_likelihood(*[dummy[:, j] for j in range(4)]))
+    n_dim = int(getattr(like, "_n_dim", 0)) or len(getattr(like, "ANGULAR_PARAM_ORDER", (0, 0, 0, 0)))
+    dummy = np.zeros((2, n_dim))
+    if n_dim >= 4:
+        dummy[:, 2] = 0.5   # psi in (0, pi)
+        dummy[:, 3] = 1.0   # incl in (0, pi)
+    elif n_dim == 3:
+        dummy[:, 2] = 1.0   # incl in (0, pi)  (psi marginalized out)
+    _ = np.asarray(like.log_likelihood(*[dummy[:, j] for j in range(n_dim)]))
     if verbose:
         print("done (%.1f s)" % (_time.perf_counter() - t0), flush=True)
 
@@ -808,7 +812,16 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
     from flowMC.Sampler import Sampler
     from flowMC.resource_strategy_bundle.RQSpline_MALA import RQSpline_MALA_Bundle
 
-    n_dim = 4
+    # Dimension-agnostic: 4-D (ra,dec,psi,incl) phi-marg, or 3-D (ra,dec,incl)
+    # phi+psi-marg.  Helpers selected from the likelihood's parameter count so the
+    # 4-D path is unchanged (defaults) and the 3-D psi-marg path reuses this code.
+    n_dim = len(getattr(like, "ANGULAR_PARAM_ORDER", ("ra", "dec", "psi", "incl")))
+    if n_dim == 3:
+        _sample_prior, _log_prior = sample_prior_3, log_prior_3
+        _log_prior_jax, _eval_lnL = _log_prior_3_jax, eval_lnL_3
+    else:
+        _sample_prior, _log_prior = sample_prior_4, log_prior_4
+        _log_prior_jax, _eval_lnL = _log_prior_4_jax, eval_lnL_4
     rng = np.random.default_rng(seed)
 
     # One flow training+production pass at a fixed tempering exponent inv_T,
@@ -816,7 +829,7 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
     # Returns (theta, lnL, trained_model).
     def _one_pass(inv_T_pass, init_positions, init_model, pass_seed):
         def logpdf(theta4, data):
-            return inv_T_pass * like._scalar(theta4) + _log_prior_4_jax(theta4)
+            return inv_T_pass * like._scalar(theta4) + _log_prior_jax(theta4)
         key = jax.random.PRNGKey(pass_seed)
         bkey, skey = jax.random.split(key)
         bundle = RQSpline_MALA_Bundle(
@@ -837,9 +850,9 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
         sampler.sample(init_positions, {})
         prod = np.asarray(sampler.resources["positions_production"].data)
         th = prod.reshape(-1, n_dim)
-        ok = np.all(np.isfinite(th), axis=1) & np.isfinite(log_prior_4(th))
+        ok = np.all(np.isfinite(th), axis=1) & np.isfinite(_log_prior(th))
         th = th[ok]
-        ll = eval_lnL_4(like, th, desc="reweight") if len(th) else np.array([])
+        ll = _eval_lnL(like, th, desc="reweight") if len(th) else np.array([])
         try:
             mdl = sampler.resources["model"]
         except Exception:
@@ -852,14 +865,14 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
     if reuse_state is not None and reuse_state.get("positions") is not None:
         pos = np.asarray(reuse_state["positions"])
         if pos.shape == (n_chains, n_dim) and np.all(np.isfinite(pos)) \
-                and np.all(np.isfinite(log_prior_4(pos))):
+                and np.all(np.isfinite(_log_prior(pos))):
             init = jnp.asarray(pos)
     if init is None:
         # Compile the JIT kernel before the pilot scan so the progress bar
         # reflects actual likelihood evaluations, not silent compilation time.
         _warmup_compile(like, verbose=verbose)
-        pilot = sample_prior_4(max(n_prior_pilot, n_chains), rng)
-        pilot_lnL = eval_lnL_4(like, pilot, desc="pilot")
+        pilot = _sample_prior(max(n_prior_pilot, n_chains), rng)
+        pilot_lnL = _eval_lnL(like, pilot, desc="pilot")
         prior_lnL_mean = float(np.mean(pilot_lnL))
         prior_lnL_sem = float(np.std(pilot_lnL) / max(1.0, np.sqrt(len(pilot_lnL))))
         top = np.argsort(pilot_lnL)[::-1][:n_chains]
@@ -869,8 +882,8 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
 
     # thermodynamic integration needs a prior (beta=0) anchor even when warm-started
     if temper_adapt and prior_lnL_mean is None:
-        anchor = sample_prior_4(max(n_prior_pilot, n_chains), rng)
-        anchor_lnL = eval_lnL_4(like, anchor, desc="prior-anchor")
+        anchor = _sample_prior(max(n_prior_pilot, n_chains), rng)
+        anchor_lnL = _eval_lnL(like, anchor, desc="prior-anchor")
         prior_lnL_mean = float(np.mean(anchor_lnL))
         prior_lnL_sem = float(np.std(anchor_lnL) / max(1.0, np.sqrt(len(anchor_lnL))))
 
@@ -950,7 +963,7 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
     # draws to the true local MAP; seeds spread over ring modes for multimodality.
     map_theta = map_lnL = None
     logZ_laplace = np.nan
-    if temper_adapt and len(theta) >= 1:
+    if temper_adapt and len(theta) >= 1 and n_dim == 4:   # polish is 4-D-specific
         order = np.argsort(lnL)[::-1]
         uniq = []
         for i in order:
