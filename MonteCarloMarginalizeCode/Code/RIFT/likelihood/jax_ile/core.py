@@ -653,23 +653,27 @@ def estimate_distance_peak(data, guess_snr=None, n_sky=4000, seed=0, interp="lin
 
 
 def make_distance_grid_adaptive(d_min, d_max, d_peak, sigma_d, d_prior="euclidean",
-                                distMpcRef=DIST_MPC_REF, n_fine=128, n_coarse=64,
-                                n_sigma=8.0):
+                                distMpcRef=DIST_MPC_REF, n_fine_max=512, n_coarse=64,
+                                range_factor=5.0, oversample=4.0):
     """Non-uniform distance grid: fine near the (SNR-set) peak, coarse on the tail.
 
-    Concentrates resolution where the distance posterior lives (width ~sigma_d,
-    so the high-SNR peak is resolved with few points) while keeping a coarse
-    full-range backbone so off-peak / broad-prior samples still get support.
-    Trapezoidal weights normalized to a *proper distance average* (same
-    convention as :func:`make_distance_grid`), so it is drop-in for the existing
-    stable logsumexp kernel -- and being a *static* grid it is gradient-stable
-    (unlike the per-sample Gauss-Hermite path).
+    Concentrates resolution where the distance posterior lives while staying
+    robust to a mis-located ``d_peak`` estimate: the fine region spans a
+    *multiplicative* range ``[d_peak/range_factor, d_peak*range_factor]`` (so a
+    peak estimate off by a few x is still covered), with spacing ~ sigma_d/oversample
+    so the true peak is resolved; the point count is sized to that and capped at
+    ``n_fine_max``.  A coarse full-range backbone keeps off-peak samples supported.
+    Trapezoidal weights normalized to a *proper distance average* (same convention
+    as :func:`make_distance_grid`) -> drop-in for the stable logsumexp kernel, and
+    being a *static* grid it is gradient-stable (unlike per-sample Gauss-Hermite).
     """
-    d_lo = max(float(d_min), d_peak - n_sigma * sigma_d)
-    d_hi = min(float(d_max), d_peak + n_sigma * sigma_d)
-    if not (d_hi > d_lo):                         # degenerate -> fall back to uniform
-        return make_distance_grid(d_min, d_max, n_fine + n_coarse, d_prior, distMpcRef)
-    fine = np.linspace(d_lo, d_hi, int(n_fine))
+    d_lo = max(float(d_min), d_peak / float(range_factor))
+    d_hi = min(float(d_max), d_peak * float(range_factor))
+    if not (d_hi > d_lo) or not (sigma_d > 0):    # degenerate -> uniform fallback
+        return make_distance_grid(d_min, d_max, n_fine_max + n_coarse, d_prior, distMpcRef)
+    n_fine = int(np.clip((d_hi - d_lo) / (sigma_d / float(oversample)),
+                         32, int(n_fine_max)))
+    fine = np.linspace(d_lo, d_hi, n_fine)
     coarse = np.linspace(float(d_min), float(d_max), int(n_coarse))
     d = np.unique(np.concatenate([coarse, fine]))           # sorted, deduped
     if d_prior in ("euclidean", "volumetric"):
