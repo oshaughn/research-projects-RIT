@@ -643,8 +643,42 @@ def estimate_distance_peak(data, guess_snr=None, n_sky=4000, seed=0, interp="lin
         R_max = max(float(np.max(R)), 1e-30)
         x_star = snr / np.sqrt(R_max)
         return dref / x_star, (dref / x_star) / snr
-    idx = np.unravel_index(int(np.argmax(snr2)), snr2.shape)
-    Kb, Rb = float(K[idx]), float(R[idx])
+    s_best = int(np.unravel_index(int(np.argmax(snr2)), snr2.shape)[0])
+    # Refine: the best RANDOM sky point has wrong incl/psi -> wrong d_peak.
+    # Gradient-ascend the peak matched-amplitude max_t 0.5 K^2/R over the 5 angles
+    # to the true MAP (correct incl/psi/sky), so x*=K/R there gives the right peak.
+    lo5 = np.array([0.0, -np.pi / 2 + 1e-3, 0.0, 1e-3, 0.0])
+    hi5 = np.array([2 * np.pi, np.pi / 2 - 1e-3, np.pi - 1e-3, np.pi - 1e-3, 2 * np.pi])
+
+    def _peak(th5):
+        k, r = _accumulate_unit(data, th5[0:1], th5[1:2], th5[2:3],
+                                th5[3:4], th5[4:5], interp, False)
+        return jnp.max(0.5 * (k.real ** 2) / jnp.maximum(r, 1e-30))
+
+    gfun = jax.jit(jax.grad(_peak))
+    th = np.clip(np.array([ra[s_best], dec[s_best], psi[s_best],
+                           incl[s_best], phiref[s_best]]), lo5, hi5)
+    step = 1e-3
+    v_prev = float(_peak(jnp.asarray(th)))
+    for _ in range(300):
+        g = np.asarray(gfun(jnp.asarray(th)))
+        if not np.all(np.isfinite(g)):
+            break
+        th_new = np.clip(th + step * g, lo5, hi5)
+        v_new = float(_peak(jnp.asarray(th_new)))
+        if v_new >= v_prev:
+            th, v_prev, step = th_new, v_new, step * 1.2
+        else:
+            step *= 0.5
+            if step < 1e-9:
+                break
+    kk, rr = _accumulate_unit(data, th[0:1], th[1:2], th[2:3], th[3:4],
+                              th[4:5], interp, False)
+    Kt = np.asarray(kk.real)[0]
+    Rt = np.maximum(np.asarray(rr)[0], 1e-30)
+    snr2_t = np.where(Kt > 0.0, Kt * Kt / Rt, -np.inf)
+    tb = int(np.argmax(snr2_t))
+    Kb, Rb = float(Kt[tb]), float(Rt[tb])
     x_star = Kb / Rb
     rho_mf = np.sqrt(Kb * Kb / Rb)
     d_peak = dref / x_star
@@ -653,8 +687,8 @@ def estimate_distance_peak(data, guess_snr=None, n_sky=4000, seed=0, interp="lin
 
 
 def make_distance_grid_adaptive(d_min, d_max, d_peak, sigma_d, d_prior="euclidean",
-                                distMpcRef=DIST_MPC_REF, n_fine_max=384, n_coarse=48,
-                                range_factor=4.0, oversample=4.0):
+                                distMpcRef=DIST_MPC_REF, n_fine_max=160, n_coarse=48,
+                                n_sigma=12.0, oversample=4.0):
     """Non-uniform distance grid: fine near the (SNR-set) peak, coarse on the tail.
 
     Concentrates resolution where the distance posterior lives while staying
@@ -667,8 +701,9 @@ def make_distance_grid_adaptive(d_min, d_max, d_peak, sigma_d, d_prior="euclidea
     as :func:`make_distance_grid`) -> drop-in for the stable logsumexp kernel, and
     being a *static* grid it is gradient-stable (unlike per-sample Gauss-Hermite).
     """
-    d_lo = max(float(d_min), d_peak / float(range_factor))
-    d_hi = min(float(d_max), d_peak * float(range_factor))
+    half = n_sigma * sigma_d                       # additive: peak is well-located
+    d_lo = max(float(d_min), d_peak - half)
+    d_hi = min(float(d_max), d_peak + half)
     if not (d_hi > d_lo) or not (sigma_d > 0):    # degenerate -> uniform fallback
         return make_distance_grid(d_min, d_max, n_fine_max + n_coarse, d_prior, distMpcRef)
     n_fine = int(np.clip((d_hi - d_lo) / (sigma_d / float(oversample)),
