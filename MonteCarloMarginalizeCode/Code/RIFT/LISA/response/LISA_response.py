@@ -15,6 +15,7 @@
 import numpy as np
 import lal
 import RIFT.lalsimutils as lsu
+import RIFT.LISA.lalsimutils_compat as lisa_lalsimutils_compat
 import sys
 import h5py
 
@@ -687,7 +688,9 @@ def generate_lisa_TDI(P_inj, lmax=4, modes=None, tref=0.0, fref=None, return_res
     P.tref = 0.0
 
     P.approx = P_inj.approx
-    hlmf = lsu.hlmoff_for_LISA(P, Lmax=lmax, modes=modes, path_to_NR_hdf5=path_to_NR_hdf5)
+    hlmf = lisa_lalsimutils_compat.hlmoff_for_LISA(
+        P, Lmax=lmax, modes=modes, path_to_NR_hdf5=path_to_NR_hdf5
+    )
     modes = list(hlmf.keys())
 
     # create TDI
