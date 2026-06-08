@@ -3,7 +3,6 @@ import os
 import pathlib
 import shutil
 import subprocess
-import sys
 
 import pytest
 
@@ -43,6 +42,16 @@ def _require_supported_asimov():
     return version
 
 
+def _require_htcondor():
+    try:
+        __import__("htcondor")
+    except ModuleNotFoundError:
+        message = "htcondor Python bindings are required for this Asimov path"
+        if os.environ.get("RIFT_ASIMOV_REQUIRE_HTCONDOR"):
+            pytest.fail(message)
+        pytest.skip(message)
+
+
 def _run(cmd, cwd, env):
     result = subprocess.run(
         cmd,
@@ -74,6 +83,7 @@ def _tree_text(root):
 
 def test_asimov_05_can_create_project_and_add_rift_event(tmp_path):
     version = _require_supported_asimov()
+    _require_htcondor()
     asimov_cli = shutil.which("asimov")
     assert asimov_cli, "asimov CLI is not on PATH"
 

@@ -1,4 +1,5 @@
 import importlib.metadata
+import os
 import pathlib
 import shutil
 import types
@@ -38,6 +39,16 @@ def _require_supported_asimov():
             f"(found {version})"
         )
     return version
+
+
+def _require_htcondor():
+    try:
+        __import__("htcondor")
+    except ModuleNotFoundError:
+        message = "htcondor Python bindings are required to import the Asimov pipeline stack"
+        if os.environ.get("RIFT_ASIMOV_REQUIRE_HTCONDOR"):
+            pytest.fail(message)
+        pytest.skip(message)
 
 
 class _Logger:
@@ -109,6 +120,7 @@ class _Production:
 
 def test_asimov_05_rift_build_dag_uses_frozen_inputs(monkeypatch, tmp_path):
     _require_supported_asimov()
+    _require_htcondor()
 
     from RIFT.asimov import rift as rift_module
     from RIFT.asimov.rift import Rift
