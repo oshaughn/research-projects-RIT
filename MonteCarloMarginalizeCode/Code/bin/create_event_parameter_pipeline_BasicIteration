@@ -356,6 +356,49 @@ if not opts.cip_explode_jobs_last:  # set realistic default, if not specified
 working_dir_inside_local = working_dir_inside = opts.working_directory
 working_dir_inside_cip = working_dir_inside_local
 out_dir_inside_cip = working_dir_inside_local
+
+# ----------------------------------------------------------------------
+# Hyperpipeline ASCII format (opt-in via env var).  When set, every
+# inter-stage intrinsic-parameter file in the iterative pipeline
+# (overlap-grid, puffball, fetch, output-grid) is .dat instead of .xml.gz,
+# and ILE consumes them via --sim-grid instead of --sim-xml.  This
+# matches the file-naming convention already used by
+# create_eos_posterior_pipeline.  When unset, behaviour is identical to
+# the legacy pipeline.
+#
+# We define grid_suffix and sim_grid_flag once here and substitute via
+# .format() throughout the rest of the script, so the search-and-replace
+# surface area is the literal string "xml.gz" / "--sim-xml" -- nothing
+# more invasive than that.
+# ----------------------------------------------------------------------
+_use_hpip_pipeline = str(os.environ.get("RIFT_HYPERPIPELINE_FORMAT", "")).strip().lower() in ("1", "true", "yes", "on")
+grid_suffix = "dat" if _use_hpip_pipeline else "xml.gz"
+sim_grid_flag = "--sim-grid" if _use_hpip_pipeline else "--sim-xml"
+if _use_hpip_pipeline:
+    print(" === Hyperpipeline ASCII grid format active (RIFT_HYPERPIPELINE_FORMAT) ===")
+    print("     Inter-stage grids will be .{}, ILE will receive {}".format(grid_suffix, sim_grid_flag))
+
+def _add_hpip_condor_env(job):
+    if not _use_hpip_pipeline:
+        return
+    hpip_env = "RIFT_HYPERPIPELINE_FORMAT=1"
+    if hasattr(job, "get_condor_cmds"):
+        condor_cmds = job.get_condor_cmds()
+    else:
+        condor_cmds = getattr(job, "_CondorJob__condor_cmds", {})
+    env_cmd = condor_cmds.get("environment")
+    if not env_cmd:
+        job.add_condor_cmd("environment", '"{}"'.format(hpip_env))
+        return
+    if hpip_env in env_cmd:
+        return
+    env_cmd = env_cmd.strip()
+    if len(env_cmd) >= 2 and env_cmd[0] == env_cmd[-1] and env_cmd[0] in ("'", '"'):
+        env_cmd = env_cmd[:-1] + " " + hpip_env + env_cmd[-1]
+    else:
+        env_cmd = '"{} {}"'.format(env_cmd, hpip_env)
+    job.add_condor_cmd("environment", env_cmd)
+
 if opts.cip_explode_jobs:
     out_dir_inside_cip+= "/iteration_$(macroiteration)_cip/"
 os.chdir(opts.working_directory)
@@ -536,12 +579,21 @@ if opts.gridinit_args:
     print("GRIDINIT", gridinit_args)
 
 
-# Copy seed grid into place as overlap-grid-0.xml.gz
+# Copy seed grid into place as overlap-grid-0.{grid_suffix}
 it_start = opts.start_iteration
 n_initial = opts.n_samples_per_job
+_seed_grid_name = "overlap-grid-0." + grid_suffix
 if (it_start == 0) and not gridinit_args:
-    shutil.copyfile(opts.input_grid,"overlap-grid-0.xml.gz")  # put in working directory !
-    n_initial = len(lalsimutils.xml_to_ChooseWaveformParams_array("overlap-grid-0.xml.gz"))
+    shutil.copyfile(opts.input_grid, _seed_grid_name)  # put in working directory !
+    if _use_hpip_pipeline:
+        # Hyperpipeline files: count data rows = total lines minus comment lines.
+        with open(_seed_grid_name) as _f:
+            n_initial = sum(1 for _l in _f if _l.strip() and not _l.lstrip().startswith("#"))
+        if os.path.lexists("posterior_samples-0.dat"):
+            os.remove("posterior_samples-0.dat")
+        os.symlink(_seed_grid_name, "posterior_samples-0.dat")
+    else:
+        n_initial = len(lalsimutils.xml_to_ChooseWaveformParams_array(_seed_grid_name))
 
 transfer_file_names = []
 if not (opts.transfer_file_list is None):
@@ -577,7 +629,7 @@ if opts.ile_n_events_to_analyze:
     exe = dag_utils.which("integrate_likelihood_extrinsic_batchmode")
 cmd.write('#!/usr/bin/env bash\n')
 cmd.write('# (run me only in working directories)\n')
-cmd.write(exe + ' ' + arg_list + " --sim-xml overlap-grid-0.xml.gz")  # make it concrete, so I can test it
+cmd.write(exe + ' ' + arg_list + " {} overlap-grid-0.{}".format(sim_grid_flag, grid_suffix))  # make it concrete, so I can test it
 cmd.close()
 st = os.stat(cmdname)
 import stat
@@ -586,9 +638,9 @@ os.chmod(cmdname, st.st_mode | stat.S_IEXEC)
 #    identify overlap grid input
 #    identify output file names (?)
 ile_args_orig = ile_args  # provides ability to strip out the output and replace it with alternate
-ile_args+= ' --sim-xml ' + working_dir_inside + '/overlap-grid-$(macroiteration).xml.gz '
-ile_args_forpuff= ile_args_orig + ' --sim-xml ' + working_dir_inside + '/puffball-$(macroiteration).xml.gz '
-ile_args_forfetch= ile_args_orig + ' --sim-xml ' + working_dir_inside + '/fetch-$(macroiteration).xml.gz '
+ile_args+= ' {} '.format(sim_grid_flag) + working_dir_inside + '/overlap-grid-$(macroiteration).{} '.format(grid_suffix)
+ile_args_forpuff= ile_args_orig + ' {} '.format(sim_grid_flag) + working_dir_inside + '/puffball-$(macroiteration).{} '.format(grid_suffix)
+ile_args_forfetch= ile_args_orig + ' {} '.format(sim_grid_flag) + working_dir_inside + '/fetch-$(macroiteration).{} '.format(grid_suffix)
 
 
 ###
@@ -710,7 +762,7 @@ if (opts.ile_n_events_to_analyze > 1) and (exe is None):
 output_file_names = None
 request_disk=opts.ile_request_disk
 if opts.use_singularity or opts.use_osg:
-    transfer_file_names.append("../overlap-grid-$(macroiteration).xml.gz")
+    transfer_file_names.append("../overlap-grid-$(macroiteration).{}".format(grid_suffix))
     #request_disk=4
     #output_file_names = ','.join(["CME_out-$(macroevent)-$(cluster)-$(process).xml_{0}_.dat".format(x) for x in np.arange(opts.ile_n_events_to_analyze)])
     #print "OUTPUT FILES ", output_file_names
@@ -728,11 +780,12 @@ ile_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile
 if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+ile_job.get_sub_file()
     ile_job.set_sub_file(fname)
+_add_hpip_condor_env(ile_job)
 ile_job.write_sub_file()
 
 if not (opts.puff_args is None):
     transfer_file_names_puff = list(transfer_file_names[:-1])
-    transfer_file_names_puff.append(opts.working_directory+"/puffball-$(macroiteration).xml.gz") # could also use ../puffball, because relative is ok to initialdir
+    transfer_file_names_puff.append(opts.working_directory+"/puffball-$(macroiteration).{}".format(grid_suffix)) # could also use ../puffball, because relative is ok to initialdir
     # Write a version of the ILE job that uses puffball inputs ... IDENTICAL to code above for standard ILE case,just different argument for input
     # Yes, it would logically be simpler to make overlap-grid.xml.gz larger ... but I want to keep 'real samples' and 'puffed samples' seperate.
     ilePuff_job, ilePuff_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_puff',log_dir=None,arg_str=ile_args_forpuff,output_file="CME_puff_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names_puff,request_memory=opts.request_memory_ILE,request_disk=request_disk,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,use_oauth_files=opts.use_oauth_files,max_runtime_minutes=opts.ile_runtime_max_minutes,condor_commands=ile_condor_commands)
@@ -743,11 +796,12 @@ if not (opts.puff_args is None):
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+ilePuff_job.get_sub_file()
         ilePuff_job.set_sub_file(fname)
+    _add_hpip_condor_env(ilePuff_job)
     ilePuff_job.write_sub_file()
 
 if not (fetch_args is None):
     transfer_file_names_fetch = list(transfer_file_names[:-1])
-    transfer_file_names_fetch.append(opts.working_directory+"/fetch-$(macroiteration).xml.gz") # could also use ../puffball, because relative is ok to initialdir
+    transfer_file_names_fetch.append(opts.working_directory+"/fetch-$(macroiteration).{}".format(grid_suffix)) # could also use ../puffball, because relative is ok to initialdir
     # Write a version of the ILE job that uses puffball inputs ... IDENTICAL to code above for standard ILE case,just different argument for input
     # Yes, it would logically be simpler to make overlap-grid.xml.gz larger ... but I want to keep 'real samples' and 'puffed samples' seperate.
     ileFetch_job, ileFetch_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_fetch',log_dir=None,arg_str=ile_args_forfetch,output_file="CME_fetch_out.xml",ncopies=opts.n_copies,exe=ile_exe,transfer_files=transfer_file_names_fetch,request_memory=opts.request_memory_ILE,request_disk=request_disk,request_gpu=opts.request_gpu_ILE,request_cross_platform=opts.request_xpu_ILE,use_singularity=opts.use_singularity,singularity_image=singularity_image,use_osg=opts.use_osg,simple_osg_requirements=opts.use_osg_simple_requirements,frames_dir=opts.frames_dir,cache_file=opts.cache_file,use_cvmfs_frames=opts.use_cvmfs_frames,oauth_files=opts.use_oauth_files,max_runtime_minutes=opts.ile_runtime_max_minutes,condor_commands=ile_condor_commands)
@@ -758,6 +812,7 @@ if not (fetch_args is None):
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+ileFetch_job.get_sub_file()
         ileFetch_job.set_sub_file(fname)
+    _add_hpip_condor_env(ileFetch_job)
     ileFetch_job.write_sub_file()
 
 
@@ -977,6 +1032,7 @@ if opts.use_full_submit_paths:
     con_job.set_sub_file(fname)
 if opts.condor_containerize_nonworker and singularity_image:
     con_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+_add_hpip_condor_env(con_job)
 con_job.write_sub_file()
 
 ##   Unify job
@@ -999,6 +1055,7 @@ if opts.use_full_submit_paths:
     unify_job.set_sub_file(fname)
 if opts.condor_containerize_nonworker and singularity_image:
     unify_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+_add_hpip_condor_env(unify_job)
 unify_job.write_sub_file()
 
 
@@ -1015,7 +1072,41 @@ if opts.use_full_submit_paths:
     evidence_job.set_sub_file(fname)
 if opts.condor_containerize_nonworker and singularity_image:
     evidence_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+_add_hpip_condor_env(evidence_job)
 evidence_job.write_sub_file()
+
+alias_grid_job = None
+if _use_hpip_pipeline:
+    alias_grid_script = opts.working_directory + "/alias_hyperpipeline_grid.sh"
+    with open(alias_grid_script, "w") as f:
+        f.write("""#!/usr/bin/env bash
+set -e
+iter="$1"
+target="overlap-grid-${iter}.dat"
+alias="posterior_samples-${iter}.dat"
+if [ ! -e "${target}" ]; then
+  echo "alias_hyperpipeline_grid.sh: missing ${target}" >&2
+  exit 1
+fi
+ln -sf "${target}" "${alias}"
+""")
+    os.chmod(alias_grid_script, os.stat(alias_grid_script).st_mode | stat.S_IEXEC)
+    alias_grid_job, alias_grid_job_name = dag_utils.write_convert_sub(
+        tag='alias_hpip_grid', exe=alias_grid_script, log_dir='',
+        file_input='$(macroiteration)', file_output='/dev/null',
+        arg_str='', out_dir=opts.working_directory, universe=local_worker_universe,
+        no_grid=no_worker_grid)
+    alias_grid_job.add_condor_cmd("initialdir", opts.working_directory)
+    alias_grid_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/alias-hpip-grid-$(cluster)-$(process).log")
+    alias_grid_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/alias-hpip-grid-$(cluster)-$(process).err")
+    alias_grid_job.add_condor_cmd('request_disk', opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+alias_grid_job.get_sub_file()
+        alias_grid_job.set_sub_file(fname)
+    if opts.condor_containerize_nonworker and singularity_image:
+        alias_grid_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    _add_hpip_condor_env(alias_grid_job)
+    alias_grid_job.write_sub_file()
 
 
 ##   Fit job: default case
@@ -1050,6 +1141,7 @@ if opts.cip_explode_jobs:
 if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+cip_job.get_sub_file()
     cip_job.set_sub_file(fname)
+_add_hpip_condor_env(cip_job)
 cip_job.write_sub_file()
 if opts.cip_explode_jobs:
     print(" Exploding stage 1, with  ",opts.cip_explode_jobs, " workers producing samples ")
@@ -1074,12 +1166,13 @@ if opts.cip_explode_jobs:
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+cip_job_worker.get_sub_file()
         cip_job_worker.set_sub_file(fname)
+    _add_hpip_condor_env(cip_job_worker)
     cip_job_worker.write_sub_file()
 
     # Create worker join job
     #   ... if we are using cip_explode_jobs_dag, we need a different script entirely
     #     filename to join : note *two* minus signs, because we don't want the non-worker job to match! It has tiny output. This can cause pathological behavior for the random join stage
-    join_cip_job,join_cip_job_name = dag_utils.write_joingrids_sub(input_pattern=opts.working_directory+"/iteration_$(macroiteration)_cip/output-grid-*-*.xml.gz",target_dir=opts.working_directory,output_base="overlap-grid-$(macroiterationnext)",n_explode=n_explode,log_dir=opts.working_directory+"/iteration_$(macroiteration)_cip/logs",universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
+    join_cip_job,join_cip_job_name = dag_utils.write_joingrids_sub(input_pattern=opts.working_directory+"/iteration_$(macroiteration)_cip/output-grid-*-*.{}".format(grid_suffix),target_dir=opts.working_directory,output_base="overlap-grid-$(macroiterationnext)",n_explode=n_explode,log_dir=opts.working_directory+"/iteration_$(macroiteration)_cip/logs",universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
     join_cip_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
     # Modify output argument: change logs and working directory to be subdirectory for the run
     join_cip_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/join-$(cluster)-$(process).log")
@@ -1091,11 +1184,12 @@ if opts.cip_explode_jobs:
         join_cip_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
         join_cip_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    _add_hpip_condor_env(join_cip_job)
     join_cip_job.write_sub_file()
 
 ##   puffball job: default case
 if puff_args and puff_cadence:
-    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_ILE,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',output=opts.working_directory+'/puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe,universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
+    puff_job, puff_job_name = dag_utils.write_puff_sub(tag='PUFF',log_dir=None,arg_str=puff_args,request_memory=opts.request_memory_ILE,input_net=opts.working_directory+'/overlap-grid-$(macroiterationnext).{}'.format(grid_suffix),output=opts.working_directory+'/puffball-$(macroiterationnext)',out_dir=opts.working_directory,exe=opts.puff_exe,universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
     # Modify: set 'initialdir' to CIP WORKING DIR 
     puff_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -1108,12 +1202,13 @@ if puff_args and puff_cadence:
         puff_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
         puff_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    _add_hpip_condor_env(puff_job)
     puff_job.write_sub_file()
 
 
 ##   fetch job.  Fetch is before CURRENT iteration, so it is just-in-time and can be used at iteration 0
 if fetch_args:
-    fetch_job, fetch_job_name = dag_utils.write_puff_sub(tag='FETCH',log_dir=None,arg_str=fetch_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/fetch-$(macroiteration).xml.gz',out_dir=opts.working_directory,exe=opts.fetch_ext_grid_exe,universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
+    fetch_job, fetch_job_name = dag_utils.write_puff_sub(tag='FETCH',log_dir=None,arg_str=fetch_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/fetch-$(macroiteration).{}'.format(grid_suffix),out_dir=opts.working_directory,exe=opts.fetch_ext_grid_exe,universe=local_worker_universe,no_grid=no_worker_grid,extra_text=extra_text)
     # Modify: set 'initialdir' to CIP WORKING DIR 
     fetch_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_cip")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -1126,6 +1221,7 @@ if fetch_args:
         fetch_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
         fetch_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    _add_hpip_condor_env(fetch_job)
     fetch_job.write_sub_file()
 
 
@@ -1176,6 +1272,7 @@ else:
         if opts.use_full_submit_paths:
             fname = opts.working_directory+"/"+cip_job.get_sub_file()
             cip_job.set_sub_file(fname)
+        _add_hpip_condor_env(cip_job)
         cip_job.write_sub_file()
 
 
@@ -1208,6 +1305,7 @@ else:
            if opts.use_full_submit_paths:
                fname = opts.working_directory+"/"+cip_job_worker.get_sub_file()
                cip_job_worker.set_sub_file(fname)
+           _add_hpip_condor_env(cip_job_worker)
            cip_job_worker.write_sub_file()
 
 
@@ -1230,20 +1328,28 @@ print(" ===> Iteration size ", len(cip_job_list), opts.n_iterations)
 if opts.test_args:
     test_node_list = []
     ##  Convert job : make results accessible after every iteration.  (Only performed if the tests are active, to make my life easier)
-    convert_job, convert_job_name =dag_utils.write_convert_sub(tag='convert',log_dir=None,arg_str=convert_args,file_input=opts.working_directory+'/overlap-grid-$(macroiteration).xml.gz', file_output=opts.working_directory+'/posterior_samples-$(macroiteration).dat' ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
-    convert_job.add_condor_cmd("initialdir",opts.working_directory)
-    convert_job.set_log_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).log")
-    convert_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).err")
-    convert_job.add_condor_cmd('request_disk',opts.general_request_disk)
-    if opts.use_full_submit_paths:
-        fname = opts.working_directory+"/"+convert_job.get_sub_file()
-        convert_job.set_sub_file(fname)
-    if opts.condor_containerize_nonworker and singularity_image:
-        convert_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
-    convert_job.write_sub_file()
+    # Hyperpipeline mode: the input grid is already .dat (hyperpipeline
+    # format), while this convert step targets LI posterior_samples.dat,
+    # which is a different schema (mass_1, spin1x, ...).  Skip emitting the
+    # convert job and point the convergence test directly at the grid files.
+    if not _use_hpip_pipeline:
+        convert_job, convert_job_name =dag_utils.write_convert_sub(tag='convert',log_dir=None,arg_str=convert_args,file_input=opts.working_directory+'/overlap-grid-$(macroiteration).xml.gz', file_output=opts.working_directory+'/posterior_samples-$(macroiteration).dat' ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+        convert_job.add_condor_cmd("initialdir",opts.working_directory)
+        convert_job.set_log_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).log")
+        convert_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiterationlast)_test/logs/convert-$(cluster)-$(process).err")
+        convert_job.add_condor_cmd('request_disk',opts.general_request_disk)
+        if opts.use_full_submit_paths:
+            fname = opts.working_directory+"/"+convert_job.get_sub_file()
+            convert_job.set_sub_file(fname)
+        if opts.condor_containerize_nonworker and singularity_image:
+            convert_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+        convert_job.write_sub_file()
 
 
-    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[ opts.working_directory+'/posterior_samples-$(macroiteration).dat', opts.working_directory+'/posterior_samples-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+    _test_samples_files = [
+        opts.working_directory+'/posterior_samples-$(macroiteration).dat',
+        opts.working_directory+'/posterior_samples-$(macroiterationlast).dat']
+    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=_test_samples_files ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
     # Modify: set 'initialdir'
     test_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_test")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -1256,6 +1362,7 @@ if opts.test_args:
         test_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
         test_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    _add_hpip_condor_env(test_job)
     test_job.write_sub_file()
 
 
@@ -1664,7 +1771,7 @@ for it in np.arange(it_start,opts.n_iterations):
         # Create dag inside directory, as usual,  pointing to existing run (note grid size issue problem)
         cmd = "create_event_parameter_pipeline_BasicIteration --use-full-submit-paths --first-iteration-jumpstart "  # we don't use overlap-grid-0.xml.gz !
         # note we will use subdags, and do this actively.  The 0th iteration needs a SPECIFIC grid though!
-        cmd += " --ile-n-events-to-analyze {} --input-grid {} --ile-exe {} --ile-args {} ".format(opts.ile_n_events_to_analyze,opts.working_directory+"/overlap-grid-0.xml.gz".format(it),opts.ile_exe, opts.ile_args)
+        cmd += " --ile-n-events-to-analyze {} --input-grid {} --ile-exe {} --ile-args {} ".format(opts.ile_n_events_to_analyze,opts.working_directory+"/overlap-grid-0.{}".format(grid_suffix),opts.ile_exe, opts.ile_args)
         cmd += " --cip-args {}/iteration_{}_cip/args_cip.txt ".format(opts.working_directory,it)
         if opts.convert_args:
             cmd += "  --convert-args {} ".format(opts.convert_args) # passthrough, important for tides
@@ -1739,7 +1846,7 @@ for it in np.arange(it_start,opts.n_iterations):
         print(" SUBDAG COMMAND : ", cmd)
         os.system(cmd)
         # link the *input* grid in, overwriting the (temporary, placeholder) grid used to create the workflow
-        cmd = "ln -sf {}/overlap-grid-{}.xml.gz iteration_{}_cip/overlap-grid-0.xml.gz".format(opts.working_directory,it,it)
+        cmd = "ln -sf {}/overlap-grid-{}.{suf} iteration_{}_cip/overlap-grid-0.{suf}".format(opts.working_directory,it,it, suf=grid_suffix)
         os.system(cmd)
 
         main_subdag =  pipeline.CondorDAGManJob("{}/iteration_{}_cip/marginalize_intrinsic_parameters_BasicIterationWorkflow.dag".format(opts.working_directory,it))  # assumes subdag is created
@@ -1755,9 +1862,9 @@ for it in np.arange(it_start,opts.n_iterations):
         my_dict = {"method":"native", "source":opts.working_directory+"/iteration_{}_cip".format(it),"n_max":3000}
         with open(fname_fetch,'w') as f:
             json.dump(my_dict,f)
-        fetch_subdag_args =" --inj-file-out overlap-grid-{}.xml.gz ".format(it+1)
+        fetch_subdag_args =" --inj-file-out overlap-grid-{}.{} ".format(it+1, grid_suffix)
         fetch_subdag_args += " --input-json {} ".format(fname_fetch)
-        fetch_subdag_job, fetch_subdag_job_name = dag_utils.write_puff_sub(tag='FETCH_{}_subdag'.format(it),log_dir=opts.working_directory+"/"+"iteration_{}_cip/logs/".format(it),arg_str=fetch_subdag_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/overlap-grid-$(macroiterationnext).xml.gz',out_dir=opts.working_directory,exe=dag_utils.which("util_FetchExternalGrid.py"),universe=local_worker_universe,no_grid=no_worker_grid)
+        fetch_subdag_job, fetch_subdag_job_name = dag_utils.write_puff_sub(tag='FETCH_{}_subdag'.format(it),log_dir=opts.working_directory+"/"+"iteration_{}_cip/logs/".format(it),arg_str=fetch_subdag_args,request_memory=opts.request_memory_ILE,input_net=None,output=opts.working_directory+'/overlap-grid-$(macroiterationnext).{}'.format(grid_suffix),out_dir=opts.working_directory,exe=dag_utils.which("util_FetchExternalGrid.py"),universe=local_worker_universe,no_grid=no_worker_grid)
         fetch_subdag_job.add_condor_cmd('request_disk',opts.general_request_disk)
         fetch_subdag_job.write_sub_file()
 
@@ -1877,8 +1984,19 @@ for it in np.arange(it_start,opts.n_iterations):
 
         
 
-    # Create convert node, which depends on fit node, *if* tests are being performed
-    if opts.test_args:
+    if _use_hpip_pipeline:
+        alias_grid_node = pipeline.CondorDAGNode(alias_grid_job)
+        alias_grid_node.add_macro("macroiteration", it+1)
+        alias_grid_node.add_parent(parent_fit_node)
+        alias_grid_node.set_category("ALIAS")
+        alias_grid_node.set_retry(opts.general_retries)
+        dag.add_node(alias_grid_node)
+        parent_fit_node = alias_grid_node
+
+    # Create convert node, which depends on fit node, *if* tests are being performed.
+    # In hyperpipeline mode an alias node creates posterior_samples-*.dat
+    # symlinks to the header-bearing overlap-grid-*.dat files instead.
+    if opts.test_args and not _use_hpip_pipeline:
         convert_node=pipeline.CondorDAGNode(convert_job)
         convert_node.add_macro("macroiteration", it+1)  # convert the NEWLY-PRODUCED iteration
         convert_node.add_macro("macroiterationlast", it)  # use log files in the previous directory
@@ -2125,7 +2243,16 @@ if opts.cip_explode_jobs_subdag:
     if opts.cip_post_exe is None:
     # script to count lines in overlap-grid files. Note this does NOT check n_eff directly ... should count n_eff instead based on +annotation.dat files
         with open("cip_check_work.sh", 'w') as f:
-            f.write("""#! /bin/bash
+            if _use_hpip_pipeline:
+                # Hyperpipeline: count non-comment data rows across all
+                # overlap-grid-*.dat shards in the directory.  No
+                # igwn_ligolw_print dependency.
+                f.write("""#! /bin/bash
+LINES=`grep -hE -v '^#' $1/overlap-grid-*.dat 2>/dev/null | grep -cv '^[[:space:]]*$'`
+[ ${LINES} -ge $2 ]
+""")
+            else:
+                f.write("""#! /bin/bash
 LINES=`igwn_ligolw_print -c mass1 $1/overlap-grid*.xml.gz | wc -l `
 [ ${LINES} -ge $2 ]
 """)

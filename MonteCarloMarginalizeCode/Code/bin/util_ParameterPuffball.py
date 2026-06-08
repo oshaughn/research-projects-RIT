@@ -134,8 +134,26 @@ for indx in np.arange(len(rlist)):
 
 
 
-# Load data
-P_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj_file)
+# ----------------------------------------------------------------------
+# Hyperpipeline ASCII grid I/O (opt-in via env var or auto-detected on
+# read).  When active, --inj-file is read as a hyperpipeline .dat instead
+# of XML, and --inj-file-out is written in the same format below.  The
+# input file's column header is preserved on output so puffball is a
+# format pass-through (perturbed rows, same columns).
+# ----------------------------------------------------------------------
+from RIFT.misc import hyperpipeline_io as _hpio
+_hpip_in = _hpio.is_active() or _hpio.sniff(opts.inj_file)
+if _hpip_in:
+    print(" Hyperpipeline ASCII input detected for --inj-file ", opts.inj_file)
+    P_list, _hpip_in_columns = _hpio.read_grid_to_P_list(
+        opts.inj_file,
+        P_factory=lalsimutils.ChooseWaveformParams,
+        lal_module=lal,
+        valid_params=lalsimutils.valid_params)
+else:
+    _hpip_in_columns = None
+    # Load data
+    P_list = lalsimutils.xml_to_ChooseWaveformParams_array(opts.inj_file)
 
 # extract parameters to measure the coordinates. 
 dat_out = []
@@ -352,7 +370,18 @@ if opts.fail_if_empty and len(P_out)<1:
     raise Exception(" Puff file will be empty ! Fail  without output ! You probably have settings which lead to either (a) a singular puff matrix (eg., duplicated coordinates or unused variables) or (b) your puff is far too large")
 
 # Export
-lalsimutils.ChooseWaveformParams_array_to_xml(P_out,fname=opts.inj_file_out,fref=P.fref)
+# Hyperpipeline ASCII output mirrors the input schema (so puff is a
+# format-preserving operation: perturb rows, keep columns).  When the
+# input was XML but the env var is set, we still emit hyperpipeline using
+# the default 10-column schema.
+if _hpip_in or _hpio.is_active():
+    _cols_out = _hpip_in_columns if _hpip_in_columns is not None \
+        else _hpio.build_column_list()
+    _hpio.write_grid_from_P_list(opts.inj_file_out, P_out, _cols_out,
+                                 lal_module=lal,
+                                 lalsimutils_module=lalsimutils)
+else:
+    lalsimutils.ChooseWaveformParams_array_to_xml(P_out,fname=opts.inj_file_out,fref=P.fref)
 
     
 

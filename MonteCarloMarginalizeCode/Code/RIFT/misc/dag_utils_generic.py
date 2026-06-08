@@ -2751,7 +2751,15 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
 
     """
 
-    exe = exe or which("util_CleanILE.py")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
+    if exe is None:
+        if str(os.environ.get("RIFT_HYPERPIPELINE_FORMAT", "")).strip().lower() in ("1", "true", "yes", "on"):
+            exe = which("util_CleanILE_hyperpipeline.py")
+            if not exe:
+                exe = os.path.abspath(os.path.join(
+                    os.path.dirname(__file__), "..", "..", "bin",
+                    "util_CleanILE_hyperpipeline.py"))
+        else:
+            exe = which("util_CleanILE.py")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
 
     # Write unify.sh
     #    - problem of globbing inside condor commands
@@ -3667,7 +3675,22 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 
     working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
 
-    fname_out =target_dir + "/" +output_base + ".xml.gz"
+    # Hyperpipeline mode: emit a .dat composite via the EOS-style
+    # head-line + cat | sort | uniq | shuf shell pattern.  XML helpers
+    # (igwn_ligolw_add) are not used.
+    _hpip_join = str(os.environ.get("RIFT_HYPERPIPELINE_FORMAT", "")).strip().lower() in ("1","true","yes","on")
+    _suffix_join = "dat" if _hpip_join else "xml.gz"
+    _shuffle_filter_join = None
+    if _hpip_join:
+        _shuffle_filter_join = which("shuf") or which("gshuf")
+        if _shuffle_filter_join is None:
+            _sort_join = which("sort")
+            if _sort_join is not None:
+                _shuffle_filter_join = _sort_join + " -R"
+            else:
+                _shuffle_filter_join = "cat"
+
+    fname_out =target_dir + "/" +output_base + "." + _suffix_join
     if n_explode ==1:   # we are really doing a glob match
         fname_out = fname_out.replace('$(macroiteration)','$1')
         fname_out = fname_out.replace('$(macroiterationnext)','$2')
@@ -3677,8 +3700,28 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
         if old_add:
             extra_arg = " --ilwdchar-compat "  # should never be used anymore
         with open("join_grids.sh",'w') as f:
-            f.write("#! /bin/bash  \n")
-            f.write(r"""
+            if _hpip_join:
+                f.write("#! /bin/bash  \n")
+                f.write(r"""
+# merge hyperpipeline ASCII shards
+{extra}
+set -e
+shopt -s nullglob
+SHARDS=({work}/{out}*.{suf})
+if [ ${{#SHARDS[@]}} -eq 0 ]; then
+  echo "join_grids.sh: no input shards matched {work}/{out}*.{suf}" >&2
+  exit 1
+fi
+# Header: take the first comment block from the first shard.
+grep -E '^#' "${{SHARDS[0]}}" > {out_path}
+# Body: every non-comment line from every shard, deduped + shuffled.
+grep -hE -v '^#' "${{SHARDS[@]}}" | sort -u | {shuffle_filter} >> {out_path}
+""".format(extra=extra_text, work=alt_work_dir, out=alt_out,
+           suf=_suffix_join, out_path=fname_out,
+           shuffle_filter=_shuffle_filter_join))
+            else:
+                f.write("#! /bin/bash  \n")
+                f.write(r"""
 # merge using glob command called from shell
 {}
 {}  {} --output {}  {}/{}*.xml.gz 
@@ -3719,10 +3762,10 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 #    ile_job.add_condor_cmd("MY.PostCmd",  ' "' + gzip + ' ' +fname_out + '"')
 
     explode_str = ""
-    explode_str += " {}/{}.xml.gz ".format(working_dir,output_base)  # base result from fitting job
+    explode_str += " {}/{}.{} ".format(working_dir,output_base,_suffix_join)  # base result from fitting job
     if n_explode >1:
      for indx in np.arange(n_explode):
-        explode_str+= " {}/{}-{}.xml.gz ".format(working_dir,output_base,indx)
+        explode_str+= " {}/{}-{}.{} ".format(working_dir,output_base,indx,_suffix_join)
         ile_job.add_arg(explode_str)
     else:
         ile_job.add_arg(" $(macroiteration) $(macroiterationnext) ")
@@ -4572,4 +4615,3 @@ def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='
 
 
     return ile_job, ile_sub_name
-
