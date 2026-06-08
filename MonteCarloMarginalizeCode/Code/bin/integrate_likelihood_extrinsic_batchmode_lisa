@@ -60,6 +60,7 @@ from igwn_ligolw.utils import process
 import glue.lal
 
 import RIFT.lalsimutils as lalsimutils
+import RIFT.LISA.lalsimutils_compat as lisa_lalsimutils_compat
 import RIFT.likelihood.factored_likelihood as factored_likelihood
 import RIFT.likelihood.factored_likelihood_LISA as factored_likelihood_LISA
 import RIFT.integrators.mcsampler as mcsampler
@@ -88,6 +89,7 @@ try:
     mcsampler_Portfolio_ok = True
 except:
     print(" No mcsamplerPortolfio ")
+lisa_lalsimutils_compat.install_choose_waveform_print_params_lisa()
 
 import RIFT.likelihood.priors_utils as priors_utils
 import RIFT.misc.xmlutils as xmlutils
@@ -639,14 +641,14 @@ data_dict, psd_dict = {}, {}
 if opts.h5_frame_FD:
     for inst, chan in map(lambda c: c.split("="), opts.channel_name):
       print("Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
-      data_dict[inst] = lalsimutils.frame_h5_to_hoff(opts.cache_file,inst)
+      data_dict[inst] = lisa_lalsimutils_compat.frame_h5_to_hoff(opts.cache_file,inst)
       print("Frequency binning: %e (1/deltaF = %f), length %d" % (data_dict[inst].deltaF, 1/data_dict[inst].deltaF,  data_dict[inst].data.length) )
 
 # this can handle both LIGO and LISA TD data
 else:  
   for inst, chan in map(lambda c: c.split("="), opts.channel_name):
       print( "Reading channel %s from cache %s" % (inst+":"+chan, opts.cache_file))
-      data_dict[inst] = lalsimutils.frame_data_to_non_herm_hoff(opts.cache_file,
+      data_dict[inst] = lisa_lalsimutils_compat.frame_data_to_non_herm_hoff(opts.cache_file,
               inst+":"+chan, start=start_time, stop=end_time,
               window_shape=opts.window_shape, deltaT=deltaT, h5_frame=opts.h5_frame)
       print( "Frequency binning: %f, length %d" % (data_dict[inst].deltaF,
@@ -1403,7 +1405,7 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
       modes=np.array(eval(opts.modes))
       print(f"modes = \n{list(modes)}")
     P.deltaF=deltaF # why do we need this? why is it becoming None? 
-    hlms_FD = lalsimutils.hlmoff_for_LISA(P, opts.l_max, modes)
+    hlms_FD = lisa_lalsimutils_compat.hlmoff_for_LISA(P, opts.l_max, modes)
     fNyq = 0.5/P.deltaT
     modes = np.array(list(hlms_FD.keys()))
     reference_distance = P.dist
