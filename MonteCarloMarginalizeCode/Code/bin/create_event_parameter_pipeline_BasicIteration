@@ -372,6 +372,27 @@ if _use_hpip_pipeline:
     print(" === Hyperpipeline ASCII grid format active (RIFT_HYPERPIPELINE_FORMAT) ===")
     print("     Inter-stage grids will be .{}, ILE will receive {}".format(grid_suffix, sim_grid_flag))
 
+def _add_hpip_condor_env(job):
+    if not _use_hpip_pipeline:
+        return
+    hpip_env = "RIFT_HYPERPIPELINE_FORMAT=1"
+    if hasattr(job, "get_condor_cmds"):
+        condor_cmds = job.get_condor_cmds()
+    else:
+        condor_cmds = getattr(job, "_CondorJob__condor_cmds", {})
+    env_cmd = condor_cmds.get("environment")
+    if not env_cmd:
+        job.add_condor_cmd("environment", '"{}"'.format(hpip_env))
+        return
+    if hpip_env in env_cmd:
+        return
+    env_cmd = env_cmd.strip()
+    if len(env_cmd) >= 2 and env_cmd[0] == env_cmd[-1] and env_cmd[0] in ("'", '"'):
+        env_cmd = env_cmd[:-1] + " " + hpip_env + env_cmd[-1]
+    else:
+        env_cmd = '"{} {}"'.format(env_cmd, hpip_env)
+    job.add_condor_cmd("environment", env_cmd)
+
 if opts.cip_explode_jobs:
     out_dir_inside_cip+= "/iteration_$(macroiteration)_cip/"
 os.chdir(opts.working_directory)
@@ -562,6 +583,9 @@ if (it_start == 0) and not gridinit_args:
         # Hyperpipeline files: count data rows = total lines minus comment lines.
         with open(_seed_grid_name) as _f:
             n_initial = sum(1 for _l in _f if _l.strip() and not _l.lstrip().startswith("#"))
+        if os.path.lexists("posterior_samples-0.dat"):
+            os.remove("posterior_samples-0.dat")
+        os.symlink(_seed_grid_name, "posterior_samples-0.dat")
     else:
         n_initial = len(lalsimutils.xml_to_ChooseWaveformParams_array(_seed_grid_name))
 
@@ -750,6 +774,7 @@ ile_job.set_stdout_file(opts.working_directory+"/iteration_$(macroiteration)_ile
 if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+ile_job.get_sub_file()
     ile_job.set_sub_file(fname)
+_add_hpip_condor_env(ile_job)
 ile_job.write_sub_file()
 
 if not (opts.puff_args is None):
@@ -765,6 +790,7 @@ if not (opts.puff_args is None):
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+ilePuff_job.get_sub_file()
         ilePuff_job.set_sub_file(fname)
+    _add_hpip_condor_env(ilePuff_job)
     ilePuff_job.write_sub_file()
 
 if not (fetch_args is None):
@@ -780,6 +806,7 @@ if not (fetch_args is None):
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+ileFetch_job.get_sub_file()
         ileFetch_job.set_sub_file(fname)
+    _add_hpip_condor_env(ileFetch_job)
     ileFetch_job.write_sub_file()
 
 
@@ -943,6 +970,7 @@ if opts.use_full_submit_paths:
     con_job.set_sub_file(fname)
 if opts.condor_containerize_nonworker and singularity_image:
     con_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+_add_hpip_condor_env(con_job)
 con_job.write_sub_file()
 
 ##   Unify job
@@ -965,6 +993,7 @@ if opts.use_full_submit_paths:
     unify_job.set_sub_file(fname)
 if opts.condor_containerize_nonworker and singularity_image:
     unify_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+_add_hpip_condor_env(unify_job)
 unify_job.write_sub_file()
 
 
@@ -981,7 +1010,41 @@ if opts.use_full_submit_paths:
     evidence_job.set_sub_file(fname)
 if opts.condor_containerize_nonworker and singularity_image:
     evidence_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+_add_hpip_condor_env(evidence_job)
 evidence_job.write_sub_file()
+
+alias_grid_job = None
+if _use_hpip_pipeline:
+    alias_grid_script = opts.working_directory + "/alias_hyperpipeline_grid.sh"
+    with open(alias_grid_script, "w") as f:
+        f.write("""#!/usr/bin/env bash
+set -e
+iter="$1"
+target="overlap-grid-${iter}.dat"
+alias="posterior_samples-${iter}.dat"
+if [ ! -e "${target}" ]; then
+  echo "alias_hyperpipeline_grid.sh: missing ${target}" >&2
+  exit 1
+fi
+ln -sf "${target}" "${alias}"
+""")
+    os.chmod(alias_grid_script, os.stat(alias_grid_script).st_mode | stat.S_IEXEC)
+    alias_grid_job, alias_grid_job_name = dag_utils.write_convert_sub(
+        tag='alias_hpip_grid', exe=alias_grid_script, log_dir='',
+        file_input='$(macroiteration)', file_output='/dev/null',
+        arg_str='', out_dir=opts.working_directory, universe=local_worker_universe,
+        no_grid=no_worker_grid)
+    alias_grid_job.add_condor_cmd("initialdir", opts.working_directory)
+    alias_grid_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/alias-hpip-grid-$(cluster)-$(process).log")
+    alias_grid_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/alias-hpip-grid-$(cluster)-$(process).err")
+    alias_grid_job.add_condor_cmd('request_disk', opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        fname = opts.working_directory+"/"+alias_grid_job.get_sub_file()
+        alias_grid_job.set_sub_file(fname)
+    if opts.condor_containerize_nonworker and singularity_image:
+        alias_grid_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    _add_hpip_condor_env(alias_grid_job)
+    alias_grid_job.write_sub_file()
 
 
 ##   Fit job: default case
@@ -1016,6 +1079,7 @@ if opts.cip_explode_jobs:
 if opts.use_full_submit_paths:
     fname = opts.working_directory+"/"+cip_job.get_sub_file()
     cip_job.set_sub_file(fname)
+_add_hpip_condor_env(cip_job)
 cip_job.write_sub_file()
 if opts.cip_explode_jobs:
     print(" Exploding stage 1, with  ",opts.cip_explode_jobs, " workers producing samples ")
@@ -1040,6 +1104,7 @@ if opts.cip_explode_jobs:
     if opts.use_full_submit_paths:
         fname = opts.working_directory+"/"+cip_job_worker.get_sub_file()
         cip_job_worker.set_sub_file(fname)
+    _add_hpip_condor_env(cip_job_worker)
     cip_job_worker.write_sub_file()
 
     # Create worker join job
@@ -1057,6 +1122,7 @@ if opts.cip_explode_jobs:
         join_cip_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
         join_cip_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    _add_hpip_condor_env(join_cip_job)
     join_cip_job.write_sub_file()
 
 ##   puffball job: default case
@@ -1074,6 +1140,7 @@ if puff_args and puff_cadence:
         puff_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
         puff_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    _add_hpip_condor_env(puff_job)
     puff_job.write_sub_file()
 
 
@@ -1092,6 +1159,7 @@ if fetch_args:
         fetch_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
         fetch_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    _add_hpip_condor_env(fetch_job)
     fetch_job.write_sub_file()
 
 
@@ -1142,6 +1210,7 @@ else:
         if opts.use_full_submit_paths:
             fname = opts.working_directory+"/"+cip_job.get_sub_file()
             cip_job.set_sub_file(fname)
+        _add_hpip_condor_env(cip_job)
         cip_job.write_sub_file()
 
 
@@ -1174,6 +1243,7 @@ else:
            if opts.use_full_submit_paths:
                fname = opts.working_directory+"/"+cip_job_worker.get_sub_file()
                cip_job_worker.set_sub_file(fname)
+           _add_hpip_condor_env(cip_job_worker)
            cip_job_worker.write_sub_file()
 
 
@@ -1197,14 +1267,9 @@ if opts.test_args:
     test_node_list = []
     ##  Convert job : make results accessible after every iteration.  (Only performed if the tests are active, to make my life easier)
     # Hyperpipeline mode: the input grid is already .dat (hyperpipeline
-    # format), but this convert step targets LI posterior_samples.dat,
-    # which is a *different* schema (mass_1, spin1x, ...).  Per the design
-    # decision (commit message Followups), skip emitting the convert job
-    # in hyperpipeline mode -- a hyperpipeline-aware convergence-test
-    # converter is a separate workstream.  test_job below references
-    # posterior_samples-$(macroiteration).dat, which won't exist in
-    # hyperpipeline mode; the test_args path itself is also experimental
-    # (opts.test_exe is "NOT ACTIVE" per its help).
+    # format), while this convert step targets LI posterior_samples.dat,
+    # which is a different schema (mass_1, spin1x, ...).  Skip emitting the
+    # convert job and point the convergence test directly at the grid files.
     if not _use_hpip_pipeline:
         convert_job, convert_job_name =dag_utils.write_convert_sub(tag='convert',log_dir=None,arg_str=convert_args,file_input=opts.working_directory+'/overlap-grid-$(macroiteration).xml.gz', file_output=opts.working_directory+'/posterior_samples-$(macroiteration).dat' ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
         convert_job.add_condor_cmd("initialdir",opts.working_directory)
@@ -1219,7 +1284,10 @@ if opts.test_args:
         convert_job.write_sub_file()
 
 
-    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=[ opts.working_directory+'/posterior_samples-$(macroiteration).dat', opts.working_directory+'/posterior_samples-$(macroiterationlast).dat'] ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
+    _test_samples_files = [
+        opts.working_directory+'/posterior_samples-$(macroiteration).dat',
+        opts.working_directory+'/posterior_samples-$(macroiterationlast).dat']
+    test_job, test_job_name = dag_utils.write_test_sub(tag='test',log_dir=None,arg_str=test_args,samples_files=_test_samples_files ,out_dir=opts.working_directory,exe=opts.test_exe,universe=local_worker_universe,no_grid=no_worker_grid)
     # Modify: set 'initialdir'
     test_job.add_condor_cmd("initialdir",opts.working_directory+"/iteration_$(macroiteration)_test")
     # Modify output argument: change logs and working directory to be subdirectory for the run
@@ -1232,6 +1300,7 @@ if opts.test_args:
         test_job.set_sub_file(fname)
     if opts.condor_containerize_nonworker and singularity_image:
         test_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    _add_hpip_condor_env(test_job)
     test_job.write_sub_file()
 
 
@@ -1853,9 +1922,18 @@ for it in np.arange(it_start,opts.n_iterations):
 
         
 
-    # Create convert node, which depends on fit node, *if* tests are being performed
-    # (Skipped in hyperpipeline mode -- see paired skip at the convert_job
-    # creation site; convert_job is undefined when _use_hpip_pipeline is True.)
+    if _use_hpip_pipeline:
+        alias_grid_node = pipeline.CondorDAGNode(alias_grid_job)
+        alias_grid_node.add_macro("macroiteration", it+1)
+        alias_grid_node.add_parent(parent_fit_node)
+        alias_grid_node.set_category("ALIAS")
+        alias_grid_node.set_retry(opts.general_retries)
+        dag.add_node(alias_grid_node)
+        parent_fit_node = alias_grid_node
+
+    # Create convert node, which depends on fit node, *if* tests are being performed.
+    # In hyperpipeline mode an alias node creates posterior_samples-*.dat
+    # symlinks to the header-bearing overlap-grid-*.dat files instead.
     if opts.test_args and not _use_hpip_pipeline:
         convert_node=pipeline.CondorDAGNode(convert_job)
         convert_node.add_macro("macroiteration", it+1)  # convert the NEWLY-PRODUCED iteration

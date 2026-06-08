@@ -711,6 +711,7 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
     return ile_job, ile_sub_name
 
 
+
 def write_puff_sub(tag='puffball', exe=None, base=None,input_net='output-ILE-samples',output='puffball',universe="vanilla",out_dir=None,log_dir=None, use_eos=False,ncopies=1,arg_str=None,request_memory=1024,arg_vals=None, no_grid=False,extra_text='',**kwargs):
     """
     Perform puffball calculation 
@@ -1293,7 +1294,15 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
 
     """
 
-    exe = exe or which("util_CleanILE.py")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
+    if exe is None:
+        if str(os.environ.get("RIFT_HYPERPIPELINE_FORMAT", "")).strip().lower() in ("1", "true", "yes", "on"):
+            exe = which("util_CleanILE_hyperpipeline.py")
+            if not exe:
+                exe = os.path.abspath(os.path.join(
+                    os.path.dirname(__file__), "..", "..", "bin",
+                    "util_CleanILE_hyperpipeline.py"))
+        else:
+            exe = which("util_CleanILE.py")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
 
     # Write unify.sh
     #    - problem of globbing inside condor commands
@@ -2166,6 +2175,15 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
     import os as _os_join
     _hpip_join = str(_os_join.environ.get("RIFT_HYPERPIPELINE_FORMAT", "")).strip().lower() in ("1","true","yes","on")
     _suffix_join = "dat" if _hpip_join else "xml.gz"
+    _shuffle_filter_join = None
+    if _hpip_join:
+        _shuffle_filter_join = which("shuf") or which("gshuf")
+        if _shuffle_filter_join is None:
+            _sort_join = which("sort")
+            if _sort_join is not None:
+                _shuffle_filter_join = _sort_join + " -R"
+            else:
+                _shuffle_filter_join = "cat"
 
     fname_out =target_dir + "/" +output_base + "." + _suffix_join
     if n_explode ==1:   # we are really doing a glob match
@@ -2195,9 +2213,10 @@ fi
 # Header: take the first comment block from the first shard.
 grep -E '^#' "${{SHARDS[0]}}" > {out_path}
 # Body: every non-comment line from every shard, deduped + shuffled.
-grep -hE -v '^#' "${{SHARDS[@]}}" | sort -u | shuf >> {out_path}
+grep -hE -v '^#' "${{SHARDS[@]}}" | sort -u | {shuffle_filter} >> {out_path}
 """.format(extra=extra_text, work=alt_work_dir, out=alt_out,
-           suf=_suffix_join, out_path=fname_out))
+           suf=_suffix_join, out_path=fname_out,
+           shuffle_filter=_shuffle_filter_join))
             else:
                 f.write("#! /bin/bash  \n")
                 f.write(r"""
@@ -3096,4 +3115,3 @@ def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='
 
 
     return ile_job, ile_sub_name
-

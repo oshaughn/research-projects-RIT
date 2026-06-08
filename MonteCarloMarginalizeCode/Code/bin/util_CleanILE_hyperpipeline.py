@@ -61,7 +61,7 @@ def main(argv=None):
                              "concatenate, drop bad-sigma rows, sort by lnL "
                              "and emit.  Useful for debugging or when shards "
                              "are already consolidated.")
-    args = parser.parse_args(argv)
+    args, _unknown = parser.parse_known_args(argv)
 
     arr, columns = hpio.read_many(args.fname)
     if args.no_consolidate:
