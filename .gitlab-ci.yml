@@ -46,6 +46,7 @@ import_check:
   stage: system tests
   script:
     - python .travis/test-all-mod.py
+    - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_lisa_response_import.py
 
 sim_manager_check:
   stage: unit tests

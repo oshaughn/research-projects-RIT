@@ -78,8 +78,7 @@ def convert_double_sided_to_single_sided(frequency_values, frequency_series, dat
         assert len(frequency_series)//2 + 1 == hf_onesided.data.length
         return hf_onesided
     else:
-        print("Need to define how the frequency series is packed (either defined on negative or positive frequencies).")
-        sys.exit(1)
+        raise ValueError("data_defined must be either 'negative' or 'positive'")
 
 def frequency_series_double_sided(frequency_values, frequency_series, data_defined = "negative"):
     hf_small = convert_double_sided_to_single_sided(frequency_values, frequency_series, data_defined)
@@ -723,4 +722,3 @@ def create_h5_files_from_data_dict(data_dict, save_path):
     T_h5_file.close()
 
     return None
-
