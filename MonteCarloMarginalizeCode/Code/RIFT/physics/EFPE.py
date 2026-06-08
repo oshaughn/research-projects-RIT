@@ -12,7 +12,11 @@
 import lal
 import RIFT.lalsimutils as lalsimutils
 import lalsimulation as lalsim
-import pyEFPE
+try:
+    import pyEPFE
+    HAVE_PYEPFE = True
+except ImportError:
+    HAVE_PYEPFE = False
 import numpy as np
 import RIFT.lalsimutils as lalsimutils
 from astropy.time import Time
