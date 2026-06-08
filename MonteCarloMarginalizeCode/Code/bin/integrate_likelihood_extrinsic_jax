@@ -351,9 +351,11 @@ def build_parser():
     g.add_option("--n-phi", type=int, default=32,
                  help="phi_ref grid size for --mode flowmc-phimarg (default 32; "
                       "use 64-128 for l-max>=4 or production quality).")
-    g.add_option("--n-psi", type=int, default=16,
+    g.add_option("--n-psi", type=int, default=8,
                  help="psi (polarization) grid size for --mode flowmc-phipsimarg "
-                      "(default 16; spin-2 -> exponential convergence).")
+                      "(default 8; spin-2 -> exponential convergence, ~8 exact for "
+                      "l_max=2).  Keep nphi*npsi small (~64) -- the (phi,psi) scan "
+                      "cost scales with it.")
     # flowMC tuning (modes flowmc / flowmc-phimarg).  Defaults match
     # samplers.flowmc_sample*; exposed so pipeline Makefiles can tune them.
     g.add_option("--n-training-loops", type=int, default=4,
