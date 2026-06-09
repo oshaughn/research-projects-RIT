@@ -54,13 +54,15 @@ import jax
 import jax.numpy as jnp
 from scipy import integrate as _scipy_integrate
 
-# Adaptive (Gauss-Hermite) distance marginalization.  The distance integrand is
+# Adaptive (per-sample) distance marginalization.  The distance integrand is
 # exp(K x - 0.5 R x^2) with x = d_ref/d -- a Gaussian in x (peak x*=K/R, width
 # 1/sqrt(R)) times the d^2 prior (∝ x^-4).  A uniform-in-d grid under-resolves
 # the peak (width ~ d0/SNR) at high SNR, biasing the distance average ~1% low.
-# GH nodes centred per-sample on x* with scale 1/sqrt(R) integrate it exactly at
-# any SNR with few nodes.  Enable with env JAX_ILE_DISTMARG_GH=<n_nodes> (e.g. 48);
-# 0 (default) keeps the legacy uniform grid.  See make_distance_grid.
+# Nodes centred per-sample on x* with scale 1/sqrt(R) (trapezoid, gradient-stable
+# placement via stop_gradient) integrate it to machine precision at any SNR with
+# a few dozen nodes -- removing the evidence bias.  Enable with env
+# JAX_ILE_DISTMARG_GH=<n_nodes> (e.g. 64); 0 keeps the legacy uniform grid.
+# See make_distance_gh / _distmarg_gh_logL.
 _DISTMARG_GH_N = int(os.environ.get("JAX_ILE_DISTMARG_GH", "0"))
 
 import lal
@@ -383,59 +385,85 @@ def _logsumexp_grid_blocked(K, R, a, b, log_w, block):
     return m + jnp.log(s)
 
 
-def make_distance_gh(n_nodes):
-    """Physicists' Gauss-Hermite nodes/log-weights for ∫ e^{-t^2} f(t) dt."""
-    xi, w = np.polynomial.hermite.hermgauss(int(n_nodes))
-    return jnp.asarray(xi, jnp.float64), jnp.asarray(np.log(w), jnp.float64)
+def make_distance_gh(n_nodes, n_sigma=7.0):
+    """Per-sample distance-quadrature node OFFSETS (in units of the Gaussian
+    width 1/sqrt(R)) and their spacing, for :func:`_distmarg_gh_logL`.
+
+    Nodes are placed at ``x_k = x* + z_k / sqrt(R)`` with ``x* = K/R`` the
+    Gaussian peak, so the (1/SNR)-narrow high-SNR distance peak is resolved at
+    any SNR.  Uniform ``z_k`` over ``[-n_sigma, n_sigma]`` (±7σ captures the
+    Gaussian to ~1e-11) -- the trapezoid rule converges *exponentially* on a
+    Gaussian (Euler-Maclaurin), so ~5-10 nodes/σ is effectively exact.  Returns
+    ``(z, dz)``; ``dz`` is unused by the (clip-aware) weight computation but kept
+    for call-site signature stability.
+
+    (Historically Gauss-Hermite abscissae -- hence the name -- but the GH form
+    needed an explicit 0.5*K^2/R prefactor whose gradient blows up for small-R
+    noise time-bins.  The uniform-offset + full-exponent form below is
+    gradient-stable; see :func:`_distmarg_gh_logL`.)
+    """
+    z = np.linspace(-float(n_sigma), float(n_sigma), int(n_nodes))
+    dz = float(z[1] - z[0]) if len(z) > 1 else 1.0
+    return jnp.asarray(z, jnp.float64), jnp.asarray(dz, jnp.float64)
 
 
-def _distmarg_gh_logL(K, R, gh_xi, gh_logw, x_min, x_max):
-    """Per-(S,npts) distance-marginalized lnL via per-sample Gauss-Hermite.
-
-    STATUS (EXPERIMENTAL, env-gated, default OFF): forward values look correct,
-    but MALA / MAP-polish gradients still go nan after several anneal stages.
-    Root cause: the analytic Gaussian prefactor ``0.5*K^2/R`` has gradient
-    ~K^2/R^2 that blows up for small-R (noise) time-bins, corrupting the flow
-    production draws -> nan lnL.  FIX DIRECTION (not yet done): drop the K^2/R
-    factorization; feed the *adaptive* nodes x_k (centred on x*=K/R, scaled
-    1/sqrt(R)) into the SAME stable form the uniform grid uses --
-    logsumexp_k[ K*x_k - 0.5*R*x_k^2 + log_w_quad_k ] with trapezoidal weights
-    log_w_quad_k = log(Delta x_k * prior(x_k)) -- gradient-stable (no 1/R).
-    Until then use the uniform grid (DIST_GRID).
+def _distmarg_gh_logL(K, R, z_off, _dz_unused, x_min, x_max):
+    """Per-(S,npts) distance-marginalized lnL via a per-sample ADAPTIVE trapezoid.
 
     Computes ``log E_{p(d)}[exp(K x - 0.5 R x^2)]`` with x = dref/d and the
-    volumetric prior p(d) ∝ d^2 normalized over [d_min, d_max] (= the same
-    "proper distance average" as :func:`make_distance_grid`), but with quadrature
-    nodes centred per-sample on the analytic Gaussian peak x*=K/R, scale
-    1/sqrt(R) -- so the narrow high-SNR peak is resolved at every SNR.
+    volumetric prior p(d) ∝ d^2 normalized over [d_min, d_max] (the "proper
+    distance average", identical to :func:`make_distance_grid`), but with
+    quadrature nodes centred per-sample on the Gaussian peak x*=K/R, scale
+    1/sqrt(R) -- so the (1/SNR)-narrow high-SNR distance peak that a fixed
+    uniform-in-d grid under-resolves (biasing the average ~1% low) is resolved at
+    EVERY SNR.
 
-    In x the prior measure p(d)|dd/dx| ∝ x^{-4}; the Gaussian is absorbed into the
-    GH weights (nodes x_k = x* + sqrt(2)/sqrt(R) * xi_k).  Nodes outside the
-    physical support [x_min, x_max] are masked.
+    GRADIENT-STABLE FORM (replaces the earlier analytic-prefactor Gauss-Hermite
+    version, whose 0.5*K^2/R term had a ~K^2/R^2 gradient that blew up for
+    small-R noise time-bins -> nan MALA/MAP-polish draws).  The node positions are
+    placed under ``stop_gradient`` and the integrand is evaluated in the SAME
+    stable form the uniform grid uses:
+
+        log E[L] = C0 + logsumexp_k[ K x_k - 0.5 R x_k^2 - 4 ln x_k + ln(dx_k) ]
+        C0 = ln 3 - ln(x_min^{-3} - x_max^{-3})        (dref-independent prior norm)
+
+    so the gradient flows ONLY through the bounded ``K*x_k`` and ``-0.5*R*x_k^2``
+    terms (x_k frozen) -- no 1/R, no nan.  Nodes are clipped to the physical
+    support [x_min, x_max]; clipped (zero-width) nodes drop out via their dx=0
+    weight, and fully-out-of-support rows are made gradient-safe and overridden
+    to -inf.
+
+    Parameters
+    ----------
+    z_off : (G,)  standard node offsets in units of 1/sqrt(R) (from make_distance_gh)
+    _dz_unused : kept for call-site signature compatibility (weights use clipped dx)
     """
     R = jnp.maximum(R, 1e-30)
-    xstar = K / R                                    # (S, npts)
-    inv_sqrtR = 1.0 / jnp.sqrt(R)
-    x_k = xstar[..., None] + jnp.sqrt(2.0) * inv_sqrtR[..., None] * gh_xi  # (S,npts,G)
-    in_supp = (x_k > x_min) & (x_k < x_max)
-    safe_x = jnp.where(in_supp, x_k, 1.0)            # avoid log(<=0) in fwd AND bwd
-    log_term = gh_logw - 4.0 * jnp.log(safe_x)       # GH weight * x^{-4} prior
-    log_term = jnp.where(in_supp, log_term, -jnp.inf)
-    # GRADIENT SAFETY: a fully out-of-support time-bin gives an all -inf row,
-    # whose logsumexp has a nan gradient (0/0 softmax) -- which MALA / MAP-polish
-    # then propagate into nan samples.  Dummy such rows to a finite value so the
-    # backward pass is finite, then override the result to -inf via the outer
-    # where (whose selected-against branch is now also finite -> finite grad).
-    any_supp = jnp.any(in_supp, axis=-1)             # (S, npts)
-    log_term = jnp.where(any_supp[..., None], log_term, 0.0)
-    lse = jax.scipy.special.logsumexp(log_term, axis=-1)        # (S, npts), finite
-    # ln E[L] = 0.5 K^2/R + log(sqrt(2)/sqrt(R)) + 3 ln dref - ln Zprior + lse,
-    #   Zprior = ∫_{d_min}^{d_max} d^2 dd = dref^3 (x_min^{-3} - x_max^{-3})/3, so
-    #   3 ln dref - ln Zprior = ln 3 - ln(x_min^{-3} - x_max^{-3})  (dref cancels).
-    # x_min/x_max are tracers under jit -> use jnp throughout.
-    C0 = 0.5 * jnp.log(2.0) + jnp.log(3.0) - jnp.log(x_min ** (-3.0) - x_max ** (-3.0))
-    val = 0.5 * K * K / R - 0.5 * jnp.log(R) + C0 + lse
-    return jnp.where(any_supp, val, -jnp.inf)
+    # Node CENTRE = Gaussian peak x*=K/R, but clipped into the physical support so
+    # bins whose peak lies outside [x_min,x_max] (template rails to d_min/d_max:
+    # the amplitude/distance-degeneracy slivers) still get their boundary-dominated
+    # integral resolved (matching the uniform grid) instead of an all-clipped -inf.
+    # Width = 1/sqrt(R).  Both FROZEN: the node placement carries no gradient.
+    center = jax.lax.stop_gradient(jnp.clip(K / R, x_min, x_max))   # (S,npts)
+    sigma = jax.lax.stop_gradient(1.0 / jnp.sqrt(R))               # (S,npts)
+    x_k = center[..., None] + sigma[..., None] * z_off            # (S,npts,G), monotone in k
+    x_k = jax.lax.stop_gradient(jnp.clip(x_k, x_min, x_max))
+    # composite-trapezoid node weights from adjacent spacing (nodes increasing in k)
+    dx = jnp.diff(x_k, axis=-1)                                # (S,npts,G-1)
+    w = jnp.concatenate([0.5 * dx[..., :1],
+                         0.5 * (dx[..., 1:] + dx[..., :-1]),
+                         0.5 * dx[..., -1:]], axis=-1)          # (S,npts,G)
+    pos = w > 0                                                # live (non-clipped) nodes
+    log_w = jnp.where(pos, jnp.log(jnp.where(pos, w, 1.0))
+                      - 4.0 * jnp.log(x_k), -jnp.inf)          # trapz dx * x^{-4} prior
+    expo = K[..., None] * x_k - 0.5 * R[..., None] * jnp.square(x_k) + log_w
+    any_w = jnp.any(pos, axis=-1)                              # (S,npts)
+    # all-clipped rows: dummy expo to finite so the backward pass is finite, then
+    # override to -inf below (both where-branches finite -> finite gradient).
+    expo = jnp.where(any_w[..., None], expo, 0.0)
+    lse = jax.scipy.special.logsumexp(expo, axis=-1)           # (S,npts)
+    C0 = jnp.log(3.0) - jnp.log(x_min ** (-3.0) - x_max ** (-3.0))
+    return jnp.where(any_w, C0 + lse, -jnp.inf)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
