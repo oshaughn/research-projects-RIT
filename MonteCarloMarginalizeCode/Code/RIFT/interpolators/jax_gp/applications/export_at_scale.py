@@ -1,0 +1,893 @@
+"""
+export_at_scale -- point at a real RIFT run directory, ship a differentiable lnL
+artifact for its ``all.net``, and validate it against the run's own posterior.
+
+This is the "do it for real, do it for many" wrapper around the jax_gp primitives.
+``export_artifact``/``jax_cip`` already turn a *single* ``all.net`` into a pure-JAX
+``lnL(theta)`` surrogate; this tool adds the three things a production sweep needs:
+
+  1. **Discovery.** Read a run directory the way RIFT left it -- detect the
+     ``all.net`` column layout (tides / no-tides / precessing all differ), parse the
+     active ``args_cip_list.txt`` for the fit coordinates and the prior box
+     (``--mc-range`` / ``--eta-range`` / ``--chi-max``), and locate the run's own
+     final CIP posterior (``posterior_samples-<N>.dat``) to validate against.
+
+  2. **Export + validate the *deliverable*.** Fit the surrogate in dimension-agnostic
+     physical fit coordinates -- ``[mc, delta_mc]`` plus whichever spin/tidal columns
+     actually vary, so it covers aligned, BNS *and* precessing runs without needing a
+     hand-written coordinate transform -- export it, **reload the saved artifact**,
+     draw a posterior *from the reloaded bytes* (importance sampling over the run's
+     prior box), and report the Jensen-Shannon divergence of the ``mc``/``q``/
+     ``chi_eff`` marginals against the run's CIP posterior.
+
+  3. **Scale.** ``batch`` discovers many run directories and either runs them locally
+     or emits an HTCondor DAG -- one node per run, the submit file templated from the
+     run's *own* ``CIP.sub`` (accounting group, singularity image, requirements) so
+     the jobs land in the same place the run itself ran.
+
+Nothing is written back into the run directory: every artifact + report goes under a
+separate ``--workroot`` (default ``./export_at_scale_out``), one subdirectory per run.
+
+At this stage we interpolate **only ``all.net``** (the existing intrinsic ILE
+deliverable). The distance-grid export is a separate track.
+
+CLI::
+
+    # one run, immediately
+    python -m RIFT.interpolators.jax_gp.applications.export_at_scale one \\
+        --run-dir /path/to/rundir --workroot /path/to/out
+
+    # inspect what discovery found, without doing any work
+    python -m RIFT.interpolators.jax_gp.applications.export_at_scale discover \\
+        --run-dir /path/to/rundir
+
+    # many runs -> a condor DAG (submit it with condor_submit_dag)
+    python -m RIFT.interpolators.jax_gp.applications.export_at_scale batch \\
+        --runs '/data/*/S*/rift*/' --workroot /path/to/out --condor
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import glob
+import json
+import math
+import os
+import shlex
+import sys
+import time
+
+import numpy as np
+
+
+# --------------------------------------------------------------------------- #
+# 1. all.net column-layout detection
+# --------------------------------------------------------------------------- #
+#
+# RIFT's util_CleanILE writes a *variable-width* composite. The intrinsic block
+# grows with the physics (aligned -> precessing adds in-plane spins; BNS adds
+# tides), and the trailing diagnostic columns are always, in order,
+# ``lnL  sigma_lnL  ntot [neff]``.  We therefore key off the *tail*: the intrinsic
+# block is everything between the leading index column and those diagnostics.
+
+#: candidate names for the (1- or 2-mass + spin [+ tidal]) intrinsic block, by size
+_INTRINSIC_BY_SIZE = {
+    2: ["m1", "m2"],
+    4: ["m1", "m2", "s1z", "s2z"],
+    8: ["m1", "m2", "s1x", "s1y", "s1z", "s2x", "s2y", "s2z"],
+    6: ["m1", "m2", "s1z", "s2z", "lambda1", "lambda2"],
+    10: ["m1", "m2", "s1x", "s1y", "s1z", "s2x", "s2y", "s2z",
+         "lambda1", "lambda2"],
+}
+
+
+def detect_net_layout(path, max_probe=200):
+    """Infer the column map of a RIFT ``all.net`` / ``.composite`` file.
+
+    Returns ``(cols, intrinsic_names, has_neff)`` where ``cols`` is the
+    name->index dict :func:`load_ile_net` consumes and ``intrinsic_names`` are the
+    physical columns of the intrinsic block (e.g. ``['m1','m2','s1x',...]``).
+
+    The detection is tail-anchored (``... lnL sigma_lnL ntot [neff]``) and
+    sanity-checked on the candidate ``sigma_lnL`` column (a small positive MC error),
+    so it is robust to the aligned/precessing/tidal width differences without a
+    hard-coded table.
+    """
+    rows = []
+    with open(path) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            rows.append(line.split())
+            if len(rows) >= max_probe:
+                break
+    if not rows:
+        raise ValueError("no data rows in {}".format(path))
+    ncols = len(rows[0])
+    data = np.array([[float(x) for x in r] for r in rows if len(r) == ncols],
+                    dtype=float)
+
+    def _try(has_neff):
+        tail = 4 if has_neff else 3
+        lnL_i = ncols - tail
+        sig_i = lnL_i + 1
+        if lnL_i < 3:                       # need indx + at least m1,m2
+            return None
+        n_intr = lnL_i - 1                  # columns 1..lnL_i-1 (0 is index)
+        sig = data[:, sig_i]
+        # sigma_lnL is a small, finite, non-negative MC error
+        if not np.all(np.isfinite(sig)) or np.any(sig < 0) or np.median(sig) > 10:
+            return None
+        names = _INTRINSIC_BY_SIZE.get(n_intr)
+        if names is None:
+            # unknown block size: name masses + generic spin/tidal slots so the
+            # fit still runs (we just lose the pretty chi_eff label).
+            names = ["m1", "m2"] + ["x{}".format(k) for k in range(n_intr - 2)]
+        cols = {"indx": 0}
+        for j, nm in enumerate(names):
+            cols[nm] = 1 + j
+        cols["lnL"] = lnL_i
+        cols["sigma_lnL"] = sig_i
+        cols["ntot"] = sig_i + 1
+        return cols, names, has_neff
+
+    # Prefer the 4-trailing (with neff) form; fall back to 3-trailing.
+    for has_neff in (True, False):
+        got = _try(has_neff)
+        if got is not None:
+            return got
+    raise ValueError(
+        "could not infer column layout of {} (ncols={})".format(path, ncols))
+
+
+# --------------------------------------------------------------------------- #
+# 2. run-directory discovery
+# --------------------------------------------------------------------------- #
+
+def _parse_pair(s):
+    """'[a,b]' -> [float(a), float(b)] (or None)."""
+    if not s:
+        return None
+    try:
+        v = ast.literal_eval(s)
+        return [float(v[0]), float(v[1])]
+    except Exception:
+        return None
+
+
+def _last_cip_arg_line(run_dir):
+    """The active (last non-empty) line of args_cip_list.txt, minus its leading
+    iteration-label token (e.g. ``3``/``Z``/``1``)."""
+    p = os.path.join(run_dir, "args_cip_list.txt")
+    if not os.path.exists(p):
+        return None
+    lines = [ln.strip() for ln in open(p) if ln.strip()]
+    if not lines:
+        return None
+    toks = lines[-1].split(None, 1)
+    return toks[1] if len(toks) == 2 else lines[-1]
+
+
+def _cip_opt(tokens, name, multi=False):
+    """Pull ``--name VALUE`` (repeatable if ``multi``) out of a token list."""
+    out = []
+    i = 0
+    while i < len(tokens):
+        if tokens[i] == name:
+            if i + 1 < len(tokens):
+                out.append(tokens[i + 1])
+            i += 2
+        else:
+            i += 1
+    if multi:
+        return out
+    return out[-1] if out else None
+
+
+def _find_latest_posterior(run_dir):
+    """Most-recent CIP intrinsic posterior; falls back to the extrinsic fairdraw.
+
+    Prefers ``posterior_samples-<N>.dat`` (highest N) in the run dir, then in the
+    highest ``iteration_<k>_cip/``, then ``extrinsic_posterior_samples.dat``.
+    """
+    cands = []
+    for p in glob.glob(os.path.join(run_dir, "posterior_samples-*.dat")):
+        m = os.path.basename(p)[len("posterior_samples-"):-len(".dat")]
+        try:
+            cands.append((int(m), p))
+        except ValueError:
+            pass
+    if cands:
+        return max(cands)[1]
+    it_dirs = sorted(glob.glob(os.path.join(run_dir, "iteration_*_cip")),
+                     key=lambda d: int(d.split("_")[-2]) if d.split("_")[-2].isdigit()
+                     else -1)
+    for d in reversed(it_dirs):
+        sub = glob.glob(os.path.join(d, "posterior_samples-*.dat"))
+        if sub:
+            return sorted(sub)[-1]
+    extr = os.path.join(run_dir, "extrinsic_posterior_samples.dat")
+    return extr if os.path.exists(extr) else None
+
+
+def _parse_condor_env(run_dir):
+    """Lift accounting / singularity / requirements from the run's own CIP.sub
+    (or ILE.sub) so a fan-out job can land where the run itself ran."""
+    env = {}
+    for name in ("CIP.sub", "CIP_0.sub", "ILE.sub"):
+        p = os.path.join(run_dir, name)
+        if not os.path.exists(p):
+            continue
+        for ln in open(p):
+            ln = ln.strip()
+            for key in ("accounting_group", "accounting_group_user",
+                        "request_memory", "request_disk", "request_cpus",
+                        "requirements"):
+                if ln.lower().startswith(key.lower()) and "=" in ln:
+                    env.setdefault(key, ln.split("=", 1)[1].strip())
+            if "SingularityImage" in ln and "=" in ln:
+                env.setdefault("singularity_image",
+                               ln.split("=", 1)[1].strip().strip('"'))
+        break
+    return env
+
+
+def discover_run(run_dir):
+    """Inspect a RIFT run directory and return a dict describing how to export +
+    validate it. Raises if there is no usable ``all.net``."""
+    run_dir = os.path.abspath(run_dir)
+    net = os.path.join(run_dir, "all.net")
+    if not os.path.exists(net) or os.path.getsize(net) == 0:
+        raise FileNotFoundError("no usable all.net in {}".format(run_dir))
+
+    cols, intrinsic_names, has_neff = detect_net_layout(net)
+
+    cip_line = _last_cip_arg_line(run_dir)
+    toks = shlex.split(cip_line) if cip_line else []
+    mc_range = _parse_pair(_cip_opt(toks, "--mc-range"))
+    eta_range = _parse_pair(_cip_opt(toks, "--eta-range"))
+    chi_max = _cip_opt(toks, "--chi-max")
+    chi_max = float(chi_max) if chi_max else None
+    precessing = "--use-precessing" in toks
+    params = (_cip_opt(toks, "--parameter", multi=True)
+              + _cip_opt(toks, "--parameter-implied", multi=True)
+              + _cip_opt(toks, "--parameter-nofit", multi=True))
+    n_out = _cip_opt(toks, "--n-output-samples")
+
+    # event / pipeline tags for a readable workdir name
+    parts = run_dir.split(os.sep)
+    event = next((p for p in reversed(parts) if p.startswith(("S", "G", "GW"))),
+                 parts[-2] if len(parts) > 1 else "event")
+    tag = parts[-1]
+
+    return {
+        "run_dir": run_dir,
+        "net": net,
+        "ncols": len(cols) + (1 if has_neff else 0),
+        "cols": cols,
+        "intrinsic_names": intrinsic_names,
+        "has_spins": any(n.startswith("s") for n in intrinsic_names),
+        "has_tides": any(n.startswith("lambda") for n in intrinsic_names),
+        "precessing": precessing,
+        "cip_parameters": params,
+        "mc_range": mc_range,
+        "eta_range": eta_range,
+        "chi_max": chi_max if chi_max is not None else 0.99,
+        "n_output_samples": int(n_out) if n_out else 2000,
+        "posterior": _find_latest_posterior(run_dir),
+        "condor_env": _parse_condor_env(run_dir),
+        "event": event,
+        "tag": tag,
+        "label": "{}__{}".format(event, tag),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# 3. dimension-agnostic fit coordinates
+# --------------------------------------------------------------------------- #
+#
+# We fit lnL in [mc, delta_mc] + (varying spin/tidal columns). mc/delta_mc remove
+# the dominant curved chirp-mass ridge; raw spin components keep the rest fully
+# general (aligned -> just s1z,s2z survive as non-constant; precessing -> all six).
+# Constant columns (e.g. all spins zero in a no-spin run) are dropped from the fit
+# and recorded so we can reconstruct full physical vectors for chi_eff / writing.
+
+_CONST_TOL = 1e-6
+
+
+def raw_to_fit(X_raw, raw_names):
+    """``(m1,m2,spin...) -> (mc, delta_mc, spin...)`` as parallel numpy columns."""
+    idx = {n: i for i, n in enumerate(raw_names)}
+    m1 = X_raw[:, idx["m1"]]
+    m2 = X_raw[:, idx["m2"]]
+    mc = (m1 * m2) ** 0.6 / (m1 + m2) ** 0.2
+    dmc = (m1 - m2) / (m1 + m2)
+    cols = [mc, dmc]
+    names = ["mc", "delta_mc"]
+    for n in raw_names:
+        if n in ("m1", "m2"):
+            continue
+        cols.append(X_raw[:, idx[n]])
+        names.append(n)
+    return np.column_stack(cols), names
+
+
+def fit_to_physical(Xfit, fit_names):
+    """Inverse of the mass part + spin passthrough: fit coords -> physical dict
+    with arrays m1, m2, q, chi_eff and any spin components present."""
+    idx = {n: i for i, n in enumerate(fit_names)}
+    mc = Xfit[:, idx["mc"]]
+    dmc = Xfit[:, idx["delta_mc"]]
+    eta = 0.25 * (1.0 - dmc ** 2)
+    mtot = mc * eta ** (-3.0 / 5.0)
+    m1 = 0.5 * mtot * (1.0 + dmc)
+    m2 = 0.5 * mtot * (1.0 - dmc)
+    out = {"m1": m1, "m2": m2, "mc": mc, "eta": eta, "q": m2 / m1}
+    for n in fit_names:
+        if n not in ("mc", "delta_mc"):
+            out[n] = Xfit[:, idx[n]]
+    s1z = out.get("s1z", np.zeros_like(m1))
+    s2z = out.get("s2z", np.zeros_like(m1))
+    out["chi_eff"] = (m1 * s1z + m2 * s2z) / (m1 + m2)
+    return out
+
+
+def fit_prior_box(fit_names, spec):
+    """Per-coordinate uniform-prior box [lo, hi] in fit coords, from the run's CIP
+    ranges (mc, eta->delta_mc, chi-max per spin component)."""
+    mc_r = spec["mc_range"] or [0.9, 250.0]
+    eta_r = spec["eta_range"] or [0.01, 0.2499999]
+    d_hi = math.sqrt(max(0.0, 1.0 - 4.0 * eta_r[0]))
+    d_lo = math.sqrt(max(0.0, 1.0 - 4.0 * min(eta_r[1], 0.25)))
+    chi = spec["chi_max"]
+    lo, hi = [], []
+    for n in fit_names:
+        if n == "mc":
+            lo.append(mc_r[0]); hi.append(mc_r[1])
+        elif n == "delta_mc":
+            lo.append(max(0.0, d_lo)); hi.append(min(0.999, d_hi))
+        elif n.startswith("s"):                       # spin component
+            lo.append(-chi); hi.append(chi)
+        elif n.startswith("lambda"):
+            lo.append(0.0); hi.append(5000.0)
+        else:
+            lo.append(-chi); hi.append(chi)
+    return np.array(lo), np.array(hi)
+
+
+# --------------------------------------------------------------------------- #
+# 4. fit + export the artifact (the deliverable)
+# --------------------------------------------------------------------------- #
+
+def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0,
+                   cap_points=8000, n_features=256, n_opt_steps=300, seed=0,
+                   quadgp_residual="svgp"):
+    """Build, persist and cold-reload-verify a differentiable lnL artifact for the
+    run's ``all.net``. Returns a metadata dict (also the fit-coord arrays needed by
+    validation, under private keys)."""
+    from RIFT.interpolators.jax_gp import get_interpolator, export
+    from RIFT.interpolators.jax_gp.benchmark.datasets import load_ile_net
+    from RIFT.interpolators.jax_gp.applications.jax_cip import _tree_ring_select
+
+    # 1. load the intrinsic block with the *detected* layout, sigma-cut + dedupe
+    X_raw, y, yerr, _ = load_ile_net(
+        spec["net"], fit_params=tuple(spec["intrinsic_names"]),
+        cols=spec["cols"], sigma_cut=sigma_cut, return_errors=True)
+
+    # 2. physical fit coordinates; drop columns that do not vary (record them)
+    Xfit_all, fit_names_all = raw_to_fit(X_raw, list(spec["intrinsic_names"]))
+    spread = Xfit_all.std(axis=0)
+    keep = spread > _CONST_TOL
+    keep[0] = keep[1] = True                          # always keep mc, delta_mc
+    fit_names = [n for n, k in zip(fit_names_all, keep) if k]
+    constants = {n: float(Xfit_all[:, i].mean())
+                 for i, (n, k) in enumerate(zip(fit_names_all, keep)) if not k}
+    Xfit = Xfit_all[:, keep]
+
+    # 3. high-lnL region + stratified ("tree-ring") downselect to bound fit cost
+    ok = np.all(np.isfinite(Xfit), axis=1) & np.isfinite(y) & np.isfinite(yerr)
+    Xfit, y, yerr = Xfit[ok], y[ok], yerr[ok]
+    lnL_max = float(np.max(y))
+    band = y > lnL_max - lnL_offset
+    Xfit, y, yerr = Xfit[band], y[band], yerr[band]
+    if cap_points and len(y) > cap_points:
+        sel = _tree_ring_select(y, cap_points, seed=seed)
+        Xfit, y, yerr = Xfit[sel], y[sel], yerr[sel]
+
+    # 4. honest 15% holdout
+    rng = np.random.default_rng(seed)
+    n = len(y)
+    perm = rng.permutation(n)
+    n_hold = max(1, int(round(0.15 * n)))
+    ho, tr = perm[:n_hold], perm[n_hold:]
+    Xtr, ytr, etr, Xho, yho = Xfit[tr], y[tr], yerr[tr], Xfit[ho], y[ho]
+
+    # 5. fit the interpolator with the per-point MC errors
+    cls = get_interpolator(method)
+    if method in ("rff", "gp-jax-rff"):
+        model = cls(n_features=n_features, n_opt_steps=n_opt_steps, seed=seed)
+    elif method in ("svgp", "gp-jax-svgp"):
+        model = cls(n_inducing=n_features, n_opt_steps=n_opt_steps, seed=seed)
+    elif method == "quadgp":
+        model = cls(gp_method=quadgp_residual, n_inducing=n_features,
+                    n_opt_steps=n_opt_steps, seed=seed)
+    else:
+        model = cls(n_opt_steps=n_opt_steps)
+    model = model.fit(Xtr, ytr, y_errors=etr)
+    model.coord_names = list(fit_names)
+
+    # 6. export, reload, and prove the saved bytes are faithful + differentiable
+    export.save(model, out_base, coord_names=fit_names,
+                extra_meta={"constants": constants, "event": spec["event"],
+                            "tag": spec["tag"], "net": spec["net"]})
+    reloaded = export.load(out_base)
+    p_reload = reloaded.predict(Xho)
+    if not np.allclose(model.predict(Xho), p_reload, rtol=1e-5, atol=1e-4):
+        raise AssertionError("reloaded predict() disagrees with the fitted model")
+    import jax
+    import jax.numpy as jnp
+    g = np.asarray(jax.grad(reloaded.lnL_physical)(jnp.asarray(Xtr[0])))
+    if not np.all(np.isfinite(g)):
+        raise AssertionError("jax.grad of reloaded lnL is not finite")
+    holdout_rmse = float(np.sqrt(np.mean((p_reload - yho) ** 2)))
+
+    meta = {
+        "out_base": out_base, "method": method, "coord_names": fit_names,
+        "constants": constants, "n_train": int(len(ytr)),
+        "n_holdout": int(len(yho)), "lnL_max": lnL_max,
+        "holdout_rmse": holdout_rmse, "grad_finite": True,
+        "n_intrinsic_dims": len(fit_names),
+    }
+    # private handoff to validation (not serialised in the public report verbatim)
+    meta["_fit_names"] = fit_names
+    meta["_Xfit"] = Xfit
+    meta["_y"] = y
+    return meta
+
+
+# --------------------------------------------------------------------------- #
+# 5. validation: sample the reloaded artifact, compare to the CIP posterior
+# --------------------------------------------------------------------------- #
+
+def _load_posterior_dat(path):
+    """Load a RIFT ``posterior_samples-*.dat`` / ``extrinsic_posterior_samples.dat``
+    into a name->array dict using its ``# ...`` header. Adds derived chi_eff."""
+    header = None
+    with open(path) as fh:
+        for ln in fh:
+            if ln.strip().startswith("#"):
+                header = ln.lstrip("#").split()
+                break
+    data = np.loadtxt(path)
+    if data.ndim == 1:
+        data = data[None, :]
+    if header is None or len(header) != data.shape[1]:
+        # headerless / mismatched: fall back to the canonical CIP column order
+        header = ["m1", "m2", "a1x", "a1y", "a1z", "a2x", "a2y", "a2z",
+                  "mc", "eta", "indx", "Npts", "ra", "dec", "tref", "phiorb",
+                  "incl", "psi", "dist", "p", "ps", "lnL", "mtotal", "q"]
+        header = header[:data.shape[1]]
+    cols = {n: data[:, i] for i, n in enumerate(header)}
+    if "mc" not in cols and {"m1", "m2"} <= cols.keys():
+        m1, m2 = cols["m1"], cols["m2"]
+        cols["mc"] = (m1 * m2) ** 0.6 / (m1 + m2) ** 0.2
+        cols["q"] = np.minimum(m1, m2) / np.maximum(m1, m2)
+    if "chi_eff" not in cols and {"m1", "m2", "a1z", "a2z"} <= cols.keys():
+        m1, m2 = cols["m1"], cols["m2"]
+        cols["chi_eff"] = (m1 * cols["a1z"] + m2 * cols["a2z"]) / (m1 + m2)
+    return cols
+
+
+def validate_artifact(spec, fit_meta, out_dir, n_samples=40000, inflate=1.2,
+                      seed=0, sampler="auto", compare_params=("mc", "q", "chi_eff")):
+    """Draw a posterior from the *reloaded* artifact and JS-compare its marginals to
+    the run's CIP posterior. Writes ``posterior_interp.dat`` and returns the report.
+
+    ``sampler``: ``"gaussian"`` -- fast mu-matched importance sampling (great in low
+    dimension); ``"nuts"`` -- gradient-based NUTS preconditioned with the data
+    covariance, which exploits the artifact's AD gradients and explores the curved,
+    high-dimensional precessing posterior far better than a single Gaussian proposal;
+    ``"auto"`` (default) picks ``nuts`` when the fit has >3 dimensions, else
+    ``gaussian``.
+    """
+    from RIFT.interpolators.jax_gp import export
+    from RIFT.interpolators.jax_gp.applications.jax_cip import (
+        sample_gaussian_is, sample_nuts_muframe)
+    from RIFT.interpolators.jax_gp.applications.compare import js_with_stderr
+
+    fit_names = fit_meta["_fit_names"]
+    Xfit, y = fit_meta["_Xfit"], fit_meta["_y"]
+    reloaded = export.load(fit_meta["out_base"])
+
+    lo, hi = fit_prior_box(fit_names, spec)
+    # proposal matched to the lnL-weighted posterior, restricted to the prior box
+    inb = np.all((Xfit >= lo) & (Xfit <= hi), axis=1)
+    Xp, yp = (Xfit[inb], y[inb]) if inb.sum() >= 10 else (Xfit, y)
+    w = np.exp(yp - yp.max()); w /= w.sum()
+    gmean = (Xp * w[:, None]).sum(0)
+    gcov = np.atleast_2d(np.cov(Xp.T, aweights=w))
+    if gcov.shape[0] == 1:                       # 1-D: cov() returns a scalar
+        gcov = gcov.reshape(1, 1)
+
+    if sampler == "auto":
+        sampler = "nuts" if len(fit_names) > 3 else "gaussian"
+    if sampler == "nuts":
+        # Gradient-based NUTS, dense mass matrix seeded from the data covariance.
+        # Unlike a single-Gaussian importance proposal it is not proposal-limited,
+        # so it explores the curved, weakly-constrained precessing directions; it
+        # uses the artifact's jax.grad lnL directly.
+        ndraw = max(2000, spec["n_output_samples"])
+        res = sample_nuts_muframe(reloaded.lnL_physical, gmean, gcov, lo, hi,
+                                  num_warmup=1000, num_samples=ndraw,
+                                  num_chains=2, seed=seed)
+    else:
+        res = sample_gaussian_is(reloaded.lnL_physical, gmean, gcov, lo, hi,
+                                 n_samples=n_samples, inflate=inflate, seed=seed)
+    samples = res["samples"]                      # [n, d] in fit coords
+
+    phys = fit_to_physical(samples, fit_names)
+    # enforce the true spin-magnitude constraint (per-component box is a superset)
+    chi = spec["chi_max"]
+    mask = np.ones(len(samples), bool)
+    for body in ("1", "2"):
+        comps = [phys[c] for c in ("s%sx" % body, "s%sy" % body, "s%sz" % body)
+                 if c in phys]
+        if comps:
+            mag = np.sqrt(np.sum(np.square(np.column_stack(comps)), axis=1))
+            mask &= mag <= chi * 1.0001
+    for k in phys:
+        phys[k] = phys[k][mask]
+    samples = samples[mask]
+
+    # write the interpolated posterior (RIFT-ish .dat, intrinsic columns)
+    os.makedirs(out_dir, exist_ok=True)
+    post_path = os.path.join(out_dir, "posterior_interp.dat")
+    out_names = ["m1", "m2", "mc", "eta", "q", "chi_eff"]
+    out_cols = [phys[n] for n in out_names]
+    np.savetxt(post_path, np.column_stack(out_cols),
+               header=" ".join(out_names))
+
+    # JS divergence vs the run's own CIP posterior
+    js = {}
+    ref = None
+    if spec["posterior"] and os.path.exists(spec["posterior"]):
+        ref = _load_posterior_dat(spec["posterior"])
+        for prm in compare_params:
+            if prm in phys and prm in ref and len(phys[prm]) > 20:
+                a, b = phys[prm], ref[prm]
+                if np.std(a) < 1e-9 and np.std(b) < 1e-9:
+                    js[prm] = {"js_bits": 0.0, "js_stderr": 0.0, "degenerate": True,
+                               "interp_mean": float(np.mean(a)), "interp_std": 0.0,
+                               "ref_mean": float(np.mean(b)), "ref_std": 0.0,
+                               "n_interp": int(len(a)), "n_ref": int(len(b))}
+                    continue
+                val, se = js_with_stderr(a, b)
+                js[prm] = {
+                    "js_bits": val, "js_stderr": se,
+                    "interp_mean": float(np.mean(a)), "ref_mean": float(np.mean(b)),
+                    "interp_std": float(np.std(a)), "ref_std": float(np.std(b)),
+                    "n_interp": int(len(a)), "n_ref": int(len(b)),
+                }
+    # Honesty about sampling: a JS computed from few *independent* draws is noisy
+    # regardless of the (resampled-with-replacement) bootstrap stderr. Flag it.
+    ess = float(res.get("ess", float("nan")))
+    if not np.isfinite(ess) or ess < 100:
+        quality = "sampling-limited"
+    elif ess < 400:
+        quality = "marginal"
+    else:
+        quality = "ok"
+    return {
+        "posterior_interp": post_path,
+        "reference_posterior": spec["posterior"],
+        "n_posterior_samples": int(len(samples)),
+        "sampler": sampler,
+        "is_ess": ess,
+        "is_ess_frac": float(res.get("ess_frac", float("nan"))),
+        "logZ": res.get("logZ"),
+        "quality": quality,
+        "js": js,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# 6. orchestration: one run end-to-end
+# --------------------------------------------------------------------------- #
+
+def run_one(run_dir, workroot, method="quadgp", n_samples=40000, seed=0,
+            cap_points=8000, n_features=256, n_opt_steps=300, lnL_offset=40.0,
+            sigma_cut=0.6, sampler="auto", write_plot=True):
+    """Discover -> fit+export -> validate one run; write all artifacts under
+    ``workroot/<label>/`` and return the full report."""
+    import RIFT.interpolators.jax_gp  # noqa: F401  (enables float64)
+
+    spec = discover_run(run_dir)
+    out_dir = os.path.join(os.path.abspath(workroot), spec["label"])
+    os.makedirs(out_dir, exist_ok=True)
+    out_base = os.path.join(out_dir, "lnL_artifact")
+
+    t0 = time.time()
+    fit_meta = fit_and_export(
+        spec, out_base, method=method, sigma_cut=sigma_cut,
+        lnL_offset=lnL_offset, cap_points=cap_points, n_features=n_features,
+        n_opt_steps=n_opt_steps, seed=seed)
+    t_fit = time.time() - t0
+
+    t1 = time.time()
+    val = validate_artifact(spec, fit_meta, out_dir, n_samples=n_samples,
+                            seed=seed, sampler=sampler)
+    t_val = time.time() - t1
+
+    public_fit = {k: v for k, v in fit_meta.items() if not k.startswith("_")}
+    report = {
+        "run_dir": spec["run_dir"], "event": spec["event"], "tag": spec["tag"],
+        "net": spec["net"], "ncols": spec["ncols"],
+        "intrinsic_names": spec["intrinsic_names"], "precessing": spec["precessing"],
+        "mc_range": spec["mc_range"], "eta_range": spec["eta_range"],
+        "chi_max": spec["chi_max"], "out_dir": out_dir,
+        "fit": public_fit, "validation": val,
+        "timing_sec": {"fit": t_fit, "validate": t_val},
+    }
+    with open(os.path.join(out_dir, "report.json"), "w") as fh:
+        json.dump(report, fh, indent=2)
+    _write_summary_md(report, os.path.join(out_dir, "summary.md"))
+    if write_plot:
+        try:
+            _write_corner(spec, fit_meta, val, out_dir)
+        except Exception as e:        # plotting must never fail the run
+            report["plot_error"] = str(e)
+    return report
+
+
+def _write_summary_md(report, path):
+    v = report["validation"]
+    lines = [
+        "# lnL export + validation: {} / {}".format(report["event"], report["tag"]),
+        "",
+        "- run dir: `{}`".format(report["run_dir"]),
+        "- all.net columns: {}  intrinsic: {}".format(
+            report["ncols"], ", ".join(report["intrinsic_names"])),
+        "- precessing: {}   fit dims: {} ({})".format(
+            report["precessing"], report["fit"]["n_intrinsic_dims"],
+            ", ".join(report["fit"]["coord_names"])),
+        "- method: {}   train pts: {}   holdout RMSE: {:.3f} nats".format(
+            report["fit"]["method"], report["fit"]["n_train"],
+            report["fit"]["holdout_rmse"]),
+        "- artifact: `{}.npz` (+ .meta.json)".format(report["fit"]["out_base"]),
+        "- reference posterior: `{}`".format(v["reference_posterior"]),
+        "- interpolated posterior: `{}`  ({} samples)".format(
+            v["posterior_interp"], v["n_posterior_samples"]),
+        "- sampler: {}   IS ESS: {:.0f}   quality: **{}**".format(
+            v.get("sampler", "?"), v.get("is_ess", 0), v.get("quality", "?")),
+        ("" if v.get("quality") == "ok" else
+         "  > NOTE: low effective sample count -- the JS values below are "
+         "sampling-limited (noisy/upper bounds), not necessarily surrogate error. "
+         "Re-run with `--sampler nuts`, more `--n-samples`, or `--method quadgp`."),
+        "",
+        "## Jensen-Shannon divergence vs CIP posterior (bits; 0 = identical)",
+        "",
+        "| param | JS (bits) | interp mean±std | ref mean±std |",
+        "|---|---|---|---|",
+    ]
+    for prm, d in v["js"].items():
+        lines.append("| {} | {:.4f} ± {:.4f} | {:.4g} ± {:.3g} | {:.4g} ± {:.3g} |"
+                      .format(prm, d["js_bits"], d["js_stderr"],
+                              d["interp_mean"], d["interp_std"],
+                              d["ref_mean"], d["ref_std"]))
+    if not v["js"]:
+        lines.append("| (no reference posterior found) | | | |")
+    open(path, "w").write("\n".join(lines) + "\n")
+
+
+def _write_corner(spec, fit_meta, val, out_dir):
+    """Overlay interpolated-vs-reference 1D marginals (matplotlib only; optional)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    phys_ref = (_load_posterior_dat(spec["posterior"])
+                if spec["posterior"] and os.path.exists(spec["posterior"]) else {})
+    params = [p for p in ("mc", "q", "chi_eff") if p in val["js"]]
+    if not params:
+        return
+    interp = np.loadtxt(val["posterior_interp"])
+    hdr = open(val["posterior_interp"]).readline().lstrip("#").split()
+    icols = {n: interp[:, i] for i, n in enumerate(hdr)}
+    fig, axes = plt.subplots(1, len(params), figsize=(4 * len(params), 3.2))
+    axes = np.atleast_1d(axes)
+    for ax, prm in zip(axes, params):
+        ax.hist(icols[prm], bins=50, density=True, histtype="step",
+                label="interp artifact", lw=2)
+        if prm in phys_ref:
+            ax.hist(phys_ref[prm], bins=50, density=True, histtype="step",
+                    label="CIP posterior", lw=2)
+        ax.set_xlabel(prm)
+        ax.set_title("JS={:.4f} bits".format(val["js"][prm]["js_bits"]))
+    axes[0].legend(fontsize=8)
+    fig.suptitle("{} / {}".format(spec["event"], spec["tag"]))
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_dir, "marginals.png"), dpi=110)
+    plt.close(fig)
+
+
+# --------------------------------------------------------------------------- #
+# 7. batch / condor fan-out
+# --------------------------------------------------------------------------- #
+
+def expand_runs(patterns):
+    """Expand globs/paths to run directories that actually contain a usable all.net."""
+    runs = []
+    for pat in patterns:
+        hits = glob.glob(pat) or [pat]
+        for h in hits:
+            h = h.rstrip(os.sep)
+            if os.path.isdir(h) and os.path.exists(os.path.join(h, "all.net")):
+                runs.append(os.path.abspath(h))
+            elif os.path.basename(h) == "all.net" and os.path.exists(h):
+                runs.append(os.path.dirname(os.path.abspath(h)))
+    return sorted(set(runs))
+
+
+def write_condor_batch(run_dirs, workroot, method="quadgp", n_samples=40000,
+                       sampler="auto", python=None, pythonpath=None,
+                       accounting_group=None):
+    """Emit a one-node-per-run HTCondor DAG under ``workroot/condor/``.
+
+    The submit file is templated from the *first run's own* CIP.sub (accounting
+    group / singularity image / requirements) so the validation jobs land in the
+    same pool the run itself used. Returns the DAG path.
+    """
+    workroot = os.path.abspath(workroot)
+    cdir = os.path.join(workroot, "condor")
+    os.makedirs(cdir, exist_ok=True)
+    python = python or sys.executable
+    pythonpath = pythonpath or os.environ.get("PYTHONPATH", "")
+    env0 = _parse_condor_env(run_dirs[0]) if run_dirs else {}
+    acct = accounting_group or env0.get("accounting_group", "ligo.dev.o4.cbc.pe.rift")
+    mod = "RIFT.interpolators.jax_gp.applications.export_at_scale"
+
+    sub = os.path.join(cdir, "export_at_scale.sub")
+    with open(sub, "w") as fh:
+        fh.write(
+            "universe = vanilla\n"
+            "executable = {py}\n"
+            "arguments = \"-m {mod} one --run-dir $(rundir) "
+            "--workroot {wr} --method {m} --n-samples {ns} --sampler {smp} "
+            "--no-plot\"\n"
+            "environment = \"PYTHONPATH={pp}\"\n"
+            "getenv = True\n"
+            "output = {cdir}/$(label).out\n"
+            "error  = {cdir}/$(label).err\n"
+            "log    = {cdir}/export_at_scale.log\n"
+            "request_memory = {mem}\n"
+            "request_disk = {disk}\n"
+            "request_cpus = 1\n"
+            "accounting_group = {acct}\n"
+            "accounting_group_user = {user}\n"
+            "queue\n".format(
+                py=python, mod=mod, wr=workroot, m=method, ns=n_samples,
+                smp=sampler, pp=pythonpath, cdir=cdir,
+                mem=env0.get("request_memory", "8000M"),
+                disk=env0.get("request_disk", "2000M"), acct=acct,
+                user=env0.get("accounting_group_user",
+                              os.environ.get("USER", "user"))))
+
+    dag = os.path.join(cdir, "export_at_scale.dag")
+    with open(dag, "w") as fh:
+        for i, rd in enumerate(run_dirs):
+            spec_label = "{}__{}".format(
+                os.path.basename(os.path.dirname(rd)), os.path.basename(rd))
+            jid = "export_{}".format(i)
+            fh.write('JOB {jid} {sub}\n'.format(jid=jid, sub=sub))
+            fh.write('VARS {jid} rundir="{rd}" label="{lab}"\n'.format(
+                jid=jid, rd=rd, lab=spec_label))
+    return dag
+
+
+# --------------------------------------------------------------------------- #
+# 8. CLI
+# --------------------------------------------------------------------------- #
+
+def _add_common(p):
+    p.add_argument("--method", default="quadgp",
+                   choices=["svgp", "rff", "exact", "quadgp"],
+                   help="surrogate interpolator (default: quadgp -- PE-grade Fisher "
+                        "quadratic core + GP residual; svgp is faster for easy/low-D)")
+    p.add_argument("--n-samples", type=int, default=40000,
+                   help="importance-sampling proposal draws (default: 40000)")
+    p.add_argument("--sampler", default="auto",
+                   choices=["auto", "gaussian", "nuts"],
+                   help="validation sampler: auto (nuts if >3 fit dims, else "
+                        "gaussian) | gaussian (fast IS, low-D) | nuts (gradient "
+                        "NUTS, robust in high-D precessing)")
+    p.add_argument("--cap-points", type=int, default=8000)
+    p.add_argument("--n-features", type=int, default=256,
+                   help="SVGP inducing points / RFF features (default: 256)")
+    p.add_argument("--n-opt-steps", type=int, default=300)
+    p.add_argument("--lnL-offset", type=float, default=40.0)
+    p.add_argument("--sigma-cut", type=float, default=0.6)
+    p.add_argument("--seed", type=int, default=0)
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    d = sub.add_parser("discover", help="inspect a run dir; print what was found")
+    d.add_argument("--run-dir", required=True)
+
+    o = sub.add_parser("one", help="export + validate a single run")
+    o.add_argument("--run-dir", required=True)
+    o.add_argument("--workroot", default="./export_at_scale_out")
+    o.add_argument("--no-plot", action="store_true")
+    _add_common(o)
+
+    b = sub.add_parser("batch", help="many runs: local loop or a condor DAG")
+    b.add_argument("--runs", nargs="+", required=True,
+                   help="run dirs or globs (e.g. '/data/*/S*/rift*/')")
+    b.add_argument("--workroot", default="./export_at_scale_out")
+    b.add_argument("--condor", action="store_true",
+                   help="emit a condor DAG instead of running locally")
+    b.add_argument("--accounting-group", default=None)
+    b.add_argument("--no-plot", action="store_true")
+    _add_common(b)
+
+    args = p.parse_args(argv)
+
+    if args.cmd == "discover":
+        spec = discover_run(args.run_dir)
+        spec = {k: v for k, v in spec.items() if k != "cols"}
+        print(json.dumps(spec, indent=2, default=str))
+        return spec
+
+    if args.cmd == "one":
+        rep = run_one(args.run_dir, args.workroot, method=args.method,
+                      n_samples=args.n_samples, seed=args.seed,
+                      cap_points=args.cap_points, n_features=args.n_features,
+                      n_opt_steps=args.n_opt_steps, lnL_offset=args.lnL_offset,
+                      sigma_cut=args.sigma_cut, sampler=args.sampler,
+                      write_plot=not args.no_plot)
+        print(json.dumps({"out_dir": rep["out_dir"],
+                          "holdout_rmse": rep["fit"]["holdout_rmse"],
+                          "quality": rep["validation"]["quality"],
+                          "is_ess": rep["validation"]["is_ess"],
+                          "js": rep["validation"]["js"]}, indent=2))
+        return rep
+
+    if args.cmd == "batch":
+        runs = expand_runs(args.runs)
+        if not runs:
+            raise SystemExit("no run dirs with all.net matched {}".format(args.runs))
+        print("[batch] {} run dirs".format(len(runs)), file=sys.stderr)
+        if args.condor:
+            dag = write_condor_batch(runs, args.workroot, method=args.method,
+                                     n_samples=args.n_samples, sampler=args.sampler,
+                                     accounting_group=args.accounting_group)
+            print("wrote DAG: {}\nsubmit with: condor_submit_dag {}".format(dag, dag))
+            return dag
+        results = []
+        for rd in runs:
+            try:
+                rep = run_one(rd, args.workroot, method=args.method,
+                              n_samples=args.n_samples, seed=args.seed,
+                              cap_points=args.cap_points, n_features=args.n_features,
+                              n_opt_steps=args.n_opt_steps,
+                              lnL_offset=args.lnL_offset, sigma_cut=args.sigma_cut,
+                              sampler=args.sampler, write_plot=not args.no_plot)
+                results.append({"run": rd, "quality": rep["validation"]["quality"],
+                                "is_ess": rep["validation"]["is_ess"],
+                                "js": rep["validation"]["js"]})
+                print("[ok] {}".format(rd), file=sys.stderr)
+            except Exception as e:
+                results.append({"run": rd, "error": str(e)})
+                print("[FAIL] {}: {}".format(rd, e), file=sys.stderr)
+        summ = os.path.join(os.path.abspath(args.workroot), "batch_summary.json")
+        os.makedirs(os.path.dirname(summ), exist_ok=True)
+        json.dump(results, open(summ, "w"), indent=2)
+        print("wrote {}".format(summ))
+        return results
+
+
+if __name__ == "__main__":
+    main()
