@@ -109,6 +109,29 @@ is the default. The validation's ESS-based quality flag is what tells the two ap
 the over-smoothed `svgp` posterior only *looked* good under a low-ESS Gaussian
 proposal.
 
+## Surrogate tuning (mc/q fidelity)
+
+Tunable knobs: `--keep-curv-frac` (quadgp Fisher-core curvature fraction),
+`--ls-lo-frac`/`--ls-hi-frac` (ARD lengthscale box as a fraction of the peak width —
+the CIP smoothing-length analog), `--n-features` (inducing points), `--cap-points`,
+`--n-opt-steps`, `--lnL-offset`. A sweep on the 8-D precessing S240426s:
+
+- `mc` JS ~0.015 and `chi_eff` JS ~0.009 are **apples-to-apples good** and stable.
+- **`q` JS ~0.056 is insensitive to every smoothing knob** (keep_curv_frac 0.05→0.6,
+  ls_hi_frac 1.0→0.25, n_features 256→512, cap 8k→16k all leave q≈0.637 vs CIP 0.718).
+  So the residual `q` is **not** over-smoothing. Two structural causes: (1) this run
+  fit CIP with `--fit-method rf` (Random Forest) — RF resists the prior pull in the
+  weakly-constrained mass-ratio direction differently than a smooth GP, and our
+  artifact must be a *differentiable* GP; (2) the correct η^(−6/5) prior pulls toward
+  low q, and the GP likelihood is slightly flatter in `delta_mc` than RF, leaving a
+  low-q tail (visible in `marginals.png`).
+- Raising `keep_curv_frac` *hurts* (the Fisher core is a global quadratic; over a wide
+  `mc` range the surface isn't globally quadratic). Default 0.05 is best.
+
+Bottom line: defaults (`--method quadgp --keep-curv-frac 0.05`) are the tuned optimum;
+`mc`/`chi_eff` are PE-grade, and closing `q` further needs a different fit family
+(RF is not differentiable), not knob-jittering.
+
 ## Interpreting the JS divergence
 
 Because the validation now samples `exp(lnL + ln prior)` with **RIFT's own priors**

@@ -504,7 +504,8 @@ def build_sampling(spec, fit_names):
 
 def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0,
                    cap_points=8000, n_features=256, n_opt_steps=300, seed=0,
-                   quadgp_residual="svgp"):
+                   quadgp_residual="svgp", keep_curv_frac=0.05,
+                   ls_lo_frac=0.2, ls_hi_frac=1.0):
     """Build, persist and cold-reload-verify a differentiable lnL artifact for the
     run's ``all.net``. Returns a metadata dict (also the fit-coord arrays needed by
     validation, under private keys)."""
@@ -554,8 +555,12 @@ def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0
     elif method in ("svgp", "gp-jax-svgp"):
         model = cls(n_inducing=n_features, n_opt_steps=n_opt_steps, seed=seed)
     elif method == "quadgp":
+        gpkw = {}
+        if quadgp_residual == "svgp":          # lengthscale box forwards to the residual
+            gpkw = dict(ls_lo_frac=ls_lo_frac, ls_hi_frac=ls_hi_frac)
         model = cls(gp_method=quadgp_residual, n_inducing=n_features,
-                    n_opt_steps=n_opt_steps, seed=seed)
+                    n_opt_steps=n_opt_steps, seed=seed,
+                    keep_curv_frac=keep_curv_frac, **gpkw)
     else:
         model = cls(n_opt_steps=n_opt_steps)
     model = model.fit(Xtr, ytr, y_errors=etr)
@@ -816,7 +821,8 @@ def validate_artifact(spec, fit_meta, out_dir, n_samples=40000, inflate=1.2,
 
 def run_one(run_dir, workroot, method="quadgp", n_samples=40000, seed=0,
             cap_points=8000, n_features=256, n_opt_steps=300, lnL_offset=40.0,
-            sigma_cut=0.6, sampler="auto", write_plot=True):
+            sigma_cut=0.6, sampler="auto", keep_curv_frac=0.05,
+            ls_lo_frac=0.2, ls_hi_frac=1.0, write_plot=True):
     """Discover -> fit+export -> validate one run; write all artifacts under
     ``workroot/<label>/`` and return the full report."""
     import RIFT.interpolators.jax_gp  # noqa: F401  (enables float64)
@@ -830,7 +836,8 @@ def run_one(run_dir, workroot, method="quadgp", n_samples=40000, seed=0,
     fit_meta = fit_and_export(
         spec, out_base, method=method, sigma_cut=sigma_cut,
         lnL_offset=lnL_offset, cap_points=cap_points, n_features=n_features,
-        n_opt_steps=n_opt_steps, seed=seed)
+        n_opt_steps=n_opt_steps, seed=seed, keep_curv_frac=keep_curv_frac,
+        ls_lo_frac=ls_lo_frac, ls_hi_frac=ls_hi_frac)
     t_fit = time.time() - t0
 
     t1 = time.time()
@@ -1022,6 +1029,19 @@ def _add_common(p):
     p.add_argument("--cap-points", type=int, default=8000)
     p.add_argument("--n-features", type=int, default=256,
                    help="SVGP inducing points / RFF features (default: 256)")
+    p.add_argument("--keep-curv-frac", type=float, default=0.05,
+                   help="quadgp: fraction of peak curvature kept in the exact Fisher "
+                        "quadratic core (default 0.05). Raise it (e.g. 0.3-0.6) to "
+                        "capture the gentler mass-ratio curvature in the quadratic "
+                        "instead of the over-smoothing GP residual -> sharper q.")
+    p.add_argument("--ls-hi-frac", type=float, default=1.0,
+                   help="quadgp/svgp: upper bound on the ARD lengthscale as a fraction "
+                        "of the peak-region width (default 1.0). LOWER it (0.3-0.6) to "
+                        "force shorter lengthscales = less GP smoothing = sharper "
+                        "marginals (the CIP smoothing-length analog).")
+    p.add_argument("--ls-lo-frac", type=float, default=0.2,
+                   help="quadgp/svgp: lower bound on the ARD lengthscale fraction "
+                        "(default 0.2).")
     p.add_argument("--n-opt-steps", type=int, default=300)
     p.add_argument("--lnL-offset", type=float, default=40.0)
     p.add_argument("--sigma-cut", type=float, default=0.6)
@@ -1066,6 +1086,8 @@ def main(argv=None):
                       cap_points=args.cap_points, n_features=args.n_features,
                       n_opt_steps=args.n_opt_steps, lnL_offset=args.lnL_offset,
                       sigma_cut=args.sigma_cut, sampler=args.sampler,
+                      keep_curv_frac=args.keep_curv_frac,
+                      ls_lo_frac=args.ls_lo_frac, ls_hi_frac=args.ls_hi_frac,
                       write_plot=not args.no_plot)
         print(json.dumps({"out_dir": rep["out_dir"],
                           "holdout_rmse": rep["fit"]["holdout_rmse"],
@@ -1093,7 +1115,9 @@ def main(argv=None):
                               cap_points=args.cap_points, n_features=args.n_features,
                               n_opt_steps=args.n_opt_steps,
                               lnL_offset=args.lnL_offset, sigma_cut=args.sigma_cut,
-                              sampler=args.sampler, write_plot=not args.no_plot)
+                              sampler=args.sampler, keep_curv_frac=args.keep_curv_frac,
+                              ls_lo_frac=args.ls_lo_frac, ls_hi_frac=args.ls_hi_frac,
+                              write_plot=not args.no_plot)
                 results.append({"run": rd, "quality": rep["validation"]["quality"],
                                 "is_ess": rep["validation"]["is_ess"],
                                 "js": rep["validation"]["js"]})
