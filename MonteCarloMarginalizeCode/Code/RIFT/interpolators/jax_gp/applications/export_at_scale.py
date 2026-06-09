@@ -249,6 +249,9 @@ def discover_run(run_dir):
     eta_range = _parse_pair(_cip_opt(toks, "--eta-range"))
     chi_max = _cip_opt(toks, "--chi-max")
     chi_max = float(chi_max) if chi_max else None
+    chi_small_max = _cip_opt(toks, "--chi-small-max")
+    chi_small_max = float(chi_small_max) if chi_small_max else None
+    aligned_prior = _cip_opt(toks, "--aligned-prior") or "uniform"
     precessing = "--use-precessing" in toks
     params = (_cip_opt(toks, "--parameter", multi=True)
               + _cip_opt(toks, "--parameter-implied", multi=True)
@@ -274,6 +277,9 @@ def discover_run(run_dir):
         "mc_range": mc_range,
         "eta_range": eta_range,
         "chi_max": chi_max if chi_max is not None else 0.99,
+        "chi_small_max": (chi_small_max if chi_small_max is not None
+                          else (chi_max if chi_max is not None else 0.99)),
+        "aligned_prior": aligned_prior,
         "n_output_samples": int(n_out) if n_out else 2000,
         "posterior": _find_latest_posterior(run_dir),
         "condor_env": _parse_condor_env(run_dir),
@@ -357,6 +363,142 @@ def fit_prior_box(fit_names, spec):
 
 
 # --------------------------------------------------------------------------- #
+# 3b. RIFT-prior-correct sampling coordinates (apples-to-apples validation)
+# --------------------------------------------------------------------------- #
+#
+# CIP does NOT sample exp(lnL) flat: it applies its prior_map in the *sampled*
+# coordinates.  To compare apples-to-apples we reproduce that measure.  The trick
+# (read straight out of CIP's prior_map) is to sample spins in spherical
+# coordinates (chi, cos_theta, phi), where RIFT's default precessing prior is
+# *separable and flat* -- chi: uniform magnitude (s_magnitude_uniform_prior=1/R),
+# cos_theta: uniform, phi: uniform -- so the only non-constant prior factor left is
+# the MASS prior (mc_prior ~ mc; delta_mc_prior ~ eta^-6/5).  The Cartesian-spin
+# 1/chi^2 "singularity" is just the Jacobian of this flat spherical prior, so
+# sampling in (chi,cos_theta,phi) both matches RIFT exactly and avoids the singular
+# geometry.  Aligned runs sample s1z,s2z in Cartesian with the s_component_zprior
+# shape when --aligned-prior alignedspin-zprior was used.
+
+def build_sampling(spec, fit_names):
+    """Return the RIFT-measure sampling spec for the artifact's ``fit_names``.
+
+    Returns a dict with:
+      ``names``  -- sampling-coordinate names (mc, delta_mc, then per-body either
+                    (chi,cos_theta,phi) [precessing] or the Cartesian aligned comps),
+      ``lo``/``hi`` -- the prior box (numpy),
+      ``ln_prior(theta)`` -- pure-JAX non-constant log-prior shape in those coords,
+      ``to_fit(theta)`` -- pure-JAX map sampling coords -> the ``fit_names`` vector
+                           the artifact consumes,
+      ``raw_to_sample(X_raw, raw_names)`` -- numpy map of ILE data into sampling
+                           coords (for the proposal/preconditioner),
+      ``to_compare(S)`` -- numpy map of samples -> {mc, q, chi_eff}.
+    """
+    import jax.numpy as jnp
+
+    fit_set = set(fit_names)
+    eta_r = spec["eta_range"] or [0.01, 0.2499999]
+    mc_r = spec["mc_range"] or [0.9, 250.0]
+    d_hi = math.sqrt(max(0.0, 1.0 - 4.0 * eta_r[0]))
+    d_lo = math.sqrt(max(0.0, 1.0 - 4.0 * min(eta_r[1], 0.25)))
+    precessing = spec["precessing"]
+    zprior = spec.get("aligned_prior") == "alignedspin-zprior"
+    Rbody = {"1": spec["chi_max"], "2": spec["chi_small_max"]}
+
+    names = ["mc", "delta_mc"]
+    lo = [mc_r[0], max(0.0, d_lo)]
+    hi = [mc_r[1], min(0.999, d_hi)]
+    # describe how each body's spin is sampled: ("sph"|"cart"|None, [present comps])
+    body_mode = {}
+    for b in ("1", "2"):
+        comps = [c for c in ("s%sx" % b, "s%sy" % b, "s%sz" % b) if c in fit_set]
+        R = Rbody[b]
+        if len(comps) == 3:                          # full spin -> spherical
+            body_mode[b] = ("sph", comps)
+            names += ["chi%s" % b, "cos_theta%s" % b, "phi%s" % b]
+            lo += [0.0, -1.0, 0.0]; hi += [R, 1.0, 2.0 * math.pi]
+        elif comps:                                  # aligned subset -> Cartesian
+            body_mode[b] = ("cart", comps)
+            for c in comps:
+                names.append(c); lo.append(-R); hi.append(R)
+        else:
+            body_mode[b] = (None, [])
+    lo = np.array(lo); hi = np.array(hi)
+    nidx = {n: i for i, n in enumerate(names)}
+
+    def ln_prior(theta):
+        mc = theta[nidx["mc"]]
+        dmc = theta[nidx["delta_mc"]]
+        eta = 0.25 * (1.0 - dmc * dmc)
+        lp = jnp.log(mc) - 1.2 * jnp.log(eta)        # mc_prior ~ mc ; eta_prior ~ eta^-6/5
+        if zprior:                                   # s_component_zprior on aligned comps
+            for b in ("1", "2"):
+                mode, comps = body_mode[b]
+                if mode == "cart":
+                    R = Rbody[b]
+                    for c in comps:
+                        if c.endswith("z"):
+                            s = theta[nidx[c]]
+                            lp = lp + jnp.log(-jnp.log(jnp.abs(s) / R + 1e-7))
+        return lp
+
+    def to_fit(theta):
+        vals = {"mc": theta[nidx["mc"]], "delta_mc": theta[nidx["delta_mc"]]}
+        for b in ("1", "2"):
+            mode, comps = body_mode[b]
+            if mode == "sph":
+                chi = theta[nidx["chi%s" % b]]
+                ct = theta[nidx["cos_theta%s" % b]]
+                ph = theta[nidx["phi%s" % b]]
+                st = jnp.sqrt(jnp.clip(1.0 - ct * ct, 0.0, 1.0))
+                vals["s%sz" % b] = chi * ct
+                vals["s%sx" % b] = chi * st * jnp.cos(ph)
+                vals["s%sy" % b] = chi * st * jnp.sin(ph)
+            elif mode == "cart":
+                for c in comps:
+                    vals[c] = theta[nidx[c]]
+        return jnp.stack([vals[n] for n in fit_names])
+
+    def raw_to_sample(X_raw, raw_names):
+        ridx = {n: i for i, n in enumerate(raw_names)}
+        m1 = X_raw[:, ridx["m1"]]; m2 = X_raw[:, ridx["m2"]]
+        mc = (m1 * m2) ** 0.6 / (m1 + m2) ** 0.2
+        dmc = (m1 - m2) / (m1 + m2)
+        cols = [mc, dmc]
+        for b in ("1", "2"):
+            mode, comps = body_mode[b]
+            if mode == "sph":
+                sx = X_raw[:, ridx["s%sx" % b]]; sy = X_raw[:, ridx["s%sy" % b]]
+                sz = X_raw[:, ridx["s%sz" % b]]
+                chi = np.sqrt(sx ** 2 + sy ** 2 + sz ** 2)
+                ct = np.where(chi > 1e-12, sz / np.clip(chi, 1e-12, None), 0.0)
+                ph = np.mod(np.arctan2(sy, sx), 2.0 * np.pi)
+                cols += [chi, ct, ph]
+            elif mode == "cart":
+                for c in comps:
+                    cols.append(X_raw[:, ridx[c]])
+        return np.column_stack(cols)
+
+    def to_compare(S):
+        mc = S[:, nidx["mc"]]; dmc = S[:, nidx["delta_mc"]]
+        eta = 0.25 * (1.0 - dmc ** 2)
+        mtot = mc * eta ** (-3.0 / 5.0)
+        m1 = 0.5 * mtot * (1.0 + dmc); m2 = 0.5 * mtot * (1.0 - dmc)
+        def sz(b):
+            mode, comps = body_mode[b]
+            if mode == "sph":
+                return S[:, nidx["chi%s" % b]] * S[:, nidx["cos_theta%s" % b]]
+            if mode == "cart" and ("s%sz" % b) in nidx:
+                return S[:, nidx["s%sz" % b]]
+            return np.zeros_like(m1)
+        chi_eff = (m1 * sz("1") + m2 * sz("2")) / (m1 + m2)
+        return {"mc": mc, "q": m2 / m1, "chi_eff": chi_eff,
+                "m1": m1, "m2": m2, "eta": eta}
+
+    return {"names": names, "lo": lo, "hi": hi, "ln_prior": ln_prior,
+            "to_fit": to_fit, "raw_to_sample": raw_to_sample,
+            "to_compare": to_compare}
+
+
+# --------------------------------------------------------------------------- #
 # 4. fit + export the artifact (the deliverable)
 # --------------------------------------------------------------------------- #
 
@@ -386,14 +528,16 @@ def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0
     Xfit = Xfit_all[:, keep]
 
     # 3. high-lnL region + stratified ("tree-ring") downselect to bound fit cost
+    #    (carry the raw intrinsic columns through the same masks: validation needs
+    #    them to build the proposal in RIFT's sampling coordinates)
     ok = np.all(np.isfinite(Xfit), axis=1) & np.isfinite(y) & np.isfinite(yerr)
-    Xfit, y, yerr = Xfit[ok], y[ok], yerr[ok]
+    Xfit, y, yerr, X_raw = Xfit[ok], y[ok], yerr[ok], X_raw[ok]
     lnL_max = float(np.max(y))
     band = y > lnL_max - lnL_offset
-    Xfit, y, yerr = Xfit[band], y[band], yerr[band]
+    Xfit, y, yerr, X_raw = Xfit[band], y[band], yerr[band], X_raw[band]
     if cap_points and len(y) > cap_points:
         sel = _tree_ring_select(y, cap_points, seed=seed)
-        Xfit, y, yerr = Xfit[sel], y[sel], yerr[sel]
+        Xfit, y, yerr, X_raw = Xfit[sel], y[sel], yerr[sel], X_raw[sel]
 
     # 4. honest 15% holdout
     rng = np.random.default_rng(seed)
@@ -443,6 +587,8 @@ def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0
     meta["_fit_names"] = fit_names
     meta["_Xfit"] = Xfit
     meta["_y"] = y
+    meta["_X_raw"] = X_raw
+    meta["_raw_names"] = list(spec["intrinsic_names"])
     return meta
 
 
@@ -479,16 +625,83 @@ def _load_posterior_dat(path):
     return cols
 
 
+def _sample_flow_v060(target, lo, hi, init_theta=None, n_samples=8000, n_chains=30,
+                      n_train_loops=6, n_prod_loops=2, n_epochs=12, seed=0):
+    """flowMC (>=0.6.0) normalizing-flow importance sampling on the box [lo,hi].
+
+    A self-contained replacement for the legacy ``jax_cip.sample_flow_is`` (whose
+    positional ``Sampler(...)`` call broke under flowMC 0.6.0's keyword-only API).
+    Trains an RQ-spline flow over a sigmoid-into-box latent, then i.i.d. draws +
+    importance weights ``exp(target + log_jac - log_q)``. Use in ``rift_ad_export``.
+    """
+    import jax
+    import jax.numpy as jnp
+    from flowMC.Sampler import Sampler
+    from flowMC.resource_strategy_bundle.RQSpline_MALA import RQSpline_MALA_Bundle
+
+    lo = jnp.asarray(lo); hi = jnp.asarray(hi); span = hi - lo
+    d = int(lo.shape[0])
+
+    def theta_of_u(u):
+        return lo + span * jax.nn.sigmoid(u)
+
+    def log_jac(u):
+        return jnp.sum(jnp.log(span) + jax.nn.log_sigmoid(u) + jax.nn.log_sigmoid(-u))
+
+    def u_logpdf(u, data=None):
+        return target(theta_of_u(u)) + log_jac(u)
+
+    key = jax.random.PRNGKey(seed)
+    key, kb, ks, ki, kd = jax.random.split(key, 5)
+    bundle = RQSpline_MALA_Bundle(
+        rng_key=kb, n_chains=n_chains, n_dims=d, logpdf=u_logpdf,
+        n_local_steps=50, n_global_steps=50, n_training_loops=n_train_loops,
+        n_production_loops=n_prod_loops, n_epochs=n_epochs)
+    sampler = Sampler(n_dim=d, n_chains=n_chains, rng_key=ks,
+                      resource_strategy_bundles=bundle)
+    if init_theta is not None:
+        frac = np.clip((np.asarray(init_theta, float) - np.asarray(lo))
+                       / np.asarray(span), 1e-3, 1 - 1e-3)
+        u0 = np.log(frac / (1 - frac))
+        init = jnp.asarray(u0)[None, :] + 0.3 * jax.random.normal(ki, (n_chains, d))
+    else:
+        init = 0.3 * jax.random.normal(ki, (n_chains, d))
+    sampler.sample(init, {})
+
+    flow = sampler.resources["model"]
+    u = jnp.asarray(flow.sample(kd, n_samples))
+    theta = np.asarray(jax.vmap(theta_of_u)(u))
+    log_q = np.asarray(jax.vmap(flow.log_prob)(u))    # log_prob is per-sample in 0.6.0
+    log_p = np.asarray(jax.jit(jax.vmap(u_logpdf))(u))
+    log_w = np.array(log_p - log_q, dtype=np.float64)
+    m = np.max(log_w)
+    logZ = float(m + np.log(np.mean(np.exp(log_w - m))))
+    w = np.exp(log_w - m); w = w / w.sum()
+    ess = float(1.0 / np.sum(w ** 2))
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(n_samples, size=min(8000, n_samples), replace=True, p=w)
+    samples = theta[idx]
+    return {"samples": samples, "ess": ess, "ess_frac": ess / n_samples,
+            "logZ": logZ, "mean": samples.mean(0), "std": samples.std(0)}
+
+
 def validate_artifact(spec, fit_meta, out_dir, n_samples=40000, inflate=1.2,
                       seed=0, sampler="auto", compare_params=("mc", "q", "chi_eff")):
     """Draw a posterior from the *reloaded* artifact and JS-compare its marginals to
     the run's CIP posterior. Writes ``posterior_interp.dat`` and returns the report.
 
+    The target is the run's actual posterior ``lnL(theta) + ln prior(theta)`` -- NOT a
+    flat-prior caricature -- so the comparison is apples-to-apples with CIP.  Sampling
+    is done in RIFT's own coordinates (:func:`build_sampling`): spins in
+    ``(chi, cos_theta, phi)``, where RIFT's isotropic prior is flat, plus the
+    non-uniform mass-prior shape (``mc_prior`` ~ mc, ``eta_prior`` ~ eta^-6/5).  This
+    both matches CIP's measure and avoids the Cartesian-spin 1/chi^2 singularity.
+
     ``sampler``: ``"gaussian"`` -- fast mu-matched importance sampling (great in low
     dimension); ``"nuts"`` -- gradient-based NUTS preconditioned with the data
     covariance, which exploits the artifact's AD gradients and explores the curved,
     high-dimensional precessing posterior far better than a single Gaussian proposal;
-    ``"auto"`` (default) picks ``nuts`` when the fit has >3 dimensions, else
+    ``"auto"`` (default) picks ``nuts`` when there are >3 sampling dimensions, else
     ``gaussian``.
     """
     from RIFT.interpolators.jax_gp import export
@@ -496,14 +709,27 @@ def validate_artifact(spec, fit_meta, out_dir, n_samples=40000, inflate=1.2,
         sample_gaussian_is, sample_nuts_muframe)
     from RIFT.interpolators.jax_gp.applications.compare import js_with_stderr
 
+    import jax.numpy as jnp
     fit_names = fit_meta["_fit_names"]
-    Xfit, y = fit_meta["_Xfit"], fit_meta["_y"]
+    X_raw, raw_names = fit_meta["_X_raw"], fit_meta["_raw_names"]
+    y = fit_meta["_y"]
     reloaded = export.load(fit_meta["out_base"])
 
-    lo, hi = fit_prior_box(fit_names, spec)
-    # proposal matched to the lnL-weighted posterior, restricted to the prior box
-    inb = np.all((Xfit >= lo) & (Xfit <= hi), axis=1)
-    Xp, yp = (Xfit[inb], y[inb]) if inb.sum() >= 10 else (Xfit, y)
+    # Sample in RIFT's OWN coordinates + measure (apples-to-apples): spins in
+    # (chi,cos_theta,phi) where the isotropic prior is flat, plus the mass-prior
+    # shape. The NUTS/IS target is lnL(theta) + ln prior(theta) -- exactly the CIP
+    # posterior, not a flat-prior caricature.
+    smp = build_sampling(spec, fit_names)
+    names, lo, hi = smp["names"], smp["lo"], smp["hi"]
+    Xs = smp["raw_to_sample"](X_raw, raw_names)        # ILE data in sampling coords
+
+    def target(theta):
+        return reloaded.lnL_physical(smp["to_fit"](theta)) + smp["ln_prior"](theta)
+
+    # proposal/preconditioner: lnL-weighted mean+cov of the data in sampling coords,
+    # restricted to the prior box
+    inb = np.all((Xs >= lo) & (Xs <= hi), axis=1)
+    Xp, yp = (Xs[inb], y[inb]) if inb.sum() >= 10 else (Xs, y)
     w = np.exp(yp - yp.max()); w /= w.sum()
     gmean = (Xp * w[:, None]).sum(0)
     gcov = np.atleast_2d(np.cov(Xp.T, aweights=w))
@@ -511,34 +737,27 @@ def validate_artifact(spec, fit_meta, out_dir, n_samples=40000, inflate=1.2,
         gcov = gcov.reshape(1, 1)
 
     if sampler == "auto":
-        sampler = "nuts" if len(fit_names) > 3 else "gaussian"
-    if sampler == "nuts":
+        sampler = "nuts" if len(names) > 3 else "gaussian"
+    if sampler == "flow":
+        # normalizing-flow IS (flowMC >=0.6.0); needs the rift_ad_export env.
+        res = _sample_flow_v060(target, lo, hi, init_theta=gmean,
+                                n_samples=max(8000, spec["n_output_samples"]),
+                                seed=seed)
+    elif sampler == "nuts":
         # Gradient-based NUTS, dense mass matrix seeded from the data covariance.
-        # Unlike a single-Gaussian importance proposal it is not proposal-limited,
-        # so it explores the curved, weakly-constrained precessing directions; it
-        # uses the artifact's jax.grad lnL directly.
+        # Not proposal-limited -> explores the curved, weakly-constrained precessing
+        # directions; uses the artifact's jax.grad lnL (+ prior) directly.
         ndraw = max(2000, spec["n_output_samples"])
-        res = sample_nuts_muframe(reloaded.lnL_physical, gmean, gcov, lo, hi,
-                                  num_warmup=1000, num_samples=ndraw,
-                                  num_chains=2, seed=seed)
+        res = sample_nuts_muframe(target, gmean, gcov, lo, hi, num_warmup=1000,
+                                  num_samples=ndraw, num_chains=2, seed=seed)
     else:
-        res = sample_gaussian_is(reloaded.lnL_physical, gmean, gcov, lo, hi,
+        res = sample_gaussian_is(target, gmean, gcov, lo, hi,
                                  n_samples=n_samples, inflate=inflate, seed=seed)
-    samples = res["samples"]                      # [n, d] in fit coords
+    samples = res["samples"]                      # [n, d] in sampling coords
 
-    phys = fit_to_physical(samples, fit_names)
-    # enforce the true spin-magnitude constraint (per-component box is a superset)
-    chi = spec["chi_max"]
-    mask = np.ones(len(samples), bool)
-    for body in ("1", "2"):
-        comps = [phys[c] for c in ("s%sx" % body, "s%sy" % body, "s%sz" % body)
-                 if c in phys]
-        if comps:
-            mag = np.sqrt(np.sum(np.square(np.column_stack(comps)), axis=1))
-            mask &= mag <= chi * 1.0001
-    for k in phys:
-        phys[k] = phys[k][mask]
-    samples = samples[mask]
+    # spin-magnitude constraint is automatic: chi in [0,R] by the box, and the
+    # spherical map keeps |spin| = chi <= R. Map to physical comparison params.
+    phys = smp["to_compare"](samples)
 
     # write the interpolated posterior (RIFT-ish .dat, intrinsic columns)
     os.makedirs(out_dir, exist_ok=True)
@@ -796,10 +1015,10 @@ def _add_common(p):
     p.add_argument("--n-samples", type=int, default=40000,
                    help="importance-sampling proposal draws (default: 40000)")
     p.add_argument("--sampler", default="auto",
-                   choices=["auto", "gaussian", "nuts"],
+                   choices=["auto", "gaussian", "nuts", "flow"],
                    help="validation sampler: auto (nuts if >3 fit dims, else "
                         "gaussian) | gaussian (fast IS, low-D) | nuts (gradient "
-                        "NUTS, robust in high-D precessing)")
+                        "NUTS, robust high-D) | flow (flowMC IS; needs rift_ad_export)")
     p.add_argument("--cap-points", type=int, default=8000)
     p.add_argument("--n-features", type=int, default=256,
                    help="SVGP inducing points / RFF features (default: 256)")

@@ -27,19 +27,31 @@ Nothing is written back into the run directory; every output lands under
    BNS, and **precessing** runs with no hand-written coordinate transform. Save the
    `.npz` + `.meta.json` bundle, **reload it**, and assert the reloaded `predict()`
    matches and `jax.grad` is finite.
-3. **Validate.** Draw a posterior *from the reloaded artifact* over the run's prior
-   box (spin-magnitude constraint enforced) — Gaussian importance sampling in low
-   dimension, gradient-based **NUTS** (using the artifact's `jax.grad` lnL) for the
-   curved high-dimensional precessing posteriors — then report the Jensen–Shannon
-   divergence of the `mc` / `q` / `chi_eff` marginals against the CIP posterior, with
-   an **ESS-based quality flag** so a sampling-limited result is never mistaken for a
-   surrogate error. Writes `posterior_interp.dat`, `report.json`, `summary.md`, and
-   `marginals.png`.
+3. **Validate (apples-to-apples).** Draw a posterior *from the reloaded artifact*
+   whose target is the run's **actual** `lnL + ln prior` — using RIFT's own priors,
+   sampled in RIFT's own coordinates (spins in `(χ, cosθ, φ)` where the isotropic
+   prior is flat and there's no Cartesian 1/χ² singularity; the non-uniform mass
+   prior `mc_prior ∝ mc`, `eta_prior ∝ η^(−6/5)`; the `alignedspin-zprior` for
+   aligned runs) — by Gaussian importance sampling in low dimension or gradient-based
+   **NUTS** (using the artifact's `jax.grad` lnL) in high dimension. Then report the
+   Jensen–Shannon divergence of the `mc` / `q` / `chi_eff` marginals against the CIP
+   posterior, with an **ESS-based quality flag** so a sampling-limited result is never
+   mistaken for surrogate error. Writes `posterior_interp.dat`, `report.json`,
+   `summary.md`, and `marginals.png`.
+
+## Environment
+
+Runs in the `rift_ad_export` conda env (a clone of `rift_jax` so the shared env is
+never modified): jax 0.9.2, numpyro, flowMC 0.6.0, tinygp, RIFT. `gaussian`/`nuts`
+need only jax+numpyro; `--sampler flow` needs flowMC (this env has a 0.6.0-correct
+flow sampler built into the tool — the legacy `jax_cip.sample_flow_is` breaks under
+flowMC 0.6.0's keyword-only `Sampler` API). Always export `PYTHONPATH` to the RIFT
+source tree.
 
 ## Usage
 
 ```bash
-PY=~/.conda/envs/rift_jax/bin/python
+PY=~/.conda/envs/rift_ad_export/bin/python
 export PYTHONPATH=/path/to/RIFT/MonteCarloMarginalizeCode/Code
 M=RIFT.interpolators.jax_gp.applications.export_at_scale
 
@@ -99,12 +111,12 @@ proposal.
 
 ## Interpreting the JS divergence
 
-The validation samples `exp(lnL)` with a **flat prior in the fit coordinates** over the
-run's CIP prior box, whereas CIP applies its own mass + spin prior. For narrow ranges
-that difference is negligible (the aligned demo: mc/q JS ~0.01). For wide-range events
-the `mc` marginal (≈flat prior across its narrow posterior) is the cleanest test of the
-*likelihood surrogate*; residual `q`/`chi_eff` differences fold in the prior/Jacobian
-as well as surrogate error.
+Because the validation now samples `exp(lnL + ln prior)` with **RIFT's own priors**
+(mass-ratio prior ∝ η^(−6/5); isotropic uniform-magnitude spin prior, sampled in
+`(χ,cosθ,φ)`; `alignedspin-zprior` when used), the comparison is apples-to-apples:
+a non-zero JS reflects *surrogate* error, not a prior-convention mismatch. The report
+carries a bootstrap stderr and an ESS quality flag; pool more CIP samples (raise
+`--n-output-samples` upstream) if a small JS is statistics-limited.
 
 
 JS is in bits (0 = identical marginals). For PE-grade agreement expect a few × 10⁻³
