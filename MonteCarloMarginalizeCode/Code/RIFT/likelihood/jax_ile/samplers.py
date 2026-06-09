@@ -681,6 +681,51 @@ def eval_lnL_4(like, theta, chunk=4000, desc="lnL"):
     return out
 
 
+# d+psi 4-D order: (ra, dec, phiref, incl) -- distance+psi marginalized, phi_ref sampled.
+_BOUNDS4PHI = [(0.0, _TWO_PI), (-_PI / 2 + 1e-3, _PI / 2 - 1e-3),
+               (0.0, _TWO_PI), (1e-3, _PI - 1e-3)]
+
+
+def sample_prior_4phi(n, rng):
+    """Draw ``n`` prior samples of ``theta4 = (ra, dec, phiref, incl)`` (d+psi)."""
+    ra = rng.uniform(0.0, _TWO_PI, n)
+    dec = np.arcsin(rng.uniform(-1.0, 1.0, n))
+    phiref = rng.uniform(0.0, _TWO_PI, n)
+    incl = np.arccos(rng.uniform(-1.0, 1.0, n))
+    return np.stack([ra, dec, phiref, incl], axis=-1)
+
+
+def log_prior_4phi(theta):
+    """log prior density for ``theta4 = (ra, dec, phiref, incl)`` (numpy, batched).
+
+    ``-inf`` outside the support.  phiref ~ U(0, 2pi) (density 1/(2pi)); includes
+    ``cos(dec)`` and ``sin(incl)`` Jacobians from the uniform-sphere / uniform-cos
+    parameterisations.
+    """
+    theta = np.atleast_2d(theta)
+    ra, dec, phiref, incl = [theta[..., i] for i in range(4)]
+    inb = ((ra >= 0) & (ra <= _TWO_PI) & (dec >= -_PI / 2) & (dec <= _PI / 2)
+           & (phiref >= 0) & (phiref <= _TWO_PI)
+           & (incl >= 0) & (incl <= _PI))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        logp = (np.log(np.cos(dec)) - np.log(2.0)
+                + np.log(np.sin(incl)) - np.log(2.0)
+                - np.log(_TWO_PI) - np.log(_TWO_PI))
+    return np.where(inb, logp, -np.inf)
+
+
+def _log_prior_4phi_jax(theta4):
+    """JAX-traceable log-prior for a single length-4 ``theta4 = (ra,dec,phiref,incl)``."""
+    ra, dec, phiref, incl = theta4[0], theta4[1], theta4[2], theta4[3]
+    inb = ((ra >= 0) & (ra <= _TWO_PI) & (dec >= -_PI / 2) & (dec <= _PI / 2)
+           & (phiref >= 0) & (phiref <= _TWO_PI)
+           & (incl >= 0) & (incl <= _PI))
+    logp = (jnp.log(jnp.cos(dec)) - jnp.log(2.0)
+            + jnp.log(jnp.sin(incl)) - jnp.log(2.0)
+            - jnp.log(_TWO_PI) - jnp.log(_TWO_PI))
+    return jnp.where(inb, logp, -1e30)
+
+
 _BOUNDS3 = [(0.0, _TWO_PI), (-_PI / 2 + 1e-3, _PI / 2 - 1e-3),
             (1e-3, _PI - 1e-3)]   # (ra, dec, incl) -- psi marginalized out
 
@@ -754,17 +799,19 @@ def _warmup_compile(like, verbose=True):
         print("done (%.1f s)" % (_time.perf_counter() - t0), flush=True)
 
 
-def _map_polish_4(like, seeds, n_steps=300, lr=3e-3):
-    """AD gradient-ascent polish of 4-D (ra,dec,psi,incl) seeds to the local MAP.
+def _map_polish_4(like, seeds, n_steps=300, lr=3e-3, bounds=None):
+    """AD gradient-ascent polish of 4-D seeds to the local MAP.
 
     The flow under-reaches the true peak at high SNR (its best draw sits a few
     nats below the MAP); a few hundred projected-gradient steps on the
     JAX-traceable ``like._scalar`` climb the rest of the way.  Bounds are enforced
-    by clipping into the 4-D support each step.  Returns (best_theta, best_lnL,
-    [(theta_i, lnL_i), ...]) over the distinct seeds.
+    by clipping into the 4-D support each step (``bounds`` defaults to the phi-marg
+    (ra,dec,psi,incl) support; pass ``_BOUNDS4PHI`` for the d+psi order).  Returns
+    (best_theta, best_lnL, [(theta_i, lnL_i), ...]) over the distinct seeds.
     """
-    lo = np.array([b[0] for b in _BOUNDS4], float)
-    hi = np.array([b[1] for b in _BOUNDS4], float)
+    bounds = bounds if bounds is not None else _BOUNDS4
+    lo = np.array([b[0] for b in bounds], float)
+    hi = np.array([b[1] for b in bounds], float)
     grad_f = jax.jit(jax.grad(lambda t: like._scalar(t)))
     polished = []
     best_t, best_v = None, -np.inf
@@ -815,11 +862,17 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
     # Dimension-agnostic: 4-D (ra,dec,psi,incl) phi-marg, or 3-D (ra,dec,incl)
     # phi+psi-marg.  Helpers selected from the likelihood's parameter count so the
     # 4-D path is unchanged (defaults) and the 3-D psi-marg path reuses this code.
-    n_dim = len(getattr(like, "ANGULAR_PARAM_ORDER", ("ra", "dec", "psi", "incl")))
+    _param_order = getattr(like, "ANGULAR_PARAM_ORDER", ("ra", "dec", "psi", "incl"))
+    n_dim = len(_param_order)
     if n_dim == 3:
         _sample_prior, _log_prior = sample_prior_3, log_prior_3
         _log_prior_jax, _eval_lnL = _log_prior_3_jax, eval_lnL_3
+    elif "phiref" in _param_order:
+        # d+psi 4-D: slot-2 is phi_ref in [0, 2pi) (sampled), psi marginalized.
+        _sample_prior, _log_prior = sample_prior_4phi, log_prior_4phi
+        _log_prior_jax, _eval_lnL = _log_prior_4phi_jax, eval_lnL_4
     else:
+        # phi-marg 4-D: slot-2 is psi in [0, pi), phi_ref marginalized.
         _sample_prior, _log_prior = sample_prior_4, log_prior_4
         _log_prior_jax, _eval_lnL = _log_prior_4_jax, eval_lnL_4
     rng = np.random.default_rng(seed)
@@ -972,8 +1025,9 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
             if len(uniq) >= 8:
                 break
         seeds = theta[uniq] if uniq else theta[order[:1]]
+        _polish_bounds = _BOUNDS4PHI if "phiref" in _param_order else _BOUNDS4
         try:
-            map_theta, map_lnL, _ = _map_polish_4(like, seeds)
+            map_theta, map_lnL, _ = _map_polish_4(like, seeds, bounds=_polish_bounds)
             if verbose:
                 print("  [map-polish] flow lnLmax=%.3f -> polished MAP=%.3f (gain %.3f)"
                       % (float(np.max(lnL)), map_lnL,
@@ -1034,7 +1088,7 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
                 wv = np.linalg.eigvalsh(-0.5 * (H + H.T))
                 wreg = np.maximum(np.abs(wv), 1e-6)
                 dim = map_theta.shape[0]
-                logZ_laplace = (map_lnL + float(log_prior_4(map_theta[None, :])[0])
+                logZ_laplace = (map_lnL + float(_log_prior(map_theta[None, :])[0])
                                 + 0.5 * dim * np.log(2 * np.pi)
                                 - 0.5 * float(np.sum(np.log(wreg))))
                 if verbose:

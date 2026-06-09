@@ -27,6 +27,7 @@ import os
 from .core import (build_likelihood_data, fused_log_likelihood,
                    fused_log_likelihood_distmarg, fused_log_likelihood_distphimarg,
                    fused_log_likelihood_distphipsimarg,
+                   fused_log_likelihood_distpsimarg,
                    make_distance_grid, make_distance_grid_adaptive,
                    estimate_distance_peak, phi_ref_grid, psi_grid,
                    phi_ref_conditional_lnL, DIST_MPC_REF)
@@ -391,4 +392,72 @@ class JAXDistPhiPsiMargLikelihood:
     def fisher(self, theta3):
         """Observed Fisher matrix ``-Hessian(lnL)`` at ``theta3`` (3×3)."""
         H = np.asarray(self._hessian(jnp.asarray(theta3, dtype=jnp.float64)))
+        return -H
+
+
+class JAXDistPsiMargLikelihood:
+    """Distance- AND psi-marginalised lnL over 4 angles (ra, dec, phi_ref, incl).
+
+    Integrates out luminosity distance and polarization psi (a short spin-2 grid
+    scan, ~8 points) while KEEPING phi_ref as a sampled parameter, leaving a
+    smooth 4-D target ``theta4 = (ra, dec, phiref, incl)``.
+
+    This is the "d+psi" variant of the 4-D phi-marginalised likelihood
+    (:class:`JAXDistPhiMargLikelihood`): psi marginalization still breaks the
+    curved phi_ref-psi degeneracy ridge that collapses flowMC at high SNR, but
+    the psi scan (~8 steps) is much cheaper than the phi_ref scan (~32 steps),
+    so the kernel is faster.
+    """
+
+    ANGULAR_PARAM_ORDER = ("ra", "dec", "phiref", "incl")
+
+    def __init__(self, data, d_min, d_max, npsi=8, n_grid=256,
+                 d_prior="euclidean", interp="linear", guess_snr=None):
+        self.data = data
+        self.npsi = int(npsi)
+        self._psi_grid = psi_grid(self.npsi)
+        if int(os.environ.get("JAX_ILE_DISTGRID_ADAPTIVE", "0")) and guess_snr:
+            d_peak, sigma_d = estimate_distance_peak(data, guess_snr)
+            self.x_grid, self.log_w_grid = make_distance_grid_adaptive(
+                d_min, d_max, d_peak, sigma_d, d_prior, distMpcRef=data.distMpcRef)
+            self.dist_grid_info = dict(mode="adaptive", d_peak=float(d_peak),
+                                       sigma_d=float(sigma_d),
+                                       n=int(self.x_grid.shape[0]))
+        else:
+            self.x_grid, self.log_w_grid = make_distance_grid(
+                d_min, d_max, n_grid, d_prior, distMpcRef=data.distMpcRef)
+            self.dist_grid_info = dict(mode="uniform", n=int(self.x_grid.shape[0]))
+
+        xg, lwg, sg = self.x_grid, self.log_w_grid, self._psi_grid
+
+        def _batched(ra, dec, phiref, incl):
+            return fused_log_likelihood_distpsimarg(
+                data, ra, dec, phiref, incl, xg, lwg, sg, interp=interp)
+        self._batched = jax.jit(_batched)
+
+        def _scalar(theta4):
+            v = fused_log_likelihood_distpsimarg(
+                data, theta4[0:1], theta4[1:2], theta4[2:3], theta4[3:4],
+                xg, lwg, sg, interp=interp)
+            return v[0]
+        self._scalar = _scalar
+        self._value_and_grad = jax.jit(jax.value_and_grad(_scalar))
+        self._hessian = jax.jit(jax.hessian(_scalar))
+
+    def log_likelihood(self, ra, dec, phiref, incl):
+        """lnL for arrays of 4 angular params (ra, dec, phiref, incl), shape (S,)."""
+        return self._batched(
+            jnp.asarray(ra), jnp.asarray(dec),
+            jnp.asarray(phiref), jnp.asarray(incl))
+
+    def value(self, theta4):
+        return float(self._scalar(jnp.asarray(theta4, dtype=jnp.float64)))
+
+    def value_and_grad(self, theta4):
+        v, g = self._value_and_grad(jnp.asarray(theta4, dtype=jnp.float64))
+        return float(v), np.asarray(g)
+
+    def fisher(self, theta4):
+        """Observed Fisher matrix ``-Hessian(lnL)`` at ``theta4`` (4×4)."""
+        H = np.asarray(self._hessian(jnp.asarray(theta4, dtype=jnp.float64)))
         return -H
