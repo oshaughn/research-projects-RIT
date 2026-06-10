@@ -424,11 +424,19 @@ def build_sampling(spec, fit_names):
     lo = np.array(lo); hi = np.array(hi)
     nidx = {n: i for i, n in enumerate(names)}
 
+    mass_prior = spec.get("_mass_prior", "m1m2")
     def ln_prior(theta):
         mc = theta[nidx["mc"]]
         dmc = theta[nidx["delta_mc"]]
         eta = 0.25 * (1.0 - dmc * dmc)
-        lp = jnp.log(mc) - 1.2 * jnp.log(eta)        # mc_prior ~ mc ; eta_prior ~ eta^-6/5
+        # mc_prior ~ mc ; eta_prior ~ eta^-6/5 (* (1-4eta)^-1/2 when applied in eta).
+        lp = jnp.log(mc) - 1.2 * jnp.log(eta)
+        if mass_prior == "eta_full":
+            # keep the (1-4eta)^-1/2 = 1/|delta_mc| factor (d delta_mc/d eta): this is
+            # the eta_prior FORM evaluated on delta_mc samples (diverges at equal mass).
+            lp = lp - 0.5 * jnp.log(jnp.clip(1.0 - 4.0 * eta, 1e-12, None))
+        elif mass_prior == "flat":
+            lp = lp * 0.0
         if zprior:                                   # s_component_zprior on aligned comps
             for b in ("1", "2"):
                 mode, comps = body_mode[b]
@@ -555,11 +563,15 @@ def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0
     elif method in ("svgp", "gp-jax-svgp"):
         model = cls(n_inducing=n_features, n_opt_steps=n_opt_steps, seed=seed)
     elif method == "quadgp":
-        gpkw = {}
-        if quadgp_residual == "svgp":          # lengthscale box forwards to the residual
-            gpkw = dict(ls_lo_frac=ls_lo_frac, ls_hi_frac=ls_hi_frac)
-        model = cls(gp_method=quadgp_residual, n_inducing=n_features,
-                    n_opt_steps=n_opt_steps, seed=seed,
+        # forward only the kwargs the chosen residual backend accepts (via **gp_kwargs)
+        if quadgp_residual == "svgp":
+            gpkw = dict(n_inducing=n_features, seed=seed,
+                        ls_lo_frac=ls_lo_frac, ls_hi_frac=ls_hi_frac)
+        elif quadgp_residual == "rff":
+            gpkw = dict(n_features=n_features, seed=seed)
+        else:                                   # exact: no inducing/seed kwargs
+            gpkw = {}
+        model = cls(gp_method=quadgp_residual, n_opt_steps=n_opt_steps,
                     keep_curv_frac=keep_curv_frac, **gpkw)
     else:
         model = cls(n_opt_steps=n_opt_steps)
