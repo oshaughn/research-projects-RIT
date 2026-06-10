@@ -302,15 +302,26 @@ def discover_run(run_dir):
 _CONST_TOL = 1e-6
 
 
-def raw_to_fit(X_raw, raw_names):
-    """``(m1,m2,spin...) -> (mc, delta_mc, spin...)`` as parallel numpy columns."""
+def raw_to_fit(X_raw, raw_names, mass_coord="eta"):
+    """``(m1,m2,spin...) -> (mc, <mass2>, spin...)`` as parallel numpy columns.
+
+    ``mass_coord`` selects the second mass coordinate the surrogate fits in:
+    ``"eta"`` (symmetric mass ratio, default) or ``"delta_mc"``.  The lnL Fisher is
+    naturally quadratic in (mc, eta) -- and eta is *quadratic* in delta_mc, so near
+    the peak (small delta_mc) the curvature in delta_mc is suppressed by delta_mc**2
+    and the quadratic core sees a near-flat direction it cannot capture.  Fitting in
+    eta exposes that curvature to the core, fixing the mass-ratio (q) marginal.
+    """
     idx = {n: i for i, n in enumerate(raw_names)}
     m1 = X_raw[:, idx["m1"]]
     m2 = X_raw[:, idx["m2"]]
     mc = (m1 * m2) ** 0.6 / (m1 + m2) ** 0.2
-    dmc = (m1 - m2) / (m1 + m2)
-    cols = [mc, dmc]
-    names = ["mc", "delta_mc"]
+    if mass_coord == "eta":
+        second, sname = m1 * m2 / (m1 + m2) ** 2, "eta"
+    else:
+        second, sname = (m1 - m2) / (m1 + m2), "delta_mc"
+    cols = [mc, second]
+    names = ["mc", sname]
     for n in raw_names:
         if n in ("m1", "m2"):
             continue
@@ -403,6 +414,13 @@ def build_sampling(spec, fit_names):
     zprior = spec.get("aligned_prior") == "alignedspin-zprior"
     Rbody = {"1": spec["chi_max"], "2": spec["chi_small_max"]}
 
+    # DECOUPLE fit vs sampling coordinate. The artifact may be fit in eta (the
+    # Fisher-quadratic variable, which the quadratic core can capture), but we always
+    # SAMPLE in delta_mc: its prior is smooth (eta^-6/5, no equal-mass singularity)
+    # and its geometry is better-conditioned for NUTS -- exactly RIFT's own choice.
+    # to_fit() maps the sampled delta_mc to whatever mass coordinate the artifact uses.
+    mass2_fit = fit_names[1] if len(fit_names) > 1 and fit_names[1] in ("eta", "delta_mc") \
+        else "delta_mc"
     names = ["mc", "delta_mc"]
     lo = [mc_r[0], max(0.0, d_lo)]
     hi = [mc_r[1], min(0.999, d_hi)]
@@ -429,14 +447,13 @@ def build_sampling(spec, fit_names):
         mc = theta[nidx["mc"]]
         dmc = theta[nidx["delta_mc"]]
         eta = 0.25 * (1.0 - dmc * dmc)
-        # mc_prior ~ mc ; eta_prior ~ eta^-6/5 (* (1-4eta)^-1/2 when applied in eta).
-        lp = jnp.log(mc) - 1.2 * jnp.log(eta)
-        if mass_prior == "eta_full":
-            # keep the (1-4eta)^-1/2 = 1/|delta_mc| factor (d delta_mc/d eta): this is
-            # the eta_prior FORM evaluated on delta_mc samples (diverges at equal mass).
-            lp = lp - 0.5 * jnp.log(jnp.clip(1.0 - 4.0 * eta, 1e-12, None))
-        elif mass_prior == "flat":
-            lp = lp * 0.0
+        if mass_prior == "flat":
+            lp = mc * 0.0
+        else:
+            # uniform-in-(m1,m2) in the SAMPLED (delta_mc) coordinate: the
+            # (1-4eta)^-1/2 factor cancels with the d eta/d delta_mc Jacobian, leaving
+            # the smooth p(mc, delta_mc) ~ mc * eta^-6/5 (no equal-mass singularity).
+            lp = jnp.log(mc) - 1.2 * jnp.log(eta)
         if zprior:                                   # s_component_zprior on aligned comps
             for b in ("1", "2"):
                 mode, comps = body_mode[b]
@@ -449,7 +466,10 @@ def build_sampling(spec, fit_names):
         return lp
 
     def to_fit(theta):
-        vals = {"mc": theta[nidx["mc"]], "delta_mc": theta[nidx["delta_mc"]]}
+        # map sampled (mc, delta_mc) to the artifact's mass coordinate (eta or delta_mc)
+        dmc = theta[nidx["delta_mc"]]
+        mass_val = 0.25 * (1.0 - dmc * dmc) if mass2_fit == "eta" else dmc
+        vals = {"mc": theta[nidx["mc"]], mass2_fit: mass_val}
         for b in ("1", "2"):
             mode, comps = body_mode[b]
             if mode == "sph":
@@ -469,7 +489,7 @@ def build_sampling(spec, fit_names):
         ridx = {n: i for i, n in enumerate(raw_names)}
         m1 = X_raw[:, ridx["m1"]]; m2 = X_raw[:, ridx["m2"]]
         mc = (m1 * m2) ** 0.6 / (m1 + m2) ** 0.2
-        dmc = (m1 - m2) / (m1 + m2)
+        dmc = (m1 - m2) / (m1 + m2)             # sampling coordinate is delta_mc
         cols = [mc, dmc]
         for b in ("1", "2"):
             mode, comps = body_mode[b]
@@ -512,8 +532,8 @@ def build_sampling(spec, fit_names):
 
 def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0,
                    cap_points=8000, n_features=256, n_opt_steps=300, seed=0,
-                   quadgp_residual="svgp", keep_curv_frac=0.05,
-                   ls_lo_frac=0.2, ls_hi_frac=1.0):
+                   quadgp_residual="svgp", keep_curv_frac=0.01,
+                   ls_lo_frac=0.2, ls_hi_frac=1.0, mass_coord="eta"):
     """Build, persist and cold-reload-verify a differentiable lnL artifact for the
     run's ``all.net``. Returns a metadata dict (also the fit-coord arrays needed by
     validation, under private keys)."""
@@ -527,7 +547,8 @@ def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0
         cols=spec["cols"], sigma_cut=sigma_cut, return_errors=True)
 
     # 2. physical fit coordinates; drop columns that do not vary (record them)
-    Xfit_all, fit_names_all = raw_to_fit(X_raw, list(spec["intrinsic_names"]))
+    Xfit_all, fit_names_all = raw_to_fit(X_raw, list(spec["intrinsic_names"]),
+                                         mass_coord=mass_coord)
     spread = Xfit_all.std(axis=0)
     keep = spread > _CONST_TOL
     keep[0] = keep[1] = True                          # always keep mc, delta_mc
@@ -591,14 +612,21 @@ def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0
     g = np.asarray(jax.grad(reloaded.lnL_physical)(jnp.asarray(Xtr[0])))
     if not np.all(np.isfinite(g)):
         raise AssertionError("jax.grad of reloaded lnL is not finite")
-    holdout_rmse = float(np.sqrt(np.mean((p_reload - yho) ** 2)))
+    # Headline holdout RMSE is over the PE-relevant peak region (within 15 nats of the
+    # peak); the eta quadratic core extrapolates steeply in the deep low-lnL tail
+    # (~zero posterior weight), which would otherwise dominate a plain RMSE.
+    rmse_all = float(np.sqrt(np.mean((p_reload - yho) ** 2)))
+    peak = yho > (lnL_max - 15.0)
+    holdout_rmse = float(np.sqrt(np.mean((p_reload[peak] - yho[peak]) ** 2))) \
+        if peak.any() else rmse_all
 
     meta = {
         "out_base": out_base, "method": method, "coord_names": fit_names,
         "constants": constants, "n_train": int(len(ytr)),
         "n_holdout": int(len(yho)), "lnL_max": lnL_max,
-        "holdout_rmse": holdout_rmse, "grad_finite": True,
-        "n_intrinsic_dims": len(fit_names),
+        "holdout_rmse": holdout_rmse, "holdout_rmse_all": rmse_all,
+        "mass_coord": mass_coord, "keep_curv_frac": keep_curv_frac,
+        "grad_finite": True, "n_intrinsic_dims": len(fit_names),
     }
     # private handoff to validation (not serialised in the public report verbatim)
     meta["_fit_names"] = fit_names
@@ -833,8 +861,8 @@ def validate_artifact(spec, fit_meta, out_dir, n_samples=40000, inflate=1.2,
 
 def run_one(run_dir, workroot, method="quadgp", n_samples=40000, seed=0,
             cap_points=8000, n_features=256, n_opt_steps=300, lnL_offset=40.0,
-            sigma_cut=0.6, sampler="auto", keep_curv_frac=0.05,
-            ls_lo_frac=0.2, ls_hi_frac=1.0, write_plot=True):
+            sigma_cut=0.6, sampler="auto", keep_curv_frac=0.01,
+            ls_lo_frac=0.2, ls_hi_frac=1.0, mass_coord="eta", write_plot=True):
     """Discover -> fit+export -> validate one run; write all artifacts under
     ``workroot/<label>/`` and return the full report."""
     import RIFT.interpolators.jax_gp  # noqa: F401  (enables float64)
@@ -849,7 +877,7 @@ def run_one(run_dir, workroot, method="quadgp", n_samples=40000, seed=0,
         spec, out_base, method=method, sigma_cut=sigma_cut,
         lnL_offset=lnL_offset, cap_points=cap_points, n_features=n_features,
         n_opt_steps=n_opt_steps, seed=seed, keep_curv_frac=keep_curv_frac,
-        ls_lo_frac=ls_lo_frac, ls_hi_frac=ls_hi_frac)
+        ls_lo_frac=ls_lo_frac, ls_hi_frac=ls_hi_frac, mass_coord=mass_coord)
     t_fit = time.time() - t0
 
     t1 = time.time()
@@ -1041,11 +1069,16 @@ def _add_common(p):
     p.add_argument("--cap-points", type=int, default=8000)
     p.add_argument("--n-features", type=int, default=256,
                    help="SVGP inducing points / RFF features (default: 256)")
-    p.add_argument("--keep-curv-frac", type=float, default=0.05,
-                   help="quadgp: fraction of peak curvature kept in the exact Fisher "
-                        "quadratic core (default 0.05). Raise it (e.g. 0.3-0.6) to "
-                        "capture the gentler mass-ratio curvature in the quadratic "
-                        "instead of the over-smoothing GP residual -> sharper q.")
+    p.add_argument("--mass-coord", default="eta", choices=("eta", "delta_mc"),
+                   help="second mass coordinate the surrogate fits in (default eta). "
+                        "The lnL Fisher is quadratic in (mc, eta); eta is quadratic in "
+                        "delta_mc, so delta_mc hides that curvature near equal mass and "
+                        "the quadratic core can't capture q. eta fixes the q marginal.")
+    p.add_argument("--keep-curv-frac", type=float, default=0.01,
+                   help="quadgp: keep eigen-curvature directions above this fraction of "
+                        "the max in the exact Fisher core (default 0.01). With "
+                        "--mass-coord eta this must be small enough to RETAIN the "
+                        "(gentle) eta curvature; 0.05 leaves it to the GP residual.")
     p.add_argument("--ls-hi-frac", type=float, default=1.0,
                    help="quadgp/svgp: upper bound on the ARD lengthscale as a fraction "
                         "of the peak-region width (default 1.0). LOWER it (0.3-0.6) to "
@@ -1100,7 +1133,7 @@ def main(argv=None):
                       sigma_cut=args.sigma_cut, sampler=args.sampler,
                       keep_curv_frac=args.keep_curv_frac,
                       ls_lo_frac=args.ls_lo_frac, ls_hi_frac=args.ls_hi_frac,
-                      write_plot=not args.no_plot)
+                      mass_coord=args.mass_coord, write_plot=not args.no_plot)
         print(json.dumps({"out_dir": rep["out_dir"],
                           "holdout_rmse": rep["fit"]["holdout_rmse"],
                           "quality": rep["validation"]["quality"],
@@ -1129,7 +1162,7 @@ def main(argv=None):
                               lnL_offset=args.lnL_offset, sigma_cut=args.sigma_cut,
                               sampler=args.sampler, keep_curv_frac=args.keep_curv_frac,
                               ls_lo_frac=args.ls_lo_frac, ls_hi_frac=args.ls_hi_frac,
-                              write_plot=not args.no_plot)
+                              mass_coord=args.mass_coord, write_plot=not args.no_plot)
                 results.append({"run": rd, "quality": rep["validation"]["quality"],
                                 "is_ess": rep["validation"]["is_ess"],
                                 "js": rep["validation"]["js"]})

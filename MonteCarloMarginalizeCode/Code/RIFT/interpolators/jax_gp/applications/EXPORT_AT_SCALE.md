@@ -89,7 +89,9 @@ workroot/
 | flag | default | meaning |
 |---|---|---|
 | `--method` | `quadgp` | surrogate: `quadgp` (PE-grade Fisher core + GP residual) · `svgp` (faster, low-D) · `rff` · `exact` |
-| `--sampler` | `auto` | validation sampler: `auto` (nuts if >3 fit dims, else gaussian) · `gaussian` · `nuts` |
+| `--mass-coord` | `eta` | second mass coordinate to fit in: `eta` (Fisher-quadratic; correct `q`) · `delta_mc` |
+| `--keep-curv-frac` | `0.01` | keep core eigen-curvature above this fraction of max (small ⇒ retains the gentle eta curvature) |
+| `--sampler` | `auto` | validation sampler: `auto` (nuts if >3 fit dims, else gaussian) · `gaussian` · `nuts` · `flow` |
 | `--n-samples` | 40000 | gaussian importance-sampling proposal draws |
 | `--cap-points` | 8000 | stratified ("tree-ring") downselect of ILE points before the fit |
 | `--n-features` | 256 | SVGP inducing points / RFF features |
@@ -100,49 +102,40 @@ workroot/
 
 | run | dims | method | sampler | ESS | JS mc | JS q | JS chi_eff |
 |---|---|---|---|---|---|---|---|
-| distance_grid_e2e (aligned, 2-D, mc∈[23,35]) | 2 | svgp | gaussian | 14400 | 0.008 | 0.012 | 0 (no spin) |
-| S240426s v5PHM (precessing, 8-D, mc∈[30,90]) | 8 | quadgp | nuts | 3300 | 0.028 | 0.045 | 0.049 |
+| distance_grid_e2e (aligned, 2-D, mc∈[23,35]) | 2 | quadgp | gaussian | ~30000 | 0.008 | 0.011 | 0 (no spin) |
+| S240426s v5PHM (precessing, 8-D, mc∈[30,90]) | 8 | quadgp | nuts | 2100 | 0.007 | 0.011 | 0.008 |
 
-On the wide-range precessing event, `svgp` over-smooths the peak (mc JS 0.27, holdout
-RMSE 2.8 nats); `quadgp` recovers it (mc JS 0.028, RMSE 1.7) — which is why `quadgp`
-is the default. The validation's ESS-based quality flag is what tells the two apart:
-the over-smoothed `svgp` posterior only *looked* good under a low-ESS Gaussian
-proposal.
+All three marginals are PE-grade and apples-to-apples on both runs, using the defaults
+(`--method quadgp --mass-coord eta --keep-curv-frac 0.01`). See the tuning note below
+for why the fit coordinate (`eta`) is what makes `q` work.
 
-## Surrogate tuning (mc/q fidelity) — a fully-diagnosed case study
+## Surrogate tuning (mc/q fidelity) — the fit-coordinate matters
 
-On the 8-D precessing **S240426s** (mc∈[30,90]), `mc` (JS ~0.015) and `chi_eff`
-(JS ~0.009) are apples-to-apples good, but `q` sits at JS ~0.056 with interp mean
-0.638 vs CIP 0.718 (a low-q tail; see `marginals.png`). We chased this exhaustively;
-the result is a clean negative on every cheap lever and a precise root cause.
+The mass-ratio (`q`) marginal is recovered correctly only when the surrogate is fit
+in the variable the lnL **Fisher is actually quadratic in: `eta`, not `delta_mc`.**
+Since `eta = ¼(1−delta_mc²)`, the curvature in `delta_mc` at the peak is suppressed by
+`delta_mc*²` (it vanishes toward equal mass) — so in `delta_mc` the quadratic core
+sees a *flat* direction it cannot capture, the GP residual must carry the whole `q`
+falloff, over-smooths it, and the posterior grows a spurious low-q tail.
 
-**Ruled out** (each tested directly):
-- *Prior Jacobian factor.* Keeping the `(1−4η)^(−1/2) = d(delta_mc)/dη` factor
-  (`eta_full`) sends q to 0.91 (JS 0.35) and wrecks mc → the `η^(−6/5)` prior
-  (RIFT's `delta_mc_prior`) is correct; the factor genuinely cancels when sampling
-  in `delta_mc`.
-- *Smoothing length.* `--ls-hi-frac` 1.0→0.25 leaves q at 0.059 (RMSE only worsens).
-- *Core curvature.* `--keep-curv-frac` 0.05→0.6 hurts (global quadratic over a wide
-  mc range); 0.05→0.002 does **nothing** (the local Fisher is genuinely flat in
-  `delta_mc`, so there is no curvature to retain).
-- *GP capacity.* `--n-features` 256→512, `--cap-points` 8k→16k: no change. An
-  **exact** GP residual (no inducing-point sparsity) gives the *same* q (0.641).
-- *Data support.* The ILE data covers the full q-range; the lnL-weighted raw data
-  gives q≈0.757 (≈CIP) — so the data's likelihood does favour high q.
+Fix (now the **default**): fit in `eta` (`--mass-coord eta`) with
+`--keep-curv-frac 0.01` so the core *retains* the now-real eta curvature, while still
+**sampling in `delta_mc`** (smooth prior `∝ eta^(−6/5)`, no equal-mass singularity;
+better NUTS geometry). On the 8-D precessing **S240426s** (mc∈[30,90]):
 
-**Root cause (measured).** Binning surrogate-lnL vs data-lnL by q shows the smooth GP
-**over-predicts lnL in the q∈[0.3,0.5] shoulder by ~1 nat** (and under-predicts the
-high-q peak by ~0.1), i.e. exp(+1)≈2.6× too much shoulder weight → q pulled down.
-This is intrinsic to a **smooth** surrogate: CIP fit this run with `--fit-method rf`
-(Random Forest), whose piecewise-constant partitions impose a sharper shoulder; a GP
-rounds it. Our artifact **must** be a smooth GP to be `jax.grad`-able, so this is the
-AD-vs-RF trade-off in the least-constrained direction — *not* a tunable defect.
+| fit coord | keep_curv_frac | JS mc | JS q | JS chi_eff | q (interp/CIP) |
+|---|---|---|---|---|---|
+| delta_mc | 0.05 | 0.015 | 0.056 | 0.009 | 0.638 / 0.718 |
+| **eta** | **0.01** | **0.007** | **0.011** | **0.008** | **0.694 / 0.718** |
 
-**Bottom line:** defaults (`--method quadgp --keep-curv-frac 0.05`, lengthscale
-`[0.2,1.0]`) are the tuned optimum. `mc`/`chi_eff` are PE-grade and apples-to-apples;
-the residual `q` (~0.05 bit) is a smooth-GP-vs-RF limit. Closing it needs a different
-*differentiable* representation of the shoulder (e.g. a shape/monotonicity-constrained
-GP), not knob-jittering.
+i.e. `q` JS **5×** better and `mc` **2×** better — all three now PE-grade and
+apples-to-apples. The reported `holdout_rmse` is over the peak region (within 15 nats);
+the eta quadratic core extrapolates steeply in the deep low-lnL tail (`holdout_rmse_all`
+is large but that region has ~zero posterior weight).
+
+Other knobs (`--ls-lo-frac/--ls-hi-frac` smoothing length, `--n-features`,
+`--cap-points`) are second-order once the fit coordinate is right; raising
+`keep_curv_frac` (fewer core directions) *re-hides* the eta curvature.
 
 ## Interpreting the JS divergence
 
