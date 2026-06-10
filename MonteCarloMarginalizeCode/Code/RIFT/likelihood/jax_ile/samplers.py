@@ -31,10 +31,20 @@ Run the self-test (builds the standard synthetic injection, no frames needed)::
         python RIFT/likelihood/jax_ile/samplers.py
 """
 
+import os
+
 import numpy as np
 
 import jax
 import jax.numpy as jnp
+
+# Default chunk for the batched lnL evals.  The per-sample distance quadrature
+# (JAX_ILE_DISTMARG_GH=G) materialises a (chunk, npts, G) array, ~G/ (grid_block)
+# more device memory than the legacy grid, so a 4000-row chunk OOMs the 11GB
+# 2080Ti.  Shrink the chunk when per-sample is active so the per-sample path fits
+# small-VRAM GPUs too (don't force every high-SNR job onto a 24GB node).
+_GH_NODES = int(os.environ.get("JAX_ILE_DISTMARG_GH", "0"))
+_EVAL_CHUNK = max(500, 4000 * 16 // max(16, _GH_NODES)) if _GH_NODES > 0 else 4000
 
 # Parameter order used everywhere in this module.
 ANG_NAMES = ("ra", "dec", "psi", "incl", "phiref")
@@ -98,7 +108,7 @@ def _log_prior_jax(theta5):
 # ---------------------------------------------------------------------------
 # Batched lnL evaluation (chunked to bound memory)
 # ---------------------------------------------------------------------------
-def eval_lnL(like, theta, chunk=4000):
+def eval_lnL(like, theta, chunk=_EVAL_CHUNK):
     """Evaluate the distance-marginalized lnL on an ``(N, 5)`` array in chunks.
 
     Chunking bounds peak device memory (the distance grid multiplies the batch
@@ -664,7 +674,7 @@ def _log_prior_4_jax(theta4):
     return jnp.where(inb, logp, -1e30)
 
 
-def eval_lnL_4(like, theta, chunk=4000, desc="lnL"):
+def eval_lnL_4(like, theta, chunk=_EVAL_CHUNK, desc="lnL"):
     """Evaluate the 4-param (phi-marginalised) lnL on an ``(N, 4)`` array."""
     theta = np.atleast_2d(theta)
     N = theta.shape[0]
@@ -760,7 +770,7 @@ def _log_prior_3_jax(theta3):
     return jnp.where(inb, logp, -1e30)
 
 
-def eval_lnL_3(like, theta, chunk=4000, desc="lnL"):
+def eval_lnL_3(like, theta, chunk=_EVAL_CHUNK, desc="lnL"):
     """Evaluate the 3-param (phi+psi-marginalised) lnL on an ``(N, 3)`` array."""
     theta = np.atleast_2d(theta)
     N = theta.shape[0]
