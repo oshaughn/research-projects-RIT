@@ -264,6 +264,19 @@ def discover_run(run_dir):
                  parts[-2] if len(parts) > 1 else "event")
     tag = parts[-1]
 
+    # distance-export ("dgrid") detection. When the run marginalised the distance grid,
+    # it leaves per-job *.dgrid files and/or a consolidated all_dgrid.dat: the lnL is
+    # then a function of (intrinsic, distance). That higher-dim export is a SEPARATE
+    # track (still under development); here we record its presence so the caller can
+    # route it. The intrinsic all.net export below is unaffected.
+    dgrid_consolidated = next(
+        (p for p in (os.path.join(run_dir, "all_dgrid.dat"),
+                     os.path.join(run_dir, "consolidated_dgrid.dat"))
+         if os.path.exists(p)), None)
+    has_dgrid = bool(dgrid_consolidated) or bool(
+        glob.glob(os.path.join(run_dir, "*.dgrid"))
+        or glob.glob(os.path.join(run_dir, "iteration_*_ile", "*.dgrid")))
+
     return {
         "run_dir": run_dir,
         "net": net,
@@ -506,20 +519,28 @@ def build_sampling(spec, fit_names):
         return np.column_stack(cols)
 
     def to_compare(S):
+        """Samples (in sampling coords) -> every physical comparison parameter:
+        masses (mc, eta, q), aligned spin combos (chi_eff, chiMinus), and the
+        cylindrical-polar spin of each body (s{b}z, chi{b}_perp, phi{b})."""
         mc = S[:, nidx["mc"]]; dmc = S[:, nidx["delta_mc"]]
         eta = 0.25 * (1.0 - dmc ** 2)
         mtot = mc * eta ** (-3.0 / 5.0)
         m1 = 0.5 * mtot * (1.0 + dmc); m2 = 0.5 * mtot * (1.0 - dmc)
-        def sz(b):
-            mode, comps = body_mode[b]
+        out = {"mc": mc, "q": m2 / m1, "eta": eta, "m1": m1, "m2": m2}
+        for b in ("1", "2"):
+            mode, _ = body_mode[b]
             if mode == "sph":
-                return S[:, nidx["chi%s" % b]] * S[:, nidx["cos_theta%s" % b]]
-            if mode == "cart" and ("s%sz" % b) in nidx:
-                return S[:, nidx["s%sz" % b]]
-            return np.zeros_like(m1)
-        chi_eff = (m1 * sz("1") + m2 * sz("2")) / (m1 + m2)
-        return {"mc": mc, "q": m2 / m1, "chi_eff": chi_eff,
-                "m1": m1, "m2": m2, "eta": eta}
+                chi = S[:, nidx["chi%s" % b]]; ct = S[:, nidx["cos_theta%s" % b]]
+                out["s%sz" % b] = chi * ct
+                out["chi%s_perp" % b] = chi * np.sqrt(np.clip(1.0 - ct ** 2, 0.0, 1.0))
+                out["phi%s" % b] = S[:, nidx["phi%s" % b]]
+            elif mode == "cart" and ("s%sz" % b) in nidx:
+                out["s%sz" % b] = S[:, nidx["s%sz" % b]]
+            else:
+                out["s%sz" % b] = np.zeros_like(m1)
+        out["chi_eff"] = (m1 * out["s1z"] + m2 * out["s2z"]) / (m1 + m2)
+        out["chiMinus"] = (m1 * out["s1z"] - m2 * out["s2z"]) / (m1 + m2)
+        return out
 
     return {"names": names, "lo": lo, "hi": hi, "ln_prior": ln_prior,
             "to_fit": to_fit, "raw_to_sample": raw_to_sample,
@@ -643,7 +664,10 @@ def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0
 
 def _load_posterior_dat(path):
     """Load a RIFT ``posterior_samples-*.dat`` / ``extrinsic_posterior_samples.dat``
-    into a name->array dict using its ``# ...`` header. Adds derived chi_eff."""
+    into a name->array dict using its ``# ...`` header, and derive the full intrinsic
+    comparison set (mc, eta, q, chi_eff, chiMinus, and cylindrical-polar spins
+    s{b}z, chi{b}_perp, phi{b}) so it lines up with :func:`build_sampling`'s
+    ``to_compare``."""
     header = None
     with open(path) as fh:
         for ln in fh:
@@ -660,13 +684,23 @@ def _load_posterior_dat(path):
                   "incl", "psi", "dist", "p", "ps", "lnL", "mtotal", "q"]
         header = header[:data.shape[1]]
     cols = {n: data[:, i] for i, n in enumerate(header)}
-    if "mc" not in cols and {"m1", "m2"} <= cols.keys():
+    if {"m1", "m2"} <= cols.keys():
         m1, m2 = cols["m1"], cols["m2"]
-        cols["mc"] = (m1 * m2) ** 0.6 / (m1 + m2) ** 0.2
-        cols["q"] = np.minimum(m1, m2) / np.maximum(m1, m2)
-    if "chi_eff" not in cols and {"m1", "m2", "a1z", "a2z"} <= cols.keys():
-        m1, m2 = cols["m1"], cols["m2"]
-        cols["chi_eff"] = (m1 * cols["a1z"] + m2 * cols["a2z"]) / (m1 + m2)
+        cols.setdefault("mc", (m1 * m2) ** 0.6 / (m1 + m2) ** 0.2)
+        cols.setdefault("q", np.minimum(m1, m2) / np.maximum(m1, m2))
+        cols.setdefault("eta", m1 * m2 / (m1 + m2) ** 2)
+        # cylindrical-polar spins from the Cartesian a{b}{x,y,z} columns
+        for b in ("1", "2"):
+            ax, ay, az = "a%sx" % b, "a%sy" % b, "a%sz" % b
+            if {ax, ay, az} <= cols.keys():
+                cols.setdefault("s%sz" % b, cols[az])
+                cols.setdefault("chi%s_perp" % b,
+                                np.sqrt(cols[ax] ** 2 + cols[ay] ** 2))
+                cols.setdefault("phi%s" % b,
+                                np.mod(np.arctan2(cols[ay], cols[ax]), 2 * np.pi))
+        if {"a1z", "a2z"} <= cols.keys():
+            cols.setdefault("chi_eff", (m1 * cols["a1z"] + m2 * cols["a2z"]) / (m1 + m2))
+            cols.setdefault("chiMinus", (m1 * cols["a1z"] - m2 * cols["a2z"]) / (m1 + m2))
     return cols
 
 
@@ -730,8 +764,17 @@ def _sample_flow_v060(target, lo, hi, init_theta=None, n_samples=8000, n_chains=
             "logZ": logZ, "mean": samples.mean(0), "std": samples.std(0)}
 
 
+#: every intrinsic parameter the validation reports a JS on. Masses, the aligned-spin
+#: combinations (chi_eff, chiMinus), and the cylindrical-polar spin of each body
+#: (aligned component s{b}z, in-plane magnitude chi{b}_perp, azimuth phi{b}).
+ALL_COMPARE_PARAMS = (
+    "mc", "eta", "q", "chi_eff", "chiMinus",
+    "s1z", "chi1_perp", "phi1", "s2z", "chi2_perp", "phi2",
+)
+
+
 def validate_artifact(spec, fit_meta, out_dir, n_samples=40000, inflate=1.2,
-                      seed=0, sampler="auto", compare_params=("mc", "q", "chi_eff")):
+                      seed=0, sampler="auto", compare_params=ALL_COMPARE_PARAMS):
     """Draw a posterior from the *reloaded* artifact and JS-compare its marginals to
     the run's CIP posterior. Writes ``posterior_interp.dat`` and returns the report.
 
@@ -804,12 +847,13 @@ def validate_artifact(spec, fit_meta, out_dir, n_samples=40000, inflate=1.2,
     # spherical map keeps |spin| = chi <= R. Map to physical comparison params.
     phys = smp["to_compare"](samples)
 
-    # write the interpolated posterior (RIFT-ish .dat, intrinsic columns)
+    # write the interpolated posterior (RIFT-ish .dat, every intrinsic column we have)
     os.makedirs(out_dir, exist_ok=True)
     post_path = os.path.join(out_dir, "posterior_interp.dat")
-    out_names = ["m1", "m2", "mc", "eta", "q", "chi_eff"]
-    out_cols = [phys[n] for n in out_names]
-    np.savetxt(post_path, np.column_stack(out_cols),
+    out_names = [n for n in ("m1", "m2", "mc", "eta", "q", "chi_eff", "chiMinus",
+                             "s1z", "chi1_perp", "phi1", "s2z", "chi2_perp", "phi2")
+                 if n in phys]
+    np.savetxt(post_path, np.column_stack([phys[n] for n in out_names]),
                header=" ".join(out_names))
 
     # JS divergence vs the run's own CIP posterior
@@ -953,22 +997,29 @@ def _write_corner(spec, fit_meta, val, out_dir):
     import matplotlib.pyplot as plt
     phys_ref = (_load_posterior_dat(spec["posterior"])
                 if spec["posterior"] and os.path.exists(spec["posterior"]) else {})
-    params = [p for p in ("mc", "q", "chi_eff") if p in val["js"]]
+    # every reported parameter, in a tidy grid (skip degenerate/constant directions)
+    params = [p for p in ALL_COMPARE_PARAMS
+              if p in val["js"] and not val["js"][p].get("degenerate")]
     if not params:
         return
     interp = np.loadtxt(val["posterior_interp"])
     hdr = open(val["posterior_interp"]).readline().lstrip("#").split()
     icols = {n: interp[:, i] for i, n in enumerate(hdr)}
-    fig, axes = plt.subplots(1, len(params), figsize=(4 * len(params), 3.2))
-    axes = np.atleast_1d(axes)
+    ncol = min(4, len(params))
+    nrow = int(np.ceil(len(params) / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(3.6 * ncol, 2.8 * nrow))
+    axes = np.atleast_1d(axes).ravel()
     for ax, prm in zip(axes, params):
-        ax.hist(icols[prm], bins=50, density=True, histtype="step",
-                label="interp artifact", lw=2)
+        if prm in icols:
+            ax.hist(icols[prm], bins=50, density=True, histtype="step",
+                    label="interp artifact", lw=2)
         if prm in phys_ref:
             ax.hist(phys_ref[prm], bins=50, density=True, histtype="step",
                     label="CIP posterior", lw=2)
         ax.set_xlabel(prm)
-        ax.set_title("JS={:.4f} bits".format(val["js"][prm]["js_bits"]))
+        ax.set_title("JS={:.4f}".format(val["js"][prm]["js_bits"]), fontsize=9)
+    for ax in axes[len(params):]:
+        ax.axis("off")
     axes[0].legend(fontsize=8)
     fig.suptitle("{} / {}".format(spec["event"], spec["tag"]))
     fig.tight_layout()
