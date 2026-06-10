@@ -125,6 +125,26 @@ import shutil
 import numpy as np
 import configparser
 
+# Container family manifest support (Feature: multi-architecture container
+# deployment).  Import-guarded so that plain single-.sif runs never require
+# pyyaml; only an actual .yaml/.yml manifest exercises this path.
+try:
+    from RIFT.misc.container_manifest import (
+        is_container_manifest,
+        load_container_manifest,
+        build_singularity_image_expr,
+        build_transfer_input_expr,
+        build_require_gpus_floor,
+        ContainerManifestError,
+    )
+    _HAVE_CONTAINER_MANIFEST = True
+except ImportError:
+    _HAVE_CONTAINER_MANIFEST = False
+
+    def is_container_manifest(value):
+        # Without the helper module available, never treat a value as a manifest.
+        return False
+
 __author__ = (
     "Evan Ochsner <evano@gravity.phys.uwm.edu>, "
     "Chris Pankow <pankow@gravity.phys.uwm.edu>"
@@ -1902,7 +1922,21 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     singularity_image_used = "{}".format(singularity_image) # make copy
     extra_files = []
-    if singularity_image:
+    # Container family manifest support (see write_ILE_sub_simple).  CIP jobs do
+    # not request GPUs, so no require_gpus floor is added here; on a CPU-only
+    # slot TARGET.GPUs_Capability is undefined and the selection expression
+    # collapses to the fallback image, which must be the CPU-safe one.
+    singularity_is_family = False
+    singularity_image_expr = None
+    singularity_transfer_expr = None
+    if singularity_image and is_container_manifest(singularity_image):
+        singularity_is_family = True
+        _manifest = load_container_manifest(singularity_image)
+        singularity_image_expr = build_singularity_image_expr(_manifest)
+        singularity_transfer_expr = build_transfer_input_expr(_manifest)
+        if singularity_transfer_expr:
+            extra_files += [singularity_transfer_expr]
+    elif singularity_image:
         if 'osdf:' in singularity_image:
             singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
             extra_files += [singularity_image]
@@ -2022,7 +2056,11 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
         ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        if singularity_is_family:
+            # Expression-valued: emit raw, NO surrounding double quotes.
+            ile_job.add_condor_cmd("MY.SingularityImage", singularity_image_expr)
+        else:
+            ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
         requirements.append("HAS_SINGULARITY=?=TRUE")
 
     if use_oauth_files:
@@ -2219,12 +2257,32 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
 
     singularity_image_used = "{}".format(singularity_image) # make copy
     extra_files = []
-    if singularity_image:
+    # Container family manifest support: if singularity_image points at a
+    # .yaml/.yml manifest, build an expression-valued MY.SingularityImage plus a
+    # selective ($$()) transfer entry and a require_gpus capability floor.  A
+    # plain .sif / osdf:// value keeps the legacy single-image behavior below.
+    singularity_is_family = False
+    singularity_image_expr = None
+    singularity_transfer_expr = None
+    singularity_require_gpus_floor = None
+    if singularity_image and is_container_manifest(singularity_image):
+        singularity_is_family = True
+        _manifest = load_container_manifest(singularity_image)
+        singularity_image_expr = build_singularity_image_expr(_manifest)
+        singularity_transfer_expr = build_transfer_input_expr(_manifest)
+        singularity_require_gpus_floor = build_require_gpus_floor(_manifest)
+        # Selective transfer: only the matched osdf image is fetched (via the
+        # $$() token, which is comma-free so it survives transfer_input_files
+        # comma-splitting).  CVMFS/local images are referenced in place and
+        # never transferred, so the whole family is never pulled.
+        if singularity_transfer_expr:
+            extra_files += [singularity_transfer_expr]
+    elif singularity_image:
         if 'osdf:' in singularity_image:
             singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
             extra_files += [singularity_image]
 
-        
+
     exe = exe or which("integrate_likelihood_extrinsic")
     frames_local = None
     if use_singularity:
@@ -2381,7 +2439,12 @@ echo Starting ...
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
         ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
-        ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+        if singularity_is_family:
+            # Expression-valued: emit the ifThenElse raw, with NO surrounding
+            # double quotes (a classad expression must not be quoted).
+            ile_job.add_condor_cmd("MY.SingularityImage", singularity_image_expr)
+        else:
+            ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
         ile_job.add_condor_cmd("MY.flock_local",'true')  # jobs can match to local pool !
         requirements.append("HAS_SINGULARITY=?=TRUE")
 #               if not(use_simple_osg_requirements):
@@ -2529,8 +2592,18 @@ echo Starting ...
         remove_str = 'JobStatus =?= 2 && (CurrentTime - JobStartDate) > ( {})'.format(60*max_runtime_minutes)
         ile_job.add_condor_cmd('periodic_remove', remove_str)
 
-    if 'RIFT_REQUIRE_GPUS' in os.environ:  # new convention 'require_gpus = ' to specify conditions on GPU properties
-        ile_job.add_condor_cmd('require_gpus',os.environ['RIFT_REQUIRE_GPUS'])
+    # require_gpus: compose the user's RIFT_REQUIRE_GPUS (used today to block
+    # incompatible hosts by DeviceName) with the container family's capability
+    # floor (lowest capability any image in the family supports).  Both apply;
+    # neither is silently dropped.  (new convention 'require_gpus = ' specifies
+    # conditions on GPU properties)
+    require_gpus_terms = []
+    if 'RIFT_REQUIRE_GPUS' in os.environ:
+        require_gpus_terms.append('({})'.format(os.environ['RIFT_REQUIRE_GPUS']))
+    if singularity_is_family and singularity_require_gpus_floor:
+        require_gpus_terms.append('({})'.format(singularity_require_gpus_floor))
+    if require_gpus_terms:
+        ile_job.add_condor_cmd('require_gpus', ' && '.join(require_gpus_terms))
     
 
     ###
@@ -2678,7 +2751,15 @@ def write_unify_sub_simple(tag='unify', exe=None, base=None,target=None,universe
 
     """
 
-    exe = exe or which("util_CleanILE.py")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
+    if exe is None:
+        if str(os.environ.get("RIFT_HYPERPIPELINE_FORMAT", "")).strip().lower() in ("1", "true", "yes", "on"):
+            exe = which("util_CleanILE_hyperpipeline.py")
+            if not exe:
+                exe = os.path.abspath(os.path.join(
+                    os.path.dirname(__file__), "..", "..", "bin",
+                    "util_CleanILE_hyperpipeline.py"))
+        else:
+            exe = which("util_CleanILE.py")  # like cat, but properly accounts for *independent* duplicates. (Danger if identical). Also strips large errors
 
     # Write unify.sh
     #    - problem of globbing inside condor commands
@@ -3493,6 +3574,56 @@ def write_cat_sub(tag='cat', exe=None, file_prefix=None,file_postfix=None,file_o
 
 
 
+def write_consolidate_distance_grids_sub(tag='consolidate_dgrid', exe=None,
+                                          input_glob=None, file_output=None,
+                                          search_dir='.', universe='local',
+                                          log_dir=None, no_grid=False, **kwargs):
+    """Consolidate per-event .dgrid (Plan A) / .dslice (Plan B) files.
+
+    Wraps ``util_ConsolidateDistanceGrids.py``: writes a thin shell driver
+    that runs the consolidator over ``input_glob`` (a find-style pattern, e.g.
+    ``EXTR_out.xml_*_.dgrid``) in ``search_dir`` and emits the concatenated
+    table at ``file_output``.  Mirrors ``write_cat_sub`` so it slots into the
+    same post-extrinsic part of the DAG.
+    """
+    exe = exe or which("util_ConsolidateDistanceGrids.py")
+    if not exe:
+        exe = "util_ConsolidateDistanceGrids.py"
+
+    cmdname = tag + '.sh'
+    with open(cmdname, 'w') as f:
+        f.write("#! /bin/bash\n")
+        f.write("set -e\n")
+        f.write("cd " + search_dir + "\n")
+        # --allow-empty keeps the post-extrinsic job from failing the DAG if a
+        # re-run already consumed the per-event files or none were produced.
+        f.write(exe + " --input-glob '" + input_glob + "'"
+                " --output " + file_output + " --allow-empty\n")
+    os.system("chmod a+x " + cmdname)
+
+    ile_job = CondorDAGJob(universe=universe, executable=cmdname)
+    if no_grid:
+        ile_job.add_condor_cmd("MY.DESIRED_SITES", '"nogrid"')
+        ile_job.add_condor_cmd("MY.flock_local", 'true')
+
+    ile_sub_name = tag + '.sub'
+    ile_job.set_sub_file(ile_sub_name)
+
+    uniq_str = "$(cluster)-$(process)"
+    ile_job.set_log_file("%s%s-%s.log" % (log_dir, tag, uniq_str))
+    ile_job.set_stderr_file("%s%s-%s.err" % (log_dir, tag, uniq_str))
+    ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
+
+    ile_job.add_condor_cmd('getenv', default_getenv_value)
+    try:
+        ile_job.add_condor_cmd('accounting_group', os.environ['LIGO_ACCOUNTING'])
+        ile_job.add_condor_cmd('accounting_group_user', os.environ['LIGO_USER_NAME'])
+    except:
+        print(" LIGO accounting information not available.  You must add this manually to integrate.sub !")
+
+    return ile_job, ile_sub_name
+
+
 def write_convertpsd_sub(tag='convert_psd', exe=None, ifo=None,file_input=None,target_dir=None,arg_str='',log_dir=None,  universe='local',**kwargs):
     """
     Write script to convert PSD from one format to another.  Needs to be called once per PSD file being used.
@@ -3544,7 +3675,22 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 
     working_dir = log_dir.replace("/logs", '') # assumption about workflow/naming! Danger!
 
-    fname_out =target_dir + "/" +output_base + ".xml.gz"
+    # Hyperpipeline mode: emit a .dat composite via the EOS-style
+    # head-line + cat | sort | uniq | shuf shell pattern.  XML helpers
+    # (igwn_ligolw_add) are not used.
+    _hpip_join = str(os.environ.get("RIFT_HYPERPIPELINE_FORMAT", "")).strip().lower() in ("1","true","yes","on")
+    _suffix_join = "dat" if _hpip_join else "xml.gz"
+    _shuffle_filter_join = None
+    if _hpip_join:
+        _shuffle_filter_join = which("shuf") or which("gshuf")
+        if _shuffle_filter_join is None:
+            _sort_join = which("sort")
+            if _sort_join is not None:
+                _shuffle_filter_join = _sort_join + " -R"
+            else:
+                _shuffle_filter_join = "cat"
+
+    fname_out =target_dir + "/" +output_base + "." + _suffix_join
     if n_explode ==1:   # we are really doing a glob match
         fname_out = fname_out.replace('$(macroiteration)','$1')
         fname_out = fname_out.replace('$(macroiterationnext)','$2')
@@ -3554,8 +3700,28 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
         if old_add:
             extra_arg = " --ilwdchar-compat "  # should never be used anymore
         with open("join_grids.sh",'w') as f:
-            f.write("#! /bin/bash  \n")
-            f.write(r"""
+            if _hpip_join:
+                f.write("#! /bin/bash  \n")
+                f.write(r"""
+# merge hyperpipeline ASCII shards
+{extra}
+set -e
+shopt -s nullglob
+SHARDS=({work}/{out}*.{suf})
+if [ ${{#SHARDS[@]}} -eq 0 ]; then
+  echo "join_grids.sh: no input shards matched {work}/{out}*.{suf}" >&2
+  exit 1
+fi
+# Header: take the first comment block from the first shard.
+grep -E '^#' "${{SHARDS[0]}}" > {out_path}
+# Body: every non-comment line from every shard, deduped + shuffled.
+grep -hE -v '^#' "${{SHARDS[@]}}" | sort -u | {shuffle_filter} >> {out_path}
+""".format(extra=extra_text, work=alt_work_dir, out=alt_out,
+           suf=_suffix_join, out_path=fname_out,
+           shuffle_filter=_shuffle_filter_join))
+            else:
+                f.write("#! /bin/bash  \n")
+                f.write(r"""
 # merge using glob command called from shell
 {}
 {}  {} --output {}  {}/{}*.xml.gz 
@@ -3596,10 +3762,10 @@ def write_joingrids_sub(tag='join_grids', exe=None, universe='vanilla', input_pa
 #    ile_job.add_condor_cmd("MY.PostCmd",  ' "' + gzip + ' ' +fname_out + '"')
 
     explode_str = ""
-    explode_str += " {}/{}.xml.gz ".format(working_dir,output_base)  # base result from fitting job
+    explode_str += " {}/{}.{} ".format(working_dir,output_base,_suffix_join)  # base result from fitting job
     if n_explode >1:
      for indx in np.arange(n_explode):
-        explode_str+= " {}/{}-{}.xml.gz ".format(working_dir,output_base,indx)
+        explode_str+= " {}/{}-{}.{} ".format(working_dir,output_base,indx,_suffix_join)
         ile_job.add_arg(explode_str)
     else:
         ile_job.add_arg(" $(macroiteration) $(macroiterationnext) ")
@@ -4449,4 +4615,3 @@ def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='
 
 
     return ile_job, ile_sub_name
-

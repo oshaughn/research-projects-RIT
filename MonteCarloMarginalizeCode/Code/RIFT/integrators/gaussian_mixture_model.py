@@ -14,6 +14,20 @@ from six.moves import range
 import numpy as np
 from scipy.stats import multivariate_normal,norm
 
+try:
+    import cupy
+    import cupyx.scipy.special
+    xpy_default = cupy
+    xpy_special_default = cupyx.scipy.special
+    identity_convert = cupy.asnumpy
+    identity_convert_togpu = cupy.asarray
+    cupy_ok = True
+except ImportError:
+    xpy_default = np
+    xpy_special_default = None # scipy.special is used via scipy if needed
+    identity_convert = lambda x: x
+    identity_convert_togpu = lambda x: x
+    cupy_ok = False
 
 # 1. Try to find the legacy mvnun in known locations
 try:
@@ -49,16 +63,80 @@ if not _ORIGINAL_AVAILABLE:
         return p, 0
 
         
-#from scipy.misc import logsumexp
 from scipy.special import logsumexp
 from . import multivariate_truncnorm as truncnorm
 import itertools
 
 
-# Equation references are from Numerical Recipes for general GMM and
-# https://www.cs.nmsu.edu/~joemsong/publications/Song-SPIE2005-updated.pdf for
-# online updating features
+def _xpy_logsumexp(a, axis=None):
+    """Portable logsumexp.
 
+    cupyx.scipy.special.logsumexp is only available in newer cupy releases;
+    the CUDA 10.2 cupy build required by older (sm_30/Kepler) cards does not
+    ship it. Implement the reduction directly with cupy primitives so the GPU
+    path works regardless of cupy version, and fall back to scipy on CPU.
+    """
+    if cupy_ok:
+        a = cupy.asarray(a)
+        a_max = cupy.amax(a, axis=axis, keepdims=True)
+        a_max = cupy.where(cupy.isfinite(a_max), a_max, cupy.zeros_like(a_max))
+        out = cupy.log(cupy.sum(cupy.exp(a - a_max), axis=axis, keepdims=True)) + a_max
+        if axis is None:
+            return out.reshape(())
+        return cupy.squeeze(out, axis=axis)
+    return logsumexp(a, axis=axis)
+
+
+# Symmetric (Hermitian) eigen-routines. cupy.linalg only provides the Hermitian
+# variants (eigh/eigvalsh), not the general eig/eigvals. The matrices fed to
+# _near_psd below are covariance/correlation matrices and hence symmetric, so
+# the Hermitian routines are both correct and the only ones available on GPU.
+if cupy_ok:
+    _xpy_eigvals = cupy.linalg.eigvalsh
+    _xpy_eig = cupy.linalg.eigh
+else:
+    _xpy_eigvals = np.linalg.eigvals
+    _xpy_eig = np.linalg.eig
+
+
+def gpu_logpdf(x, mean, cov, xpy):
+    """
+    GPU-compatible multivariate normal log-pdf.
+    x: (n, d) array
+    mean: (d,) array
+    cov: (d, d) array
+
+    Uses Cholesky + a generic linear solve (xpy.linalg.solve) so the same
+    code path works for both numpy and cupy. Note: solve_triangular is
+    NOT in numpy.linalg or cupy.linalg (only in scipy.linalg /
+    cupyx.scipy.linalg), so we deliberately use the generic solver here.
+    """
+    d = mean.shape[0]
+    diff = x - mean
+    # Use cholesky for efficiency and stability. cupy.linalg has no LinAlgError
+    # attribute (and cupy.linalg.cholesky returns NaN rather than raising on a
+    # non-PSD input), so catch the numpy error type and also treat a NaN factor
+    # as failure, falling back to an epsilon-regularized diagonal in both cases.
+    eps = 1e-6 * xpy.eye(d)
+    try:
+        L = xpy.linalg.cholesky(cov)
+        if bool(xpy.any(xpy.isnan(L))):
+            L = xpy.linalg.cholesky(cov + eps)
+    except np.linalg.LinAlgError:
+        L = xpy.linalg.cholesky(cov + eps)
+
+    # Solve L*y = diff^T => y = L^-1 * diff^T
+    # diff is (n, d), so diff.T is (d, n)
+    y = xpy.linalg.solve(L, diff.T)
+
+    # quad_form = sum(y^2, axis=0)
+    quad_form = xpy.sum(y**2, axis=0)
+
+    # log_det = 2 * sum(log(diag(L)))
+    log_det = 2.0 * xpy.sum(xpy.log(xpy.diag(L)))
+
+    log_prob = -0.5 * (d * xpy.log(2 * xpy.pi) + log_det + quad_form)
+    return log_prob
 
 class estimator:
     '''
@@ -87,14 +165,17 @@ class estimator:
         self.cov_avg_ratio = 0.05
         self.epsilon = 1e-4
         self.tempering_coeff = tempering_coeff
+        self.xpy = xpy_default
+        self.identity_convert = identity_convert
+        self.identity_convert_togpu = identity_convert_togpu
 
     def _initialize(self, n, sample_array, log_sample_weights=None):
-        p_weights = np.exp(log_sample_weights - np.max(log_sample_weights)).flatten()
-        p_weights[np.isnan(p_weights)] = 0 # zero out the nan weights
-        p_weights /= np.sum(p_weights)
-        self.means = sample_array[np.random.choice(n, self.k, p=p_weights.astype(sample_array.dtype)), :]
-        self.covariances = [np.identity(self.d)] * self.k
-        self.weights = np.ones(self.k) / self.k
+        p_weights = self.xpy.exp(log_sample_weights - self.xpy.max(log_sample_weights)).flatten()
+        p_weights[self.xpy.isnan(p_weights)] = 0 # zero out the nan weights
+        p_weights /= self.xpy.sum(p_weights)
+        self.means = sample_array[self.xpy.random.choice(n, self.k, p=p_weights.astype(sample_array.dtype)), :]
+        self.covariances = [self.xpy.identity(self.d)] * self.k
+        self.weights = self.xpy.ones(self.k) / self.k
         self.adapt = [True] * self.k
 
     def _e_step(self, n, sample_array, log_sample_weights=None):
@@ -102,49 +183,52 @@ class estimator:
         Expectation step
         '''
         if log_sample_weights is None:
-            log_sample_weights = np.zeros(n)
-        p_nk = np.empty((n, self.k))
+            log_sample_weights = self.xpy.zeros(n)
+        p_nk = self.xpy.empty((n, self.k))
         for index in range(self.k):
             mean = self.means[index]
             cov = self.covariances[index]
-            log_p = np.log(self.weights[index])
-            log_pdf = multivariate_normal.logpdf(x=sample_array, mean=mean, cov=cov, allow_singular=True) # (16.1.4)
-            # note that allow_singular=True in the above line is probably really dumb and
-            # terrible, but it seems to occasionally keep the whole thing from blowing up
-            # so it stays for now
+            log_p = self.xpy.log(self.weights[index])
+            
+            if cupy_ok:
+                log_pdf = gpu_logpdf(sample_array, mean, cov, self.xpy)
+            else:
+                log_pdf = multivariate_normal.logpdf(x=sample_array, mean=mean, cov=cov, allow_singular=True)
+                
             p_nk[:,index] = log_pdf + log_p # (16.1.5)
-        p_xn = logsumexp(p_nk, axis=1)#, keepdims=True) # (16.1.3)
-        self.p_nk = p_nk - p_xn[:,np.newaxis] # (16.1.5)
+            
+        # Use cupy or scipy for logsumexp
+        p_xn = _xpy_logsumexp(p_nk, axis=1)
+
+        self.p_nk = p_nk - p_xn[:,self.xpy.newaxis] # (16.1.5)
         # normalize log sample weights as well, before modifying things with them
-        self.p_nk += log_sample_weights[:,np.newaxis]  -         logsumexp(log_sample_weights) 
-        self.log_prob = np.sum(p_xn + log_sample_weights) # (16.1.2)
+        ls_sum = _xpy_logsumexp(log_sample_weights)
+
+        self.p_nk += log_sample_weights[:,self.xpy.newaxis]  - ls_sum
+
+        self.log_prob = self.xpy.sum(p_xn + log_sample_weights)
 
     def _m_step(self, n, sample_array):
         '''
         Maximization step
         '''
-        p_nk = np.exp(self.p_nk)
-        weights = np.sum(p_nk, axis=0)   # weight of a single component
+        p_nk = self.xpy.exp(self.p_nk)
+        weights = self.xpy.sum(p_nk, axis=0)   # weight of a single component
         for index in range(self.k):
           if self.adapt[index]:
             # (16.1.6)
             w = weights[index]   # should be 1 for a single component, note
             p_k = p_nk[:,index]
-            mean = np.sum(np.multiply(sample_array, p_k[:,np.newaxis]), axis=0)
+            mean = self.xpy.sum(self.xpy.multiply(sample_array, p_k[:,self.xpy.newaxis]), axis=0)
             mean /= w
             self.means[index] = mean
             # (16.1.6)
             diff = sample_array - mean
-            cov = np.dot((p_k[:,np.newaxis] * diff).T, diff) / w
-#            cov = np.cov(diff.T, aweights=p_k)/w   # don't reinvent the wheel
-#            if len(mean)<2:
-#                cov =np.array([[cov]])
-            # attempt to fix non-positive-semidefinite covariances
+            cov = self.xpy.dot((p_k[:,self.xpy.newaxis] * diff).T, diff) / w
             self.covariances[index] = self._near_psd(cov)
             # (16.17)
-        weights /= np.sum(p_nk[:,self.adapt])
-        # if we are not adapting some of the gaussians, we need to renormalize again. Note the weight of the fixed item remains fixed!
-        weights /= np.sum(weights)
+        weights /= self.xpy.sum(p_nk[:,self.adapt])
+        weights /= self.xpy.sum(weights)
         self.weights = weights
 
 
@@ -158,34 +242,31 @@ class estimator:
     def _near_psd(self, x):
         '''
         Calculates the nearest postive semi-definite matrix for a correlation/covariance matrix
-        
-        Code from here:
-        https://stackoverflow.com/questions/10939213/how-can-i-calculate-the-nearest-positive-semi-definite-matrix
         '''
         n = x.shape[0]
-        var_list = np.array([np.sqrt(x[i,i]) for i in range(n)])
-        y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
+        var_list = self.xpy.array([self.xpy.sqrt(x[i,i]) for i in range(n)])
+        # Use broadcasting for y instead of nested list comprehension
+        y = x / (var_list[:, None] * var_list[None, :])
         while True:
             epsilon = self.epsilon
-            if min(np.linalg.eigvals(y)) > epsilon:
+            if self.xpy.min(_xpy_eigvals(y)) > epsilon:
                 return x
 
-            # Removing scaling factor of covariance matrix
-            var_list = np.array([np.sqrt(x[i,i]) for i in range(n)])
-            y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
+            var_list = self.xpy.array([self.xpy.sqrt(x[i,i]) for i in range(n)])
+            y = x / (var_list[:, None] * var_list[None, :])
 
-            # getting the nearest correlation matrix
-            eigval, eigvec = np.linalg.eig(y)
-            val = np.matrix(np.maximum(eigval, epsilon))
-            vec = np.matrix(eigvec)
-            T = 1/(np.multiply(vec, vec) * val.T)
-            T = np.matrix(np.sqrt(np.diag(np.array(T).reshape((n)) )))
-            B = T * vec * np.diag(np.array(np.sqrt(val)).reshape((n)))
-            near_corr = B*B.T    
+            eigval, eigvec = _xpy_eig(y)
+            val = self.xpy.maximum(eigval, epsilon)
+            vec = eigvec
 
-            # returning the scaling factors
-            near_cov = np.array([[near_corr[i, j]*(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
-            if np.isreal(near_cov).all():
+            # Standard PSD projection:
+            val_psd = self.xpy.maximum(eigval, epsilon)
+            near_corr = vec @ self.xpy.diag(val_psd) @ vec.T
+            
+            # Re-scale back to covariance
+            near_cov = near_corr * (var_list[:, None] * var_list[None, :])
+            
+            if self.xpy.isreal(near_cov).all():
                 break
             else:
                 x = near_cov.real
@@ -194,13 +275,6 @@ class estimator:
     def fit(self, sample_array, log_sample_weights):
         '''
         Fit the model to data
-
-        Parameters
-        ----------
-        sample_array : np.ndarray
-            Array of samples to fit
-        log_sample_weights : np.ndarray
-            Weights for samples
         '''
         n, self.d = sample_array.shape
         self._initialize(n, sample_array, log_sample_weights)
@@ -214,21 +288,24 @@ class estimator:
             count += 1
         for index in range(self.k):
             cov = self.covariances[index]
-            # temper
-            #   - note this introduces a PREFERRED LENGTH SCALE into the problem, which is dangerous
-            cov = (cov + self.tempering_coeff * np.eye(self.d)) / (1 + self.tempering_coeff)
+            cov = (cov + self.tempering_coeff * self.xpy.eye(self.d)) / (1 + self.tempering_coeff)
             self.covariances[index] = cov
 
     def print_params(self):
         '''
         Prints the model's parameters in an easily-readable format
         '''
+        # Convert to numpy for printing
+        means_np = [self.identity_convert(m) for m in self.means]
+        covs_np = [self.identity_convert(c) for c in self.covariances]
+        weights_np = self.identity_convert(self.weights)
+        
         if self.d ==1:
             print("GMM:   component wt mean std ")
         for i in range(self.k):
-            mean = self.means[i]
-            cov = self.covariances[i]
-            weight = self.weights[i]
+            mean = means_np[i]
+            cov = covs_np[i]
+            weight = weights_np[i]
             if self.d >1:
                 print('________________________________________\n')
                 print('Component', i)
@@ -245,22 +322,11 @@ class estimator:
 class gmm:
     '''
     More sophisticated implementation built on top of estimator class
-
-    Includes functionality to update with new data rather than re-fit, as well
-    as sampling and scoring of samples.
-
-    Parameters
-    ----------
-    k : int
-        Number of Gaussian components
-    max_iters : int
-        Maximum number of Expectation-Maximization iterations
     '''
 
     def __init__(self, k, bounds, max_iters=1000,epsilon=None,tempering_coeff=1e-8):
         self.k = k
         self.bounds = bounds
-        #self.tol = tol
         self.max_iters = max_iters
         self.means = [None] * k
         self.covariances =[None] * k
@@ -272,14 +338,17 @@ class gmm:
         self.N = 0
         self.epsilon =epsilon
         if self.epsilon is None:
-            self.epsilon = 1e-6  # allow very strong correlations
+            self.epsilon = 1e-6
         else:
             self.epsilon=epsilon
         self.tempering_coeff = tempering_coeff
+        self.xpy = xpy_default
+        self.identity_convert = identity_convert
+        self.identity_convert_togpu = identity_convert_togpu
 
     def _normalize(self, samples):
         n, d = samples.shape
-        out = np.empty((n, d))
+        out = self.xpy.empty((n, d))
         for i in range(d):
             [llim, rlim] = self.bounds[i]
             out[:,i] = (2.0 * samples[:,i] - (rlim + llim)) / (rlim - llim)
@@ -287,7 +356,7 @@ class gmm:
 
     def _unnormalize(self, samples):
         n, d = samples.shape
-        out = np.empty((n, d))
+        out = self.xpy.empty((n, d))
         for i in range(d):
             [llim, rlim] = self.bounds[i]
             out[:,i] = 0.5 * ((rlim - llim) * samples[:,i] + (llim + rlim))
@@ -296,18 +365,11 @@ class gmm:
     def fit(self, sample_array, log_sample_weights=None):
         '''
         Fit the model to data
-
-        Parameters
-        ----------
-        sample_array : np.ndarray
-            Array of samples to fit
-        sample_weights : np.ndarray
-            Weights for samples
         '''
         self.N, self.d = sample_array.shape
         if log_sample_weights is None:
-            log_sample_weights = np.zeros(self.N)
-        # just use base estimator
+            log_sample_weights = self.xpy.zeros(self.N)
+        
         model = estimator(self.k, tempering_coeff=self.tempering_coeff,adapt=self.adapt)
         model.fit(self._normalize(sample_array), log_sample_weights)
         self.means = model.means
@@ -328,84 +390,71 @@ class gmm:
             dist = 0
             i = 0
             for j in order:
-                # get Mahalanobis distance between current pair of components
-                diff = new_model.means[j] - self.means[i]
-                cov_inv = np.linalg.inv(self.covariances[i])
-                temp_cov_inv = np.linalg.inv(new_model.covariances[j])
+                # These are likely small vectors, stay on CPU
+                diff = self.identity_convert(new_model.means[j]) - self.identity_convert(self.means[i])
+                cov_inv = np.linalg.inv(self.identity_convert(self.covariances[i]))
+                temp_cov_inv = np.linalg.inv(self.identity_convert(new_model.covariances[j]))
                 dist += np.sqrt(np.dot(np.dot(diff, cov_inv), diff))
                 dist += np.sqrt(np.dot(np.dot(diff, temp_cov_inv), diff))
                 i += 1
             distances[index] = dist
             index += 1
-        return orders[np.argmin(distances)] # returns order which gives minimum net Mahalanobis distance
+        return orders[np.argmin(distances)]
 
     def _merge(self, new_model, M):
         '''
         Merge corresponding components of new model and old model
-
-        Refer to paper linked at the top of this file
-
-        M is the number of samples that the new model was fit using
         '''
         order = self._match_components(new_model)
         for i in range(self.k):
-            j = order[i] # get corresponding component
+            j = order[i]
             old_mean = self.means[i]
             temp_mean = new_model.means[j]
             old_cov = self.covariances[i]
             temp_cov = new_model.covariances[j]
             old_weight = self.weights[i]
             temp_weight = new_model.weights[j]
-            denominator = (self.N * old_weight) + (M * temp_weight) # this shows up a lot so just compute it once
-            # start equation (6)
+            denominator = (self.N * old_weight) + (M * temp_weight)
+            
             mean = (self.N * old_weight * old_mean) + (M * temp_weight * temp_mean)
             mean /= denominator
-            # start equation (7)
+            
             cov1 = (self.N * old_weight * old_cov) + (M * temp_weight * temp_cov)
             cov1 /= denominator
-            cov2 = (self.N * old_weight * old_mean * old_mean.T) + (M * temp_weight * temp_mean * temp_mean.T)
+            
+            # outer product for means
+            cov2 = (self.N * old_weight * self.xpy.outer(old_mean, old_mean)) + (M * temp_weight * self.xpy.outer(temp_mean, temp_mean))
             cov2 /= denominator
-            cov = cov1 + cov2 - mean * mean.T
-            # check for positive-semidefinite
+            
+            cov = cov1 + cov2 - self.xpy.outer(mean, mean)
             cov = self._near_psd(cov)
-            # start equation (8)
+            
             weight = denominator / (self.N + M)
-            # update everything
+            
             self.means[i] = mean
             self.covariances[i] = cov
             self.weights[i] = weight
 
     def _near_psd(self, x):
         '''
-	Calculates the nearest postive semi-definite matrix for a correlation/covariance matrix
-
-        Code from here:
-        https://stackoverflow.com/questions/10939213/how-can-i-calculate-the-nearest-positive-semi-definite-matrix
+        Calculates the nearest postive semi-definite matrix for a correlation/covariance matrix
         '''
         n = x.shape[0]
-        var_list = np.array([np.sqrt(x[i,i]) for i in range(n)])
-        y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
+        var_list = self.xpy.array([self.xpy.sqrt(x[i,i]) for i in range(n)])
+        y = x / (var_list[:, None] * var_list[None, :])
         while True:
             epsilon = self.epsilon
-            if min(np.linalg.eigvals(y)) > epsilon:
+            if self.xpy.min(_xpy_eigvals(y)) > epsilon:
                 return x
 
-            # Removing scaling factor of covariance matrix
-            var_list = np.array([np.sqrt(x[i,i]) for i in range(n)])
-            y = np.array([[x[i, j]/(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
+            var_list = self.xpy.array([self.xpy.sqrt(x[i,i]) for i in range(n)])
+            y = x / (var_list[:, None] * var_list[None, :])
 
-            # getting the nearest correlation matrix
-            eigval, eigvec = np.linalg.eig(y)
-            val = np.matrix(np.maximum(eigval, epsilon))
-            vec = np.matrix(eigvec)
-            T = 1/(np.multiply(vec, vec) * val.T)
-            T = np.matrix(np.sqrt(np.diag(np.array(T).reshape((n)) )))
-            B = T * vec * np.diag(np.array(np.sqrt(val)).reshape((n)))
-            near_corr = B*B.T    
-
-            # returning the scaling factors
-            near_cov = np.array([[near_corr[i, j]*(var_list[i]*var_list[j]) for i in range(n)] for j in range(n)])
-            if np.isreal(near_cov).all():
+            eigval, eigvec = _xpy_eig(y)
+            val_psd = self.xpy.maximum(eigval, epsilon)
+            near_corr = eigvec @ self.xpy.diag(val_psd) @ eigvec.T
+            near_cov = near_corr * (var_list[:, None] * var_list[None, :])
+            if self.xpy.isreal(near_cov).all():
                 break
             else:
                 x = near_cov.real
@@ -414,122 +463,132 @@ class gmm:
     def update(self, sample_array, log_sample_weights=None):
         '''
         Updates the model with new data without doing a full retraining.
-
-        Parameters
-        ----------
-        sample_array : np.ndarray
-            Array of samples to fit
-        sample_weights : np.ndarray
-            Weights for samples
         '''
         self.tempering_coeff /= 2
         new_model = estimator(self.k, self.max_iters, self.tempering_coeff)
-        # Strip non-finite training data
-        indx_ok = np.isfinite(log_sample_weights)  
-        new_model.fit(self._normalize(sample_array[indx_ok]), log_sample_weights[indx_ok])
+        
+        # Filter non-finite
+        if log_sample_weights is not None:
+            indx_ok = self.xpy.isfinite(log_sample_weights)
+            s_filtered = sample_array[indx_ok]
+            w_filtered = log_sample_weights[indx_ok]
+        else:
+            s_filtered = sample_array
+            w_filtered = None
+            
+        new_model.fit(self._normalize(s_filtered), w_filtered)
         M, _ = sample_array.shape
         self._merge(new_model, M)
         self.N += M
 
     def score(self, sample_array,assume_normalized=True):
         '''
-        Score samples (i.e. calculate likelihood of each sample) under the current
-        model.
-
-        Note the bounds are stored *not* normalized, and we need to compensate for that.
-        Note the normalized bounds are always -1,1 ... but we won't hardcode that, in case normalization changes
-
-        Parameters
-        ----------
-        sample_array : np.ndarray
-            Array of samples to fit
-        bounds : np.ndarray
-            Bounds for samples, used for renormalizing scores
+        Score samples under the current model.
         '''
         n, d = sample_array.shape
-        scores = np.zeros(n)
-        sample_array = self._normalize(sample_array)
-        bounds_normalized = np.zeros(self.bounds.shape)
-        bounds_normalized= self._normalize(self.bounds.T).T
+        scores = self.xpy.zeros(n)
+        sample_array_norm = self._normalize(sample_array)
+        
+        # bounds_normalized
+        bounds_norm = self._normalize(self.bounds.T).T
         normalization_constant = 0.
+        
         for i in range(self.k):
             w = self.weights[i]
             mean = self.means[i]
             cov = self.covariances[i]
-            if(len(mean)>1):
-                scores += multivariate_normal.pdf(x=sample_array, mean=mean, cov=cov, allow_singular=True) * w
-                normalization_constant += w*mvnun(bounds_normalized[:,0], bounds_normalized[:,1], mean, cov)[0] # this function is very fast at integrating multivariate normal distributions
+            
+            if self.d > 1:
+                if cupy_ok:
+                    # Use gpu_logpdf and exponentiate
+                    log_pdf = gpu_logpdf(sample_array_norm, mean, cov, self.xpy)
+                    pdf = self.xpy.exp(log_pdf)
+                else:
+                    pdf = multivariate_normal.pdf(x=sample_array_norm, mean=mean, cov=cov, allow_singular=True)
+                
+                scores += pdf * w
+                # mvnun is CPU only
+                mean_cpu = self.identity_convert(mean)
+                cov_cpu = self.identity_convert(cov)
+                bounds_norm_cpu = self.identity_convert(bounds_norm)
+                normalization_constant += w * mvnun(bounds_norm_cpu[:,0], bounds_norm_cpu[:,1], mean_cpu, cov_cpu)[0]
             else:
                 sigma2 = cov[0,0]
-                val = 1./np.sqrt(2*np.pi*sigma2) * np.exp( - 0.5*( sample_array[:,0] - mean[0])**2/sigma2)
+                val = 1./self.xpy.sqrt(2*self.xpy.pi*sigma2) * self.xpy.exp( - 0.5*( sample_array_norm[:,0] - mean[0])**2/sigma2)
                 scores += val * w
-                my_cdf = norm(loc=mean[0],scale=np.sqrt(sigma2)).cdf
-                normalization_constant += w*(my_cdf( bounds_normalized[0,1]) - my_cdf( bounds_normalized[0,0]))
-            # note that allow_singular=True in the above line is probably really dumb and
-            # terrible, but it seems to occasionally keep the whole thing from blowing up
-            # so it stays for now
-        # we need to renormalize the PDF
-        # to do this we sample from a full distribution (i.e. without truncation) and use the
-        # fraction of samples that fall inside the bounds to renormalize
-        #full_sample_array = self.sample(n, use_bounds=False)
-        #llim = np.rot90(self.bounds[:,[0]])
-        #rlim = np.rot90(self.bounds[:,[1]])
-        #n1 = np.greater(full_sample_array, llim).all(axis=1)
-        #n2 = np.less(full_sample_array, rlim).all(axis=1)
-        #normalize = np.array(np.logical_and(n1, n2)).flatten()
-        #m = float(np.sum(normalize)) / n
-        #scores /= m
+                
+                mean_cpu = self.identity_convert(mean)[0]
+                sigma_cpu = self.identity_convert(np.sqrt(sigma2))
+                bounds_norm_cpu = self.identity_convert(bounds_norm[0])
+                my_cdf = norm(loc=mean_cpu, scale=sigma_cpu).cdf
+                normalization_constant += w * (my_cdf(bounds_norm_cpu[1]) - my_cdf(bounds_norm_cpu[0]))
+        
         scores /= normalization_constant
-        vol = np.prod(self.bounds[:,1] - self.bounds[:,0])
-        scores *= 2.0**d / vol # account for renormalization of dimensions
+        vol = self.xpy.prod(self.bounds[:,1] - self.bounds[:,0])
+        scores *= (2.0**self.d) / vol
         return scores
 
     def sample(self, n, use_bounds=True):
         '''
-        Draw samples from the current model, either with or without bounds
+        Draw samples from the current model.
 
-        Parameters
-        ----------
-        n : int
-            Number of samples to draw
-        bounds : np.ndarray
-            Bounds for samples
+        Note the model's means/covariances are stored in *normalized* coordinates
+        (the [-1, 1] image of self.bounds under self._normalize). Samples are
+        therefore drawn in normalized coordinates and then unnormalized back to
+        the original coordinate frame before being returned, matching the
+        pre-port behavior expected by MonteCarloEnsemble._sample().
         '''
-        sample_array = np.empty((n, self.d))
+        # Sampling is kept on CPU for stability (truncnorm is CPU-only)
+        means_np = [self.identity_convert(m) for m in self.means]
+        covs_np = [self.identity_convert(c) for c in self.covariances]
+        weights_np = self.identity_convert(self.weights)
+
+        # truncnorm bounds must match the coordinate frame of the model
+        # parameters (mean/cov), which is normalized [-1, 1].
+        bounds_normalized = np.empty((self.d, 2))
+        bounds_normalized[:, 0] = -1.0
+        bounds_normalized[:, 1] = 1.0
+
+        sample_array_np = np.empty((n, self.d))
         start = 0
-        bounds = np.empty(self.bounds.shape)
-        bounds[:,0] = -1.0
-        bounds[:,1] = 1.0
         for component in range(self.k):
-            w = self.weights[component]
-            mean = self.means[component]
-            cov = self.covariances[component]
-            num_samples = int(n * w)  # NOT a poisson draw, note : we draw exactly the expected number from each one (since we have a fixed number to fill)
+            w = weights_np[component]
+            mean = means_np[component]
+            cov = covs_np[component]
+            num_samples = int(n * w)
             if component == self.k - 1:
                 end = n
             else:
                 end = start + num_samples
             try:
                 if not use_bounds:
-                    sample_array[start:end] = np.random.multivariate_normal(mean, cov, end - start)
+                    sample_array_np[start:end] = np.random.multivariate_normal(mean, cov, end - start)
                 else:
-                    sample_array[start:end] = truncnorm.sample(mean, cov, bounds, end - start)
+                    sample_array_np[start:end] = truncnorm.sample(mean, cov, bounds_normalized, end - start)
                 start = end
-            except:
-                print('Exiting due to non-positive-semidefinite')
+            except Exception as e:
+                print('Exiting due to non-positive-semidefinite', e)
                 raise Exception("gmm covariance not positive-semidefinite")
-        return self._unnormalize(sample_array)
+
+        # Move to xpy and unnormalize back to original [llim, rlim] coordinates,
+        # so callers receive samples in the same frame as self.bounds.
+        sample_array_xpy = self.identity_convert_togpu(sample_array_np)
+        return self._unnormalize(sample_array_xpy)
 
     def print_params(self):
         '''
         Prints the model's parameters in an easily-readable format
         '''
+        means_np = [self.identity_convert(m) for m in self.means]
+        covs_np = [self.identity_convert(c) for c in self.covariances]
+        weights_np = self.identity_convert(self.weights)
+        
         if self.d ==1:
             print("GMM:   component wt mean_correct mean_normed std_normed ")
         for i in range(self.k):
-            mean = self.means[i]
-            cov = self.covariances[i]
-            weight = self.weights[i]
+            mean = means_np[i]
+            cov = covs_np[i]
+            weight = weights_np[i]
             if self.d >1:
                 print('________________________________________\n')
                 print('Component', i)

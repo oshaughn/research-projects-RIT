@@ -6,6 +6,7 @@ import math
 from collections import defaultdict
 
 import numpy
+from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
 from scipy import integrate, interpolate
 from ..integrators.statutils import cumvar, welford, update, finalize
 import itertools
@@ -411,7 +412,7 @@ class MCSampler(object):
         # Determine stopping conditions
         #
         nmax = int(kwargs["nmax"]) if "nmax" in kwargs else float("inf")
-        neff = kwargs["neff"] if "neff" in kwargs else numpy.float128("inf")
+        neff = kwargs["neff"] if "neff" in kwargs else RiftFloat("inf")
         n = int(kwargs["n"]) if "n" in kwargs else min(1000, nmax)
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
 
@@ -463,12 +464,12 @@ class MCSampler(object):
                 print(" Initiating multiprocessor pool : ", nProcesses)
             p = Pool(nProcesses)
 
-        int_val1 = numpy.float128(0)
+        int_val1 = RiftFloat(0)
         self.ntotal = 0
         maxval = -float("Inf")
         maxlnL = -float("Inf")
         eff_samp = 0
-        mean, var = None, numpy.float128(0)    # to prevent infinite variance due to overflow
+        mean, var = None, RiftFloat(0)    # to prevent infinite variance due to overflow
 
         if bShowEvaluationLog:
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
@@ -501,7 +502,7 @@ class MCSampler(object):
             # Calculate the overall p_s assuming each pdf is independent
             joint_p_s = numpy.prod(p_s, axis=0)
             joint_p_prior = numpy.prod(p_prior, axis=0)
-            joint_p_prior = numpy.array(joint_p_prior,dtype=numpy.float128)  # Force type. Some type issues have arisen (dtype=object returns by accident)
+            joint_p_prior = numpy.array(joint_p_prior,dtype=RiftFloat)  # Force type. Some type issues have arisen (dtype=object returns by accident)
 
 #            print "Joint prior ",  type(joint_p_prior), joint_p_prior.dtype, joint_p_prior
 #            print "Joint sampling prior ", type(joint_p_s), joint_p_s.dtype
@@ -850,7 +851,7 @@ def q_samp_vector(qmin,qmax,x):
     scale = 1./(1+qmin) - 1./(1+qmax)
     return 1/numpy.power((1+x),2)/scale
 def q_cdf_inv_vector(qmin,qmax,x):
-    return numpy.array((qmin + qmax*qmin + qmax*x - qmin*x)/(1 + qmax - qmax*x + qmin*x),dtype=np.float128)
+    return numpy.array((qmin + qmax*qmin + qmax*x - qmin*x)/(1 + qmax - qmax*x + qmin*x),dtype=RiftFloat)
 
 # total mass. Assumed used with q.  2M/Mmax^2-Mmin^2
 def M_samp_vector(Mmin,Mmax,x):

@@ -32,6 +32,7 @@ import lalsimulation as lalsim
 import RIFT.lalsimutils as lsu  # problem of relative comprehensive import - dangerous due to package name
 log_loud = lsu.log_loud
 import numpy as np
+from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
 try:
   import cupy
   from . import optimized_gpu_tools
@@ -670,7 +671,7 @@ def FactoredLogLikelihoodTimeMarginalized(tvals, extr_params, rholms_intp, rholm
     Ylms = ComputeYlms(Lmax, incl, -phiref, selected_modes=rholms_intp[list(rholms.keys())[0]].keys())
 
 #    lnL = 0.
-    lnL = np.zeros(len(tvals),dtype=np.float128)
+    lnL = np.zeros(len(tvals),dtype=RiftFloat)
     for det in detectors:
         CT = crossTerms[det]
         CTV = crossTermsV[det]
@@ -1570,7 +1571,7 @@ def  DiscreteFactoredLogLikelihoodViaArray(tvals, P, lookupNKDict, rholmsArrayDi
 
     deltaT = P.deltaT
 
-    lnL = np.zeros(npts,dtype=np.float128)
+    lnL = np.zeros(npts,dtype=RiftFloat)
 
 
     for det in detectors:
@@ -1648,10 +1649,10 @@ def  DiscreteFactoredLogLikelihoodViaArrayVector(tvals, P_vec, lookupNKDict, rho
     deltaT = P_vec.deltaT # this is stored as a scalar
 
     # Array to use for work
-    lnL = np.zeros(npts,dtype=np.float128)
-    lnL_array = np.zeros((npts_extrinsic,npts),dtype=np.float128)
+    lnL = np.zeros(npts,dtype=RiftFloat)
+    lnL_array = np.zeros((npts_extrinsic,npts),dtype=RiftFloat)
     # Array to use for output
-    lnLmargOut = np.zeros(npts_extrinsic,dtype=np.float128)
+    lnLmargOut = np.zeros(npts_extrinsic,dtype=RiftFloat)
 #    term1  = np.zeros(npts, dtype=complex) # workspace
 
     for det in detectors:  # strings right now - need to change to make ufunc-able

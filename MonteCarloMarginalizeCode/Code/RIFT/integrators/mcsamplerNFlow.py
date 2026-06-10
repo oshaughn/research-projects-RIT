@@ -13,6 +13,7 @@ from collections import defaultdict
 
 import numpy
 np=numpy #import numpy as np
+from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
 from scipy import integrate, interpolate, special
 import itertools
 import functools
@@ -62,7 +63,7 @@ except:
 
 try:
   import cupy
-  import cupyx   # needed for logsumexp
+  import cupyx.scipy.special   # needed for logsumexp
   xpy_default=cupy
   try:
     xpy_special_default = cupyx.scipy.special
@@ -642,7 +643,7 @@ class MCSampler(MCSamplerGeneric):
 #      weights_alt = self.xpy.maximum(weights_alt, 1e-5)    # prevent negative weights, in case integrating function with lnL < 0
       # now treat as sum
       weights_alt = weights_alt/(weights_alt.sum())
-      if weights_alt.dtype == numpy.float128:
+      if weights_alt.dtype == RiftFloat:
         weights_alt = weights_alt.astype(numpy.float64,copy=False)
 
 
@@ -726,7 +727,7 @@ class MCSampler(MCSamplerGeneric):
         # Determine stopping conditions
         #
         nmax = kwargs["nmax"] if "nmax" in kwargs else float("inf")
-        neff = kwargs["neff"] if "neff" in kwargs else numpy.float128("inf")
+        neff = kwargs["neff"] if "neff" in kwargs else RiftFloat("inf")
         n = int(kwargs["n"] if "n" in kwargs else min(100000, nmax))
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
         save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None

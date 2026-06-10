@@ -7,6 +7,7 @@
 
 import scipy.linalg as linalg
 import numpy as np
+from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
 
 
 def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_gamma=None,prior_quadratic_gamma=None,verbose=False,n_digits=None,hard_regularize_negative=False,hard_regularize_scale=1):
@@ -38,7 +39,7 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
     # Constant, linear, quadratic functions. 
     # Beware of lambda:  f_list = [(lambda x: k) for k in range(5)] does not  work, but this does
     #     f_list = [(lambda x,k=k: k) for k in range(5)]
-    f0 = [lambda z: np.ones(len(z),dtype=np.float128)]
+    f0 = [lambda z: np.ones(len(z),dtype=RiftFloat)]
     # indx_lookup_linear = {}   # protect against packing errors
     # indx_here = len(f0)
     # f_linear = []
@@ -73,11 +74,11 @@ def fit_quadratic(x,y,x0=None,variable_symmetry_list=None,gamma_x=None,prior_x_g
     #         print " Grid test " , pair,  fn_now(np.array([1,0])), fn_now(np.array([0,1])), fn_now(np.array([1,1])) ,fn_now(np.array([1,-1])) 
 
 
-    F = np.matrix(np.zeros((len(x), n_params_model),dtype=np.float128))
+    F = np.matrix(np.zeros((len(x), n_params_model),dtype=RiftFloat))
     for q in np.arange(n_params_model):
-        fval = f_list[q](np.array(x,dtype=np.float128))
+        fval = f_list[q](np.array(x,dtype=RiftFloat))
         F[:,q] = np.reshape(fval, (len(x),1))
-    gamma = np.matrix( np.diag(np.ones(npts,dtype=np.float128)))
+    gamma = np.matrix( np.diag(np.ones(npts,dtype=RiftFloat)))
     if not(gamma_x is None):
         gamma = np.matrix(gamma_x)
     Gamma = F.T * gamma * F      # Fisher matrix for the fit

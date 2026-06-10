@@ -187,6 +187,12 @@ parser.add_argument("--puff-cadence",default=None,type=int,help="Every n iterati
 parser.add_argument("--puff-max-it",default=-1,type=int,help="Maximum iteration number that puffball is applied.  If negative, puffball is not applied ")
 parser.add_argument("--last-iteration-extrinsic",action='store_true',help="Configure last iteration to extract *one* set of extrinsic parameters from each intrinsic point. [This is highly inefficient, but people like having one extrinsic point per intrinsic point.]  Requires --convert-args")
 parser.add_argument("--last-iteration-extrinsic-nsamples",default=3000,type=int,help="Construct this number of extrinsic samples")
+parser.add_argument("--last-iteration-export-marginal-distance-grid", action='store_true', help="Add argument to ILE_extr")
+parser.add_argument("--last-iteration-export-distance-slices", default=0, type=int, help="If >0, the ILE_extr (extrinsic) stage exports K-row .dslice files: Plan-B fixed-distance extrinsic-marginalized likelihoods. Adds --export-distance-slices K (+ --internal-use-lnL) to ILE_extr and strips --distance-marginalization.")
+parser.add_argument("--last-iteration-export-distance-slices-n-core", default=0, type=int, help="Passthrough to ILE --n-distance-slice-core for the extrinsic-stage .dslice export (0 = ILE default).")
+parser.add_argument("--last-iteration-export-distance-slices-n-wing", default=0, type=int, help="Passthrough to ILE --n-distance-slice-wing for the extrinsic-stage .dslice export (0 = ILE default).")
+parser.add_argument("--last-iteration-export-distance-slices-wing-delta-lnL", default=None, type=float, help="Passthrough to ILE --distance-slice-wing-delta-lnL for the extrinsic-stage .dslice export.")
+parser.add_argument("--last-iteration-export-distance-slices-skip-threshold", default=None, type=float, help="Passthrough to ILE --distance-slice-skip-threshold for the extrinsic-stage .dslice export.")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
 parser.add_argument("--ile-exe",default=None,help="filename of ILE or equivalent executable. Will default to `which integrate_likelihood_extrinsic` in low-level code")
 parser.add_argument("--ile-retries",default=0,type=int,help="Number of retry attempts for ILE jobs. (These can fail)")
@@ -261,10 +267,21 @@ if not (opts.cip_args is None):
     print("CIP", cip_args)
 
 cip_args_lines = None
+cip_args_prefixes = []  # so it works correctly even in flat mode
 if not (opts.cip_args_list is None):
     with open(opts.cip_args_list) as f:
         cip_args_lines = f.readlines()
-    cip_args_n = [int(x.split(' ')[0]) for x in cip_args_lines]  # Pull off the integer
+    # Pull off the leading token. It is usually an integer (number of iterations), but util_RIFT_pseudo_pipe.py
+    # also emits 'Z' (run-to-convergence marker) and 'G' (grid-stage marker) prefixes; tolerate those here.
+    cip_args_prefixes = [(x.split(' ')[0]) for x in cip_args_lines]
+    cip_args_n = (cip_args_prefixes.copy())
+    for indx in np.arange(len(cip_args_n)):
+        if cip_args_prefixes[indx][0]=='Z':
+            cip_args_n[indx] = 1  # one nominal iteration; this workflow has no run-to-convergence CIP stage
+        elif cip_args_prefixes[indx][0] =='G':
+            cip_args_n[indx] = int(cip_args_prefixes[indx][1:])  # integer after G assumed
+        else:
+            cip_args_n[indx]  = int(cip_args_n[indx])
     cip_args_lines = [' '.join(x.split(' ')[1:]) for x in cip_args_lines] # pull off the integer
     cip_args_lines = [x.replace('[', ' \'[').replace(']', ']\'').rstrip() for x in cip_args_lines]
     cip_args_lines = [x.lstrip() for x in cip_args_lines] # remove leading whitespace
@@ -542,6 +559,22 @@ if  (opts.last_iteration_extrinsic):
     ile_args_extr = ile_args + " --save-P 0.01 --save-samples --n-eff  "  +str(2*n_points_per_ILE)  # modify convergence criteria so output of reasonable size
     #  - note we *disable* --no-adapt-after-first (if present), so each point is independent (e.g., in sky location)
     ile_args_extr = ile_args_extr.replace('--no-adapt-after-first','')
+    if opts.last_iteration_export_marginal_distance_grid:
+        ile_args_extr += " --export-marginal-distance-grid "
+        ile_args_extr = ile_args_extr.replace("--distance-marginalization ", ' ')
+    if opts.last_iteration_export_distance_slices and opts.last_iteration_export_distance_slices > 0:
+        ile_args_extr += " --export-distance-slices {} ".format(opts.last_iteration_export_distance_slices)
+        if opts.last_iteration_export_distance_slices_n_core:
+            ile_args_extr += " --n-distance-slice-core {} ".format(opts.last_iteration_export_distance_slices_n_core)
+        if opts.last_iteration_export_distance_slices_n_wing:
+            ile_args_extr += " --n-distance-slice-wing {} ".format(opts.last_iteration_export_distance_slices_n_wing)
+        if opts.last_iteration_export_distance_slices_wing_delta_lnL is not None:
+            ile_args_extr += " --distance-slice-wing-delta-lnL {} ".format(opts.last_iteration_export_distance_slices_wing_delta_lnL)
+        if opts.last_iteration_export_distance_slices_skip_threshold is not None:
+            ile_args_extr += " --distance-slice-skip-threshold {} ".format(opts.last_iteration_export_distance_slices_skip_threshold)
+        if "--internal-use-lnL" not in ile_args_extr:
+            ile_args_extr += " --internal-use-lnL "
+        ile_args_extr = ile_args_extr.replace("--distance-marginalization ", ' ')
     ileExtr_job, ileExtr_job_name = dag_utils.write_ILE_sub_simple(tag='ILE_extr',log_dir=None,arg_str=ile_args_extr,output_file="EXTR_out.xml",simple_unique=True,ncopies=1,exe=ile_exe,transfer_files=transfer_file_names,request_memory=opts.request_memory_ILE*2,request_gpu=opts.request_gpu_ILE,use_cvmfs_frames=opts.use_cvmfs_frames)
     ileExtr_job.add_condor_cmd("initialdir",opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile")
     ileExtr_job.set_log_file(opts.working_directory+"/approx_$(macroapprox)_iteration_$(macroiteration)_ile/logs/ILEextr-$(macroevent)-$(cluster)-$(process).log")

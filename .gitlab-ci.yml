@@ -17,6 +17,29 @@ stages:
 #  - docker image
 #  - deploy
 
+.pixi_template:
+  stage: system tests
+  before_script: []
+  variables:
+    PIXI_HOME: "$CI_PROJECT_DIR/.pixi"
+    PIXI_CACHE_DIR: "$CI_PROJECT_DIR/.pixi-cache"
+    XDG_CACHE_HOME: "$CI_PROJECT_DIR/.pixi-cache/xdg"
+    PATH: "$CI_PROJECT_DIR/.pixi/bin:$PATH"
+  cache:
+    key: pixi-$CI_JOB_NAME
+    paths:
+      - .pixi/
+      - .pixi-cache/
+      - .pixi/envs/
+  script:
+    - apt-get update --assume-yes && apt-get install --assume-yes ca-certificates curl git
+    - curl -fsSL https://pixi.sh/install.sh | bash
+    - export PATH="$PIXI_HOME/bin:$PATH"
+    - pixi --version
+    - pixi run -e "$PIXI_ENV" swig-version
+    - pixi run -e "$PIXI_ENV" install-rift
+    - pixi run -e "$PIXI_ENV" import-check
+
 .install_docker_dependencies:
   before_script:
      - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
@@ -117,6 +140,16 @@ gpu_integration:
       when: on_success
       allow_failure: false
     - when: never
+
+pixi_swig_pre44:
+  extends: .pixi_template
+  variables:
+    PIXI_ENV: swig-pre44
+
+pixi_swig_post44:
+  extends: .pixi_template
+  variables:
+    PIXI_ENV: swig-post44
 
 # build:test:
 #   image: docker:latest

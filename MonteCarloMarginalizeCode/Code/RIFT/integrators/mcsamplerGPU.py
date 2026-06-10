@@ -11,6 +11,7 @@ from collections import defaultdict
 
 import numpy
 np=numpy #import numpy as np
+from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
 from scipy import integrate, interpolate, special
 import itertools
 import functools
@@ -19,7 +20,7 @@ import os
 
 try:
   import cupy
-  import cupyx   # needed for logsumexp
+  import cupyx.scipy.special   # needed for logsumexp
   xpy_default=cupy
   try:
     xpy_special_default = cupyx.scipy.special
@@ -315,15 +316,20 @@ class MCSampler(object):
            - for now, do on the CPU, since this is done rarely and involves fairly small arrays
            - this is very wasteful, since we are casting back to the CPU for ALL our sampling points
        """
-       if old_style or not(cupy_ok):
-         dat_cdf = identity_convert(self.histogram_cdf[param])
-         dat_edges = identity_convert(self.histogram_edges[param])
+       # Use the CPU path whenever this sampler is not actually running on the
+       # GPU (self.xpy is numpy). The GPU interp() calls cupy.searchsorted, which
+       # requires cupy arrays; the histograms are numpy when self.xpy is numpy,
+       # so the module-level cupy_ok flag is not the right gate here. Instance
+       # converters are used so nothing is force-pushed across backends.
+       if old_style or not(cupy_ok) or (self.xpy is np):
+         dat_cdf = self.identity_convert(self.histogram_cdf[param])
+         dat_edges = self.identity_convert(self.histogram_edges[param])
          y = np.interp(
-           identity_convert(P), dat_cdf,
+           self.identity_convert(P), dat_cdf,
            dat_edges,
            )
          # Return the value in the original scaling.
-         return identity_convert_togpu(y)*self.x_max_minus_min[param] + self.x_min[param]
+         return self.identity_convert_togpu(y)*self.x_max_minus_min[param] + self.x_min[param]
        dat_cdf = self.histogram_cdf[param]
        dat_edges =self.histogram_edges[param]
        y = interp(P,dat_cdf,dat_edges)
@@ -546,7 +552,7 @@ class MCSampler(object):
       weights_alt = self.xpy.maximum(weights_alt, 1e-5)    # prevent negative weights, in case integrating function with lnL < 0
       # now treat as sum
       weights_alt = weights_alt/(weights_alt.sum())
-      if weights_alt.dtype == numpy.float128:
+      if weights_alt.dtype == RiftFloat:
         weights_alt = weights_alt.astype(numpy.float64,copy=False)
 
       def function_wrapper(f, p):
@@ -621,7 +627,7 @@ class MCSampler(object):
         # Determine stopping conditions
         #
         nmax = kwargs["nmax"] if "nmax" in kwargs else float("inf")
-        neff = kwargs["neff"] if "neff" in kwargs else numpy.float128("inf")
+        neff = kwargs["neff"] if "neff" in kwargs else RiftFloat("inf")
         n = int(kwargs["n"] if "n" in kwargs else min(1000, nmax))
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
         save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None
@@ -721,8 +727,10 @@ class MCSampler(object):
                 lnL= lnF(**unpacked)  # protect order using dictionary
             # take log if we are NOT using lnL
             if cupy_ok:
-              if not(isinstance(lnL,cupy.ndarray)):
-                lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
+              # instance converter tracks self.xpy; module-level converter would
+              # force lnL onto the GPU even in CPU mode (see note in integrate()).
+              if not(isinstance(lnL, self.xpy.ndarray)):
+                lnL = self.identity_convert_togpu(lnL)
 
             log_integrand =lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
             log_weights = tempering_exp*lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
@@ -808,7 +816,7 @@ class MCSampler(object):
             weights_alt = self._rvs["log_integrand"][-n_history:]+np.max([maxlnL, 200])  # try to make sure we have some dynamic range here
             weights_alt = self.xpy.maximum(weights_alt, 1e-5)  # prevent negative weights. NOTE THIS IS IMPORTANT: if you are integrating a function with lnL<0, use an offset!
             weights_alt = weights_alt/(weights_alt.sum())
-            if weights_alt.dtype == numpy.float128:
+            if weights_alt.dtype == RiftFloat:
               weights_alt = weights_alt.astype(numpy.float64,copy=False)
 
             for itr, p in enumerate(self.params_ordered):
@@ -980,7 +988,7 @@ class MCSampler(object):
         # Determine stopping conditions
         #
         nmax = kwargs["nmax"] if "nmax" in kwargs else float("inf")
-        neff = kwargs["neff"] if "neff" in kwargs else numpy.float128("inf")
+        neff = kwargs["neff"] if "neff" in kwargs else RiftFloat("inf")
         n = int(kwargs["n"] if "n" in kwargs else min(1000, nmax))
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
         save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None
@@ -1023,12 +1031,12 @@ class MCSampler(object):
         if bShowEvaluationLog:
             print(" .... mcsampler : providing verbose output ..... ")
 
-        int_val1 = numpy.float128(0)
+        int_val1 = RiftFloat(0)
         self.ntotal = 0
         maxval = -float("Inf")
         maxlnL = -float("Inf")
         eff_samp = 0
-        mean, var = None, numpy.float128(0)    # to prevent infinite variance due to overflow
+        mean, var = None, RiftFloat(0)    # to prevent infinite variance due to overflow
         if cupy_ok:
           var = xpy_default.float64(0)   # cupy doesn't have float128
 
@@ -1085,13 +1093,18 @@ class MCSampler(object):
                 fval = func(**unpacked) # Chris' original plan: note this insures the function arguments are tied to the parameters, using a dictionary. 
 
             if cupy_ok:
-              if not(isinstance(fval,cupy.ndarray)):
-                fval = identity_convert_togpu(fval)  # send to GPU, if not already there
+              # Use the *instance* converter (self.identity_convert_togpu), which
+              # tracks self.xpy. The module-level converter would force fval onto
+              # the GPU even when this sampler is running on the CPU (self.xpy is
+              # numpy by default), producing a numpy/cupy mismatch against the
+              # numpy joint_p_prior / joint_p_s built in draw_simplified.
+              if not(isinstance(fval, self.xpy.ndarray)):
+                fval = self.identity_convert_togpu(fval)
 
             #
             # Check if there is any practical contribution to the integral
             #
-            # FIXME: While not technically a fatal error, this will kill the 
+            # FIXME: While not technically a fatal error, this will kill the
             # adaptive sampling
             if not(cupy_ok): # only do this check if not on GPU
               if fval.sum() == 0:
@@ -1147,9 +1160,9 @@ class MCSampler(object):
             if var is None:
               var=0
             if mean is None:
-              mean=identity_convert_togpu(0.0)
+              mean=self.identity_convert_togpu(0.0)
             current_aggregate = [int(self.ntotal),mean, (self.ntotal-1)*var]
-            current_aggregate = update(current_aggregate, int_val,xpy=xpy_default)
+            current_aggregate = update(current_aggregate, int_val,xpy=self.xpy)
             outvals = finalize(current_aggregate)
 #            print(var, outvals[-1])
             var = outvals[-1]
@@ -1159,7 +1172,7 @@ class MCSampler(object):
             # running number of evaluations
             self.ntotal += n
             # FIXME: Likely redundant with int_val1
-            mean = identity_convert_togpu(xpy_default.float64(int_val1/self.ntotal))
+            mean = self.identity_convert_togpu(self.xpy.float64(int_val1/self.ntotal))
 
             # this test should not be required (!), but ... nan can happen
             if np.isfinite(maxval): #not(np.isinf(maxval)):
@@ -1228,7 +1241,7 @@ class MCSampler(object):
 
             weights_alt = weights_alt/(weights_alt.sum())
             # Type convert as needed: if weights are float128, convert to float64; otherwise we hit a typing error later with bincount
-            if weights_alt.dtype == numpy.float128:
+            if weights_alt.dtype == RiftFloat:
               weights_alt = weights_alt.astype(numpy.float64,copy=False)
 #            weights_alt = floor_integrated_probability*xpy_default.ones(len(weights_alt))/len(weights_alt) + (1-floor_integrated_probability)*weights_alt
 
@@ -1412,7 +1425,7 @@ def q_samp_vector(qmin,qmax,x):
     scale = 1./(1+qmin) - 1./(1+qmax)
     return 1/numpy.power((1+x),2)/scale
 def q_cdf_inv_vector(qmin,qmax,x,xpy=xpy_default):
-    return np.array((qmin + qmax*qmin + qmax*x - qmin*x)/(1 + qmax - qmax*x + qmin*x),dtype=np.float128)
+    return np.array((qmin + qmax*qmin + qmax*x - qmin*x)/(1 + qmax - qmax*x + qmin*x),dtype=RiftFloat)
 
 # total mass. Assumed used with q.  2M/Mmax^2-Mmin^2
 def M_samp_vector(Mmin,Mmax,x):
