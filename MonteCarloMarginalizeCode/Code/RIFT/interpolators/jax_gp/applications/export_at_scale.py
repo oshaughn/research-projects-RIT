@@ -315,15 +315,25 @@ def discover_run(run_dir):
 _CONST_TOL = 1e-6
 
 
-def raw_to_fit(X_raw, raw_names, mass_coord="eta"):
-    """``(m1,m2,spin...) -> (mc, <mass2>, spin...)`` as parallel numpy columns.
+def raw_to_fit(X_raw, raw_names, mass_coord="eta", spin_coord="aligned_eff"):
+    """``(m1,m2,spin...) -> (mc, <mass2>, <aligned spin>, <in-plane spin>)`` columns.
 
-    ``mass_coord`` selects the second mass coordinate the surrogate fits in:
-    ``"eta"`` (symmetric mass ratio, default) or ``"delta_mc"``.  The lnL Fisher is
-    naturally quadratic in (mc, eta) -- and eta is *quadratic* in delta_mc, so near
-    the peak (small delta_mc) the curvature in delta_mc is suppressed by delta_mc**2
-    and the quadratic core sees a near-flat direction it cannot capture.  Fitting in
-    eta exposes that curvature to the core, fixing the mass-ratio (q) marginal.
+    The surrogate must be fit in the coordinates the lnL Fisher is quadratic in *and*
+    axis-aligned with (the quadratic core whitens per-dimension and the GP residual
+    uses axis-aligned ARD lengthscales -- neither can represent a sharp ridge along a
+    diagonal direction).
+
+    ``mass_coord``: ``"eta"`` (default) or ``"delta_mc"``.  eta is the Fisher-quadratic
+    variable; delta_mc hides that curvature near equal mass (it is quadratic in
+    delta_mc), so eta fixes the mass-ratio (q) marginal.
+
+    ``spin_coord``: ``"aligned_eff"`` (default) replaces the aligned components
+    ``(s1z, s2z)`` with ``(chi_eff, chiMinus)`` -- the principal axes of the
+    aligned-spin Fisher.  In ``(s1z, s2z)`` the well-measured chi_eff is a *diagonal*
+    ridge an axis-aligned ARD GP over-smooths (the low-mass aligned-spin failure mode);
+    rotating to ``(chi_eff, chiMinus)`` makes it axis-aligned and resolvable.  The
+    in-plane components ``(s1x, s1y, s2x, s2y)`` are kept as-is (weakly constrained).
+    ``"cartesian"`` keeps the raw components.
     """
     idx = {n: i for i, n in enumerate(raw_names)}
     m1 = X_raw[:, idx["m1"]]
@@ -335,11 +345,19 @@ def raw_to_fit(X_raw, raw_names, mass_coord="eta"):
         second, sname = (m1 - m2) / (m1 + m2), "delta_mc"
     cols = [mc, second]
     names = ["mc", sname]
-    for n in raw_names:
-        if n in ("m1", "m2"):
-            continue
-        cols.append(X_raw[:, idx[n]])
-        names.append(n)
+    spin_names = [n for n in raw_names if n not in ("m1", "m2")]
+    if spin_coord == "aligned_eff" and "s1z" in idx and "s2z" in idx:
+        M = m1 + m2
+        s1z, s2z = X_raw[:, idx["s1z"]], X_raw[:, idx["s2z"]]
+        cols += [(m1 * s1z + m2 * s2z) / M, (m1 * s1z - m2 * s2z) / M]
+        names += ["chi_eff", "chiMinus"]
+        for n in spin_names:                       # keep the in-plane components
+            if n in ("s1z", "s2z"):
+                continue
+            cols.append(X_raw[:, idx[n]]); names.append(n)
+    else:
+        for n in spin_names:
+            cols.append(X_raw[:, idx[n]]); names.append(n)
     return np.column_stack(cols), names
 
 
@@ -402,19 +420,19 @@ def fit_prior_box(fit_names, spec):
 # geometry.  Aligned runs sample s1z,s2z in Cartesian with the s_component_zprior
 # shape when --aligned-prior alignedspin-zprior was used.
 
-def build_sampling(spec, fit_names):
+def build_sampling(spec, fit_names, spin_modes=None):
     """Return the RIFT-measure sampling spec for the artifact's ``fit_names``.
 
-    Returns a dict with:
-      ``names``  -- sampling-coordinate names (mc, delta_mc, then per-body either
-                    (chi,cos_theta,phi) [precessing] or the Cartesian aligned comps),
-      ``lo``/``hi`` -- the prior box (numpy),
-      ``ln_prior(theta)`` -- pure-JAX non-constant log-prior shape in those coords,
-      ``to_fit(theta)`` -- pure-JAX map sampling coords -> the ``fit_names`` vector
-                           the artifact consumes,
-      ``raw_to_sample(X_raw, raw_names)`` -- numpy map of ILE data into sampling
-                           coords (for the proposal/preconditioner),
-      ``to_compare(S)`` -- numpy map of samples -> {mc, q, chi_eff}.
+    ``spin_modes`` (per body ``{"1": m, "2": m}`` with ``m`` in
+    ``{"sph", "cart_z", None}``) fixes how each body's spin is *sampled*, derived from
+    the raw physics (which spin columns vary), NOT from ``fit_names`` -- because the
+    fit may use ``chi_eff``/``chiMinus`` instead of ``s1z``/``s2z``.  When omitted, it
+    is inferred from ``fit_names`` (back-compat: Cartesian fit coords).
+
+    Returns a dict with ``names``/``lo``/``hi`` (prior box), ``ln_prior(theta)``,
+    ``to_fit(theta)`` (sampling coords -> the artifact's ``fit_names`` vector),
+    ``raw_to_sample`` (ILE data -> sampling coords) and ``to_compare`` (samples ->
+    every physical comparison parameter).
     """
     import jax.numpy as jnp
 
@@ -437,19 +455,25 @@ def build_sampling(spec, fit_names):
     names = ["mc", "delta_mc"]
     lo = [mc_r[0], max(0.0, d_lo)]
     hi = [mc_r[1], min(0.999, d_hi)]
-    # describe how each body's spin is sampled: ("sph"|"cart"|None, [present comps])
+    # how each body's spin is SAMPLED -- from the raw physics (spin_modes) if given,
+    # else inferred from the fit Cartesian components (back-compat).
+    if spin_modes is None:
+        spin_modes = {}
+        for b in ("1", "2"):
+            present = [c for c in ("s%sx" % b, "s%sy" % b, "s%sz" % b) if c in fit_set]
+            spin_modes[b] = ("sph" if len(present) == 3
+                             else "cart_z" if present else None)
     body_mode = {}
     for b in ("1", "2"):
-        comps = [c for c in ("s%sx" % b, "s%sy" % b, "s%sz" % b) if c in fit_set]
         R = Rbody[b]
-        if len(comps) == 3:                          # full spin -> spherical
-            body_mode[b] = ("sph", comps)
+        m = spin_modes.get(b)
+        if m == "sph":                               # precessing -> spherical sampling
+            body_mode[b] = ("sph", ["s%sx" % b, "s%sy" % b, "s%sz" % b])
             names += ["chi%s" % b, "cos_theta%s" % b, "phi%s" % b]
             lo += [0.0, -1.0, 0.0]; hi += [R, 1.0, 2.0 * math.pi]
-        elif comps:                                  # aligned subset -> Cartesian
-            body_mode[b] = ("cart", comps)
-            for c in comps:
-                names.append(c); lo.append(-R); hi.append(R)
+        elif m == "cart_z":                          # aligned -> Cartesian s{b}z
+            body_mode[b] = ("cart", ["s%sz" % b])
+            names.append("s%sz" % b); lo.append(-R); hi.append(R)
         else:
             body_mode[b] = (None, [])
     lo = np.array(lo); hi = np.array(hi)
@@ -496,6 +520,15 @@ def build_sampling(spec, fit_names):
             elif mode == "cart":
                 for c in comps:
                     vals[c] = theta[nidx[c]]
+        # aligned-spin principal axes, if the artifact was fit in them
+        if "chi_eff" in fit_set or "chiMinus" in fit_set:
+            eta_v = 0.25 * (1.0 - dmc * dmc)
+            mtot = vals["mc"] * eta_v ** (-3.0 / 5.0)
+            m1 = 0.5 * mtot * (1.0 + dmc); m2 = 0.5 * mtot * (1.0 - dmc)
+            s1z = vals.get("s1z", 0.0 * dmc); s2z = vals.get("s2z", 0.0 * dmc)
+            M = m1 + m2
+            vals["chi_eff"] = (m1 * s1z + m2 * s2z) / M
+            vals["chiMinus"] = (m1 * s1z - m2 * s2z) / M
         return jnp.stack([vals[n] for n in fit_names])
 
     def raw_to_sample(X_raw, raw_names):
@@ -554,7 +587,8 @@ def build_sampling(spec, fit_names):
 def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0,
                    cap_points=8000, n_features=256, n_opt_steps=300, seed=0,
                    quadgp_residual="svgp", keep_curv_frac=0.01,
-                   ls_lo_frac=0.2, ls_hi_frac=1.0, mass_coord="eta"):
+                   ls_lo_frac=0.2, ls_hi_frac=1.0, mass_coord="eta",
+                   spin_coord="aligned_eff"):
     """Build, persist and cold-reload-verify a differentiable lnL artifact for the
     run's ``all.net``. Returns a metadata dict (also the fit-coord arrays needed by
     validation, under private keys)."""
@@ -567,9 +601,20 @@ def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0
         spec["net"], fit_params=tuple(spec["intrinsic_names"]),
         cols=spec["cols"], sigma_cut=sigma_cut, return_errors=True)
 
+    # how each body's spin is SAMPLED is set by the raw physics (which spin columns
+    # vary), independent of the fit representation (Cartesian vs chi_eff/chiMinus).
+    raw_names = list(spec["intrinsic_names"])
+    ridx = {n: i for i, n in enumerate(raw_names)}
+    spin_modes = {}
+    for b in ("1", "2"):
+        comps = [c for c in ("s%sx" % b, "s%sy" % b, "s%sz" % b) if c in ridx]
+        varies = [c for c in comps if X_raw[:, ridx[c]].std() > _CONST_TOL]
+        inplane = any(c.endswith(("x", "y")) for c in varies)
+        spin_modes[b] = ("sph" if inplane else "cart_z" if varies else None)
+
     # 2. physical fit coordinates; drop columns that do not vary (record them)
-    Xfit_all, fit_names_all = raw_to_fit(X_raw, list(spec["intrinsic_names"]),
-                                         mass_coord=mass_coord)
+    Xfit_all, fit_names_all = raw_to_fit(X_raw, raw_names,
+                                         mass_coord=mass_coord, spin_coord=spin_coord)
     spread = Xfit_all.std(axis=0)
     keep = spread > _CONST_TOL
     keep[0] = keep[1] = True                          # always keep mc, delta_mc
@@ -655,6 +700,7 @@ def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0
     meta["_y"] = y
     meta["_X_raw"] = X_raw
     meta["_raw_names"] = list(spec["intrinsic_names"])
+    meta["_spin_modes"] = spin_modes
     return meta
 
 
@@ -807,7 +853,7 @@ def validate_artifact(spec, fit_meta, out_dir, n_samples=40000, inflate=1.2,
     # (chi,cos_theta,phi) where the isotropic prior is flat, plus the mass-prior
     # shape. The NUTS/IS target is lnL(theta) + ln prior(theta) -- exactly the CIP
     # posterior, not a flat-prior caricature.
-    smp = build_sampling(spec, fit_names)
+    smp = build_sampling(spec, fit_names, spin_modes=fit_meta.get("_spin_modes"))
     names, lo, hi = smp["names"], smp["lo"], smp["hi"]
     Xs = smp["raw_to_sample"](X_raw, raw_names)        # ILE data in sampling coords
 
@@ -906,7 +952,8 @@ def validate_artifact(spec, fit_meta, out_dir, n_samples=40000, inflate=1.2,
 def run_one(run_dir, workroot, method="quadgp", n_samples=40000, seed=0,
             cap_points=8000, n_features=256, n_opt_steps=300, lnL_offset=40.0,
             sigma_cut=0.6, sampler="auto", keep_curv_frac=0.01,
-            ls_lo_frac=0.2, ls_hi_frac=1.0, mass_coord="eta", write_plot=True):
+            ls_lo_frac=0.2, ls_hi_frac=1.0, mass_coord="eta",
+            spin_coord="aligned_eff", write_plot=True):
     """Discover -> fit+export -> validate one run; write all artifacts under
     ``workroot/<label>/`` and return the full report."""
     import RIFT.interpolators.jax_gp  # noqa: F401  (enables float64)
@@ -921,7 +968,8 @@ def run_one(run_dir, workroot, method="quadgp", n_samples=40000, seed=0,
         spec, out_base, method=method, sigma_cut=sigma_cut,
         lnL_offset=lnL_offset, cap_points=cap_points, n_features=n_features,
         n_opt_steps=n_opt_steps, seed=seed, keep_curv_frac=keep_curv_frac,
-        ls_lo_frac=ls_lo_frac, ls_hi_frac=ls_hi_frac, mass_coord=mass_coord)
+        ls_lo_frac=ls_lo_frac, ls_hi_frac=ls_hi_frac, mass_coord=mass_coord,
+        spin_coord=spin_coord)
     t_fit = time.time() - t0
 
     t1 = time.time()
@@ -1136,6 +1184,12 @@ def _add_common(p):
                         "The lnL Fisher is quadratic in (mc, eta); eta is quadratic in "
                         "delta_mc, so delta_mc hides that curvature near equal mass and "
                         "the quadratic core can't capture q. eta fixes the q marginal.")
+    p.add_argument("--spin-coord", default="aligned_eff",
+                   choices=("aligned_eff", "cartesian"),
+                   help="aligned-spin fit coordinates (default aligned_eff = "
+                        "chi_eff,chiMinus). The well-measured chi_eff is a DIAGONAL "
+                        "ridge in (s1z,s2z) that an axis-aligned ARD GP over-smooths "
+                        "(low-mass aligned-spin failure); the principal axes fix it.")
     p.add_argument("--keep-curv-frac", type=float, default=0.01,
                    help="quadgp: keep eigen-curvature directions above this fraction of "
                         "the max in the exact Fisher core (default 0.01). With "
@@ -1195,7 +1249,8 @@ def main(argv=None):
                       sigma_cut=args.sigma_cut, sampler=args.sampler,
                       keep_curv_frac=args.keep_curv_frac,
                       ls_lo_frac=args.ls_lo_frac, ls_hi_frac=args.ls_hi_frac,
-                      mass_coord=args.mass_coord, write_plot=not args.no_plot)
+                      mass_coord=args.mass_coord, spin_coord=args.spin_coord,
+                      write_plot=not args.no_plot)
         print(json.dumps({"out_dir": rep["out_dir"],
                           "holdout_rmse": rep["fit"]["holdout_rmse"],
                           "quality": rep["validation"]["quality"],
@@ -1224,7 +1279,8 @@ def main(argv=None):
                               lnL_offset=args.lnL_offset, sigma_cut=args.sigma_cut,
                               sampler=args.sampler, keep_curv_frac=args.keep_curv_frac,
                               ls_lo_frac=args.ls_lo_frac, ls_hi_frac=args.ls_hi_frac,
-                              mass_coord=args.mass_coord, write_plot=not args.no_plot)
+                              mass_coord=args.mass_coord, spin_coord=args.spin_coord,
+                              write_plot=not args.no_plot)
                 results.append({"run": rd, "quality": rep["validation"]["quality"],
                                 "is_ess": rep["validation"]["is_ess"],
                                 "js": rep["validation"]["js"]})

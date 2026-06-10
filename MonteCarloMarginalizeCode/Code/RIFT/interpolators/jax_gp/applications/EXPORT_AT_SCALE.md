@@ -149,6 +149,31 @@ Other knobs (`--ls-lo-frac/--ls-hi-frac` smoothing length, `--n-features`,
 `--cap-points`) are second-order once the fit coordinate is right; raising
 `keep_curv_frac` (fewer core directions) *re-hides* the eta curvature.
 
+### Spin: the same lesson — fit in `(chi_eff, chiMinus)`, not `(s1z, s2z)`
+
+The 139-event O4b sweep showed the median event PE-grade on all 11 params, but
+**low-mass events fail on aligned spin** (`chi_eff` JS median: mc 0–15 → 0.40, 15–30 →
+0.07, 30–60 → 0.008 — a 50× mass gradient). Cause: low-mass systems measure aligned
+spin sharply, and the well-measured `chi_eff` is a **diagonal ridge** in `(s1z, s2z)`
+that an axis-aligned ARD GP + per-dimension-whitened quadratic core over-smooth.
+
+Fix (default `--spin-coord aligned_eff`): rotate the aligned-spin fit coordinates to
+the Fisher principal axes `(chi_eff, chiMinus)` — short ARD lengthscale on the sharp
+`chi_eff`, long on the broad `chiMinus` — while still **sampling** in the smooth
+spherical spin coords (the per-body spin-sampling structure is taken from the *raw*
+physics, not the fit-coordinate names — a subtlety: inferring it from `fit_names`
+breaks once `s1z`/`s2z` are replaced by `chi_eff`/`chiMinus`).
+
+| event | mc | `cartesian` chi_eff JS | `aligned_eff` chi_eff JS |
+|---|---|---|---|
+| S250119cv | ~10 | 0.505 | **0.016** |
+| S240413p | ~6.4 | 0.192 | **0.101** |
+| S240426s | ~60 | 0.011 | **0.005** |
+
+No regression at high mass; the very-low-mass extreme (mc~6) is halved but remains the
+hardest case. Defaults are `--method quadgp --mass-coord eta --spin-coord aligned_eff
+--keep-curv-frac 0.01`.
+
 ## Interpreting the JS divergence
 
 Because the validation now samples `exp(lnL + ln prior)` with **RIFT's own priors**
