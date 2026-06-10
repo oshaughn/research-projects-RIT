@@ -109,28 +109,40 @@ is the default. The validation's ESS-based quality flag is what tells the two ap
 the over-smoothed `svgp` posterior only *looked* good under a low-ESS Gaussian
 proposal.
 
-## Surrogate tuning (mc/q fidelity)
+## Surrogate tuning (mc/q fidelity) — a fully-diagnosed case study
 
-Tunable knobs: `--keep-curv-frac` (quadgp Fisher-core curvature fraction),
-`--ls-lo-frac`/`--ls-hi-frac` (ARD lengthscale box as a fraction of the peak width —
-the CIP smoothing-length analog), `--n-features` (inducing points), `--cap-points`,
-`--n-opt-steps`, `--lnL-offset`. A sweep on the 8-D precessing S240426s:
+On the 8-D precessing **S240426s** (mc∈[30,90]), `mc` (JS ~0.015) and `chi_eff`
+(JS ~0.009) are apples-to-apples good, but `q` sits at JS ~0.056 with interp mean
+0.638 vs CIP 0.718 (a low-q tail; see `marginals.png`). We chased this exhaustively;
+the result is a clean negative on every cheap lever and a precise root cause.
 
-- `mc` JS ~0.015 and `chi_eff` JS ~0.009 are **apples-to-apples good** and stable.
-- **`q` JS ~0.056 is insensitive to every smoothing knob** (keep_curv_frac 0.05→0.6,
-  ls_hi_frac 1.0→0.25, n_features 256→512, cap 8k→16k all leave q≈0.637 vs CIP 0.718).
-  So the residual `q` is **not** over-smoothing. Two structural causes: (1) this run
-  fit CIP with `--fit-method rf` (Random Forest) — RF resists the prior pull in the
-  weakly-constrained mass-ratio direction differently than a smooth GP, and our
-  artifact must be a *differentiable* GP; (2) the correct η^(−6/5) prior pulls toward
-  low q, and the GP likelihood is slightly flatter in `delta_mc` than RF, leaving a
-  low-q tail (visible in `marginals.png`).
-- Raising `keep_curv_frac` *hurts* (the Fisher core is a global quadratic; over a wide
-  `mc` range the surface isn't globally quadratic). Default 0.05 is best.
+**Ruled out** (each tested directly):
+- *Prior Jacobian factor.* Keeping the `(1−4η)^(−1/2) = d(delta_mc)/dη` factor
+  (`eta_full`) sends q to 0.91 (JS 0.35) and wrecks mc → the `η^(−6/5)` prior
+  (RIFT's `delta_mc_prior`) is correct; the factor genuinely cancels when sampling
+  in `delta_mc`.
+- *Smoothing length.* `--ls-hi-frac` 1.0→0.25 leaves q at 0.059 (RMSE only worsens).
+- *Core curvature.* `--keep-curv-frac` 0.05→0.6 hurts (global quadratic over a wide
+  mc range); 0.05→0.002 does **nothing** (the local Fisher is genuinely flat in
+  `delta_mc`, so there is no curvature to retain).
+- *GP capacity.* `--n-features` 256→512, `--cap-points` 8k→16k: no change. An
+  **exact** GP residual (no inducing-point sparsity) gives the *same* q (0.641).
+- *Data support.* The ILE data covers the full q-range; the lnL-weighted raw data
+  gives q≈0.757 (≈CIP) — so the data's likelihood does favour high q.
 
-Bottom line: defaults (`--method quadgp --keep-curv-frac 0.05`) are the tuned optimum;
-`mc`/`chi_eff` are PE-grade, and closing `q` further needs a different fit family
-(RF is not differentiable), not knob-jittering.
+**Root cause (measured).** Binning surrogate-lnL vs data-lnL by q shows the smooth GP
+**over-predicts lnL in the q∈[0.3,0.5] shoulder by ~1 nat** (and under-predicts the
+high-q peak by ~0.1), i.e. exp(+1)≈2.6× too much shoulder weight → q pulled down.
+This is intrinsic to a **smooth** surrogate: CIP fit this run with `--fit-method rf`
+(Random Forest), whose piecewise-constant partitions impose a sharper shoulder; a GP
+rounds it. Our artifact **must** be a smooth GP to be `jax.grad`-able, so this is the
+AD-vs-RF trade-off in the least-constrained direction — *not* a tunable defect.
+
+**Bottom line:** defaults (`--method quadgp --keep-curv-frac 0.05`, lengthscale
+`[0.2,1.0]`) are the tuned optimum. `mc`/`chi_eff` are PE-grade and apples-to-apples;
+the residual `q` (~0.05 bit) is a smooth-GP-vs-RF limit. Closing it needs a different
+*differentiable* representation of the shoulder (e.g. a shape/monotonicity-constrained
+GP), not knob-jittering.
 
 ## Interpreting the JS divergence
 
