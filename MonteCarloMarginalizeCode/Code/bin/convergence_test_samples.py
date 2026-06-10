@@ -24,6 +24,7 @@ import sys
 
 from RIFT.misc.samples_utils import add_field
 import RIFT.misc.samples_utils
+from RIFT.misc import hyperpipeline_io as hpio
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--samples", action='append', help="Samples used in convergence test")
@@ -131,9 +132,14 @@ def test_js_additive(dat1,dat2):
     return js_net
 
 # Procedure
+def read_samples(fname):
+    if hpio.sniff(fname):
+        samples, _columns = hpio.read_table(fname)
+        return samples
+    return np.genfromtxt(fname, names=True)
 
-samples1 = np.genfromtxt(opts.samples[0], names=True)
-samples2 = np.genfromtxt(opts.samples[1], names=True)
+samples1 = read_samples(opts.samples[0])
+samples2 = read_samples(opts.samples[1])
 
 # Add necessary parameterys
 if 'm1' in samples1.dtype.names:
