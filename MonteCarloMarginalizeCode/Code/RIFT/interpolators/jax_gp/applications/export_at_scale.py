@@ -588,10 +588,44 @@ def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0
                    cap_points=8000, n_features=256, n_opt_steps=300, seed=0,
                    quadgp_residual="svgp", keep_curv_frac=0.01,
                    ls_lo_frac=0.2, ls_hi_frac=1.0, mass_coord="eta",
-                   spin_coord="aligned_eff"):
+                   spin_coord="auto"):
     """Build, persist and cold-reload-verify a differentiable lnL artifact for the
     run's ``all.net``. Returns a metadata dict (also the fit-coord arrays needed by
-    validation, under private keys)."""
+    validation, under private keys).
+
+    ``spin_coord="auto"`` (default) fits BOTH ``aligned_eff`` (chi_eff/chiMinus
+    principal axes -- fixes the sharp low-mass aligned spin) and ``cartesian``
+    (s1z/s2z) and keeps whichever has the lower peak-region holdout RMSE.  This is the
+    "never regress" guard: aligned_eff is a large net win but worse on a minority of
+    events, and holdout RMSE reliably picks the better of the two (it selects cartesian
+    exactly where aligned_eff would regress).  Pass an explicit ``aligned_eff`` /
+    ``cartesian`` to skip the selection (half the fit cost)."""
+    import shutil
+    if spin_coord == "auto":
+        cands = []
+        for sc in ("aligned_eff", "cartesian"):
+            m = fit_and_export(
+                spec, out_base + "__" + sc, method=method, sigma_cut=sigma_cut,
+                lnL_offset=lnL_offset, cap_points=cap_points, n_features=n_features,
+                n_opt_steps=n_opt_steps, seed=seed, quadgp_residual=quadgp_residual,
+                keep_curv_frac=keep_curv_frac, ls_lo_frac=ls_lo_frac,
+                ls_hi_frac=ls_hi_frac, mass_coord=mass_coord, spin_coord=sc)
+            cands.append((m["holdout_rmse"], sc, m))
+        cands.sort(key=lambda t: t[0])
+        best = cands[0][2]
+        for ext in (".npz", ".meta.json"):           # promote the winner to out_base
+            shutil.copyfile(best["out_base"] + ext, out_base + ext)
+        for _, sc, _ in cands:                        # clean up the candidate exports
+            for ext in (".npz", ".meta.json"):
+                try:
+                    os.remove(out_base + "__" + sc + ext)
+                except OSError:
+                    pass
+        best["out_base"] = out_base
+        best["spin_coord"] = cands[0][1]
+        best["spin_coord_auto"] = {sc: round(r, 3) for r, sc, _ in cands}
+        return best
+
     from RIFT.interpolators.jax_gp import get_interpolator, export
     from RIFT.interpolators.jax_gp.benchmark.datasets import load_ile_net
     from RIFT.interpolators.jax_gp.applications.jax_cip import _tree_ring_select
@@ -691,7 +725,8 @@ def fit_and_export(spec, out_base, method="svgp", sigma_cut=0.6, lnL_offset=40.0
         "constants": constants, "n_train": int(len(ytr)),
         "n_holdout": int(len(yho)), "lnL_max": lnL_max,
         "holdout_rmse": holdout_rmse, "holdout_rmse_all": rmse_all,
-        "mass_coord": mass_coord, "keep_curv_frac": keep_curv_frac,
+        "mass_coord": mass_coord, "spin_coord": spin_coord,
+        "keep_curv_frac": keep_curv_frac,
         "grad_finite": True, "n_intrinsic_dims": len(fit_names),
     }
     # private handoff to validation (not serialised in the public report verbatim)
@@ -953,7 +988,7 @@ def run_one(run_dir, workroot, method="quadgp", n_samples=40000, seed=0,
             cap_points=8000, n_features=256, n_opt_steps=300, lnL_offset=40.0,
             sigma_cut=0.6, sampler="auto", keep_curv_frac=0.01,
             ls_lo_frac=0.2, ls_hi_frac=1.0, mass_coord="eta",
-            spin_coord="aligned_eff", write_plot=True):
+            spin_coord="auto", write_plot=True):
     """Discover -> fit+export -> validate one run; write all artifacts under
     ``workroot/<label>/`` and return the full report."""
     import RIFT.interpolators.jax_gp  # noqa: F401  (enables float64)
@@ -1184,12 +1219,13 @@ def _add_common(p):
                         "The lnL Fisher is quadratic in (mc, eta); eta is quadratic in "
                         "delta_mc, so delta_mc hides that curvature near equal mass and "
                         "the quadratic core can't capture q. eta fixes the q marginal.")
-    p.add_argument("--spin-coord", default="aligned_eff",
-                   choices=("aligned_eff", "cartesian"),
-                   help="aligned-spin fit coordinates (default aligned_eff = "
-                        "chi_eff,chiMinus). The well-measured chi_eff is a DIAGONAL "
-                        "ridge in (s1z,s2z) that an axis-aligned ARD GP over-smooths "
-                        "(low-mass aligned-spin failure); the principal axes fix it.")
+    p.add_argument("--spin-coord", default="auto",
+                   choices=("auto", "aligned_eff", "cartesian"),
+                   help="aligned-spin fit coordinates. aligned_eff = chi_eff,chiMinus "
+                        "(principal axes; fixes the sharp low-mass aligned spin that an "
+                        "axis-aligned ARD GP over-smooths in s1z,s2z). auto (default) "
+                        "fits both and keeps the lower-holdout-RMSE one -> never worse "
+                        "than cartesian. cartesian = raw s1z,s2z.")
     p.add_argument("--keep-curv-frac", type=float, default=0.01,
                    help="quadgp: keep eigen-curvature directions above this fraction of "
                         "the max in the exact Fisher core (default 0.01). With "

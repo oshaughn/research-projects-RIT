@@ -171,8 +171,17 @@ breaks once `s1z`/`s2z` are replaced by `chi_eff`/`chiMinus`).
 | S240426s | ~60 | 0.011 | **0.005** |
 
 No regression at high mass; the very-low-mass extreme (mc~6) is halved but remains the
-hardest case. Defaults are `--method quadgp --mass-coord eta --spin-coord aligned_eff
---keep-curv-frac 0.01`.
+hardest case. Across the 53 failing events `aligned_eff` improved 40 (15 now pass) and
+the low-mass `chi_eff` median dropped 0.40→0.054 — **but it regressed 9 events** below
+cartesian (real, not sampling noise).
+
+So the default is **`--spin-coord auto`**: fit *both* `aligned_eff` and `cartesian` and
+keep the one with the lower peak-region holdout RMSE. Holdout RMSE reliably picks the
+better coordinate (it selects `cartesian` exactly where `aligned_eff` would regress),
+so `auto` captures the wins and is **never worse than `cartesian`** — e.g. S250119cv →
+aligned_eff (chi_eff 0.016), S240513ei → cartesian (avoids the 0.61 regression). Cost is
+~2× the fit (two fits, one sample). Defaults: `--method quadgp --mass-coord eta
+--spin-coord auto --keep-curv-frac 0.01`.
 
 ## Interpreting the JS divergence
 
