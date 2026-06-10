@@ -1165,19 +1165,25 @@ def write_condor_batch(run_dirs, workroot, method="quadgp", n_samples=40000,
             "arguments = \"-m {mod} one --run-dir $(rundir) "
             "--workroot {wr} --method {m} --n-samples {ns} --sampler {smp} "
             "--no-plot\"\n"
-            "environment = \"PYTHONPATH={pp}\"\n"
-            "getenv = True\n"
+            # NOTE: do NOT use `getenv = True` -- many pools (e.g. CIT) set
+            # SUBMIT_ALLOW_GETENV=false and reject it. Set the environment explicitly;
+            # the absolute conda python (executable) + PYTHONPATH are what's needed.
+            # Thread caps mirror the ulimit -u thread-spawn lesson (see memory note).
+            "environment = \"HOME={home} PYTHONPATH={pp} JAX_PLATFORMS=cpu "
+            "OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2 "
+            "XLA_FLAGS=--xla_cpu_multi_thread_eigen=false\"\n"
             "output = {cdir}/$(label).out\n"
             "error  = {cdir}/$(label).err\n"
             "log    = {cdir}/export_at_scale.log\n"
             "request_memory = {mem}\n"
             "request_disk = {disk}\n"
-            "request_cpus = 1\n"
+            "request_cpus = 2\n"
             "accounting_group = {acct}\n"
             "accounting_group_user = {user}\n"
             "queue\n".format(
                 py=python, mod=mod, wr=workroot, m=method, ns=n_samples,
                 smp=sampler, pp=pythonpath, cdir=cdir,
+                home=os.path.expanduser("~"),
                 mem=env0.get("request_memory", "8000M"),
                 disk=env0.get("request_disk", "2000M"), acct=acct,
                 user=env0.get("accounting_group_user",
