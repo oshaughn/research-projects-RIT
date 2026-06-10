@@ -10,6 +10,7 @@ default:
   image: debian:bookworm
 
 stages:
+  - containers
   - system tests
   - unit tests # TODO: write some
   - docs
@@ -60,6 +61,23 @@ before_script:
   # install this package (need editable for coverage)
   - python -m pip install --editable . --break-system-packages
 
+build_gpu_container:
+  stage: containers
+  tags:
+    - gpu
+  variables:
+    RIFT_CI_APPTAINER_IMAGE: "/home/richard.oshaughnessy/rift-ci-gpu.sif"
+  before_script: []
+  script:
+    - mkdir -p "$(dirname "$RIFT_CI_APPTAINER_IMAGE")"
+    - apptainer build --force "$RIFT_CI_APPTAINER_IMAGE" rift_container.def
+    - apptainer exec --nv "$RIFT_CI_APPTAINER_IMAGE" python -c 'import cupy; x = cupy.arange(8, dtype=cupy.float64); print("cupy", cupy.__version__, "sum", float(cupy.asnumpy((x * x).sum())))'
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+      allow_failure: false
+    - when: never
+
 help_check:
   stage: system tests
   script:
@@ -83,11 +101,45 @@ test_run:
   stage: system tests
   script:
     - . .travis/test-coord.sh
-    - . .travis/test-integrate.sh
+    - bash .travis/test-integrate.sh
     - . .travis/test-posterior.sh
     -  bash  .travis/test-run.sh
     -  bash .travis/test-run-alts.sh
     -  bash .travis/test-build.sh
+
+gpu_integration:
+  stage: system tests
+  tags:
+    - gpu
+  variables:
+    CUDA_VISIBLE_DEVICES: "0"
+    GW_SURROGATE: ""
+    RIFT_CI_REQUIRE_GPU: "1"
+    RIFT_CI_APPTAINER_IMAGE: "/home/richard.oshaughnessy/rift-ci-gpu.sif"
+    RIFT_CI_APPTAINER_BINDPATH: "/cvmfs,/home"
+  before_script: []
+  script:
+    - nvidia-smi
+    - test -n "$RIFT_CI_APPTAINER_IMAGE"
+    - test -r "$RIFT_CI_APPTAINER_IMAGE"
+    - >
+      apptainer exec --nv --cleanenv
+      --bind "$CI_PROJECT_DIR:$CI_PROJECT_DIR"
+      --bind "$RIFT_CI_APPTAINER_BINDPATH"
+      --env CI_PROJECT_DIR="$CI_PROJECT_DIR"
+      --env CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_DEVICES"
+      --env GW_SURROGATE="$GW_SURROGATE"
+      --env RIFT_CI_REQUIRE_GPU="$RIFT_CI_REQUIRE_GPU"
+      "$RIFT_CI_APPTAINER_IMAGE"
+      bash -lc 'cd "$CI_PROJECT_DIR" && export PYTHONPATH="$CI_PROJECT_DIR/MonteCarloMarginalizeCode/Code${PYTHONPATH:+:$PYTHONPATH}" && bash .travis/test-integrate.sh'
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+      allow_failure: false
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: on_success
+      allow_failure: false
+    - when: never
 
 pixi_swig_pre44:
   extends: .pixi_template
