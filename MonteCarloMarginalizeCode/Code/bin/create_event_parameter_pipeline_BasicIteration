@@ -986,9 +986,15 @@ sed 1d ./tmp_converted.dat  {extra_shuffle_command} >> ./extrinsic_posterior_sam
     if opts.last_iteration_export_marginal_distance_grid:
         dgrid_job, dgrid_job_name = dag_utils.write_consolidate_distance_grids_sub(
             tag='consolidate_dgrid',
-            input_glob='EXTR_out.xml_*_.dgrid',
+            # Match the real per-event batched-extrinsic outputs
+            # EXTR_out-<event>.xml_<k>_.dgrid (note the leading-segment wildcard;
+            # 'EXTR_out.xml_*_.dgrid' has no '-<event>' infix and matches nothing).
+            input_glob='EXTR_out*.xml_*_.dgrid',
             file_output=opts.working_directory + '/all_dgrid.dat',
-            search_dir=opts.working_directory + '/iteration_$(macroiteration)_ile',
+            # iteration_*_ile wildcard, NOT $(macroiteration): the consolidate driver
+            # is a shell script (no condor-macro substitution); the wildcard matches
+            # the final-iteration directory regardless of its number.
+            search_dir=opts.working_directory + '/iteration_*_ile',
             log_dir=opts.working_directory + '/iteration_$(macroiteration)_ile/logs/',
             universe=local_worker_universe, no_grid=no_worker_grid,
         )
@@ -1001,9 +1007,9 @@ sed 1d ./tmp_converted.dat  {extra_shuffle_command} >> ./extrinsic_posterior_sam
     if opts.last_iteration_export_distance_slices and opts.last_iteration_export_distance_slices > 0:
         dslice_job, dslice_job_name = dag_utils.write_consolidate_distance_grids_sub(
             tag='consolidate_dslice',
-            input_glob='EXTR_out.xml_*_.dslice',
+            input_glob='EXTR_out*.xml_*_.dslice',
             file_output=opts.working_directory + '/all_dslice.dat',
-            search_dir=opts.working_directory + '/iteration_$(macroiteration)_ile',
+            search_dir=opts.working_directory + '/iteration_*_ile',
             log_dir=opts.working_directory + '/iteration_$(macroiteration)_ile/logs/',
             universe=local_worker_universe, no_grid=no_worker_grid,
         )

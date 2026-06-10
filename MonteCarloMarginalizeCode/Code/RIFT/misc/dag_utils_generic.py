@@ -3591,13 +3591,20 @@ def write_consolidate_distance_grids_sub(tag='consolidate_dgrid', exe=None,
         exe = "util_ConsolidateDistanceGrids.py"
 
     cmdname = tag + '.sh'
+    # IMPORTANT: do NOT 'cd' into search_dir relying on a $(macroiteration) in it.
+    # Condor macros are substituted only inside .sub files, never inside the shell
+    # script we write here, so a literal "$(macroiteration)" would reach bash as a
+    # command substitution and expand to nothing (-> 'iteration__ile', no such dir).
+    # Instead glob search_dir/input_glob directly: callers pass an iteration_*_ile
+    # wildcard for search_dir, which matches the final-iteration directory regardless
+    # of its number, with no macro substitution needed.
+    search_pattern = os.path.join(search_dir, input_glob)
     with open(cmdname, 'w') as f:
         f.write("#! /bin/bash\n")
         f.write("set -e\n")
-        f.write("cd " + search_dir + "\n")
         # --allow-empty keeps the post-extrinsic job from failing the DAG if a
         # re-run already consumed the per-event files or none were produced.
-        f.write(exe + " --input-glob '" + input_glob + "'"
+        f.write(exe + " --input-glob '" + search_pattern + "'"
                 " --output " + file_output + " --allow-empty\n")
     os.system("chmod a+x " + cmdname)
 
