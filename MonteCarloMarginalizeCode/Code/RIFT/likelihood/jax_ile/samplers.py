@@ -838,12 +838,55 @@ def _map_polish_4(like, seeds, n_steps=300, lr=3e-3, bounds=None):
     return best_t, best_v, polished
 
 
+def _bounds_for_order(param_order):
+    """Support box matching the angular parameter order (3-D / 4-D phi / 4-D psi)."""
+    n = len(param_order)
+    if n == 3:
+        return _BOUNDS3
+    if "phiref" in param_order:
+        return _BOUNDS4PHI
+    return _BOUNDS4
+
+
+def _fisher_whitening(like, seeds, bounds, eig_floor_rel=1e-6, verbose=False):
+    """Build a Fisher whitening map ``theta = theta_MAP + A @ y`` (y ~ unit scale).
+
+    MAP-polishes ``seeds`` to the local maximum, takes the observed Fisher
+    ``F = -Hessian(lnL)`` there, and returns the symmetric sqrt of the covariance
+    ``A = F^{-1/2}`` (so a unit-isotropic ``y`` maps to the local posterior
+    ellipsoid).  At high SNR the posterior is ~Gaussian, so sampling in ``y`` makes
+    the (1/SNR)-narrow target O(1)-scaled -> the flow/MALA no longer collapse.
+
+    Eigenvalues of F are floored at ``eig_floor_rel * max|eig|`` to tame the
+    indefinite/near-flat directions (e.g. a residual degeneracy ridge), bounding A.
+    Returns ``(theta_MAP, A, A_inv, map_lnL)`` (all numpy) or ``None`` on failure.
+    """
+    try:
+        map_theta, map_lnL, _ = _map_polish_4(like, seeds, bounds=bounds)
+        H = np.asarray(jax.hessian(lambda t: like._scalar(t))(jnp.asarray(map_theta)))
+        F = -0.5 * (H + H.T)                               # observed Fisher, symmetric
+        evals, V = np.linalg.eigh(F)
+        emax = float(np.max(np.abs(evals)))
+        if not np.isfinite(emax) or emax <= 0:
+            return None
+        evals = np.clip(evals, eig_floor_rel * emax, None)  # pos-def, bounded width
+        A = (V * (1.0 / np.sqrt(evals))) @ V.T              # F^{-1/2} (symmetric)
+        A_inv = (V * np.sqrt(evals)) @ V.T                  # F^{1/2}
+        if not (np.all(np.isfinite(A)) and np.all(np.isfinite(A_inv))):
+            return None
+        return np.asarray(map_theta, float), A, A_inv, float(map_lnL)
+    except Exception as e:                                  # noqa: BLE001
+        if verbose:
+            print("  [fisher] whitening failed (%r); raw coords" % e)
+        return None
+
+
 def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
                            n_global_steps=20, n_training_loops=4, n_production_loops=4,
                            n_epochs=10, n_prior_pilot=8000, seed=0, mala_step_size=0.01,
                            reuse_state=None, temper=1.0, temper_adapt=False,
                            temper_init=0.02, temper_ess_frac=0.5, temper_max_stages=16,
-                           temper_max_dbeta=0.15, verbose=False):
+                           temper_max_dbeta=0.15, fisher_precondition=False, verbose=False):
     """flowMC with φ_ref marginalised — 4-D sampler over (ra, dec, psi, incl).
 
     Identical in structure to :func:`flowmc_sample` except φ_ref is removed from
@@ -877,12 +920,25 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
         _log_prior_jax, _eval_lnL = _log_prior_4_jax, eval_lnL_4
     rng = np.random.default_rng(seed)
 
+    # Fisher whitening map (set after the pilot, below, if fisher_precondition).
+    # When active the flowMC chains live in whitened coords y (theta = map + A@y),
+    # so the (1/SNR)-narrow high-SNR posterior is O(1)-scaled for the flow/MALA.
+    # init_positions passed to _one_pass are ALWAYS theta-space; the y<->theta
+    # transform is localized here.  The constant Jacobian |det A| does not enter
+    # the (theta-space) prior/likelihood or the downstream evidence.
+    _W = None
+
     # One flow training+production pass at a fixed tempering exponent inv_T,
     # optionally warm-started from a previous flow model + chain positions.
     # Returns (theta, lnL, trained_model).
     def _one_pass(inv_T_pass, init_positions, init_model, pass_seed):
-        def logpdf(theta4, data):
+        def logpdf(coords, data):
+            theta4 = (_W["map"] + _W["A"] @ coords) if _W is not None else coords
             return inv_T_pass * like._scalar(theta4) + _log_prior_jax(theta4)
+        if _W is not None:                       # theta-space init -> whitened y
+            init_positions = jnp.asarray(
+                (np.asarray(init_positions) - np.asarray(_W["map"]))
+                @ np.asarray(_W["A_inv"]).T)
         key = jax.random.PRNGKey(pass_seed)
         bkey, skey = jax.random.split(key)
         bundle = RQSpline_MALA_Bundle(
@@ -903,6 +959,8 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
         sampler.sample(init_positions, {})
         prod = np.asarray(sampler.resources["positions_production"].data)
         th = prod.reshape(-1, n_dim)
+        if _W is not None:                       # whitened y -> theta
+            th = np.asarray(_W["map"])[None, :] + th @ np.asarray(_W["A"]).T
         ok = np.all(np.isfinite(th), axis=1) & np.isfinite(_log_prior(th))
         th = th[ok]
         ll = _eval_lnL(like, th, desc="reweight") if len(th) else np.array([])
@@ -932,6 +990,26 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
         init = jnp.asarray(pilot[top])
     else:
         _warmup_compile(like, verbose=verbose)
+
+    # ---- Fisher preconditioning (recommended at high SNR) -------------------
+    # Whiten the sample space around the MAP so the narrow posterior is O(1) for
+    # the flow.  Chains restart AT the MAP (whitened y~0) rather than the diffuse
+    # prior-pilot draws, which is what lets SNR>=640 converge instead of collapse.
+    if fisher_precondition:
+        fw = _fisher_whitening(like, np.asarray(init),
+                               _bounds_for_order(_param_order), verbose=verbose)
+        if fw is not None:
+            map_theta, A_w, A_inv_w, map_lnL = fw
+            _W = dict(map=jnp.asarray(map_theta), A=jnp.asarray(A_w),
+                      A_inv=jnp.asarray(A_inv_w))
+            if verbose:
+                widths = np.sqrt(np.clip(np.diag(A_w @ A_w.T), 0.0, None))
+                print("  [fisher] whitening ON  MAP lnL=%.2f  theta-widths=%s"
+                      % (map_lnL, np.array2string(widths, precision=4)))
+            yj = rng.normal(size=(n_chains, n_dim)) * 0.5     # near-MAP, unit scale
+            init = jnp.asarray(np.asarray(map_theta)[None, :] + yj @ np.asarray(A_w).T)
+        elif verbose:
+            print("  [fisher] whitening requested but unavailable; raw coords")
 
     # thermodynamic integration needs a prior (beta=0) anchor even when warm-started
     if temper_adapt and prior_lnL_mean is None:

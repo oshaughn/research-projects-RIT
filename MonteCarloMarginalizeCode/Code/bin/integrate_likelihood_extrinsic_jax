@@ -395,6 +395,12 @@ def build_parser():
     g.add_option("--temper-max-dbeta", type=float, default=0.15,
                  help="Cap on the inv_T step per anneal stage, so the thermodynamic-"
                       "integration evidence trapezoid stays accurate (--adapt-adapt).")
+    g.add_option("--fisher-precondition", action="store_true", default=False,
+                 help="flowmc-phi(psi)marg: whiten the sample space around the MAP "
+                      "using the observed Fisher (theta=MAP+F^{-1/2} y) so the "
+                      "(1/SNR)-narrow high-SNR posterior is O(1) for the flow. "
+                      "Restarts chains at the MAP. Recommended at SNR>=320 to avoid "
+                      "the sky-sample collapse; harmless (~no-op) at low SNR.")
     g.add_option("--interp", default="linear", choices=["linear", "nearest"])
     g.add_option("--sky-coordinates", default="equatorial",
                  choices=["equatorial", "network"],
@@ -965,6 +971,7 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 temper_ess_frac=opts.temper_ess_frac,
                 temper_max_stages=opts.temper_max_stages,
                 temper_max_dbeta=opts.temper_max_dbeta,
+                fisher_precondition=opts.fisher_precondition,
                 seed=opts.seed, reuse_state=flow_state, verbose=opts.verbose)
             out_flow_state = res.get("flow_state")
         else:
