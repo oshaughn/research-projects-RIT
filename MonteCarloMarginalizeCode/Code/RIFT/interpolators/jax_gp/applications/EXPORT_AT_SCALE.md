@@ -98,6 +98,18 @@ workroot/
 | `--lnL-offset` | 40 | keep `lnL > max − offset` |
 | `--no-plot` | — | skip `marginals.png` (used by condor jobs) |
 
+## Use cases / coverage
+
+| case | status | notes |
+|---|---|---|
+| **(a) precessing** (8-D: mc, eta, s1x..s2z) | ✅ supported | spins sampled in `(χ,cosθ,φ)`; all 11 marginals reported |
+| **(b) aligned** (2–4-D: mc, eta, [s1z,s2z]) | ✅ supported | zero-spin / aligned-spin runs; constant spin columns auto-dropped |
+| **(c) + distance export** (`*.dgrid` / `all_dgrid.dat`) | 🚧 detected, **not yet exported** | `discover_run` sets `has_dgrid`; the run's *intrinsic* `all.net` export still runs and validates. The (intrinsic + luminosity-distance) surrogate is the **next active track** — the dgrid data is still being produced. |
+
+The all-parameter JS (masses, `chi_eff`, `chiMinus`, cylindrical-polar spins) lets you
+see immediately which physical direction a given run gets wrong — e.g. low-mass events
+tend to stress the *aligned-spin* (`chi_eff`/`s1z`/`s2z`) direction.
+
 ## Validated on
 
 | run | dims | method | sampler | ESS | JS mc | JS q | JS chi_eff |

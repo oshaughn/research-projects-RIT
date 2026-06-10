@@ -936,9 +936,17 @@ def run_one(run_dir, workroot, method="quadgp", n_samples=40000, seed=0,
         "intrinsic_names": spec["intrinsic_names"], "precessing": spec["precessing"],
         "mc_range": spec["mc_range"], "eta_range": spec["eta_range"],
         "chi_max": spec["chi_max"], "out_dir": out_dir,
+        # use case (c): flag distance-export runs. This export is intrinsic-only
+        # (all.net); the (intrinsic + distance) "dgrid" surrogate is a separate,
+        # forthcoming track -- recorded here so a run isn't silently half-covered.
+        "has_dgrid": spec.get("has_dgrid", False),
         "fit": public_fit, "validation": val,
         "timing_sec": {"fit": t_fit, "validate": t_val},
     }
+    if spec.get("has_dgrid"):
+        report["dgrid_note"] = ("distance-grid files detected; the intrinsic all.net "
+                                "export is complete, the (intrinsic+distance) export "
+                                "is a separate track (not yet implemented)")
     with open(os.path.join(out_dir, "report.json"), "w") as fh:
         json.dump(report, fh, indent=2)
     _write_summary_md(report, os.path.join(out_dir, "summary.md"))
@@ -965,6 +973,9 @@ def _write_summary_md(report, path):
             report["fit"]["method"], report["fit"]["n_train"],
             report["fit"]["holdout_rmse"]),
         "- artifact: `{}.npz` (+ .meta.json)".format(report["fit"]["out_base"]),
+        ("- distance-export (dgrid) detected: intrinsic all.net export done; "
+         "(intrinsic+distance) export is a separate forthcoming track."
+         if report.get("has_dgrid") else ""),
         "- reference posterior: `{}`".format(v["reference_posterior"]),
         "- interpolated posterior: `{}`  ({} samples)".format(
             v["posterior_interp"], v["n_posterior_samples"]),
