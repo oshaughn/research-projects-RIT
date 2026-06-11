@@ -1817,7 +1817,46 @@ elif opts.use_eccentricity:
 if opts.input_distance:
     print(" Distance input")
     col_lnL +=1
-dat_orig = dat = np.loadtxt(opts.fname)
+# ----------------------------------------------------------------------
+# Hyperpipeline ASCII input path (opt-in via env var or auto-detected).
+# When active, we (a) read a header-bearing file via hyperpipeline_io,
+# (b) reshape it to the legacy positional layout the rest of this
+# script expects, and (c) reset col_lnL / col_distance / col_lambda1 /
+# col_eccentricity / col_meanPerAno from the canonical mapping so the
+# downstream `for line in dat: line[col_lnL] ...` loop is unchanged.
+# Detection: env var RIFT_HYPERPIPELINE_FORMAT, else file-content sniff.
+# ----------------------------------------------------------------------
+from RIFT.misc import hyperpipeline_io as _hpio
+_use_hpip = _hpio.is_active() or _hpio.sniff(opts.fname)
+if _use_hpip:
+    print(" Hyperpipeline ASCII input format detected for ", opts.fname)
+    _arr, _hdr = _hpio.read_table(opts.fname)
+    print("    columns: ", _hdr)
+    # Auto-derive optional-group flags from the file header, falling back
+    # to the user's CLI flags if a column is absent (so the assert in
+    # to_legacy_dat fires loudly if the file/flags disagree).
+    _has = lambda n: n in _arr.dtype.names
+    _use_ecc = bool(opts.use_eccentricity) or _has("eccentricity")
+    _use_mpa = bool(opts.use_meanPerAno) or _has("meanPerAno")
+    _use_tides = bool(opts.input_tides) or _has("lambda1")
+    _use_eos = bool(opts.input_eos_index) or _has("eos_table_index")
+    _use_dist = bool(opts.input_distance) or _has("distance")
+    dat = _hpio.to_legacy_dat(_arr,
+                              use_eccentricity=_use_ecc, use_meanPerAno=_use_mpa,
+                              use_tides=_use_tides, use_eos_index=_use_eos,
+                              use_distance=_use_dist)
+    _ix = _hpio.legacy_column_indices(
+        use_eccentricity=_use_ecc, use_meanPerAno=_use_mpa,
+        use_tides=_use_tides, use_eos_index=_use_eos,
+        use_distance=_use_dist)
+    col_lnL = _ix["lnL"]
+    col_distance = _ix["distance"]
+    col_lambda1 = _ix["lambda1"]
+    col_eccentricity = _ix["eccentricity"]
+    col_meanPerAno = _ix["meanPerAno"]
+else:
+    dat = np.loadtxt(opts.fname)
+dat_orig = dat
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
 if col_meanPerAno:
     dat_orig[:,col_meanPerAno] = np.mod(dat_orig[:,col_meanPerAno], lalsimutils.periodic_params['meanPerAno'] ) # 2 *np.pi
@@ -2977,7 +3016,24 @@ if neff < opts.n_eff:
                 P_out_list.append(P)
 
         # Save output
-        lalsimutils.ChooseWaveformParams_array_to_xml(P_out_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
+        # Hyperpipeline ASCII grid writer (opt-in via env var).  Emits the
+        # next-iteration intrinsic-parameter grid as a self-describing
+        # hyperpipeline file instead of XML.  lnL/sigma_lnL columns are
+        # filled with 0 because these are posterior draws, not measurements;
+        # ILE's --sim-grid reader ignores them via the lalsimutils.valid_params
+        # intersection.
+        if _hpio.is_active():
+            _cols_out = _hpio.build_column_list(
+                use_eccentricity=opts.use_eccentricity, use_meanPerAno=opts.use_meanPerAno,
+                use_tides=opts.input_tides, use_eos_index=opts.input_eos_index,
+                use_distance=False)
+            _hpio.write_grid_from_P_list(opts.fname_output_samples,
+                                         P_out_list[:n_output_size],
+                                         _cols_out,
+                                         lal_module=lal,
+                                         lalsimutils_module=lalsimutils)
+        else:
+            lalsimutils.ChooseWaveformParams_array_to_xml(P_out_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
         sys.exit(0)
 
 
@@ -3493,7 +3549,21 @@ if len(P_list) <1:
  ### Export data
  ###
 n_output_size = np.min([len(P_list),opts.n_output_samples])
-lalsimutils.ChooseWaveformParams_array_to_xml(P_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
+# Hyperpipeline ASCII grid writer (opt-in via env var).  See note above the
+# earlier identical writer site -- same rationale.
+if _hpio.is_active():
+    _cols_out = _hpio.build_column_list(
+        use_eccentricity=opts.use_eccentricity, use_meanPerAno=opts.use_meanPerAno,
+        use_tides=opts.input_tides, use_eos_index=opts.input_eos_index,
+        use_distance=False)
+    _hpio.write_grid_from_P_list(opts.fname_output_samples,
+                                 P_list[:n_output_size],
+                                 _cols_out,
+                                 lal_module=lal,
+                                 lalsimutils_module=lalsimutils,
+                                 lnL_values=lnL_list[:n_output_size])
+else:
+    lalsimutils.ChooseWaveformParams_array_to_xml(P_list[:n_output_size],fname=opts.fname_output_samples,fref=P.fref)
 lnL_list = np.array(lnL_list,dtype=internal_dtype)
 np.savetxt(opts.fname_output_samples+"_lnL.dat", lnL_list)
 

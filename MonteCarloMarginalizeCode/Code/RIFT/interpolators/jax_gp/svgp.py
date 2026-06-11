@@ -37,12 +37,17 @@ def _sqdist(A, B):
 class SVGPInterpolator(BaseInterpolator):
     name = "svgp"
 
-    def __init__(self, n_inducing=256, n_opt_steps=400, lr=0.02, seed=0, jitter=1e-6):
+    def __init__(self, n_inducing=256, n_opt_steps=400, lr=0.02, seed=0, jitter=1e-6,
+                 ls_lo_frac=0.2, ls_hi_frac=1.0):
         super().__init__(jitter=jitter)
         self.n_inducing = int(n_inducing)
         self.n_opt_steps = int(n_opt_steps)
         self.lr = float(lr)
         self.seed = int(seed)
+        # ARD lengthscale box, as fractions of the peak-region width (see _fit_whitened).
+        # Lower ls_hi_frac -> shorter lengthscales -> less smoothing (sharper marginals).
+        self.ls_lo_frac = float(ls_lo_frac)
+        self.ls_hi_frac = float(ls_hi_frac)
 
     # --- ARD RBF kernel (per-dimension lengthscales) -------------------- #
     def _kernel(self, X1, X2, log_amp, log_scale):
@@ -137,8 +142,10 @@ class SVGPInterpolator(BaseInterpolator):
         # the posterior comes out far too broad. Bounding it (cf. sklearn's
         # length_scale_bounds in the legacy CIP GP) forces the fit to capture the
         # sharp curvature. Projected (clipped) gradient steps enforce the box.
-        log_ls_lo = jnp.asarray(np.log(0.2 * peak_std))
-        log_ls_hi = jnp.asarray(np.log(1.0 * peak_std))
+        log_ls_lo = jnp.asarray(np.log(self.ls_lo_frac * peak_std))
+        log_ls_hi = jnp.asarray(np.log(self.ls_hi_frac * peak_std))
+        # keep the peak-matched init inside the (possibly tightened) box
+        log_scale0 = jnp.clip(log_scale0, log_ls_lo, log_ls_hi)
 
         params = {
             "Z": jnp.asarray(Z0),
