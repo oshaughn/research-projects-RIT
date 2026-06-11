@@ -286,32 +286,43 @@ def build_transfer_input_expr(manifest):
     return "$$([ {} ])".format(_build_selector(manifest, value_fn, ternary=True))
 
 
-def build_container_image_select(manifest):
-    """Return an unquoted ``$$([ ... ])`` value for the HTCondor *container
-    universe* ``container_image`` submit command, selecting the per-machine image.
+def build_container_image_select(manifest, request_gpu=True):
+    """Return the value for the HTCondor *container universe* ``container_image``
+    submit command for this family.
 
-    Unlike :func:`build_singularity_image_expr` (an execute-side ClassAd
-    expression that OSPool glidein pilots read as a literal string and hold the
-    job on), this uses HTCondor ``$$()`` *match-time machine-ad substitution*: the
-    schedd evaluates the bracketed expression against the matched machine ad and
-    substitutes a literal image string into ``container_image`` before the job
-    reaches the execution point.  ``$$`` in ``container_image`` is HTCondor's
+    GPU jobs (``request_gpu=True``, the default) get a per-machine selection: an
+    unquoted ``$$([ ... ])`` token.  ``$$()`` is HTCondor's *match-time machine-ad
+    substitution* -- the schedd evaluates the bracketed expression against the
+    matched machine ad and substitutes a literal image string into
+    ``container_image`` before the job reaches the execution point.  Unlike
+    :func:`build_singularity_image_expr` (an execute-side ClassAd expression that
+    OSPool glidein pilots read as a literal string and hold on), the pilot only
+    ever sees a literal URL.  ``$$`` in ``container_image`` is HTCondor's
     documented mechanism for per-GPU-capability image selection, and it works on
-    both the CIT-local pool and OSPool glideins.
+    both the CIT-local pool and OSPool glideins.  The branch value is the manifest
+    image *verbatim* (an ``osdf://`` URL the container-universe file-transfer
+    plugin fetches, or a CVMFS/local path used in place) -- NOT a ``./basename``
+    rewrite.  ``container_image`` is a single submit command (not a comma list),
+    so the comma-bearing ``ifThenElse`` form is fine.
 
-    The branch value is the manifest image *verbatim* -- an ``osdf://`` URL that
-    container universe's file-transfer plugin fetches, or a CVMFS/local path used
-    in place -- NOT a ``./basename`` rewrite (container universe handles the image
-    itself).  ``container_image`` is a single submit command (not a comma list),
-    so the comma-bearing ``ifThenElse`` form is fine here.
+    **Non-GPU jobs (``request_gpu=False``) collapse to a SINGLE fixed container**:
+    the plain ``fallback`` image (a literal ``container_image``, no ``$$()``).
+    A CPU-only job (e.g. CIP) matches a slot that advertises **no** GPU capability
+    attribute, so a ``$$()`` capability expression has nothing to resolve against
+    -- it fails to expand and HTCondor *holds the job*.  There is also nothing to
+    select between, so the CPU-safe fallback image is the right (and only) choice.
 
-    The expression is undefined-safe: if the matched machine does not advertise
-    the capability attribute (e.g. a CPU-only slot), it yields the ``fallback``
-    image instead of an undefined ``$$()`` that would hold the job.
+    (The GPU-path expression is also written undefined-safe -- ``=?= undefined``
+    yields the fallback -- but a GPU job that requested a GPU will match a slot
+    that advertises the capability, so that guard is belt-and-suspenders; the
+    non-GPU case must not use ``$$()`` at all.)
     """
-    attr = _capability_attr(manifest)
     by_label = {c["label"]: c for c in manifest["containers"]}
     fb_image = by_label[manifest["fallback"]]["image"]
+    if not request_gpu:
+        # Single fixed container: no capability, no $$() -- a plain literal.
+        return fb_image
+    attr = _capability_attr(manifest)
     selector = _build_selector(manifest, lambda c: '"{}"'.format(c["image"]))
     guarded = 'ifThenElse(TARGET.{attr} =?= undefined, "{fb}", {sel})'.format(
         attr=attr, fb=fb_image, sel=selector

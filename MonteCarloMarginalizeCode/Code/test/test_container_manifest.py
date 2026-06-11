@@ -255,5 +255,42 @@ def test_integration_container_universe(tmp_path, monkeypatch):
     assert job.universe == "container"          # HTCondor container universe
 
 
+def test_container_image_select_no_gpu_collapses_to_single(tmp_path):
+    m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
+    # A job that requests no GPU has no capability to key on -- a $$() expression
+    # would not resolve on a CPU-only slot and would HOLD the job.  Collapse to
+    # the single (CPU-safe) fallback image: a plain literal, no $$(), no ifThenElse.
+    val = cm.build_container_image_select(m, request_gpu=False)
+    assert val == "/cvmfs/sw/rift_ancient_cuda11.sif"   # the fallback image, verbatim
+    assert "$$(" not in val
+    assert "ifThenElse" not in val
+
+
+def test_integration_cip_container_universe_single_image(tmp_path, monkeypatch):
+    # CIP is CPU-only: under container universe it must use a SINGLE fixed
+    # container (the fallback image), never the $$() capability selection.
+    monkeypatch.setenv("RIFT_CONTAINER_UNIVERSE", "1")
+    monkeypatch.chdir(tmp_path)
+    dag = pytest.importorskip("RIFT.misc.dag_utils_generic")
+    job, _ = dag.write_CIP_sub(
+        tag="CIP",
+        out_dir=str(tmp_path),
+        log_dir=str(tmp_path) + "/",
+        exe="/usr/bin/true",
+        arg_str="--foo bar",
+        transfer_files=["../all.net"],
+        use_singularity=True,
+        singularity_image=_write(tmp_path, MIXED_MANIFEST),
+    )
+    cmds = dict(job.condor_cmds)
+    ci = cmds["container_image"]
+    assert ci == "/cvmfs/sw/rift_ancient_cuda11.sif"   # single fixed fallback image
+    assert "$$(" not in ci                              # NOT a capability $$() selection
+    assert "MY.SingularityImage" not in cmds
+    assert "$$([" not in cmds.get("transfer_input_files", "")
+    assert "require_gpus" not in cmds                   # CPU job: no GPU floor
+    assert job.universe == "container"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([os.path.abspath(__file__), "-v"]))
