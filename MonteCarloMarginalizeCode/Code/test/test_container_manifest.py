@@ -104,9 +104,13 @@ def test_parser_rejects_missing_image(tmp_path):
 def test_image_expression(tmp_path):
     m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
     expr = cm.build_singularity_image_expr(m)
+    # undefined-safe: an outer `=?= undefined -> fallback` guard wraps the
+    # capability selector, so a slot that does not advertise the attribute (CPU
+    # slot, or non-advertising GPU site) resolves to the fallback, not undefined.
     assert expr == (
+        'ifThenElse(TARGET.GPUs_Capability =?= undefined, "/cvmfs/sw/rift_ancient_cuda11.sif", '
         'ifThenElse(TARGET.GPUs_Capability >= 7.0, '
-        '"./rift_modern_cuda12.sif", "/cvmfs/sw/rift_ancient_cuda11.sif")'
+        '"./rift_modern_cuda12.sif", "/cvmfs/sw/rift_ancient_cuda11.sif"))'
     )
     # an expression must NOT be a quoted string literal
     assert not expr.startswith('"')
@@ -115,9 +119,11 @@ def test_image_expression(tmp_path):
 def test_transfer_expression_is_comma_free_ternary(tmp_path):
     m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
     expr = cm.build_transfer_input_expr(m)
+    # undefined-safe outer guard; the fallback (a CVMFS image) has transfer value
+    # "" (no transfer), so an undefined-capability slot transfers nothing.
     assert expr == (
-        '$$([ (TARGET.GPUs_Capability >= 7.0 ? '
-        '"osdf:///igwn/rift_modern_cuda12.sif" : "") ])'
+        '$$([ (TARGET.GPUs_Capability =?= undefined ? "" : '
+        '(TARGET.GPUs_Capability >= 7.0 ? "osdf:///igwn/rift_modern_cuda12.sif" : "")) ])'
     )
     # the token sits inside a comma-separated transfer_input_files list, so it
     # must contain no commas of its own
@@ -132,6 +138,17 @@ def test_transfer_expression_none_when_all_in_place(tmp_path):
 def test_require_gpus_floor(tmp_path):
     m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
     assert cm.build_require_gpus_floor(m) == "Capability >= 3.0"
+
+
+def test_legacy_builders_are_undefined_safe(tmp_path):
+    # Both the MY.SingularityImage expression and the $$() transfer token guard
+    # against an undefined capability: a job that matches a slot which does not
+    # advertise it (a CPU-only CIP slot, or an OSPool GPU site that doesn't
+    # advertise it) resolves to the fallback instead of an unresolvable $$()
+    # that "cannot expand" -> HOLD.
+    m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
+    assert "TARGET.GPUs_Capability =?= undefined" in cm.build_singularity_image_expr(m)
+    assert "=?= undefined" in cm.build_transfer_input_expr(m)
 
 
 def test_capability_attr_env_override(tmp_path, monkeypatch):
