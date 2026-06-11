@@ -56,6 +56,7 @@ __all__ = [
     "build_singularity_image_expr",
     "build_transfer_input_expr",
     "build_require_gpus_floor",
+    "build_container_image_select",
 ]
 
 # Default machine ClassAd attribute advertising GPU compute capability.  The
@@ -283,6 +284,39 @@ def build_transfer_input_expr(manifest):
         return '"{}"'.format(c["image"]) if _image_needs_transfer(c["image"]) else '""'
 
     return "$$([ {} ])".format(_build_selector(manifest, value_fn, ternary=True))
+
+
+def build_container_image_select(manifest):
+    """Return an unquoted ``$$([ ... ])`` value for the HTCondor *container
+    universe* ``container_image`` submit command, selecting the per-machine image.
+
+    Unlike :func:`build_singularity_image_expr` (an execute-side ClassAd
+    expression that OSPool glidein pilots read as a literal string and hold the
+    job on), this uses HTCondor ``$$()`` *match-time machine-ad substitution*: the
+    schedd evaluates the bracketed expression against the matched machine ad and
+    substitutes a literal image string into ``container_image`` before the job
+    reaches the execution point.  ``$$`` in ``container_image`` is HTCondor's
+    documented mechanism for per-GPU-capability image selection, and it works on
+    both the CIT-local pool and OSPool glideins.
+
+    The branch value is the manifest image *verbatim* -- an ``osdf://`` URL that
+    container universe's file-transfer plugin fetches, or a CVMFS/local path used
+    in place -- NOT a ``./basename`` rewrite (container universe handles the image
+    itself).  ``container_image`` is a single submit command (not a comma list),
+    so the comma-bearing ``ifThenElse`` form is fine here.
+
+    The expression is undefined-safe: if the matched machine does not advertise
+    the capability attribute (e.g. a CPU-only slot), it yields the ``fallback``
+    image instead of an undefined ``$$()`` that would hold the job.
+    """
+    attr = _capability_attr(manifest)
+    by_label = {c["label"]: c for c in manifest["containers"]}
+    fb_image = by_label[manifest["fallback"]]["image"]
+    selector = _build_selector(manifest, lambda c: '"{}"'.format(c["image"]))
+    guarded = 'ifThenElse(TARGET.{attr} =?= undefined, "{fb}", {sel})'.format(
+        attr=attr, fb=fb_image, sel=selector
+    )
+    return "$$([ {} ])".format(guarded)
 
 
 def build_require_gpus_floor(manifest):
