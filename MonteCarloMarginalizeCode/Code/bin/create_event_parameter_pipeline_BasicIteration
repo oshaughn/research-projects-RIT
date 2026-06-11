@@ -431,6 +431,23 @@ if opts.use_singularity:
         opts.use_oauth_files = 'igwn' # force-set this variable, to save time for end user. This will always be the case
     elif 'osdf:' in singularity_image and not opts.use_oauth_files:
         opts.use_oauth_files = 'scitokens' # force-set this variable, to save time for end user. This will always be the case
+    elif not opts.use_oauth_files:
+        # Container FAMILY manifest (.yaml/.yml): the per-machine image osdf:// URLs live
+        # INSIDE the manifest, so the 'osdf:' substring checks above miss them and the
+        # transfer credential is never enabled -> the execute point cannot fetch the
+        # selected container ("credential is required for osdf://... but was not
+        # discovered" -> all ILE/CIP/CALPILOT jobs held).  Inspect the manifest's image
+        # URLs and pick the same credential the single-image path would have.
+        try:
+            from RIFT.misc.container_manifest import is_container_manifest, load_container_manifest
+            if is_container_manifest(singularity_image):
+                _imgs = ' '.join(c.get('image', '') for c in load_container_manifest(singularity_image).get('containers', []))
+                if 'igwn+osdf:' in _imgs:
+                    opts.use_oauth_files = 'igwn'
+                elif 'osdf:' in _imgs:
+                    opts.use_oauth_files = 'scitokens'
+        except Exception:
+            pass
 
 if (opts.cip_args is None) and (opts.cip_args_list is None):
     print(" No arguments provided for low-level job")
