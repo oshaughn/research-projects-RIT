@@ -217,18 +217,26 @@ def _capability_attr(manifest):
     return os.environ.get("RIFT_GPU_CAPABILITY_ATTR") or manifest["capability_attr"]
 
 
-def _build_selector(manifest, value_fn, ternary=False):
+def _build_selector(manifest, value_fn, ternary=False, undefined_safe=False):
     """Build a nested capability selector over the family.
 
     ``value_fn(container)`` returns the ClassAd literal for a container branch
     (already quoted as appropriate).  The highest-min container is the outermost
     test; the ``fallback`` container is the innermost else (catch-all, also used
-    when the capability attribute is ``undefined``).
+    when the capability attribute is below every threshold).
 
     With ``ternary=False`` the selector uses ``ifThenElse(cond, a, b)`` (commas).
     With ``ternary=True`` it uses the comma-free ClassAd ternary ``cond ? a : b``
     -- required when the result is embedded as one element of a comma-separated
     ``transfer_input_files`` list, where internal commas would be mis-split.
+
+    With ``undefined_safe=True`` the whole selector is wrapped in a
+    ``TARGET.attr =?= undefined ? fallback : <selector>`` guard.  Without it, a
+    job that matches a slot with NO capability attribute (a CPU-only slot, or an
+    OSPool GPU site that does not advertise it) makes every ``TARGET.attr >= N``
+    test ``undefined`` -> the whole ifThenElse/ternary is ``undefined`` -> a
+    ``$$([...])`` token "cannot expand" and HTCondor HOLDS the job.  The guard
+    collapses that case to the (CPU-safe) fallback image instead.
     """
     attr = _capability_attr(manifest)
     containers = manifest["containers"]  # sorted desc by min
@@ -254,6 +262,12 @@ def _build_selector(manifest, value_fn, ternary=False):
             expr = "ifThenElse({cond}, {val}, {inner})".format(
                 cond=cond, val=value_fn(c), inner=expr
             )
+    if undefined_safe:
+        guard = "TARGET.{attr} =?= undefined".format(attr=attr)
+        if ternary:
+            expr = "({g} ? {fb} : {sel})".format(g=guard, fb=value_fn(fb), sel=expr)
+        else:
+            expr = "ifThenElse({g}, {fb}, {sel})".format(g=guard, fb=value_fn(fb), sel=expr)
     return expr
 
 
@@ -262,9 +276,14 @@ def build_singularity_image_expr(manifest):
 
     Each branch literal is the container's *runtime* path (CVMFS/local verbatim,
     ``./<basename>`` for transferred images).
+
+    Undefined-safe: a job that matches a slot advertising no capability attribute
+    (a CPU-only CIP slot, or an OSPool GPU site that does not advertise it) gets
+    the fallback image rather than an ``undefined`` expression.
     """
     return _build_selector(
-        manifest, lambda c: '"{}"'.format(_image_runtime_path(c["image"]))
+        manifest, lambda c: '"{}"'.format(_image_runtime_path(c["image"])),
+        undefined_safe=True,
     )
 
 
@@ -283,7 +302,11 @@ def build_transfer_input_expr(manifest):
     def value_fn(c):
         return '"{}"'.format(c["image"]) if _image_needs_transfer(c["image"]) else '""'
 
-    return "$$([ {} ])".format(_build_selector(manifest, value_fn, ternary=True))
+    # undefined_safe: a CPU-only / non-advertising slot collapses to the fallback
+    # image's transfer value instead of an unresolvable $$() that holds the job.
+    return "$$([ {} ])".format(
+        _build_selector(manifest, value_fn, ternary=True, undefined_safe=True)
+    )
 
 
 def build_container_image_select(manifest, request_gpu=True):
@@ -322,10 +345,10 @@ def build_container_image_select(manifest, request_gpu=True):
     if not request_gpu:
         # Single fixed container: no capability, no $$() -- a plain literal.
         return fb_image
-    attr = _capability_attr(manifest)
-    selector = _build_selector(manifest, lambda c: '"{}"'.format(c["image"]))
-    guarded = 'ifThenElse(TARGET.{attr} =?= undefined, "{fb}", {sel})'.format(
-        attr=attr, fb=fb_image, sel=selector
+    # undefined_safe: a GPU job that lands on a GPU slot which does not advertise
+    # the capability attribute still resolves (to the fallback) instead of holding.
+    guarded = _build_selector(
+        manifest, lambda c: '"{}"'.format(c["image"]), undefined_safe=True
     )
     return "$$([ {} ])".format(guarded)
 
