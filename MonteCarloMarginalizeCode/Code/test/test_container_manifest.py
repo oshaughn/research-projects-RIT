@@ -205,5 +205,55 @@ def test_backward_compat_single_sif(tmp_path, monkeypatch):
     assert "require_gpus" not in cmds
 
 
+# ---------------------------------------------------------------------------
+# 6. container universe: $$()-substituted container_image selection (OSG-safe)
+# ---------------------------------------------------------------------------
+
+def test_container_image_select_expression(tmp_path):
+    m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
+    expr = cm.build_container_image_select(m)
+    # a $$() match-time substitution token, undefined-safe, with VERBATIM image
+    # values (osdf URL fetched by container universe; cvmfs path used in place) --
+    # NOT a ./basename rewrite
+    assert expr.startswith("$$([ ") and expr.endswith(" ])")
+    assert "TARGET.GPUs_Capability =?= undefined" in expr          # undefined -> fallback
+    assert "ifThenElse(TARGET.GPUs_Capability >= 7.0," in expr
+    assert '"osdf:///igwn/rift_modern_cuda12.sif"' in expr         # raw osdf URL
+    assert '"/cvmfs/sw/rift_ancient_cuda11.sif"' in expr           # fallback verbatim
+    assert "./rift_modern_cuda12.sif" not in expr                  # no basename rewrite
+
+
+def test_integration_container_universe(tmp_path, monkeypatch):
+    # Opt-in container-universe mode: per-machine image via $$()-substituted
+    # container_image; no MY.SingularityImage / BindCVMFS / $$() transfer token;
+    # universe=container; require_gpus floor still applied.
+    monkeypatch.setenv("RIFT_CONTAINER_UNIVERSE", "1")
+    monkeypatch.delenv("RIFT_REQUIRE_GPUS", raising=False)
+    monkeypatch.chdir(tmp_path)
+    dag = pytest.importorskip("RIFT.misc.dag_utils_generic")
+    job, _ = dag.write_ILE_sub_simple(
+        tag="ILE",
+        log_dir=str(tmp_path) + "/",
+        exe="/usr/bin/true",
+        arg_str="--foo bar",
+        transfer_files=["../all.net"],
+        use_singularity=True,
+        singularity_image=_write(tmp_path, MIXED_MANIFEST),
+        request_gpu=True,
+        cache_file="local.cache",
+    )
+    cmds = dict(job.condor_cmds)
+
+    ci = cmds["container_image"]
+    assert ci.startswith("$$([")               # match-time substitution, unquoted
+    assert not ci.startswith('"')
+    assert "MY.SingularityImage" not in cmds    # the OSG-breaking attr is gone
+    assert "MY.SingularityBindCVMFS" not in cmds
+    assert "$$([" not in cmds.get("transfer_input_files", "")  # image via container_image, not transfer
+    assert "Capability >= 3.0" in cmds["require_gpus"]         # floor still steers GPUs
+
+    assert job.universe == "container"          # HTCondor container universe
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([os.path.abspath(__file__), "-v"]))
