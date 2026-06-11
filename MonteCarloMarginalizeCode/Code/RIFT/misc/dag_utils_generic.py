@@ -138,6 +138,7 @@ try:
         build_container_image_select,
         build_capability_defined_requirement,
         build_fallback_single_image,
+        build_runtime_selection_wrapper,
         ContainerManifestError,
     )
     _HAVE_CONTAINER_MANIFEST = True
@@ -2305,6 +2306,8 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     singularity_is_family = False
     singularity_container_universe = False
     singularity_container_image_select = None
+    singularity_runtime_select = False
+    singularity_inner_exe = None
     singularity_image_expr = None
     singularity_transfer_expr = None
     singularity_require_gpus_floor = None
@@ -2329,13 +2332,20 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
             # capability, so a $$() capability expression cannot resolve (it
             # holds the job) -- collapse to the single fallback image instead.
             singularity_container_image_select = build_container_image_select(_manifest, request_gpu=request_gpu)
+        else:
+            # Older OSG-safe fallback (opt-in): run a wrapper on the bare execute
+            # node that detects the runtime GPU, fetches just that image, and
+            # execs the real command under apptainer.  Keep this independent of
+            # container universe, which is the preferred OSG path when enabled.
+            singularity_runtime_select = bool(use_singularity and os.environ.get('RIFT_CONTAINER_RUNTIME_SELECT'))
         # Selective transfer: only the matched osdf image is fetched (via the
         # $$() token, which is comma-free so it survives transfer_input_files
         # comma-splitting).  CVMFS/local images are referenced in place and
         # never transferred, so the whole family is never pulled.  In container-
-        # universe mode the image is delivered via container_image itself, so we
-        # do NOT add the transfer token.
-        if singularity_transfer_expr and not singularity_container_universe:
+        # universe mode the image is delivered via container_image itself; in
+        # runtime-select mode the wrapper self-fetches.  In both cases do NOT add
+        # the match-time transfer token.
+        if singularity_transfer_expr and not singularity_container_universe and not singularity_runtime_select:
             extra_files += [singularity_transfer_expr]
     elif singularity_image:
         if 'osdf:' in singularity_image:
@@ -2355,6 +2365,7 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
 #            singularity_base_exe_path = "/opt/lscsoft/rift/MonteCarloMarginalizeCode/Code/"  # should not hardcode this ...!
             singularity_base_exe_path = "/usr/bin/"  # should not hardcode this ...!
         exe=singularity_base_exe_path + exe_base
+        singularity_inner_exe = exe
         if not(frames_dir is None):
             frames_local = frames_dir.split("/")[-1]
     elif use_osg:  # NOT using singularity!
@@ -2499,7 +2510,13 @@ echo Starting ...
     if use_singularity:
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
-        ile_job.add_condor_cmd('transfer_executable', 'False')
+        if singularity_runtime_select:
+            # Runtime-select wrapper: the wrapper is the transferred executable
+            # and it invokes apptainer itself, so do not ask HTCondor to enter
+            # singularity or suppress executable transfer.
+            pass
+        else:
+            ile_job.add_condor_cmd('transfer_executable', 'False')
         if singularity_container_universe:
             # Container universe: the per-machine image is delivered via
             # container_image, a $$()-substituted (match-time) literal -- emit it
@@ -2507,6 +2524,8 @@ echo Starting ...
             # MY.SingularityImage / MY.SingularityBindCVMFS.  GPU access is
             # automatic under request_gpus; the executable runs inside the image.
             ile_job.add_condor_cmd("container_image", singularity_container_image_select)
+        elif singularity_runtime_select:
+            pass
         else:
             ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
             if singularity_is_family:
@@ -2608,6 +2627,7 @@ echo Starting ...
             f.write('{exe}  "$@" '.format(exe=exe))
             os.system("chmod a+x ile_pre.sh")
             ile_job.set_executable("ile_pre.sh")  # transferred, used as executable
+            singularity_inner_exe = "./ile_pre.sh"
 #          ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
 
 
@@ -2693,6 +2713,14 @@ echo Starting ...
     if condor_commands is not None:
         for cmd, value in condor_commands.items():
             ile_job.add_condor_cmd(cmd, value)
+
+    if singularity_runtime_select:
+        wrapper_text = build_runtime_selection_wrapper(_manifest, inner_command=singularity_inner_exe)
+        wrapper_name = 'rift_container_select.sh'
+        with open(wrapper_name, 'w') as f:
+            f.write(wrapper_text)
+        os.system('chmod a+x ' + wrapper_name)
+        ile_job.set_executable(wrapper_name)
 
     return ile_job, ile_sub_name
 
