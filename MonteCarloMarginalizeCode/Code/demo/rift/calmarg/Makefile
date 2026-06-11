@@ -516,8 +516,11 @@ ifneq ($(SINGULARITY_RIFT_IMAGE),)
 endif
 OSG ?= 0
 ifeq ($(OSG),1)
-  # Container: ~4 GB disk for the .sif transfer + unpack (vs the MB-scale shared-FS baseline)
-  PP_DISK ?= 4G
+  # Container: disk must EXCEED the transferred .sif.  The GPU container FAMILY's
+  # Blackwell image (cc90-120, CUDA 12.8) is 6.35 GB, so a 4 GB request holds the job
+  # on Blackwell slots ("no space left on device" mid osdf transfer).  16 GB covers the
+  # largest image + sandbox/unpack headroom (per RIFT_condor breadcrumb).
+  PP_DISK ?= 16G
   # --condor-local-nonworker: at CIT the fast 'internal' jobs (consolidate/unify/puff/cal-
   # consolidation/etc.) have no execute-point access, so vanilla-universe submission fails;
   # this runs them locally (non-NFS / flock_local) instead.  Required whenever OSG is active.
@@ -537,6 +540,14 @@ endif
 # 4G container).  Must NOT also be set in the ini -- a [rift-pseudo-pipe] value there
 # OVERRIDES the CLI, which previously left ILE stuck at 4M while cip/general got bumped.
 PP_DISK_FLAGS := --internal-ile-request-disk $(PP_DISK) --internal-cip-request-disk $(PP_DISK) --internal-general-request-disk $(PP_DISK)
+
+# ILE memory request (Mb).  pseudo_pipe defaults to 4096, which is too tight for the
+# FUSED calmarg precompute: it holds N cal realizations and the adaptive draw count
+# DOUBLES (NCAL 100 -> up to 800) per intrinsic point, so peak RSS spikes past 4 GB and
+# the job is held ("memory usage exceeded request_memory").  8192 matches the historical
+# standard (~2.4x the observed ~3.4 GB peak).
+PP_MEM_ILE ?= 8192
+PP_MEM_FLAGS := --internal-ile-request-memory $(PP_MEM_ILE)
 
 .PHONY: pp-run pp-run-build pp-coinc
 
@@ -561,7 +572,7 @@ endif
 	  --calmarg-envelope-directory $(CURDIR)/cal_env --calmarg-n-realizations $(NCAL_DAG) --calmarg-fused-kernel \
 	  $(PP_DMARG_FLAGS) $(PP_CALPOST_FLAGS) $(PP_CIP_FLAGS) \
 	  --internal-force-iterations $(PP_NIT) --ile-n-eff 30 \
-	  $(PP_DISK_FLAGS) $(PP_OSG_FLAGS) $(PP_PILOT_FLAGS)
+	  $(PP_DISK_FLAGS) $(PP_MEM_FLAGS) $(PP_OSG_FLAGS) $(PP_PILOT_FLAGS)
 ifeq ($(OSG),1)
 	@# --use-osg-file-transfer expects a frames_dir of .gwf in the rundir.  Must be a FULL
 	@# COPY, not a symlink: condor refuses "Transfer of symlinks to directories is not supported".
