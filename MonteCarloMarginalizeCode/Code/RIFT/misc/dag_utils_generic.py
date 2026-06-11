@@ -1570,6 +1570,22 @@ _BACKEND = _ACTIVE_BACKEND_NAME  # snapshot for backwards-compat
 # the glue.pipeline fallback backend.
 # ---------------------------------------------------------------------------
 
+def _nonworker_extra_requirements():
+    """Extra HTCondor requirements for LOCAL (non-worker) jobs, from $RIFT_REQUIRE_NONWORKER.
+
+    Counterpart to RIFT_BOOLEAN_LIST (which targets REMOTE workers, ILE/CIP). The local jobs
+    (convert/test/consolidate/puff/join/...) run flock_local and read+write absolute /home
+    paths with NO file transfer, so on a pool whose execute points may lack /home they must be
+    pinned to NFS-/home nodes. e.g. RIFT_REQUIRE_NONWORKER='EPNFS' -> appends '(EPNFS =?= TRUE)'
+    to their requirements (comma-separated for multiple). Read at DAG-build time, so it is
+    durable through `asimov manage submit` / the asimov daemon.
+    """
+    val = os.environ.get('RIFT_REQUIRE_NONWORKER', '').strip()
+    if not val:
+        return []
+    return ['{} =?= TRUE'.format(x.strip()) for x in val.split(',') if x.strip()]
+
+
 def write_integrate_likelihood_extrinsic_grid_sub(tag='integrate', exe=None, log_dir=None, ncopies=1, **kwargs):
     """
     Write a submit file for launching jobs to marginalize the likelihood over
@@ -2225,6 +2241,7 @@ def write_puff_sub(tag='puffball', exe=None, base=None,input_net='output-ILE-sam
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
+    requirements += _nonworker_extra_requirements()
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     try:
@@ -2710,6 +2727,7 @@ def write_consolidate_sub_simple(tag='consolidate', exe=None, base=None,target=N
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
+    requirements += _nonworker_extra_requirements()
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     # no grid
@@ -2862,6 +2880,7 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
         job.add_condor_cmd('when_to_transfer_output', 'ON_EXIT')
         job.add_condor_cmd('transfer_output_files', 'cal_consolidated_$(macroiteration).npz')
     if requirements:
+        requirements += _nonworker_extra_requirements()
         job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     try:
@@ -2997,6 +3016,7 @@ fi
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
+    requirements += _nonworker_extra_requirements()
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     # no grid
@@ -3073,6 +3093,7 @@ def write_convert_sub(tag='convert', exe=None, file_input=None,file_output=None,
         except:
             True
 
+    requirements += _nonworker_extra_requirements()
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
         
     try:
@@ -3129,6 +3150,7 @@ def write_test_sub(tag='converge', exe=None,samples_files=None, base=None,target
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
+    requirements += _nonworker_extra_requirements()
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     # no grid
@@ -3406,6 +3428,7 @@ def write_psd_sub_BW_monoblock(tag='PSD_BW_mono', exe=None, log_dir=None, ncopie
 
     # Write requirements
     # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+    requirements += _nonworker_extra_requirements()
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     try:
@@ -3517,6 +3540,7 @@ def write_psd_sub_BW_step1(tag='PSD_BW_post', exe=None, log_dir=None, ncopies=1,
 
     # Write requirements
     # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+    requirements += _nonworker_extra_requirements()
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     try:
@@ -3626,6 +3650,7 @@ def write_psd_sub_BW_step0(tag='PSD_BW', exe=None, log_dir=None, ncopies=1,arg_s
 
     # Write requirements
     # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
+    requirements += _nonworker_extra_requirements()
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     try:
@@ -3677,6 +3702,7 @@ def write_resample_sub(tag='resample', exe=None, file_input=None,file_output=Non
     # for example: 
     #    for i in `condor_q -hold  | grep oshaughn | awk '{print $1}'`; do condor_qedit $i RequestMemory 30000; done; condor_release -all 
 
+    requirements += _nonworker_extra_requirements()
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     # no grid
@@ -3796,6 +3822,9 @@ def write_consolidate_distance_grids_sub(tag='consolidate_dgrid', exe=None,
     ile_job.set_stdout_file("%s%s-%s.out" % (log_dir, tag, uniq_str))
 
     ile_job.add_condor_cmd('getenv', default_getenv_value)
+    _nw_req = _nonworker_extra_requirements()
+    if _nw_req:
+        ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in _nw_req))
     try:
         ile_job.add_condor_cmd('accounting_group', os.environ['LIGO_ACCOUNTING'])
         ile_job.add_condor_cmd('accounting_group_user', os.environ['LIGO_USER_NAME'])
@@ -4136,6 +4165,7 @@ def write_calibration_uncertainty_reweighting_sub(tag='Calib_reweight', exe=None
         ile_job.add_condor_cmd("MY.flock_local",'true')
 
     # Write requirements
+    requirements += _nonworker_extra_requirements()
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     # Write transfer file list.  Will handle any surrogates + pickle/container files.
@@ -4411,6 +4441,7 @@ def write_bilby_pickle_sub(tag='Bilby_pickle', exe=None, universe='local', log_d
             True
 
     # Write requirements
+    requirements += _nonworker_extra_requirements()
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     try:
@@ -4485,6 +4516,7 @@ def write_comov_distance_reweighting_sub(tag='Comov_dist', comov_distance_reweig
 
 
     # Write requirements
+    requirements += _nonworker_extra_requirements()
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     try:
@@ -4566,6 +4598,7 @@ def write_convert_ascii_to_h5_sub(tag='Convert_ascii2h5', convert_ascii_to_h5_ex
             True
 
     # Write requirements
+    requirements += _nonworker_extra_requirements()
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     try:
@@ -4720,6 +4753,7 @@ def write_hyperpost_sub(tag='HYPER', exe=None, input_net='all.marg_net',output='
                ile_job.add_condor_cmd("stream_output",'True')
 
 
+    requirements += _nonworker_extra_requirements()
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
 
     # Stream log info: always stream CIP error, it is a critical bottleneck
