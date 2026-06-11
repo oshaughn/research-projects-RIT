@@ -135,6 +135,7 @@ try:
         build_singularity_image_expr,
         build_transfer_input_expr,
         build_require_gpus_floor,
+        build_container_image_select,
         ContainerManifestError,
     )
     _HAVE_CONTAINER_MANIFEST = True
@@ -2262,6 +2263,8 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
     # selective ($$()) transfer entry and a require_gpus capability floor.  A
     # plain .sif / osdf:// value keeps the legacy single-image behavior below.
     singularity_is_family = False
+    singularity_container_universe = False
+    singularity_container_image_select = None
     singularity_image_expr = None
     singularity_transfer_expr = None
     singularity_require_gpus_floor = None
@@ -2271,11 +2274,24 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         singularity_image_expr = build_singularity_image_expr(_manifest)
         singularity_transfer_expr = build_transfer_input_expr(_manifest)
         singularity_require_gpus_floor = build_require_gpus_floor(_manifest)
+        # OSG-safe alternative (opt-in: RIFT_CONTAINER_UNIVERSE).  The execute-side
+        # ifThenElse MY.SingularityImage below works on the CIT-local pool but
+        # OSPool glidein pilots read SingularityImage as a LITERAL string and hold
+        # the job.  Container universe with container_image = $$([...]) instead
+        # uses HTCondor match-time machine-ad substitution: the schedd resolves it
+        # to a literal image before the job reaches the EP.  $$ in container_image
+        # is HTCondor's documented per-GPU-capability selection, and works on both
+        # CIT-local and OSPool.  Requires use_singularity.
+        singularity_container_universe = bool(use_singularity and os.environ.get('RIFT_CONTAINER_UNIVERSE'))
+        if singularity_container_universe:
+            singularity_container_image_select = build_container_image_select(_manifest)
         # Selective transfer: only the matched osdf image is fetched (via the
         # $$() token, which is comma-free so it survives transfer_input_files
         # comma-splitting).  CVMFS/local images are referenced in place and
-        # never transferred, so the whole family is never pulled.
-        if singularity_transfer_expr:
+        # never transferred, so the whole family is never pulled.  In container-
+        # universe mode the image is delivered via container_image itself, so we
+        # do NOT add the transfer token.
+        if singularity_transfer_expr and not singularity_container_universe:
             extra_files += [singularity_transfer_expr]
     elif singularity_image:
         if 'osdf:' in singularity_image:
@@ -2331,7 +2347,9 @@ echo Starting ...
             exe = exe_here  # update executable
 
 
-    ile_job = CondorDAGJob(universe="vanilla", executable=exe)
+    # Container universe (opt-in) runs the job inside container_image directly;
+    # otherwise stay vanilla + (optional) condor singularity.
+    ile_job = CondorDAGJob(universe=("container" if singularity_container_universe else "vanilla"), executable=exe)
     # This is a hack since CondorDAGJob hides the queue property
     ile_job._CondorJob__queue = ncopies
 
@@ -2438,13 +2456,21 @@ echo Starting ...
         # Compare to https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
         ile_job.add_condor_cmd('request_CPUs', str(1))
         ile_job.add_condor_cmd('transfer_executable', 'False')
-        ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
-        if singularity_is_family:
-            # Expression-valued: emit the ifThenElse raw, with NO surrounding
-            # double quotes (a classad expression must not be quoted).
-            ile_job.add_condor_cmd("MY.SingularityImage", singularity_image_expr)
+        if singularity_container_universe:
+            # Container universe: the per-machine image is delivered via
+            # container_image, a $$()-substituted (match-time) literal -- emit it
+            # raw/unquoted (a $$() value must not be wrapped in quotes), with NO
+            # MY.SingularityImage / MY.SingularityBindCVMFS.  GPU access is
+            # automatic under request_gpus; the executable runs inside the image.
+            ile_job.add_condor_cmd("container_image", singularity_container_image_select)
         else:
-            ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
+            ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
+            if singularity_is_family:
+                # Expression-valued: emit the ifThenElse raw, with NO surrounding
+                # double quotes (a classad expression must not be quoted).
+                ile_job.add_condor_cmd("MY.SingularityImage", singularity_image_expr)
+            else:
+                ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
         ile_job.add_condor_cmd("MY.flock_local",'true')  # jobs can match to local pool !
         requirements.append("HAS_SINGULARITY=?=TRUE")
 #               if not(use_simple_osg_requirements):
