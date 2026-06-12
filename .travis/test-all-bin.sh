@@ -17,6 +17,10 @@ set -e
 
 # loop over all bin/ scripts
 for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
+   if [[ ! -f ${EXE} ]]; then
+       echo " Not file : " ${EXE}
+       continue
+   fi
    # skip scripts with explicit bilby dependence
    if [[ ${EXE} == *'calibration_reweighting.py' ]]; then
        continue
@@ -70,6 +74,16 @@ for EXE in MonteCarloMarginalizeCode/Code/bin/*; do
          echo "Hyperpipe  " ${EXE}
          continue
    fi   
+   # skip optional JAX driver; base CI does not install the jax extras
+   if [[ ${EXE} == *"integrate_likelihood_extrinsic_jax" ]]; then
+         echo "JAX optional  " ${EXE}
+         continue
+   fi
+   # skip optional HTCondor2 driver; base CI does not install htcondor2
+   if [[ ${EXE} == *"cepp_basic_htcondor" ]]; then
+         echo "HTCondor2 optional  " ${EXE}
+         continue
+   fi
    # skip tests that require condor environment
    if [[ ${EXE} == *"check_CIP_complete_work.py" ]]; then
          continue
