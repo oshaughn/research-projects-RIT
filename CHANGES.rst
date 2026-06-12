@@ -7,6 +7,8 @@ development tree is rift_O4d.
     simulation-manager prototypes, distance-grid/distance-slice likelihood export, container-family and pixi/SWIG
     canaries, hyperpipeline ASCII workflow support, parsimonious-placement preview, EFPE and standalone NR-frame
     utilities, plot_RIFT diagnostics, and GPU/CuPy portability fixes.
+
+** (rc0)
   - parsimonious-placement (preview): new RIFT.misc.tracer_placement engine (SMC+MALA, birth-death,
     and SMC-MALA+BD samplers; pluggable RF / RBF / polynomial / quadratic fits) plus two
     opt-in CLI tools that mirror the existing puffball tools' I/O contract:
@@ -17,9 +19,11 @@ development tree is rift_O4d.
     exact-regression fallback. See
     https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/ (TBD) and the project notes at
     20260513-Me-ParsimoniousPlacementOptions/parsimonious_placement_plan.md.
+  - generic worfklow backend (condor, slurm, htcondor, etc) via dag_utils_generic
+  - simulation_manager framework: interface requirements for external adaptive simulations
   - CIP hyperpipe improvements (initialize_me; enable population and EOS params in using_eos file with arbitrary
-    labelled parameters); CIP xgboost gp fit (from Aasim); install make 'precession' optional; see also 0.0.17.4rc0
-    igwn-ligolw
+    labelled parameters; arbitrary coordinates); CIP xgboost gp fit (from Aasim); install make 'precession' optional; see also 0.0.17.4rc0
+    igwn-ligolw. Hyperpipe 'omegaconf/hydra' framework
   - parsimonious placement (preview): new RIFT.misc.tracer_placement engine package (SMC+MALA / birth-death /
     SMC-MALA+BD samplers with pluggable RF / RBF / polynomial / quadratic surrogate fits) plus two thin
     command-line drivers, bin/util_HyperparameterTracerUpdate.py (hyperpipe, .dat I/O) and
@@ -33,6 +37,11 @@ development tree is rift_O4d.
     sampler hyperparameters can be set declaratively in Hydra. See
     20260513-Me-ParsimoniousPlacementOptions/parsimonious_placement_plan.md for theory, prototype results,
     rollout plan, and references.
+  - distance grid creation and (AD-compatible) fit
+  - RiftFloat wrapper for portability across platforms with modern python/numpy
+  - ascii data format; waveforms (epfe);  container auto-selection framework (first draft); cepp_alternate now feature-parity;
+    mcsamplerEnsemble full GPU path
+  - multiple demos
   - (rc1 pending) In-loop calibration marginalization: move calibration draws into ILE, add loop and fused
     GPU kernels (including distance-marginalized and phase-marginalized paths), export cal/time diagnostics,
     account for calibration Monte-Carlo error in reported uncertainty, add adaptive/pilot calibration proposal
