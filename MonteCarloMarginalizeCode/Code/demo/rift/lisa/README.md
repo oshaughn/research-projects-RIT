@@ -61,3 +61,18 @@ This surface currently still uses XML PSDs because that is what the ILE path
 loads today.  The synthetic input builder keeps PSD generation local and
 mechanical, making it a good target for a future ASCII-PSD path once the LISA
 workflow no longer needs `lal.series` XML PSD documents.
+
+## Analytic PSD products
+
+For a closer analogue of the toy `generate_iligo_psd` examples, this directory
+also provides:
+
+```bash
+./MonteCarloMarginalizeCode/Code/demo/rift/lisa/make_lisa_psds.py \
+  --output-directory /tmp/rift-lisa-psds --write-ascii
+```
+
+It writes analytic LISA A/E/T XML PSDs and, optionally, `LISA_psd.txt`.  The
+PP-style LISA surface in `MonteCarloMarginalizeCode/Code/test/pp_lisa` uses
+this generator together with the synthetic frame builder and
+`util_RIFT_pseudo_pipe.py --lisa-known-sky`.
