@@ -158,9 +158,12 @@ __author__ = (
 # Utility helpers
 # ===========================================================================
 
-# getenv=True deprecated, will need workaround to explicitly pull extra environment variables
-default_getenv_value = 'True'
-default_getenv_osg_value = 'True'
+# getenv=True deprecated, will need workaround to explicitly pull extra environment variables.
+# Default to '*' (all env, the modern condor form) to match dag_utils.py: a literal
+# `getenv = True` is rejected by schedds with SUBMIT_ALLOW_GETENV=false (e.g. CIT) and
+# aborts the DAG.  Override with RIFT_GETENV / RIFT_GETENV_OSG.
+default_getenv_value = '*'
+default_getenv_osg_value = '*'
 if 'RIFT_GETENV' in os.environ:
     default_getenv_value = os.environ['RIFT_GETENV']
 if 'RIFT_GETENV_OSG' in os.environ:
