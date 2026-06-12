@@ -136,6 +136,8 @@ try:
         build_transfer_input_expr,
         build_require_gpus_floor,
         build_container_image_select,
+        build_capability_defined_requirement,
+        build_fallback_single_image,
         ContainerManifestError,
     )
     _HAVE_CONTAINER_MANIFEST = True
@@ -156,9 +158,12 @@ __author__ = (
 # Utility helpers
 # ===========================================================================
 
-# getenv=True deprecated, will need workaround to explicitly pull extra environment variables
-default_getenv_value = 'True'
-default_getenv_osg_value = 'True'
+# getenv=True deprecated, will need workaround to explicitly pull extra environment variables.
+# Default to '*' (all env, the modern condor form) to match dag_utils.py: a literal
+# `getenv = True` is rejected by schedds with SUBMIT_ALLOW_GETENV=false (e.g. CIT) and
+# aborts the DAG.  Override with RIFT_GETENV / RIFT_GETENV_OSG.
+default_getenv_value = '*'
+default_getenv_osg_value = '*'
 if 'RIFT_GETENV' in os.environ:
     default_getenv_value = os.environ['RIFT_GETENV']
 if 'RIFT_GETENV_OSG' in os.environ:
@@ -1939,34 +1944,29 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
 
     singularity_image_used = "{}".format(singularity_image) # make copy
     extra_files = []
-    # Container family manifest support (see write_ILE_sub_simple).  CIP jobs do
-    # NOT request a GPU, so no require_gpus floor is added here.  For the
-    # container-universe path that means the per-capability $$() selection MUST
-    # NOT be used: a CPU-only slot advertises no GPU capability attribute, so a
-    # $$() capability expression cannot resolve and HTCondor holds the job.  We
-    # collapse to the single (CPU-safe) fallback image instead.  (For the legacy
-    # MY.SingularityImage=ifThenElse path the same family expression is emitted;
-    # on CIT-local native singularity it degrades to the fallback branch.)
+    # Container family manifest support.  CIP is CPU-only: it requests NO GPU, so a
+    # per-capability $$()/ifThenElse selection cannot resolve on its matched slot
+    # (no capability attribute -> the $$ "cannot expand" -> HOLD).  CIP needs no GPU
+    # and no arch-specific image, so it uses a SINGLE fixed container = the manifest
+    # fallback (CPU-safe) image on BOTH the legacy and container-universe paths.
     singularity_is_family = False
     singularity_container_universe = False
     singularity_container_image_select = None
-    singularity_image_expr = None
-    singularity_transfer_expr = None
+    singularity_fallback_runtime = None
     if singularity_image and is_container_manifest(singularity_image):
         singularity_is_family = True
         _manifest = load_container_manifest(singularity_image)
-        singularity_image_expr = build_singularity_image_expr(_manifest)
-        singularity_transfer_expr = build_transfer_input_expr(_manifest)
-        # Container universe (opt-in: RIFT_CONTAINER_UNIVERSE).  CIP is CPU-only,
-        # so request_gpu=False -> a SINGLE fixed container (the fallback image),
-        # NOT a $$() capability selection that a CPU slot can't resolve.
         singularity_container_universe = bool(use_singularity and os.environ.get('RIFT_CONTAINER_UNIVERSE'))
         if singularity_container_universe:
+            # container_image = the fallback image URL verbatim (container universe
+            # fetches it); request_gpu=False -> single image, no $$() selection.
             singularity_container_image_select = build_container_image_select(_manifest, request_gpu=False)
-        # Container universe delivers the image via container_image itself, so
-        # skip the $$() transfer token in that mode.
-        if singularity_transfer_expr and not singularity_container_universe:
-            extra_files += [singularity_transfer_expr]
+        else:
+            # legacy: MY.SingularityImage = the single fallback (quoted in the image
+            # block below); transfer just that one image if it is an osdf URL.
+            singularity_fallback_runtime, _fb_transfer = build_fallback_single_image(_manifest)
+            if _fb_transfer:
+                extra_files += [_fb_transfer]
     elif singularity_image:
         if 'osdf:' in singularity_image:
             singularity_image_used  = "./{}".format(singularity_image.split('/')[-1])
@@ -2095,8 +2095,10 @@ def write_CIP_sub(tag='integrate', exe=None, input_net='all.net',output='output-
         else:
             ile_job.add_condor_cmd("MY.SingularityBindCVMFS", 'True')
             if singularity_is_family:
-                # Expression-valued: emit raw, NO surrounding double quotes.
-                ile_job.add_condor_cmd("MY.SingularityImage", singularity_image_expr)
+                # CPU-only CIP -> single fixed (quoted) fallback image, NOT the
+                # family capability selection (a CPU slot can't resolve it).  A
+                # bare/unquoted path is a ClassAd parse error, so quote it.
+                ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_fallback_runtime + '"')
             else:
                 ile_job.add_condor_cmd("MY.SingularityImage", '"' + singularity_image_used + '"')
         requirements.append("HAS_SINGULARITY=?=TRUE")
@@ -2627,6 +2629,15 @@ echo Starting ...
             for name in name_list:
                 requirements.append('TARGET.Machine =!= "{}" '.format(name))
 
+    # Container-family GPU jobs: exclude slots that don't advertise the machine-level
+    # capability attribute the per-machine image selection reads.  ~45% of CIT GPU
+    # slots satisfy the per-GPU require_gpus floor but don't advertise the rollup
+    # attr, so the $$()/ifThenElse "cannot expand" and the job HOLDS.  Excluding
+    # them is safe; guessing an image is not (an undefined slot could be a Blackwell
+    # that hard-fails on the older fallback).  Only when a GPU is actually requested.
+    if singularity_is_family and request_gpu:
+        requirements.append(build_capability_defined_requirement(_manifest))
+
     # Write requirements
     # From https://github.com/lscsoft/lalsuite/blob/master/lalinference/python/lalinference/lalinference_pipe_utils.py
     ile_job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))
@@ -2987,6 +2998,12 @@ def write_calpilot_sub(tag='calpilot', exe=None, log_dir=None, universe="vanilla
         job.add_condor_cmd('should_transfer_files', 'YES')
         job.add_condor_cmd('when_to_transfer_output', 'ON_EXIT')
         job.add_condor_cmd('transfer_output_files', 'cal_consolidated_$(macroiteration).npz')
+    # Container-family GPU jobs (CALPILOT runs ILE on a GPU): exclude slots that
+    # don't advertise the capability attr the per-machine image selection reads,
+    # else the $$()/ifThenElse "cannot expand" and the job HOLDS (see ILE).
+    if singularity_is_family and request_gpu:
+        requirements.append(build_capability_defined_requirement(_manifest))
+
     if requirements:
         requirements += _nonworker_extra_requirements()
         job.add_condor_cmd('requirements', '&&'.join('({0})'.format(r) for r in requirements))

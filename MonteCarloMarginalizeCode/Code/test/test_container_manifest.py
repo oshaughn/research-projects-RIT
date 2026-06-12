@@ -104,13 +104,12 @@ def test_parser_rejects_missing_image(tmp_path):
 def test_image_expression(tmp_path):
     m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
     expr = cm.build_singularity_image_expr(m)
-    # undefined-safe: an outer `=?= undefined -> fallback` guard wraps the
-    # capability selector, so a slot that does not advertise the attribute (CPU
-    # slot, or non-advertising GPU site) resolves to the fallback, not undefined.
+    # Bare capability selector (NOT undefined-guarded): a GPU job must instead add
+    # the build_capability_defined_requirement Requirements clause so it never
+    # matches a slot where this would be undefined.
     assert expr == (
-        'ifThenElse(TARGET.GPUs_Capability =?= undefined, "/cvmfs/sw/rift_ancient_cuda11.sif", '
         'ifThenElse(TARGET.GPUs_Capability >= 7.0, '
-        '"./rift_modern_cuda12.sif", "/cvmfs/sw/rift_ancient_cuda11.sif"))'
+        '"./rift_modern_cuda12.sif", "/cvmfs/sw/rift_ancient_cuda11.sif")'
     )
     # an expression must NOT be a quoted string literal
     assert not expr.startswith('"')
@@ -119,11 +118,9 @@ def test_image_expression(tmp_path):
 def test_transfer_expression_is_comma_free_ternary(tmp_path):
     m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
     expr = cm.build_transfer_input_expr(m)
-    # undefined-safe outer guard; the fallback (a CVMFS image) has transfer value
-    # "" (no transfer), so an undefined-capability slot transfers nothing.
     assert expr == (
-        '$$([ (TARGET.GPUs_Capability =?= undefined ? "" : '
-        '(TARGET.GPUs_Capability >= 7.0 ? "osdf:///igwn/rift_modern_cuda12.sif" : "")) ])'
+        '$$([ (TARGET.GPUs_Capability >= 7.0 ? '
+        '"osdf:///igwn/rift_modern_cuda12.sif" : "") ])'
     )
     # the token sits inside a comma-separated transfer_input_files list, so it
     # must contain no commas of its own
@@ -140,15 +137,41 @@ def test_require_gpus_floor(tmp_path):
     assert cm.build_require_gpus_floor(m) == "Capability >= 3.0"
 
 
-def test_legacy_builders_are_undefined_safe(tmp_path):
-    # Both the MY.SingularityImage expression and the $$() transfer token guard
-    # against an undefined capability: a job that matches a slot which does not
-    # advertise it (a CPU-only CIP slot, or an OSPool GPU site that doesn't
-    # advertise it) resolves to the fallback instead of an unresolvable $$()
-    # that "cannot expand" -> HOLD.
+def test_selectors_are_not_undefined_guarded(tmp_path):
+    # The capability selectors must NOT default an undefined-capability slot to the
+    # fallback image: that slot could be a Blackwell that hard-fails on the older
+    # fallback.  The safe fix is the Requirements exclusion below, not a guess.
     m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
-    assert "TARGET.GPUs_Capability =?= undefined" in cm.build_singularity_image_expr(m)
-    assert "=?= undefined" in cm.build_transfer_input_expr(m)
+    assert "=?= undefined" not in cm.build_singularity_image_expr(m)
+    assert "=?= undefined" not in cm.build_transfer_input_expr(m)
+    assert "=?= undefined" not in cm.build_container_image_select(m)
+
+
+def test_capability_defined_requirement(tmp_path):
+    m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
+    # excludes slots that don't advertise the (machine-level) capability attr
+    assert cm.build_capability_defined_requirement(m) == "TARGET.GPUs_Capability =!= undefined"
+
+
+def test_capability_defined_requirement_respects_attr_override(tmp_path, monkeypatch):
+    monkeypatch.setenv("RIFT_GPU_CAPABILITY_ATTR", "CUDACapability")
+    m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
+    assert cm.build_capability_defined_requirement(m) == "TARGET.CUDACapability =!= undefined"
+
+
+def test_fallback_single_image(tmp_path):
+    # MIXED fallback (ancient) is a CVMFS image -> referenced in place, no transfer
+    m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
+    runtime, transfer = cm.build_fallback_single_image(m)
+    assert runtime == "/cvmfs/sw/rift_ancient_cuda11.sif"
+    assert transfer is None
+    # an osdf fallback -> runtime is ./basename and it IS transferred
+    osdf_text = MIXED_MANIFEST.replace("/cvmfs/sw/rift_ancient_cuda11.sif",
+                                       "osdf:///igwn/rift_ancient_cuda11.sif")
+    m2 = cm.load_container_manifest(_write(tmp_path, osdf_text, name="fam2.yaml"))
+    runtime2, transfer2 = cm.build_fallback_single_image(m2)
+    assert runtime2 == "./rift_ancient_cuda11.sif"
+    assert transfer2 == "osdf:///igwn/rift_ancient_cuda11.sif"
 
 
 def test_capability_attr_env_override(tmp_path, monkeypatch):
@@ -204,6 +227,10 @@ def test_integration_family_mixed(tmp_path, monkeypatch):
     assert 'DeviceName=!="Tesla K10.G1.8GB"' in rg
     assert "&&" in rg
 
+    # GPU family job: Requirements exclude slots that don't advertise the
+    # machine-level capability attr (else the selection $$/ifThenElse holds).
+    assert "TARGET.GPUs_Capability =!= undefined" in cmds["requirements"]
+
 
 def test_integration_all_cvmfs_no_transfer_token(tmp_path, monkeypatch):
     cmds = _make_ile_job(tmp_path, monkeypatch, _write(tmp_path, ALL_CVMFS_MANIFEST))
@@ -229,11 +256,11 @@ def test_backward_compat_single_sif(tmp_path, monkeypatch):
 def test_container_image_select_expression(tmp_path):
     m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
     expr = cm.build_container_image_select(m)
-    # a $$() match-time substitution token, undefined-safe, with VERBATIM image
-    # values (osdf URL fetched by container universe; cvmfs path used in place) --
-    # NOT a ./basename rewrite
+    # a $$() match-time substitution token with VERBATIM image values (osdf URL
+    # fetched by container universe; cvmfs path used in place) -- NOT a ./basename
+    # rewrite, and NOT undefined-guarded (Requirements exclusion is used instead)
     assert expr.startswith("$$([ ") and expr.endswith(" ])")
-    assert "TARGET.GPUs_Capability =?= undefined" in expr          # undefined -> fallback
+    assert "=?= undefined" not in expr                            # not a guess-guard
     assert "ifThenElse(TARGET.GPUs_Capability >= 7.0," in expr
     assert '"osdf:///igwn/rift_modern_cuda12.sif"' in expr         # raw osdf URL
     assert '"/cvmfs/sw/rift_ancient_cuda11.sif"' in expr           # fallback verbatim
@@ -268,6 +295,8 @@ def test_integration_container_universe(tmp_path, monkeypatch):
     assert "MY.SingularityBindCVMFS" not in cmds
     assert "$$([" not in cmds.get("transfer_input_files", "")  # image via container_image, not transfer
     assert "Capability >= 3.0" in cmds["require_gpus"]         # floor still steers GPUs
+    # GPU family job: still excludes slots that don't advertise the capability attr
+    assert "TARGET.GPUs_Capability =!= undefined" in cmds["requirements"]
 
     assert job.universe == "container"          # HTCondor container universe
 
@@ -307,6 +336,33 @@ def test_integration_cip_container_universe_single_image(tmp_path, monkeypatch):
     assert "$$([" not in cmds.get("transfer_input_files", "")
     assert "require_gpus" not in cmds                   # CPU job: no GPU floor
     assert job.universe == "container"
+
+
+def test_integration_cip_legacy_single_image(tmp_path, monkeypatch):
+    # CIP (CPU-only) on the LEGACY path: a single QUOTED fallback MY.SingularityImage
+    # (a bare path is a ClassAd parse error), NOT the family $$()/ifThenElse selection
+    # (a CPU slot can't resolve it), no $$() transfer token, and NO capability
+    # Requirements exclusion (CIP requests no GPU, so it must not be GPU-constrained).
+    monkeypatch.delenv("RIFT_CONTAINER_UNIVERSE", raising=False)
+    monkeypatch.chdir(tmp_path)
+    dag = pytest.importorskip("RIFT.misc.dag_utils_generic")
+    job, _ = dag.write_CIP_sub(
+        tag="CIP",
+        out_dir=str(tmp_path),
+        log_dir=str(tmp_path) + "/",
+        exe="/usr/bin/true",
+        arg_str="--foo bar",
+        transfer_files=["../all.net"],
+        use_singularity=True,
+        singularity_image=_write(tmp_path, MIXED_MANIFEST),
+    )
+    cmds = dict(job.condor_cmds)
+    assert cmds["MY.SingularityImage"] == '"/cvmfs/sw/rift_ancient_cuda11.sif"'  # single, quoted
+    assert "ifThenElse" not in cmds["MY.SingularityImage"]
+    assert "container_image" not in cmds
+    assert "$$([" not in cmds.get("transfer_input_files", "")
+    assert "=!= undefined" not in cmds.get("requirements", "")   # CPU job: no GPU exclusion
+    assert "require_gpus" not in cmds
 
 
 if __name__ == "__main__":
