@@ -75,6 +75,10 @@ def _write_initial_grid(path, opts):
             offset = (idx - (opts.grid_size - 1) / 2.0) * opts.grid_fractional_width
             row[2] = opts.mass1 * (1.0 + offset)
             row[3] = opts.mass2 * (1.0 - offset)
+            if opts.vary_sky:
+                sky_offset = (idx - (opts.grid_size - 1) / 2.0) * opts.sky_grid_width
+                row[10] = opts.ecliptic_longitude + sky_offset
+                row[11] = opts.ecliptic_latitude - sky_offset
         rows.append(row)
     hyperpipeline_io.write_table(path, columns, np.array(rows))
 
@@ -115,8 +119,10 @@ def build_parser():
     parser.add_argument("--spin2z", type=float, default=0.0)
     parser.add_argument("--ecliptic-longitude", type=float, default=1.0)
     parser.add_argument("--ecliptic-latitude", type=float, default=0.3)
+    parser.add_argument("--vary-sky", action="store_true", help="Treat ecliptic sky location as an intrinsic grid parameter.")
     parser.add_argument("--grid-size", type=int, default=3)
     parser.add_argument("--grid-fractional-width", type=float, default=1.0e-3)
+    parser.add_argument("--sky-grid-width", type=float, default=1.0e-3)
 
     parser.add_argument("--approximant", default="IMRPhenomD")
     parser.add_argument("--fmin-template", type=float, default=1.0e-3)
@@ -188,9 +194,6 @@ def main(argv=None):
         "--LISA",
         "--h5-frame-FD",
         "--time-marginalization",
-        "--lisa-fixed-sky", "1",
-        "--ecliptic-longitude", opts.ecliptic_longitude,
-        "--ecliptic-latitude", opts.ecliptic_latitude,
         "--lisa-reference-time", opts.lisa_reference_time,
         "--lisa-reference-frequency", opts.lisa_reference_frequency,
         "--data-integration-window-half", opts.data_integration_window_half,
@@ -216,6 +219,12 @@ def main(argv=None):
         "--no-adapt",
         "--internal-use-lnL",
     ]
+    if not opts.vary_sky:
+        ile_parts[3:3] = [
+            "--lisa-fixed-sky", "1",
+            "--ecliptic-longitude", opts.ecliptic_longitude,
+            "--ecliptic-latitude", opts.ecliptic_latitude,
+        ]
     if opts.zero_likelihood:
         ile_parts.append("--zero-likelihood")
     _write_arg_file(ile_args, ile_parts)

@@ -114,6 +114,30 @@ def test_lisa_helper_custom_data_products_replace_defaults(tmp_path):
     assert "A_psd.xml.gz" not in transfer_files
 
 
+def test_lisa_helper_variable_sky_uses_grid_sky(tmp_path):
+    _run_helper(
+        tmp_path,
+        "--vary-sky",
+        "--grid-size",
+        "3",
+        "--sky-grid-width",
+        "0.01",
+    )
+
+    grid, _ = hyperpipeline_io.read_table(os.fspath(tmp_path / "proposed-grid.dat"))
+    assert len(set(grid["ecliptic_longitude"])) == 3
+    assert len(set(grid["ecliptic_latitude"])) == 3
+
+    ile_args = (tmp_path / "args_ile.txt").read_text()
+    assert "--lisa-fixed-sky" not in ile_args
+    assert "--ecliptic-longitude" not in ile_args
+    assert "--ecliptic-latitude" not in ile_args
+
+    cip_args = (tmp_path / "args_cip_list.txt").read_text()
+    assert "--parameter ecliptic_longitude" in cip_args
+    assert "--parameter ecliptic_latitude" in cip_args
+
+
 def test_lisa_helper_bundle_renders_basic_cepp_dag(tmp_path):
     _run_helper(
         tmp_path,

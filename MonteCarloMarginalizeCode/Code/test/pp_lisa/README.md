@@ -22,3 +22,8 @@ The driver writes, under `RIFT_PP_LISA_WORKDIR` or a temporary directory:
 
 Set `RIFT_PP_LISA_RUN_ILE=1` to also run the tiny direct ILE check after the
 bundle and DAG are rendered.
+
+Set `RIFT_PP_LISA_VARY_SKY=1` to render the same surface with ecliptic sky
+location left as an intrinsic hyperpipeline parameter.  In that mode the helper
+omits `--lisa-fixed-sky` from `args_ile.txt` and seeds a small three-point sky
+grid.

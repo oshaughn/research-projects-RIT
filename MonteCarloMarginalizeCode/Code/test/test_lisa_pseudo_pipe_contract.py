@@ -93,3 +93,64 @@ def test_lisa_known_sky_pseudo_pipe_renders_cepp_surface(tmp_path):
     transfer_files = (rundir / "helper_transfer_files.txt").read_text().splitlines()
     assert os.fspath(tmp_path / "lisa.cache") in transfer_files
     assert os.fspath(tmp_path / "A_psd.xml.gz") in transfer_files
+
+
+def test_lisa_variable_sky_pseudo_pipe_leaves_sky_intrinsic(tmp_path):
+    rundir = tmp_path / "pseudo_lisa_variable_sky"
+    env = os.environ.copy()
+    env["PYTHONPATH"] = CODE_DIR + os.pathsep + env.get("PYTHONPATH", "")
+    env["PATH"] = os.path.join(CODE_DIR, "bin") + os.pathsep + env.get("PATH", "")
+
+    cmd = [
+        sys.executable,
+        PSEUDO_PIPE,
+        "--lisa-known-sky",
+        "--lisa-vary-sky",
+        "--use-rundir",
+        os.fspath(rundir),
+        "--approx",
+        "IMRPhenomD",
+        "--event-time",
+        "1234.5",
+        "--ecliptic-longitude",
+        "1.25",
+        "--ecliptic-latitude",
+        "-0.4",
+        "--lisa-cache-file",
+        os.fspath(tmp_path / "lisa.cache"),
+        "--lisa-psd-file",
+        "A={}".format(tmp_path / "A_psd.xml.gz"),
+        "--lisa-psd-file",
+        "E={}".format(tmp_path / "E_psd.xml.gz"),
+        "--lisa-psd-file",
+        "T={}".format(tmp_path / "T_psd.xml.gz"),
+        "--lisa-srate",
+        "0.25",
+        "--lisa-grid-size",
+        "3",
+        "--lisa-sky-grid-width",
+        "0.01",
+        "--lisa-n-iterations",
+        "1",
+        "--lisa-n-samples-per-job",
+        "1",
+        "--internal-ile-request-memory",
+        "1024",
+        "--internal-cip-request-memory",
+        "1024",
+    ]
+    subprocess.run(cmd, check=True, env=env)
+
+    grid, _ = hyperpipeline_io.read_table(os.fspath(rundir / "proposed-grid.dat"))
+    assert len(set(grid["ecliptic_longitude"])) == 3
+    assert len(set(grid["ecliptic_latitude"])) == 3
+
+    ile_args = (rundir / "args_ile.txt").read_text()
+    assert "--LISA" in ile_args
+    assert "--lisa-fixed-sky" not in ile_args
+    assert "--ecliptic-longitude" not in ile_args
+    assert "--ecliptic-latitude" not in ile_args
+
+    cip_args = (rundir / "args_cip_list.txt").read_text()
+    assert "--parameter ecliptic_longitude" in cip_args
+    assert "--parameter ecliptic_latitude" in cip_args

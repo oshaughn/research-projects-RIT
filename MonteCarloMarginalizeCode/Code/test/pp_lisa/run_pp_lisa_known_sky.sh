@@ -15,6 +15,13 @@ WORKDIR="${RIFT_PP_LISA_WORKDIR:-/tmp/rift-pp-lisa-known-sky-$(date +%s)}"
 BUNDLE_DIR="${WORKDIR}/event_0"
 RUNDIR="${WORKDIR}/analysis_event_0"
 RUN_ILE="${RIFT_PP_LISA_RUN_ILE:-0}"
+VARY_SKY="${RIFT_PP_LISA_VARY_SKY:-0}"
+SKY_ARGS=()
+if [[ "${VARY_SKY}" == "1" ]]; then
+  SKY_ARGS=(--lisa-vary-sky --lisa-grid-size 3 --lisa-sky-grid-width 0.01)
+else
+  SKY_ARGS=(--lisa-grid-size 1)
+fi
 
 mkdir -p "${BUNDLE_DIR}"
 
@@ -56,7 +63,7 @@ set +a
   --lisa-fmin-template "${FMIN}" \
   --lisa-fmax "${FMAX}" \
   --lisa-reference-freq "${FREF}" \
-  --lisa-grid-size 1 \
+  "${SKY_ARGS[@]}" \
   --lisa-n-iterations 1 \
   --lisa-n-samples-per-job 1 \
   --internal-ile-request-memory 1024 \

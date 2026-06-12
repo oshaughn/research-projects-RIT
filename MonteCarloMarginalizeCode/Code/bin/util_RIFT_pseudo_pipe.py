@@ -173,8 +173,9 @@ def run_lisa_known_sky_surface(opts):
         workdir = os.path.abspath(opts.use_rundir)
     else:
         event_label = "manual_" + format_gps_time(opts.event_time)
+        sky_label = "variable_sky" if opts.lisa_vary_sky else "known_sky"
         workdir = os.path.abspath(
-            event_label + "_LISA_" + opts.approx + "_known_sky" + opts.manual_postfix
+            event_label + "_LISA_" + opts.approx + "_" + sky_label + opts.manual_postfix
         )
     os.makedirs(workdir, exist_ok=False)
 
@@ -211,6 +212,8 @@ def run_lisa_known_sky_surface(opts):
         str(opts.lisa_grid_size),
         "--grid-fractional-width",
         str(opts.lisa_grid_fractional_width),
+        "--sky-grid-width",
+        str(opts.lisa_sky_grid_width),
         "--n-iterations",
         str(opts.lisa_n_iterations),
         "--n-samples-per-job",
@@ -220,6 +223,8 @@ def run_lisa_known_sky_surface(opts):
         "--request-memory-CIP",
         str(opts.internal_cip_request_memory or 4096),
     ]
+    if opts.lisa_vary_sky:
+        helper_cmd.append("--vary-sky")
     if opts.lisa_zero_likelihood:
         helper_cmd.append("--zero-likelihood")
     for assignment in opts.lisa_channel_name or []:
@@ -323,6 +328,7 @@ parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--internal-use-gracedb-bayestar",action='store_true',help="Retrieve BS skymap from gracedb (bayestar.fits), and use it internally in integration with --use-skymap bayestar.fits.")
 parser.add_argument("--event-time",default=None,type=float,help="Event time. Intended to override use of GracedbID. MUST provide --manual-initial-grid ")
 parser.add_argument("--lisa-known-sky",action='store_true',help="Use the LISA helper to build a known-sky LISA CEPP surface and exit. Avoids the LDG event helper path.")
+parser.add_argument("--lisa-vary-sky",action='store_true',help="With --lisa-known-sky, treat ecliptic sky location as intrinsic rather than pinning --lisa-fixed-sky.")
 parser.add_argument("--lisa-skip-cepp-render",action='store_true',help="With --lisa-known-sky, only write the helper bundle; do not render the CEPP DAG.")
 parser.add_argument("--lisa-cache-file",default="lisa.cache",help="With --lisa-known-sky, cache file passed to the LISA ILE.")
 parser.add_argument("--lisa-channel-name",action="append",default=None,help="With --lisa-known-sky, channel assignment such as A=fake_strain. May be repeated.")
@@ -336,6 +342,7 @@ parser.add_argument("--lisa-srate",default=0.25,type=float,help="With --lisa-kno
 parser.add_argument("--lisa-data-integration-window-half",default=8.0,type=float,help="With --lisa-known-sky, half-width of the ILE data integration window.")
 parser.add_argument("--lisa-grid-size",default=3,type=int,help="With --lisa-known-sky, number of synthetic initial-grid points.")
 parser.add_argument("--lisa-grid-fractional-width",default=1.0e-3,type=float,help="With --lisa-known-sky, fractional mass width for the initial grid.")
+parser.add_argument("--lisa-sky-grid-width",default=1.0e-3,type=float,help="With --lisa-known-sky --lisa-vary-sky, ecliptic sky half-step scale for the initial grid.")
 parser.add_argument("--lisa-n-iterations",default=1,type=int,help="With --lisa-known-sky, CEPP iteration count.")
 parser.add_argument("--lisa-n-samples-per-job",default=1,type=int,help="With --lisa-known-sky, CEPP samples per job.")
 parser.add_argument("--lisa-zero-likelihood",action='store_true',help="With --lisa-known-sky, pass --zero-likelihood through to the LISA ILE args.")

@@ -84,3 +84,25 @@ def test_lisa_pp_known_sky_surface_builds_bundle_and_dag(tmp_path):
     transfer_files = (rundir / "helper_transfer_files.txt").read_text().splitlines()
     assert os.fspath(bundle_dir / "lisa.cache") in transfer_files
     assert os.fspath(bundle_dir / "A_psd.xml.gz") in transfer_files
+
+
+def test_lisa_pp_variable_sky_surface_builds_intrinsic_sky_grid(tmp_path):
+    env = os.environ.copy()
+    env["RIFT_PP_LISA_WORKDIR"] = os.fspath(tmp_path)
+    env["RIFT_PP_LISA_RUN_ILE"] = "0"
+    env["RIFT_PP_LISA_VARY_SKY"] = "1"
+    env["PYTHONPATH"] = CODE_DIR + os.pathsep + env.get("PYTHONPATH", "")
+    env["PATH"] = os.path.join(CODE_DIR, "bin") + os.pathsep + env.get("PATH", "")
+
+    subprocess.run([PP_LISA_DRIVER], check=True, env=env)
+
+    rundir = tmp_path / "analysis_event_0"
+    grid, _ = hyperpipeline_io.read_table(os.fspath(rundir / "proposed-grid.dat"))
+    assert grid.shape == (3,)
+    assert len(set(grid["ecliptic_longitude"])) == 3
+    assert len(set(grid["ecliptic_latitude"])) == 3
+
+    ile_args = (rundir / "args_ile.txt").read_text()
+    assert "--lisa-fixed-sky" not in ile_args
+    assert "--ecliptic-longitude" not in ile_args
+    assert "--ecliptic-latitude" not in ile_args
