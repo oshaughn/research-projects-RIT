@@ -57,6 +57,8 @@ __all__ = [
     "build_transfer_input_expr",
     "build_require_gpus_floor",
     "build_container_image_select",
+    "build_capability_defined_requirement",
+    "build_fallback_single_image",
 ]
 
 # Default machine ClassAd attribute advertising GPU compute capability.  The
@@ -217,26 +219,25 @@ def _capability_attr(manifest):
     return os.environ.get("RIFT_GPU_CAPABILITY_ATTR") or manifest["capability_attr"]
 
 
-def _build_selector(manifest, value_fn, ternary=False, undefined_safe=False):
+def _build_selector(manifest, value_fn, ternary=False):
     """Build a nested capability selector over the family.
 
     ``value_fn(container)`` returns the ClassAd literal for a container branch
     (already quoted as appropriate).  The highest-min container is the outermost
-    test; the ``fallback`` container is the innermost else (catch-all, also used
-    when the capability attribute is below every threshold).
+    test; the ``fallback`` container is the innermost else (catch-all, used when
+    the capability is below every threshold).
 
     With ``ternary=False`` the selector uses ``ifThenElse(cond, a, b)`` (commas).
     With ``ternary=True`` it uses the comma-free ClassAd ternary ``cond ? a : b``
     -- required when the result is embedded as one element of a comma-separated
     ``transfer_input_files`` list, where internal commas would be mis-split.
 
-    With ``undefined_safe=True`` the whole selector is wrapped in a
-    ``TARGET.attr =?= undefined ? fallback : <selector>`` guard.  Without it, a
-    job that matches a slot with NO capability attribute (a CPU-only slot, or an
-    OSPool GPU site that does not advertise it) makes every ``TARGET.attr >= N``
-    test ``undefined`` -> the whole ifThenElse/ternary is ``undefined`` -> a
-    ``$$([...])`` token "cannot expand" and HTCondor HOLDS the job.  The guard
-    collapses that case to the (CPU-safe) fallback image instead.
+    NOTE: the selector is intentionally NOT undefined-guarded.  A GPU job must add
+    a ``Requirements`` clause excluding slots that do not advertise the capability
+    attribute (:func:`build_capability_defined_requirement`); guessing an image
+    for an undefined slot is unsafe (it could be a Blackwell that hard-fails on the
+    older fallback image), so the correct action is to NOT match such a slot.  A
+    non-GPU job must not use this selector at all -- it has no capability to read.
     """
     attr = _capability_attr(manifest)
     containers = manifest["containers"]  # sorted desc by min
@@ -262,12 +263,6 @@ def _build_selector(manifest, value_fn, ternary=False, undefined_safe=False):
             expr = "ifThenElse({cond}, {val}, {inner})".format(
                 cond=cond, val=value_fn(c), inner=expr
             )
-    if undefined_safe:
-        guard = "TARGET.{attr} =?= undefined".format(attr=attr)
-        if ternary:
-            expr = "({g} ? {fb} : {sel})".format(g=guard, fb=value_fn(fb), sel=expr)
-        else:
-            expr = "ifThenElse({g}, {fb}, {sel})".format(g=guard, fb=value_fn(fb), sel=expr)
     return expr
 
 
@@ -277,13 +272,13 @@ def build_singularity_image_expr(manifest):
     Each branch literal is the container's *runtime* path (CVMFS/local verbatim,
     ``./<basename>`` for transferred images).
 
-    Undefined-safe: a job that matches a slot advertising no capability attribute
-    (a CPU-only CIP slot, or an OSPool GPU site that does not advertise it) gets
-    the fallback image rather than an ``undefined`` expression.
+    GPU jobs that emit this MUST also add
+    :func:`build_capability_defined_requirement` so they never match a slot that
+    does not advertise the capability attribute (where this expression would be
+    ``undefined``).
     """
     return _build_selector(
-        manifest, lambda c: '"{}"'.format(_image_runtime_path(c["image"])),
-        undefined_safe=True,
+        manifest, lambda c: '"{}"'.format(_image_runtime_path(c["image"]))
     )
 
 
@@ -302,11 +297,10 @@ def build_transfer_input_expr(manifest):
     def value_fn(c):
         return '"{}"'.format(c["image"]) if _image_needs_transfer(c["image"]) else '""'
 
-    # undefined_safe: a CPU-only / non-advertising slot collapses to the fallback
-    # image's transfer value instead of an unresolvable $$() that holds the job.
-    return "$$([ {} ])".format(
-        _build_selector(manifest, value_fn, ternary=True, undefined_safe=True)
-    )
+    # GPU jobs that emit this MUST also add build_capability_defined_requirement so
+    # they never match a slot where TARGET.<attr> is undefined (this $$ token would
+    # then "cannot expand" and HOLD the job).
+    return "$$([ {} ])".format(_build_selector(manifest, value_fn, ternary=True))
 
 
 def build_container_image_select(manifest, request_gpu=True):
@@ -335,22 +329,62 @@ def build_container_image_select(manifest, request_gpu=True):
     -- it fails to expand and HTCondor *holds the job*.  There is also nothing to
     select between, so the CPU-safe fallback image is the right (and only) choice.
 
-    (The GPU-path expression is also written undefined-safe -- ``=?= undefined``
-    yields the fallback -- but a GPU job that requested a GPU will match a slot
-    that advertises the capability, so that guard is belt-and-suspenders; the
-    non-GPU case must not use ``$$()`` at all.)
+    The GPU-path ``$$()`` is NOT undefined-guarded: the GPU job that emits it MUST
+    also add :func:`build_capability_defined_requirement` so it never matches a
+    slot where the capability attr is undefined (guessing an image for such a slot
+    is unsafe -- it could be a Blackwell that hard-fails on the older fallback).
+    The non-GPU case never reaches the ``$$()`` (it returns the literal fallback).
     """
     by_label = {c["label"]: c for c in manifest["containers"]}
     fb_image = by_label[manifest["fallback"]]["image"]
     if not request_gpu:
         # Single fixed container: no capability, no $$() -- a plain literal.
         return fb_image
-    # undefined_safe: a GPU job that lands on a GPU slot which does not advertise
-    # the capability attribute still resolves (to the fallback) instead of holding.
-    guarded = _build_selector(
-        manifest, lambda c: '"{}"'.format(c["image"]), undefined_safe=True
-    )
-    return "$$([ {} ])".format(guarded)
+    selector = _build_selector(manifest, lambda c: '"{}"'.format(c["image"]))
+    return "$$([ {} ])".format(selector)
+
+
+def build_capability_defined_requirement(manifest):
+    """Return a ``Requirements`` clause that excludes machines which do not
+    advertise the capability attribute the family selection reads.
+
+    A GPU family job MUST add this.  Measured on the CIT pool (2026-06-12), ~45%
+    of GPU slots satisfy the per-GPU ``require_gpus`` floor (which matches the
+    per-GPU ``Capability`` inside ``AvailableGPUs``) yet do NOT advertise the
+    machine-level rollup attribute (default ``GPUs_Capability``) that the
+    ``$$()``/``ifThenElse`` selection reads.  On such a slot the selection cannot
+    expand and the job HOLDS ("Cannot expand $$ expression").  Excluding these
+    slots is the safe fix: an undefined-capability slot could be a Blackwell that
+    hard-fails on the older fallback image, so we must NOT match it (rather than
+    guess its image).  The defined set still includes the high-capability nodes,
+    so the family's purpose is preserved.
+
+    Generic on ``capability_attr``; a no-op on pools where every GPU slot
+    advertises it, hence merge-safe.
+    """
+    return "TARGET.{attr} =!= undefined".format(attr=_capability_attr(manifest))
+
+
+def build_fallback_single_image(manifest):
+    """For jobs that must use a SINGLE fixed container (no capability selection) --
+    e.g. CPU-only CIP, which requests no GPU and so cannot resolve a
+    ``$$()``/``ifThenElse`` capability selection (its matched slot advertises no
+    capability attribute -> the selection holds the job).
+
+    Returns ``(runtime_path, transfer_url)`` for the manifest ``fallback`` (the
+    CPU-safe image):
+
+      * ``runtime_path`` -- what ``MY.SingularityImage`` / ``container_image``
+        references: ``./<basename>`` for a transferred ``osdf://`` image, the path
+        verbatim for a CVMFS/local image.  (``MY.SingularityImage`` callers must
+        quote it; ``container_image`` takes it unquoted.)
+      * ``transfer_url``  -- the ``osdf://`` URL to add to ``transfer_input_files``,
+        or ``None`` if the image is referenced in place (CVMFS/local).
+    """
+    fb_image = {c["label"]: c for c in manifest["containers"]}[manifest["fallback"]]["image"]
+    runtime_path = _image_runtime_path(fb_image)
+    transfer_url = fb_image if _image_needs_transfer(fb_image) else None
+    return runtime_path, transfer_url
 
 
 def build_require_gpus_floor(manifest):
