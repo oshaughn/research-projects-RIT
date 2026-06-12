@@ -338,6 +338,9 @@ parser.add_argument("--export-marginal-distance-grid",action='store_true',help="
 parser.add_argument("--export-distance-slices",default=0,type=int,help="If >0, ask the ILE extrinsic stage to export K-row .dslice files (Plan-B fixed-distance extrinsic-marginalized likelihoods). Forces ILE lnL mode and disables distance marginalization. Requires the extrinsic stage (--add-extrinsic).")
 parser.add_argument("--export-distance-slices-n-core",default=0,type=int,help="Passthrough: --n-distance-slice-core for the .dslice export.")
 parser.add_argument("--export-distance-slices-n-wing",default=0,type=int,help="Passthrough: --n-distance-slice-wing for the .dslice export.")
+parser.add_argument("--export-distance-slices-all-fresh",action='store_true',default=False,help="Passthrough: --distance-slice-all-fresh. All K slices are fresh fixed-d integrations (no importance-reweight core). Use at low main-loop n_eff, where the reweight core is starved.")
+parser.add_argument("--export-distance-slices-wing-neff",default=None,type=int,help="Passthrough: --distance-slice-wing-neff (n_eff per fresh fixed-d slice integration -- the precision of each L(d) row).")
+parser.add_argument("--export-distance-slices-wing-nmax",default=None,type=int,help="Passthrough: --distance-slice-wing-nmax (max samples per fresh fixed-d slice integration).")
 parser.add_argument("--export-distance-slices-wing-delta-lnL",default=None,type=float,help="Passthrough: --distance-slice-wing-delta-lnL for the .dslice export (target lnL drop below peak for wing placement).")
 parser.add_argument("--export-distance-slices-skip-threshold",default=None,type=float,help="Passthrough: --distance-slice-skip-threshold for the .dslice export (absolute peak-lnL detectability cut).")
 parser.add_argument("--ile-additional-files-to-transfer",default=None,help="Comma-separated list of filenames. To append to the transfer file list for ILE jobs (only). Intended for surrogates in LAL_DATA_PATH for wide-ranging use")
@@ -1875,6 +1878,12 @@ if opts.export_marginal_distance_grid:
     cmd += " --last-iteration-export-marginal-distance-grid "
 if opts.export_distance_slices and opts.export_distance_slices > 0:
     cmd += " --last-iteration-export-distance-slices {} ".format(opts.export_distance_slices)
+    if opts.export_distance_slices_all_fresh:
+        cmd += " --last-iteration-export-distance-slices-all-fresh "
+    if opts.export_distance_slices_wing_neff is not None:
+        cmd += " --last-iteration-export-distance-slices-wing-neff {} ".format(opts.export_distance_slices_wing_neff)
+    if opts.export_distance_slices_wing_nmax is not None:
+        cmd += " --last-iteration-export-distance-slices-wing-nmax {} ".format(opts.export_distance_slices_wing_nmax)
     if opts.export_distance_slices_n_core:
         cmd += " --last-iteration-export-distance-slices-n-core {} ".format(opts.export_distance_slices_n_core)
     if opts.export_distance_slices_n_wing:

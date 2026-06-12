@@ -334,6 +334,7 @@ intrinsic_params.add_option("--export-eos-index",action='store_true')
 intrinsic_params.add_option("--export-marginal-distance-grid",action='store_true')
 intrinsic_params.add_option("--export-distance-slices",type=int,default=0,help="If >0, after main extrinsic integration emit a per-event .dslice file with rows of fixed-d extrinsic-marginalized likelihoods. Total rows = --n-distance-slice-core + --n-distance-slice-wing. Requires --internal-use-lnL and no --distance-marginalization.")
 intrinsic_params.add_option("--n-distance-slice-core",type=int,default=0,help="Core slices via importance-reweight on existing Omega samples (cheap). If 0 and --export-distance-slices>0, defaults to ceil(K*0.6).")
+intrinsic_params.add_option("--distance-slice-all-fresh",action="store_true",default=False,help="Emit ALL K slices as FRESH fixed-d full integrations (no importance-reweight core). Placement = posterior-d quantiles. Use this when the main-loop n_eff is small (e.g. 50): the reweight core is then starved (same MC noise as the .dgrid fair-draw histogram), whereas each fresh slice is an honest Omega-only integral at fixed d. Overrides --n-distance-slice-core / --n-distance-slice-wing.")
 intrinsic_params.add_option("--n-distance-slice-wing",type=int,default=0,help="Wing slices via fresh Omega-only integrations at pinned distance (covers tails ~7 nats below peak). If 0 and --export-distance-slices>0, defaults to K - core.")
 intrinsic_params.add_option("--distance-slice-wing-nmax",type=int,default=20000,help="Max samples per wing fresh integration.")
 intrinsic_params.add_option("--distance-slice-wing-neff",type=int,default=30,help="n_eff target per wing fresh integration.")
@@ -2667,33 +2668,56 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             keep = (integrand > 0) & (jp > 0) & (jsp > 0)
             ln_w_full = np.full(len(integrand), -np.inf)
             ln_w_full[keep] = np.log(integrand[keep]) + np.log(jp[keep]) - np.log(jsp[keep])
-          # Split K into core (reweight) and wing (fresh) slices.
-          n_core = int(opts.n_distance_slice_core) or int(np.ceil(0.6 * K))
-          n_wing = int(opts.n_distance_slice_wing) or (K - n_core)
-          n_core = max(1, min(n_core, K))
-          n_wing = max(0, min(n_wing, K - n_core))
+          # Split K into core (reweight) and wing (fresh) slices.  --distance-slice-all-fresh
+          # forces zero reweight core: EVERY slice is a fresh fixed-d integration.  Use it
+          # when the main-loop n_eff is small -- the reweight core is then starved (the same
+          # MC noise as the .dgrid fair-draw histogram), while each fresh slice is honest.
+          all_fresh = bool(getattr(opts, "distance_slice_all_fresh", False))
+          if all_fresh:
+            n_core, n_wing = 0, K
+          else:
+            n_core = int(opts.n_distance_slice_core) or int(np.ceil(0.6 * K))
+            n_wing = int(opts.n_distance_slice_wing) or (K - n_core)
+            n_core = max(1, min(n_core, K))
+            n_wing = max(0, min(n_wing, K - n_core))
 
-          # Core: importance-reweight at quantile centers of the posterior.
-          d_core = distance_slices.quantile_slice_centers(dL_samp, ln_w_full, n_core)
-          lnL_core, sigmaL_core, neff_core, ntotal_core = distance_slices.importance_reweight_slices(
-              sampler, like_to_integrate, d_core,
-              ln_prior_d_at_samples=ln_pi_d_samp,
-              ln_proposal_d_at_samples=ln_q_d_samp,
-              manual_overflow=manual_avoid_overflow_logarithm,
-              return_lnL=return_lnL,
-          )
-          ln_pi_d_core = np.log(np.maximum(prior_pdf_d(d_core), np.finfo(float).tiny))
-
-          if opts.sampler_method == "GMM" and neff < 50:
-            print("  WARNING: --export-distance-slices with --sampler-method GMM at main n_eff={:.1f} (<50). ".format(neff)
-                  + "B2-reweight may be biased; prefer --sampler-method AV or raise --n-max.")
+          # Core: importance-reweight at quantile centers of the posterior (skipped if all_fresh).
+          if n_core > 0:
+            d_core = distance_slices.quantile_slice_centers(dL_samp, ln_w_full, n_core)
+            lnL_core, sigmaL_core, neff_core, ntotal_core = distance_slices.importance_reweight_slices(
+                sampler, like_to_integrate, d_core,
+                ln_prior_d_at_samples=ln_pi_d_samp,
+                ln_proposal_d_at_samples=ln_q_d_samp,
+                manual_overflow=manual_avoid_overflow_logarithm,
+                return_lnL=return_lnL,
+            )
+            if opts.sampler_method == "GMM" and neff < 50:
+              print("  WARNING: --export-distance-slices with --sampler-method GMM at main n_eff={:.1f} (<50). ".format(neff)
+                    + "B2-reweight may be biased; prefer --sampler-method AV or raise --n-max.")
+          else:
+            d_core = np.array([])
+            lnL_core = np.array([]); sigmaL_core = np.array([])
+            neff_core = np.array([]); ntotal_core = 0
 
           # Wings: only run if (a) we asked for any, (b) core suggests a
           # real distance posterior shape worth probing. Otherwise the
           # likelihood is flat in d and fresh wings are wasted compute.
           d_wings = np.array([])
           lnL_wings = np.array([]); sigmaL_wings = np.array([]); neff_wings = np.array([]); ntotal_wings = np.array([], dtype=int)
-          if n_wing > 0:
+          if all_fresh:
+            # All K slices fresh.  Place centers at posterior-d quantiles: rough
+            # placement is fine even at low n_eff -- the precision of each row comes
+            # from its own fresh fixed-d integral, not from where it is centered.
+            d_wings = distance_slices.quantile_slice_centers(dL_samp, ln_w_full, K)
+            print("    : running {} fresh integrations (all-fresh; no reweight core)".format(len(d_wings)))
+            lnL_wings_raw, sigmaL_wings, neff_wings, ntotal_wings = distance_slices.fresh_sample_slices(
+                sampler, like_to_integrate, d_wings,
+                n_max=int(opts.distance_slice_wing_nmax),
+                n_eff_target=int(opts.distance_slice_wing_neff),
+                return_lnL=return_lnL,
+            )
+            lnL_wings = lnL_wings_raw + manual_avoid_overflow_logarithm
+          elif n_wing > 0:
             if distance_slices.is_uninformative(lnL_core, threshold=opts.distance_slice_skip_threshold):
               print("    : peak core lnL < {:.2f} nats (effectively undetected); skipping {} wing fresh integrations".format(
                   opts.distance_slice_skip_threshold, n_wing))

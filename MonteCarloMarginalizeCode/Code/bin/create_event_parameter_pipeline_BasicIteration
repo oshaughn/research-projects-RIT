@@ -263,6 +263,9 @@ parser.add_argument("--last-iteration-export-marginal-distance-grid", action='st
 parser.add_argument("--last-iteration-export-distance-slices", default=0, type=int, help="If >0, the ILE_extr (extrinsic) stage exports K-row .dslice files: Plan-B fixed-distance extrinsic-marginalized likelihoods. Adds --export-distance-slices K (+ --internal-use-lnL) to ILE_extr and strips --distance-marginalization.")
 parser.add_argument("--last-iteration-export-distance-slices-n-core", default=0, type=int, help="Passthrough to ILE --n-distance-slice-core for the extrinsic-stage .dslice export (0 = ILE default).")
 parser.add_argument("--last-iteration-export-distance-slices-n-wing", default=0, type=int, help="Passthrough to ILE --n-distance-slice-wing for the extrinsic-stage .dslice export (0 = ILE default).")
+parser.add_argument("--last-iteration-export-distance-slices-all-fresh", action="store_true", default=False, help="Passthrough to ILE --distance-slice-all-fresh: all K slices are fresh fixed-d integrations, no importance-reweight core (honest at low n_eff).")
+parser.add_argument("--last-iteration-export-distance-slices-wing-neff", default=None, type=int, help="Passthrough to ILE --distance-slice-wing-neff (n_eff per fresh fixed-d slice).")
+parser.add_argument("--last-iteration-export-distance-slices-wing-nmax", default=None, type=int, help="Passthrough to ILE --distance-slice-wing-nmax (max samples per fresh fixed-d slice).")
 parser.add_argument("--last-iteration-export-distance-slices-wing-delta-lnL", default=None, type=float, help="Passthrough to ILE --distance-slice-wing-delta-lnL for the extrinsic-stage .dslice export.")
 parser.add_argument("--last-iteration-export-distance-slices-skip-threshold", default=None, type=float, help="Passthrough to ILE --distance-slice-skip-threshold for the extrinsic-stage .dslice export.")
 parser.add_argument("--ile-args",default=None,help="filename of args_ile.txt file  which holds ILE arguments.  Should NOT conflict with arguments auto-set by this DAG ... in particular, i/o arguments will be modified")
@@ -875,6 +878,12 @@ if  (opts.last_iteration_extrinsic):
         # intrinsic point, emitted as a .dslice file. Requires lnL mode and no
         # distance marginalization (same constraints as the grid export above).
         ile_args_extr += " --export-distance-slices {} ".format(opts.last_iteration_export_distance_slices)
+        if opts.last_iteration_export_distance_slices_all_fresh:
+            ile_args_extr += " --distance-slice-all-fresh "
+        if opts.last_iteration_export_distance_slices_wing_neff is not None:
+            ile_args_extr += " --distance-slice-wing-neff {} ".format(opts.last_iteration_export_distance_slices_wing_neff)
+        if opts.last_iteration_export_distance_slices_wing_nmax is not None:
+            ile_args_extr += " --distance-slice-wing-nmax {} ".format(opts.last_iteration_export_distance_slices_wing_nmax)
         if opts.last_iteration_export_distance_slices_n_core:
             ile_args_extr += " --n-distance-slice-core {} ".format(opts.last_iteration_export_distance_slices_n_core)
         if opts.last_iteration_export_distance_slices_n_wing:
