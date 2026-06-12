@@ -18,7 +18,8 @@ def test_lisa_auxiliary_modules_import_without_cli_side_effects():
     assert hasattr(lisa_injections, "generate_lisa_TDI_dict")
     assert hasattr(create_injections, "parameter_dict_from_xml")
     assert hasattr(generate_LISA_psd, "write_lisa_psd")
-    assert hasattr(pycbc_to_rift, "create_injection_from_pycbc")
+    assert hasattr(pycbc_to_rift, "create_injection_from_time_series")
+    assert hasattr(pycbc_to_rift, "read_gwpy_channels")
     assert hasattr(lisa_utils, "SSB_to_LISA")
 
 
@@ -61,13 +62,26 @@ def test_lisa_psd_generator_writes_small_ascii_products(tmp_path):
     assert os.path.exists(png_path)
 
 
-def test_sangria_converter_reports_missing_optional_pycbc():
+def test_sangria_converter_prefers_gwpy_reader(monkeypatch):
     from RIFT.LISA.sangria_test import pycbc_to_rift
 
-    try:
-        import pycbc.frame  # noqa: F401
-    except ImportError:
-        with pytest.raises(ImportError, match="pycbc is required"):
-            pycbc_to_rift.read_pycbc_channels("missing.gwf")
-    else:
-        pytest.skip("pycbc is installed; missing-optional-dependency path is not active")
+    calls = []
+
+    def fake_read(frame_path, channel):
+        calls.append((frame_path, channel))
+        return channel
+
+    monkeypatch.setattr(pycbc_to_rift, "_read_gwpy_frame", fake_read)
+    assert pycbc_to_rift.read_gwpy_channels("frame.gwf", channels=("A", "E")) == {"A": "A", "E": "E"}
+    assert calls == [("frame.gwf", "A"), ("frame.gwf", "E")]
+
+
+def test_sangria_converter_reports_missing_optional_gwpy(monkeypatch):
+    from RIFT.LISA.sangria_test import pycbc_to_rift
+
+    def missing_gwpy():
+        raise ImportError("gwpy is required to read Sangria frame files")
+
+    monkeypatch.setattr(pycbc_to_rift, "_import_gwpy_timeseries", missing_gwpy)
+    with pytest.raises(ImportError, match="gwpy is required"):
+        pycbc_to_rift.read_gwpy_channels("missing.gwf")
