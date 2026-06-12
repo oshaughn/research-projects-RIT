@@ -202,7 +202,22 @@ def sniff(fname):
     The check is cheap: read the first non-empty line and look for the
     magic marker, or fall back to a header-only sniff (a ``#`` line listing
     the canonical first column names).
+
+    Robust to non-ASCII inputs: the pipeline routinely passes gzipped XML
+    grids (``overlap-grid-N.xml.gz``).  Those are binary, so a text-mode read
+    raises ``UnicodeDecodeError`` on the gzip magic (``1f 8b``); we peek the
+    first bytes and bail early for gzip / XML, and also treat any decode error
+    as "not a hyperpipeline ASCII file" rather than letting it propagate.
     """
+    try:
+        # Binary peek: gzip magic (1f 8b) or a leading '<' (XML) is never a
+        # hyperpipeline ASCII grid -- reject before any text decode.
+        with open(fname, "rb") as fb:
+            head = fb.read(2)
+        if head[:2] == b"\x1f\x8b" or head[:1] == b"<":
+            return False
+    except (OSError, IOError):
+        return False
     try:
         with open(fname, "r") as fp:
             for raw in fp:
@@ -219,7 +234,7 @@ def sniff(fname):
                 if len(toks) >= 2 and toks[0] == "lnL" and toks[1] == "sigma_lnL":
                     return True
                 return False
-    except (OSError, IOError):
+    except (OSError, IOError, UnicodeDecodeError):
         return False
     return False
 
