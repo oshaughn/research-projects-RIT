@@ -3,6 +3,7 @@
 import os
 
 import numpy as np
+import pytest
 
 
 def test_lisa_auxiliary_modules_import_without_cli_side_effects():
@@ -10,12 +11,14 @@ def test_lisa_auxiliary_modules_import_without_cli_side_effects():
     import RIFT.LISA.injections.LISA_injections as lisa_injections
     import RIFT.LISA.injections.create_injections as create_injections
     import RIFT.LISA.psd_generation.generate_LISA_psd as generate_LISA_psd
+    import RIFT.LISA.sangria_test.pycbc_to_rift as pycbc_to_rift
     import RIFT.LISA.utils.utils as lisa_utils
 
     assert hasattr(fisher_errors, "get_error_bounds")
     assert hasattr(lisa_injections, "generate_lisa_TDI_dict")
     assert hasattr(create_injections, "parameter_dict_from_xml")
     assert hasattr(generate_LISA_psd, "write_lisa_psd")
+    assert hasattr(pycbc_to_rift, "create_injection_from_pycbc")
     assert hasattr(lisa_utils, "SSB_to_LISA")
 
 
@@ -56,3 +59,15 @@ def test_lisa_psd_generator_writes_small_ascii_products(tmp_path):
     assert np.all(np.isfinite(psd))
     assert np.all(psd[:, 1] > 0)
     assert os.path.exists(png_path)
+
+
+def test_sangria_converter_reports_missing_optional_pycbc():
+    from RIFT.LISA.sangria_test import pycbc_to_rift
+
+    try:
+        import pycbc.frame  # noqa: F401
+    except ImportError:
+        with pytest.raises(ImportError, match="pycbc is required"):
+            pycbc_to_rift.read_pycbc_channels("missing.gwf")
+    else:
+        pytest.skip("pycbc is installed; missing-optional-dependency path is not active")
