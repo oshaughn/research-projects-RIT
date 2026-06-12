@@ -95,13 +95,13 @@ def build_parser():
     parser.add_argument(
         "--channel-name",
         action="append",
-        default=["A=fake_strain", "E=fake_strain", "T=fake_strain"],
+        default=None,
         help="LISA channel assignment, e.g. A=fake_strain.",
     )
     parser.add_argument(
         "--psd-file",
         action="append",
-        default=["A=A_psd.xml.gz", "E=E_psd.xml.gz", "T=T_psd.xml.gz"],
+        default=None,
         help="PSD assignment, e.g. A=A_psd.xml.gz.",
     )
 
@@ -127,6 +127,7 @@ def build_parser():
     parser.add_argument("--modes", default="[(2,2)]")
     parser.add_argument("--lisa-reference-time", type=float, default=0.0)
     parser.add_argument("--lisa-reference-frequency", type=float, default=5.0e-3)
+    parser.add_argument("--data-integration-window-half", type=float, default=8.0)
     parser.add_argument("--d-max", type=float, default=5000.0)
     parser.add_argument("--d-min", type=float, default=1.0)
     parser.add_argument("--event-time", type=float, default=0.0)
@@ -158,6 +159,10 @@ def main(argv=None):
 
     workdir = os.path.abspath(opts.working_directory)
     os.makedirs(workdir, exist_ok=True)
+    if opts.channel_name is None:
+        opts.channel_name = ["A=fake_strain", "E=fake_strain", "T=fake_strain"]
+    if opts.psd_file is None:
+        opts.psd_file = ["A=A_psd.xml.gz", "E=E_psd.xml.gz", "T=T_psd.xml.gz"]
 
     input_grid = os.path.join(workdir, opts.input_grid)
     ile_args = os.path.join(workdir, opts.ile_args)
@@ -182,11 +187,13 @@ def main(argv=None):
     ile_parts = [
         "--LISA",
         "--h5-frame-FD",
+        "--time-marginalization",
         "--lisa-fixed-sky", "1",
         "--ecliptic-longitude", opts.ecliptic_longitude,
         "--ecliptic-latitude", opts.ecliptic_latitude,
         "--lisa-reference-time", opts.lisa_reference_time,
         "--lisa-reference-frequency", opts.lisa_reference_frequency,
+        "--data-integration-window-half", opts.data_integration_window_half,
         "--modes", opts.modes,
         "--cache-file", opts.cache_file,
         "--event-time", opts.event_time,

@@ -57,7 +57,9 @@ def test_lisa_helper_writes_cepp_contract_files(tmp_path):
     assert ile_args.startswith("X ")
     assert "--LISA" in ile_args
     assert "--h5-frame-FD" in ile_args
+    assert "--time-marginalization" in ile_args
     assert "--zero-likelihood" in ile_args
+    assert "--data-integration-window-half 8.0" in ile_args
     assert "--cache-file lisa.cache" in ile_args
     assert "--channel-name A=fake_strain" in ile_args
     assert "--psd-file A=A_psd.xml.gz" in ile_args
@@ -78,6 +80,38 @@ def test_lisa_helper_writes_cepp_contract_files(tmp_path):
     assert "RIFT_HYPERPIPELINE_FORMAT=1" in cepp_command
     assert "integrate_likelihood_extrinsic_batchmode_lisa" in cepp_command
     assert os.fspath(tmp_path / "proposed-grid.dat") in cepp_command
+
+
+def test_lisa_helper_custom_data_products_replace_defaults(tmp_path):
+    _run_helper(
+        tmp_path,
+        "--cache-file",
+        os.fspath(tmp_path / "custom.cache"),
+        "--psd-file",
+        "A=/tmp/A.xml.gz",
+        "--psd-file",
+        "E=/tmp/E.xml.gz",
+        "--psd-file",
+        "T=/tmp/T.xml.gz",
+        "--channel-name",
+        "A=SYNTH",
+        "--channel-name",
+        "E=SYNTH",
+        "--channel-name",
+        "T=SYNTH",
+    )
+
+    ile_args = (tmp_path / "args_ile.txt").read_text()
+    assert "--cache-file {}/custom.cache".format(tmp_path) in ile_args
+    assert "--psd-file A=/tmp/A.xml.gz" in ile_args
+    assert "--psd-file A=A_psd.xml.gz" not in ile_args
+    assert "--channel-name A=SYNTH" in ile_args
+    assert "--channel-name A=fake_strain" not in ile_args
+
+    transfer_files = (tmp_path / "helper_transfer_files.txt").read_text().splitlines()
+    assert os.fspath(tmp_path / "custom.cache") in transfer_files
+    assert "/tmp/A.xml.gz" in transfer_files
+    assert "A_psd.xml.gz" not in transfer_files
 
 
 def test_lisa_helper_bundle_renders_basic_cepp_dag(tmp_path):
