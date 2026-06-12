@@ -12,6 +12,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", 
 DEMO_DIR = os.path.join(REPO_ROOT, "MonteCarloMarginalizeCode", "Code", "demo", "rift", "lisa")
 MAKE_INPUTS = os.path.join(DEMO_DIR, "make_synthetic_lisa_inputs.py")
 RUN_ILE = os.path.join(DEMO_DIR, "run_lisa_synthetic_ile.sh")
+RUN_END_TO_END = os.path.join(DEMO_DIR, "run_lisa_end_to_end.sh")
 
 
 def _read_env_file(path):
@@ -88,3 +89,16 @@ def test_lisa_synthetic_demo_runs_real_ile(tmp_path):
     assert output.shape == (15,)
     assert np.isfinite(output[11])
     assert output[13] > 0
+
+
+def test_lisa_end_to_end_demo_renders_heavyweight_surface(tmp_path):
+    env = os.environ.copy()
+    env["RIFT_LISA_WORKDIR"] = os.fspath(tmp_path)
+    env["RIFT_LISA_RUN_ILE"] = "0"
+    subprocess.run([RUN_END_TO_END], check=True, env=env)
+
+    assert (tmp_path / "event_0" / "A-fake_strain-1000000-10000.h5").exists()
+    assert (tmp_path / "event_0" / "A_psd.xml.gz").exists()
+    assert (tmp_path / "event_0" / "LISA_psd.txt").exists()
+    assert (tmp_path / "analysis_event_0" / "args_ile.txt").exists()
+    assert (tmp_path / "analysis_event_0" / "ILE.sub").exists()

@@ -76,3 +76,25 @@ It writes analytic LISA A/E/T XML PSDs and, optionally, `LISA_psd.txt`.  The
 PP-style LISA surface in `MonteCarloMarginalizeCode/Code/test/pp_lisa` uses
 this generator together with the synthetic frame builder and
 `util_RIFT_pseudo_pipe.py --lisa-known-sky`.
+
+## Heavyweight end-to-end demo
+
+For a local end-to-end LISA exercise that uses synthetic data, analytic PSDs,
+`pseudo_pipe`, CEPP rendering, a real direct ILE likelihood evaluation, and the
+LISA run diagnostic:
+
+```bash
+./MonteCarloMarginalizeCode/Code/demo/rift/lisa/run_lisa_end_to_end.sh
+```
+
+Useful environment overrides:
+
+- `RIFT_LISA_WORKDIR`: output directory; defaults under `/tmp`.
+- `RIFT_LISA_RUN_ILE=0`: render inputs and CEPP files only.
+- `RIFT_LISA_VARY_SKY=1`: render the `pseudo_pipe` surface with sky left as an
+  intrinsic hyperpipeline parameter.  The direct ILE check remains fixed-sky so
+  the heavyweight demo has a stable, fast likelihood evaluation.
+
+Expected heavyweight outputs include `event_0/` synthetic data products,
+`analysis_event_0/` CEPP files, `lisa_end_to_end_0_.dat`, and
+`lisa_end_to_end_summary.json`.
