@@ -541,12 +541,14 @@ endif
 # OVERRIDES the CLI, which previously left ILE stuck at 4M while cip/general got bumped.
 PP_DISK_FLAGS := --internal-ile-request-disk $(PP_DISK) --internal-cip-request-disk $(PP_DISK) --internal-general-request-disk $(PP_DISK)
 
-# ILE memory request (Mb).  pseudo_pipe defaults to 4096, which is too tight for the
-# FUSED calmarg precompute: it holds N cal realizations and the adaptive draw count
-# DOUBLES (NCAL 100 -> up to 800) per intrinsic point, so peak RSS spikes past 4 GB and
-# the job is held ("memory usage exceeded request_memory").  8192 matches the historical
-# standard (~2.4x the observed ~3.4 GB peak).
-PP_MEM_ILE ?= 8192
+# ILE memory request (Mb).  pseudo_pipe defaults to 4096, far too tight here.  Each job
+# does 50 intrinsic points with the fused calmarg + distance-marg extrinsic sampler; the
+# well-behaved points finish at ~7.3 GB, but pathological low-cal-n_eff points spin the AV
+# sampler toward --n-max 4e6 and accumulate sample arrays past 8 GB -> held ("over cgroup
+# memory limit").  Observed: 4096 and 8192 both held; completers peak ~7.3 GB.  16384 (2.2x)
+# covers the hard-point spikes and still matches most GPU nodes (median ~27 GB RAM).  Raise
+# to 24576 if any still hold; ILE_extr auto-gets 2x this.
+PP_MEM_ILE ?= 16384
 PP_MEM_FLAGS := --internal-ile-request-memory $(PP_MEM_ILE)
 
 .PHONY: pp-run pp-run-build pp-coinc
