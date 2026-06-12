@@ -28,9 +28,11 @@ parser.add_option("--no-adapt",action='store_true')
 parser.add_option("--floor-level",default=0.0,type=float)
 parser.add_option("--n-chunk",default=10000,type=int)
 parser.add_option("--verbose",action='store_true')
+parser.add_option("--seed",default=123456,type=int)
 opts, args = parser.parse_args()
 
 verbose=opts.verbose
+np.random.seed(opts.seed)
 
 tempering_exp =0.1
 
