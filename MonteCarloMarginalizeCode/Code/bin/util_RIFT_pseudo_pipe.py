@@ -28,6 +28,28 @@ if ( 'RIFT_LOWLATENCY'  in os.environ):
 else:
     assume_lowlatency=False
 
+# ----------------------------------------------------------------------
+# Hyperpipeline ASCII grid format (opt-in via env var).  When set, every
+# grid file pseudo_pipe touches (target_params, proposed-grid, the
+# --input-grid handed to BasicIteration, and the --sim-xml command-single
+# sanity-check invocation) is .dat instead of .xml.gz, and the
+# downstream pipeline runs in hyperpipeline mode end-to-end.  When unset,
+# behaviour is identical to the legacy XML pipeline.
+#
+# By design, pseudo_pipe does NOT convert formats internally -- the
+# entire process operates cohesively in one mode or the other.  In
+# hyperpipeline mode the user is responsible for staging any external
+# inputs (e.g. --manual-initial-grid) as hyperpipeline .dat; the
+# auto-generated AMR / template-bank seed-grid paths still emit XML and
+# will fail downstream unless --manual-initial-grid is supplied.
+# ----------------------------------------------------------------------
+_use_hpip_pp = str(os.environ.get("RIFT_HYPERPIPELINE_FORMAT", "")).strip().lower() in ("1", "true", "yes", "on")
+grid_suffix_pp = "dat" if _use_hpip_pp else "xml.gz"
+sim_grid_flag_pp = "--sim-grid" if _use_hpip_pp else "--sim-xml"
+if _use_hpip_pp:
+    print(" === pseudo_pipe: hyperpipeline ASCII grid format active (RIFT_HYPERPIPELINE_FORMAT) ===")
+    print("     Inter-stage grids will be .{}, command-single will use {}".format(grid_suffix_pp, sim_grid_flag_pp))
+
 # Backward compatibility
 from RIFT.misc.dag_utils_generic import which
 ligolw_prefix = 'igwn_'
@@ -320,7 +342,7 @@ parser.add_argument("--export-distance-slices-wing-delta-lnL",default=None,type=
 parser.add_argument("--export-distance-slices-skip-threshold",default=None,type=float,help="Passthrough: --distance-slice-skip-threshold for the .dslice export (absolute peak-lnL detectability cut).")
 parser.add_argument("--ile-additional-files-to-transfer",default=None,help="Comma-separated list of filenames. To append to the transfer file list for ILE jobs (only). Intended for surrogates in LAL_DATA_PATH for wide-ranging use")
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
-parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.xml.gz, overwriting any grid assignment done here")
+parser.add_argument("--manual-initial-grid",default=None,type=str,help="Filename (full path) to initial grid. Copied into proposed-grid.<suffix>, overwriting any grid assignment done here. Suffix is .xml.gz by default and .dat when RIFT_HYPERPIPELINE_FORMAT is set; the source file's format must match the active mode.")
 parser.add_argument("--manual-initial-grid-supplements",action='store_true', help="Manual inital grid used to SUPPLEMENT output of the default helper grid.")
 parser.add_argument("--manual-extra-ile-args",default=None,type=str,help="Avenue to adjoin extra ILE arguments.  Needed for unusual configurations (e.g., if channel names are not being selected, etc)")
 parser.add_argument("--internal-ile-force-adapt-all",action='store_true', help="Syntactic sugar to prevent need to add manual-extra-ile-args for this: easier on user")
@@ -660,8 +682,17 @@ if not(opts.use_ini is None):
         P.eccentricity = event_dict["eccentricity"]
     if not(event_dict['meanPerAno'] is None):
         P.meanPerAno = event_dict["meanPerAno"]
-    # Write 'target_params.xml.gz' file
-    lalsimutils.ChooseWaveformParams_array_to_xml([P], "target_params")
+    # Write 'target_params' file -- hyperpipeline .dat or legacy XML.
+    if _use_hpip_pp:
+        from RIFT.misc import hyperpipeline_io as _hpio
+        _cols = _hpio.build_column_list(
+            use_eccentricity=(P.eccentricity != 0),
+            use_meanPerAno=(P.meanPerAno != 0))
+        _hpio.write_grid_from_P_list("target_params", [P], _cols,
+                                     lal_module=lal,
+                                     lalsimutils_module=lalsimutils)
+    else:
+        lalsimutils.ChooseWaveformParams_array_to_xml([P], "target_params")
 
     if opts.use_production_defaults:
         # use more workers for high-q triggers
@@ -852,7 +883,7 @@ if opts.use_osg:
         cmd += " --use-cvmfs-frames "  # only run with CVMFS data, otherwise very very painful
 if opts.use_ini:
     cmd += " --use-ini " + opts.use_ini
-    cmd += " --sim-xml {}/target_params.xml.gz --event 0 ".format(base_dir + "/"+ dirname_run)  # full path to target_params.xml.gz
+    cmd += " {} {}/target_params.{} --event 0 ".format(sim_grid_flag_pp, base_dir + "/"+ dirname_run, grid_suffix_pp)  # full path to target_params (xml.gz or .dat)
     if (opts.event_time is None):
         cmd += " --event-time " + str(event_dict["tref"])
     #
@@ -1522,11 +1553,23 @@ if opts.internal_force_iterations:
 # Overwrite grid if needed
 if not (opts.manual_initial_grid is None):
     if opts.manual_initial_grid_supplements:
+        if _use_hpip_pp:
+            # ligolw_add is XML-only -- the equivalent for hyperpipeline is
+            # the head-line + cat | sort | uniq | shuf shell pattern from
+            # the BasicIteration join_grids.sh.  We refuse rather than
+            # silently produce a broken proposed-grid.
+            raise SystemExit(
+                "pseudo_pipe: --manual-initial-grid-supplements is XML-only "
+                "(uses ligolw_add); incompatible with RIFT_HYPERPIPELINE_FORMAT. "
+                "Pre-merge your supplements into a single .dat grid and pass it "
+                "via --manual-initial-grid instead.")
         cmd_add = '{}ligolw_add {} proposed-grid.xml.gz --output tmp.xml.gz'.format(ligolw_prefix,opts.manual_initial_grid)
         os.system(cmd_add)
         shutil.copyfile('tmp.xml.gz', "proposed-grid.xml.gz")
     else:
-        shutil.copyfile(opts.manual_initial_grid, "proposed-grid.xml.gz")
+        # shutil.copyfile is format-agnostic: works for either .xml.gz or
+        # .dat as long as the source matches the active mode.
+        shutil.copyfile(opts.manual_initial_grid, "proposed-grid." + grid_suffix_pp)
 
 # override npts_it if needed
 if opts.internal_n_evaluations_per_iteration:
@@ -1551,7 +1594,7 @@ if opts.pipeline_builder:  # explicit override wins, for clean side-by-side A/B 
         print(" WARNING: --pipeline-builder {} overrides --use-subdags routing; AMR/subdag runs require AlternateIteration ".format(opts.pipeline_builder))
     cepp = "create_event_parameter_pipeline_" + opts.pipeline_builder
 print(" Pipeline builder (create_event_parameter_pipeline_*): ", cepp)
-cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.xml.gz --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
+cmd =cepp+ "  --ile-n-events-to-analyze {} --input-grid proposed-grid.{} --ile-exe  `which integrate_likelihood_extrinsic_batchmode`   --ile-args `pwd`/args_ile.txt --cip-args-list args_cip_list.txt --test-args args_test.txt --request-memory-CIP {} --request-memory-ILE {} --n-samples-per-job ".format(n_jobs_per_worker,grid_suffix_pp,cip_mem,ile_mem) + str(npts_it) + " --working-directory `pwd` --n-iterations " + str(n_iterations) + " --n-iterations-subdag-max {} ".format(opts.internal_n_iterations_subdag_max) + "  --n-copies {} ".format(opts.ile_copies) + "   --ile-retries "+ str(opts.ile_retries) + " --general-retries " + str(opts.general_retries)
 if opts.ile_jobs_per_worker_first:
     cmd += " --ile-n-events-to-analyze-first {} ".format(opts.ile_jobs_per_worker_first)
 if opts.assume_matter or opts.assume_eccentric:
@@ -1603,6 +1646,18 @@ if opts.use_gauss_early:
     cmd += " --cip-exe-G `which util_ConstructIntrinsicPosterior_GaussianResampling.py ` "
 if opts.internal_use_amr:
     print(" AMR prototype: Using hardcoded aligned-spin settings, assembling grid, requires coinc!")
+    if _use_hpip_pp and opts.manual_initial_grid is None:
+        # The AMR seed-grid generators (util_AMRGrid.py /
+        # util_GridSubsetOfTemplateBank.py) emit XML and have not been
+        # converted to hyperpipeline.  Per the project policy of
+        # operating cohesively in one mode or the other, we refuse
+        # rather than producing a proposed-grid.xml.gz the rest of the
+        # hyperpipeline workflow can't consume.
+        raise SystemExit(
+            "pseudo_pipe: --internal-use-amr seed-grid auto-generation is "
+            "XML-only and incompatible with RIFT_HYPERPIPELINE_FORMAT.  "
+            "Stage your initial grid as a hyperpipeline .dat and pass it "
+            "via --manual-initial-grid, or run without RIFT_HYPERPIPELINE_FORMAT.")
     cmd += " --cip-exe `which util_AMRGrid.py ` "
     coinc_file = "coinc.xml"
     if not(os.path.exists("coinc.xml")) and not(opts.use_coinc):
