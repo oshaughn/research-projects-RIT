@@ -190,6 +190,7 @@ optp.add_option("-p", "--psd-file", action="append", help="instrument=psd-file, 
 optp.add_option("-k", "--skymap-file", help="Use skymap stored in given FITS file.")
 optp.add_option("-x", "--coinc-xml", help="gstlal_inspiral XML file containing coincidence information.")
 optp.add_option("-I", "--sim-xml", help="XML file containing mass grid to be evaluated")
+optp.add_option("--sim-grid", help="Hyperpipeline ASCII grid file (RIFT_HYPERPIPELINE_V1) of intrinsic points to be evaluated. Row index selected by --event. LISA-fork analogue of the main ILE --sim-grid; populates mass1/mass2/spin1z/spin2z and ecliptic_longitude/latitude from the selected row.")
 optp.add_option("-E", "--event", default=0,type=int, help="Event number used for this run")
 optp.add_option("--n-events-to-analyze", default=1,type=int, help="Number of events to analyze from this XML")
 optp.add_option("--soft-fail-event-range",action='store_true',help='Soft failure (exit 0) if event ID is out of range. This happens in pipelines, if we have pre-built a DAG attempting to analyze more points than we really have')
@@ -521,6 +522,31 @@ print("#########################################################################
 # Struct to hold template parameters, P.deltaF comes from data (data.deltaF)
 P_list = None
 P=None # force allocation so I can use the preferred event later
+if opts.sim_grid:
+    # Hyperpipeline intrinsic-grid handoff (the DAG/CEPP path passes one row per
+    # ILE worker via --sim-grid + --event).  The LISA fork is single-point per
+    # job, so resolve the selected row here into the mass1/mass2/spin*/ecliptic
+    # opts and fall through to the standard single-point P construction below.
+    from RIFT.misc import hyperpipeline_io as _hpio
+    print("====Loading injection grid file:", opts.sim_grid, " event", opts.event, "=======")
+    _grid_arr, _grid_cols = _hpio.read_table(opts.sim_grid)
+    if opts.event is None or opts.event >= len(_grid_arr):
+        print(" Event index out of range for grid; soft exit")
+        sys.exit(0)
+    _row = _grid_arr[opts.event]
+    def _grid_get(name, default=0.0):
+        return float(_row[name]) if name in _grid_cols else default
+    opts.mass1 = _grid_get('m1')
+    opts.mass2 = _grid_get('m2')
+    opts.spin1z = _grid_get('a1z')
+    opts.spin2z = _grid_get('a2z')
+    if 'ecliptic_longitude' in _grid_cols:
+        opts.ecliptic_longitude = _grid_get('ecliptic_longitude')
+    if 'ecliptic_latitude' in _grid_cols:
+        opts.ecliptic_latitude = _grid_get('ecliptic_latitude')
+    print("   grid row -> m1={} m2={} s1z={} s2z={} ecl_long={} ecl_lat={}".format(
+        opts.mass1, opts.mass2, opts.spin1z, opts.spin2z,
+        opts.ecliptic_longitude, opts.ecliptic_latitude))
 if opts.sim_xml:
     print(f"====Loading injection XML: {opts.sim_xml}, reading from event {opts.event} to event {opts.event+opts.n_events_to_analyze} =======")
     P_list = lalsimutils.xml_to_ChooseWaveformParams_array(str(opts.sim_xml))
@@ -1514,8 +1540,26 @@ def analyze_event_LISA(P_list, indx_event, data_dict, psd_dict, fmax, opts, inv_
             event_id = -1
         if opts.event == None:
             event_id = -1
-        # Current response only applicable to quasicircular MBHB signals. Save sky location even if not varying.
-        numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, lisa_sky_lamda, lisa_sky_beta, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res, sampler.ntotal, neff ]])) 
+        # Hyperpipeline ASCII output (opt-in via RIFT_HYPERPIPELINE_FORMAT).  The
+        # DAG/CEPP join (util_CleanILE_hyperpipeline.py) consumes self-describing
+        # header-bearing shards with lnL/sigma_lnL as columns 0/1.  The legacy
+        # headerless savetxt below cannot be read by that path.
+        from RIFT.misc import hyperpipeline_io as _hpio
+        if _hpio.is_active():
+            _cols = _hpio.build_column_list(use_sky=True)
+            _vals = {
+                "lnL": log_res + manual_avoid_overflow_logarithm,
+                "sigma_lnL": sqrt_var_over_res,
+                "m1": m1, "m2": m2,
+                "a1x": P.s1x, "a1y": P.s1y, "a1z": P.s1z,
+                "a2x": P.s2x, "a2y": P.s2y, "a2z": P.s2z,
+                "ecliptic_longitude": lisa_sky_lamda,
+                "ecliptic_latitude": lisa_sky_beta,
+            }
+            _hpio.write_row(fname_output_txt, _cols, [_vals.get(c, 0.0) for c in _cols])
+        else:
+            # Current response only applicable to quasicircular MBHB signals. Save sky location even if not varying.
+            numpy.savetxt(fname_output_txt, numpy.array([[event_id, m1, m2, P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z, lisa_sky_lamda, lisa_sky_beta, log_res+manual_avoid_overflow_logarithm, sqrt_var_over_res, sampler.ntotal, neff ]]))
 
     # Comprehensive output (not yet provided)
     # Convert declination, inclination  parameters in sampler if needed

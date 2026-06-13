@@ -14,6 +14,7 @@ import numpy as np
 import RIFT.LISA.lalsimutils_compat as lisa_lalsimutils_compat
 import RIFT.lalsimutils as lalsimutils
 from RIFT.LISA.response import LISA_response
+from RIFT.LISA.psd_generation import generate_LISA_psd
 
 
 def build_parser():
@@ -73,7 +74,24 @@ def write_cache(output_directory):
     return cache_path
 
 
-def write_flat_psd_xml(channel, output_directory, deltaF, length, psd_level):
+def write_lisa_psd_xml(channel, output_directory, deltaF, length, Tobs_years=0.5, NC=3):
+    """Write the REAL analytic LISA sensitivity PSD evaluated on the SAME
+    frequency grid as the data (f0=0, this deltaF, this length).
+
+    A flat PSD is unphysical for LISA: at the SNRs of MBHBs the steeply-rising
+    low-frequency noise must be modelled or the low-f content dominates and the
+    posterior collapses to a delta (extrinsic eff_samp -> 1).  We also keep the
+    PSD on the data's own grid so the ILE never has to interpolate/extrapolate
+    across a mismatched grid.
+    """
+    fvals = np.arange(length) * deltaF
+    R_exists, interp_func = generate_LISA_psd.response_interpolant(NC)
+    psd_values = np.empty(length)
+    # DC bin (f=0) is not physical for the sensitivity curve; set it huge so it
+    # carries zero weight in the likelihood.
+    psd_values[0] = np.inf
+    psd_values[1:] = generate_LISA_psd.Sn(
+        fvals[1:], Tobs_years * lal.YRSID_SI, NC, R_exists, interp_func)
     psd = lal.CreateREAL8FrequencySeries(
         channel,
         lal.LIGOTimeGPS(0),
@@ -82,7 +100,7 @@ def write_flat_psd_xml(channel, output_directory, deltaF, length, psd_level):
         lalsimutils.lsu_HertzUnit,
         length,
     )
-    psd.data.data[:] = psd_level
+    psd.data.data[:] = psd_values
     xmldoc = lal.series.make_psd_xmldoc({channel: psd})
     xmldoc.childNodes[0].attributes._attrs = {"Name": "psd"}
     path = os.path.join(output_directory, f"{channel}_psd.xml.gz")
@@ -114,12 +132,11 @@ def main(argv=None):
 
     psd_paths = {}
     for channel, channel_data in data.items():
-        psd_paths[channel] = write_flat_psd_xml(
+        psd_paths[channel] = write_lisa_psd_xml(
             channel,
             output_directory,
             channel_data.deltaF,
             channel_data.data.length,
-            opts.psd_level,
         )
 
     summary_path = os.path.join(output_directory, "synthetic-params.env")

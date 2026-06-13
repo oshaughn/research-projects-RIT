@@ -22,6 +22,7 @@ is different.
 from __future__ import absolute_import, print_function
 
 import argparse
+import os
 import sys
 
 # Import via an explicit file load so this script keeps working even when
@@ -49,9 +50,11 @@ def main(argv=None):
                         help="One or more hyperpipeline shard .dat files.")
     parser.add_argument("--output", "-o", default="-",
                         help="Output filename, or '-' for stdout (default).")
-    parser.add_argument("--sigma-cut", type=float, default=0.9,
+    parser.add_argument("--sigma-cut", type=float,
+                        default=float(os.environ.get("RIFT_ILE_SIGMA_CUT", 0.9)),
                         help="Drop rows with sigma_lnL above this value "
-                             "(default 0.9, mirrors util_CleanILE).")
+                             "(default 0.9, mirrors util_CleanILE; override the "
+                             "default via the RIFT_ILE_SIGMA_CUT env var).")
     parser.add_argument("--digits", type=int, default=5,
                         help="Decimal-place precision used when grouping "
                              "duplicate intrinsic rows (default 5, mirrors "

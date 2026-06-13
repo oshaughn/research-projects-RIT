@@ -69,17 +69,25 @@ def _write_initial_grid(path, opts):
     ])
 
     rows = []
-    for idx in range(opts.grid_size):
-        row = base.copy()
-        if opts.grid_size > 1:
-            offset = (idx - (opts.grid_size - 1) / 2.0) * opts.grid_fractional_width
-            row[2] = opts.mass1 * (1.0 + offset)
-            row[3] = opts.mass2 * (1.0 - offset)
-            if opts.vary_sky:
-                sky_offset = (idx - (opts.grid_size - 1) / 2.0) * opts.sky_grid_width
-                row[10] = opts.ecliptic_longitude + sky_offset
-                row[11] = opts.ecliptic_latitude - sky_offset
-        rows.append(row)
+    if opts.grid_size <= 1:
+        rows = [base.copy()]
+    else:
+        # Build a 2-D lattice that varies m1 and m2 INDEPENDENTLY, so the grid
+        # spans chirp mass AND symmetric mass ratio in two dimensions.  The old
+        # 1-D line (m1*(1+off), m2*(1-off)) is collinear in (mc,eta) and is
+        # degenerate for CIP's 2-D (mc,eta) quadratic/rf fit (-> NaN/no output).
+        side = max(2, int(round(np.sqrt(opts.grid_size))))
+        offs = np.linspace(-1.0, 1.0, side) * opts.grid_fractional_width
+        sky_offs = np.linspace(-1.0, 1.0, side) * opts.sky_grid_width
+        for i, oi in enumerate(offs):
+            for j, oj in enumerate(offs):
+                row = base.copy()
+                row[2] = opts.mass1 * (1.0 + oi)
+                row[3] = opts.mass2 * (1.0 + oj)
+                if opts.vary_sky:
+                    row[10] = opts.ecliptic_longitude + sky_offs[i]
+                    row[11] = opts.ecliptic_latitude + sky_offs[j]
+                rows.append(row)
     hyperpipeline_io.write_table(path, columns, np.array(rows))
 
 
@@ -125,7 +133,7 @@ def build_parser():
     parser.add_argument("--sky-grid-width", type=float, default=1.0e-3)
 
     parser.add_argument("--approximant", default="IMRPhenomD")
-    parser.add_argument("--fmin-template", type=float, default=1.0e-3)
+    parser.add_argument("--fmin-template", type=float, default=1.0e-4)  # in-band for LISA (1e-3 starts near top of band)
     parser.add_argument("--fmax", type=float, default=0.125)
     parser.add_argument("--reference-freq", type=float, default=5.0e-3)
     parser.add_argument("--srate", type=float, default=0.25)
@@ -133,21 +141,33 @@ def build_parser():
     parser.add_argument("--modes", default="[(2,2)]")
     parser.add_argument("--lisa-reference-time", type=float, default=0.0)
     parser.add_argument("--lisa-reference-frequency", type=float, default=5.0e-3)
-    parser.add_argument("--data-integration-window-half", type=float, default=8.0)
-    parser.add_argument("--d-max", type=float, default=5000.0)
-    parser.add_argument("--d-min", type=float, default=1.0)
+    parser.add_argument("--data-integration-window-half", type=float, default=300.0)  # ~600s window: a 16s window mis-marginalizes the long LISA signal -> biased lnL
+    parser.add_argument("--d-max", type=float, default=100000.0)  # LISA MBHBs reach cosmological distances
+    parser.add_argument("--d-min", type=float, default=1000.0)
     parser.add_argument("--event-time", type=float, default=0.0)
 
     parser.add_argument("--zero-likelihood", action="store_true")
-    parser.add_argument("--n-eff", type=int, default=2)
-    parser.add_argument("--n-max", type=int, default=20)
-    parser.add_argument("--n-chunk", type=int, default=10)
+    parser.add_argument("--no-adapt", action="store_true",
+                        help="Disable adaptive extrinsic sampling (uniform). Loud signals need adaptation, so default is OFF.")
+    parser.add_argument("--ile-sampler-method", default="AV")
+    parser.add_argument("--n-eff", type=int, default=20)
+    parser.add_argument("--n-max", type=int, default=8000)
+    parser.add_argument("--n-chunk", type=int, default=500)
     parser.add_argument("--save-P", type=float, default=0.1)
 
     parser.add_argument("--cip-fit-method", default="quadratic")
+    parser.add_argument("--cip-sampler-method", default="AV")
     parser.add_argument("--cip-iterations", default="1")
     parser.add_argument("--cip-n-output-samples", type=int, default=100)
-    parser.add_argument("--cip-lnL-offset", type=float, default=100.0)
+    parser.add_argument("--cip-lnL-offset", type=float, default=2000.0)  # keep all grid points for the fit (loud-signal lnL spread is large)
+    parser.add_argument("--cip-n-eff", type=int, default=100)
+    parser.add_argument("--cip-n-max", type=int, default=3000000)
+    parser.add_argument("--cip-m-max-cut", default="1e8",
+                        help="CIP --M-max-cut (Msun). LISA MBHBs need a large value.")
+    parser.add_argument("--cip-sigma-cut", default="10.0",
+                        help="CIP --sigma-cut. Relaxed for single-sample high-SNR demo integrals.")
+    parser.add_argument("--cip-mass-range-frac", type=float, default=0.0,
+                        help="Explicit half-width (fractional) of the CIP mc/mtot range; if 0, auto = 3x the grid fractional width (brackets the grid).")
     parser.add_argument("--test-threshold", type=float, default=0.02)
     parser.add_argument("--cepp-exe", default="create_event_parameter_pipeline_BasicIteration")
     parser.add_argument("--ile-exe", default="integrate_likelihood_extrinsic_batchmode_lisa")
@@ -216,9 +236,17 @@ def main(argv=None):
         "--n-max", opts.n_max,
         "--n-chunk", opts.n_chunk,
         "--save-P", opts.save_P,
-        "--no-adapt",
+        "--sampler-method", opts.ile_sampler_method,
         "--internal-use-lnL",
     ]
+    # Adaptive sampling is REQUIRED for loud LISA signals: with uniform sampling
+    # (--no-adapt) the sharp extrinsic peak is single-sample-dominated (eff_samp
+    # collapses to 1).  --force-adapt-all adapts every extrinsic dimension
+    # (distance, angles) so the sampler concentrates on the peak.
+    if opts.no_adapt:
+        ile_parts.append("--no-adapt")
+    else:
+        ile_parts.append("--force-adapt-all")
     if not opts.vary_sky:
         ile_parts[3:3] = [
             "--lisa-fixed-sky", "1",
@@ -229,15 +257,51 @@ def main(argv=None):
         ile_parts.append("--zero-likelihood")
     _write_arg_file(ile_args, ile_parts)
 
+    # CIP fits only the parameters that actually VARY across the grid.  In
+    # known-sky mode the ecliptic sky location is fixed (constant columns), so
+    # fitting it is degenerate AND those coordinates are not understood by CIP's
+    # waveform-parameter machinery (-> "No attribute ecliptic_longitude").  Only
+    # add the sky as a fit parameter when it is varied (--vary-sky).
+    cip_params = ["--parameter", "mc", "--parameter", "eta"]
+    if opts.vary_sky:
+        cip_params += ["--parameter", "ecliptic_longitude",
+                       "--parameter", "ecliptic_latitude"]
+    # CIP's posterior MC sampler defaults to a STELLAR-mass chirp-mass range
+    # ([0.9, 250] Msun); for a LISA MBHB (mc ~ 1e4-1e7 Msun) the sampler would
+    # never place a point near the signal -> eff_samp=nan.  Bracket mc and mtot
+    # around the injected masses (analogue of the paper's force-mc-range).
+    _mtot = opts.mass1 + opts.mass2
+    _mc = (opts.mass1 * opts.mass2) ** 0.6 / _mtot ** 0.2
+    # Bracket the GRID (plus margin): a range much wider than the grid samples
+    # mostly where the fit extrapolates -> eff_samp=nan; one matched to the grid
+    # keeps the CIP sampler where lnL is actually constrained.  The injected
+    # mc/eta are measured to ~Fisher precision (<< grid), so grid-tied is also
+    # tight enough to bracket the posterior.
+    _w = max(opts.cip_mass_range_frac, 1.5 * opts.grid_fractional_width)
+    cip_range_args = [
+        "--mc-range", "[{},{}]".format(_mc * (1.0 - _w), _mc * (1.0 + _w)),
+        "--mtot-range", "[{},{}]".format(_mtot * (1.0 - _w), _mtot * (1.0 + _w)),
+        "--n-eff", str(opts.cip_n_eff), "--n-max", str(opts.cip_n_max),
+    ]
     cip_line = _quote_join([
         opts.cip_iterations,
         "--fit-method", opts.cip_fit_method,
-        "--parameter", "mc",
-        "--parameter", "eta",
-        "--parameter", "ecliptic_longitude",
-        "--parameter", "ecliptic_latitude",
+        # AV integrator works in lnL space automatically (no exp() overflow at
+        # loud-signal lnL) and avoids the default sampler's lsoda CDF inversion
+        # (which NaNs on the sharp high-SNR posterior).  --internal-use-lnL too.
+        "--sampler-method", opts.cip_sampler_method,
+        "--internal-use-lnL",
+        *cip_params,
+        *cip_range_args,
         "--n-output-samples", opts.cip_n_output_samples,
         "--lnL-offset", opts.cip_lnL_offset,
+        # LISA sources are massive black-hole binaries (M ~ 1e4-1e8 Msun), far
+        # above CIP's stellar-mass default (--M-max-cut 1e5) which would strip
+        # every grid point as "too massive".  Likewise the synthetic high-SNR
+        # demo gives single-sample (n_eff=1) integrals, so relax CIP's own
+        # error cut (default 0.6) to keep those points.
+        "--M-max-cut", opts.cip_m_max_cut,
+        "--sigma-cut", opts.cip_sigma_cut,
         "--no-plots",
     ])
     _write_cip_list(cip_args_list, [cip_line])
