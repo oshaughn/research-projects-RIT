@@ -151,6 +151,23 @@ if 'm2' in samples2.dtype.names:
     if opts.verbose:
         print(" Samples 2 expanded fields ", samples2.dtype.names)
 
+# Ensure mc/eta exist: hyperpipeline posteriors (RIFT_HYPERPIPELINE_FORMAT) carry
+# only m1/m2, and standard_expand_samples does not always add the chirp-mass
+# coordinates the convergence test fits -> "no field of name mc".  Derive them.
+def _ensure_mc_eta(samples):
+    if 'm1' not in samples.dtype.names or 'm2' not in samples.dtype.names:
+        return samples
+    m1 = samples['m1']; m2 = samples['m2']
+    if 'mc' not in samples.dtype.names:
+        samples = add_field(samples, [('mc', float)])
+        samples['mc'] = (m1 * m2) ** 0.6 / (m1 + m2) ** 0.2
+    if 'eta' not in samples.dtype.names:
+        samples = add_field(samples, [('eta', float)])
+        samples['eta'] = (m1 * m2) / (m1 + m2) ** 2
+    return samples
+samples1 = _ensure_mc_eta(samples1)
+samples2 = _ensure_mc_eta(samples2)
+
 # sanity check: is this a result for PE?
 if 'm1' in samples1.dtype.names:
     # Add missing fields needed for some tests

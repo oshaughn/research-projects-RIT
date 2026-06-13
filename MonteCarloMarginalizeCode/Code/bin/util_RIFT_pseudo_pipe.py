@@ -276,6 +276,15 @@ def run_lisa_known_sky_surface(opts):
         "--transfer-file-list",
         os.path.join(workdir, "helper_transfer_files.txt"),
     ]
+    # Puffball between iterations: perturb the (very tight) CIP posterior so the
+    # next grid is not a near-degenerate cluster (else the CIP refit diverges).
+    if opts.lisa_n_iterations > 1 and not opts.lisa_no_puff:
+        cepp_cmd += [
+            "--puff-exe", os.path.join(bin_dir, "util_ParameterPuffball.py"),
+            "--puff-args", os.path.join(workdir, "args_puff.txt"),
+            "--puff-cadence", "1",
+            "--puff-max-it", str(opts.lisa_n_iterations),
+        ]
     print(" LISA known-sky CEPP command: ", " ".join(shlex.quote(x) for x in cepp_cmd))
     subprocess.run(cepp_cmd, check=True, cwd=workdir, env=env)
     print(" LISA known-sky CEPP surface rendered in {}".format(workdir))
@@ -340,6 +349,7 @@ parser.add_argument("--lisa-fmax",default=0.125,type=float,help="With --lisa-kno
 parser.add_argument("--lisa-reference-freq",default=5.0e-3,type=float,help="With --lisa-known-sky, waveform reference frequency.")
 parser.add_argument("--lisa-srate",default=0.25,type=float,help="With --lisa-known-sky, sample rate. Kept as float for long-duration LISA data.")
 parser.add_argument("--lisa-data-integration-window-half",default=300.0,type=float,help="With --lisa-known-sky, half-width of the ILE data integration window.")
+parser.add_argument("--lisa-no-puff",action="store_true",help="Disable the inter-iteration puffball for the known-sky LISA path.")
 parser.add_argument("--lisa-grid-size",default=3,type=int,help="With --lisa-known-sky, number of synthetic initial-grid points.")
 parser.add_argument("--lisa-grid-fractional-width",default=1.0e-3,type=float,help="With --lisa-known-sky, fractional mass width for the initial grid.")
 parser.add_argument("--lisa-sky-grid-width",default=1.0e-3,type=float,help="With --lisa-known-sky --lisa-vary-sky, ecliptic sky half-step scale for the initial grid.")

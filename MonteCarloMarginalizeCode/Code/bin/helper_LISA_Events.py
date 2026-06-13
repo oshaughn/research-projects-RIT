@@ -100,6 +100,9 @@ def build_parser():
     parser.add_argument("--ile-args", default="args_ile.txt")
     parser.add_argument("--cip-args-list", default="args_cip_list.txt")
     parser.add_argument("--test-args", default="args_test.txt")
+    parser.add_argument("--puff-args", default="args_puff.txt")
+    parser.add_argument("--puff-factor", type=float, default=1.0,
+                        help="util_ParameterPuffball --puff-factor: scale of the inter-iteration grid spread.")
     parser.add_argument("--transfer-file-list", default="helper_transfer_files.txt")
     parser.add_argument("--cepp-command-file", default="command-cepp-lisa.sh")
 
@@ -194,6 +197,7 @@ def main(argv=None):
     ile_args = os.path.join(workdir, opts.ile_args)
     cip_args_list = os.path.join(workdir, opts.cip_args_list)
     test_args = os.path.join(workdir, opts.test_args)
+    puff_args = os.path.join(workdir, opts.puff_args)
     transfer_file_list = os.path.join(workdir, opts.transfer_file_list)
     cepp_command_file = os.path.join(workdir, opts.cepp_command_file)
 
@@ -278,9 +282,15 @@ def main(argv=None):
     # mc/eta are measured to ~Fisher precision (<< grid), so grid-tied is also
     # tight enough to bracket the posterior.
     _w = max(opts.cip_mass_range_frac, 1.5 * opts.grid_fractional_width)
+    _eta = (opts.mass1 * opts.mass2) / _mtot ** 2
+    # Bracket eta too: with only mc/mtot bounded, the CIP posterior drifts to the
+    # eta FLOOR (0.01) -> extreme q -> garbage m1 (mtot=mc/eta^0.6 blows up).  The
+    # truth eta (~0.25 for near-equal MBHBs) is near the ceiling, so a tight
+    # grid-tied eta window is essential (analogue of the paper's force-eta-range).
     cip_range_args = [
         "--mc-range", "[{},{}]".format(_mc * (1.0 - _w), _mc * (1.0 + _w)),
         "--mtot-range", "[{},{}]".format(_mtot * (1.0 - _w), _mtot * (1.0 + _w)),
+        "--eta-range", "[{},{}]".format(_eta * (1.0 - _w), min(0.2499999, _eta * (1.0 + _w))),
         "--n-eff", str(opts.cip_n_eff), "--n-max", str(opts.cip_n_max),
     ]
     cip_line = _quote_join([
@@ -305,6 +315,18 @@ def main(argv=None):
         "--no-plots",
     ])
     _write_cip_list(cip_args_list, [cip_line])
+
+    # Puffball: between iterations, perturb the (very tight) CIP posterior so the
+    # next iteration's grid is not a near-degenerate cluster (which makes the CIP
+    # refit ill-conditioned and diverge).  The CEPP wraps this with --inj-file /
+    # --inj-file-out; we supply the perturbation parameters + physical bounds.
+    _write_arg_file(puff_args, [
+        "--parameter", "mc", "--parameter", "eta",
+        "--puff-factor", opts.puff_factor,
+        "--mc-range", "[{},{}]".format(_mc * (1.0 - _w), _mc * (1.0 + _w)),
+        "--mtot-range", "[{},{}]".format(_mtot * (1.0 - _w), _mtot * (1.0 + _w)),
+        "--eta-range", "[{},{}]".format(_eta * (1.0 - _w), min(0.2499999, _eta * (1.0 + _w))),
+    ])
 
     _write_arg_file(test_args, [
         "--method", "lame",
