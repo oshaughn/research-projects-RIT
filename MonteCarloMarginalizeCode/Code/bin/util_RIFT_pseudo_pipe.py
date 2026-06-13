@@ -276,6 +276,14 @@ def run_lisa_known_sky_surface(opts):
         "--transfer-file-list",
         os.path.join(workdir, "helper_transfer_files.txt"),
     ]
+    # Container: let write_ILE_sub_simple emit the singularity + file-transfer
+    # wiring (the LDG path's native mechanism) rather than any LISA-specific code.
+    # Needs SINGULARITY_RIFT_IMAGE (+ SINGULARITY_BASE_EXE_DIR) in the env.
+    if opts.lisa_use_singularity:
+        # write_ILE_sub_simple's singularity path requires the CEPP's --cache-file
+        # to be set (else "Need to specify frames_dir or cache_file to use
+        # singularity"); the LISA cache is otherwise only inside the ILE args.
+        cepp_cmd += ["--use-singularity", "--cache-file", opts.lisa_cache_file]
     # Puffball between iterations: perturb the (very tight) CIP posterior so the
     # next grid is not a near-degenerate cluster (else the CIP refit diverges).
     if opts.lisa_n_iterations > 1 and not opts.lisa_no_puff:
@@ -350,6 +358,7 @@ parser.add_argument("--lisa-reference-freq",default=5.0e-3,type=float,help="With
 parser.add_argument("--lisa-srate",default=0.25,type=float,help="With --lisa-known-sky, sample rate. Kept as float for long-duration LISA data.")
 parser.add_argument("--lisa-data-integration-window-half",default=300.0,type=float,help="With --lisa-known-sky, half-width of the ILE data integration window.")
 parser.add_argument("--lisa-no-puff",action="store_true",help="Disable the inter-iteration puffball for the known-sky LISA path.")
+parser.add_argument("--lisa-use-singularity",action="store_true",help="Forward --use-singularity to the CEPP for the known-sky LISA path. The container wiring + transfer is then emitted by write_ILE_sub_simple, exactly as for the LDG path; set SINGULARITY_RIFT_IMAGE (osdf:// staged image preferred, so dag_utils file-transfers it) and SINGULARITY_BASE_EXE_DIR (dir of the LISA ILE *inside* the image).")
 parser.add_argument("--lisa-grid-size",default=3,type=int,help="With --lisa-known-sky, number of synthetic initial-grid points.")
 parser.add_argument("--lisa-grid-fractional-width",default=1.0e-3,type=float,help="With --lisa-known-sky, fractional mass width for the initial grid.")
 parser.add_argument("--lisa-sky-grid-width",default=1.0e-3,type=float,help="With --lisa-known-sky --lisa-vary-sky, ecliptic sky half-step scale for the initial grid.")
