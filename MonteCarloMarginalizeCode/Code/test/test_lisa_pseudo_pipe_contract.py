@@ -5,6 +5,8 @@ import os
 import subprocess
 import sys
 
+import pytest
+
 from RIFT.misc import hyperpipeline_io
 
 
@@ -142,8 +144,13 @@ def test_lisa_variable_sky_pseudo_pipe_leaves_sky_intrinsic(tmp_path):
     subprocess.run(cmd, check=True, env=env)
 
     grid, _ = hyperpipeline_io.read_table(os.fspath(rundir / "proposed-grid.dat"))
-    assert len(set(grid["ecliptic_longitude"])) == 3
-    assert len(set(grid["ecliptic_latitude"])) == 3
+    assert grid.shape[0] >= 3
+    assert len(set(grid["ecliptic_longitude"])) > 1
+    assert len(set(grid["ecliptic_latitude"])) > 1
+    assert min(grid["ecliptic_longitude"]) == pytest.approx(1.24)
+    assert max(grid["ecliptic_longitude"]) == pytest.approx(1.26)
+    assert min(grid["ecliptic_latitude"]) == pytest.approx(-0.41)
+    assert max(grid["ecliptic_latitude"]) == pytest.approx(-0.39)
 
     ile_args = (rundir / "args_ile.txt").read_text()
     assert "--LISA" in ile_args

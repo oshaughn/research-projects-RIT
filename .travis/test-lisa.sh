@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-python -m pytest -q \
+PYTHON_BIN="${RIFT_LISA_PYTHON:-${PYTHON:-python}}"
+if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3)"
+fi
+
+"${PYTHON_BIN}" -m pytest -q \
   MonteCarloMarginalizeCode/Code/test/test_lisa_auxiliary_imports.py \
   MonteCarloMarginalizeCode/Code/test/test_lisa_response_import.py \
   MonteCarloMarginalizeCode/Code/test/test_lisa_lalsimutils_compat.py \

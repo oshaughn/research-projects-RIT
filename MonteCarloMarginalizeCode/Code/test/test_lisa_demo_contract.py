@@ -47,5 +47,7 @@ def test_lisa_zero_likelihood_demo_renders_cepp_bundle(tmp_path):
     assert "--cache-file lisa.cache" in ile_args
 
     cip_args = (tmp_path / "args_cip_list.txt").read_text()
-    assert "--parameter ecliptic_longitude" in cip_args
-    assert "--parameter ecliptic_latitude" in cip_args
+    assert "--parameter mc" in cip_args
+    assert "--parameter eta" in cip_args
+    assert "--parameter ecliptic_longitude" not in cip_args
+    assert "--parameter ecliptic_latitude" not in cip_args

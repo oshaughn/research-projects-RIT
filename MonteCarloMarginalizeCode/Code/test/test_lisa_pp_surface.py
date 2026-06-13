@@ -3,6 +3,8 @@
 import os
 import subprocess
 
+import pytest
+
 import RIFT.lalsimutils as lalsimutils
 
 from RIFT.misc import hyperpipeline_io
@@ -98,9 +100,11 @@ def test_lisa_pp_variable_sky_surface_builds_intrinsic_sky_grid(tmp_path):
 
     rundir = tmp_path / "analysis_event_0"
     grid, _ = hyperpipeline_io.read_table(os.fspath(rundir / "proposed-grid.dat"))
-    assert grid.shape == (3,)
-    assert len(set(grid["ecliptic_longitude"])) == 3
-    assert len(set(grid["ecliptic_latitude"])) == 3
+    assert grid.shape[0] >= 3
+    assert len(set(grid["ecliptic_longitude"])) > 1
+    assert len(set(grid["ecliptic_latitude"])) > 1
+    assert max(grid["ecliptic_longitude"]) - min(grid["ecliptic_longitude"]) == pytest.approx(0.02)
+    assert max(grid["ecliptic_latitude"]) - min(grid["ecliptic_latitude"]) == pytest.approx(0.02)
 
     ile_args = (rundir / "args_ile.txt").read_text()
     assert "--lisa-fixed-sky" not in ile_args

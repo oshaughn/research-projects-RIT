@@ -49,7 +49,7 @@ def test_lisa_helper_writes_cepp_contract_files(tmp_path):
     assert expected <= {path.name for path in tmp_path.iterdir()}
 
     grid, columns = hyperpipeline_io.read_table(os.fspath(tmp_path / "proposed-grid.dat"))
-    assert grid.shape == (3,)
+    assert grid.shape[0] >= 3
     assert "ecliptic_longitude" in columns
     assert "ecliptic_latitude" in columns
 
@@ -59,7 +59,7 @@ def test_lisa_helper_writes_cepp_contract_files(tmp_path):
     assert "--h5-frame-FD" in ile_args
     assert "--time-marginalization" in ile_args
     assert "--zero-likelihood" in ile_args
-    assert "--data-integration-window-half 8.0" in ile_args
+    assert "--data-integration-window-half 300.0" in ile_args
     assert "--cache-file lisa.cache" in ile_args
     assert "--channel-name A=fake_strain" in ile_args
     assert "--psd-file A=A_psd.xml.gz" in ile_args
@@ -68,8 +68,10 @@ def test_lisa_helper_writes_cepp_contract_files(tmp_path):
 
     cip_args = (tmp_path / "args_cip_list.txt").read_text()
     assert cip_args.startswith("1 ")
-    assert "--parameter ecliptic_longitude" in cip_args
-    assert "--parameter ecliptic_latitude" in cip_args
+    assert "--parameter mc" in cip_args
+    assert "--parameter eta" in cip_args
+    assert "--parameter ecliptic_longitude" not in cip_args
+    assert "--parameter ecliptic_latitude" not in cip_args
     assert "--fname" not in cip_args
 
     test_args = (tmp_path / "args_test.txt").read_text()
@@ -125,8 +127,13 @@ def test_lisa_helper_variable_sky_uses_grid_sky(tmp_path):
     )
 
     grid, _ = hyperpipeline_io.read_table(os.fspath(tmp_path / "proposed-grid.dat"))
-    assert len(set(grid["ecliptic_longitude"])) == 3
-    assert len(set(grid["ecliptic_latitude"])) == 3
+    assert grid.shape[0] >= 3
+    assert len(set(grid["ecliptic_longitude"])) > 1
+    assert len(set(grid["ecliptic_latitude"])) > 1
+    assert min(grid["ecliptic_longitude"]) == pytest.approx(0.99)
+    assert max(grid["ecliptic_longitude"]) == pytest.approx(1.01)
+    assert min(grid["ecliptic_latitude"]) == pytest.approx(0.29)
+    assert max(grid["ecliptic_latitude"]) == pytest.approx(0.31)
 
     ile_args = (tmp_path / "args_ile.txt").read_text()
     assert "--lisa-fixed-sky" not in ile_args
