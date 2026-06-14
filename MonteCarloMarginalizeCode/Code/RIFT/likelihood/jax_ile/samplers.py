@@ -922,7 +922,8 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
                            reuse_state=None, temper=1.0, temper_adapt=False,
                            temper_init=0.02, temper_ess_frac=0.5, temper_max_stages=16,
                            temper_max_dbeta=0.15, fisher_precondition=False,
-                           fisher_inv_T_min=0.5, verbose=False):
+                           fisher_inv_T_min=0.5, fisher_is_samples=0,
+                           fisher_is_inflate=1.3, verbose=False):
     """flowMC with φ_ref marginalised — 4-D sampler over (ra, dec, psi, incl).
 
     Identical in structure to :func:`flowmc_sample` except φ_ref is removed from
@@ -1265,6 +1266,54 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
         logZ, sigma_over_Z, neff = evidence_from_logweights(logw)
         logZ, sigma_over_Z, neff = _finalize_evidence(
             logZ, sigma_over_Z, neff, float(np.max(lnL)) if len(lnL) else np.nan)
+
+    # ---- High-SNR FALLBACK: Fisher-whitened importance sampling -------------
+    # The flow can collapse at extreme SNR (NF training nan -> a few unique sky
+    # points) even when the posterior is fine.  This draws sky samples DIRECTLY
+    # from the Fisher-whitened Gaussian about the (Newton-polished) MAP and
+    # importance-reweights by the true lnL -- no flow training, so it is immune to
+    # that collapse.  Overrides the sample set (theta,lnL); the TI logZ above stays
+    # the primary evidence (the IS logZ is reported as a cross-check).
+    if fisher_is_samples and fisher_is_samples > 0 and len(theta) >= 1:
+        if _W is not None:
+            mapT = np.asarray(_W["map"]); A_is = np.asarray(_W["A"])
+        else:
+            seed_best = (np.asarray(map_theta)[None, :] if map_theta is not None
+                         else theta[np.argmax(lnL)][None, :])
+            fw = _fisher_whitening(like, seed_best, helper_bounds, verbose=verbose)
+            mapT, A_is = (fw[0], fw[1]) if fw is not None else (None, None)
+        if mapT is not None:
+            cov_is = (float(fisher_is_inflate) ** 2) * (A_is @ A_is.T)
+            cov_is = 0.5 * (cov_is + cov_is.T)
+            try:
+                Lc = np.linalg.cholesky(cov_is + 1e-12 * np.eye(n_dim))
+                N = int(fisher_is_samples)
+                z = rng.standard_normal((N, n_dim))
+                th_is = mapT[None, :] + z @ Lc.T
+                logp = _log_prior(th_is)
+                valid = np.isfinite(logp)
+                lnL_is = np.full(N, -np.inf)
+                if valid.any():
+                    lnL_is[valid] = _eval_lnL(like, th_is[valid], desc="fisher-IS")
+                logq = _gaussian_logq(th_is, mapT, cov_is)
+                logw = np.where(valid & np.isfinite(lnL_is), lnL_is + logp - logq, -np.inf)
+                logZ_is, sigZ_is, neff_is = evidence_from_logweights(logw)
+                fin = np.isfinite(logw)
+                if fin.sum() >= 2:
+                    lw = logw[fin] - np.max(logw[fin])
+                    w = np.exp(lw); w = w / w.sum()
+                    nout = min(N, 4800)
+                    idx = rng.choice(np.where(fin)[0], size=nout, p=w)
+                    theta = th_is[idx]; lnL = lnL_is[idx]
+                    post_weight = np.ones(nout) / nout
+                    if verbose:
+                        print("  [fisher-IS] N=%d ESS=%.0f neff=%.0f unique=%d "
+                              "logZ_IS=%.2f (TI logZ=%.2f)"
+                              % (N, 1.0 / np.sum(w ** 2), neff_is,
+                                 len(np.unique(idx)), logZ_is, logZ), flush=True)
+            except Exception as e:                                # noqa: BLE001
+                if verbose:
+                    print("  [fisher-IS] failed (%r); keeping flow samples" % e)
 
     return dict(theta=theta, lnL=lnL, logZ=logZ, sigma_over_Z=sigma_over_Z,
                 neff=neff, flow_state=flow_state, post_weight=post_weight,

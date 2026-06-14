@@ -401,6 +401,13 @@ def build_parser():
                       "(1/SNR)-narrow high-SNR posterior is O(1) for the flow. "
                       "Restarts chains at the MAP. Recommended at SNR>=320 to avoid "
                       "the sky-sample collapse; harmless (~no-op) at low SNR.")
+    g.add_option("--fisher-is-samples", type=int, default=0,
+                 help="flowmc-phi(psi)marg high-SNR FALLBACK: after annealing, draw "
+                      "this many sky samples by Fisher-whitened importance sampling "
+                      "about the (Newton-polished) MAP and reweight by the true lnL "
+                      "(no flow training -> immune to the SNR>=640 NF-collapse). "
+                      "Overrides the exported samples; TI evidence is unchanged. "
+                      "0=off; ~40000 recommended at SNR>=640. Implies --fisher-precondition.")
     g.add_option("--interp", default="linear", choices=["linear", "nearest"])
     g.add_option("--sky-coordinates", default="equatorial",
                  choices=["equatorial", "network"],
@@ -971,7 +978,9 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 temper_ess_frac=opts.temper_ess_frac,
                 temper_max_stages=opts.temper_max_stages,
                 temper_max_dbeta=opts.temper_max_dbeta,
-                fisher_precondition=opts.fisher_precondition,
+                fisher_precondition=(opts.fisher_precondition
+                                     or opts.fisher_is_samples > 0),
+                fisher_is_samples=opts.fisher_is_samples,
                 seed=opts.seed, reuse_state=flow_state, verbose=opts.verbose)
             out_flow_state = res.get("flow_state")
         else:
