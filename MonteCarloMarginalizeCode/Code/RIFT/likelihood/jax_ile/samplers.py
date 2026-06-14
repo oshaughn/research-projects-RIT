@@ -896,7 +896,8 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
                            n_epochs=10, n_prior_pilot=8000, seed=0, mala_step_size=0.01,
                            reuse_state=None, temper=1.0, temper_adapt=False,
                            temper_init=0.02, temper_ess_frac=0.5, temper_max_stages=16,
-                           temper_max_dbeta=0.15, fisher_precondition=False, verbose=False):
+                           temper_max_dbeta=0.15, fisher_precondition=False,
+                           fisher_inv_T_min=0.5, verbose=False):
     """flowMC with φ_ref marginalised — 4-D sampler over (ra, dec, psi, incl).
 
     Identical in structure to :func:`flowmc_sample` except φ_ref is removed from
@@ -1001,13 +1002,18 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
     else:
         _warmup_compile(like, verbose=verbose)
 
-    # ---- Fisher preconditioning (recommended at high SNR) -------------------
+    # ---- Fisher preconditioning -------------------------------------------
     # Whiten the sample space around the MAP so the narrow posterior is O(1) for
-    # the flow.  Chains restart AT the MAP (whitened y~0) rather than the diffuse
-    # prior-pilot draws, which is what lets SNR>=640 converge instead of collapse.
-    if fisher_precondition:
-        fw = _fisher_whitening(like, np.asarray(init),
-                               _bounds_for_order(_param_order), verbose=verbose)
+    # the flow.  For the SINGLE-stage path we whiten up front from a cold MAP.
+    # For the ADAPT-ADAPT path we do NOT whiten cold: at very high SNR a cold
+    # gradient polish from the prior pilot cannot reach the (1/SNR)-narrow peak
+    # (its MAP sits ~thousands of nats low -> the Fisher there is far too broad ->
+    # the whitening fails and SNR>=640 still collapses).  Instead we RE-whiten
+    # inside the anneal loop from the tempering-tracked best sample once inv_T is
+    # high enough (see below), where the MAP polish starts near-peak and converges.
+    helper_bounds = _bounds_for_order(_param_order)
+    if fisher_precondition and not temper_adapt:
+        fw = _fisher_whitening(like, np.asarray(init), helper_bounds, verbose=verbose)
         if fw is not None:
             map_theta, A_w, A_inv_w, map_lnL = fw
             _W = dict(map=jnp.asarray(map_theta), A=jnp.asarray(A_w),
@@ -1050,6 +1056,7 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
         ti_beta = []; ti_mean = []; ti_sem = []   # ladder for thermodynamic integration
         ti_min_step_ess = np.inf                   # bottleneck inter-stage ESS
         stage = 0
+        _whitened_once = False                      # Fisher re-whitening done?
         while True:
             theta, lnL, trained_model = _one_pass(inv_T, positions, trained_model,
                                                   seed + stage)
@@ -1094,6 +1101,37 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
                 inv_T_new = min(inv_T_new, inv_T + float(temper_max_dbeta))
             ti_min_step_ess = min(ti_min_step_ess, float(_ess(inv_T_new)))
             inv_T = inv_T_new
+
+            # ---- adaptive Fisher re-whitening (the high-SNR fix) ----
+            # Once the anneal has tightened enough that the best tracked sample is
+            # near the true peak, re-estimate the whitening from THAT sample (the
+            # MAP polish now starts near-peak and converges, unlike a cold polish).
+            # The Fisher uses the full inv_T=1 lnL curvature, so one re-whitening is
+            # correct for all remaining (sharper) stages.  Reset the flow so it
+            # retrains in the new O(1) whitened coordinates.
+            if (fisher_precondition and not _whitened_once
+                    and inv_T >= float(fisher_inv_T_min) and len(lnL)):
+                best = np.asarray(positions[0])[None, :]   # highest-lnL tracked draw
+                fw = _fisher_whitening(like, best, helper_bounds, verbose=verbose)
+                if fw is not None:
+                    map_theta, A_w, A_inv_w, map_lnL = fw
+                    # accept only if the polish reached at least the tracked best
+                    if map_lnL >= float(np.max(lnL)) - 1.0:
+                        _W = dict(map=jnp.asarray(map_theta), A=jnp.asarray(A_w),
+                                  A_inv=jnp.asarray(A_inv_w))
+                        trained_model = None           # retrain flow in whitened coords
+                        positions = jnp.asarray(        # recentre chains at the MAP
+                            np.asarray(map_theta)[None, :]
+                            + (rng.normal(size=(n_chains, n_dim)) * 0.5) @ np.asarray(A_w).T)
+                        _whitened_once = True
+                        if verbose:
+                            widths = np.sqrt(np.clip(np.diag(A_w @ A_w.T), 0.0, None))
+                            print("  [fisher] re-whitened at inv_T=%.3g  MAP lnL=%.2f "
+                                  " theta-widths=%s" % (inv_T, map_lnL,
+                                  np.array2string(widths, precision=5)), flush=True)
+                    elif verbose:
+                        print("  [fisher] re-whiten skipped (polish %.1f < best %.1f)"
+                              % (map_lnL, float(np.max(lnL))), flush=True)
 
     next_positions = (theta[np.argsort(lnL)[::-1][:n_chains]]
                       if len(theta) >= n_chains else None)
