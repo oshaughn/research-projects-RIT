@@ -1327,7 +1327,8 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
 # ---------------------------------------------------------------------------
 def smc_puffball_sample(like, d_min, d_max, n_walkers=2000, seed=0,
                         ess_frac=0.5, max_stages=80, n_move=10, puff_scale=1.0,
-                        max_dbeta=0.25, verbose=False, **_ignore):
+                        max_dbeta=0.25, is_evidence=True, is_samples=60000,
+                        is_inflate=1.5, verbose=False, **_ignore):
     """Tempered adaptive SMC over the dist+phi(+psi) marginalized angular target.
 
     The flow collapses on sharp high-SNR peaks because it trusts one learned/Hessian
@@ -1439,11 +1440,48 @@ def smc_puffball_sample(like, d_min, d_max, n_walkers=2000, seed=0,
                   % (stage, inv_T, db, float(np.max(lnL)), acc / max(1, n_move), uniq),
                   flush=True)
 
+    logZ_smc = float(logZ)
     sigma_over_Z = float(1.0 / np.sqrt(ti_min_ess)) if ti_min_ess > 0 else np.nan
+    neff = float(ti_min_ess)
+
+    # ---- Cloud-fitted importance-sampling evidence (the accurate normalization) -
+    # The converged cloud now MAPS the posterior directly, so a moment-matched
+    # ("Fisher-like") Gaussian fit to the cloud -- inflated for fat tails -- is a
+    # GOOD IS proposal (unlike the earlier Hessian/MAP Fisher-IS, whose Gaussian
+    # came from an off-peak curvature).  IS reweighting then gives a well-conditioned
+    # normalization constant logZ = logmeanexp(lnL + log_prior - logq).  Forward-only
+    # (no AD).  This is reported as the primary logZ; the raw SMC logZ is kept too.
+    logZ_is = sigma_is = neff_is = np.nan
+    if is_evidence and len(cloud) >= n_dim + 2:
+        try:
+            mu = cloud.mean(axis=0)
+            C = np.atleast_2d(np.cov(cloud.T))
+            Cq = (float(is_inflate) ** 2) * C + 1e-10 * np.eye(n_dim)
+            Lq = np.linalg.cholesky(Cq)
+            N = int(is_samples)
+            th = _fix(mu[None, :] + rng.standard_normal((N, n_dim)) @ Lq.T)
+            logp = _log_prior(th)
+            good = np.isfinite(logp)
+            lnL_is = np.full(N, -np.inf)
+            if good.any():
+                lnL_is[good] = _eval(like, th[good], desc="smc-IS-Z")
+            logq = _gaussian_logq(th, mu, Cq)
+            logw = np.where(good & np.isfinite(lnL_is), lnL_is + logp - logq, -np.inf)
+            logZ_is, sigma_is, neff_is = evidence_from_logweights(logw)
+            if verbose:
+                print("  [smc-IS-Z] N=%d ESS=%.0f logZ_IS=%.3f (+/- %.3g) | logZ_SMC=%.3f"
+                      % (N, neff_is, logZ_is, sigma_is, logZ_smc), flush=True)
+            if np.isfinite(logZ_is):
+                logZ, sigma_over_Z, neff = float(logZ_is), float(sigma_is), float(neff_is)
+        except Exception as e:                                  # noqa: BLE001
+            if verbose:
+                print("  [smc-IS-Z] failed (%r); keeping SMC logZ" % e)
+
     return dict(theta=cloud, lnL=lnL, logZ=float(logZ),
-                sigma_over_Z=sigma_over_Z, neff=float(ti_min_ess),
+                sigma_over_Z=float(sigma_over_Z), neff=float(neff),
                 flow_state=None, post_weight=np.ones(W) / W, temper=1.0,
-                logZ_laplace=np.nan, lnL_map=float(np.max(lnL)) if len(lnL) else np.nan)
+                logZ_laplace=float(logZ_smc),
+                lnL_map=float(np.max(lnL)) if len(lnL) else np.nan)
 
 
 # ---------------------------------------------------------------------------
