@@ -245,6 +245,10 @@ parser.add_argument("--puff-exe",default=None,help="util_ParameterPuffball.py")
 parser.add_argument("--puff-args",default=None,help="util_ParameterPuffball arguments.  If not specified, puffball will not be performed  ")
 parser.add_argument("--puff-cadence",default=None,type=int,help="Every n iterations (not including 0), the puffball code will be applied.  Puffball points will be done *in addition* to the usual results from the DAG.  (The puffball is based on perturbing points from that iteration, and this will roughly double that iteration in ILE job size).  Proposed value 2 (i.e., puff overlap-grid-2, ...-4, ...-6.  If not specified, puffball will not be performed ")
 parser.add_argument("--puff-max-it",default=-1,type=int,help="Maximum iteration number that puffball is applied.  If negative, puffball is not applied ")
+parser.add_argument("--search-reflected-sky-mode",action='store_true',help="LISA: at one iteration, reflect the CIP-proposed grid's sky to the secondary (reflected) sky mode (the LISA latitude is bimodal), so that iteration explores the reflected mode.")
+parser.add_argument("--search-reflected-sky-mode-iteration",default=None,type=int,help="Iteration at which to reflect the sky grid.  Default: n_iterations-2 (the primary mode is mapped by then).")
+parser.add_argument("--reflected-sky-mode-exe",default=None,help="convert_primary_sky_mode_to_secondary executable.")
+parser.add_argument("--lisa-reference-time",default=0.0,type=float,help="LISA coalescence time (for the reflected-sky transform).")
 parser.add_argument("--calmarg-pilot",action='store_true',help="Option C adaptive calibration: add per-iteration cal PILOT jobs (harvest top-lnL points from iteration N's composite, run ILE --calibration-dump-responsibilities, fit+consolidate a cal proposal that SEEDS wide_{N+1} via --calibration-proposal-breadcrumb).  Requires the wide ILE args to already carry the calibration envelope + (per-iteration) proposal-breadcrumb path.")
 parser.add_argument("--calmarg-pilot-cadence",default=1,type=int,help="Run a cal pilot every n iterations.  Default 1 (every iteration until the cap).")
 parser.add_argument("--calmarg-pilot-max-it",default=3,type=int,help="Stop launching cal pilots after this iteration (cal is boring -> freeze the proposal once learned).  Default 3.")
@@ -1245,6 +1249,38 @@ if puff_args and puff_cadence:
     _add_hpip_condor_env(puff_job)
     puff_job.write_sub_file()
 
+# LISA reflected-sky-mode: a per-iteration node that reflects the CIP-proposed
+# grid's sky to the secondary mode (convert_primary_sky_mode_to_secondary),
+# overwriting overlap-grid-(it+1) in place so the NEXT iteration's ILE explores
+# the reflected mode.  arg_str ends with "--fname " so write_convert_sub's
+# add_arg(file_input) becomes --fname <grid>.
+reflected_mode_job = None
+reflected_mode_iter = None
+if opts.search_reflected_sky_mode and int(opts.n_iterations) > 1:
+    reflect_exe = opts.reflected_sky_mode_exe or dag_utils.which("convert_primary_sky_mode_to_secondary")
+    reflected_mode_iter = opts.search_reflected_sky_mode_iteration
+    if reflected_mode_iter is None:
+        reflected_mode_iter = int(opts.n_iterations) - 2
+    if reflected_mode_iter <= 0:
+        reflected_mode_iter = int(opts.n_iterations) - 1
+    reflected_mode_job, reflected_mode_job_name = dag_utils.write_convert_sub(
+        tag='reflected_sky_mode', log_dir=None,
+        arg_str="--lisa-reference-time {} --fname ".format(opts.lisa_reference_time),
+        file_input=opts.working_directory+'/overlap-grid-$(macroiterationnext).{}'.format(grid_suffix),
+        file_output=opts.working_directory+'/iteration_$(macroiteration)_cip/logs/reflected-sky-$(cluster)-$(process).out',
+        out_dir=opts.working_directory, exe=reflect_exe,
+        universe=local_worker_universe, no_grid=no_worker_grid)
+    reflected_mode_job.add_condor_cmd("initialdir", opts.working_directory+"/iteration_$(macroiteration)_cip")
+    reflected_mode_job.set_log_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/reflected-sky-$(cluster)-$(process).log")
+    reflected_mode_job.set_stderr_file(opts.working_directory+"/iteration_$(macroiteration)_cip/logs/reflected-sky-$(cluster)-$(process).err")
+    reflected_mode_job.add_condor_cmd('request_disk', opts.general_request_disk)
+    if opts.use_full_submit_paths:
+        reflected_mode_job.set_sub_file(opts.working_directory+"/"+reflected_mode_job.get_sub_file())
+    if opts.condor_containerize_nonworker and singularity_image:
+        reflected_mode_job.add_condor_cmd("+SingularityImage", '"' + singularity_image + '"')
+    _add_hpip_condor_env(reflected_mode_job)
+    reflected_mode_job.write_sub_file()
+
 
 ##   calibration PILOT job (Option C adaptive cal; see RIFT/calmarg/DESIGN_adaptive_driver.md)
 calpilot_job = None
@@ -2096,6 +2132,22 @@ for it in np.arange(it_start,opts.n_iterations):
         # halts at the PUFF stage.  Keep parent_fit_node = the fit chain; carry the puff barrier
         # separately in last_puff_node, applied to ilePuff jobs via extra_parent_nodes.
         last_puff_node = puff_node
+
+    # LISA reflected-sky-mode: at the chosen iteration, reflect the grid CIP just
+    # produced (overlap-grid-(it+1)) BEFORE the next iteration's ILE reads it.
+    # Unlike puffball this MUST gate the next ILE (it rewrites the grid in place),
+    # so fold it into parent_fit_node.
+    if (reflected_mode_job is not None) and (it == reflected_mode_iter):
+        print(" Reflected-sky-mode for iteration ", it)
+        reflect_node = pipeline.CondorDAGNode(reflected_mode_job)
+        reflect_node.add_macro("macroiteration", it)
+        reflect_node.add_macro("macroiterationnext", it+1)
+        reflect_node.set_category("CONVERT")
+        reflect_node.set_retry(opts.general_retries)
+        if not (parent_fit_node is None):
+            reflect_node.add_parent(parent_fit_node)
+        dag.add_node(reflect_node)
+        parent_fit_node = reflect_node
 
     # Calibration PILOT for this iteration (Option C).  Runs IN PARALLEL with CIP/puff --
     # it does NOT gate them (parent_fit_node is left untouched) -- harvesting iteration

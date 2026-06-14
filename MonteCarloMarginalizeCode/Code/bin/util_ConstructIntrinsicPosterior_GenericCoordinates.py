@@ -257,6 +257,8 @@ parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptiv
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
+parser.add_argument("--phi-range",default=None,help="LISA ecliptic-longitude (phi) range [lo,hi].")
+parser.add_argument("--theta-range",default=None,help="LISA ecliptic-latitude (theta) range [lo,hi].")
 parser.add_argument("--trust-sample-parameter-box",action='store_true', help="If used, sets the prior range to the SAMPLE range for any parameters. NOT IMPLEMENTED. This should be automatically done for mc!")
 parser.add_argument("--plots-do-not-force-large-range",action='store_true', help = "If used, the plots do NOT automatically set the chieff range to [-1,1], the eta range to [0,1/4], etc")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
@@ -962,7 +964,10 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'meanPerAno':meanPerAno_prior,
     'chi_pavg':precession_prior,
     'mu1': unnormalized_log_prior,
-    'mu2': unnormalized_uniform_prior
+    'mu2': unnormalized_uniform_prior,
+    # LISA ecliptic sky (phi=longitude, theta=latitude); uniform priors
+    'phi': (lambda x: 1./(2*np.pi)),
+    'theta': (lambda x: 1./np.pi),
 }
 prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_small_max,0.999*chi_small_max], "mc":[0.9,250], "eta":[0.01,0.2499999],'delta_mc':[0,0.9], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
    's1x':[-chi_max,chi_max],
@@ -998,12 +1003,18 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'chi2_perp_u':[0,1],
   's1z_bar':[-1,1],
   's2z_bar':[-1,1],
-  'mu1':[0.0001,1e3],    # suboptimal, but something  
-  'mu2':[-300,1e3]
+  'mu1':[0.0001,1e3],    # suboptimal, but something
+  'mu2':[-300,1e3],
+  'phi':[0, 2*np.pi],          # LISA ecliptic longitude (override via --phi-range)
+  'theta':[-np.pi/2, np.pi/2]  # LISA ecliptic latitude  (override via --theta-range)
 }
 if not (opts.chiz_plus_range is None):
     print(" Warning: Overriding default chiz_plus range. USE WITH CARE", opts.chiz_plus_range)
     prior_range_map['chiz_plus']=eval(opts.chiz_plus_range)
+if not (opts.phi_range is None):
+    prior_range_map['phi']=eval(opts.phi_range)
+if not (opts.theta_range is None):
+    prior_range_map['theta']=eval(opts.theta_range)
 
 if not (opts.eta_range is None):
     print(f" Warning: Overriding default eta range to {eval(opts.eta_range)}. USE WITH CARE")
@@ -1841,20 +1852,27 @@ if _use_hpip:
     _use_tides = bool(opts.input_tides) or _has("lambda1")
     _use_eos = bool(opts.input_eos_index) or _has("eos_table_index")
     _use_dist = bool(opts.input_distance) or _has("distance")
+    # LISA sky: ecliptic_longitude/latitude are NAMED columns -> carry them
+    # through (aliased to P.phi/P.theta), so the sky is fit/sampled like any
+    # other coordinate.  No positional all.net hacking.
+    _use_sky = _has("ecliptic_longitude")
     dat = _hpio.to_legacy_dat(_arr,
                               use_eccentricity=_use_ecc, use_meanPerAno=_use_mpa,
                               use_tides=_use_tides, use_eos_index=_use_eos,
-                              use_distance=_use_dist)
+                              use_distance=_use_dist, use_sky=_use_sky)
     _ix = _hpio.legacy_column_indices(
         use_eccentricity=_use_ecc, use_meanPerAno=_use_mpa,
         use_tides=_use_tides, use_eos_index=_use_eos,
-        use_distance=_use_dist)
+        use_distance=_use_dist, use_sky=_use_sky)
     col_lnL = _ix["lnL"]
     col_distance = _ix["distance"]
     col_lambda1 = _ix["lambda1"]
     col_eccentricity = _ix["eccentricity"]
     col_meanPerAno = _ix["meanPerAno"]
+    col_ecliptic_longitude = _ix["ecliptic_longitude"]
+    col_ecliptic_latitude = _ix["ecliptic_latitude"]
 else:
+    _use_sky = False
     dat = np.loadtxt(opts.fname)
 dat_orig = dat
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
@@ -1955,7 +1973,12 @@ for line in dat:
 #            P.meanPerAno = line[10]
     if opts.input_distance:
         P.dist = lal.PC_SI*1e6*line[col_distance]  # 9. Previously incompatible with tides when hardcoded
-    
+    if _use_sky:
+        # LISA ecliptic sky stored as P.phi (longitude) / P.theta (latitude),
+        # matching hyperpipeline_io's column alias.  Fit/sample as 'phi'/'theta'.
+        P.phi = line[col_ecliptic_longitude]
+        P.theta = line[col_ecliptic_latitude]
+
     if opts.contingency_unevolved_neff == "quadpuff":
         P_copy = P.manual_copy()  # prevent duplication
         P_list_in.append(P_copy) # store  it, make sure distinct
@@ -3026,7 +3049,7 @@ if neff < opts.n_eff:
             _cols_out = _hpio.build_column_list(
                 use_eccentricity=opts.use_eccentricity, use_meanPerAno=opts.use_meanPerAno,
                 use_tides=opts.input_tides, use_eos_index=opts.input_eos_index,
-                use_distance=False)
+                use_distance=False, use_sky=_use_sky)
             _hpio.write_grid_from_P_list(opts.fname_output_samples,
                                          P_out_list[:n_output_size],
                                          _cols_out,
@@ -3555,7 +3578,7 @@ if _hpio.is_active():
     _cols_out = _hpio.build_column_list(
         use_eccentricity=opts.use_eccentricity, use_meanPerAno=opts.use_meanPerAno,
         use_tides=opts.input_tides, use_eos_index=opts.input_eos_index,
-        use_distance=False)
+        use_distance=False, use_sky=_use_sky)
     _hpio.write_grid_from_P_list(opts.fname_output_samples,
                                  P_list[:n_output_size],
                                  _cols_out,

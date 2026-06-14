@@ -293,6 +293,16 @@ def run_lisa_known_sky_surface(opts):
             "--puff-cadence", "1",
             "--puff-max-it", str(opts.lisa_n_iterations),
         ]
+    # LISA reflected-sky-mode (vary-sky): reflect the grid at one iteration to
+    # explore the secondary sky mode (latitude bimodality).
+    if opts.lisa_search_reflected_sky_mode and opts.lisa_n_iterations > 1:
+        cepp_cmd += [
+            "--search-reflected-sky-mode",
+            "--reflected-sky-mode-exe", os.path.join(bin_dir, "convert_primary_sky_mode_to_secondary"),
+            "--lisa-reference-time", str(opts.lisa_reference_time),
+        ]
+        if opts.lisa_search_reflected_sky_mode_iteration is not None:
+            cepp_cmd += ["--search-reflected-sky-mode-iteration", str(opts.lisa_search_reflected_sky_mode_iteration)]
     print(" LISA known-sky CEPP command: ", " ".join(shlex.quote(x) for x in cepp_cmd))
     subprocess.run(cepp_cmd, check=True, cwd=workdir, env=env)
     print(" LISA known-sky CEPP surface rendered in {}".format(workdir))
@@ -358,10 +368,13 @@ parser.add_argument("--lisa-reference-freq",default=5.0e-3,type=float,help="With
 parser.add_argument("--lisa-srate",default=0.25,type=float,help="With --lisa-known-sky, sample rate. Kept as float for long-duration LISA data.")
 parser.add_argument("--lisa-data-integration-window-half",default=300.0,type=float,help="With --lisa-known-sky, half-width of the ILE data integration window.")
 parser.add_argument("--lisa-no-puff",action="store_true",help="Disable the inter-iteration puffball for the known-sky LISA path.")
+parser.add_argument("--lisa-search-reflected-sky-mode",action="store_true",help="LISA vary-sky: at one iteration, reflect the grid to the secondary sky mode (handles the LISA latitude bimodality).")
+parser.add_argument("--lisa-search-reflected-sky-mode-iteration",default=None,type=int,help="Iteration to reflect the sky (default n_iterations-2).")
+parser.add_argument("--lisa-reference-time",default=0.0,type=float,help="LISA coalescence/reference time (for the reflected-sky transform).")
 parser.add_argument("--lisa-use-singularity",action="store_true",help="Forward --use-singularity to the CEPP for the known-sky LISA path. The container wiring + transfer is then emitted by write_ILE_sub_simple, exactly as for the LDG path; set SINGULARITY_RIFT_IMAGE (osdf:// staged image preferred, so dag_utils file-transfers it) and SINGULARITY_BASE_EXE_DIR (dir of the LISA ILE *inside* the image).")
 parser.add_argument("--lisa-grid-size",default=3,type=int,help="With --lisa-known-sky, number of synthetic initial-grid points.")
 parser.add_argument("--lisa-grid-fractional-width",default=1.0e-3,type=float,help="With --lisa-known-sky, fractional mass width for the initial grid.")
-parser.add_argument("--lisa-sky-grid-width",default=1.0e-3,type=float,help="With --lisa-known-sky --lisa-vary-sky, ecliptic sky half-step scale for the initial grid.")
+parser.add_argument("--lisa-sky-grid-width",default=0.02,type=float,help="With --lisa-known-sky --lisa-vary-sky, ecliptic sky half-step scale for the initial grid.")
 parser.add_argument("--lisa-n-iterations",default=1,type=int,help="With --lisa-known-sky, CEPP iteration count.")
 parser.add_argument("--lisa-n-samples-per-job",default=1,type=int,help="With --lisa-known-sky, CEPP samples per job.")
 parser.add_argument("--lisa-zero-likelihood",action='store_true',help="With --lisa-known-sky, pass --zero-likelihood through to the LISA ILE args.")

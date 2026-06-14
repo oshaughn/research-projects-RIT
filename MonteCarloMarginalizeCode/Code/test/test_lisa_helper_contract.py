@@ -130,19 +130,22 @@ def test_lisa_helper_variable_sky_uses_grid_sky(tmp_path):
     assert grid.shape[0] >= 3
     assert len(set(grid["ecliptic_longitude"])) > 1
     assert len(set(grid["ecliptic_latitude"])) > 1
-    assert min(grid["ecliptic_longitude"]) == pytest.approx(0.99)
-    assert max(grid["ecliptic_longitude"]) == pytest.approx(1.01)
-    assert min(grid["ecliptic_latitude"]) == pytest.approx(0.29)
-    assert max(grid["ecliptic_latitude"]) == pytest.approx(0.31)
+    # off-lattice sky jitter within +/- sky_grid_width (see pp_surface test for
+    # the collinearity rationale); assert it varies and stays in the width box.
+    assert all(abs(x - 1.0) <= 0.01 + 1e-9 for x in grid["ecliptic_longitude"])
+    assert all(abs(x - 0.3) <= 0.01 + 1e-9 for x in grid["ecliptic_latitude"])
 
     ile_args = (tmp_path / "args_ile.txt").read_text()
-    assert "--lisa-fixed-sky" not in ile_args
+    # vary-sky: ILE uses the per-row grid sky (--lisa-fixed-sky 1), no hardcode.
+    assert "--lisa-fixed-sky" in ile_args
     assert "--ecliptic-longitude" not in ile_args
     assert "--ecliptic-latitude" not in ile_args
 
     cip_args = (tmp_path / "args_cip_list.txt").read_text()
-    assert "--parameter ecliptic_longitude" in cip_args
-    assert "--parameter ecliptic_latitude" in cip_args
+    # CIP fits sky as phi/theta; hyperpipeline aliases the ecliptic_longitude/
+    # latitude NAMED columns into P.phi/P.theta on read (no positional all.net).
+    assert "--parameter phi" in cip_args
+    assert "--parameter theta" in cip_args
 
 
 def test_lisa_helper_bundle_renders_basic_cepp_dag(tmp_path):

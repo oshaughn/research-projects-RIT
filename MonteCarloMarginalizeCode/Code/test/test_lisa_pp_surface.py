@@ -103,10 +103,18 @@ def test_lisa_pp_variable_sky_surface_builds_intrinsic_sky_grid(tmp_path):
     assert grid.shape[0] >= 3
     assert len(set(grid["ecliptic_longitude"])) > 1
     assert len(set(grid["ecliptic_latitude"])) > 1
-    assert max(grid["ecliptic_longitude"]) - min(grid["ecliptic_longitude"]) == pytest.approx(0.02)
-    assert max(grid["ecliptic_latitude"]) - min(grid["ecliptic_latitude"]) == pytest.approx(0.02)
+    # vary-sky jitters each point's sky OFF-LATTICE within +/- sky_grid_width so
+    # (mc, eta, phi, theta) span 4 independent dims -- a sky tied to the mass
+    # index would be collinear with mass1/mass2 -> singular CIP fit.  Assert the
+    # sky varies and stays inside the +/- width box, not at exact lattice ends.
+    assert 0 < max(grid["ecliptic_longitude"]) - min(grid["ecliptic_longitude"]) <= 0.02 + 1e-9
+    assert 0 < max(grid["ecliptic_latitude"]) - min(grid["ecliptic_latitude"]) <= 0.02 + 1e-9
+    assert all(abs(x - 1.0) <= 0.01 + 1e-9 for x in grid["ecliptic_longitude"])
+    assert all(abs(x - 0.3) <= 0.01 + 1e-9 for x in grid["ecliptic_latitude"])
 
     ile_args = (rundir / "args_ile.txt").read_text()
-    assert "--lisa-fixed-sky" not in ile_args
+    # vary-sky: ILE evaluates each grid point at its OWN fixed sky (--lisa-fixed-sky
+    # 1, supplied per-row via --sim-grid); no single hardcoded ecliptic sky.
+    assert "--lisa-fixed-sky" in ile_args
     assert "--ecliptic-longitude" not in ile_args
     assert "--ecliptic-latitude" not in ile_args

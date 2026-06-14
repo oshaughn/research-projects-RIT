@@ -78,15 +78,18 @@ def _write_initial_grid(path, opts):
         # degenerate for CIP's 2-D (mc,eta) quadratic/rf fit (-> NaN/no output).
         side = max(2, int(round(np.sqrt(opts.grid_size))))
         offs = np.linspace(-1.0, 1.0, side) * opts.grid_fractional_width
-        sky_offs = np.linspace(-1.0, 1.0, side) * opts.sky_grid_width
+        # vary-sky: jitter the ecliptic sky INDEPENDENTLY of the mass lattice, so
+        # the grid spans (mc, eta, phi, theta) in 4-D (a sky tied to the mass
+        # index would lie on a 2-D manifold -> degenerate for the 4-D CIP fit).
+        rng = np.random.RandomState(0)
         for i, oi in enumerate(offs):
             for j, oj in enumerate(offs):
                 row = base.copy()
                 row[2] = opts.mass1 * (1.0 + oi)
                 row[3] = opts.mass2 * (1.0 + oj)
                 if opts.vary_sky:
-                    row[10] = opts.ecliptic_longitude + sky_offs[i]
-                    row[11] = opts.ecliptic_latitude + sky_offs[j]
+                    row[10] = opts.ecliptic_longitude + rng.uniform(-1.0, 1.0) * opts.sky_grid_width
+                    row[11] = opts.ecliptic_latitude + rng.uniform(-1.0, 1.0) * opts.sky_grid_width
                 rows.append(row)
     hyperpipeline_io.write_table(path, columns, np.array(rows))
 
@@ -133,7 +136,7 @@ def build_parser():
     parser.add_argument("--vary-sky", action="store_true", help="Treat ecliptic sky location as an intrinsic grid parameter.")
     parser.add_argument("--grid-size", type=int, default=3)
     parser.add_argument("--grid-fractional-width", type=float, default=1.0e-3)
-    parser.add_argument("--sky-grid-width", type=float, default=1.0e-3)
+    parser.add_argument("--sky-grid-width", type=float, default=0.02)  # rad; vary-sky grid sky jitter
 
     parser.add_argument("--approximant", default="IMRPhenomD")
     parser.add_argument("--fmin-template", type=float, default=1.0e-4)  # in-band for LISA (1e-3 starts near top of band)
@@ -251,12 +254,18 @@ def main(argv=None):
         ile_parts.append("--no-adapt")
     else:
         ile_parts.append("--force-adapt-all")
+    # ILE always evaluates at a FIXED sky per grid point.  Known-sky: the single
+    # injected sky (hardcoded).  Vary-sky: each grid point carries its own
+    # ecliptic_longitude/latitude, which --sim-grid feeds into the ILE -- so we
+    # still pass --lisa-fixed-sky 1 but let the per-row grid sky win (no hardcode).
     if not opts.vary_sky:
         ile_parts[3:3] = [
             "--lisa-fixed-sky", "1",
             "--ecliptic-longitude", opts.ecliptic_longitude,
             "--ecliptic-latitude", opts.ecliptic_latitude,
         ]
+    else:
+        ile_parts[3:3] = ["--lisa-fixed-sky", "1"]
     if opts.zero_likelihood:
         ile_parts.append("--zero-likelihood")
     _write_arg_file(ile_args, ile_parts)
@@ -267,9 +276,20 @@ def main(argv=None):
     # waveform-parameter machinery (-> "No attribute ecliptic_longitude").  Only
     # add the sky as a fit parameter when it is varied (--vary-sky).
     cip_params = ["--parameter", "mc", "--parameter", "eta"]
+    # LISA sky is fit as phi (ecliptic longitude) / theta (ecliptic latitude):
+    # CIP reads the ecliptic_longitude/latitude NAMED hyperpipeline columns into
+    # P.phi/P.theta (hyperpipeline_io alias) and fits them as ordinary
+    # coordinates -- no positional all.net special-casing.
+    sky_range_args = []
     if opts.vary_sky:
-        cip_params += ["--parameter", "ecliptic_longitude",
-                       "--parameter", "ecliptic_latitude"]
+        _skw = max(3.0 * opts.sky_grid_width, 0.06)
+        cip_params += ["--parameter", "phi", "--parameter", "theta"]
+        sky_range_args = [
+            "--phi-range", "[{},{}]".format(opts.ecliptic_longitude - _skw,
+                                            opts.ecliptic_longitude + _skw),
+            "--theta-range", "[{},{}]".format(opts.ecliptic_latitude - _skw,
+                                              opts.ecliptic_latitude + _skw),
+        ]
     # CIP's posterior MC sampler defaults to a STELLAR-mass chirp-mass range
     # ([0.9, 250] Msun); for a LISA MBHB (mc ~ 1e4-1e7 Msun) the sampler would
     # never place a point near the signal -> eff_samp=nan.  Bracket mc and mtot
@@ -303,6 +323,7 @@ def main(argv=None):
         "--internal-use-lnL",
         *cip_params,
         *cip_range_args,
+        *sky_range_args,
         "--n-output-samples", opts.cip_n_output_samples,
         "--lnL-offset", opts.cip_lnL_offset,
         # LISA sources are massive black-hole binaries (M ~ 1e4-1e8 Msun), far
@@ -320,13 +341,17 @@ def main(argv=None):
     # next iteration's grid is not a near-degenerate cluster (which makes the CIP
     # refit ill-conditioned and diverge).  The CEPP wraps this with --inj-file /
     # --inj-file-out; we supply the perturbation parameters + physical bounds.
-    _write_arg_file(puff_args, [
+    puff_parts = [
         "--parameter", "mc", "--parameter", "eta",
         "--puff-factor", opts.puff_factor,
         "--mc-range", "[{},{}]".format(_mc * (1.0 - _w), _mc * (1.0 + _w)),
         "--mtot-range", "[{},{}]".format(_mtot * (1.0 - _w), _mtot * (1.0 + _w)),
         "--eta-range", "[{},{}]".format(_eta * (1.0 - _w), min(0.2499999, _eta * (1.0 + _w))),
-    ])
+    ]
+    if opts.vary_sky:
+        # puff the sky too (phi/theta), else the next grid's sky collapses
+        puff_parts += ["--parameter", "phi", "--parameter", "theta"]
+    _write_arg_file(puff_args, puff_parts)
 
     _write_arg_file(test_args, [
         "--method", "lame",
