@@ -156,13 +156,45 @@ def unsafe_parse_arg_string_dict(my_argstr):
     return dict_return
 
 
+def _lisa_data_products_from_ini(opts):
+    """Fill the LISA data-product opts (channels / PSD files) from the conventional
+    production-ini sections so a LISA run can be driven by --use-ini like the
+    ground-based path.  Scalars and lisa-* algorithm options are already populated
+    by the generic [rift-pseudo-pipe] parser (any CLI arg, by name); here we only
+    translate the per-channel *dict* products that don't map cleanly to a flat key:
+
+      [data]         channels = {'A': 'fake_strain', 'E': ..., 'T': ...}
+      [lalinference] psds     = {'A': 'A_psd.xml.gz', ...}
+
+    Values already set (e.g. via [rift-pseudo-pipe] lisa-channel-name) win, so the
+    flat CLI surface still overrides.  Read-only; no LDG data-find is invoked.
+    """
+    import configparser as _CfgP
+    cfg = _CfgP.ConfigParser()
+    cfg.optionxform = str
+    cfg.read(opts.use_ini)
+
+    def _dict_to_assignments(section, key):
+        if not cfg.has_option(section, key):
+            return None
+        mapping = eval(cfg.get(section, key))
+        return ["{}={}".format(ifo, val) for ifo, val in mapping.items()]
+
+    if not opts.lisa_channel_name:
+        opts.lisa_channel_name = _dict_to_assignments("data", "channels")
+    if not opts.lisa_psd_file:
+        opts.lisa_psd_file = _dict_to_assignments("lalinference", "psds")
+
+
 def run_lisa_known_sky_surface(opts):
     if opts.approx is None:
         print(" --lisa-known-sky requires --approx ")
         sys.exit(1)
     if opts.use_ini is not None:
-        print(" --lisa-known-sky does not parse lalinference INI files yet; pass LISA data products directly. ")
-        sys.exit(1)
+        # LISA production-ini path: scalars/algorithm options come from the
+        # generic [rift-pseudo-pipe] parser; fill the per-channel data products
+        # (channels, PSDs) from the conventional [data]/[lalinference] sections.
+        _lisa_data_products_from_ini(opts)
 
     bin_dir = os.path.dirname(os.path.abspath(__file__))
     helper = os.path.join(bin_dir, "helper_LISA_Events.py")

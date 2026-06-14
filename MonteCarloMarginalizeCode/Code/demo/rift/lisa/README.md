@@ -98,3 +98,27 @@ Useful environment overrides:
 Expected heavyweight outputs include `event_0/` synthetic data products,
 `analysis_event_0/` CEPP files, `lisa_end_to_end_0_.dat`, and
 `lisa_end_to_end_summary.json`.
+
+## Production-ini path
+
+The same known-sky workflow can be driven from an `.ini` file through the
+production entry point, instead of `--lisa-*` CLI flags:
+
+```bash
+util_RIFT_pseudo_pipe.py --use-ini BBH_lisa_demo.ini --use-rundir <RUNDIR>
+```
+
+`BBH_lisa_demo.ini` is a toy template (IMRPhenomD, vary-sky + reflected-sky).
+Per-channel data products are read from the conventional `[data]` (`channels`)
+and `[lalinference]` (`psds`) sections; every other option flows through the
+generic `[rift-pseudo-pipe]` parser by CLI-arg name.  ConfigParser does no path
+interpolation, so substitute the `__BUNDLE_DIR__` placeholder for the absolute
+bundle path.  The convenience script does the build + substitute + render:
+
+```bash
+./MonteCarloMarginalizeCode/Code/demo/rift/lisa/run_lisa_ini_demo.sh
+```
+
+The ini path is a thin front-end over the validated CLI machinery: it renders a
+byte-identical workflow (see `test/test_lisa_ini_contract.py`), so it does not
+submit and stays a drop-in alternative to the CLI form.
