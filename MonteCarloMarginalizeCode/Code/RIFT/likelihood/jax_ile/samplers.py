@@ -1468,10 +1468,17 @@ def smc_puffball_sample(like, d_min, d_max, n_walkers=2000, seed=0,
             logq = _gaussian_logq(th, mu, Cq)
             logw = np.where(good & np.isfinite(lnL_is), lnL_is + logp - logq, -np.inf)
             logZ_is, sigma_is, neff_is = evidence_from_logweights(logw)
+            # Only TRUST the cloud-IS evidence when the proposal actually covers the
+            # posterior (high ESS): excellent at high SNR (tight ~Gaussian cloud,
+            # ESS~1e4) but a single Gaussian is too crude for the broad multimodal
+            # low-SNR sky (ESS~30) -- there, keep the raw SMC logZ.  ESS>=2% of N is
+            # the gate (a single-Gaussian over a unimodal-ish posterior gives tens of %).
+            is_ok = np.isfinite(logZ_is) and neff_is >= max(500.0, 0.02 * N)
             if verbose:
                 print("  [smc-IS-Z] N=%d ESS=%.0f logZ_IS=%.3f (+/- %.3g) | logZ_SMC=%.3f"
-                      % (N, neff_is, logZ_is, sigma_is, logZ_smc), flush=True)
-            if np.isfinite(logZ_is):
+                      "  -> %s" % (N, neff_is, logZ_is, sigma_is, logZ_smc,
+                                   "USE IS-Z" if is_ok else "low-ESS, keep SMC"), flush=True)
+            if is_ok:
                 logZ, sigma_over_Z, neff = float(logZ_is), float(sigma_is), float(neff_is)
         except Exception as e:                                  # noqa: BLE001
             if verbose:
