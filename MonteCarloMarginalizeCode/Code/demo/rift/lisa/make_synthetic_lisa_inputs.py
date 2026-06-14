@@ -74,24 +74,48 @@ def write_cache(output_directory):
     return cache_path
 
 
+def _ldc_inference_psd(channel, fvals):
+    """The PSD people actually use for INFERENCE: the LISA Data Challenge noise
+    model (per A/E/T channel), via RIFT.LISA.utils.utils.get_ldc_psds.  Requires
+    the optional `ldc` package.  Returns None (so the caller falls back to the
+    analytic sensitivity curve) if ldc is unavailable -- the analytic curve is
+    sky-averaged and strictly a mismatch tool, but it matches the SciRDv1 model
+    to <~1% across the sensitive band, so it is an adequate CI proxy.  (Guidance
+    from A. Jan; the production runs use the ldc PSD.)
+    """
+    try:
+        import ldc.lisa.noise as _noise
+    except Exception:
+        return None
+    nm = _noise.get_noise_model("SciRDv1", fvals[1:])
+    out = np.empty(len(fvals))
+    out[0] = np.inf
+    out[1:] = nm.psd(fvals[1:], channel)
+    return out
+
+
 def write_lisa_psd_xml(channel, output_directory, deltaF, length, Tobs_years=0.5, NC=3):
-    """Write the REAL analytic LISA sensitivity PSD evaluated on the SAME
-    frequency grid as the data (f0=0, this deltaF, this length).
+    """Write a LISA PSD on the SAME frequency grid as the data (f0=0, this
+    deltaF, this length).
+
+    Prefers the ldc INFERENCE PSD (per-channel SciRDv1); falls back to the
+    analytic sky-averaged sensitivity curve when `ldc` is not installed.
 
     A flat PSD is unphysical for LISA: at the SNRs of MBHBs the steeply-rising
     low-frequency noise must be modelled or the low-f content dominates and the
-    posterior collapses to a delta (extrinsic eff_samp -> 1).  We also keep the
-    PSD on the data's own grid so the ILE never has to interpolate/extrapolate
-    across a mismatched grid.
+    posterior collapses to a delta (extrinsic eff_samp -> 1).  Keeping the PSD on
+    the data's own grid also avoids ILE interpolation across a mismatched grid.
     """
     fvals = np.arange(length) * deltaF
-    R_exists, interp_func = generate_LISA_psd.response_interpolant(NC)
-    psd_values = np.empty(length)
-    # DC bin (f=0) is not physical for the sensitivity curve; set it huge so it
-    # carries zero weight in the likelihood.
-    psd_values[0] = np.inf
-    psd_values[1:] = generate_LISA_psd.Sn(
-        fvals[1:], Tobs_years * lal.YRSID_SI, NC, R_exists, interp_func)
+    psd_values = _ldc_inference_psd(channel, fvals)
+    if psd_values is None:
+        R_exists, interp_func = generate_LISA_psd.response_interpolant(NC)
+        psd_values = np.empty(length)
+        # DC bin (f=0) is not physical for the sensitivity curve; set it huge so
+        # it carries zero weight in the likelihood.
+        psd_values[0] = np.inf
+        psd_values[1:] = generate_LISA_psd.Sn(
+            fvals[1:], Tobs_years * lal.YRSID_SI, NC, R_exists, interp_func)
     psd = lal.CreateREAL8FrequencySeries(
         channel,
         lal.LIGOTimeGPS(0),

@@ -158,7 +158,7 @@ def build_parser():
     parser.add_argument("--n-chunk", type=int, default=500)
     parser.add_argument("--save-P", type=float, default=0.1)
 
-    parser.add_argument("--cip-fit-method", default="quadratic")
+    parser.add_argument("--cip-fit-method", default="rf")  # paper uses random-forest; robust to non-quadratic lnL surfaces
     parser.add_argument("--cip-sampler-method", default="AV")
     parser.add_argument("--cip-iterations", default="1")
     parser.add_argument("--cip-n-output-samples", type=int, default=100)
