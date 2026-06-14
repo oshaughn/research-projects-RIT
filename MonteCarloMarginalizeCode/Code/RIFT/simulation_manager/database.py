@@ -305,12 +305,31 @@ class StatusRecord:
         return self.data.get("current_level", 0) < self.data.get("target_level", 0)
 
     def write(self, sim_dir: Union[str, Path]) -> None:
-        Path(sim_dir, self.FILENAME).write_text(
-            json.dumps(self.data, indent=2, sort_keys=True) + "\n")
+        # Atomic write: a plain write_text() truncates the file to 0 bytes
+        # before refilling it, so a concurrent reader (parallel marg jobs all
+        # share one archive) can observe an EMPTY status.json -> JSONDecodeError.
+        # Mirror IndexAppend._write_all: write a per-PID/thread temp then
+        # os.replace() it in (atomic on POSIX). Reader never sees a partial file.
+        path = Path(sim_dir, self.FILENAME)
+        tmp = path.with_name(
+            "{}.{}.{}.tmp".format(path.name, os.getpid(), threading.get_ident()))
+        tmp.write_text(json.dumps(self.data, indent=2, sort_keys=True) + "\n")
+        os.replace(tmp, path)   # atomic on POSIX
 
     @classmethod
     def read(cls, sim_dir: Union[str, Path]) -> "StatusRecord":
-        return cls(json.loads(Path(sim_dir, cls.FILENAME).read_text()))
+        # Defensive: even with atomic writes, a networked fs can briefly expose
+        # an empty/partial read between create and rename. Retry a few times on
+        # a decode error before giving up.
+        path = Path(sim_dir, cls.FILENAME)
+        for attempt in range(5):
+            text = path.read_text()
+            try:
+                return cls(json.loads(text))
+            except json.JSONDecodeError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.05)
 
 
 # ---------------------------------------------------------------------------
