@@ -32,6 +32,21 @@ original ``.composite`` (K=10 by default).
 import numpy as np
 
 
+def _to_cpu(x):
+    """Host (numpy) view of x, converting cupy arrays if needed.
+
+    On GPU ILE runs the sampler stores CUPY arrays in ``_rvs`` and the cached
+    likelihood returns cupy; numpy refuses implicit conversion of those
+    ("Implicit conversion to a NumPy array is not allowed. Please use .get()").
+    This collapses cupy -> numpy at the boundary. Plain numpy arrays / python
+    scalars pass straight through (cupy is not even imported here).
+    """
+    get = getattr(x, "get", None)
+    if get is not None and type(x).__module__.split(".")[0] == "cupy":
+        return get()
+    return x
+
+
 DISTANCE_SLICE_FIELDS = (
     "lnL",        # extrinsic-marginalized lnL at d=dist (pure likelihood,
                   # i.e. distance sampling prior divided out)
@@ -105,14 +120,14 @@ def _ln_omega_iw_factor(rvs, ln_prior_d_at_samples, ln_proposal_d_at_samples):
     """
     # Pull joint prior / proposal ratio
     if "joint_prior" in rvs and "joint_s_prior" in rvs:
-        jp = np.asarray(rvs["joint_prior"], float)
-        jsp = np.asarray(rvs["joint_s_prior"], float)
+        jp = np.asarray(_to_cpu(rvs["joint_prior"]), float)
+        jsp = np.asarray(_to_cpu(rvs["joint_s_prior"]), float)
         with np.errstate(divide="ignore"):
             ln_pi_over_q_joint = np.log(np.maximum(jp, np.finfo(float).tiny)) \
                                  - np.log(np.maximum(jsp, np.finfo(float).tiny))
     elif "log_joint_prior" in rvs and "log_joint_s_prior" in rvs:
-        ln_pi_over_q_joint = np.asarray(rvs["log_joint_prior"], float) \
-                             - np.asarray(rvs["log_joint_s_prior"], float)
+        ln_pi_over_q_joint = np.asarray(_to_cpu(rvs["log_joint_prior"]), float) \
+                             - np.asarray(_to_cpu(rvs["log_joint_s_prior"]), float)
     else:
         raise KeyError("sampler._rvs missing joint prior/proposal columns")
     return ln_pi_over_q_joint - (np.asarray(ln_prior_d_at_samples, float)
@@ -159,7 +174,7 @@ def importance_reweight_slices(
         if a not in rvs:
             raise KeyError("sampler._rvs missing required column {!r} for "
                             "slice reweighting".format(a))
-        fixed_inputs[a] = np.asarray(rvs[a])
+        fixed_inputs[a] = np.asarray(_to_cpu(rvs[a]))
 
     K = len(d_slices)
     lnL_out = np.empty(K)
@@ -173,7 +188,7 @@ def importance_reweight_slices(
             else:
                 like_inputs.append(fixed_inputs[a])
         lnL_at = like_to_integrate(*like_inputs)
-        lnL_at = np.asarray(lnL_at, dtype=np.float64)
+        lnL_at = np.asarray(_to_cpu(lnL_at), dtype=np.float64)
         if not return_lnL:
             # function returned exp(lnL - overflow); take log
             with np.errstate(divide="ignore"):
@@ -435,7 +450,9 @@ def fresh_sample_slices(reference_sampler, like_to_integrate, d_slices,
                 eps = 1e-12 * max(abs(hi - lo), 1.0)
                 full[p] = np.clip(np.asarray(arr, float), lo + eps, hi - eps)
             full["distance"] = d_arr
-            return like_to_integrate(*(full[a] for a in arg_names))
+            # like_to_integrate is the cached ILE likelihood -> returns CUPY on a
+            # GPU run; the fresh AV integrator here is host-side, so bring it back.
+            return _to_cpu(like_to_integrate(*(full[a] for a in arg_names)))
 
         try:
             res = sampler.integrate_log(

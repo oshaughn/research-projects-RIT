@@ -2632,11 +2632,16 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           if opts.sampler_method == "GMM" and neff < 50:
             print("  WARNING: --export-distance-slices with --sampler-method GMM at main n_eff={:.1f} (<50). ".format(neff)
                   + "B2-reweight may be biased; prefer --sampler-method AV or raise --n-max.")
-          dL_samp = np.array(sampler._rvs["distance"])
+          # On GPU the sampler stores CUPY arrays in _rvs / pdf outputs; convert
+          # to numpy at the boundary (identity_convert = cupy.asnumpy, or a no-op
+          # without cupy) before ANY numpy math. Otherwise cupy raises "Implicit
+          # conversion to a NumPy array is not allowed", analyze_event throws, and
+          # EVERY binary is skipped -> empty .dslice (silent failure).
+          dL_samp = np.asarray(identity_convert(sampler._rvs["distance"]), float)
           # ln(pi_d) at samples uses the actual sampler prior (volumetric or
           # pseudo-cosmo, whichever was registered).
           prior_pdf_d = sampler.prior_pdf["distance"]
-          pi_d_samp = np.asarray(prior_pdf_d(dL_samp), float)
+          pi_d_samp = np.asarray(identity_convert(prior_pdf_d(dL_samp)), float)
           pi_d_samp = np.where(pi_d_samp > 0, pi_d_samp, np.finfo(float).tiny)
           ln_pi_d_samp = np.log(pi_d_samp)
           # ln(q_d) at samples; for the standard ILE path the proposal is the
@@ -2647,7 +2652,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # and q_d at the SAMPLES to isolate the Omega-only factor. Compute
           # q_d as a normalized 1-D density on the supported range.
           try:
-            q_d_raw = np.asarray(sampler.pdf["distance"](dL_samp), float)
+            q_d_raw = np.asarray(identity_convert(sampler.pdf["distance"](dL_samp)), float)
           except Exception:
             q_d_raw = np.ones_like(dL_samp)
           q_d_norm = float(getattr(sampler, "_pdf_norm", {}).get("distance", 1.0)) or 1.0
@@ -2658,13 +2663,14 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # log-importance weights with the same fallback chain we use for
           # .dgrid.
           rvs = sampler._rvs
+          _rvs = lambda k: np.asarray(identity_convert(rvs[k]), float)  # cupy-safe column read
           if 'log_weights' in rvs:
-            ln_w_full = np.array(rvs['log_weights'])
+            ln_w_full = _rvs('log_weights')
           elif 'log_integrand' in rvs:
-            ln_w_full = np.array(rvs['log_integrand'] + rvs['log_joint_prior'] - rvs['log_joint_s_prior'])
+            ln_w_full = _rvs('log_integrand') + _rvs('log_joint_prior') - _rvs('log_joint_s_prior')
           else:
-            integrand = np.asarray(rvs['integrand'])
-            jp = np.asarray(rvs['joint_prior']); jsp = np.asarray(rvs['joint_s_prior'])
+            integrand = _rvs('integrand')
+            jp = _rvs('joint_prior'); jsp = _rvs('joint_s_prior')
             keep = (integrand > 0) & (jp > 0) & (jsp > 0)
             ln_w_full = np.full(len(integrand), -np.inf)
             ln_w_full[keep] = np.log(integrand[keep]) + np.log(jp[keep]) - np.log(jsp[keep])
@@ -2760,7 +2766,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
               np.full(len(d_core), distance_slices.METHOD_REWEIGHT, dtype=int),
               np.full(len(d_wings), distance_slices.METHOD_FRESH, dtype=int),
           ])
-          ln_pi_d_all = np.log(np.maximum(prior_pdf_d(d_all), np.finfo(float).tiny))
+          ln_pi_d_all = np.log(np.maximum(np.asarray(identity_convert(prior_pdf_d(d_all)), float), np.finfo(float).tiny))
           order = np.argsort(d_all)
 
           try:
