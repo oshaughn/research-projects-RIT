@@ -1323,6 +1323,130 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
 
 
 # ---------------------------------------------------------------------------
+# 2b. Adaptive SMC with a "puffball" random-walk move (robust at any SNR)
+# ---------------------------------------------------------------------------
+def smc_puffball_sample(like, d_min, d_max, n_walkers=2000, seed=0,
+                        ess_frac=0.5, max_stages=80, n_move=10, puff_scale=1.0,
+                        max_dbeta=0.25, verbose=False, **_ignore):
+    """Tempered adaptive SMC over the dist+phi(+psi) marginalized angular target.
+
+    The flow collapses on sharp high-SNR peaks because it trusts one learned/Hessian
+    geometry.  This instead carries a CLOUD of walkers up an adaptive temperature
+    ladder (inv_T: 0 -> 1) and, at each rung, (1) tempered-resamples toward higher
+    lnL then (2) applies K "puffball" random-walk Metropolis moves whose proposal
+    covariance is ESTIMATED FROM THE CLOUD (so it shrinks to match the posterior as
+    the cloud concentrates -- never from the Hessian, so slivers/non-Gaussianity
+    can't fool it, and the move re-broadens the cloud every rung so it cannot
+    collapse).  This is the SMC analogue of RIFT-AV's "sample -> puffball -> sample"
+    and of nested sampling's hill-climb; robust at LISA-loud SNR.
+
+    Returns the same dict shape as :func:`flowmc_sample_phimarg`.  Evidence is the
+    standard SMC normalizing-constant estimator logZ = sum_t logmeanexp(dbeta_t lnL).
+    """
+    _param_order = getattr(like, "ANGULAR_PARAM_ORDER", ("ra", "dec", "psi", "incl"))
+    n_dim = len(_param_order)
+    if n_dim == 3:
+        _sample_prior, _log_prior, _eval = sample_prior_3, log_prior_3, eval_lnL_3
+    elif "phiref" in _param_order:
+        _sample_prior, _log_prior, _eval = sample_prior_4phi, log_prior_4phi, eval_lnL_4
+    else:
+        _sample_prior, _log_prior, _eval = sample_prior_4, log_prior_4, eval_lnL_4
+    rng = np.random.default_rng(seed)
+    bounds = _bounds_for_order(_param_order)
+    lo = np.array([b[0] for b in bounds], float)
+    hi = np.array([b[1] for b in bounds], float)
+    # periodic angles (ra, psi, phi_ref) wrap; dec/incl reflect-clip via the prior.
+    period = np.array([(hi[i] - lo[i]) if _param_order[i] in ("ra", "psi", "phiref")
+                       else 0.0 for i in range(n_dim)])
+
+    def _fix(x):                                   # wrap periodic dims into [lo,hi)
+        out = np.array(x, float)
+        for i in range(n_dim):
+            if period[i] > 0:
+                out[:, i] = lo[i] + np.mod(out[:, i] - lo[i], period[i])
+        return out
+
+    W = int(n_walkers)
+    cloud = _sample_prior(W, rng)
+    lnL = _eval(like, cloud, desc="smc-prior")
+    inv_T, logZ, stage = 0.0, 0.0, 0
+    ti_min_ess = float(W)
+    while inv_T < 1.0 and stage < int(max_stages):
+        finite = np.isfinite(lnL)
+        if finite.sum() < 2:
+            break
+        lnLc = lnL - np.max(lnL[finite])
+
+        def _ess(db):
+            lw = db * lnLc
+            lw = np.where(np.isfinite(lw), lw, -np.inf)
+            m = np.max(lw)
+            w = np.exp(lw - m)
+            s = w.sum()
+            return (s * s) / np.sum(w * w) if s > 0 else 0.0
+
+        target = float(ess_frac) * W
+        hi_db = min(1.0 - inv_T, float(max_dbeta))
+        if _ess(hi_db) >= target:
+            db = hi_db
+        else:
+            a, b = 0.0, hi_db
+            for _ in range(40):
+                mid = 0.5 * (a + b)
+                if _ess(mid) >= target:
+                    a = mid
+                else:
+                    b = mid
+            db = max(a, 1e-4)
+        # SMC evidence increment: logZ += logmeanexp(db * lnL)
+        z = db * lnL
+        z = z[np.isfinite(z)]
+        mz = np.max(z)
+        logZ += float(mz + np.log(np.mean(np.exp(z - mz))))
+        inv_T += db
+        # tempered resample (multinomial)
+        lw = db * lnLc
+        w = np.where(np.isfinite(lw), np.exp(lw - np.max(lw)), 0.0)
+        ti_min_ess = min(ti_min_ess, float((w.sum() ** 2) / np.sum(w * w)))
+        w = w / w.sum()
+        idx = rng.choice(W, size=W, p=w)
+        cloud, lnL = cloud[idx], lnL[idx]
+        # puffball random-walk Metropolis moves at the current inv_T
+        C = np.atleast_2d(np.cov(cloud.T)) + 1e-12 * np.eye(n_dim)
+        try:
+            L = np.linalg.cholesky((puff_scale ** 2) * C)
+        except np.linalg.LinAlgError:
+            L = np.diag(np.sqrt(np.maximum(np.diag((puff_scale ** 2) * C), 1e-14)))
+        acc = 0.0
+        lp_cur = _log_prior(cloud)
+        for _ in range(int(n_move)):
+            prop = _fix(cloud + rng.standard_normal((W, n_dim)) @ L.T)
+            lp_prop = _log_prior(prop)
+            ok = np.isfinite(lp_prop)
+            lnL_prop = np.full(W, -np.inf)
+            if ok.any():
+                lnL_prop[ok] = _eval(like, prop[ok], desc="smc-move")
+            logA = inv_T * (lnL_prop - lnL) + lp_prop - lp_cur
+            take = ok & np.isfinite(lnL_prop) & (np.log(rng.random(W)) < logA)
+            cloud = np.where(take[:, None], prop, cloud)
+            lnL = np.where(take, lnL_prop, lnL)
+            lp_cur = np.where(take, lp_prop, lp_cur)
+            acc += float(take.mean())
+        stage += 1
+        if verbose:
+            uniq = len(np.unique(cloud[:, 0]))
+            print("  [smc] stage %d inv_T=%.4g dbeta=%.4g maxlnL=%.2f acc=%.2f uniq=%d"
+                  % (stage, inv_T, db, float(np.max(lnL)), acc / max(1, n_move), uniq),
+                  flush=True)
+
+    sigma_over_Z = float(1.0 / np.sqrt(ti_min_ess)) if ti_min_ess > 0 else np.nan
+    return dict(theta=cloud, lnL=lnL, logZ=float(logZ),
+                sigma_over_Z=sigma_over_Z, neff=float(ti_min_ess),
+                flow_state=None, post_weight=np.ones(W) / W, temper=1.0,
+                logZ_laplace=np.nan, lnL_map=float(np.max(lnL)) if len(lnL) else np.nan)
+
+
+# ---------------------------------------------------------------------------
 # 3. Fisher-preconditioned importance sampling (high-SNR)
 # ---------------------------------------------------------------------------
 _BOUNDS5 = [(0.0, _TWO_PI), (-_PI / 2 + 1e-3, _PI / 2 - 1e-3),
