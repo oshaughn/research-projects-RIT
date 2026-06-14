@@ -809,7 +809,7 @@ def _warmup_compile(like, verbose=True):
         print("done (%.1f s)" % (_time.perf_counter() - t0), flush=True)
 
 
-def _map_polish_4(like, seeds, n_steps=300, lr=3e-3, bounds=None):
+def _map_polish_4(like, seeds, n_steps=300, lr=3e-3, bounds=None, n_newton=30):
     """AD gradient-ascent polish of 4-D seeds to the local MAP.
 
     The flow under-reaches the true peak at high SNR (its best draw sits a few
@@ -823,6 +823,7 @@ def _map_polish_4(like, seeds, n_steps=300, lr=3e-3, bounds=None):
     lo = np.array([b[0] for b in bounds], float)
     hi = np.array([b[1] for b in bounds], float)
     grad_f = jax.jit(jax.grad(lambda t: like._scalar(t)))
+    hess_f = jax.jit(jax.hessian(lambda t: like._scalar(t)))
     polished = []
     best_t, best_v = None, -np.inf
     for s in np.atleast_2d(np.asarray(seeds, float)):
@@ -841,6 +842,30 @@ def _map_polish_4(like, seeds, n_steps=300, lr=3e-3, bounds=None):
                 step *= 0.5
                 if step < 1e-8:
                     break
+        # Newton refinement: gradient-ascent stalls on a sharp (1/SNR)-narrow peak
+        # (huge gradient -> tiny backtracked steps).  A curvature-normalized step
+        # dx = F^{-1} g (F=-Hessian, eig-floored pos-def) lands on the peak in ~1
+        # step, so the Fisher whitening that follows uses the TRUE peak curvature.
+        for _ in range(n_newton):
+            g = np.asarray(grad_f(t))
+            H = np.asarray(hess_f(t)); H = 0.5 * (H + H.T)
+            if not (np.all(np.isfinite(g)) and np.all(np.isfinite(H))):
+                break
+            evals, V = np.linalg.eigh(-H)               # F = -H (pos-def at a max)
+            emax = float(np.max(np.abs(evals)))
+            if not np.isfinite(emax) or emax <= 0:
+                break
+            evals = np.clip(evals, 1e-6 * max(emax, 1.0), None)
+            dx = V @ ((V.T @ g) / evals)                # F^{-1} g  (ascent direction)
+            alpha, improved = 1.0, False
+            for _ls in range(40):                       # backtracking along Newton dir
+                cand = np.clip(np.asarray(t) + alpha * dx, lo, hi)
+                vc = float(like._scalar(jnp.asarray(cand)))
+                if vc >= v_prev:
+                    t = jnp.asarray(cand); v_prev = vc; improved = True; break
+                alpha *= 0.5
+            if not improved:
+                break
         v = float(like._scalar(t))
         polished.append((np.asarray(t), v))
         if v > best_v:
