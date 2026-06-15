@@ -3028,9 +3028,15 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       P_list = [P_max]
       lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"maxpt_"+opts.output_file)
 
-    # Clear sampler _rvs, to avoid side effects when called again
-    for key in sampler._rvs.keys():
-      sampler._rvs[key] = []
+    # Clear sampler _rvs, to avoid side effects when called again.
+    # Reset the dict rather than setting each key to []: a key added AFTER the
+    # fairdraw subset -- notably 'integrand', set in mcsamplerAdaptiveVolume.integrate()
+    # under --internal-use-lnL -- would otherwise survive as a stale empty list and
+    # crash the NEXT binary in a batched (n-events-to-analyze>1) run, where its
+    # integrate_log() fairdraw does self._rvs[key][indx_list] and raises
+    # "list indices must be integers or slices, not ndarray". This silently dropped
+    # every binary after the first in each ILE batch whenever fairdraw export was on.
+    sampler._rvs = {}
 
     return res
 
