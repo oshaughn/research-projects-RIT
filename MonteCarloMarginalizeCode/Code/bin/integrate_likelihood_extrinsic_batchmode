@@ -335,6 +335,7 @@ intrinsic_params.add_option("--export-marginal-distance-grid",action='store_true
 intrinsic_params.add_option("--export-distance-slices",type=int,default=0,help="If >0, after main extrinsic integration emit a per-event .dslice file with rows of fixed-d extrinsic-marginalized likelihoods. Total rows = --n-distance-slice-core + --n-distance-slice-wing. Requires --internal-use-lnL and no --distance-marginalization.")
 intrinsic_params.add_option("--n-distance-slice-core",type=int,default=0,help="Core slices via importance-reweight on existing Omega samples (cheap). If 0 and --export-distance-slices>0, defaults to ceil(K*0.6).")
 intrinsic_params.add_option("--distance-slice-all-fresh",action="store_true",default=False,help="Emit ALL K slices as FRESH fixed-d full integrations (no importance-reweight core). Placement = posterior-d quantiles. Use this when the main-loop n_eff is small (e.g. 50): the reweight core is then starved (same MC noise as the .dgrid fair-draw histogram), whereas each fresh slice is an honest Omega-only integral at fixed d. Overrides --n-distance-slice-core / --n-distance-slice-wing.")
+intrinsic_params.add_option("--distance-slice-randomize",action="store_true",default=False,help="(all-fresh only) Draw the K fresh-slice distances at RANDOM posterior-d quantiles per intrinsic instead of fixed equi-probable quantiles. With K=1 this makes the single slice a fair-draw of d from THAT intrinsic's posterior, so over the intrinsic grid the slices sample (intrinsic,d) jointly -- cheap (~1 slice/intrinsic) dense coverage for a continuous AD surrogate -- rather than pinning every point to the median.")
 intrinsic_params.add_option("--n-distance-slice-wing",type=int,default=0,help="Wing slices via fresh Omega-only integrations at pinned distance (covers tails ~7 nats below peak). If 0 and --export-distance-slices>0, defaults to K - core.")
 intrinsic_params.add_option("--distance-slice-wing-nmax",type=int,default=20000,help="Max samples per wing fresh integration.")
 intrinsic_params.add_option("--distance-slice-wing-neff",type=int,default=30,help="n_eff target per wing fresh integration.")
@@ -2714,8 +2715,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # All K slices fresh.  Place centers at posterior-d quantiles: rough
             # placement is fine even at low n_eff -- the precision of each row comes
             # from its own fresh fixed-d integral, not from where it is centered.
-            d_wings = distance_slices.quantile_slice_centers(dL_samp, ln_w_full, K)
-            print("    : running {} fresh integrations (all-fresh; no reweight core)".format(len(d_wings)))
+            d_wings = distance_slices.quantile_slice_centers(dL_samp, ln_w_full, K, randomize=getattr(opts, "distance_slice_randomize", False))
+            print("    : running {} fresh integrations (all-fresh{}; no reweight core)".format(len(d_wings), ", randomized-d" if getattr(opts, "distance_slice_randomize", False) else ""))
             lnL_wings_raw, sigmaL_wings, neff_wings, ntotal_wings = distance_slices.fresh_sample_slices(
                 sampler, like_to_integrate, d_wings,
                 n_max=int(opts.distance_slice_wing_nmax),
