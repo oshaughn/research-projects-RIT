@@ -85,11 +85,24 @@ def _logsumexp(x):
     return m + np.log(np.sum(np.exp(x - m)))
 
 
-def quantile_slice_centers(distance_samples, ln_weights, n_slices):
-    """Choose K slice centers as equi-probable quantiles of the posterior in d.
+def quantile_slice_centers(distance_samples, ln_weights, n_slices,
+                           randomize=False, rng=None):
+    """Choose K slice centers as quantiles of the posterior in d.
+
+    By default the K centers are the equi-probable quantiles (k+0.5)/K, which
+    are identical for every intrinsic point -- so a single slice per intrinsic
+    (n_slices=1) always lands on the median d. With ``randomize=True`` the K
+    quantiles are instead drawn at random (uniform in CDF) on each call, so one
+    slice per intrinsic becomes a fair-draw of d from THAT intrinsic's
+    posterior; over the intrinsic grid this samples (intrinsic, d) jointly --
+    cheap dense coverage for a continuous AD surrogate -- instead of pinning
+    every point to the same quantile. ``rng`` (a numpy Generator/RandomState)
+    makes the draw reproducible; without it np.random is used (fresh per
+    process, so per-intrinsic draws differ across the batch).
 
     Falls back to uniform-in-log-d if the posterior is degenerate (n_eff < 2).
     """
+    draw = rng.uniform if rng is not None else np.random.uniform
     distance_samples = np.asarray(distance_samples, float)
     ln_weights = np.asarray(ln_weights, float)
     finite = np.isfinite(ln_weights) & np.isfinite(distance_samples)
@@ -100,15 +113,21 @@ def quantile_slice_centers(distance_samples, ln_weights, n_slices):
     p = np.exp(lw - _logsumexp(lw))
     n_eff = 1.0 / np.sum(p**2)
     if n_eff < 2.0:
-        # degenerate posterior; cover the sample range uniformly in log d
+        # degenerate posterior; cover the sample range in log d
         d_lo, d_hi = float(d.min()), float(d.max())
         d_lo = max(d_lo, 1e-3)
+        if randomize:
+            u = np.sort(draw(0.0, 1.0, n_slices))
+            return np.exp(np.log(d_lo) + u * (np.log(d_hi) - np.log(d_lo)))
         return np.exp(np.linspace(np.log(d_lo), np.log(d_hi), n_slices))
     order = np.argsort(d)
     d_sorted = d[order]
     cdf = np.cumsum(p[order])
     cdf /= cdf[-1]
-    quant = (np.arange(n_slices) + 0.5) / n_slices
+    if randomize:
+        quant = np.sort(draw(0.0, 1.0, n_slices))
+    else:
+        quant = (np.arange(n_slices) + 0.5) / n_slices
     return np.interp(quant, cdf, d_sorted)
 
 
