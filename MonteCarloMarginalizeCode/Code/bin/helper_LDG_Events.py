@@ -1718,15 +1718,12 @@ with open("helper_cip_args.txt",'w') as f:
 
 
 if opts.propose_flat_strategy:
-    # All iterations of CIP use the same as the last
-    instructions_cip = map(lambda x: x.rstrip().split(' '), helper_cip_arg_list)#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
-    n_iterations =0
-    lines  = []
-    for indx in np.arange(len(instructions_cip)):
-        n_iterations += int(instructions_cip[indx][0])
-        lines.append(' '.join(instructions_cip[indx][1:]))   # merge back together
-    helper_cip_arg_list  = [str(n_iterations) + " " + lines[-1]]  # overwrite with new setup
+    instructions_cip = [line.rstrip().split() for line in helper_cip_arg_list]
 
+    n_iterations = sum(int(instr[0]) for instr in instructions_cip)
+    last_line = " ".join(instructions_cip[-1][1:])
+
+    helper_cip_arg_list = [f"{n_iterations} {last_line}"]
 
 if opts.propose_converge_last_stage:
     helper_cip_last_it = '1 ' +  ' '.join(helper_cip_arg_list[-1].split()[1:])
