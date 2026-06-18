@@ -3661,7 +3661,7 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
     approx_string = P.approx
     if not(isinstance(approx_string,str)):
         approx_string = lalsim.GetStringFromApproximant(approx_string)
-    if 'NRSur' in approx_string:
+    if 'NRSur' in approx_string or 'NRHyb' in approx_string:
         # some NRSur are aligned only and return only m>=0 modes, so reflect IF NEEDED
         mode_keys = np.array([[l,m] for l,m in hlm_dict.keys()])[:,1]
         check_if_only_positive_m = not((mode_keys < 0).any())
