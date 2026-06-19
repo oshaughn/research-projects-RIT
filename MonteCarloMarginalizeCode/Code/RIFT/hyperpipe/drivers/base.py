@@ -238,11 +238,16 @@ class MargDriverBase:
         logger.info("Loaded grid %r with columns %r", opts.using_eos, column_names)
 
         start, stop = opts.eos_start_index, opts.eos_end_index
-        if start < 0 or stop > rows.shape[0]:
-            raise SystemExit(
-                f"marg driver: index range [{start},{stop}) exceeds grid "
-                f"size {rows.shape[0]}."
-            )
+        if start < 0:
+            raise SystemExit(f"marg driver: negative start index {start}.")
+        # CLAMP the (fixed-chunk) range to the actual grid size. The DAG sizes
+        # the per-iteration MARG chunks from n-samples-per-job, but the grid an
+        # adaptive iteration actually places (e.g. a puffball) can be SMALLER, so
+        # the tail chunks run off the end. Process what exists; a fully
+        # out-of-range chunk just yields an empty (header-only) output that the
+        # consolidation step ignores. (Previously this raised SystemExit.)
+        n_rows = rows.shape[0]
+        start, stop = min(start, n_rows), min(stop, n_rows)
 
         for i in range(start, stop):
             row_values = rows[i, 2:]
