@@ -533,7 +533,10 @@ def fit_rf(x,y,y_errors=None,fname_export='nn_fit'):
     if y_errors is None:
         rf.fit(x,y)
     else:
-        rf.fit(x,y,sample_weight=1./y_errors**2)
+        # floor sigma so a zero error (placeholder rows can leak into the
+        # accumulated marg net with sigma=0) doesn't make sample_weight=1/sigma^2
+        # infinite (sklearn rejects inf sample_weight).
+        rf.fit(x,y,sample_weight=1./np.maximum(np.asarray(y_errors,dtype=float),1e-3)**2)
 
     ### reject points with infinities : problems for inputs
     def fn_return(x_in,rf=rf):
