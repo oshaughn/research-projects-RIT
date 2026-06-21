@@ -17,6 +17,8 @@
 import numpy as np
 import argparse
 import os
+import shlex
+import subprocess
 import sys
 import lal
 import lalsimulation as lalsim
@@ -154,6 +156,190 @@ def unsafe_parse_arg_string_dict(my_argstr):
     return dict_return
 
 
+def _lisa_data_products_from_ini(opts):
+    """Fill the LISA data-product opts (channels / PSD files) from the conventional
+    production-ini sections so a LISA run can be driven by --use-ini like the
+    ground-based path.  Scalars and lisa-* algorithm options are already populated
+    by the generic [rift-pseudo-pipe] parser (any CLI arg, by name); here we only
+    translate the per-channel *dict* products that don't map cleanly to a flat key:
+
+      [data]         channels = {'A': 'fake_strain', 'E': ..., 'T': ...}
+      [lalinference] psds     = {'A': 'A_psd.xml.gz', ...}
+
+    Values already set (e.g. via [rift-pseudo-pipe] lisa-channel-name) win, so the
+    flat CLI surface still overrides.  Read-only; no LDG data-find is invoked.
+    """
+    import configparser as _CfgP
+    cfg = _CfgP.ConfigParser()
+    cfg.optionxform = str
+    cfg.read(opts.use_ini)
+
+    def _dict_to_assignments(section, key):
+        if not cfg.has_option(section, key):
+            return None
+        mapping = eval(cfg.get(section, key))
+        return ["{}={}".format(ifo, val) for ifo, val in mapping.items()]
+
+    if not opts.lisa_channel_name:
+        opts.lisa_channel_name = _dict_to_assignments("data", "channels")
+    if not opts.lisa_psd_file:
+        opts.lisa_psd_file = _dict_to_assignments("lalinference", "psds")
+
+
+def run_lisa_known_sky_surface(opts):
+    if opts.approx is None:
+        print(" --lisa-known-sky requires --approx ")
+        sys.exit(1)
+    if opts.use_ini is not None:
+        # LISA production-ini path: scalars/algorithm options come from the
+        # generic [rift-pseudo-pipe] parser; fill the per-channel data products
+        # (channels, PSDs) from the conventional [data]/[lalinference] sections.
+        _lisa_data_products_from_ini(opts)
+
+    bin_dir = os.path.dirname(os.path.abspath(__file__))
+    helper = os.path.join(bin_dir, "helper_LISA_Events.py")
+    cepp = os.path.join(bin_dir, "create_event_parameter_pipeline_BasicIteration")
+    ile = os.path.join(bin_dir, "integrate_likelihood_extrinsic_batchmode_lisa")
+
+    if opts.use_rundir:
+        workdir = os.path.abspath(opts.use_rundir)
+    else:
+        event_label = "manual_" + format_gps_time(opts.event_time)
+        sky_label = "variable_sky" if opts.lisa_vary_sky else "known_sky"
+        workdir = os.path.abspath(
+            event_label + "_LISA_" + opts.approx + "_" + sky_label + opts.manual_postfix
+        )
+    os.makedirs(workdir, exist_ok=False)
+
+    helper_cmd = [
+        sys.executable,
+        helper,
+        "--working-directory",
+        workdir,
+        "--input-grid",
+        "proposed-grid.dat",
+        "--approximant",
+        opts.approx,
+        "--l-max",
+        str(opts.l_max),
+        "--event-time",
+        format_gps_time(opts.event_time),
+        "--cache-file",
+        opts.lisa_cache_file,
+        "--ecliptic-longitude",
+        str(opts.ecliptic_longitude),
+        "--ecliptic-latitude",
+        str(opts.ecliptic_latitude),
+        "--fmin-template",
+        str(opts.lisa_fmin_template),
+        "--fmax",
+        str(opts.lisa_fmax),
+        "--reference-freq",
+        str(opts.lisa_reference_freq),
+        "--srate",
+        str(opts.lisa_srate),
+        "--data-integration-window-half",
+        str(opts.lisa_data_integration_window_half),
+        "--grid-size",
+        str(opts.lisa_grid_size),
+        "--grid-fractional-width",
+        str(opts.lisa_grid_fractional_width),
+        "--sky-grid-width",
+        str(opts.lisa_sky_grid_width),
+        "--n-iterations",
+        str(opts.lisa_n_iterations),
+        "--n-samples-per-job",
+        str(opts.lisa_n_samples_per_job),
+        "--request-memory-ILE",
+        str(opts.internal_ile_request_memory),
+        "--request-memory-CIP",
+        str(opts.internal_cip_request_memory or 4096),
+    ]
+    if opts.lisa_vary_sky:
+        helper_cmd.append("--vary-sky")
+    if opts.lisa_zero_likelihood:
+        helper_cmd.append("--zero-likelihood")
+    for assignment in opts.lisa_channel_name or []:
+        helper_cmd.extend(["--channel-name", assignment])
+    for assignment in opts.lisa_psd_file or []:
+        helper_cmd.extend(["--psd-file", assignment])
+    if opts.extra_args_helper:
+        with open(opts.extra_args_helper) as extra:
+            helper_cmd.extend(shlex.split(extra.read()))
+
+    print(" LISA known-sky helper command: ", " ".join(shlex.quote(x) for x in helper_cmd))
+    subprocess.run(helper_cmd, check=True)
+
+    if opts.lisa_skip_cepp_render:
+        print(" LISA helper bundle written in {}".format(workdir))
+        return
+
+    env = os.environ.copy()
+    env["RIFT_HYPERPIPELINE_FORMAT"] = "1"
+    env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
+    env["PYTHONPATH"] = os.path.abspath(os.path.join(bin_dir, "..")) + os.pathsep + env.get("PYTHONPATH", "")
+    cepp_cmd = [
+        sys.executable,
+        cepp,
+        "--ile-n-events-to-analyze",
+        "1",
+        "--input-grid",
+        os.path.join(workdir, "proposed-grid.dat"),
+        "--ile-exe",
+        ile,
+        "--ile-args",
+        os.path.join(workdir, "args_ile.txt"),
+        "--cip-args-list",
+        os.path.join(workdir, "args_cip_list.txt"),
+        "--test-args",
+        os.path.join(workdir, "args_test.txt"),
+        "--working-directory",
+        workdir,
+        "--n-iterations",
+        str(opts.lisa_n_iterations),
+        "--n-samples-per-job",
+        str(opts.lisa_n_samples_per_job),
+        "--n-copies",
+        str(opts.ile_copies),
+        "--request-memory-ILE",
+        str(opts.internal_ile_request_memory),
+        "--request-memory-CIP",
+        str(opts.internal_cip_request_memory or 4096),
+        "--transfer-file-list",
+        os.path.join(workdir, "helper_transfer_files.txt"),
+    ]
+    # Container: let write_ILE_sub_simple emit the singularity + file-transfer
+    # wiring (the LDG path's native mechanism) rather than any LISA-specific code.
+    # Needs SINGULARITY_RIFT_IMAGE (+ SINGULARITY_BASE_EXE_DIR) in the env.
+    if opts.lisa_use_singularity:
+        # write_ILE_sub_simple's singularity path requires the CEPP's --cache-file
+        # to be set (else "Need to specify frames_dir or cache_file to use
+        # singularity"); the LISA cache is otherwise only inside the ILE args.
+        cepp_cmd += ["--use-singularity", "--cache-file", opts.lisa_cache_file]
+    # Puffball between iterations: perturb the (very tight) CIP posterior so the
+    # next grid is not a near-degenerate cluster (else the CIP refit diverges).
+    if opts.lisa_n_iterations > 1 and not opts.lisa_no_puff:
+        cepp_cmd += [
+            "--puff-exe", os.path.join(bin_dir, "util_ParameterPuffball.py"),
+            "--puff-args", os.path.join(workdir, "args_puff.txt"),
+            "--puff-cadence", "1",
+            "--puff-max-it", str(opts.lisa_n_iterations),
+        ]
+    # LISA reflected-sky-mode (vary-sky): reflect the grid at one iteration to
+    # explore the secondary sky mode (latitude bimodality).
+    if opts.lisa_search_reflected_sky_mode and opts.lisa_n_iterations > 1:
+        cepp_cmd += [
+            "--search-reflected-sky-mode",
+            "--reflected-sky-mode-exe", os.path.join(bin_dir, "convert_primary_sky_mode_to_secondary"),
+            "--lisa-reference-time", str(opts.lisa_reference_time),
+        ]
+        if opts.lisa_search_reflected_sky_mode_iteration is not None:
+            cepp_cmd += ["--search-reflected-sky-mode-iteration", str(opts.lisa_search_reflected_sky_mode_iteration)]
+    print(" LISA known-sky CEPP command: ", " ".join(shlex.quote(x) for x in cepp_cmd))
+    subprocess.run(cepp_cmd, check=True, cwd=workdir, env=env)
+    print(" LISA known-sky CEPP surface rendered in {}".format(workdir))
+
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--skip-reproducibility",action='store_true')
@@ -200,6 +386,30 @@ parser.add_argument("--gracedb-exe",default="gracedb")
 parser.add_argument("--use-legacy-gracedb",action='store_true')
 parser.add_argument("--internal-use-gracedb-bayestar",action='store_true',help="Retrieve BS skymap from gracedb (bayestar.fits), and use it internally in integration with --use-skymap bayestar.fits.")
 parser.add_argument("--event-time",default=None,type=float,help="Event time. Intended to override use of GracedbID. MUST provide --manual-initial-grid ")
+parser.add_argument("--lisa-known-sky",action='store_true',help="Use the LISA helper to build a known-sky LISA CEPP surface and exit. Avoids the LDG event helper path.")
+parser.add_argument("--lisa-vary-sky",action='store_true',help="With --lisa-known-sky, treat ecliptic sky location as intrinsic rather than pinning --lisa-fixed-sky.")
+parser.add_argument("--lisa-skip-cepp-render",action='store_true',help="With --lisa-known-sky, only write the helper bundle; do not render the CEPP DAG.")
+parser.add_argument("--lisa-cache-file",default="lisa.cache",help="With --lisa-known-sky, cache file passed to the LISA ILE.")
+parser.add_argument("--lisa-channel-name",action="append",default=None,help="With --lisa-known-sky, channel assignment such as A=fake_strain. May be repeated.")
+parser.add_argument("--lisa-psd-file",action="append",default=None,help="With --lisa-known-sky, PSD assignment such as A=A_psd.xml.gz. May be repeated.")
+parser.add_argument("--ecliptic-longitude",default=1.0,type=float,help="With --lisa-known-sky, fixed ecliptic longitude.")
+parser.add_argument("--ecliptic-latitude",default=0.3,type=float,help="With --lisa-known-sky, fixed ecliptic latitude.")
+parser.add_argument("--lisa-fmin-template",default=1.0e-3,type=float,help="With --lisa-known-sky, template low-frequency cutoff.")
+parser.add_argument("--lisa-fmax",default=0.125,type=float,help="With --lisa-known-sky, high-frequency cutoff.")
+parser.add_argument("--lisa-reference-freq",default=5.0e-3,type=float,help="With --lisa-known-sky, waveform reference frequency.")
+parser.add_argument("--lisa-srate",default=0.25,type=float,help="With --lisa-known-sky, sample rate. Kept as float for long-duration LISA data.")
+parser.add_argument("--lisa-data-integration-window-half",default=300.0,type=float,help="With --lisa-known-sky, half-width of the ILE data integration window.")
+parser.add_argument("--lisa-no-puff",action="store_true",help="Disable the inter-iteration puffball for the known-sky LISA path.")
+parser.add_argument("--lisa-search-reflected-sky-mode",action="store_true",help="LISA vary-sky: at one iteration, reflect the grid to the secondary sky mode (handles the LISA latitude bimodality).")
+parser.add_argument("--lisa-search-reflected-sky-mode-iteration",default=None,type=int,help="Iteration to reflect the sky (default n_iterations-2).")
+parser.add_argument("--lisa-reference-time",default=0.0,type=float,help="LISA coalescence/reference time (for the reflected-sky transform).")
+parser.add_argument("--lisa-use-singularity",action="store_true",help="Forward --use-singularity to the CEPP for the known-sky LISA path. The container wiring + transfer is then emitted by write_ILE_sub_simple, exactly as for the LDG path; set SINGULARITY_RIFT_IMAGE (osdf:// staged image preferred, so dag_utils file-transfers it) and SINGULARITY_BASE_EXE_DIR (dir of the LISA ILE *inside* the image).")
+parser.add_argument("--lisa-grid-size",default=3,type=int,help="With --lisa-known-sky, number of synthetic initial-grid points.")
+parser.add_argument("--lisa-grid-fractional-width",default=1.0e-3,type=float,help="With --lisa-known-sky, fractional mass width for the initial grid.")
+parser.add_argument("--lisa-sky-grid-width",default=0.02,type=float,help="With --lisa-known-sky --lisa-vary-sky, ecliptic sky half-step scale for the initial grid.")
+parser.add_argument("--lisa-n-iterations",default=1,type=int,help="With --lisa-known-sky, CEPP iteration count.")
+parser.add_argument("--lisa-n-samples-per-job",default=1,type=int,help="With --lisa-known-sky, CEPP samples per job.")
+parser.add_argument("--lisa-zero-likelihood",action='store_true',help="With --lisa-known-sky, pass --zero-likelihood through to the LISA ILE args.")
 parser.add_argument("--calibration",default="C00",type=str)
 parser.add_argument("--playground-data",action='store_true', help="Passed through to helper_LDG_events, and changes name prefix")
 parser.add_argument("--approx",default=None,type=str,help="Approximant. REQUIRED")
@@ -424,6 +634,11 @@ if (opts.use_ini):
             val = rift_items[item].strip()
             ile_condor_commands.append([item, val])
             
+
+if opts.lisa_known_sky:
+    run_lisa_known_sky_surface(opts)
+    sys.exit(0)
+
 
 
 if opts.use_osg:

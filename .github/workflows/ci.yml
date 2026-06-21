@@ -134,6 +134,27 @@ jobs:
       - name: Run simulation_manager smoke test
         run: bash .travis/test-simulation-manager.sh
 
+  lisa-check:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Enable symlink
+        run: sudo ln -sf $(which python3) /usr/bin/python
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip --break-system-packages
+          python -m pip install -r requirements.txt --break-system-packages
+          python -m pip install coverage pytest --break-system-packages
+          python -m pip install --editable . --break-system-packages
+      - name: Run LISA smoke and contract tests
+        run: bash .travis/test-lisa.sh
+
   integration-check:
     needs: install
     runs-on: ubuntu-latest
