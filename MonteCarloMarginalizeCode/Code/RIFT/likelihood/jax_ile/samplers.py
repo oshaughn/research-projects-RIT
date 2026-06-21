@@ -809,7 +809,7 @@ def _warmup_compile(like, verbose=True):
         print("done (%.1f s)" % (_time.perf_counter() - t0), flush=True)
 
 
-def _map_polish_4(like, seeds, n_steps=300, lr=3e-3, bounds=None):
+def _map_polish_4(like, seeds, n_steps=300, lr=3e-3, bounds=None, n_newton=30):
     """AD gradient-ascent polish of 4-D seeds to the local MAP.
 
     The flow under-reaches the true peak at high SNR (its best draw sits a few
@@ -823,6 +823,7 @@ def _map_polish_4(like, seeds, n_steps=300, lr=3e-3, bounds=None):
     lo = np.array([b[0] for b in bounds], float)
     hi = np.array([b[1] for b in bounds], float)
     grad_f = jax.jit(jax.grad(lambda t: like._scalar(t)))
+    hess_f = jax.jit(jax.hessian(lambda t: like._scalar(t)))
     polished = []
     best_t, best_v = None, -np.inf
     for s in np.atleast_2d(np.asarray(seeds, float)):
@@ -841,6 +842,30 @@ def _map_polish_4(like, seeds, n_steps=300, lr=3e-3, bounds=None):
                 step *= 0.5
                 if step < 1e-8:
                     break
+        # Newton refinement: gradient-ascent stalls on a sharp (1/SNR)-narrow peak
+        # (huge gradient -> tiny backtracked steps).  A curvature-normalized step
+        # dx = F^{-1} g (F=-Hessian, eig-floored pos-def) lands on the peak in ~1
+        # step, so the Fisher whitening that follows uses the TRUE peak curvature.
+        for _ in range(n_newton):
+            g = np.asarray(grad_f(t))
+            H = np.asarray(hess_f(t)); H = 0.5 * (H + H.T)
+            if not (np.all(np.isfinite(g)) and np.all(np.isfinite(H))):
+                break
+            evals, V = np.linalg.eigh(-H)               # F = -H (pos-def at a max)
+            emax = float(np.max(np.abs(evals)))
+            if not np.isfinite(emax) or emax <= 0:
+                break
+            evals = np.clip(evals, 1e-6 * max(emax, 1.0), None)
+            dx = V @ ((V.T @ g) / evals)                # F^{-1} g  (ascent direction)
+            alpha, improved = 1.0, False
+            for _ls in range(40):                       # backtracking along Newton dir
+                cand = np.clip(np.asarray(t) + alpha * dx, lo, hi)
+                vc = float(like._scalar(jnp.asarray(cand)))
+                if vc >= v_prev:
+                    t = jnp.asarray(cand); v_prev = vc; improved = True; break
+                alpha *= 0.5
+            if not improved:
+                break
         v = float(like._scalar(t))
         polished.append((np.asarray(t), v))
         if v > best_v:
@@ -896,7 +921,9 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
                            n_epochs=10, n_prior_pilot=8000, seed=0, mala_step_size=0.01,
                            reuse_state=None, temper=1.0, temper_adapt=False,
                            temper_init=0.02, temper_ess_frac=0.5, temper_max_stages=16,
-                           temper_max_dbeta=0.15, fisher_precondition=False, verbose=False):
+                           temper_max_dbeta=0.15, fisher_precondition=False,
+                           fisher_inv_T_min=0.5, fisher_is_samples=0,
+                           fisher_is_inflate=1.3, verbose=False):
     """flowMC with φ_ref marginalised — 4-D sampler over (ra, dec, psi, incl).
 
     Identical in structure to :func:`flowmc_sample` except φ_ref is removed from
@@ -1001,13 +1028,18 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
     else:
         _warmup_compile(like, verbose=verbose)
 
-    # ---- Fisher preconditioning (recommended at high SNR) -------------------
+    # ---- Fisher preconditioning -------------------------------------------
     # Whiten the sample space around the MAP so the narrow posterior is O(1) for
-    # the flow.  Chains restart AT the MAP (whitened y~0) rather than the diffuse
-    # prior-pilot draws, which is what lets SNR>=640 converge instead of collapse.
-    if fisher_precondition:
-        fw = _fisher_whitening(like, np.asarray(init),
-                               _bounds_for_order(_param_order), verbose=verbose)
+    # the flow.  For the SINGLE-stage path we whiten up front from a cold MAP.
+    # For the ADAPT-ADAPT path we do NOT whiten cold: at very high SNR a cold
+    # gradient polish from the prior pilot cannot reach the (1/SNR)-narrow peak
+    # (its MAP sits ~thousands of nats low -> the Fisher there is far too broad ->
+    # the whitening fails and SNR>=640 still collapses).  Instead we RE-whiten
+    # inside the anneal loop from the tempering-tracked best sample once inv_T is
+    # high enough (see below), where the MAP polish starts near-peak and converges.
+    helper_bounds = _bounds_for_order(_param_order)
+    if fisher_precondition and not temper_adapt:
+        fw = _fisher_whitening(like, np.asarray(init), helper_bounds, verbose=verbose)
         if fw is not None:
             map_theta, A_w, A_inv_w, map_lnL = fw
             _W = dict(map=jnp.asarray(map_theta), A=jnp.asarray(A_w),
@@ -1050,6 +1082,7 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
         ti_beta = []; ti_mean = []; ti_sem = []   # ladder for thermodynamic integration
         ti_min_step_ess = np.inf                   # bottleneck inter-stage ESS
         stage = 0
+        _whitened_once = False                      # Fisher re-whitening done?
         while True:
             theta, lnL, trained_model = _one_pass(inv_T, positions, trained_model,
                                                   seed + stage)
@@ -1094,6 +1127,37 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
                 inv_T_new = min(inv_T_new, inv_T + float(temper_max_dbeta))
             ti_min_step_ess = min(ti_min_step_ess, float(_ess(inv_T_new)))
             inv_T = inv_T_new
+
+            # ---- adaptive Fisher re-whitening (the high-SNR fix) ----
+            # Once the anneal has tightened enough that the best tracked sample is
+            # near the true peak, re-estimate the whitening from THAT sample (the
+            # MAP polish now starts near-peak and converges, unlike a cold polish).
+            # The Fisher uses the full inv_T=1 lnL curvature, so one re-whitening is
+            # correct for all remaining (sharper) stages.  Reset the flow so it
+            # retrains in the new O(1) whitened coordinates.
+            if (fisher_precondition and not _whitened_once
+                    and inv_T >= float(fisher_inv_T_min) and len(lnL)):
+                best = np.asarray(positions[0])[None, :]   # highest-lnL tracked draw
+                fw = _fisher_whitening(like, best, helper_bounds, verbose=verbose)
+                if fw is not None:
+                    map_theta, A_w, A_inv_w, map_lnL = fw
+                    # accept only if the polish reached at least the tracked best
+                    if map_lnL >= float(np.max(lnL)) - 1.0:
+                        _W = dict(map=jnp.asarray(map_theta), A=jnp.asarray(A_w),
+                                  A_inv=jnp.asarray(A_inv_w))
+                        trained_model = None           # retrain flow in whitened coords
+                        positions = jnp.asarray(        # recentre chains at the MAP
+                            np.asarray(map_theta)[None, :]
+                            + (rng.normal(size=(n_chains, n_dim)) * 0.5) @ np.asarray(A_w).T)
+                        _whitened_once = True
+                        if verbose:
+                            widths = np.sqrt(np.clip(np.diag(A_w @ A_w.T), 0.0, None))
+                            print("  [fisher] re-whitened at inv_T=%.3g  MAP lnL=%.2f "
+                                  " theta-widths=%s" % (inv_T, map_lnL,
+                                  np.array2string(widths, precision=5)), flush=True)
+                    elif verbose:
+                        print("  [fisher] re-whiten skipped (polish %.1f < best %.1f)"
+                              % (map_lnL, float(np.max(lnL))), flush=True)
 
     next_positions = (theta[np.argsort(lnL)[::-1][:n_chains]]
                       if len(theta) >= n_chains else None)
@@ -1203,11 +1267,228 @@ def flowmc_sample_phimarg(like, d_min, d_max, n_chains=20, n_local_steps=20,
         logZ, sigma_over_Z, neff = _finalize_evidence(
             logZ, sigma_over_Z, neff, float(np.max(lnL)) if len(lnL) else np.nan)
 
+    # ---- High-SNR FALLBACK: Fisher-whitened importance sampling -------------
+    # The flow can collapse at extreme SNR (NF training nan -> a few unique sky
+    # points) even when the posterior is fine.  This draws sky samples DIRECTLY
+    # from the Fisher-whitened Gaussian about the (Newton-polished) MAP and
+    # importance-reweights by the true lnL -- no flow training, so it is immune to
+    # that collapse.  Overrides the sample set (theta,lnL); the TI logZ above stays
+    # the primary evidence (the IS logZ is reported as a cross-check).
+    if fisher_is_samples and fisher_is_samples > 0 and len(theta) >= 1:
+        if _W is not None:
+            mapT = np.asarray(_W["map"]); A_is = np.asarray(_W["A"])
+        else:
+            seed_best = (np.asarray(map_theta)[None, :] if map_theta is not None
+                         else theta[np.argmax(lnL)][None, :])
+            fw = _fisher_whitening(like, seed_best, helper_bounds, verbose=verbose)
+            mapT, A_is = (fw[0], fw[1]) if fw is not None else (None, None)
+        if mapT is not None:
+            cov_is = (float(fisher_is_inflate) ** 2) * (A_is @ A_is.T)
+            cov_is = 0.5 * (cov_is + cov_is.T)
+            try:
+                Lc = np.linalg.cholesky(cov_is + 1e-12 * np.eye(n_dim))
+                N = int(fisher_is_samples)
+                z = rng.standard_normal((N, n_dim))
+                th_is = mapT[None, :] + z @ Lc.T
+                logp = _log_prior(th_is)
+                valid = np.isfinite(logp)
+                lnL_is = np.full(N, -np.inf)
+                if valid.any():
+                    lnL_is[valid] = _eval_lnL(like, th_is[valid], desc="fisher-IS")
+                logq = _gaussian_logq(th_is, mapT, cov_is)
+                logw = np.where(valid & np.isfinite(lnL_is), lnL_is + logp - logq, -np.inf)
+                logZ_is, sigZ_is, neff_is = evidence_from_logweights(logw)
+                fin = np.isfinite(logw)
+                if fin.sum() >= 2:
+                    lw = logw[fin] - np.max(logw[fin])
+                    w = np.exp(lw); w = w / w.sum()
+                    nout = min(N, 4800)
+                    idx = rng.choice(np.where(fin)[0], size=nout, p=w)
+                    theta = th_is[idx]; lnL = lnL_is[idx]
+                    post_weight = np.ones(nout) / nout
+                    if verbose:
+                        print("  [fisher-IS] N=%d ESS=%.0f neff=%.0f unique=%d "
+                              "logZ_IS=%.2f (TI logZ=%.2f)"
+                              % (N, 1.0 / np.sum(w ** 2), neff_is,
+                                 len(np.unique(idx)), logZ_is, logZ), flush=True)
+            except Exception as e:                                # noqa: BLE001
+                if verbose:
+                    print("  [fisher-IS] failed (%r); keeping flow samples" % e)
+
     return dict(theta=theta, lnL=lnL, logZ=logZ, sigma_over_Z=sigma_over_Z,
                 neff=neff, flow_state=flow_state, post_weight=post_weight,
                 temper=float(1.0 / inv_T) if inv_T > 0 else float(temper),
                 logZ_laplace=float(logZ_laplace),
                 lnL_map=(float(map_lnL) if map_lnL is not None else np.nan))
+
+
+# ---------------------------------------------------------------------------
+# 2b. Adaptive SMC with a "puffball" random-walk move (robust at any SNR)
+# ---------------------------------------------------------------------------
+def smc_puffball_sample(like, d_min, d_max, n_walkers=2000, seed=0,
+                        ess_frac=0.5, max_stages=80, n_move=10, puff_scale=1.0,
+                        max_dbeta=0.25, is_evidence=True, is_samples=60000,
+                        is_inflate=1.5, verbose=False, **_ignore):
+    """Tempered adaptive SMC over the dist+phi(+psi) marginalized angular target.
+
+    The flow collapses on sharp high-SNR peaks because it trusts one learned/Hessian
+    geometry.  This instead carries a CLOUD of walkers up an adaptive temperature
+    ladder (inv_T: 0 -> 1) and, at each rung, (1) tempered-resamples toward higher
+    lnL then (2) applies K "puffball" random-walk Metropolis moves whose proposal
+    covariance is ESTIMATED FROM THE CLOUD (so it shrinks to match the posterior as
+    the cloud concentrates -- never from the Hessian, so slivers/non-Gaussianity
+    can't fool it, and the move re-broadens the cloud every rung so it cannot
+    collapse).  This is the SMC analogue of RIFT-AV's "sample -> puffball -> sample"
+    and of nested sampling's hill-climb; robust at LISA-loud SNR.
+
+    Returns the same dict shape as :func:`flowmc_sample_phimarg`.  Evidence is the
+    standard SMC normalizing-constant estimator logZ = sum_t logmeanexp(dbeta_t lnL).
+    """
+    _param_order = getattr(like, "ANGULAR_PARAM_ORDER", ("ra", "dec", "psi", "incl"))
+    n_dim = len(_param_order)
+    if n_dim == 3:
+        _sample_prior, _log_prior, _eval = sample_prior_3, log_prior_3, eval_lnL_3
+    elif "phiref" in _param_order:
+        _sample_prior, _log_prior, _eval = sample_prior_4phi, log_prior_4phi, eval_lnL_4
+    else:
+        _sample_prior, _log_prior, _eval = sample_prior_4, log_prior_4, eval_lnL_4
+    rng = np.random.default_rng(seed)
+    bounds = _bounds_for_order(_param_order)
+    lo = np.array([b[0] for b in bounds], float)
+    hi = np.array([b[1] for b in bounds], float)
+    # periodic angles (ra, psi, phi_ref) wrap; dec/incl reflect-clip via the prior.
+    period = np.array([(hi[i] - lo[i]) if _param_order[i] in ("ra", "psi", "phiref")
+                       else 0.0 for i in range(n_dim)])
+
+    def _fix(x):                                   # wrap periodic dims into [lo,hi)
+        out = np.array(x, float)
+        for i in range(n_dim):
+            if period[i] > 0:
+                out[:, i] = lo[i] + np.mod(out[:, i] - lo[i], period[i])
+        return out
+
+    W = int(n_walkers)
+    cloud = _sample_prior(W, rng)
+    lnL = _eval(like, cloud, desc="smc-prior")
+    inv_T, logZ, stage = 0.0, 0.0, 0
+    ti_min_ess = float(W)
+    while inv_T < 1.0 and stage < int(max_stages):
+        finite = np.isfinite(lnL)
+        if finite.sum() < 2:
+            break
+        lnLc = lnL - np.max(lnL[finite])
+
+        def _ess(db):
+            lw = db * lnLc
+            lw = np.where(np.isfinite(lw), lw, -np.inf)
+            m = np.max(lw)
+            w = np.exp(lw - m)
+            s = w.sum()
+            return (s * s) / np.sum(w * w) if s > 0 else 0.0
+
+        target = float(ess_frac) * W
+        hi_db = min(1.0 - inv_T, float(max_dbeta))
+        if _ess(hi_db) >= target:
+            db = hi_db
+        else:
+            a, b = 0.0, hi_db
+            for _ in range(40):
+                mid = 0.5 * (a + b)
+                if _ess(mid) >= target:
+                    a = mid
+                else:
+                    b = mid
+            db = max(a, 1e-4)
+        # SMC evidence increment: logZ += logmeanexp(db * lnL)
+        z = db * lnL
+        z = z[np.isfinite(z)]
+        mz = np.max(z)
+        logZ += float(mz + np.log(np.mean(np.exp(z - mz))))
+        inv_T += db
+        # tempered resample (multinomial)
+        lw = db * lnLc
+        w = np.where(np.isfinite(lw), np.exp(lw - np.max(lw)), 0.0)
+        ti_min_ess = min(ti_min_ess, float((w.sum() ** 2) / np.sum(w * w)))
+        w = w / w.sum()
+        idx = rng.choice(W, size=W, p=w)
+        cloud, lnL = cloud[idx], lnL[idx]
+        # puffball random-walk Metropolis moves at the current inv_T
+        C = np.atleast_2d(np.cov(cloud.T)) + 1e-12 * np.eye(n_dim)
+        try:
+            L = np.linalg.cholesky((puff_scale ** 2) * C)
+        except np.linalg.LinAlgError:
+            L = np.diag(np.sqrt(np.maximum(np.diag((puff_scale ** 2) * C), 1e-14)))
+        acc = 0.0
+        lp_cur = _log_prior(cloud)
+        for _ in range(int(n_move)):
+            prop = _fix(cloud + rng.standard_normal((W, n_dim)) @ L.T)
+            lp_prop = _log_prior(prop)
+            ok = np.isfinite(lp_prop)
+            lnL_prop = np.full(W, -np.inf)
+            if ok.any():
+                lnL_prop[ok] = _eval(like, prop[ok], desc="smc-move")
+            logA = inv_T * (lnL_prop - lnL) + lp_prop - lp_cur
+            take = ok & np.isfinite(lnL_prop) & (np.log(rng.random(W)) < logA)
+            cloud = np.where(take[:, None], prop, cloud)
+            lnL = np.where(take, lnL_prop, lnL)
+            lp_cur = np.where(take, lp_prop, lp_cur)
+            acc += float(take.mean())
+        stage += 1
+        if verbose:
+            uniq = len(np.unique(cloud[:, 0]))
+            print("  [smc] stage %d inv_T=%.4g dbeta=%.4g maxlnL=%.2f acc=%.2f uniq=%d"
+                  % (stage, inv_T, db, float(np.max(lnL)), acc / max(1, n_move), uniq),
+                  flush=True)
+
+    logZ_smc = float(logZ)
+    sigma_over_Z = float(1.0 / np.sqrt(ti_min_ess)) if ti_min_ess > 0 else np.nan
+    neff = float(ti_min_ess)
+
+    # ---- Cloud-fitted importance-sampling evidence (the accurate normalization) -
+    # The converged cloud now MAPS the posterior directly, so a moment-matched
+    # ("Fisher-like") Gaussian fit to the cloud -- inflated for fat tails -- is a
+    # GOOD IS proposal (unlike the earlier Hessian/MAP Fisher-IS, whose Gaussian
+    # came from an off-peak curvature).  IS reweighting then gives a well-conditioned
+    # normalization constant logZ = logmeanexp(lnL + log_prior - logq).  Forward-only
+    # (no AD).  This is reported as the primary logZ; the raw SMC logZ is kept too.
+    logZ_is = sigma_is = neff_is = np.nan
+    if is_evidence and len(cloud) >= n_dim + 2:
+        try:
+            mu = cloud.mean(axis=0)
+            C = np.atleast_2d(np.cov(cloud.T))
+            Cq = (float(is_inflate) ** 2) * C + 1e-10 * np.eye(n_dim)
+            Lq = np.linalg.cholesky(Cq)
+            N = int(is_samples)
+            th = _fix(mu[None, :] + rng.standard_normal((N, n_dim)) @ Lq.T)
+            logp = _log_prior(th)
+            good = np.isfinite(logp)
+            lnL_is = np.full(N, -np.inf)
+            if good.any():
+                lnL_is[good] = _eval(like, th[good], desc="smc-IS-Z")
+            logq = _gaussian_logq(th, mu, Cq)
+            logw = np.where(good & np.isfinite(lnL_is), lnL_is + logp - logq, -np.inf)
+            logZ_is, sigma_is, neff_is = evidence_from_logweights(logw)
+            # Only TRUST the cloud-IS evidence when the proposal actually covers the
+            # posterior (high ESS): excellent at high SNR (tight ~Gaussian cloud,
+            # ESS~1e4) but a single Gaussian is too crude for the broad multimodal
+            # low-SNR sky (ESS~30) -- there, keep the raw SMC logZ.  ESS>=2% of N is
+            # the gate (a single-Gaussian over a unimodal-ish posterior gives tens of %).
+            is_ok = np.isfinite(logZ_is) and neff_is >= max(500.0, 0.02 * N)
+            if verbose:
+                print("  [smc-IS-Z] N=%d ESS=%.0f logZ_IS=%.3f (+/- %.3g) | logZ_SMC=%.3f"
+                      "  -> %s" % (N, neff_is, logZ_is, sigma_is, logZ_smc,
+                                   "USE IS-Z" if is_ok else "low-ESS, keep SMC"), flush=True)
+            if is_ok:
+                logZ, sigma_over_Z, neff = float(logZ_is), float(sigma_is), float(neff_is)
+        except Exception as e:                                  # noqa: BLE001
+            if verbose:
+                print("  [smc-IS-Z] failed (%r); keeping SMC logZ" % e)
+
+    return dict(theta=cloud, lnL=lnL, logZ=float(logZ),
+                sigma_over_Z=float(sigma_over_Z), neff=float(neff),
+                flow_state=None, post_weight=np.ones(W) / W, temper=1.0,
+                logZ_laplace=float(logZ_smc),
+                lnL_map=float(np.max(lnL)) if len(lnL) else np.nan)
 
 
 # ---------------------------------------------------------------------------

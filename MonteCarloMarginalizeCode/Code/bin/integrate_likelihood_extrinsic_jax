@@ -401,6 +401,25 @@ def build_parser():
                       "(1/SNR)-narrow high-SNR posterior is O(1) for the flow. "
                       "Restarts chains at the MAP. Recommended at SNR>=320 to avoid "
                       "the sky-sample collapse; harmless (~no-op) at low SNR.")
+    g.add_option("--smc-puffball", action="store_true", default=False,
+                 help="flowmc-phi(psi)marg: use adaptive SMC with a cloud-covariance "
+                      "'puffball' random-walk move instead of the flow. Robust at any "
+                      "SNR (sample->puffball->sample, like RIFT-AV/nested sampling); "
+                      "does not collapse on sharp high-SNR peaks. Recommended at "
+                      "SNR>=320 for reliable sky samples.")
+    g.add_option("--smc-walkers", type=int, default=2000,
+                 help="SMC puffball: number of walkers in the cloud (default 2000).")
+    g.add_option("--smc-move-steps", type=int, default=10,
+                 help="SMC puffball: random-walk Metropolis moves per temperature rung.")
+    g.add_option("--smc-puff-scale", type=float, default=1.0,
+                 help="SMC puffball: proposal scale x sqrt(cloud covariance) (~1.0).")
+    g.add_option("--fisher-is-samples", type=int, default=0,
+                 help="flowmc-phi(psi)marg high-SNR FALLBACK: after annealing, draw "
+                      "this many sky samples by Fisher-whitened importance sampling "
+                      "about the (Newton-polished) MAP and reweight by the true lnL "
+                      "(no flow training -> immune to the SNR>=640 NF-collapse). "
+                      "Overrides the exported samples; TI evidence is unchanged. "
+                      "0=off; ~40000 recommended at SNR>=640. Implies --fisher-precondition.")
     g.add_option("--interp", default="linear", choices=["linear", "nearest"])
     g.add_option("--sky-coordinates", default="equatorial",
                  choices=["equatorial", "network"],
@@ -951,6 +970,18 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 num_warmup=opts.num_warmup, num_samples=opts.num_samples,
                 seed=opts.seed, sky_coords=opts.sky_coordinates,
                 verbose=opts.verbose)
+        elif (opts.mode in ("flowmc-phimarg", "flowmc-phipsimarg", "flowmc-dpsimarg")
+              and getattr(opts, "smc_puffball", False)):
+            # Robust high-SNR alternative to the flow: adaptive SMC with a
+            # cloud-covariance "puffball" random-walk move (sample->puffball->sample,
+            # a la RIFT-AV / nested sampling).  Does not collapse on sharp peaks.
+            res = _samplers.smc_puffball_sample(
+                like, opts.d_min, opts.d_max,
+                n_walkers=opts.smc_walkers, n_move=opts.smc_move_steps,
+                ess_frac=opts.temper_ess_frac, max_dbeta=opts.temper_max_dbeta,
+                max_stages=max(opts.temper_max_stages, 80),
+                puff_scale=opts.smc_puff_scale,
+                seed=opts.seed, verbose=opts.verbose)
         elif opts.mode in ("flowmc-phimarg", "flowmc-phipsimarg", "flowmc-dpsimarg"):
             # 4-D phi-marg (ra,dec,psi,incl), 3-D phi+psi-marg (ra,dec,incl), or
             # 4-D d+psi-marg (ra,dec,phiref,incl); flowmc_sample_phimarg is
@@ -971,7 +1002,9 @@ def analyze_one(opts, P, data_dict, psd_dict, analyticPSD_Q, fiducial_epoch,
                 temper_ess_frac=opts.temper_ess_frac,
                 temper_max_stages=opts.temper_max_stages,
                 temper_max_dbeta=opts.temper_max_dbeta,
-                fisher_precondition=opts.fisher_precondition,
+                fisher_precondition=(opts.fisher_precondition
+                                     or opts.fisher_is_samples > 0),
+                fisher_is_samples=opts.fisher_is_samples,
                 seed=opts.seed, reuse_state=flow_state, verbose=opts.verbose)
             out_flow_state = res.get("flow_state")
         else:
