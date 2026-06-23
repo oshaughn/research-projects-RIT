@@ -113,8 +113,16 @@ inputs: $(DMARG_DEP) cal_env/H1.txt
 distance_marg.npz:
 	$(ENV) $(RIFT_CODE_ROOT)/bin/util_InitMargTable --d-min 1 --d-max $(DMAX) --out distance_marg.npz
 
-cal_env/H1.txt:
+# NOTE: depend on the generator so a change to make_cal_envelopes.py (e.g. its default
+# envelope width) FORCES a regen.  Without this prerequisite the rule is a bare file-existence
+# target and silently reuses a stale cal_env -- which once cost days: a cal_env built under the
+# old 5%/3deg default kept being reused after the default dropped to a realistic 1%/1deg, and
+# the wide envelope COLLAPSES cal n_eff to ~3 at SNR~17 (by design; see make_cal_envelopes.py
+# --wide), so the demo looked permanently "unconverged" (sigma_lnL~0.6) when nothing was wrong.
+cal_env/H1.txt: tools/make_cal_envelopes.py
 	$(ENV) python tools/make_cal_envelopes.py --out-dir $(CURDIR)/cal_env --ifos H1,L1,V1
+	-@echo "cal envelope 1-sigma widths in use (amp should be ~1%, NOT 5% unless you passed --wide):"
+	-@$(ENV) python -c "import numpy as np,glob,os; [print('  %s: amp %.1f%%  phase %.2f deg'%(os.path.basename(p), 100*np.median((np.loadtxt(p)[:,5]-np.loadtxt(p)[:,3])/2), np.rad2deg(np.median((np.loadtxt(p)[:,6]-np.loadtxt(p)[:,4])/2)))) for p in sorted(glob.glob('$(CURDIR)/cal_env/*.txt'))]"
 
 # Deterministic exact check on identical inputs (bypasses the stochastic sampler):
 # loop (Option B), fused (Option C) and a brute-force reference must agree to ~1e-14.
