@@ -62,6 +62,7 @@ for fname in opts.fname[0]: #sys.argv[1:]:
                 indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z,ecc,meanPerAno, lnL, sigmaOverL, ntot, neff = line
                 col_intrinsic = 11
             elif opts.meanPerAno and len(line)==17:
+                tides_on = True
                 indx, m1,m2, s1x,s1y,s1z,s2x,s2y,s2z, lambda1, lambda2, ecc,meanPerAno, lnL, sigmaOverL, ntot, neff = line
                 col_intrinsic = 13
             else:
@@ -115,7 +116,7 @@ for key in data_at_intrinsic:
     if opts.eccentricity:
         if opts.meanPerAno and not tides_on:
             print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], key[9], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
-        elif tides_on:
+        elif opts.meanPerAno and tides_on:
             print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], key[9], key[10], key[11], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
         else:
             print(-1, key[0],key[1], key[2], key[3],key[4], key[5],key[6], key[7], key[8], lnLmeanMinusLmax+lnLmax, sigmaNetOverL, np.sum(ntot), -1)
