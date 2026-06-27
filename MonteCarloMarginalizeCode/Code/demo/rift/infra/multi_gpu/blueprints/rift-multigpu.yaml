@@ -1,0 +1,82 @@
+# ===========================================================================
+# Asimov RIFT analysis blueprint -- multi-GPU ILE fan-out
+#
+#   asimov apply -f blueprints/rift-multigpu.yaml
+#
+# THE POINT: asimov runs the pipeline in a clean environment, so we CANNOT rely
+# on RIFT_ILE_GPU_FANOUT being exported in the submit shell.  The value must be
+# ENCODED in the blueprint.  There are two equivalent ways; this file shows the
+# primary one and documents the alternative.  Either way, the RIFT pipeline
+# (RIFT/asimov/rift.py) turns it into the build-time RIFT_ILE_GPU_FANOUT, which
+# dag_utils bakes into ile_pre.sh and uses to set request_GPUs=N/request_CPUs=N.
+# Nothing depends on the runtime environment after the DAG is built.
+#
+# This is a TEMPLATE; the event/data keys mirror the real distexport blueprints.
+# ===========================================================================
+kind: analysis
+name: rift-multigpu
+event: S-DEMO                      # replace with your event; pair with an event blueprint
+pipeline: rift
+status: ready
+comment: Multi-GPU ILE fan-out demo - split each ILE batch across N GPUs per node.
+bootstrap: manual
+
+waveform:
+  approximant: IMRPhenomD
+  reference frequency: 20
+  maximum mode: 2
+
+scheduler:
+  accounting group: ligo.dev.o4.cbc.pe.rift
+
+  # --- Container family (per-machine image selection + GPU capability floor). ---
+  singularity image: 'blueprints/rift_container_family.cit.yaml'
+  singularity base exe directory: '/usr/local/bin/'
+
+  # =======================================================================
+  # (1) PRIMARY: encode the fan-out as an environment variable.  rift.py copies
+  #     every key here into os.environ BEFORE invoking util_RIFT_pseudo_pipe.py
+  #     (rift.py: "adding environment variables before starting pipeline"), so it
+  #     reaches the DAG build with NO assumption about the submit shell.
+  # =======================================================================
+  environment variables:
+    RIFT_ILE_GPU_FANOUT: 4         # split each ILE block across 4 GPUs (one shard/GPU)
+
+  # =======================================================================
+  # (2) ALTERNATIVE (equivalent): pass it as a pseudo_pipe CLI flag.  Every key
+  #     under `pipeline:` becomes --key=value on the util_RIFT_pseudo_pipe.py line
+  #     (rift.py builds `--{key}={value}`).  Uncomment INSTEAD of (1) if you
+  #     prefer the explicit flag.  A CLI value wins over the environment one.
+  #
+  # pipeline:
+  #   ile-gpu-fanout: 4
+  # =======================================================================
+
+  # --- Host / GPU matching: land on nodes that actually HAVE >= N GPUs. ---
+  # request_GPUs=N (set automatically from the fan-out) already forces HTCondor to
+  # match only slots/nodes offering N GPUs.  Add a capability floor so the shards
+  # land on fast cards, and (for a dedicated local multi-GPU pool) pin/avoid hosts.
+  # NOTE: multi-GPU fan-out targets LOCAL / dedicated multi-GPU nodes.  OSG glide-in
+  # slots typically expose ONE GPU each, so request_GPUs=4 will not match there --
+  # keep `osg: False` (or target your local pool) for fan-out runs.
+  osg: False
+  gpu architectures:               # -> RIFT_REQUIRE_GPUS device exclusions, e.g. drop slow cards
+    - 'Tesla T4'
+  # avoid hosts:
+  #   - some-single-gpu-host.example.edu
+
+sampler:
+  force iterations: 2
+  cip:
+    fitting method: rf
+    sampling method: AV
+  ile:
+    n eff: 10
+    sampling method: AV
+    # macrongroup: points evaluated per ILE job == what the fan-out splits.
+    # Keep a comfortable multiple of the fan-out (here 100 / 4 = 25 points/GPU).
+    jobs per worker: 100
+    runtime max minutes: 120
+    # NOTE: the RIFT asimov pipeline ALWAYS passes --ile-force-gpu, so the GPU
+    # code path the fan-out needs is on by default -- no extra key required here.
+  n output samples: 2000

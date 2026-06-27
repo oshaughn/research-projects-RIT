@@ -273,14 +273,27 @@ sys.exit(rc)
 '''
 
 
-def ile_invocation_shell(exe):
+def ile_gpu_fanout_value():
+    """Raw RIFT_ILE_GPU_FANOUT string resolved at DAG-build time (default '1')."""
+    return os.environ.get('RIFT_ILE_GPU_FANOUT', '1').strip() or '1'
+
+
+def ile_invocation_shell(exe, fanout=None):
     """Shell snippet invoking the ILE executable `exe` with multi-GPU fan-out
     (RIFT_ILE_GPU_FANOUT).  The launcher reads its source from stdin via a quoted
     here-doc, so the ILE arguments in "$@" (including nested-quoted values) pass
-    through untouched; with fan-out disabled it just exec()s the binary."""
+    through untouched; with fan-out disabled it just exec()s the binary.
+
+    The build-time fan-out value is BAKED into ile_pre.sh as the runtime default
+    (still overridable at runtime), so the job does not depend on the submit/
+    execute environment propagating RIFT_ILE_GPU_FANOUT -- needed for asimov,
+    which can only set the value at DAG-build time."""
+    if fanout is None:
+        fanout = ile_gpu_fanout_value()
     return (
         'PY=python3; command -v python3 >/dev/null 2>&1 || PY=python\n'
-        'exec "$PY" - "{exe}" "$@" <<\'RIFT_ILE_MULTIGPU_EOF\'\n'.format(exe=exe)
+        + 'export RIFT_ILE_GPU_FANOUT="${RIFT_ILE_GPU_FANOUT:-' + str(fanout) + '}"\n'
+        + 'exec "$PY" - "' + exe + '" "$@" <<\'RIFT_ILE_MULTIGPU_EOF\'\n'
         + ILE_MULTIGPU_LAUNCHER_PY
         + '\nRIFT_ILE_MULTIGPU_EOF\n'
     )
