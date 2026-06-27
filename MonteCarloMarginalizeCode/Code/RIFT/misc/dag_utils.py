@@ -124,7 +124,7 @@ if fan=="all":
     devs=_devices(physical=True); n=len(devs)        # ignore CVD: use every physical GPU (reserved node)
 elif fan=="auto":
     devs=_devices(); n=len(devs)                      # split across exactly what condor granted
-elif fan in ("","0","1"):
+elif fan in ("","0","1","single","off"):
     devs=_devices(); n=1
 else:
     devs=_devices()
@@ -150,36 +150,58 @@ sys.exit(rc)
 '''
 
 
+# Default multi-GPU policy for GPU ILE jobs when RIFT_ILE_GPU_FANOUT is unset.
+# 'all' = grab EVERY physical GPU on the node and split the ILE batch across them
+# (request_GPUs stays 1, so matching is unchanged -- the job lands on any GPU node,
+# then uses all of that node's GPUs).  This assumes whole nodes are reserved; on a
+# SHARED multi-GPU node it would step on co-scheduled jobs, so set RIFT_ILE_GPU_FANOUT=1
+# (or 'single'/'off', or --ile-gpu-fanout 1) to fall back to the old single-GPU run.
+# We deliberately do NOT use 'auto-max-N' (partitionable-GPU-slot) as the default:
+# partitionable GPU slots are not considered a sustainable long-term path.
+DEFAULT_ILE_GPU_FANOUT = 'all'
+
+
+def _raw_ile_gpu_fanout():
+    """RIFT_ILE_GPU_FANOUT with the default applied and aliases normalised.
+    'single'/'off' -> '1'.  Returns a lowercase string."""
+    raw = os.environ.get('RIFT_ILE_GPU_FANOUT')
+    if raw is None or raw.strip() == '':
+        raw = DEFAULT_ILE_GPU_FANOUT
+    low = raw.strip().lower()
+    if low in ('single', 'off'):
+        return '1'
+    return low
+
+
 def ile_gpu_fanout_value():
     """Launcher directive baked into ile_pre.sh, resolved from RIFT_ILE_GPU_FANOUT
     at DAG-build time.  Recognised values (see ile_gpu_request for the matching
     condor request):
-       '' / '0' / '1'  -> no fan-out
-       N (int)         -> split the granted GPUs into <=N shards
-       'auto'          -> split across exactly the GPUs condor granted (CUDA_VISIBLE_DEVICES)
-       'all'           -> split across EVERY physical GPU (ignore CVD; reserved/whole node)
-       'auto-max-N'    -> adaptive: condor grants 1..N GPUs; launcher splits across the
-                          granted set, so the baked launcher directive is just 'auto'."""
-    raw = os.environ.get('RIFT_ILE_GPU_FANOUT', '1').strip() or '1'
-    if raw.lower().startswith('auto-max-'):
+       '1' / 'single' / 'off'  -> no fan-out, single-GPU run (the fallback)
+       'all'  (DEFAULT)        -> split across EVERY physical GPU (ignore CVD; whole node)
+       N (int)                 -> split the granted GPUs into <=N shards
+       'auto'                  -> split across exactly the GPUs condor granted (CUDA_VISIBLE_DEVICES)
+       'auto-max-N'            -> adaptive (partitionable slots): condor grants 1..N GPUs;
+                                  launcher splits across the granted set, so baked value is 'auto'."""
+    low = _raw_ile_gpu_fanout()
+    if low.startswith('auto-max-'):
         return 'auto'
-    return raw
+    return low
 
 
 def ile_gpu_request():
     """Resolve RIFT_ILE_GPU_FANOUT into the condor (request_gpus, request_cpus)
     values for an ILE job.  Each is an int (fixed count) OR a string ClassAd
-    expression (adaptive).  Returns (1, 1) when fan-out is off, or for 'auto'/'all'
-    (those keep request_GPUs=1 and obtain their GPUs at runtime from a node you
-    have reserved -- the request cannot size them ahead of time).
+    expression (adaptive).  Returns (1, 1) for the default 'all' and for 'auto'/'off'
+    (those keep request_GPUs=1 -- 'all'/'auto' obtain their GPUs at runtime from a node
+    you have reserved; the request cannot size them ahead of time).
 
     'auto-max-N' emits an expression that requests up to N of the capability-matching
-    GPUs actually available on the matched (partitionable) slot, so ONE job flavour
-    lands on a 1/2/3/.../N-GPU node and grabs them all.  Override the expression with
-    RIFT_ILE_GPU_REQUEST_EXPR if your pool exposes GPU counts differently
-    (verify the attribute with `condor_status -long <gpu-node>`)."""
-    raw = os.environ.get('RIFT_ILE_GPU_FANOUT', '1').strip()
-    low = raw.lower()
+    GPUs actually available on the matched (partitionable) slot.  Override the expression
+    with RIFT_ILE_GPU_REQUEST_EXPR if your pool exposes GPU counts differently
+    (verify the attribute with `condor_status -long <gpu-node>`).  Partitionable GPU
+    slots are not the recommended path; 'all' is the default instead."""
+    low = _raw_ile_gpu_fanout()
     if low in ('', '0', '1', 'auto', 'all'):
         return (1, 1)
     if low.startswith('auto-max-'):
@@ -1251,7 +1273,9 @@ echo Starting ...
             f.write("for i in `ls " + frames_local + "`; do echo "+ frames_local + "/$i; done  > base_paths.dat \n")
             f.write("paste local_stripped.cache base_paths.dat > local_relative.cache \n")
             f.write("cp local_relative.cache local.cache \n")
-            f.write(ile_invocation_shell(exe))
+            # Only GPU ILE jobs fan out; a CPU-only ILE job bakes '1' so the default
+            # 'all' policy never makes a non-GPU job grab the node's GPUs.
+            f.write(ile_invocation_shell(exe, fanout=(ile_gpu_fanout_value() if request_gpu else '1')))
             os.system("chmod a+x ile_pre.sh")
             ile_job.set_executable("ile_pre.sh")  # transferred, used as executable
 #          ile_job.add_condor_cmd('+PreCmd', '"ile_pre.sh"')
