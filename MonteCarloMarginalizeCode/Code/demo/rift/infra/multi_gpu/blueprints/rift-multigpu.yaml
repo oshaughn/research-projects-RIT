@@ -34,19 +34,20 @@ scheduler:
   singularity base exe directory: '/usr/local/bin/'
 
   # =======================================================================
-  # (1) PRIMARY: encode the fan-out as an environment variable.  rift.py copies
-  #     every key here into os.environ BEFORE invoking util_RIFT_pseudo_pipe.py
-  #     (rift.py: "adding environment variables before starting pipeline"), so it
-  #     reaches the DAG build with NO assumption about the submit shell.
+  # GPU fan-out.  THE DEFAULT IS ALREADY 'all' (grab every physical GPU on the node,
+  # request_GPUs=1), so for a whole-node-reservation pool you need set NOTHING here.
+  # Set RIFT_ILE_GPU_FANOUT only to OVERRIDE the default.  rift.py copies every key
+  # under `environment variables` into os.environ BEFORE invoking
+  # util_RIFT_pseudo_pipe.py ("adding environment variables before starting pipeline"),
+  # so it reaches the DAG build with NO assumption about the submit shell.
   # =======================================================================
-  environment variables:
-    RIFT_ILE_GPU_FANOUT: 4         # split each ILE block across 4 GPUs (one shard/GPU)
-    # Hot-swap variants (request a VARIABLE number of GPUs, adapt to what's found):
-    #   RIFT_ILE_GPU_FANOUT: auto-max-4  # shared/partitionable pool: request up to 4 of the
-    #                                    #   GPUs available on the matched slot; split across
-    #                                    #   whatever condor grants (1..4).
-    #   RIFT_ILE_GPU_FANOUT: all         # dedicated/whole node: request 1, use every physical GPU.
-    # (See README.md "Values -- fixed vs. adaptive".)
+  environment variables: {}
+    # Override examples (uncomment ONE):
+    #   RIFT_ILE_GPU_FANOUT: 1           # FALLBACK: single-GPU run (shared node / old behaviour)
+    #   RIFT_ILE_GPU_FANOUT: 2           # fixed: request exactly 2 GPUs+CPUs, split across them
+    #   RIFT_ILE_GPU_FANOUT: auto-max-4  # partitionable-slot pool (not recommended long-term):
+    #                                    #   request up to 4 of the GPUs available on the matched slot
+    # (See README.md "Values".)
 
   # =======================================================================
   # (2) ALTERNATIVE (equivalent): pass it as a pseudo_pipe CLI flag.  Every key

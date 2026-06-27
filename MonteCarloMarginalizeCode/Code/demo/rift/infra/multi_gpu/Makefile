@@ -6,17 +6,19 @@
 # with several GPUs reserved, the rest sit idle.  The fan-out splits that block
 # into N shards run concurrently -- one per GPU -- via the generated ile_pre.sh.
 #
-# Turn it on with RIFT_ILE_GPU_FANOUT=<value> (env) or --ile-gpu-fanout <value> (CLI)
-# or, for asimov, a blueprint key (see README.md + blueprints/).  The value is BAKED
-# into ile_pre.sh and sizes request_GPUs/request_CPUs, so nothing depends on the
+# DEFAULT: GPU ILE jobs grab EVERY physical GPU on the node ('all'): request_GPUs=1
+# (matching unchanged), but the launcher splits the ILE block across all of the node's
+# GPUs.  Assumes whole nodes are reserved.  Override with RIFT_ILE_GPU_FANOUT=<value>
+# (env) or --ile-gpu-fanout <value> (CLI) or an asimov blueprint key.  The value is
+# BAKED into ile_pre.sh and sizes request_GPUs/request_CPUs, so nothing depends on the
 # submit/execute environment -- which is what makes it work under asimov.
 #
-# Values (see README.md "Values -- fixed vs. adaptive"):
+# Values (see README.md "Values"):
+#   all         DEFAULT: request 1 GPU, use EVERY physical GPU on the node (reserved node)
+#   1 / single  FALLBACK: single-GPU run (shared node / old behaviour)
 #   N           fixed: request N GPUs+CPUs, split across them
-#   auto-max-N  ADAPTIVE hot-swap (shared pool): request_GPUs = expression for up to N
-#               of the GPUs available on the matched partitionable slot; split across
-#               whatever condor grants (1..N)
-#   all         request 1 GPU, but use EVERY physical GPU on the node (reserved/whole node)
+#   auto-max-N  partitionable-slot pool (not recommended): request up to N of the GPUs
+#               available on the matched slot; split across whatever condor grants (1..N)
 #
 # Targets:
 #   make smoke-local         # PROVE the split+pin logic on THIS node's GPUs (no cupy,
@@ -151,9 +153,11 @@ verify:
 MANIFEST := $(CURDIR)/blueprints/rift_container_family.cit.yaml
 requests:
 	@rm -rf _req && mkdir -p _req/frames_dir && touch _req/frames_dir/H1.gwf
-	@for MODE in 1 4 all auto-max-4; do \
+	@echo "(default = unset => 'all'; '1'/single = fallback)"
+	@for MODE in default 1 all 4 auto-max-4; do \
 	  cd $(CURDIR)/_req; \
-	  $(ENV) RIFT_ILE_GPU_FANOUT=$$MODE RIFT_REQUIRE_GPUS='(Capability >= 8.0)' LIGO_ACCOUNTING=x LIGO_USER_NAME=y \
+	  if [ $$MODE = default ]; then unset RIFT_ILE_GPU_FANOUT; else export RIFT_ILE_GPU_FANOUT=$$MODE; fi; \
+	  $(ENV) RIFT_REQUIRE_GPUS='(Capability >= 8.0)' LIGO_ACCOUNTING=x LIGO_USER_NAME=y \
 	    python3 -c "import os,RIFT.misc.dag_utils_generic as d; \
 	      j,n=d.write_ILE_sub_simple(tag='ILE',exe='/usr/local/bin/integrate_likelihood_extrinsic_batchmode',request_gpu=True,use_singularity=True,singularity_image='$(MANIFEST)',frames_dir=os.path.abspath('frames_dir'),transfer_files=['../g.xml.gz'],arg_str=' --n-events-to-analyze \$$(macrongroup) --event=\$$(macroevent) ',output_file='CME_out.xml'); j.write_sub_file()" >/dev/null 2>&1; \
 	  echo "=== RIFT_ILE_GPU_FANOUT=$$MODE ==="; \

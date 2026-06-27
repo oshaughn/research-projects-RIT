@@ -15,8 +15,26 @@ by *parameter value*, not filename. Coverage is identical to the serial run (the
 shards partition the range exactly), and the launcher returns the first non-zero
 shard exit code, so condor retry/hold behaviour is preserved.
 
-It is **off by default** and a no-op unless you ask for it. With it disabled the
-generated `ile_pre.sh` just `exec`s the ILE binary exactly as before.
+### Default policy: grab every GPU on the node
+
+**GPU ILE jobs now fan out across all of the node's GPUs by default** (`RIFT_ILE_GPU_FANOUT`
+unset ⇒ `all`). The job still **requests one GPU** (`request_GPUs=1`), so condor matching
+is unchanged — it lands on any GPU node exactly as before — but at runtime the launcher
+enumerates **every physical GPU** (`nvidia-smi`, ignoring `CUDA_VISIBLE_DEVICES`) and splits
+the point block across all of them. On a 1-GPU node this is a byte-for-byte no-op; only
+multi-GPU nodes change.
+
+> **This assumes you reserve whole nodes.** Requesting 1 GPU but using all of them means
+> condor still thinks the other GPUs are free — on a *shared* multi-GPU node it would step
+> on co-scheduled jobs. If you are not reserving whole nodes, set the single-GPU fallback.
+
+**Fallback to the old single-GPU run:** `RIFT_ILE_GPU_FANOUT=1` (or `single` / `off`, or
+`--ile-gpu-fanout 1`). Then `ile_pre.sh` just `exec`s the ILE binary exactly as before.
+
+Why this default and not the partitionable-slot `auto-max-N`? HTCondor *does* support
+partitionable GPU slots today (verified on the CIT pool: a 2-GPU partitionable slot carves
+per-GPU dynamic slots), but that path is not considered sustainable long-term, so the
+default is the reservation-based `all` instead.
 
 ---
 
@@ -40,26 +58,26 @@ time**:
 
 ---
 
-## Three ways to turn it on
+## Setting the policy
 
-All three resolve to the same baked `RIFT_ILE_GPU_FANOUT`.
+The default (`all`) needs no action — GPU ILE jobs fan out across the node automatically.
+To **override** it (a fixed count, or the single-GPU fallback), set `RIFT_ILE_GPU_FANOUT`
+any of these ways (all resolve to the same baked value):
 
 | Context | How |
 |---|---|
-| **Env var** (interactive) | `export RIFT_ILE_GPU_FANOUT=4` before `util_RIFT_pseudo_pipe.py` |
-| **CLI flag** (direct) | `util_RIFT_pseudo_pipe.py ... --ile-force-gpu --ile-gpu-fanout 4` (also on `create_event_parameter_pipeline_BasicIteration`) |
-| **asimov blueprint** | `scheduler.environment variables: {RIFT_ILE_GPU_FANOUT: 4}` **or** `scheduler.pipeline: {ile-gpu-fanout: 4}` |
+| **Env var** (interactive) | `export RIFT_ILE_GPU_FANOUT=1` before `util_RIFT_pseudo_pipe.py` (e.g. fallback) |
+| **CLI flag** (direct) | `util_RIFT_pseudo_pipe.py ... --ile-force-gpu --ile-gpu-fanout 1` (also on `create_event_parameter_pipeline_BasicIteration`) |
+| **asimov blueprint** | `scheduler.environment variables: {RIFT_ILE_GPU_FANOUT: 1}` **or** `scheduler.pipeline: {ile-gpu-fanout: 1}` |
 
-### Values — fixed vs. adaptive ("hot-swap 1–4")
-
-`RIFT_ILE_GPU_FANOUT` / `--ile-gpu-fanout` accepts:
+### Values
 
 | Value | `request_GPUs` (condor) | What the launcher splits across | Use when |
 |---|---|---|---|
-| `1` / unset | 1 | — (no fan-out) | default |
+| `all` **(unset ⇒ default)** | 1 | **every physical GPU** (ignores `CUDA_VISIBLE_DEVICES`) | **dedicated / whole node you reserved** |
+| `1` / `single` / `off` | 1 | — (no fan-out) | **fallback: shared node / single-GPU run** |
 | `N` (int) | `N` | the N granted GPUs (adapts down if fewer) | every node has exactly N GPUs |
-| `auto-max-N` | **expression** ≤ N | exactly the GPUs condor granted | **shared pool, partitionable GPU slots — the real hot-swap** |
-| `all` | 1 | **every physical GPU** (ignores `CUDA_VISIBLE_DEVICES`) | **dedicated / whole node you reserved** |
+| `auto-max-N` | **expression** ≤ N | exactly the GPUs condor granted | shared pool, partitionable GPU slots (not the recommended path) |
 | `auto` | 1 | the GPUs condor granted | you sized a multi-GPU slot some other way |
 
 **The runtime split is already fully adaptive** — the launcher splits the point block
