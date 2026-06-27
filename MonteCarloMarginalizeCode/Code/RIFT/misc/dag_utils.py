@@ -97,14 +97,15 @@ def _setopt(argv, names, new):
                 out[i]="{}={}".format(nm,new); hit=True; i+=1; break
         if not hit: i+=1
     return out
-def _devices():
-    cvd=os.environ.get("CUDA_VISIBLE_DEVICES")
-    if cvd and cvd.strip():
-        return [d.strip() for d in cvd.split(",") if d.strip()]
+def _devices(physical=False):
+    if not physical:
+        cvd=os.environ.get("CUDA_VISIBLE_DEVICES")
+        if cvd and cvd.strip():
+            return [d.strip() for d in cvd.split(",") if d.strip()]
     try:
         out=subprocess.check_output(["nvidia-smi","-L"]).decode()
-        n=len([l for l in out.splitlines() if l.strip().startswith("GPU ")])
-        return [str(i) for i in range(n)] or ["0"]
+        m=len([l for l in out.splitlines() if l.strip().startswith("GPU ")])
+        return [str(i) for i in range(m)] or ["0"]
     except Exception:
         return ["0"]
 def _partition(start,count,n):
@@ -119,10 +120,14 @@ event=_val(ile,["--event","-E"]); ngroup=_val(ile,["--n-events-to-analyze"])
 outfile=_val(ile,["--output-file","-o"])
 event=int(event) if event is not None else 0
 ngroup=int(ngroup) if ngroup is not None else 1
-devs=_devices()
-if fan in ("","0","1"): n=1
-elif fan=="auto": n=len(devs)
+if fan=="all":
+    devs=_devices(physical=True); n=len(devs)        # ignore CVD: use every physical GPU (reserved node)
+elif fan=="auto":
+    devs=_devices(); n=len(devs)                      # split across exactly what condor granted
+elif fan in ("","0","1"):
+    devs=_devices(); n=1
 else:
+    devs=_devices()
     try: n=int(fan)
     except ValueError: n=1
 n=max(1,min(n,len(devs),ngroup))
@@ -146,8 +151,52 @@ sys.exit(rc)
 
 
 def ile_gpu_fanout_value():
-    """Raw RIFT_ILE_GPU_FANOUT string resolved at DAG-build time (default '1')."""
-    return os.environ.get('RIFT_ILE_GPU_FANOUT', '1').strip() or '1'
+    """Launcher directive baked into ile_pre.sh, resolved from RIFT_ILE_GPU_FANOUT
+    at DAG-build time.  Recognised values (see ile_gpu_request for the matching
+    condor request):
+       '' / '0' / '1'  -> no fan-out
+       N (int)         -> split the granted GPUs into <=N shards
+       'auto'          -> split across exactly the GPUs condor granted (CUDA_VISIBLE_DEVICES)
+       'all'           -> split across EVERY physical GPU (ignore CVD; reserved/whole node)
+       'auto-max-N'    -> adaptive: condor grants 1..N GPUs; launcher splits across the
+                          granted set, so the baked launcher directive is just 'auto'."""
+    raw = os.environ.get('RIFT_ILE_GPU_FANOUT', '1').strip() or '1'
+    if raw.lower().startswith('auto-max-'):
+        return 'auto'
+    return raw
+
+
+def ile_gpu_request():
+    """Resolve RIFT_ILE_GPU_FANOUT into the condor (request_gpus, request_cpus)
+    values for an ILE job.  Each is an int (fixed count) OR a string ClassAd
+    expression (adaptive).  Returns (1, 1) when fan-out is off, or for 'auto'/'all'
+    (those keep request_GPUs=1 and obtain their GPUs at runtime from a node you
+    have reserved -- the request cannot size them ahead of time).
+
+    'auto-max-N' emits an expression that requests up to N of the capability-matching
+    GPUs actually available on the matched (partitionable) slot, so ONE job flavour
+    lands on a 1/2/3/.../N-GPU node and grabs them all.  Override the expression with
+    RIFT_ILE_GPU_REQUEST_EXPR if your pool exposes GPU counts differently
+    (verify the attribute with `condor_status -long <gpu-node>`)."""
+    raw = os.environ.get('RIFT_ILE_GPU_FANOUT', '1').strip()
+    low = raw.lower()
+    if low in ('', '0', '1', 'auto', 'all'):
+        return (1, 1)
+    if low.startswith('auto-max-'):
+        try:
+            cap = max(1, int(low.rsplit('-', 1)[1]))
+        except ValueError:
+            return (1, 1)
+        expr = os.environ.get('RIFT_ILE_GPU_REQUEST_EXPR')
+        if not expr:
+            cm = "countMatches(RequireGPUs, AvailableGPUs)"
+            expr = "ifThenElse({cm} >= {N}, {N}, ifThenElse({cm} >= 1, {cm}, 1))".format(cm=cm, N=cap)
+        return (expr, expr)
+    try:
+        n = max(1, int(low))
+        return (n, n)
+    except ValueError:
+        return (1, 1)
 
 
 def ile_invocation_shell(exe, fanout=None):
@@ -171,20 +220,6 @@ def ile_invocation_shell(exe, fanout=None):
         + ILE_MULTIGPU_LAUNCHER_PY
         + '\nRIFT_ILE_MULTIGPU_EOF\n'
     )
-
-
-def ile_gpu_fanout_count():
-    """Concrete number of GPUs an ILE job should *request* for fan-out, parsed
-    from RIFT_ILE_GPU_FANOUT.  Returns an int >=1.  'auto' (split across whatever
-    is visible at runtime) cannot size a request ahead of time, so it returns 1
-    and relies on the user reserving the node."""
-    fan = os.environ.get('RIFT_ILE_GPU_FANOUT', '1').strip().lower()
-    if fan in ('', '0', '1', 'auto'):
-        return 1
-    try:
-        return max(1, int(fan))
-    except ValueError:
-        return 1
 
 
 def mkdir(dir_name):
@@ -1122,15 +1157,17 @@ echo Starting ...
             nGPUs = 'countMatches(RequireGPUs, AvailableGPUs) >= 1 ? 1 : 0'
             ile_job.add_condor_cmd('rank', 'RequestGPUs')
         else:
-            # Multi-GPU fan-out (RIFT_ILE_GPU_FANOUT=N): reserve N GPUs (and N
-            # CPUs to drive them) so HTCondor hands this job the whole-node GPUs
-            # that ile_pre.sh then splits the intrinsic-grid range across.
-            fanout = ile_gpu_fanout_count()
-            if fanout > 1:
-                nGPUs = fanout
-                ile_gpu_cpus = fanout
+            # Multi-GPU fan-out (RIFT_ILE_GPU_FANOUT): request the GPUs (+matching CPUs)
+            # that ile_pre.sh then splits the intrinsic-grid range across.  req_g/req_c
+            # are an int (fixed N) or a ClassAd expression ('auto-max-N' -> request up to
+            # N of the GPUs available on the matched slot).  'auto'/'all' keep 1 here and
+            # grab their GPUs at runtime from a node you have reserved.
+            req_g, req_c = ile_gpu_request()
+            if req_g != 1:
+                nGPUs = req_g
+                ile_gpu_cpus = req_c
                 if not use_singularity:
-                    ile_job.add_condor_cmd('request_CPUs', str(fanout))
+                    ile_job.add_condor_cmd('request_CPUs', str(req_c))
         ile_job.add_condor_cmd('request_GPUs', str(nGPUs))
 # Claim we don't need to make this request anymore to avoid out-of-memory errors. Also, no longer in 'requirements'
 #        requirements.append("CUDAGlobalMemoryMb >= 2048")

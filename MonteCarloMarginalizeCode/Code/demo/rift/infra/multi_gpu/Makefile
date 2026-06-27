@@ -6,15 +6,24 @@
 # with several GPUs reserved, the rest sit idle.  The fan-out splits that block
 # into N shards run concurrently -- one per GPU -- via the generated ile_pre.sh.
 #
-# Turn it on with RIFT_ILE_GPU_FANOUT=N (env) or --ile-gpu-fanout N (CLI) or, for
-# asimov, a blueprint key (see README.md + blueprints/).  The value is BAKED into
-# ile_pre.sh and sets request_GPUs=N/request_CPUs=N, so nothing depends on the
+# Turn it on with RIFT_ILE_GPU_FANOUT=<value> (env) or --ile-gpu-fanout <value> (CLI)
+# or, for asimov, a blueprint key (see README.md + blueprints/).  The value is BAKED
+# into ile_pre.sh and sizes request_GPUs/request_CPUs, so nothing depends on the
 # submit/execute environment -- which is what makes it work under asimov.
+#
+# Values (see README.md "Values -- fixed vs. adaptive"):
+#   N           fixed: request N GPUs+CPUs, split across them
+#   auto-max-N  ADAPTIVE hot-swap (shared pool): request_GPUs = expression for up to N
+#               of the GPUs available on the matched partitionable slot; split across
+#               whatever condor grants (1..N)
+#   all         request 1 GPU, but use EVERY physical GPU on the node (reserved/whole node)
 #
 # Targets:
 #   make smoke-local         # PROVE the split+pin logic on THIS node's GPUs (no cupy,
-#                            #   no condor, no data).  Runs the real shipped launcher
-#                            #   around a stub ILE.  This is the runnable-anywhere proof.
+#                            #   no condor, no data).  FANOUT=4|all|...  This is the
+#                            #   runnable-anywhere proof.
+#   make requests            # show request_GPUs/CPUs + baked launcher for each mode
+#                            #   (1, 4, all, auto-max-4) -- the "how do I get 1-4 GPUs" ref.
 #   make build               # build a real pipeline run dir on the CI data with
 #                            #   --ile-gpu-fanout (needs SINGULARITY_RIFT_IMAGE).
 #   make verify              # assert the generated ILE.sub + ile_pre.sh carry the fan-out.
@@ -43,7 +52,7 @@ FANOUT  ?= 4
 BUILD_DIR := $(CURDIR)/rundir_multigpu
 DAG       := marginalize_intrinsic_parameters_BasicIterationWorkflow.dag
 
-.PHONY: all smoke-local build verify inspect clean coinc help
+.PHONY: all smoke-local build verify inspect requests clean coinc help
 
 help:
 	@sed -n '2,40p' Makefile
@@ -133,10 +142,31 @@ verify:
 	@echo "OK: ILE.sub requests $(FANOUT) GPUs + $(FANOUT) CPUs; ile_pre.sh bakes RIFT_ILE_GPU_FANOUT=$(FANOUT)"
 	@echo "    and will split each 100-point ILE block into $(FANOUT) shards, one per GPU."
 
+# ---------------------------------------------------------------------------
+# requests: show the condor request_GPUs/request_CPUs + baked launcher directive
+# that each fan-out mode produces (fixed N vs. adaptive vs. all-physical).  Fast:
+# calls write_ILE_sub_simple directly, no full pipeline build.  This is the
+# reference for "how do I get 1/2/3/4 GPUs?".
+# ---------------------------------------------------------------------------
+MANIFEST := $(CURDIR)/blueprints/rift_container_family.cit.yaml
+requests:
+	@rm -rf _req && mkdir -p _req/frames_dir && touch _req/frames_dir/H1.gwf
+	@for MODE in 1 4 all auto-max-4; do \
+	  cd $(CURDIR)/_req; \
+	  $(ENV) RIFT_ILE_GPU_FANOUT=$$MODE RIFT_REQUIRE_GPUS='(Capability >= 8.0)' LIGO_ACCOUNTING=x LIGO_USER_NAME=y \
+	    python3 -c "import os,RIFT.misc.dag_utils_generic as d; \
+	      j,n=d.write_ILE_sub_simple(tag='ILE',exe='/usr/local/bin/integrate_likelihood_extrinsic_batchmode',request_gpu=True,use_singularity=True,singularity_image='$(MANIFEST)',frames_dir=os.path.abspath('frames_dir'),transfer_files=['../g.xml.gz'],arg_str=' --n-events-to-analyze \$$(macrongroup) --event=\$$(macroevent) ',output_file='CME_out.xml'); j.write_sub_file()" >/dev/null 2>&1; \
+	  echo "=== RIFT_ILE_GPU_FANOUT=$$MODE ==="; \
+	  grep -iE 'request_GPUs|request_CPUs' ILE.sub | sed 's/^/   /'; \
+	  echo "   ile_pre.sh launcher directive: $$(grep -o 'RIFT_ILE_GPU_FANOUT:-[A-Za-z0-9]*' ile_pre.sh)"; \
+	  cd $(CURDIR); \
+	done
+	@rm -rf _req
+
 inspect:
 	@echo "######## $(BUILD_DIR)/ile_pre.sh ########"; cat $(BUILD_DIR)/ile_pre.sh
 	@echo; echo "######## ILE.sub (resource + container lines) ########"
 	@grep -iE 'request_|require_gpus|SingularityImage|executable|when_to_transfer' $(BUILD_DIR)/ILE.sub
 
 clean:
-	rm -rf _smoke $(BUILD_DIR) ci_coinc.xml
+	rm -rf _smoke _req $(BUILD_DIR) ci_coinc.xml

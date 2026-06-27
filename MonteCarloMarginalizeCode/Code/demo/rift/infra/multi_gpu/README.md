@@ -50,9 +50,47 @@ All three resolve to the same baked `RIFT_ILE_GPU_FANOUT`.
 | **CLI flag** (direct) | `util_RIFT_pseudo_pipe.py ... --ile-force-gpu --ile-gpu-fanout 4` (also on `create_event_parameter_pipeline_BasicIteration`) |
 | **asimov blueprint** | `scheduler.environment variables: {RIFT_ILE_GPU_FANOUT: 4}` **or** `scheduler.pipeline: {ile-gpu-fanout: 4}` |
 
-Values: an integer `N` (also sizes `request_GPUs`/`request_CPUs`), or `auto` (split
-across whatever GPUs are visible at runtime — for a whole node held with
-`request_GPUs=1`; `auto` cannot size the request, so reserve the node yourself).
+### Values — fixed vs. adaptive ("hot-swap 1–4")
+
+`RIFT_ILE_GPU_FANOUT` / `--ile-gpu-fanout` accepts:
+
+| Value | `request_GPUs` (condor) | What the launcher splits across | Use when |
+|---|---|---|---|
+| `1` / unset | 1 | — (no fan-out) | default |
+| `N` (int) | `N` | the N granted GPUs (adapts down if fewer) | every node has exactly N GPUs |
+| `auto-max-N` | **expression** ≤ N | exactly the GPUs condor granted | **shared pool, partitionable GPU slots — the real hot-swap** |
+| `all` | 1 | **every physical GPU** (ignores `CUDA_VISIBLE_DEVICES`) | **dedicated / whole node you reserved** |
+| `auto` | 1 | the GPUs condor granted | you sized a multi-GPU slot some other way |
+
+**The runtime split is already fully adaptive** — the launcher splits the point block
+across however many GPUs it is handed (1, 2, 3, 4 …), always covering the whole block.
+So "adapt to the number found" is solved regardless of value. The only real question is
+how to make condor *hand you* a variable number; that is what the two adaptive values do:
+
+- **`auto-max-N` (shared pool):** HTCondor's plain `request_GPUs` is a single fixed count,
+  so it cannot natively say "give me 1 to 4". This value instead emits a ClassAd
+  **expression** for `request_GPUs`/`request_CPUs` that asks for *up to N of the
+  capability-matching GPUs available on the matched (partitionable) slot* — so ONE job
+  flavour lands on a 1/2/3/4-GPU slot and grabs them all, and the launcher (`auto`) fans
+  out across exactly that many. The default expression is
+  `ifThenElse(countMatches(RequireGPUs,AvailableGPUs) >= N, N, ifThenElse(... >= 1, ..., 1))`
+  (same `countMatches` idiom RIFT already uses for cross-platform GPU matching). It
+  **requires partitionable slots and a GPU-aware negotiator** — verify on your pool with
+  `condor_status -long <gpu-node> | grep -i gpu`, and if the attribute differs, override the
+  whole expression with `RIFT_ILE_GPU_REQUEST_EXPR='<your expr>'` (no code change).
+
+- **`all` (dedicated node):** if you already reserve whole nodes, keep `request_GPUs=1`
+  (so it matches a node with *any* number of GPUs) and let the launcher enumerate **all
+  physical GPUs** via `nvidia-smi`, ignoring `CUDA_VISIBLE_DEVICES`. Simplest, needs no
+  partitionable-slot support. **Caveats:** only safe when the node is exclusively yours
+  (otherwise you would step on co-scheduled jobs), and it assumes condor is *not* cgroup-
+  isolating the GPU devices (with strict device isolation a shard pinned to a non-granted
+  GPU cannot use it). It also still requests 1 CPU — bump `request_CPUs` if your scheduler
+  confines CPUs too.
+
+Is a variable request "even possible"? Not as a plain `request_GPUs` number — that is one
+value. It *is* possible either as the `auto-max-N` expression (condor sizes the dynamic
+slot to what's available) or by reserving the node and using `all`. Pick by pool type.
 
 ---
 
