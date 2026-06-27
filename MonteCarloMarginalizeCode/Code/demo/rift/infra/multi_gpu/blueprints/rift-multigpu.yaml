@@ -41,6 +41,12 @@ scheduler:
   # =======================================================================
   environment variables:
     RIFT_ILE_GPU_FANOUT: 4         # split each ILE block across 4 GPUs (one shard/GPU)
+    # Hot-swap variants (request a VARIABLE number of GPUs, adapt to what's found):
+    #   RIFT_ILE_GPU_FANOUT: auto-max-4  # shared/partitionable pool: request up to 4 of the
+    #                                    #   GPUs available on the matched slot; split across
+    #                                    #   whatever condor grants (1..4).
+    #   RIFT_ILE_GPU_FANOUT: all         # dedicated/whole node: request 1, use every physical GPU.
+    # (See README.md "Values -- fixed vs. adaptive".)
 
   # =======================================================================
   # (2) ALTERNATIVE (equivalent): pass it as a pseudo_pipe CLI flag.  Every key
