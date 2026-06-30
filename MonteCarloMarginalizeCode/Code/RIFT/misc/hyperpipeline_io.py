@@ -37,6 +37,7 @@ Optional column groups (auto-detected from the header):
 * ``eccentricity`` (and optionally ``meanPerAno``)
 * ``lambda1 lambda2`` (and optionally ``eos_table_index``)
 * ``distance``  (in Mpc)
+* ``ecliptic_longitude ecliptic_latitude`` (sky position treated as intrinsic)
 
 The reader returns a structured ``numpy.ndarray`` so callers can address
 columns by name regardless of order, and a small adaptor function is provided
@@ -81,6 +82,8 @@ OPTIONAL_COLUMNS = (
     "lambda2",
     "eos_table_index",
     "distance",
+    "ecliptic_longitude",
+    "ecliptic_latitude",
 )
 
 
@@ -100,14 +103,14 @@ def is_active(env=None):
 
 def build_column_list(use_eccentricity=False, use_meanPerAno=False,
                       use_tides=False, use_eos_index=False,
-                      use_distance=False):
+                      use_distance=False, use_sky=False):
     """Compose the column-name tuple for a given physics configuration.
 
     The resulting tuple always begins with :data:`DEFAULT_BASE_COLUMNS` and
     appends the requested optional groups in a fixed canonical order::
 
         (eccentricity, [meanPerAno,] [lambda1, lambda2,]
-         [eos_table_index,] [distance])
+         [eos_table_index,] [distance,] [ecliptic_longitude, ecliptic_latitude])
     """
     cols = list(DEFAULT_BASE_COLUMNS)
     if use_eccentricity:
@@ -120,6 +123,8 @@ def build_column_list(use_eccentricity=False, use_meanPerAno=False,
             cols.append("eos_table_index")
     if use_distance:
         cols.append("distance")
+    if use_sky:
+        cols.extend(["ecliptic_longitude", "ecliptic_latitude"])
     return tuple(cols)
 
 
@@ -197,7 +202,22 @@ def sniff(fname):
     The check is cheap: read the first non-empty line and look for the
     magic marker, or fall back to a header-only sniff (a ``#`` line listing
     the canonical first column names).
+
+    Robust to non-ASCII inputs: the pipeline routinely passes gzipped XML
+    grids (``overlap-grid-N.xml.gz``).  Those are binary, so a text-mode read
+    raises ``UnicodeDecodeError`` on the gzip magic (``1f 8b``); we peek the
+    first bytes and bail early for gzip / XML, and also treat any decode error
+    as "not a hyperpipeline ASCII file" rather than letting it propagate.
     """
+    try:
+        # Binary peek: gzip magic (1f 8b) or a leading '<' (XML) is never a
+        # hyperpipeline ASCII grid -- reject before any text decode.
+        with open(fname, "rb") as fb:
+            head = fb.read(2)
+        if head[:2] == b"\x1f\x8b" or head[:1] == b"<":
+            return False
+    except (OSError, IOError):
+        return False
     try:
         with open(fname, "r") as fp:
             for raw in fp:
@@ -214,7 +234,7 @@ def sniff(fname):
                 if len(toks) >= 2 and toks[0] == "lnL" and toks[1] == "sigma_lnL":
                     return True
                 return False
-    except (OSError, IOError):
+    except (OSError, IOError, UnicodeDecodeError):
         return False
     return False
 
@@ -267,7 +287,8 @@ def read_table(fname):
 # ---------------------------------------------------------------------------
 
 def to_legacy_dat(arr, use_eccentricity=False, use_meanPerAno=False,
-                  use_tides=False, use_eos_index=False, use_distance=False):
+                  use_tides=False, use_eos_index=False, use_distance=False,
+                  use_sky=False):
     """Reshape a hyperpipeline structured array into the legacy CIP layout.
 
     The legacy CIP reader expects a plain ``(N, K)`` ``ndarray`` whose
@@ -276,6 +297,7 @@ def to_legacy_dat(arr, use_eccentricity=False, use_meanPerAno=False,
         [event_id, m1, m2, s1x, s1y, s1z, s2x, s2y, s2z,
          (distance?), (lambda1, lambda2, (eos_index)?)?,
          (eccentricity, (meanPerAno)?)?,
+         (ecliptic_longitude, ecliptic_latitude)?,
          lnL, sigma_lnL]
 
     The ordering of optional groups before ``lnL`` mirrors what the legacy
@@ -297,6 +319,8 @@ def to_legacy_dat(arr, use_eccentricity=False, use_meanPerAno=False,
         cols.append("eccentricity")
         if use_meanPerAno:
             cols.append("meanPerAno")
+    if use_sky:
+        cols.extend(["ecliptic_longitude", "ecliptic_latitude"])
     cols.extend(["lnL", "sigma_lnL"])
 
     out = np.zeros((n, len(cols)), dtype=float)
@@ -425,6 +449,8 @@ def consolidate(arr, columns, sigma_cut=0.9, digits=5):
 COLUMN_ALIAS_DISK_TO_ATTR = {
     "a1x": "s1x", "a1y": "s1y", "a1z": "s1z",
     "a2x": "s2x", "a2y": "s2y", "a2z": "s2z",
+    "ecliptic_longitude": "phi",
+    "ecliptic_latitude": "theta",
 }
 COLUMN_ALIAS_ATTR_TO_DISK = {v: k for k, v in COLUMN_ALIAS_DISK_TO_ATTR.items()}
 
@@ -614,7 +640,7 @@ def read_grid_to_P_list(fname, P_factory, lal_module=None,
 
 def legacy_column_indices(use_eccentricity=False, use_meanPerAno=False,
                           use_tides=False, use_eos_index=False,
-                          use_distance=False):
+                          use_distance=False, use_sky=False):
     """Return the positional column indices the legacy CIP loop expects.
 
     Mirrors the layout produced by :func:`to_legacy_dat` so callers can
@@ -623,13 +649,15 @@ def legacy_column_indices(use_eccentricity=False, use_meanPerAno=False,
     CIP indexing logic without having to recompute them.
 
     Returns a dict keyed by ``'lnL'``, ``'sigma_lnL'``, ``'distance'``,
-    ``'lambda1'``, ``'eccentricity'``, ``'meanPerAno'``.  Any column not
+    ``'lambda1'``, ``'eccentricity'``, ``'meanPerAno'``,
+    ``'ecliptic_longitude'``, ``'ecliptic_latitude'``.  Any column not
     present in the configuration maps to ``None``.
     """
     # event_id m1 m2 a1x a1y a1z a2x a2y a2z = 9 leading columns.
     idx = 9
     out = {"lnL": None, "sigma_lnL": None, "distance": None,
-           "lambda1": None, "eccentricity": None, "meanPerAno": None}
+           "lambda1": None, "eccentricity": None, "meanPerAno": None,
+           "ecliptic_longitude": None, "ecliptic_latitude": None}
     if use_distance:
         out["distance"] = idx
         idx += 1
@@ -644,6 +672,10 @@ def legacy_column_indices(use_eccentricity=False, use_meanPerAno=False,
         if use_meanPerAno:
             out["meanPerAno"] = idx
             idx += 1
+    if use_sky:
+        out["ecliptic_longitude"] = idx
+        out["ecliptic_latitude"] = idx + 1
+        idx += 2
     out["lnL"] = idx
     out["sigma_lnL"] = idx + 1
     return out

@@ -81,6 +81,7 @@ import sys
 import pickle
 
 import numpy as np
+from RIFT.precision import RiftFloat
 
 try:
     import cupy
@@ -846,7 +847,7 @@ elif opts.LikelihoodType_MargTdisc_array_vector:
         global nEvals
         global lnLOffsetValue
         # use EXTREMELY many bits
-        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
+        lnL = np.zeros(right_ascension.shape,dtype=RiftFloat)
         i = 0
 #        if opts.rotate_sky_coordinates:
 #            print "   -Sky ring width ", np.std(declination), " note contribution from floor is of order p_floor*(pi)/sqrt(12) ~ 0.9 pfloor"
@@ -887,7 +888,7 @@ elif opts.LikelihoodType_vectorized:
         global nEvals
         global lnLOffsetValue
         # use EXTREMELY many bits
-        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
+        lnL = np.zeros(right_ascension.shape,dtype=RiftFloat)
         i = 0
 #        if opts.rotate_sky_coordinates:
 #            print "   -Sky ring width ", np.std(declination), " note contribution from floor is of order p_floor*(pi)/sqrt(12) ~ 0.9 pfloor"
@@ -964,7 +965,7 @@ else: # Sum over time for every point in other extrinsic params
         global nEvals
         global lnLOffsetValue
         # use EXTREMELY many bits
-        lnL = np.zeros(right_ascension.shape,dtype=np.float128)
+        lnL = np.zeros(right_ascension.shape,dtype=RiftFloat)
         i = 0
 #        if opts.rotate_sky_coordinates:
 #            print "   -Sky ring width ", np.std(declination), " note contribution from floor is of order p_floor*(pi)/sqrt(12) ~ 0.9 pfloor"

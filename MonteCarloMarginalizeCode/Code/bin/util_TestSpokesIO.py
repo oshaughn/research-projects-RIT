@@ -33,6 +33,7 @@ parser.add_argument("--test-refinement",action='store_true')
 parser.add_argument("--save-refinement-fname", default="refined-grid",help="Output to save refined grid xml. REQUIRES valid pairing")
 parser.add_argument("--verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
 parser.add_argument("--mega-verbose", action="store_true",default=False, help="Required to build post-frame-generating sanity-test plots")
+parser.add_argument("--digits", type=int, default=4, help="How many digits to retain")
 opts=  parser.parse_args()
 
 
@@ -42,11 +43,11 @@ opts=  parser.parse_args()
 ###
 
 if opts.fname and opts.mega_verbose:
- sdHere = spokes.LoadSpokeXML(opts.fname,is_eccentric=opts.is_eccentric)
+ sdHere = spokes.LoadSpokeXML(opts.fname,is_eccentric=opts.is_eccentric,digits=opts.digits)
  for key in sdHere:
     print(" Spoke : ", key)
     for P in sdHere[key]:
-        mtot = spokes.ChooseWaveformParams_to_spoke_mass(P)  # used so rounding is consistent
+        mtot = spokes.ChooseWaveformParams_to_spoke_mass(P,digits=opts.digits)  # used so rounding is consistent
         print(mtot)
 
 
@@ -55,11 +56,11 @@ if opts.fname and opts.mega_verbose:
 ###
 
 if opts.fname_dat:
- sdHere = spokes.LoadSpokeDAT(opts.fname_dat,is_eccentric=opts.is_eccentric)
+ sdHere = spokes.LoadSpokeDAT(opts.fname_dat,is_eccentric=opts.is_eccentric,digits=opts.digits)
  print(" Spoke count : ", len(sdHere.keys()))
  fig_index =0
  for key in sdHere:
-    sdHereCleaned = spokes.CleanSpokeEntries(sdHere[key])
+    sdHereCleaned = spokes.CleanSpokeEntries(sdHere[key],digits=opts.digits)
     print(" Spoke ", key, len(sdHereCleaned))
     if opts.mega_verbose:
      for spoke_entry in sdHere[key]:
@@ -103,8 +104,8 @@ if opts.verbose:
 
 
 if opts.fname and opts.fname_dat:
-   sd_dat = spokes.LoadSpokeDAT(opts.fname_dat,is_eccentric=opts.is_eccentric)
-   sd_P =  sdHere = spokes.LoadSpokeXML(opts.fname,is_eccentric=opts.is_eccentric)
+   sd_dat = spokes.LoadSpokeDAT(opts.fname_dat,is_eccentric=opts.is_eccentric,digits=opts.digits)
+   sd_P =  sdHere = spokes.LoadSpokeXML(opts.fname,is_eccentric=opts.is_eccentric,digits=opts.digits)
 
    print(" --- Refinement: Writing XML --- ")
    print(" data file ", len(sd_dat))
@@ -127,7 +128,7 @@ if opts.fname and opts.fname_dat:
          print(" Failed cross lookup for ", spoke_id, nCount, " failure count = ", nFailures)
          continue
       # Clean
-      sd_here =spokes.CleanSpokeEntries(sd_dat[spoke_id])
+      sd_here =spokes.CleanSpokeEntries(sd_dat[spoke_id],digits=opts.digits)
       # Refine: find mass values
       code, mvals_new = spokes.Refine(sd_here[:,0], sd_here[:,1])
       if mvals_new is None:

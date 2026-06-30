@@ -57,6 +57,20 @@ IGNORE = re.compile("({})".format("|".join([
     r"\ANo module named 'cupy'\Z",
     r"\ANo module named asimov\Z",
     r"\ANo module named 'asimov'\Z",
+    r"\ANo module named jax\Z",
+    r"\ANo module named 'jax'\Z",
+    r"\ANo module named optax\Z",
+    r"\ANo module named 'optax'\Z",
+    r"\ANo module named equinox\Z",
+    r"\ANo module named 'equinox'\Z",
+    r"\ANo module named tinygp\Z",
+    r"\ANo module named 'tinygp'\Z",
+    r"\ANo module named numpyro\Z",
+    r"\ANo module named 'numpyro'\Z",
+    r"\ANo module named flowMC\Z",
+    r"\ANo module named 'flowMC'\Z",
+    r"\ANo module named htcondor2\Z",
+    r"\ANo module named 'htcondor2'\Z",
 ])))
 
 

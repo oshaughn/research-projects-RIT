@@ -1,0 +1,30 @@
+# HTCondor: 10x CIP (RF fit + AV sampler) for the GW170817 benchmark posterior.
+# Accumulates independent statistics (CIP randomizes per launch -> 10 x 5000 = 5e4
+# benchmark samples) for the JS-vs-jax_cip accuracy comparison.
+#
+# Submit from this directory after editing the absolute paths below:
+#     mkdir -p out logs && condor_submit cip_rf_benchmark.sub
+# then, once done:
+#     python -m RIFT.interpolators.jax_gp.applications.compare \
+#         --a jax_cip_out.xml.gz --b out/'cip_rf_*.xml.gz' --param mc
+
+universe   = vanilla
+executable = run_cip_rf_av.sh
+arguments  = $(Process)
+
+# Measured peak RSS ~1.25 GB with --cap-points 30000 (3.9 GB uncapped); small margin.
+request_memory = 2048
+request_cpus   = 2
+request_disk   = 2048
+
+# Edit these absolute paths for your site:
+environment = "RIFT_CODE=/home/oshaughn/research-projects-RIT/MonteCarloMarginalizeCode/Code PYTHON=/home/oshaughn/.conda/envs/gwkokab/bin/python NET=/home/oshaughn/all.net OUTDIR=$ENV(PWD)/out"
+
+getenv     = False
+should_transfer_files = NO
+
+output = logs/cip_rf_$(Process).out
+error  = logs/cip_rf_$(Process).err
+log    = logs/cip_rf.log
+
+queue 10

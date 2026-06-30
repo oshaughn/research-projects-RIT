@@ -118,6 +118,25 @@ def build_parser():
     p.add_argument("--rng-seed", default=None, type=int)
     p.add_argument("--state-in", default=None)
     p.add_argument("--state-out", default=None)
+    # ---- Optional coordinate-convert plugin -------------------------------- #
+    # When set, the tracer operates in the PLUGIN basis: forward-transform
+    # the file's input-basis columns into the basis named by --parameter,
+    # do SMC / birth-death / etc. in that basis, then inverse-transform back
+    # to the file basis to write the output .dat.  Legacy code path is
+    # byte-identical when --supplementary-coordinate-code is unset.
+    # See RIFT.misc.coordinate_plugin for the plugin contract.  The plugin
+    # MUST implement inverse_convert_coordinates: the tracer round-trips.
+    p.add_argument("--supplementary-coordinate-code", default=None, type=str,
+                   help="Coordinate plugin spec: 'rift_default', a .py path, or an importable dotted name.")
+    p.add_argument("--supplementary-coordinate-function", default=None, type=str,
+                   help="Entry-point callable name. Defaults to 'convert_coordinates'.")
+    p.add_argument("--supplementary-coordinate-ini", default=None, type=str,
+                   help="Optional ini file handed to the plugin's prepare() hook.")
+    p.add_argument("--supplementary-coordinate-chart", default=None, type=str,
+                   help="Which chart in the plugin's CHARTS dict to use.")
+    p.add_argument("--supplementary-coordinate-input-parameter", action='append', default=None,
+                   help="File-column name to feed the plugin as an input dimension. Repeat per column. "
+                        "If omitted, the plugin's CHARTS[chart] input_parameters / INPUT_PARAMETERS is used.")
     return p
 
 
@@ -207,12 +226,87 @@ def _coord_box(parameter_order, downselect_dict, X):
 
 # ------------------------------ main --------------------------------------- #
 
+def _load_coord_plugin(opts):
+    """Load the coordinate plugin if --supplementary-coordinate-code is set.
+
+    Returns (forward, inverse, in_names) or (None, None, None) if no plugin
+    was requested.  Bails out loudly if a plugin was requested but the
+    inverse callable isn't present -- the tracer needs to round-trip and
+    silently using a pseudo-inverse would produce subtly-wrong placements.
+    """
+    if not getattr(opts, "supplementary_coordinate_code", None):
+        return None, None, None
+    from RIFT.misc.coordinate_plugin import load_coordinate_converter
+    forward, module = load_coordinate_converter(
+        spec=opts.supplementary_coordinate_code,
+        function_name=opts.supplementary_coordinate_function,
+        ini_path=opts.supplementary_coordinate_ini,
+        coord_names=opts.parameter,
+        low_level_coord_names=opts.supplementary_coordinate_input_parameter,
+        chart=opts.supplementary_coordinate_chart,
+        opts=opts,
+        prior_map=None,
+        prior_range_map=None,
+    )
+    chart_spec = None
+    if opts.supplementary_coordinate_chart:
+        chart_spec = getattr(module, "CHARTS", {}).get(opts.supplementary_coordinate_chart)
+    if chart_spec is None:
+        charts = getattr(module, "CHARTS", None) or {}
+        if len(charts) == 1:
+            chart_spec = next(iter(charts.values()))
+    in_names = list(
+        opts.supplementary_coordinate_input_parameter
+        or (chart_spec.get("input_parameters") if chart_spec else None)
+        or getattr(module, "INPUT_PARAMETERS", [])
+    )
+    if not in_names:
+        sys.exit("util_HyperparameterTracerUpdate: plugin loaded but no "
+                 "file-basis input columns are declared; pass "
+                 "--supplementary-coordinate-input-parameter or define "
+                 "INPUT_PARAMETERS / CHARTS[chart].input_parameters.")
+    inverse = getattr(module, "inverse_convert_coordinates", None)
+    if not callable(inverse):
+        sys.exit("util_HyperparameterTracerUpdate: --supplementary-coordinate-code "
+                 "set, but the plugin does not define inverse_convert_coordinates. "
+                 "The tracer needs to round-trip through the plugin basis -- add an "
+                 "inverse or run without the plugin.")
+    print(" util_HyperparameterTracerUpdate: operating in plugin basis {!r} "
+          "(file columns {!r}).".format(list(opts.parameter), in_names))
+    return forward, inverse, in_names
+
+
+def _extract_X_via_plugin(cols, rows, parameter_order, forward, in_names):
+    """Plugin-aware X extraction: read file-basis columns and forward-transform."""
+    missing = [n for n in in_names if n not in cols]
+    if missing:
+        sys.exit("util_HyperparameterTracerUpdate: plugin input column(s) "
+                 "{!r} not in dat header {!r}".format(missing, cols))
+    in_idx = [cols.index(n) for n in in_names]
+    X_in = rows[:, in_idx].astype(float)
+    X = forward(X_in, coord_names=parameter_order, low_level_coord_names=in_names)
+    X = np.asarray(X, dtype=float)
+    if X.shape != (len(rows), len(parameter_order)):
+        sys.exit("util_HyperparameterTracerUpdate: plugin forward returned "
+                 "shape {!r}, expected {!r}".format(X.shape, (len(rows), len(parameter_order))))
+    return X
+
+
 def main(argv=None):
     opts = build_parser().parse_args(argv)
     rng = np.random.default_rng(opts.rng_seed)
 
+    # Load the optional coordinate plugin BEFORE any data extraction so the
+    # same forward/inverse pair is reused for the input grid, the previous-
+    # iteration grid (--inj-file-prev), and the final write-back.
+    forward, inverse, in_names = _load_coord_plugin(opts)
+    plugin_active = forward is not None
+
     cols, rows = _read_dat(opts.inj_file)
-    X = _extract_X(cols, rows, opts.parameter)
+    if plugin_active:
+        X = _extract_X_via_plugin(cols, rows, opts.parameter, forward, in_names)
+    else:
+        X = _extract_X(cols, rows, opts.parameter)
     Y = rows[:, 0]                 # lnL column
     S = rows[:, 1] if rows.shape[1] >= 2 else None
     downselect = _build_downselect(opts)
@@ -229,10 +323,20 @@ def main(argv=None):
             cov = cov + 1e-8 * np.eye(cov.shape[0])
         delta = rng.multivariate_normal(np.zeros(X.shape[1]), cov, size=len(X))
         X_out = X + delta
-        # write back into rows; zero lnL/sigma (puffball convention)
+        # write back; zero lnL/sigma (puffball convention)
         out_rows = rows.copy()
-        for i, name in enumerate(opts.parameter):
-            out_rows[:, cols.index(name)] = X_out[:, i]
+        if plugin_active:
+            # X_out is in the plugin basis -- inverse-transform back to the
+            # file basis and write each file-basis column.
+            X_in_out = np.asarray(
+                inverse(X_out, coord_names=opts.parameter, low_level_coord_names=in_names),
+                dtype=float,
+            )
+            for j, name in enumerate(in_names):
+                out_rows[:, cols.index(name)] = X_in_out[:, j]
+        else:
+            for i, name in enumerate(opts.parameter):
+                out_rows[:, cols.index(name)] = X_out[:, i]
         out_rows[:, 0] = 0.0
         out_rows[:, 1] = 0.0
         _write_dat(opts.inj_file_out, cols, out_rows)
@@ -250,7 +354,10 @@ def main(argv=None):
 
     if opts.inj_file_prev is not None and os.path.exists(opts.inj_file_prev):
         cols_p, rows_p = _read_dat(opts.inj_file_prev)
-        X_prev = _extract_X(cols_p, rows_p, opts.parameter)
+        if plugin_active:
+            X_prev = _extract_X_via_plugin(cols_p, rows_p, opts.parameter, forward, in_names)
+        else:
+            X_prev = _extract_X(cols_p, rows_p, opts.parameter)
         Y_prev = rows_p[:, 0]
         S_prev = rows_p[:, 1] if rows_p.shape[1] >= 2 else None
         fit_prev = _tracer_fits.build(opts.tracer_fit_method,
@@ -328,8 +435,19 @@ def main(argv=None):
 
     out_rows = np.zeros((len(X_out), rows.shape[1]))
     # carry forward any extra columns from input rows (just zero them; marg driver overwrites)
-    for i, name in enumerate(opts.parameter):
-        out_rows[:, cols.index(name)] = X_out[:, i]
+    if plugin_active:
+        # X_out is in the plugin basis -- inverse-transform back to the file
+        # basis and write each file-basis column.  --parameter names need
+        # not be file columns at all here.
+        X_in_out = np.asarray(
+            inverse(X_out, coord_names=opts.parameter, low_level_coord_names=in_names),
+            dtype=float,
+        )
+        for j, name in enumerate(in_names):
+            out_rows[:, cols.index(name)] = X_in_out[:, j]
+    else:
+        for i, name in enumerate(opts.parameter):
+            out_rows[:, cols.index(name)] = X_out[:, i]
     out_rows[:, 0] = 0.0
     out_rows[:, 1] = 0.0
     _write_dat(opts.inj_file_out, cols, out_rows)

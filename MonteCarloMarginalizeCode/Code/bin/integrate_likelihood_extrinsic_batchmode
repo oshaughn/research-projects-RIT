@@ -48,6 +48,7 @@ from igwn_ligolw import utils,  ligolw
 import glue.lal
 
 import RIFT.lalsimutils as lalsimutils
+from RIFT.precision import RiftFloat
 import RIFT.integrators.mcsampler as mcsampler
 import RIFT.misc.sky_rotations as sky_rotations
 try:
@@ -237,6 +238,19 @@ optp.add_option("-l", "--distance-marginalization-lookup-table", default=None, h
 optp.add_option("--calibration-envelope-directory",default=None, help="Name of directory")
 optp.add_option("--calibration-n-realizations", default=100, type=int, help="Number of realizations to use for calmarg, recommend 100")
 optp.add_option("--calibration-spline-count", default=10,type=int)
+optp.add_option("--calibration-fused-kernel", action="store_true", default=False, help="Opt-in: use the fused GPU kernel (Option C) for in-loop calibration marginalization. GPU only, no phase marginalization; with distance marginalization it uses the fused distmarg kernel. Falls back to the loop method (Option B) otherwise.")
+optp.add_option("--calibration-proposal-breadcrumb",default=None, help="Opt-in (Option C / adaptive pilot): path to a breadcrumb .npz (RIFT.calmarg.breadcrumbs) carrying a LEARNED Gaussian proposal over cal spline nodes. When set, the cal realizations are drawn from that proposal instead of the broad prior, and the marginalization carries Phase-0 importance weights log(prior/proposal) so it stays unbiased. Requires --calibration-envelope-directory (the prior).")
+optp.add_option("--calibration-dump-responsibilities",default=None, help="Opt-in (Option C / adaptive pilot): path to write per-cal-realization log-responsibilities (length n_cal), accumulated over the evaluated grid, plus the cal node draws. This is the pilot's output, fitted into a proposal by util_CalPilotFit.py. No effect on the returned likelihood.")
+optp.add_option("--calibration-pilot-extrinsic",default=256,type=int, help="Pilot only: number of uniform-prior extrinsic samples used to extrinsic-marginalize the per-realization cal responsibility at each intrinsic point. Cal is ~extrinsic-independent, so a modest batch suffices.")
+optp.add_option("--calibration-mc-error-extrinsic",default=8192,type=int, help="Calmarg error budget: CAP on the number of extrinsic-prior samples used to estimate the calibration Monte-Carlo contribution to the lnL error (per-realization responsibilities a_c -> Var(lnZ) ~= n_cal*Var_c(a_c)), added IN QUADRATURE to the reported sigma column.  The batch is ADAPTIVE: it starts small and doubles until the estimate stabilizes or this cap is reached.  Distance is drawn from the RUN'S distance prior (sampler prior / --d-prior; with a PINNED distance the probe runs at that fixed value and warns that the estimate is conservative).  The extrinsic sampler's variance cannot see the spread over the (fixed) cal draw set, so without this term the reported error badly understates the truth whenever the cal n_eff is small.  Set 0 to disable (restores the old, extrinsic-only sigma).")
+optp.add_option("--calibration-neff-cal-target",default=10,type=float, help="Calmarg ADAPTIVE draw count: after the cal-block precompute, probe the effective number of contributing cal draws (neff_cal) at this intrinsic point; while it is below this target, DOUBLE the cal draw set (drawing fresh independent realizations and appending their precomputed blocks) up to --calibration-n-realizations-max.  Set 0 to disable (fixed --calibration-n-realizations).")
+optp.add_option("--calibration-n-realizations-max",default=0,type=int, help="Cap for the adaptive cal draw count (see --calibration-neff-cal-target).  Default 0 = 8x --calibration-n-realizations.")
+optp.add_option("--calibration-burn-in-neff",default=None,type=float, help="Opt-in: before the production cal-marginalized integration, BURN IN the extrinsic sampler on the cheap ZERO-CAL (n_cal=1) likelihood until this effective sample count, then switch to the full cal-marginalized likelihood. The extrinsic posterior is ~cal-independent. CAVEAT: the AV sampler RESETS between integrate() calls (no seedable AV yet), so this gives AV no speedup (correctness-safe only). It can warm-start GMM/portfolio (model reuse). Awaiting a seedable / boundary-shifting AV; see DESIGN_adaptive_driver.md. No effect unless calmarg is active.")
+optp.add_option("--calibration-burn-in-nmax",default=None,type=int, help="Cap on the number of samples drawn during the zero-cal burn-in (default: the run's --n-max). Keeps the burn-in bounded if it cannot reach --calibration-burn-in-neff.")
+optp.add_option("--calibration-export-posterior",action='store_true',default=False, help="Opt-in (final fairdraw export, calmarg active): for each fair-draw output sample, draw ONE calibration realization in proportion to its posterior weight (L_c * w_c, from the per-realization likelihood components) and write a SELF-CONTAINED sibling <output>_<event>_cal.dat with the FULL draw -- intrinsic + extrinsic + the drawn realization's spline-node values as labeled columns cal_<IFO>_amp_<k>/cal_<IFO>_phase_<k>.  The recovered cal posterior is then those columns, plottable with the standard tooling.  Requires --calibration-envelope-directory; retains the cal node vectors.")
+optp.add_option("--extrinsic-proposal-breadcrumb",default=None, help="Opt-in (GMM sampler): SEED the extrinsic GMM sampler from a learned proposal breadcrumb (RIFT.calmarg.extrinsic_handoff): the per-group GMMs from a previous iteration's posterior pre-fill gmm_dict, so the sampler starts on the posterior instead of cold.  The extrinsic posterior barely moves iteration-to-iteration.  Groups matched by parameter name; missing groups fall back to the default.")
+optp.add_option("--extrinsic-proposal-output",default=None, help="Opt-in (GMM sampler): after the integration, fit the run's extrinsic posterior samples to a per-group GMM and WRITE it as a proposal breadcrumb (to seed a later iteration via --extrinsic-proposal-breadcrumb).")
+optp.add_option("--extrinsic-proposal-adapt",action='store_true',default=False, help="With --extrinsic-proposal-breadcrumb: let the SEEDED extrinsic GMM groups keep adapting (re-fit each iteration).  Default OFF = the seeded groups are FROZEN: a handed-off proposal (especially from a different, better-converged sampler) is trusted as-is, since the GMM's own adaptation is fragile on sharp ILE peaks (a bad batch re-fit triggers _reset and discards the seed).  Freeze keeps the good seed; enable adapt only if the source posterior may have drifted.")
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
 optp.add_option("--force-gpu-only", action="store_true", help="Hard fail if no GPU present (assessed by cupy not loading)")
@@ -280,6 +294,9 @@ integration_params.add_option("--adapt-weight-exponent", type=float, default=1.0
 integration_params.add_option("--adapt-floor-level", type=float, default=0.1, help="Floor to use with weights (likelihood integrand) when doing adaptive sampling. This is necessary to ensure the *sampling* prior is non zero during adaptive sampling and to prevent overconvergence. Default is 0.1 (no floor)")
 integration_params.add_option("--adapt-adapt",action='store_true',help="Adapt the tempering exponent")
 integration_params.add_option("--adapt-log",action='store_true',help="Use a logarithmic tempering exponent")
+integration_params.add_option("--internal-gmm-correlate-all",action='store_true',help="GMM sampler: use a SINGLE full-dimension GMM group instead of the default (sky)(distance,inclination)(psi,phi) pairing. The default pairing targets quadrupole-dominated binaries with a large sky ring; a product of per-group GMMs cannot represent cross-group correlations (e.g. sky-phase), and for a strongly-localized single-peak source the factored proposal can stall at the prior. Component count from --internal-gmm-sky-components (default 2 in this mode).")
+integration_params.add_option("--internal-gmm-sky-components",type=int,default=None,help="GMM sampler: number of mixture components for the (ra,dec) group (default 4, sized for a large sky ring; use 1-2 for a well-localized single peak, e.g. 3+ IFOs / high SNR). With --internal-gmm-correlate-all, sets the single full-dimension group's component count.")
+integration_params.add_option("--internal-gmm-phase-components",type=int,default=None,help="GMM sampler: number of mixture components for the (psi,phi_orb) group (default 4; use 1-2 for a single dominant phase peak).")
 integration_params.add_option("--interpolate-time", default=False,help="If using time marginalization, compute using a continuously-interpolated array. (Default=false)")
 integration_params.add_option("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean), 'pseudo_cosmo', and 'cosmo'  and 'cosmo_sourceframe' .")
 integration_params.add_option("--d-prior-redshift", action='store_true', help="If true, distance prior is computed in redshift. This option MAY be enforced for 'cosmo' sampling")
@@ -317,6 +334,8 @@ intrinsic_params.add_option("--export-eos-index",action='store_true')
 intrinsic_params.add_option("--export-marginal-distance-grid",action='store_true')
 intrinsic_params.add_option("--export-distance-slices",type=int,default=0,help="If >0, after main extrinsic integration emit a per-event .dslice file with rows of fixed-d extrinsic-marginalized likelihoods. Total rows = --n-distance-slice-core + --n-distance-slice-wing. Requires --internal-use-lnL and no --distance-marginalization.")
 intrinsic_params.add_option("--n-distance-slice-core",type=int,default=0,help="Core slices via importance-reweight on existing Omega samples (cheap). If 0 and --export-distance-slices>0, defaults to ceil(K*0.6).")
+intrinsic_params.add_option("--distance-slice-all-fresh",action="store_true",default=False,help="Emit ALL K slices as FRESH fixed-d full integrations (no importance-reweight core). Placement = posterior-d quantiles. Use this when the main-loop n_eff is small (e.g. 50): the reweight core is then starved (same MC noise as the .dgrid fair-draw histogram), whereas each fresh slice is an honest Omega-only integral at fixed d. Overrides --n-distance-slice-core / --n-distance-slice-wing.")
+intrinsic_params.add_option("--distance-slice-randomize",action="store_true",default=False,help="(all-fresh only) Draw the K fresh-slice distances at RANDOM posterior-d quantiles per intrinsic instead of fixed equi-probable quantiles. With K=1 this makes the single slice a fair-draw of d from THAT intrinsic's posterior, so over the intrinsic grid the slices sample (intrinsic,d) jointly -- cheap (~1 slice/intrinsic) dense coverage for a continuous AD surrogate -- rather than pinning every point to the median.")
 intrinsic_params.add_option("--n-distance-slice-wing",type=int,default=0,help="Wing slices via fresh Omega-only integrations at pinned distance (covers tails ~7 nats below peak). If 0 and --export-distance-slices>0, defaults to K - core.")
 intrinsic_params.add_option("--distance-slice-wing-nmax",type=int,default=20000,help="Max samples per wing fresh integration.")
 intrinsic_params.add_option("--distance-slice-wing-neff",type=int,default=30,help="n_eff target per wing fresh integration.")
@@ -833,19 +852,153 @@ for Psig in P_list:
 #
 calibration_marginalization=False
 calibration_realization_dict = {}
+calibration_log_weights = None   # Phase-0 importance weights log(prior/proposal); None => uniform (prior draws)
+_calpilot = None                 # pilot bookkeeping (node draws + prior) when dumping responsibilities
+_calpilot_logresp_list = []      # per-intrinsic-point per-realization log-responsibilities, accumulated
+# Cal node vectors retained for --calibration-export-posterior (final fairdraw cal-posterior columns):
+calibration_nodes = None         # (n_cal, 2*n_nodes_amp*len(dets)) per-det [amp_0..,phase_0..] blocks
+calibration_node_dets = None     # detector order matching the node blocks
+calibration_n_nodes_amp = None   # spline nodes per detector per (amp|phase)
+def _cal_setup_prior_with_nodes(psd_dict):
+    """Populate calibration_realization_dict from broad-PRIOR cal draws.  When
+    --calibration-export-posterior is set, RETAIN the node vectors too (via
+    draw_prior_realizations_with_nodes, same prior as create_realizations) so the final
+    fairdraw can emit the recovered cal posterior; otherwise just build the realizations."""
+    global calibration_realization_dict, calibration_nodes, calibration_node_dets, calibration_n_nodes_amp
+    import RIFT.calmarg.generate_realizations as _genr
+    if opts.calibration_export_posterior:
+        _ret = _genr.draw_prior_realizations_with_nodes(
+            opts.calibration_envelope_directory, list(psd_dict.keys()), 1./P.deltaF, P.deltaT,
+            opts.fmin_template, fmax, opts.calibration_spline_count, opts.calibration_n_realizations,
+            fmin_ifo=cal_fmin_ifo, rng=np.random.default_rng(getattr(opts,'seed',None)))
+        calibration_realization_dict = _ret['realizations']
+        calibration_nodes = _ret['nodes']; calibration_node_dets = list(_ret['dets']); calibration_n_nodes_amp = int(_ret['n_nodes_amp'])
+    else:
+        for ifo in psd_dict:
+            fname = opts.calibration_envelope_directory + "/" + ifo + ".txt"
+            calibration_realization_dict[ifo] = _genr.create_realizations(fname, 1./P.deltaF, P.deltaT, cal_fmin_ifo[ifo], fmax, opts.calibration_spline_count, opts.calibration_n_realizations)
 if opts.calibration_envelope_directory:
 #  t_ref_wind = opts.calibration_n_realizations * t_ref_wind  # changes length of buffer, should produce longer window. DOES NOT WORK PROPERLY
   import RIFT.calmarg.generate_realizations
   calibration_marginalization=True
+  # per-detector low-frequency cutoff used to lay down the cal spline
+  cal_fmin_ifo = {}
   for ifo in psd_dict:
-     fname = opts.calibration_envelope_directory + "/" + ifo + ".txt"
-     fmin_here = opts.fmin_template
-     if opts.fmin_ifo:
-       fmin_here = flow_ifo_dict[ifo]
-       
-     calibration_realization_dict[ifo] = RIFT.calmarg.generate_realizations.create_realizations(fname, 1./P.deltaF, P.deltaT, fmin_here, fmax, opts.calibration_spline_count, opts.calibration_n_realizations)
+     cal_fmin_ifo[ifo] = flow_ifo_dict[ifo] if opts.fmin_ifo else opts.fmin_template
+  # Graceful fallback: a seeded run is given a per-iteration breadcrumb path, but the
+  # FIRST iteration (and any iteration before a pilot has run) has no breadcrumb yet.  If
+  # the path is missing OR EMPTY, fall back to the broad prior -- so the SAME fixed ILE args
+  # work across all DAG iterations.  The iteration-0 placeholder is a 0-byte file (created so
+  # OSG file transfer of cal_consolidated_$(macroiterationprev).npz does not fail); on OSG it
+  # IS transferred in, so it exists but is empty -> np.load raises EOFError.  Treat empty (or
+  # otherwise unreadable) as "not present yet".
+  if opts.calibration_proposal_breadcrumb:
+     _bc_path = opts.calibration_proposal_breadcrumb
+     if not (os.path.exists(_bc_path) and os.path.getsize(_bc_path) > 0):
+        print(" Calibration proposal breadcrumb {} missing or empty (iteration-0 placeholder); falling back to PRIOR cal draws.".format(_bc_path))
+        opts.calibration_proposal_breadcrumb = None
+  if opts.calibration_dump_responsibilities:
+     # PILOT (Option C): KEEP the cal node vectors so the per-realization responsibilities
+     # accumulated below can be fitted into a proposal (util_CalPilotFit.py).  Deterministic
+     # (seeded) so node draws are identical across intrinsic points and the accumulation
+     # aligns by realization.
+     #   - If an incoming proposal breadcrumb is given, draw the pilot's cal realizations
+     #     FROM IT (refinement step: pilot_N seeded from consolidation_{N-1}); the fit then
+     #     folds log_w so the refined proposal targets the posterior.  This is the
+     #     across-iteration climb (adaptive_cal unrolled over the DAG).
+     #   - Otherwise draw from the broad prior (the N=0 cold start).
+     import RIFT.calmarg.breadcrumbs, RIFT.calmarg.adaptive
+     if opts.calibration_proposal_breadcrumb:
+        _bc = RIFT.calmarg.breadcrumbs.load(opts.calibration_proposal_breadcrumb)
+        calibration_realization_dict, calibration_log_weights, _pilot_nodes = \
+           RIFT.calmarg.generate_realizations.seed_realizations_from_breadcrumb(
+              _bc, 1./P.deltaF, P.deltaT, opts.fmin_template, fmax,
+              opts.calibration_spline_count, opts.calibration_n_realizations,
+              fmin_ifo=cal_fmin_ifo, rng=np.random.default_rng(getattr(opts,'seed',None)))
+        _cal = _bc["cal"]
+        _calpilot = dict(nodes=_pilot_nodes, prior_mean=_cal["prior_mean"], prior_sigma=_cal["prior_sigma"],
+                         node_log_f=_cal["node_log_f"], n_nodes_amp=int(_cal["n_nodes_amp"]),
+                         dets=list(_cal["dets"]), log_w=np.asarray(calibration_log_weights))
+        print(" Calibration PILOT mode (refine): seeded from {} ; responsibilities -> {}".format(
+              opts.calibration_proposal_breadcrumb, opts.calibration_dump_responsibilities))
+     else:
+        _calpilot = RIFT.calmarg.generate_realizations.draw_prior_realizations_with_nodes(
+           opts.calibration_envelope_directory, list(psd_dict.keys()), 1./P.deltaF, P.deltaT,
+           opts.fmin_template, fmax, opts.calibration_spline_count, opts.calibration_n_realizations,
+           fmin_ifo=cal_fmin_ifo, rng=np.random.default_rng(getattr(opts,'seed',None)))
+        calibration_realization_dict = _calpilot['realizations']
+        _calpilot['log_w'] = np.zeros(opts.calibration_n_realizations)   # prior draws -> uniform
+        print(" Calibration PILOT mode (cold): prior cal draws; responsibilities -> {}".format(
+              opts.calibration_dump_responsibilities))
+  elif opts.calibration_proposal_breadcrumb:
+     # Option C / adaptive pilot: draw cal realizations from the LEARNED proposal and
+     # carry importance weights log(prior/proposal) so the marginalization is unbiased.
+     import RIFT.calmarg.breadcrumbs, RIFT.calmarg.adaptive
+     try:
+       _bc = RIFT.calmarg.breadcrumbs.load(opts.calibration_proposal_breadcrumb)
+       _rng = np.random.default_rng(getattr(opts,'seed',None))
+       calibration_realization_dict, calibration_log_weights, _seed_nodes = \
+          RIFT.calmarg.generate_realizations.seed_realizations_from_breadcrumb(
+             _bc, 1./P.deltaF, P.deltaT, opts.fmin_template, fmax,
+             opts.calibration_spline_count, opts.calibration_n_realizations,
+             fmin_ifo=cal_fmin_ifo, rng=_rng)
+       if opts.calibration_export_posterior:
+          calibration_nodes = _seed_nodes
+          calibration_node_dets = list(_bc["cal"]["dets"]); calibration_n_nodes_amp = int(_bc["cal"]["n_nodes_amp"])
+       print(" Calibration realizations SEEDED from proposal breadcrumb {} ; neff(cal weights)~{:.1f}/{}".format(
+             opts.calibration_proposal_breadcrumb,
+             RIFT.calmarg.adaptive.neff_from_logweights(calibration_log_weights),
+             opts.calibration_n_realizations))
+     except Exception as _e_bc:
+       # robustness (esp. OSG file transfer): a missing/partial/invalid breadcrumb must NOT
+       # kill the job -- fall back to broad PRIOR cal draws (still unbiased, just unseeded).
+       print(" WARNING: could not seed from breadcrumb {} ({}); falling back to PRIOR cal draws.".format(
+             opts.calibration_proposal_breadcrumb, _e_bc))
+       opts.calibration_proposal_breadcrumb = None
+       _cal_setup_prior_with_nodes(psd_dict)
+  else:
+     _cal_setup_prior_with_nodes(psd_dict)
 
-  
+def _draw_more_calibration_draws(n_more, psd_dict):
+    """Draw n_more ADDITIONAL independent cal realizations from the same source as
+    the original set (broad prior / prior-with-nodes / proposal breadcrumb), EXTEND
+    the module-level bookkeeping in place (realization dict columns, importance
+    log-weights, node vectors), and return JUST the new realizations dict so the
+    caller can precompute only the new rholm blocks and append them.
+
+    Fresh, unseeded randomness ON PURPOSE: cal draws must remain independent across
+    points/workers -- the variance is disclosed (cal MC error budget) and reduced by
+    growing the draw set, never by sharing draws."""
+    global calibration_realization_dict, calibration_log_weights, calibration_nodes
+    import RIFT.calmarg.generate_realizations as _genr
+    new = {}
+    if opts.calibration_proposal_breadcrumb:
+        import RIFT.calmarg.breadcrumbs
+        _bc = RIFT.calmarg.breadcrumbs.load(opts.calibration_proposal_breadcrumb)
+        new, _lw, _nodes = _genr.seed_realizations_from_breadcrumb(
+            _bc, 1./P.deltaF, P.deltaT, opts.fmin_template, fmax,
+            opts.calibration_spline_count, n_more, fmin_ifo=cal_fmin_ifo,
+            rng=np.random.default_rng())
+        calibration_log_weights = np.concatenate([np.asarray(calibration_log_weights), np.asarray(_lw)])
+        if calibration_nodes is not None:
+            calibration_nodes = np.vstack([calibration_nodes, _nodes])
+    elif opts.calibration_export_posterior:
+        _ret = _genr.draw_prior_realizations_with_nodes(
+            opts.calibration_envelope_directory, list(psd_dict.keys()), 1./P.deltaF, P.deltaT,
+            opts.fmin_template, fmax, opts.calibration_spline_count, n_more,
+            fmin_ifo=cal_fmin_ifo, rng=np.random.default_rng())
+        new = _ret['realizations']
+        calibration_nodes = np.vstack([calibration_nodes, _ret['nodes']]) if calibration_nodes is not None else _ret['nodes']
+    else:
+        for ifo in psd_dict:
+            fname = opts.calibration_envelope_directory + "/" + ifo + ".txt"
+            new[ifo] = _genr.create_realizations(fname, 1./P.deltaF, P.deltaT,
+                cal_fmin_ifo[ifo], fmax, opts.calibration_spline_count, n_more)
+    for ifo in new:
+        calibration_realization_dict[ifo] = np.concatenate([calibration_realization_dict[ifo], new[ifo]], axis=1)
+    return new
+
+
 
 #
 # Set up parameters and bounds
@@ -1335,6 +1488,12 @@ if opts.sampler_method=="GMM"  and opts.internal_use_lnL:
 if opts.sampler_method =="adaptive_cartesian_gpu" and opts.internal_use_lnL:
   return_lnL=True
   pinned_params.update({"use_lnL":True})
+if opts.sampler_method =="AV" and opts.internal_use_lnL:
+  # AV integrates in log space natively (integrate() is a thin wrapper over integrate_log);
+  # without this, --internal-use-lnL --sampler-method AV passed the ok_lnL_methods check but
+  # silently did nothing, so exp(lnL) overflowed at high SNR when no logarithm offset was set.
+  return_lnL=True
+  pinned_params.update({"use_lnL":True})
 if opts.sampler_method =="portfolio":
   return_lnL=True
   pinned_params.update({"use_lnL":True})
@@ -1365,15 +1524,56 @@ if opts.sampler_method == "GMM":
          pair_phi_psi = sampler_param_tuple(sampler, ['psi'])
          adapt_phase = True
          n_phase = 2
-    gmm_dict = {pair_ra_dec:None,pair_d_incl:None,pair_phi_psi:default_phipsi} 
-    gmm_adapt = {pair_ra_dec: True, pair_d_incl: True, pair_phi_psi: False}
-    if opts.internal_rotate_phase:
-      gmm_adapt[pair_phi_psi] = True
+    # user overrides for component counts (single-peak sources: the ring-sized
+    # defaults overfit a localized peak)
+    if opts.internal_gmm_sky_components:
+      n_sky = opts.internal_gmm_sky_components
+    if opts.internal_gmm_phase_components:
+      n_phase = opts.internal_gmm_phase_components
+    if opts.internal_gmm_correlate_all:
+      # SINGLE full-dimension group: a product of per-group GMMs cannot
+      # represent cross-group correlations (sky-phase etc.); for a localized
+      # single-peak source the factored proposal can stall at the prior
+      # (rank-elite refits included: the elite set looks broad in every
+      # per-group projection).  One joint GMM can compound on any structure
+      # a Gaussian mixture can represent.
+      pair_all = tuple(range(len(sampler.params_ordered)))
+      n_all = opts.internal_gmm_sky_components if opts.internal_gmm_sky_components else 2
+      gmm_dict = {pair_all: None}
+      gmm_adapt = {pair_all: True}
+    else:
+      gmm_dict = {pair_ra_dec:None,pair_d_incl:None,pair_phi_psi:default_phipsi}
+      gmm_adapt = {pair_ra_dec: True, pair_d_incl: True, pair_phi_psi: False}
+      if opts.internal_rotate_phase:
+        gmm_adapt[pair_phi_psi] = True
+    # Extrinsic handoff: SEED the per-group GMMs from a learned proposal breadcrumb (the
+    # previous iteration's posterior).  Keys are dim-group index tuples, matched by name to
+    # sampler.params_ordered -- so they line up with pair_ra_dec / pair_d_incl / pair_phi_psi.
+    if opts.extrinsic_proposal_breadcrumb and os.path.exists(opts.extrinsic_proposal_breadcrumb) and os.path.getsize(opts.extrinsic_proposal_breadcrumb) > 0:
+      try:
+        import RIFT.calmarg.breadcrumbs as _ebcmod, RIFT.calmarg.extrinsic_handoff as _ehmod
+        _ebc = _ebcmod.load(opts.extrinsic_proposal_breadcrumb)
+        _ext_adapt = bool(getattr(opts, 'extrinsic_proposal_adapt', False))
+        _seed = _ehmod.gmm_dict_from_breadcrumb(_ebc.get('extrinsic'), sampler.params_ordered, adapt=_ext_adapt, existing_keys=list(gmm_dict.keys()))
+        for _k, _m in _seed.items():
+          if _k in gmm_dict:
+            gmm_dict[_k] = _m
+            # Default FROZEN (gmm_adapt False): _train skips these groups, so the handed-off
+            # proposal drives sampling unmodified.  Re-fitting a seeded model on a bad first
+            # batch raises in the GMM init and triggers _reset -> the seed would be discarded.
+            gmm_adapt[_k] = _ext_adapt
+        print(" Extrinsic GMM SEEDED ({}) from {} for dim-groups {}".format(
+            "adapting" if _ext_adapt else "frozen", opts.extrinsic_proposal_breadcrumb, list(_seed.keys())))
+      except Exception as _e_eh:
+        print(" WARNING: could not seed extrinsic GMM from {} ({}); using default proposal.".format(opts.extrinsic_proposal_breadcrumb, _e_eh))
 #    gmm_dict = {tuple([2]):None,tuple([4]):None,(3,5):None,tuple([0]):None,tuple([1]):None} 
 #    if len(psd_dict.keys()) > 2:
 #        n_sky=2  # presumably we have localized better, avoid failure modes
 #    comp_dict = {tuple([2]):1,tuple([4]):1,(3,5):3,tuple([0]):n_sky,tuple([1]):n_sky} 
-    comp_dict = {pair_ra_dec:n_sky,pair_d_incl:n_d,pair_phi_psi:n_phase} 
+    if opts.internal_gmm_correlate_all:
+      comp_dict = {pair_all: n_all}
+    else:
+      comp_dict = {pair_ra_dec:n_sky,pair_d_incl:n_d,pair_phi_psi:n_phase}
     extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict, 'gmm_adapt':gmm_adapt}  # made up for now, should adjust
     print("GMM:",extra_args)
     print("GMM:",sampler.params_ordered)
@@ -1429,7 +1629,7 @@ if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
 
 
 def resample_samples(my_samples,
-                     lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None): # uses LOTS of global variables, don't pass them all
+                     lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None, n_cal=1, cal_log_weights=None): # uses LOTS of global variables, don't pass them all
   global fSample # access global sampling rate
   # will look a LOT like the likelihood function definitions, unfortunately
   if not opts.vectorized:
@@ -1456,8 +1656,11 @@ def resample_samples(my_samples,
     for name in ['phi','theta', 'phiref','incl', 'psi','dist']:
       setattr(P,name, getattr(P,name).astype(float) )
 
+  # With calibration marginalization (n_cal>1) this returns the cal-marginalized
+  # lnL(t) timeseries (weighted log-sum-exp over realizations per time bin), so the
+  # time resampling below operates on the marginalized likelihood.
   lnLt = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                        P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,return_lnLt=True)
+                        P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,return_lnLt=True,n_cal=n_cal,cal_log_weights=cal_log_weights)
 
   lnLt = identity_convert(lnLt) # back to CPU.  Note we have removed offsets 
   if opts.zero_likelihood:
@@ -1540,8 +1743,14 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       ignore_threshold=opts.internal_precompute_ignore_threshold
       print("IGNORE ACTIVE ", ignore_threshold)
     extra_kwargs ={}
+    n_cal_for_likelihood = 1   # >1 triggers in-loop calibration marginalization in the likelihood
+    # use the fused implementation (Option C) when requested; works on GPU (CUDA
+    # kernels) and CPU (numpy).  Phase marginalization is not supported by the fused
+    # path, so it is disabled there below (that call site stays on the loop method).
+    use_fused_calmarg = bool(calibration_marginalization and opts.calibration_fused_kernel)
     if calibration_marginalization:
       extra_kwargs['calibration_realizations'] = calibration_realization_dict
+      n_cal_for_likelihood = opts.calibration_n_realizations
     rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest=factored_likelihood.PrecomputeLikelihoodTerms(
             fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
             False, inv_spec_trunc_Q, T_spec,
@@ -1593,6 +1802,157 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 ctVArrayDict[det] = cupy.asarray(ctVArrayDict[det])
                 epochDict[det] = cupy.asarray(epochDict[det])
 
+        def _cal_error_probe(n_cal_now, n_start=256, n_cap=None, rel_tol=0.1):
+            """Estimate (sigma_lnZ_cal, neff_cal, n_used, dist_mode): the calibration
+            MC error of lnZ and the effective cal draw count, from per-realization
+            responsibilities on an extrinsic batch drawn from the RUN'S priors.
+
+            * Distance comes from the run's distance prior -- the sampler's own
+              prior_pdf when distance is sampled (incl. cosmo/redshift variants, via
+              a uniform proposal + importance weight), the --d-prior pdf when distance
+              marginalization is active, or the PINNED value (with a warning: at fixed
+              distance the distance/amplitude degeneracy cannot absorb amplitude-like
+              cal perturbations, so the estimate is conservative).
+            * The batch is ADAPTIVE: doubled until sigma stabilizes (rel_tol) with
+              adequate weight support, up to n_cap.
+            Responsibilities are ~extrinsic-independent so modest batches converge."""
+            import RIFT.calmarg.adaptive as _adapt
+            from scipy.special import logsumexp as _lse
+            _rng = np.random.default_rng()   # fresh randomness: this is a diagnostic
+            if n_cap is None:
+                n_cap = max(int(opts.calibration_mc_error_extrinsic or 0), n_start)
+            _warned = []
+            def _draw_dist(n):
+                if 'distance' in pinned_params:
+                    if not _warned:
+                        print(" [calmarg error] WARNING: distance is PINNED -- probe runs at the fixed value; without the distance/amplitude degeneracy the cal error estimate is conservative (an upper bound).")
+                        _warned.append(1)
+                    return np.full(n, float(pinned_params['distance'])), np.zeros(n), 'pinned'
+                if opts.distance_marginalization:
+                    # distance is integrated on-board against the lookup-table prior;
+                    # the probe varies it explicitly, drawing per --d-prior.
+                    if opts.d_prior == 'pseudo_cosmo':
+                        d = _rng.uniform(dmin, dmax, n)
+                        _nm = priors_utils.dist_prior_pseudo_cosmo_eval_norm(dmin, dmax)
+                        corr = np.log(np.clip(np.asarray(priors_utils.dist_prior_pseudo_cosmo(d, nm=_nm, xpy=np), dtype=float), 1e-300, None))
+                        return d, corr, 'pseudo_cosmo'
+                    # Euclidean: exact inverse-CDF draw from the d^2 prior
+                    u = _rng.uniform(0, 1, n)
+                    d = (dmin**3 + u*(dmax**3 - dmin**3))**(1./3)
+                    return d, np.zeros(n), 'Euclidean'
+                # distance is a sampler dimension: uniform proposal over its range,
+                # importance-weighted by the run's OWN prior_pdf (cosmo/redshift safe);
+                # redshift_to_distance maps the sampled coordinate to luminosity distance.
+                lo, hi = float(sampler.llim['distance']), float(sampler.rlim['distance'])
+                x = _rng.uniform(lo, hi, n)
+                pw = np.asarray(identity_convert(sampler.prior_pdf['distance'](identity_convert_togpu(x))), dtype=float)
+                corr = np.log(np.clip(pw, 1e-300, None))
+                d = np.asarray(redshift_to_distance(x), dtype=float)
+                return d, corr, 'sampler prior ({})'.format(opts.d_prior)
+            _tv = xpy_default.linspace(-t_ref_wind, t_ref_wind, int((t_ref_wind)*2/P.deltaT))
+            _calw_np = np.zeros(n_cal_now) if calibration_log_weights is None else np.asarray(identity_convert(calibration_log_weights), dtype=float)[:n_cal_now]
+            comp_list = []; corr_list = []
+            sigma = None; neff_cal = None; sigma_prev = None
+            n_batch = int(n_start); n_tot = 0; dist_mode = None
+            while True:
+                P.phi    = xpy_default.asarray(_rng.uniform(0, 2*np.pi, n_batch), dtype=np.float64)
+                P.theta  = xpy_default.asarray(np.arcsin(_rng.uniform(-1, 1, n_batch)), dtype=np.float64)
+                P.incl   = xpy_default.asarray(np.arccos(_rng.uniform(-1, 1, n_batch)), dtype=np.float64)
+                P.psi    = xpy_default.asarray(_rng.uniform(0, np.pi, n_batch), dtype=np.float64)
+                P.phiref = xpy_default.asarray(_rng.uniform(0, 2*np.pi, n_batch), dtype=np.float64)
+                P.tref   = float(fiducial_epoch)
+                _d, _corr, dist_mode = _draw_dist(n_batch)
+                P.dist   = xpy_default.asarray(_d*1.e6*lalsimutils.lsu_PC, dtype=np.float64)
+                _comp = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
+                    _tv, P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict, epochDict,
+                    Lmax=opts.l_max, xpy=xpy_default, n_cal=n_cal_now, cal_method='loop',
+                    return_cal_components=True)
+                comp_list.append(np.atleast_2d(np.asarray(identity_convert(_comp), dtype=float)))
+                corr_list.append(_corr)
+                comp_all = np.vstack(comp_list); corr_all = np.concatenate(corr_list)
+                slw = _lse(comp_all + _calw_np[None, :], axis=1) + corr_all
+                sigma, neff_cal, _a = _adapt.cal_mc_error_from_components(
+                    comp_all, cal_log_weights=_calw_np, sample_log_weights=slw)
+                n_tot += n_batch
+                kish = float(np.exp(2*_lse(slw) - _lse(2*slw)))
+                if n_tot >= n_cap:
+                    break
+                if (sigma_prev is not None) and (abs(sigma - sigma_prev) <= rel_tol*max(sigma, 0.02)) and kish >= 32:
+                    break
+                sigma_prev = sigma
+                n_batch = min(n_tot, n_cap - n_tot)   # double the total each pass
+            return float(sigma), float(neff_cal), int(n_tot), dist_mode
+
+        # ---- ADAPTIVE cal draw count: instead of trusting a hardcoded
+        # --calibration-n-realizations, probe the effective number of contributing
+        # draws at THIS intrinsic point and grow the draw set (fresh independent
+        # draws; incremental precompute of only the new blocks) until the target
+        # neff_cal is met or the cap is reached.  The realization dict and the
+        # importance-weight/node bookkeeping are extended in place, so later events
+        # in this job inherit the enlarged set.
+        if calibration_marginalization and n_cal_for_likelihood > 1 and (not opts.calibration_dump_responsibilities) and opts.calibration_neff_cal_target:
+            _ncal_cap = int(opts.calibration_n_realizations_max) if opts.calibration_n_realizations_max else 8*int(opts.calibration_n_realizations)
+            while True:
+                _sig0, _neff0, _npr0, _dmode0 = _cal_error_probe(n_cal_for_likelihood, n_start=256, n_cap=512)
+                print(" [calmarg adapt] n_cal={} : cal n_eff ~ {:.1f} (target {:g}), sigma_cal ~ {:.3f} (probe {} pts, distance: {})".format(
+                      n_cal_for_likelihood, _neff0, opts.calibration_neff_cal_target, _sig0, _npr0, _dmode0))
+                if _neff0 >= opts.calibration_neff_cal_target:
+                    break
+                if n_cal_for_likelihood >= _ncal_cap:
+                    print(" [calmarg adapt] WARNING: cal n_eff {:.1f} below target at the n_cal cap {} -- proceeding; the reported sigma will carry the (large) cal term.".format(_neff0, _ncal_cap))
+                    break
+                _n_more = min(n_cal_for_likelihood, _ncal_cap - n_cal_for_likelihood)
+                print(" [calmarg adapt] growing cal draw set by {} -> {} (incremental precompute)".format(_n_more, n_cal_for_likelihood + _n_more))
+                _new_real = _draw_more_calibration_draws(_n_more, psd_dict)
+                _ek_more = dict(extra_kwargs); _ek_more['calibration_realizations'] = _new_real
+                _intp_more, _ct_more, _ctV_more, rholms_more, _snr_more, _rest_more = factored_likelihood.PrecomputeLikelihoodTerms(
+                    fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
+                    False, inv_spec_trunc_Q, T_spec,
+                    ignore_threshold=ignore_threshold,
+                    NR_group=NR_template_group,NR_param=NR_template_param,
+                    use_gwsignal=opts.use_gwsignal,
+                    use_gwsignal_approx=opts.approximant,
+                    use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized, extra_waveform_kwargs=extra_waveform_kwargs,**_ek_more)
+                for det in rholms_more.keys():
+                    _,_,_,_,_, _rholmArray_more, _, _ = factored_likelihood.PackLikelihoodDataStructuresAsArrays(
+                        rholms_more[det].keys(), _intp_more[det], rholms_more[det], _ct_more[det], _ctV_more[det])
+                    if opts.gpu and (not xpy_default is np):
+                        _rholmArray_more = cupy.asarray(_rholmArray_more)
+                    rholmArrayDict[det] = xpy_default.concatenate([rholmArrayDict[det], _rholmArray_more], axis=-1)
+                n_cal_for_likelihood += _n_more
+                opts.calibration_n_realizations = n_cal_for_likelihood   # later events start consistent with the extended dict
+
+        if opts.calibration_dump_responsibilities and calibration_marginalization:
+            # PILOT: accumulate the per-cal-realization extrinsic-marginalized log L at
+            # THIS intrinsic point.  Cal is ~extrinsic-independent, so a uniform-prior
+            # extrinsic batch gives an unbiased Monte-Carlo estimate of int dOmega L_c
+            # (the cal posterior responsibility).  Uses the simplest likelihood config
+            # (default helper, loop, fiducial distance) -- only the SHAPE in cal-node
+            # space matters, and the runtime importance weights keep the production
+            # marginalization unbiased regardless of pilot quality.
+            _Next = int(opts.calibration_pilot_extrinsic or 256)
+            _rng_ext = np.random.default_rng((getattr(opts,'seed',0) or 0) + 101 + int(indx_event))
+            P.phi    = xpy_default.asarray(_rng_ext.uniform(0, 2*np.pi, _Next), dtype=np.float64)
+            P.theta  = xpy_default.asarray(np.arcsin(_rng_ext.uniform(-1, 1, _Next)), dtype=np.float64)  # uniform in sin(dec)
+            P.incl   = xpy_default.asarray(np.arccos(_rng_ext.uniform(-1, 1, _Next)), dtype=np.float64)
+            P.psi    = xpy_default.asarray(_rng_ext.uniform(0, np.pi, _Next), dtype=np.float64)
+            P.phiref = xpy_default.asarray(_rng_ext.uniform(0, 2*np.pi, _Next), dtype=np.float64)
+            P.tref   = float(fiducial_epoch)
+            P.dist   = xpy_default.asarray(np.full(_Next, factored_likelihood.distMpcRef)*1.e6*lalsimutils.lsu_PC, dtype=np.float64)
+            _tvals = xpy_default.linspace(-t_ref_wind, t_ref_wind, int((t_ref_wind)*2/P.deltaT))
+            _comp = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
+                _tvals, P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict, epochDict,
+                Lmax=opts.l_max, xpy=xpy_default, n_cal=n_cal_for_likelihood, cal_method='loop',
+                return_cal_components=True)
+            _comp = np.asarray(identity_convert(_comp))                       # (Next, n_cal) -> CPU
+            from scipy.special import logsumexp as _logsumexp
+            _calpilot_logresp_list.append(_logsumexp(_comp, axis=0) - np.log(_Next))
+            print("   pilot point {}: accumulated cal responsibilities ({} realizations, {} extrinsic)".format(
+                  int(indx_event), n_cal_for_likelihood, _Next))
+            # PILOT is cheap: skip the full extrinsic sampler integration -- we only needed
+            # the precompute + this small per-realization eval.  Return a harmless lnL.
+            return 0.0
+
 
 
     # Likelihood
@@ -1611,7 +1971,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 distance = redshift_to_distance(distance)
 
             # use EXTREMELY many bits
-            lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
+            lnL = numpy.zeros(right_ascension.shape,dtype=RiftFloat)
             i = 0
             for ph, th, tr, phr, ic, ps, di in zip(right_ascension, dec,
                     t_ref, phi_orb, incl, psi, distance):
@@ -1644,7 +2004,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 distance = redshift_to_distance(distance)
 
             # use EXTREMELY many bits
-            lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
+            lnL = numpy.zeros(right_ascension.shape,dtype=RiftFloat)
             i = 0
             tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
 
@@ -1687,7 +2047,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 distance = redshift_to_distance(distance)
 
             # use EXTREMELY many bits
-            lnL = numpy.zeros(right_ascension.shape,dtype=numpy.float128)
+            lnL = numpy.zeros(right_ascension.shape,dtype=RiftFloat)
             P.phi = right_ascension.astype(float)  # cast to float
             P.theta = dec #declination.astype(float)
             P.tref = float(fiducial_epoch)
@@ -1726,22 +2086,26 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 psi, distance):
 #                global nEvals
                 tvals = xpy_default.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
-                P.phi = xpy_asarray_already(right_ascension)  # cast to float
+                # Use xpy_default.asarray (not the passthrough xpy_asarray_already): some
+                # samplers (e.g. AV) hand back numpy arrays, so on GPU we must convert
+                # them to cupy.  asarray is a no-op for already-on-device arrays.  This
+                # mirrors the distance-marginalization likelihood_function below.
+                P.phi = xpy_default.asarray(right_ascension, dtype=np.float64)
                 if opts.declination_cosine_sampler:
-                  P.theta = numpy.pi/2 - xpy_default.arccos(xpy_asarray_already(declination))
+                  P.theta = numpy.pi/2 - xpy_default.arccos(xpy_default.asarray(declination, dtype=np.float64))
                 else:
-                  P.theta = xpy_asarray_already(declination)
+                  P.theta = xpy_default.asarray(declination, dtype=np.float64)
                 P.tref = float(fiducial_epoch)
-                P.phiref = xpy_asarray_already(phi_orb)
+                P.phiref = xpy_default.asarray(phi_orb, dtype=np.float64)
                 if opts.inclination_cosine_sampler:
-                  P.incl = xpy_default.arccos(xpy_asarray_already(inclination))
+                  P.incl = xpy_default.arccos(xpy_default.asarray(inclination, dtype=np.float64))
                 else:
-                  P.incl = xpy_asarray_already(inclination)
+                  P.incl = xpy_default.asarray(inclination, dtype=np.float64)
                 if opts.d_prior_redshift:
                   distance = redshift_to_distance(distance)
 
-                P.psi = xpy_asarray_already(psi)
-                P.dist = xpy_asarray_already(distance* 1.e6 * lalsimutils.lsu_PC) # luminosity distance
+                P.psi = xpy_default.asarray(psi, dtype=np.float64)
+                P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC, dtype=np.float64) # luminosity distance
 
                 # rotate sky if needed
                 if opts.internal_sky_network_coordinates:
@@ -1760,7 +2124,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 
 
                 lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                        P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default)
+                        P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,n_cal=n_cal_for_likelihood,
+                        cal_method=('fused' if use_fused_calmarg else 'loop'), cal_log_weights=calibration_log_weights)  # non-distmarg: default-helper fused kernel (cal_distmarg=None)
 #                nEvals +=len(right_ascension)
                 if supplemental_ln_likelihood:
                   lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist,xpy=xpy_default) # use these variables so they are already float-type
@@ -1819,6 +2184,20 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 lnI[in_bounds] = intp(s[in_bounds], t[in_bounds])
                 return exponent_max(x0, rho_sq) + lnI
 
+              # Opt-in: package the distmarg table for the fused kernel (Option C).
+              # Only used (below) at the non-phase-marg distmarg call site; the loop
+              # method (Option B) remains the default and the fallback.  Works on GPU
+              # and CPU (the fused path has a numpy backend), so no GPU gate here.
+              cal_distmarg_dict = None
+              if use_fused_calmarg:
+                  cal_distmarg_dict = dict(
+                    lnI_array=lnI_array,
+                    s0=float(s_array[0]), ds=float(s_array[1] - s_array[0]),
+                    smin=float(smin), smax=float(smax),
+                    t0=float(t_array[0]), dt=float(t_array[1] - t_array[0]), tmax=float(tmax),
+                    xmin=float(xmin), xmax=float(xmax),
+                    sqrt_bmax=float(sqrt_bmax), bref=float(bref))
+
               if lookup_table["phase_marginalization"]:
 
                 print( " Using direct phase marginalization  ")
@@ -1863,7 +2242,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     P.phiref = phi_orb_true
 
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood, phase_marginalization=True)
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood, phase_marginalization=True,n_cal=n_cal_for_likelihood,
+                    cal_method=('fused' if cal_distmarg_dict is not None else 'loop'), cal_distmarg=cal_distmarg_dict, cal_log_weights=calibration_log_weights)
 #                  nEvals +=len(right_ascension)
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
@@ -1906,7 +2286,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     P.phiref = phi_orb_true
 
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
-                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood)
+                    P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood,n_cal=n_cal_for_likelihood,
+                    cal_method=('fused' if cal_distmarg_dict is not None else 'loop'), cal_distmarg=cal_distmarg_dict, cal_log_weights=calibration_log_weights)
 #                  nEvals +=len(right_ascension)
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
@@ -1926,7 +2307,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             if opts.d_prior_redshift:
               distance = redshift_to_distance(distance)
 
-            lnL = numpy.zeros(len(right_ascension),dtype=numpy.float128)
+            lnL = numpy.zeros(len(right_ascension),dtype=RiftFloat)
 #            i = 0
             tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
 
@@ -1998,6 +2379,27 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
              lnL_oracles  = np.zeros(opts.n_chunk)
              sampler.update_sampling_prior(lnL_oracles, opts.n_chunk, external_rvs=rvs_train,log_scale_weights=True,floor_integrated_probability=opts.adapt_floor_level)
 
+    # Optional ZERO-CAL burn-in (generally useful; see RIFT/calmarg/DESIGN_adaptive_driver.md).
+    # Adapt the extrinsic sampler cheaply on the n_cal=1 baseline first, then run the full
+    # cal-marginalized integration reusing the adapted proposal.  The likelihood closures
+    # read the enclosing n_cal_for_likelihood, so toggling it to 1 makes this same
+    # like_to_integrate evaluate the fast baseline.  Correctness is preserved regardless of
+    # whether the sampler retains adaptation across the two integrate() calls -- worst case
+    # the burn-in is simply wasted; the production integral below is always the full cal one.
+    if opts.calibration_burn_in_neff and calibration_marginalization and n_cal_for_likelihood > 1:
+        _ncal_full = n_cal_for_likelihood
+        n_cal_for_likelihood = 1
+        _burn_pinned = dict(pinned_params)
+        _burn_pinned['neff'] = float(opts.calibration_burn_in_neff)
+        _burn_pinned['nmax'] = int(opts.calibration_burn_in_nmax) if opts.calibration_burn_in_nmax else int(pinned_params.get('nmax', n_max))
+        print(" [calmarg burn-in] adapting extrinsic sampler on ZERO-CAL likelihood -> neff>={:g} (nmax cap {})".format(_burn_pinned['neff'], _burn_pinned['nmax']))
+        try:
+            _b = sampler.integrate(like_to_integrate, *unpinned_params, **_burn_pinned)
+            print(" [calmarg burn-in] done (burn-in neff ~ {}); switching to full cal marginalization".format(_b[2] if _b and len(_b) > 2 else '?'))
+        except Exception as _eb:
+            print(" [calmarg burn-in] integrate failed ({}); proceeding to production".format(_eb))
+        n_cal_for_likelihood = _ncal_full   # restore: production uses the full cal set
+
     res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
 
     if not(res): # no resut
@@ -2009,6 +2411,70 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     else:
       log_res = res
       sqrt_var_over_res =  numpy.exp(var/2 - log_res)
+
+    # Calibration MC error budget.  The sampler's `var` is the EXTRINSIC sampling
+    # variance with the cal draw set held FIXED -- it is structurally blind to the
+    # Monte-Carlo error of the (1/n_cal) sum over realizations, which dominates
+    # whenever the cal n_eff is small (high SNR and/or broad envelopes).  Estimate
+    # that term with the adaptive probe (extrinsic batch from the RUN'S priors,
+    # incl. its distance prior; see _cal_error_probe) and add it IN QUADRATURE to
+    # the reported sigma.  Never fatal.
+    neff_cal = None; sigma_lnZ_cal = None
+    if calibration_marginalization and n_cal_for_likelihood > 1 and opts.vectorized and opts.calibration_mc_error_extrinsic:
+      try:
+        sigma_lnZ_cal, neff_cal, _npr_err, _dmode_err = _cal_error_probe(n_cal_for_likelihood)
+        _sigma_ext = float(sqrt_var_over_res)
+        sqrt_var_over_res = numpy.sqrt(_sigma_ext**2 + sigma_lnZ_cal**2)
+        print(" [calmarg error] sigma_lnZ: extrinsic {:.4f} (+) cal {:.4f} -> total {:.4f} ; cal n_eff {:.1f} / {} (probe {} pts, distance: {})".format(
+              _sigma_ext, sigma_lnZ_cal, float(sqrt_var_over_res), neff_cal, n_cal_for_likelihood, _npr_err, _dmode_err))
+        if neff_cal < 10:
+            print(" [calmarg error] WARNING: cal n_eff < 10: the marginalization is dominated by a few draws and the quoted sigma is a LOWER BOUND.  Increase --calibration-n-realizations / the adaptive cap (--calibration-n-realizations-max).")
+      except Exception as _e_cme:
+        print(" WARNING: calibration MC error estimate failed ({}); reported sigma is extrinsic-only.".format(_e_cme))
+
+    # Extrinsic handoff: after the integration, fit the run's extrinsic POSTERIOR to a
+    # per-group GMM and write it as a breadcrumb, so a later iteration can seed its extrinsic
+    # sampler (--extrinsic-proposal-breadcrumb).  The extrinsic posterior barely moves
+    # iteration-to-iteration, so this lets the next run start on the answer.  Wrapped so a
+    # harvest/fit failure can never break a production integration.
+    if opts.extrinsic_proposal_output:
+      try:
+        import RIFT.calmarg.extrinsic_handoff as _ehmod, RIFT.calmarg.breadcrumbs as _ebcmod
+        _rvs = sampler._rvs
+        # TRUE importance log-weight = lnL + ln(prior) - ln(sampling_prior).  Build it from the
+        # raw, UNTEMPERED components and prefer them over any stored 'log_weights': the GPU/AV
+        # sampler (mcsamplerGPU) stores log_weights = tempering_exp*lnL + ln(prior) - ln(s_prior)
+        # (the adapt-weight-exponent, e.g. 0.1, baked in) -- fitting the GMM to those flattened
+        # weights places the proposal in the WRONG region.  GMM's own _rvs has no tempering.
+        if 'log_integrand' in _rvs and 'log_joint_prior' in _rvs and 'log_joint_s_prior' in _rvs:
+          _lw = np.array(_rvs['log_integrand'] + _rvs['log_joint_prior'] - _rvs['log_joint_s_prior'], dtype=float)
+        elif 'integrand' in _rvs and 'joint_prior' in _rvs and 'joint_s_prior' in _rvs:
+          _ig = np.asarray(_rvs['integrand'], dtype=float); _jp = np.asarray(_rvs['joint_prior'], dtype=float); _jsp = np.asarray(_rvs['joint_s_prior'], dtype=float)
+          _keep = (_ig > 0) & (_jp > 0) & (_jsp > 0)
+          _lw = np.full(len(_ig), -np.inf); _lw[_keep] = np.log(_ig[_keep]) + np.log(_jp[_keep]) - np.log(_jsp[_keep])
+        else:
+          raise Exception("no weights in sampler._rvs (keys={})".format(list(_rvs.keys())))
+        # extrinsic samples + bounds for the standard groups that this run actually sampled.
+        _ext_params = [p for grp in _ehmod.STANDARD_GROUPS for p in grp]
+        _ext_samples = {p: np.array(_rvs[p], dtype=float).reshape(-1) for p in _ext_params if p in _rvs}
+        _ext_bounds = {p: (float(sampler.llim[p]), float(sampler.rlim[p])) for p in _ext_samples if p in sampler.llim}
+        # restrict to finite-weight, fully-bounded samples
+        _good = np.isfinite(_lw)
+        for _p in list(_ext_samples):
+          _good = _good & np.isfinite(_ext_samples[_p])
+        _ext_samples = {p: v[_good] for p, v in _ext_samples.items() if p in _ext_bounds}
+        _ext = _ehmod.fit_extrinsic_proposal(_ext_samples, log_weights=_lw[_good], bounds=_ext_bounds)
+        # store the true lnL (peak-referenced) + sample count so a downstream consolidation
+        # can pick the most representative (near-peak / best-converged) proposal to hand on.
+        _ebcmod.save(opts.extrinsic_proposal_output, extrinsic=_ext,
+                     meta=dict(event=int(indx_event), n_samples=int(_good.sum()),
+                               lnL=float(log_res + manual_avoid_overflow_logarithm),
+                               neff=float(neff),
+                               groups=[g['params'] for g in _ext['groups']]))
+        print(" Extrinsic proposal WRITTEN to {} ({} groups: {})".format(
+            opts.extrinsic_proposal_output, len(_ext['groups']), [g['params'] for g in _ext['groups']]))
+      except Exception as _e_eho:
+        print(" WARNING: could not write extrinsic proposal to {} ({}); continuing.".format(opts.extrinsic_proposal_output, _e_eho))
 
     # Report results
     if opts.output_file and opts.sim_grid:
@@ -2167,11 +2633,16 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           if opts.sampler_method == "GMM" and neff < 50:
             print("  WARNING: --export-distance-slices with --sampler-method GMM at main n_eff={:.1f} (<50). ".format(neff)
                   + "B2-reweight may be biased; prefer --sampler-method AV or raise --n-max.")
-          dL_samp = np.array(sampler._rvs["distance"])
+          # On GPU the sampler stores CUPY arrays in _rvs / pdf outputs; convert
+          # to numpy at the boundary (identity_convert = cupy.asnumpy, or a no-op
+          # without cupy) before ANY numpy math. Otherwise cupy raises "Implicit
+          # conversion to a NumPy array is not allowed", analyze_event throws, and
+          # EVERY binary is skipped -> empty .dslice (silent failure).
+          dL_samp = np.asarray(identity_convert(sampler._rvs["distance"]), float)
           # ln(pi_d) at samples uses the actual sampler prior (volumetric or
           # pseudo-cosmo, whichever was registered).
           prior_pdf_d = sampler.prior_pdf["distance"]
-          pi_d_samp = np.asarray(prior_pdf_d(dL_samp), float)
+          pi_d_samp = np.asarray(identity_convert(prior_pdf_d(dL_samp)), float)
           pi_d_samp = np.where(pi_d_samp > 0, pi_d_samp, np.finfo(float).tiny)
           ln_pi_d_samp = np.log(pi_d_samp)
           # ln(q_d) at samples; for the standard ILE path the proposal is the
@@ -2182,7 +2653,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # and q_d at the SAMPLES to isolate the Omega-only factor. Compute
           # q_d as a normalized 1-D density on the supported range.
           try:
-            q_d_raw = np.asarray(sampler.pdf["distance"](dL_samp), float)
+            q_d_raw = np.asarray(identity_convert(sampler.pdf["distance"](dL_samp)), float)
           except Exception:
             q_d_raw = np.ones_like(dL_samp)
           q_d_norm = float(getattr(sampler, "_pdf_norm", {}).get("distance", 1.0)) or 1.0
@@ -2193,43 +2664,67 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # log-importance weights with the same fallback chain we use for
           # .dgrid.
           rvs = sampler._rvs
+          _rvs = lambda k: np.asarray(identity_convert(rvs[k]), float)  # cupy-safe column read
           if 'log_weights' in rvs:
-            ln_w_full = np.array(rvs['log_weights'])
+            ln_w_full = _rvs('log_weights')
           elif 'log_integrand' in rvs:
-            ln_w_full = np.array(rvs['log_integrand'] + rvs['log_joint_prior'] - rvs['log_joint_s_prior'])
+            ln_w_full = _rvs('log_integrand') + _rvs('log_joint_prior') - _rvs('log_joint_s_prior')
           else:
-            integrand = np.asarray(rvs['integrand'])
-            jp = np.asarray(rvs['joint_prior']); jsp = np.asarray(rvs['joint_s_prior'])
+            integrand = _rvs('integrand')
+            jp = _rvs('joint_prior'); jsp = _rvs('joint_s_prior')
             keep = (integrand > 0) & (jp > 0) & (jsp > 0)
             ln_w_full = np.full(len(integrand), -np.inf)
             ln_w_full[keep] = np.log(integrand[keep]) + np.log(jp[keep]) - np.log(jsp[keep])
-          # Split K into core (reweight) and wing (fresh) slices.
-          n_core = int(opts.n_distance_slice_core) or int(np.ceil(0.6 * K))
-          n_wing = int(opts.n_distance_slice_wing) or (K - n_core)
-          n_core = max(1, min(n_core, K))
-          n_wing = max(0, min(n_wing, K - n_core))
+          # Split K into core (reweight) and wing (fresh) slices.  --distance-slice-all-fresh
+          # forces zero reweight core: EVERY slice is a fresh fixed-d integration.  Use it
+          # when the main-loop n_eff is small -- the reweight core is then starved (the same
+          # MC noise as the .dgrid fair-draw histogram), while each fresh slice is honest.
+          all_fresh = bool(getattr(opts, "distance_slice_all_fresh", False))
+          if all_fresh:
+            n_core, n_wing = 0, K
+          else:
+            n_core = int(opts.n_distance_slice_core) or int(np.ceil(0.6 * K))
+            n_wing = int(opts.n_distance_slice_wing) or (K - n_core)
+            n_core = max(1, min(n_core, K))
+            n_wing = max(0, min(n_wing, K - n_core))
 
-          # Core: importance-reweight at quantile centers of the posterior.
-          d_core = distance_slices.quantile_slice_centers(dL_samp, ln_w_full, n_core)
-          lnL_core, sigmaL_core, neff_core, ntotal_core = distance_slices.importance_reweight_slices(
-              sampler, like_to_integrate, d_core,
-              ln_prior_d_at_samples=ln_pi_d_samp,
-              ln_proposal_d_at_samples=ln_q_d_samp,
-              manual_overflow=manual_avoid_overflow_logarithm,
-              return_lnL=return_lnL,
-          )
-          ln_pi_d_core = np.log(np.maximum(prior_pdf_d(d_core), np.finfo(float).tiny))
-
-          if opts.sampler_method == "GMM" and neff < 50:
-            print("  WARNING: --export-distance-slices with --sampler-method GMM at main n_eff={:.1f} (<50). ".format(neff)
-                  + "B2-reweight may be biased; prefer --sampler-method AV or raise --n-max.")
+          # Core: importance-reweight at quantile centers of the posterior (skipped if all_fresh).
+          if n_core > 0:
+            d_core = distance_slices.quantile_slice_centers(dL_samp, ln_w_full, n_core)
+            lnL_core, sigmaL_core, neff_core, ntotal_core = distance_slices.importance_reweight_slices(
+                sampler, like_to_integrate, d_core,
+                ln_prior_d_at_samples=ln_pi_d_samp,
+                ln_proposal_d_at_samples=ln_q_d_samp,
+                manual_overflow=manual_avoid_overflow_logarithm,
+                return_lnL=return_lnL,
+            )
+            if opts.sampler_method == "GMM" and neff < 50:
+              print("  WARNING: --export-distance-slices with --sampler-method GMM at main n_eff={:.1f} (<50). ".format(neff)
+                    + "B2-reweight may be biased; prefer --sampler-method AV or raise --n-max.")
+          else:
+            d_core = np.array([])
+            lnL_core = np.array([]); sigmaL_core = np.array([])
+            neff_core = np.array([]); ntotal_core = 0
 
           # Wings: only run if (a) we asked for any, (b) core suggests a
           # real distance posterior shape worth probing. Otherwise the
           # likelihood is flat in d and fresh wings are wasted compute.
           d_wings = np.array([])
           lnL_wings = np.array([]); sigmaL_wings = np.array([]); neff_wings = np.array([]); ntotal_wings = np.array([], dtype=int)
-          if n_wing > 0:
+          if all_fresh:
+            # All K slices fresh.  Place centers at posterior-d quantiles: rough
+            # placement is fine even at low n_eff -- the precision of each row comes
+            # from its own fresh fixed-d integral, not from where it is centered.
+            d_wings = distance_slices.quantile_slice_centers(dL_samp, ln_w_full, K, randomize=getattr(opts, "distance_slice_randomize", False))
+            print("    : running {} fresh integrations (all-fresh{}; no reweight core)".format(len(d_wings), ", randomized-d" if getattr(opts, "distance_slice_randomize", False) else ""))
+            lnL_wings_raw, sigmaL_wings, neff_wings, ntotal_wings = distance_slices.fresh_sample_slices(
+                sampler, like_to_integrate, d_wings,
+                n_max=int(opts.distance_slice_wing_nmax),
+                n_eff_target=int(opts.distance_slice_wing_neff),
+                return_lnL=return_lnL,
+            )
+            lnL_wings = lnL_wings_raw + manual_avoid_overflow_logarithm
+          elif n_wing > 0:
             if distance_slices.is_uninformative(lnL_core, threshold=opts.distance_slice_skip_threshold):
               print("    : peak core lnL < {:.2f} nats (effectively undetected); skipping {} wing fresh integrations".format(
                   opts.distance_slice_skip_threshold, n_wing))
@@ -2272,7 +2767,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
               np.full(len(d_core), distance_slices.METHOD_REWEIGHT, dtype=int),
               np.full(len(d_wings), distance_slices.METHOD_FRESH, dtype=int),
           ])
-          ln_pi_d_all = np.log(np.maximum(prior_pdf_d(d_all), np.finfo(float).tiny))
+          ln_pi_d_all = np.log(np.maximum(np.asarray(identity_convert(prior_pdf_d(d_all)), float), np.finfo(float).tiny))
           order = np.argsort(d_all)
 
           try:
@@ -2377,9 +2872,49 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["alpha3"] = numpy.zeros(samples["psi"].shape)
 
       if opts.resample_time_marginalization:
-        samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict)
+        samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict, n_cal=n_cal_for_likelihood, cal_log_weights=calibration_log_weights)
         samples["loglikelihood" ] = samples["lnL_raw"]  # export the non-time-marginalized likelihood, if we are in the final stages
 #        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
+        # Recovered CALIBRATION posterior (opt-in): for each fair-draw sample, draw ONE cal
+        # realization in proportion to its posterior weight (per-realization L_c * importance
+        # weight w_c) and write a SELF-CONTAINED sibling <out>_<event>_cal.dat with the FULL
+        # draw -- intrinsic + extrinsic + the drawn realization's spline nodes as labeled
+        # cal_<IFO>_amp_<k>/cal_<IFO>_phase_<k> columns.  (The main XML/.dat schema cannot carry
+        # arbitrary columns, so the cal posterior rides this sibling file, row-aligned.)
+        _cal_nodes = calibration_nodes; _cal_dets = calibration_node_dets; _cal_namp = calibration_n_nodes_amp
+        if (_cal_nodes is None) and (_calpilot is not None) and (_calpilot.get('nodes') is not None):
+            _cal_nodes = _calpilot['nodes']; _cal_dets = list(_calpilot['dets']); _cal_namp = int(_calpilot['n_nodes_amp'])
+        if opts.calibration_export_posterior and calibration_marginalization and n_cal_for_likelihood and n_cal_for_likelihood > 1 and _cal_nodes is not None:
+          try:
+            from scipy.special import logsumexp as _logsumexp   # 'scipy' is shadowed as a local later in analyze_event
+            _tv = xpy_default.linspace(-t_ref_wind, t_ref_wind, int((t_ref_wind)*2/P.deltaT))
+            # per-realization, time-integrated lnL at each fair-draw sample (P holds the sample
+            # extrinsic arrays, just set by resample_samples).  return_cal_components forces the
+            # loop method and returns shape (n_samples, n_cal).
+            _comp = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(_tv,
+                       P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict, epochDict,
+                       Lmax=opts.l_max, xpy=xpy_default, n_cal=n_cal_for_likelihood,
+                       cal_method='loop', return_cal_components=True)
+            _comp = np.atleast_2d(np.asarray(identity_convert(_comp), dtype=float))   # (n_samples, n_cal)
+            _calw = np.zeros(n_cal_for_likelihood) if calibration_log_weights is None else np.asarray(identity_convert(calibration_log_weights), dtype=float)
+            _logp = _comp + _calw[None, :]                                  # posterior weight per (sample, realization)
+            _logp = _logp - _logsumexp(_logp, axis=1, keepdims=True)
+            _wp = np.exp(_logp); _ns = _comp.shape[0]
+            _idx = np.array([np.random.choice(n_cal_for_likelihood, p=_wp[_i]) for _i in range(_ns)])
+            _nodes_drawn = np.asarray(_cal_nodes)[_idx]                     # (n_samples, 2*namp*ndet)
+            for _i_det, _ifo in enumerate(_cal_dets):
+                _base = _i_det * 2 * _cal_namp
+                for _k in range(_cal_namp):
+                    samples["cal_%s_amp_%d"   % (_ifo, _k)] = _nodes_drawn[:, _base + _k]
+                    samples["cal_%s_phase_%d" % (_ifo, _k)] = _nodes_drawn[:, _base + _cal_namp + _k]
+            _ekeys = sorted(k for k in samples if isinstance(k, str) and np.ndim(samples[k]) == 1 and np.size(samples[k]) == _ns)
+            _mat = np.column_stack([np.asarray(samples[k], dtype=float) for k in _ekeys])
+            _fn_cal = opts.output_file + "_" + str(indx_event) + "_cal.dat"
+            np.savetxt(_fn_cal, _mat, header=" ".join(_ekeys))
+            print(" Calibration posterior (full fair draws + cal nodes) -> {} ; {} samples x {} cols ({} cal cols over {})".format(
+                  _fn_cal, _ns, len(_ekeys), 2*_cal_namp*len(_cal_dets), _cal_dets))
+          except Exception as _e_cep:
+            print(" WARNING: --calibration-export-posterior failed ({}); skipping cal-posterior export.".format(_e_cep))
       xmlutils.append_samples_to_xmldoc(xmldoc, samples)
         # Extra metadata
       dict_out={"mass1": m1, "mass2": m2, "spin1z": P.s1z, "spin2z": P.s2z, "alpha4": P.eccentricity, "alpha": P.meanPerAno, "alpha5":P.lambda1, "alpha6":P.lambda2, "event_duration": sqrt_var_over_res, "ttotal": sampler.ntotal}
@@ -2434,7 +2969,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
        sampler._rvs["inclination"][indx_guess]/(numpy.pi),\
        sampler._rvs["psi"][indx_guess]/numpy.pi,\
        sampler._rvs["distance"][indx_guess]/dmax\
-            ],dtype=numpy.float128)
+            ],dtype=RiftFloat)
       x0 = numpy.fmod(x0,numpy.ones(len(x0)))  # had BETTER be defined on this range!
       # Pick the best starting time. BRUTE FORCE METHOD: use grid
       def fn_scaled_t(t,x0):
@@ -2494,9 +3029,15 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       P_list = [P_max]
       lalsimutils.ChooseWaveformParams_array_to_xml(P_list,"maxpt_"+opts.output_file)
 
-    # Clear sampler _rvs, to avoid side effects when called again
-    for key in sampler._rvs.keys():
-      sampler._rvs[key] = []
+    # Clear sampler _rvs, to avoid side effects when called again.
+    # Reset the dict rather than setting each key to []: a key added AFTER the
+    # fairdraw subset -- notably 'integrand', set in mcsamplerAdaptiveVolume.integrate()
+    # under --internal-use-lnL -- would otherwise survive as a stale empty list and
+    # crash the NEXT binary in a batched (n-events-to-analyze>1) run, where its
+    # integrate_log() fairdraw does self._rvs[key][indx_list] and raises
+    # "list indices must be integers or slices, not ndarray". This silently dropped
+    # every binary after the first in each ILE batch whenever fairdraw export was on.
+    sampler._rvs = {}
 
     return res
 
@@ -2568,4 +3109,25 @@ for indx in numpy.arange(len(P_list)):
   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
   P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
   P_list[indx].print_params()
-  
+
+
+# ---- Calibration pilot output (Option C / adaptive driver) -------------------------
+# Write the per-realization cal responsibilities (accumulated over all analyzed intrinsic
+# points) plus the prior cal node draws.  util_CalPilotFit.py fits these into a Gaussian
+# proposal breadcrumb that seeds the next iteration's wide ILE jobs.
+if opts.calibration_dump_responsibilities and (_calpilot is not None) and len(_calpilot_logresp_list):
+    from scipy.special import logsumexp as _logsumexp
+    _allp = np.array(_calpilot_logresp_list)            # (n_points, n_cal)
+    _logresp = _logsumexp(_allp, axis=0)                # sum_points int dOmega L_c (unnormalized)
+    # fold the importance weight: responsibility for fitting the POSTERIOR is
+    # log_w + log L  (= log prior + log L - log proposal).  log_w==0 for prior draws.
+    _logresp = _logresp + np.asarray(_calpilot.get('log_w', np.zeros_like(_logresp)))
+    np.savez(opts.calibration_dump_responsibilities,
+             nodes=_calpilot['nodes'], log_resp=_logresp,
+             prior_mean=_calpilot['prior_mean'], prior_sigma=_calpilot['prior_sigma'],
+             node_log_f=_calpilot['node_log_f'],
+             n_nodes_amp=np.int64(_calpilot['n_nodes_amp']),
+             dets=np.array(list(_calpilot['dets']), dtype=object))
+    print(" Calibration pilot responsibilities written to {} ({} points x {} realizations)".format(
+          opts.calibration_dump_responsibilities, len(_calpilot_logresp_list), _calpilot['nodes'].shape[0]))
+

@@ -1,0 +1,54 @@
+#! /usr/bin/env python
+"""Convert the PRIMARY LISA sky mode of a grid to the SECONDARY (reflected) mode.
+
+LISA's response makes the ecliptic latitude bimodal: a sky location and its
+reflection fit the data nearly equally well.  Once the primary mode is explored,
+one iteration on the reflected mode suffices to map it.  This tool rewrites each
+grid point's ecliptic_longitude/latitude to the reflected location (the sky-mode
+transform lives in RIFT.LISA.utils.utils.get_secondary_mode_for_skylocation).
+
+Hyperpipeline ASCII grids (named columns; ecliptic_longitude/ecliptic_latitude)
+are handled by name -- no positional all.net hacking.  Legacy XML grids are also
+supported for back-compatibility.
+"""
+from argparse import ArgumentParser
+import numpy as np
+
+import RIFT.lalsimutils as lsu
+from RIFT.LISA.utils.utils import get_secondary_mode_for_skylocation
+from RIFT.misc import hyperpipeline_io as hpio
+
+parser = ArgumentParser()
+parser.add_argument("--lisa-reference-time", default=0.0, help="LISA coalescence time")
+parser.add_argument("--fname", help="grid to reflect (hyperpipeline .dat or XML)")
+parser.add_argument("--fname-out", default=None, help="output (default: overwrite --fname)")
+opts = parser.parse_args()
+
+t_c = float(opts.lisa_reference_time)
+out = opts.fname_out or opts.fname
+
+
+def _reflect(lamda, beta):
+    sec = np.asarray(get_secondary_mode_for_skylocation(t_c, float(lamda), float(beta), 0.0)).reshape(-1)
+    # get_secondary_mode_for_skylocation returns [t, lambda, beta, psi] in the SSB frame
+    return sec[1], sec[2]
+
+
+if hpio.sniff(opts.fname):
+    arr, cols = hpio.read_table(opts.fname)
+    arr = np.atleast_1d(arr)
+    if "ecliptic_longitude" not in cols:
+        raise SystemExit("convert_primary_sky_mode_to_secondary: grid has no sky columns")
+    mat = np.empty((len(arr), len(cols)))
+    for i in range(len(arr)):
+        lam_sec, bet_sec = _reflect(arr["ecliptic_longitude"][i], arr["ecliptic_latitude"][i])
+        for j, c in enumerate(cols):
+            mat[i, j] = arr[c][i]
+        mat[i, cols.index("ecliptic_longitude")] = lam_sec
+        mat[i, cols.index("ecliptic_latitude")] = bet_sec
+    hpio.write_table(out, cols, mat)
+else:
+    Plist = lsu.xml_to_ChooseWaveformParams_array(opts.fname)
+    for P in Plist:
+        P.phi, P.theta = _reflect(P.phi, P.theta)
+    lsu.ChooseWaveformParams_array_to_xml(Plist, out)

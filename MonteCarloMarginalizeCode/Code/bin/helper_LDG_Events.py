@@ -210,6 +210,7 @@ parser.add_argument("--assume-precessing-spin",action='store_true',help="If pres
 parser.add_argument("--assume-volumetric-spin",action='store_true',help="If present, the code will assume a volumetric spin prior in its last iterations. If *not* present, the code will adopt a uniform magnitude spin prior in its last iterations. If not present, generally more iterations are taken.")
 parser.add_argument("--assume-highq",action='store_true',help="If present, the code will adopt a strategy that drops spin2. Also the precessing strategy will allow perpendicular spin to play a role early on (rather than as a subdominant parameter later)")
 parser.add_argument("--assume-well-placed",action='store_true',help="If present, the code will adopt a strategy that assumes the initial grid is very well placed, and will minimize the number of early iterations performed. Not as extrme as --propose-flat-strategy")
+parser.add_argument("--calmarg-first-cip-sigma-cut",default=None,type=float,help="In-loop calibration marginalization: relax the CIP --sigma-cut on the FIRST cip stage to this value.  The cold-start iterations draw cal realizations from the broad PRIOR (no pilot proposal learned yet), so their per-point Monte-Carlo error is large and the default --sigma-cut 0.6 would strip every point.  util_RIFT_pseudo_pipe.py passes this automatically when --calmarg-pilot is enabled.")
 parser.add_argument("--propose-ile-convergence-options",action='store_true',help="If present, the code will try to adjust the adaptation options, Nmax, etc based on experience")
 parser.add_argument("--internal-propose-ile-convergence-freezeadapt",action='store_true',help="If present, uses the --no-adapt-after-first --no-adapt-distance options (at one point default)")
 parser.add_argument("--internal-propose-ile-adapt-log",action='store_true',help="If present, uses the --adapt-log argument. Useful for very loud signals. Note only lnL information is used for adapting, not prior, so samples will be *uniform* in prior range if lnL is low")
@@ -1737,6 +1738,14 @@ if opts.propose_converge_last_stage:
         # NOTE: assume util_RIFT_pseudo_pipe will handle setting n-eff and workers correctly for that iteration, since we can't control it here.
         helper_cip_arg_list += [helper_cip_last_it]
 
+
+# In-loop calmarg cold start: the first CIP stage runs on iterations whose cal draws come
+# from the broad PRIOR (the pilot has not yet learned/seeded a proposal), so their MC error
+# is large.  Relax that stage's --sigma-cut so the cold-start points are not all stripped
+# (CIP default 0.6).  Only the FIRST stage is relaxed; later stages run on pilot-seeded
+# iterations with normal errors and keep the default cut.
+if opts.calmarg_first_cip_sigma_cut is not None and len(helper_cip_arg_list) > 0:
+    helper_cip_arg_list[0] += " --sigma-cut {} ".format(opts.calmarg_first_cip_sigma_cut)
 
 with open("helper_cip_arg_list.txt",'w+') as f:
     f.write("\n".join(helper_cip_arg_list))

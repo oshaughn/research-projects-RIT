@@ -36,11 +36,21 @@ extern "C" {
 
         complex<double> out_tmp = 0.;
 
-        /* Take the outer product over the lm axis. */
-        for (size_t i_lm = 0; i_lm < num_lms; ++i_lm) {
-          out_tmp += 
-            A_sample[threadIdx.x*num_lms + i_lm] *
-            Q[(i_first_time+i_time)*num_lms + i_lm];
+        /* Guard against out-of-range time offsets: for some sky positions the
+           window can extend a sample past the precomputed rholm buffer, and with
+           calibration marginalization the buffer is n_cal blocks long so an
+           over-read in the last block hits unmapped memory (CUDA illegal access).
+           Out-of-range time samples contribute zero rather than reading OOB.
+           (i_first_time is size_t, so a negative int index wraps to a large value
+           and is also caught here.) */
+        size_t q_time = i_first_time + i_time;
+        if (q_time < (size_t)num_time_points) {
+          /* Take the outer product over the lm axis. */
+          for (size_t i_lm = 0; i_lm < num_lms; ++i_lm) {
+            out_tmp +=
+              A_sample[threadIdx.x*num_lms + i_lm] *
+              Q[q_time*num_lms + i_lm];
+          }
         }
 
         out[i_output] = out_tmp;

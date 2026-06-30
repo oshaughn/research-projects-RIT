@@ -56,6 +56,10 @@ __all__ = [
     "build_singularity_image_expr",
     "build_transfer_input_expr",
     "build_require_gpus_floor",
+    "build_container_image_select",
+    "build_capability_defined_requirement",
+    "build_fallback_single_image",
+    "build_runtime_selection_wrapper",
 ]
 
 # Default machine ClassAd attribute advertising GPU compute capability.  The
@@ -221,13 +225,20 @@ def _build_selector(manifest, value_fn, ternary=False):
 
     ``value_fn(container)`` returns the ClassAd literal for a container branch
     (already quoted as appropriate).  The highest-min container is the outermost
-    test; the ``fallback`` container is the innermost else (catch-all, also used
-    when the capability attribute is ``undefined``).
+    test; the ``fallback`` container is the innermost else (catch-all, used when
+    the capability is below every threshold).
 
     With ``ternary=False`` the selector uses ``ifThenElse(cond, a, b)`` (commas).
     With ``ternary=True`` it uses the comma-free ClassAd ternary ``cond ? a : b``
     -- required when the result is embedded as one element of a comma-separated
     ``transfer_input_files`` list, where internal commas would be mis-split.
+
+    NOTE: the selector is intentionally NOT undefined-guarded.  A GPU job must add
+    a ``Requirements`` clause excluding slots that do not advertise the capability
+    attribute (:func:`build_capability_defined_requirement`); guessing an image
+    for an undefined slot is unsafe (it could be a Blackwell that hard-fails on the
+    older fallback image), so the correct action is to NOT match such a slot.  A
+    non-GPU job must not use this selector at all -- it has no capability to read.
     """
     attr = _capability_attr(manifest)
     containers = manifest["containers"]  # sorted desc by min
@@ -261,6 +272,11 @@ def build_singularity_image_expr(manifest):
 
     Each branch literal is the container's *runtime* path (CVMFS/local verbatim,
     ``./<basename>`` for transferred images).
+
+    GPU jobs that emit this MUST also add
+    :func:`build_capability_defined_requirement` so they never match a slot that
+    does not advertise the capability attribute (where this expression would be
+    ``undefined``).
     """
     return _build_selector(
         manifest, lambda c: '"{}"'.format(_image_runtime_path(c["image"]))
@@ -282,7 +298,204 @@ def build_transfer_input_expr(manifest):
     def value_fn(c):
         return '"{}"'.format(c["image"]) if _image_needs_transfer(c["image"]) else '""'
 
+    # GPU jobs that emit this MUST also add build_capability_defined_requirement so
+    # they never match a slot where TARGET.<attr> is undefined (this $$ token would
+    # then "cannot expand" and HOLD the job).
     return "$$([ {} ])".format(_build_selector(manifest, value_fn, ternary=True))
+
+
+def build_container_image_select(manifest, request_gpu=True):
+    """Return the value for the HTCondor *container universe* ``container_image``
+    submit command for this family.
+
+    GPU jobs (``request_gpu=True``, the default) get a per-machine selection: an
+    unquoted ``$$([ ... ])`` token.  ``$$()`` is HTCondor's *match-time machine-ad
+    substitution* -- the schedd evaluates the bracketed expression against the
+    matched machine ad and substitutes a literal image string into
+    ``container_image`` before the job reaches the execution point.  Unlike
+    :func:`build_singularity_image_expr` (an execute-side ClassAd expression that
+    OSPool glidein pilots read as a literal string and hold on), the pilot only
+    ever sees a literal URL.  ``$$`` in ``container_image`` is HTCondor's
+    documented mechanism for per-GPU-capability image selection, and it works on
+    both the CIT-local pool and OSPool glideins.  The branch value is the manifest
+    image *verbatim* (an ``osdf://`` URL the container-universe file-transfer
+    plugin fetches, or a CVMFS/local path used in place) -- NOT a ``./basename``
+    rewrite.  ``container_image`` is a single submit command (not a comma list),
+    so the comma-bearing ``ifThenElse`` form is fine.
+
+    **Non-GPU jobs (``request_gpu=False``) collapse to a SINGLE fixed container**:
+    the plain ``fallback`` image (a literal ``container_image``, no ``$$()``).
+    A CPU-only job (e.g. CIP) matches a slot that advertises **no** GPU capability
+    attribute, so a ``$$()`` capability expression has nothing to resolve against
+    -- it fails to expand and HTCondor *holds the job*.  There is also nothing to
+    select between, so the CPU-safe fallback image is the right (and only) choice.
+
+    The GPU-path ``$$()`` is NOT undefined-guarded: the GPU job that emits it MUST
+    also add :func:`build_capability_defined_requirement` so it never matches a
+    slot where the capability attr is undefined (guessing an image for such a slot
+    is unsafe -- it could be a Blackwell that hard-fails on the older fallback).
+    The non-GPU case never reaches the ``$$()`` (it returns the literal fallback).
+    """
+    by_label = {c["label"]: c for c in manifest["containers"]}
+    fb_image = by_label[manifest["fallback"]]["image"]
+    if not request_gpu:
+        # Single fixed container: no capability, no $$() -- a plain literal.
+        return fb_image
+    selector = _build_selector(manifest, lambda c: '"{}"'.format(c["image"]))
+    return "$$([ {} ])".format(selector)
+
+
+def build_capability_defined_requirement(manifest):
+    """Return a ``Requirements`` clause that excludes machines which do not
+    advertise the capability attribute the family selection reads.
+
+    A GPU family job MUST add this.  Measured on the CIT pool (2026-06-12), ~45%
+    of GPU slots satisfy the per-GPU ``require_gpus`` floor (which matches the
+    per-GPU ``Capability`` inside ``AvailableGPUs``) yet do NOT advertise the
+    machine-level rollup attribute (default ``GPUs_Capability``) that the
+    ``$$()``/``ifThenElse`` selection reads.  On such a slot the selection cannot
+    expand and the job HOLDS ("Cannot expand $$ expression").  Excluding these
+    slots is the safe fix: an undefined-capability slot could be a Blackwell that
+    hard-fails on the older fallback image, so we must NOT match it (rather than
+    guess its image).  The defined set still includes the high-capability nodes,
+    so the family's purpose is preserved.
+
+    Generic on ``capability_attr``; a no-op on pools where every GPU slot
+    advertises it, hence merge-safe.
+    """
+    return "TARGET.{attr} =!= undefined".format(attr=_capability_attr(manifest))
+
+
+def build_fallback_single_image(manifest):
+    """For jobs that must use a SINGLE fixed container (no capability selection) --
+    e.g. CPU-only CIP, which requests no GPU and so cannot resolve a
+    ``$$()``/``ifThenElse`` capability selection (its matched slot advertises no
+    capability attribute -> the selection holds the job).
+
+    Returns ``(runtime_path, transfer_url)`` for the manifest ``fallback`` (the
+    CPU-safe image):
+
+      * ``runtime_path`` -- what ``MY.SingularityImage`` / ``container_image``
+        references: ``./<basename>`` for a transferred ``osdf://`` image, the path
+        verbatim for a CVMFS/local image.  (``MY.SingularityImage`` callers must
+        quote it; ``container_image`` takes it unquoted.)
+      * ``transfer_url``  -- the ``osdf://`` URL to add to ``transfer_input_files``,
+        or ``None`` if the image is referenced in place (CVMFS/local).
+    """
+    fb_image = {c["label"]: c for c in manifest["containers"]}[manifest["fallback"]]["image"]
+    runtime_path = _image_runtime_path(fb_image)
+    transfer_url = fb_image if _image_needs_transfer(fb_image) else None
+    return runtime_path, transfer_url
+
+
+# Body of the OSG-safe runtime-selection wrapper. @@TOKENS@@ are substituted by
+# build_runtime_selection_wrapper (str.replace, not .format; the script is full
+# of ${...} bash expansions that would collide with format()).
+_RUNTIME_WRAPPER_BODY = r'''#!/bin/bash
+# AUTO-GENERATED by RIFT.misc.container_manifest.build_runtime_selection_wrapper.
+# OSG-safe runtime container selection. Runs as the Condor executable on the
+# bare execute node, with no +SingularityImage. At job start it detects the real
+# GPU compute capability, selects the matching family image, acquires only that
+# image, and execs the real command inside it via nested apptainer.
+set -euo pipefail
+LABELS=( @@LABELS@@ )
+CAP_MIN=( @@MINS@@ )
+CAP_MAX=( @@MAXS@@ )
+RTPATH=( @@RTPATHS@@ )
+FETCH=( @@FETCHES@@ )
+FALLBACK_LABEL="@@FALLBACK@@"
+INNER_COMMAND="@@INNER@@"
+
+log() { echo "[rift_container_select] $*" >&2; }
+
+cap="${RIFT_CONTAINER_FORCE_CAP:-}"
+if [ -z "$cap" ] && command -v nvidia-smi >/dev/null 2>&1; then
+    cap="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d '[:space:]')" || cap=""
+fi
+log "detected compute capability: ${cap:-<none>}"
+
+sel=-1
+if [ -n "$cap" ]; then
+    best_min=-1
+    for i in "${!LABELS[@]}"; do
+        lo="${CAP_MIN[$i]}"; hi="${CAP_MAX[$i]}"
+        if awk -v c="$cap" -v lo="$lo" -v hi="$hi" 'BEGIN{exit !(c+0>=lo+0 && c+0<=hi+0)}'; then
+            if awk -v lo="$lo" -v b="$best_min" 'BEGIN{exit !(lo+0>b+0)}'; then
+                best_min="$lo"; sel="$i"
+            fi
+        fi
+    done
+fi
+if [ "$sel" -lt 0 ]; then
+    log "no GPU match for cap='${cap:-<none>}' -> fallback ${FALLBACK_LABEL}"
+    for i in "${!LABELS[@]}"; do
+        if [ "${LABELS[$i]}" = "$FALLBACK_LABEL" ]; then sel="$i"; fi
+    done
+fi
+[ "$sel" -lt 0 ] && { log "FATAL: fallback '${FALLBACK_LABEL}' not in table"; exit 3; }
+log "selected: ${LABELS[$sel]} (${RTPATH[$sel]}) [cap band ${CAP_MIN[$sel]}-${CAP_MAX[$sel]}]"
+
+rt="${RTPATH[$sel]}"; fetch="${FETCH[$sel]}"; SIF=""
+if [ -e "$rt" ]; then
+    SIF="$rt"; log "using in-place/local image: $SIF"
+elif [ -n "$fetch" ]; then
+    log "fetching single image: $fetch -> $rt"
+    if   command -v stashcp >/dev/null 2>&1; then stashcp "$fetch" "$rt"
+    elif command -v pelican  >/dev/null 2>&1; then pelican object get "$fetch" "$rt"
+    else log "FATAL: no local image and no stashcp/pelican to fetch $fetch"; exit 4; fi
+    SIF="$rt"
+else
+    log "FATAL: image '$rt' absent and no fetch URL"; exit 4
+fi
+
+if [ -n "$INNER_COMMAND" ]; then
+    log "exec: apptainer exec --nv ${RIFT_CONTAINER_APPTAINER_FLAGS:-} $SIF $INNER_COMMAND $*"
+    exec apptainer exec --nv ${RIFT_CONTAINER_APPTAINER_FLAGS:-} "$SIF" $INNER_COMMAND "$@"
+else
+    log "exec: apptainer exec --nv ${RIFT_CONTAINER_APPTAINER_FLAGS:-} $SIF $*"
+    exec apptainer exec --nv ${RIFT_CONTAINER_APPTAINER_FLAGS:-} "$SIF" "$@"
+fi
+'''
+
+
+def _runtime_image_fields(container):
+    """Return (runtime_path, fetch_url, cap_min, cap_max) for one container."""
+    image = container["image"]
+    runtime_path = _image_runtime_path(image)
+    fetch_url = image if _image_needs_transfer(image) else ""
+    return runtime_path, fetch_url, container["cuda_capability_min"], container["cuda_capability_max"]
+
+
+def build_runtime_selection_wrapper(manifest, inner_command=None):
+    """Return an OSG-safe runtime container-selection wrapper script.
+
+    The wrapper is intended to run as the Condor executable on the bare execute
+    node. It chooses a container at job start from the same manifest used by the
+    ClassAd/container-universe selectors, then runs ``inner_command`` or the
+    wrapper arguments inside the selected image with apptainer.
+    """
+    labels, mins, maxs, rtpaths, fetches = [], [], [], [], []
+    for c in manifest["containers"]:
+        runtime_path, fetch_url, cap_min, cap_max = _runtime_image_fields(c)
+        labels.append(c["label"])
+        mins.append("-1" if cap_min is None else repr(float(cap_min)))
+        maxs.append("9999" if cap_max is None else repr(float(cap_max)))
+        rtpaths.append(runtime_path)
+        fetches.append(fetch_url)
+
+    def _arr(values):
+        return " ".join('"{}"'.format(v) for v in values)
+
+    return (
+        _RUNTIME_WRAPPER_BODY
+        .replace("@@LABELS@@", _arr(labels))
+        .replace("@@MINS@@", _arr(mins))
+        .replace("@@MAXS@@", _arr(maxs))
+        .replace("@@RTPATHS@@", _arr(rtpaths))
+        .replace("@@FETCHES@@", _arr(fetches))
+        .replace("@@FALLBACK@@", manifest["fallback"])
+        .replace("@@INNER@@", "" if not inner_command else str(inner_command))
+    )
 
 
 def build_require_gpus_floor(manifest):

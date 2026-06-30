@@ -941,11 +941,21 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
          # Create multiple data realizations from the realizations, and construct a longer IP item.
          for index, calib_array in enumerate(calibration_realizations.T):
           #print(calib_array.shape, data.data.length, calibration_realizations.shape)
+          # Apply calibration to the DATA (d -> C(f) d), so the <h|h> U,V terms
+          # stay calibration-independent and are computed only once downstream.
           data_now.data.data = calib_array * data.data.data
-          rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data)
+          rho, rhoTS, rhoIdx, rhoPhase = IP.ip(hlms[pair], data_now)
           rhoTS.epoch = data.epoch - hlms[pair].epoch
           tmp= lsu.DataRollBins(rhoTS, N_shift)  # restore functionality for bidirectional shifts: waveform need not start at t=0
           rholms_here = lal.CutCOMPLEX16TimeSeries(rhoTS, 0, N_window)
+          # CRITICAL: the concatenated series must carry the SAME epoch as the
+          # non-calibration branch (i.e. block 0's per-block epoch, after the roll/cut).
+          # Otherwise the time reference is wrong and ifirst lands in the wrong block,
+          # zeroing the signal -> the calmarg likelihood collapses.  The within-block
+          # offset (ifirst) is identical for every block, so block 0's epoch is the
+          # reference for all of them.
+          if index == 0:
+            rholms_so_far.epoch = rholms_here.epoch
           indx_start = index*N_window
           rholms_so_far.data.data[indx_start:indx_start+N_window] = rholms_here.data.data
          rholms[pair] = rholms_so_far
@@ -1828,14 +1838,46 @@ def _factored_lnL_helper(kappa_sq, rho_sq):
     return kappa_sq - 0.5 * rho_sq
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False):
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None,return_cal_components=False):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
-    either as an array vs time *or* marginalized in time. 
+    either as an array vs time *or* marginalized in time.
     This generally is marginally faster, particularly if Lmax is large.
     The timeseries quantities are computed via discrete shifts of an existing grid
     Note 'P' must have the *sampling rate* set to correctly interpret the event time.
      Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have 'Vector' postfix
+
+    Calibration marginalization (n_cal>1)
+    -------------------------------------
+    When n_cal>1, the rholm timeseries are assumed to hold ``n_cal`` contiguous
+    calibration realizations, each of length N_window = npts_full/n_cal (built by
+    ComputeModeIPTimeSeries with the calibration applied to the *data*).  Because
+    calibration is applied to the data, the template-template cross terms U,V
+    (rho_sq) are calibration-INDEPENDENT and are computed only once; only the data
+    term kappa changes per realization, selected by shifting the window offset
+    ifirst -> ifirst + c*N_window.  We then Monte-Carlo marginalize:
+        Z_cal(theta) = (1/n_cal) sum_c  integral dt exp( lnL_t(theta, c) )
+    via a streaming log-sum-exp over the n_cal realizations (memory unchanged vs
+    the n_cal==1 path; one extra GPU kernel launch per realization).  The n_cal==1
+    code path below is unchanged.
+
+    cal_method selects the n_cal>1 reduction:
+      'loop'  (default, Option B): Python loop over realizations reusing the
+              existing Q_inner_product kernel; works on CPU and GPU and with any
+              loglikelihood callback (distance/phase marginalization).
+      'fused' (Option C): a single fused kernel (RIFT.likelihood.Q_fused_calmarg)
+              does the Q-product, the loglikelihood, and the cal+time log-sum-exp in
+              one launch -- a CUDA kernel on GPU, or pure numpy on CPU.  Supports
+              phase marginalization (|kappa|).  With cal_distmarg=None it
+              uses the default (distance-unmarginalized) helper kernel; with
+              cal_distmarg=<table dict> it uses the separate distance-marginalization
+              kernel (Q_fused_calmarg_distmarg) reproducing distmarg_loglikelihood.
+              Raises NotImplementedError for unsupported combinations; the 'loop'
+              path is the fallback for everything (incl. distmarg, on CPU and GPU).
+
+    cal_distmarg : dict or None
+        Distance-marginalization table+params for the fused distmarg kernel; see
+        RIFT.likelihood.Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy.
     """
     global distMpcRef
 
@@ -1878,6 +1920,11 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     # the sum in quadrature of the individual detector contributions.
     kappa_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
     rho_sq = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
+
+    # When marginalizing over calibration (n_cal>1), cache the per-detector data
+    # term inputs here; the calibration-independent rho_sq is still accumulated
+    # in the loop below, and kappa is recomputed per realization afterwards.
+    cal_cache = {}
 
     if (xpy is np) or (optimized_gpu_tools is None):
         simps = my_simps
@@ -2001,34 +2048,46 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             #     xpy.conj(FY_dummy_t), Qlms,
             # ).real * (distMpcRef/distMpc)[...,None]
 
-        if not (xpy is np):
-          FY_conj = xpy.conj(F_vec_dummy_lm * Ylms_vec)
-          # Shape Q = (npts_time_full, nlms)
-          # Shape A=FY_conj = (npts_extrinsic, nlms)
-          # shape result = (npts_extrinsic, npts_time_*window* = npts)
-          Q_prod_result = Q_inner_product.Q_inner_product_cupy(
-            Q, FY_conj,
-            ifirst, npts,
-            )
+        if n_cal == 1:
+          # ---- standard path (no calibration marginalization): UNCHANGED ----
+          if not (xpy is np):
+            FY_conj = xpy.conj(F_vec_dummy_lm * Ylms_vec)
+            # Shape Q = (npts_time_full, nlms)
+            # Shape A=FY_conj = (npts_extrinsic, nlms)
+            # shape result = (npts_extrinsic, npts_time_*window* = npts)
+            Q_prod_result = Q_inner_product.Q_inner_product_cupy(
+              Q, FY_conj,
+              ifirst, npts,
+              )
+          else:
+            # Use old code completely unchanged ... very wasteful on memory management!
+            Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
+            for i in range(npts_extrinsic):
+                Qlms[i] = rholmsArrayDict[det][...,ifirst[i]:(ifirst[i]+npts)].T
+            if phase_marginalization:
+                Qlms[:, :, 1] = xpy.conj(Qlms[:, :, 1])
+
+            FY_dummy_t = np.broadcast_to(
+              (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
+              Qlms.shape,
+              )
+
+            Q_prod_result =  np.einsum(
+              "...i,...i",
+              np.conj(FY_dummy_t), Qlms,
+              )
+
+          kappa_sq += Q_prod_result * (distMpcRef/distMpc)[..., np.newaxis]
         else:
-          # Use old code completely unchanged ... very wasteful on memory management!
-          Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
-          for i in range(npts_extrinsic):
-              Qlms[i] = rholmsArrayDict[det][...,ifirst[i]:(ifirst[i]+npts)].T
-          if phase_marginalization:
-              Qlms[:, :, 1] = xpy.conj(Qlms[:, :, 1])
-
-          FY_dummy_t = np.broadcast_to(
-            (F_vec_dummy_lm * Ylms_vec)[:, np.newaxis],
-            Qlms.shape,
-            )
-
-          Q_prod_result =  np.einsum(
-            "...i,...i",
-            np.conj(FY_dummy_t), Qlms,
-            )
-
-        kappa_sq += Q_prod_result * (distMpcRef/distMpc)[..., np.newaxis]
+          # ---- calibration-marginalization path (Option B): cache pieces ----
+          # The rholm timeseries hold n_cal contiguous realizations; realization c
+          # is selected later via ifirst -> ifirst + c*N_window_block.  Q is
+          # (npts_full, n_lms) and FY_conj is (npts_extrinsic, n_lms); both already
+          # encode any phase-marginalization conjugation built above.
+          npts_full_det = Q.shape[0]
+          N_window_block = npts_full_det // n_cal
+          FY_conj_cal = xpy.conj(F_vec_dummy_lm * Ylms_vec)
+          cal_cache[det] = (Q, FY_conj_cal, ifirst, N_window_block)
         # lnL_t_accum += Q_prod_result * (distMpcRef/distMpc)[...,None]
 
         # lnL_t_accum += Q_inner_product.Q_inner_product_cupy(
@@ -2047,21 +2106,158 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 #        lnL_t_accum += lnL_t
 
 
-    if phase_marginalization:
-        lnL_t = loglikelihood(xpy.abs(kappa_sq), rho_sq)
+    if n_cal == 1:
+        if phase_marginalization:
+            lnL_t = loglikelihood(xpy.abs(kappa_sq), rho_sq)
+        else:
+            lnL_t = loglikelihood(kappa_sq.real, rho_sq)
+
+        # Take exponential of the log likelihood in-place.
+        lnLmax  = xpy.max(lnL_t)
+        if return_lnLt:
+          return lnL_t  #- lnLmax    # we want the verbatim lnL_t values, no shift
+        L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
+
+        L = simps(L_t, dx=deltaT, axis=-1)
+
+        # Compute log likelihood in-place.
+        lnL = lnLmax + xpy.log(L, out=L)
+
+        return lnL
+
+    # ---- calibration-marginalization reduction (Option B) ----
+    # Monte-Carlo marginalize over the n_cal calibration draws:
+    #   Z_cal(theta) = (1/n_cal) sum_c  \int dt exp( lnL_t(theta, c) )
+    # rho_sq (the <h|h> U,V term) is calibration-independent and was accumulated
+    # once above; only the data term kappa changes per realization, selected by
+    # shifting the window offset into block c.  Accumulate a streaming log-sum-exp
+    # over realizations for numerical stability (S holds sum_c exp(lnL_t - max)).
+    # return_lnLt with calibration marginalization: return the cal-marginalized lnL(t)
+    # timeseries (weighted log-sum-exp over realizations at each time bin) so downstream
+    # time resampling/output works.  This is produced by the loop reduction below; the
+    # fused kernel (which returns the time-integrated scalar) is skipped in that case.
+
+    # Per-realization importance log-weights for the cal marginalization.  Default
+    # (None) is uniform -> the plain (1/n_cal) average; non-uniform weights support
+    # adaptive / importance cal sampling (w_c = prior(c)/proposal(c), with E_q[w]=1).
+    # The cal-marginalized likelihood is the UNBIASED importance estimate of the prior
+    # integral:  L_marg = integral pi(c) L(c) dc ~= (1/n_cal) sum_c w_c L_c.  So the
+    # normalization is log(n_cal) -- NOT logsumexp(log_w) (the self-normalized/ratio
+    # estimator), which is biased by log(sum w / n_cal) for non-uniform weights.  For
+    # uniform weights the two coincide.
+    if cal_log_weights is None:
+        cal_log_w = xpy.zeros(n_cal, dtype=np.float64)
     else:
-        lnL_t = loglikelihood(kappa_sq.real, rho_sq)
+        cal_log_w = xpy.asarray(cal_log_weights, dtype=np.float64)
+    cal_log_w_norm = float(np.log(n_cal))
 
-    # Take exponential of the log likelihood in-place.
-    lnLmax  = xpy.max(lnL_t)
+    if cal_method == 'fused' and not return_lnLt and not return_cal_components:
+        # ---- Option C: fused implementation (GPU CUDA kernel, or numpy on CPU) ----
+        # (return_lnLt needs the per-time series, which the loop reduction produces, so
+        #  the fused scalar kernel is bypassed when a timeseries is requested.)
+        if cal_distmarg is None and loglikelihood is not _factored_lnL_helper:
+            raise NotImplementedError("fused cal kernel needs either the default helper or a cal_distmarg table")
+        import RIFT.likelihood.Q_fused_calmarg as Q_fused_calmarg
+        dets = list(cal_cache.keys())
+        # All detectors share modes/length; ifirst differs per detector (time delay)
+        Q_stack = xpy.stack([cal_cache[d][0] for d in dets])               # (n_det, npts_full, n_lms)
+        A_stack = xpy.stack([cal_cache[d][1] for d in dets])               # (n_det, npts_extrinsic, n_lms)
+        ifirst_stack = xpy.stack([cal_cache[d][2] for d in dets]).astype(np.int32)  # (n_det, npts_extrinsic)
+        N_window_block = cal_cache[dets[0]][3]
+        # Simpson quadrature weight vector (incl. dx=deltaT), so time integration
+        # matches the loop path's simps() exactly.  simps is linear -> weights = simps(I).
+        w_t = simps(xpy.eye(npts, dtype=np.float64), dx=deltaT, axis=-1)
+        # invDistMpc is a scalar when distance is marginalized (P.dist fixed at the
+        # fiducial) and a vector when distance is sampled; the kernel wants one value
+        # per extrinsic sample, so broadcast to (npts_extrinsic,).
+        invDist_vec = xpy.asarray(invDistMpc, dtype=np.float64) * xpy.ones(npts_extrinsic, dtype=np.float64)
+        if xpy is np:
+            # CPU: pure-numpy fused (no CUDA); independent cross-check of the kernel
+            return Q_fused_calmarg.Q_fused_calmarg_numpy(
+                Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
+                n_cal, N_window_block, distmarg=cal_distmarg, cal_log_weights=cal_log_weights,
+                phase_marginalization=phase_marginalization)
+        if cal_distmarg is None:
+            return Q_fused_calmarg.Q_fused_calmarg_cupy(
+                Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
+                n_cal, N_window_block, cal_log_weights=cal_log_weights,
+                phase_marginalization=phase_marginalization)
+        else:
+            return Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy(
+                Q_stack, A_stack, ifirst_stack, invDist_vec, rho_sq, w_t,
+                n_cal, N_window_block, cal_distmarg, cal_log_weights=cal_log_weights,
+                phase_marginalization=phase_marginalization)
+
+    running_max = None
+    S = xpy.zeros((npts_extrinsic, npts), dtype=np.float64)
+    # Pilot/adaptive support: optionally collect the RAW (un-importance-weighted)
+    # time-integrated log-likelihood per realization, one value per extrinsic point.
+    # This is the cal posterior responsibility used by util_CalPilotFit to learn a
+    # proposal.  (loop method only; the fused scalar path is bypassed above.)
+    cal_components = xpy.zeros((npts_extrinsic, n_cal), dtype=np.float64) if return_cal_components else None
+    for c in range(n_cal):
+        kappa_sq_c = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
+        for det in detectors:
+            Q_det, FY_conj_det, ifirst_det, N_window_block = cal_cache[det]
+            # Restrict to THIS realization block and use the within-block offset, so
+            # the window is confined to [0, N_window): an over-running window then
+            # zeros (the shared kernel / CPU fill below guard against N_window_block)
+            # instead of bleeding into the neighbouring block or reading out of
+            # bounds.  This matches the per-block n_cal==1 reference and the fused
+            # kernel exactly.
+            Q_block = Q_det[c*N_window_block:(c+1)*N_window_block]   # (N_window, n_lms)
+            ifirst_within = ifirst_det.astype(np.int32)
+            if not (xpy is np):
+                Q_prod_result = Q_inner_product.Q_inner_product_cupy(
+                    Q_block, FY_conj_det, ifirst_within, npts,
+                )
+            else:
+                n_lms_det = Q_block.shape[1]
+                Qlms = xpy.zeros((npts_extrinsic, npts, n_lms_det), dtype=np.complex128)
+                tgrid = np.arange(npts)
+                for i in range(npts_extrinsic):
+                    idxs = int(ifirst_within[i]) + tgrid
+                    valid = (idxs >= 0) & (idxs < N_window_block)
+                    Qlms[i, valid] = Q_block[idxs[valid]]
+                # Q_det and FY_conj_det already encode any phase-marg conjugation
+                Q_prod_result = np.einsum("ej,etj->et", FY_conj_det, Qlms)
+            kappa_sq_c += Q_prod_result * invDistMpc[..., np.newaxis]
+
+        if phase_marginalization:
+            lnL_t_c = loglikelihood(xpy.abs(kappa_sq_c), rho_sq)
+        else:
+            lnL_t_c = loglikelihood(kappa_sq_c.real, rho_sq)
+        if return_cal_components:
+            # RAW per-realization time-integrated log L (no importance weight), stable:
+            #   log( simps_t exp(lnL_t,c) ) = m + log( simps_t exp(lnL_t,c - m) )
+            m_raw = xpy.max(lnL_t_c, axis=-1, keepdims=True)
+            cal_components[:, c] = m_raw[:, 0] + xpy.log(simps(xpy.exp(lnL_t_c - m_raw), dx=deltaT, axis=-1))
+        # fold in this realization's importance log-weight
+        lnL_t_c = lnL_t_c + cal_log_w[c]
+
+        m_c = xpy.max(lnL_t_c)
+        if running_max is None:
+            running_max = m_c
+        elif m_c > running_max:
+            S *= xpy.exp(running_max - m_c)
+            running_max = m_c
+        S += xpy.exp(lnL_t_c - running_max)
+
+    if return_cal_components:
+        # (npts_extrinsic, n_cal): RAW per-realization integrated log-likelihood.  The
+        # caller (util_CalPilot / ILE dump) accumulates over the harvested extrinsic
+        # points to form the cal posterior responsibility, then fits a proposal.
+        return cal_components
+
     if return_lnLt:
-      return lnL_t  #- lnLmax    # we want the verbatim lnL_t values, no shift
-    L_t = xpy.exp(lnL_t - lnLmax, out=lnL_t)
+        # cal-marginalized lnL at each time bin:
+        #   lnL_marg(t) = log( sum_c exp(log_w[c]) exp(lnL_t,c(t)) ) - log(n_cal)
+        # (the time integral is NOT taken; downstream resamples this timeseries).
+        return running_max + xpy.log(S) - cal_log_w_norm
 
-    L = simps(L_t, dx=deltaT, axis=-1)
-
-    # Compute log likelihood in-place.
-    lnL = lnLmax + xpy.log(L, out=L)
+    L = simps(S, dx=deltaT, axis=-1)
+    # lnL = max + log( sum_c exp(log_w[c]) \int dt exp(lnL_t - max) ) - log(n_cal)
+    lnL = running_max + xpy.log(L) - cal_log_w_norm
 
     return lnL
 

@@ -16,6 +16,7 @@
 
 
 import RIFT.interpolators.BayesianLeastSquares as BayesianLeastSquares
+from RIFT.precision import RiftFloat
 
 import argparse
 import sys
@@ -256,6 +257,8 @@ parser.add_argument("--no-adapt-parameter",action='append',help="Disable adaptiv
 parser.add_argument("--mc-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
 parser.add_argument("--eta-range",default=None,help="Eta range. Important if we have a BNS or other item that has a strong constraint.")
 parser.add_argument("--mtot-range",default=None,help="Chirp mass range [mc1,mc2]. Important if we have a low-mass object, to avoid wasting time sampling elsewhere.")
+parser.add_argument("--phi-range",default=None,help="LISA ecliptic-longitude (phi) range [lo,hi].")
+parser.add_argument("--theta-range",default=None,help="LISA ecliptic-latitude (theta) range [lo,hi].")
 parser.add_argument("--trust-sample-parameter-box",action='store_true', help="If used, sets the prior range to the SAMPLE range for any parameters. NOT IMPLEMENTED. This should be automatically done for mc!")
 parser.add_argument("--plots-do-not-force-large-range",action='store_true', help = "If used, the plots do NOT automatically set the chieff range to [-1,1], the eta range to [0,1/4], etc")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
@@ -321,12 +324,13 @@ parser.add_argument("--n-chunk",default=1e5,type=int)
 parser.add_argument("--contingency-unevolved-neff",default=None,help="Contingency planning for when n_eff produced by CIP is small, and user doesn't want to have hard failures.  Note --fail-unless-n-eff will prevent this from happening. Options: quadpuff, ...")
 parser.add_argument("--not-worker",action='store_true',help="Nonworker jobs, IF we have workers present, don't have the 'fail unless' statement active")
 parser.add_argument("--fail-unless-n-eff",default=None,type=float,help="If nonzero, places a minimum requirement on n_eff. Code will exit if not achieved, with no sample generation")
-parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde.  Note 'polynomial' with --fit-order 0  will fit a constant")
+parser.add_argument("--fit-method",default="rf",help="rf (default) : rf|gp|quadratic|polynomial|gp_hyper|gp_lazy|cov|kde|gp-jax-svgp|gp-jax-rff|gp-jax-exact.  Note 'polynomial' with --fit-order 0  will fit a constant. The gp-jax-* methods use the optional JAX interpolators (RIFT.interpolators.jax_gp) and support a differentiable export via --fit-save-jax.")
 parser.add_argument("--fit-load-quadratic",default=None,help="Filename of hdf5 file to load quadratic fit from. ")
 parser.add_argument("--fit-load-quadratic-path",default="GW190814/annealing_mc_source_eta_chieff",help="Path in hdf5 file to specific covariance matrix to be used")
 parser.add_argument("--pool-size",default=3,type=int,help="Integer. Number of GPs to use (result is averaged)")
 parser.add_argument("--fit-load-gp",default=None,type=str,help="Filename of GP fit to load. Overrides fitting process, but user MUST correctly specify coordinate system to interpret the fit with.  Does not override loading and converting the data.")
 parser.add_argument("--fit-save-gp",default=None,type=str,help="Filename of GP fit to save. ")
+parser.add_argument("--fit-save-jax",default=None,type=str,help="Base path for a self-contained, differentiable jax_gp export (writes <path>.npz + <path>.meta.json). Only used with --fit-method gp-jax-*. Reload with --fit-load-gp pointing at the same base path.")
 parser.add_argument("--fit-order",type=int,default=2,help="Fit order (polynomial case: degree)")
 parser.add_argument("--fit-uncertainty-added",default=False, action='store_true', help="Reported likelihood is lnL+(fit error). Use for placement and use of systematic errors.")
 parser.add_argument("--no-plots",action='store_true')
@@ -513,6 +517,13 @@ elif opts.using_eos!=None and not(opts.using_eos_for_prior):
         spec_params['gamma4']=spec_param_array[3]
         eos_base = EOSManager.EOSLindblomSpectralSoundSpeedVersusPressure(name=eos_name,spec_params=spec_params,use_lal_spec_eos=not opts.no_use_lal_eos)
         my_eos = eos_base
+    elif eos_name.startswith('nmbseq:'):
+        # fixed single EOS realization from a sequence file (tabular or pca):
+        #   --using-eos nmbseq:<sequence_file.h5>:<index>
+        # The exact per-EOS-evidence ("painful") mode for sequence draws.
+        _, seq_fname, seq_indx = eos_name.split(':')
+        my_eos = EOSManager.EOSSequenceSingleIndex(fname=seq_fname,
+                                                   index=int(seq_indx))
     elif 'lal_' in eos_name:
         eos_name = eos_name.replace('lal_','')
         my_eos = EOSManager.EOSLALSimulation(name=eos_name)
@@ -953,7 +964,10 @@ prior_map  = { "mtot": M_prior, "q":q_prior, "s1z":s_component_uniform_prior, "s
     'meanPerAno':meanPerAno_prior,
     'chi_pavg':precession_prior,
     'mu1': unnormalized_log_prior,
-    'mu2': unnormalized_uniform_prior
+    'mu2': unnormalized_uniform_prior,
+    # LISA ecliptic sky (phi=longitude, theta=latitude); uniform priors
+    'phi': (lambda x: 1./(2*np.pi)),
+    'theta': (lambda x: 1./np.pi),
 }
 prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*chi_max], "s2z":[-0.999*chi_small_max,0.999*chi_small_max], "mc":[0.9,250], "eta":[0.01,0.2499999],'delta_mc':[0,0.9], 'xi':[-chi_max,chi_max],'chi_eff':[-chi_max,chi_max],'delta':[-1,1],
    's1x':[-chi_max,chi_max],
@@ -989,12 +1003,18 @@ prior_range_map = {"mtot": [1, 300], "q":[0.01,1], "s1z":[-0.999*chi_max,0.999*c
   'chi2_perp_u':[0,1],
   's1z_bar':[-1,1],
   's2z_bar':[-1,1],
-  'mu1':[0.0001,1e3],    # suboptimal, but something  
-  'mu2':[-300,1e3]
+  'mu1':[0.0001,1e3],    # suboptimal, but something
+  'mu2':[-300,1e3],
+  'phi':[0, 2*np.pi],          # LISA ecliptic longitude (override via --phi-range)
+  'theta':[-np.pi/2, np.pi/2]  # LISA ecliptic latitude  (override via --theta-range)
 }
 if not (opts.chiz_plus_range is None):
     print(" Warning: Overriding default chiz_plus range. USE WITH CARE", opts.chiz_plus_range)
     prior_range_map['chiz_plus']=eval(opts.chiz_plus_range)
+if not (opts.phi_range is None):
+    prior_range_map['phi']=eval(opts.phi_range)
+if not (opts.theta_range is None):
+    prior_range_map['theta']=eval(opts.theta_range)
 
 if not (opts.eta_range is None):
     print(f" Warning: Overriding default eta range to {eval(opts.eta_range)}. USE WITH CARE")
@@ -1338,6 +1358,44 @@ def fit_gp(x,y,x0=None,symmetry_list=None,y_errors=None,hypercube_rescale=False,
         print(" Fit: std: ", np.std(y - gp.predict(x_scaled)),  "using number of features ", len(y))  # should NOT be perfect
 
         return lambda x,x0=x_center,scl=length_scale_est: gp.predict( (x-x0 )/scl)
+
+def fit_jax(x,y,y_errors=None,method='svgp',coord_names=None):
+    """
+    JAX likelihood interpolators (RIFT.interpolators.jax_gp): gp-jax-{svgp,rff,exact}.
+
+    Returns a callable(X)->mean, exactly like the other fit_* methods, so it drops
+    into the dispatch below unchanged.  JAX is imported here (not at module scope)
+    so the production path never pulls in the JAX stack unless one of these methods
+    is explicitly selected.
+
+    If --fit-save-jax is set, additionally writes a self-contained, *differentiable*
+    export (a pure-JAX lnL(theta) bundle).  If --fit-load-gp is set, it is treated
+    as the base path of such an export and reloaded instead of refitting.
+    """
+    from RIFT.interpolators import jax_gp
+    from RIFT.interpolators.jax_gp import export as jax_export
+
+    if opts.fit_load_gp:
+        print(" Loading jax_gp export from ", opts.fit_load_gp)
+        model = jax_export.load(opts.fit_load_gp)
+        if opts.protect_coordinate_conversions:
+            return lalsimutils.RangeProtectReduce(lambda xx: model.predict(xx), -np.inf)
+        return lambda xx: model.predict(xx)
+
+    cls = jax_gp.get_interpolator(method)
+    model = cls()
+    model.fit(x, y, y_errors=y_errors)
+    print(" JAX fit ({}): std: ".format(method), np.std(y - model.predict(x)),
+          " using number of features ", len(y))
+
+    if opts.fit_save_jax:
+        jax_export.save(model, opts.fit_save_jax, coord_names=coord_names)
+        print(" Saved differentiable jax_gp export to ", opts.fit_save_jax,
+              " (.npz + .meta.json)")
+
+    if opts.protect_coordinate_conversions:
+        return lalsimutils.RangeProtectReduce(lambda xx: model.predict(xx), -np.inf)
+    return lambda xx: model.predict(xx)
 
 def map_funcs(func_list,obj):
     return [func(obj) for func in func_list]
@@ -1794,20 +1852,27 @@ if _use_hpip:
     _use_tides = bool(opts.input_tides) or _has("lambda1")
     _use_eos = bool(opts.input_eos_index) or _has("eos_table_index")
     _use_dist = bool(opts.input_distance) or _has("distance")
+    # LISA sky: ecliptic_longitude/latitude are NAMED columns -> carry them
+    # through (aliased to P.phi/P.theta), so the sky is fit/sampled like any
+    # other coordinate.  No positional all.net hacking.
+    _use_sky = _has("ecliptic_longitude")
     dat = _hpio.to_legacy_dat(_arr,
                               use_eccentricity=_use_ecc, use_meanPerAno=_use_mpa,
                               use_tides=_use_tides, use_eos_index=_use_eos,
-                              use_distance=_use_dist)
+                              use_distance=_use_dist, use_sky=_use_sky)
     _ix = _hpio.legacy_column_indices(
         use_eccentricity=_use_ecc, use_meanPerAno=_use_mpa,
         use_tides=_use_tides, use_eos_index=_use_eos,
-        use_distance=_use_dist)
+        use_distance=_use_dist, use_sky=_use_sky)
     col_lnL = _ix["lnL"]
     col_distance = _ix["distance"]
     col_lambda1 = _ix["lambda1"]
     col_eccentricity = _ix["eccentricity"]
     col_meanPerAno = _ix["meanPerAno"]
+    col_ecliptic_longitude = _ix["ecliptic_longitude"]
+    col_ecliptic_latitude = _ix["ecliptic_latitude"]
 else:
+    _use_sky = False
     dat = np.loadtxt(opts.fname)
 dat_orig = dat
 dat_orig = dat[dat[:,col_lnL].argsort()] # sort  http://stackoverflow.com/questions/2828059/sorting-arrays-in-numpy-by-column
@@ -1908,7 +1973,12 @@ for line in dat:
 #            P.meanPerAno = line[10]
     if opts.input_distance:
         P.dist = lal.PC_SI*1e6*line[col_distance]  # 9. Previously incompatible with tides when hardcoded
-    
+    if _use_sky:
+        # LISA ecliptic sky stored as P.phi (longitude) / P.theta (latitude),
+        # matching hyperpipeline_io's column alias.  Fit/sample as 'phi'/'theta'.
+        P.phi = line[col_ecliptic_longitude]
+        P.theta = line[col_ecliptic_latitude]
+
     if opts.contingency_unevolved_neff == "quadpuff":
         P_copy = P.manual_copy()  # prevent duplication
         P_list_in.append(P_copy) # store  it, make sure distinct
@@ -2017,7 +2087,8 @@ if opts.tabular_eos_file:
     if mc_ref > 1e10:
         mc_ref = mc_ref/lal.MSUN_SI
     m_ref = mc_ref*np.power(2, 1./5.)   # assume equal mass
-    my_eos_sequence = EOSManager.EOSSequenceLandry(fname=opts.tabular_eos_file, load_ns=True, oned_order_name='Lambda', oned_order_mass=m_ref, no_sort = True)
+    # auto-detect EOSSequenceLandry vs NuclearMatter-Backend NSSequence format
+    my_eos_sequence = EOSManager.EOSSequenceFromFile(fname=opts.tabular_eos_file, load_ns=True, oned_order_name='Lambda', oned_order_mass=m_ref, no_sort = True)
 
     # Define prior, NOT NORMALIZED
     prior_map['ordering'] =lambda x: np.ones(x.shape)
@@ -2381,6 +2452,24 @@ elif opts.fit_method == 'weighted_nearest':
         Y_err=Y_err[indx]
         dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
     my_fit = fit_nearest(X,Y,y_errors=Y_err)
+elif opts.fit_method.startswith('gp-jax'):
+    # RFF is the chosen default jax method (fast, accurate, cheapest to export);
+    # svgp/exact remain available as backstop / validation.
+    jax_method = opts.fit_method.replace('gp-jax-','').replace('gp-jax','') or 'rff'
+    print(" FIT METHOD ", opts.fit_method, " IS jax_gp : ", jax_method)
+    X=X[indx_ok]
+    Y=Y[indx_ok] - lnL_shift
+    Y_err = Y_err[indx_ok]
+    dat_out_low_level_coord_names =     dat_out_low_level_coord_names[indx_ok]
+    # Cap the total number of points retained, AFTER the threshold cut
+    if opts.cap_points< len(Y) and opts.cap_points> 100:
+        n_keep = opts.cap_points
+        indx = np.random.choice(np.arange(len(Y)),size=n_keep,replace=False)
+        Y=Y[indx]
+        X=X[indx]
+        Y_err=Y_err[indx]
+        dat_out_low_level_coord_names = dat_out_low_level_coord_names[indx]
+    my_fit = fit_jax(X,Y,y_errors=Y_err,method=jax_method,coord_names=coord_names)
 else:
     print(" NO KNOWN FIT METHOD ")
     sys.exit(55)
@@ -2960,7 +3049,7 @@ if neff < opts.n_eff:
             _cols_out = _hpio.build_column_list(
                 use_eccentricity=opts.use_eccentricity, use_meanPerAno=opts.use_meanPerAno,
                 use_tides=opts.input_tides, use_eos_index=opts.input_eos_index,
-                use_distance=False)
+                use_distance=False, use_sky=_use_sky)
             _hpio.write_grid_from_P_list(opts.fname_output_samples,
                                          P_out_list[:n_output_size],
                                          _cols_out,
@@ -3171,7 +3260,7 @@ if opts.pseudo_gaussian_mass_prior:
 # Note also downselects NOT applied: no range cuts, unless applied as part of aligned_prior, etc.  
 #   - use for Bayes factors with GREAT CARE for this reason; should correct for with indx_ok
 log_res_reweighted = lnLmax + np.log(np.mean(weights))
-sigma_reweighted= np.std(weights,dtype=np.float128)/np.mean(weights)
+sigma_reweighted= np.std(weights,dtype=RiftFloat)/np.mean(weights)
 neff_reweighted = np.sum(weights)/np.max(weights)
 np.savetxt(opts.fname_output_integral+"_withpriorchange.dat", [log_res_reweighted])  # should agree with the usual result, if no prior changes
 with open(opts.fname_output_integral+"_withpriorchange+annotation.dat", 'w') as file_out:
@@ -3489,7 +3578,7 @@ if _hpio.is_active():
     _cols_out = _hpio.build_column_list(
         use_eccentricity=opts.use_eccentricity, use_meanPerAno=opts.use_meanPerAno,
         use_tides=opts.input_tides, use_eos_index=opts.input_eos_index,
-        use_distance=False)
+        use_distance=False, use_sky=_use_sky)
     _hpio.write_grid_from_P_list(opts.fname_output_samples,
                                  P_list[:n_output_size],
                                  _cols_out,
@@ -3762,5 +3851,4 @@ for indx in np.arange(len(extra_plot_coord_names)):
      print(" Failed to generate corner for ", extra_plot_coord_names[indx])
 
 sys.exit(0)
-
 
