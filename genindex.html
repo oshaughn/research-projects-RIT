@@ -57,6 +57,7 @@
 <li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
 <li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="executables/index.html">Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="physics/index.html">Waveform Generation</a></li>
 </ul>
@@ -642,13 +643,15 @@
 </li>
       <li><a href="RIFT/misc/bounded_kde.html#RIFT.misc.bounded_kde.BoundedKDE">BoundedKDE (class in RIFT.misc.bounded_kde)</a>, <a href="api_reference/misc/index.html#RIFT.misc.bounded_kde.BoundedKDE">[1]</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="RIFT/misc/bounded_kde.html#RIFT.misc.bounded_kde.BoundedKDE_2d">BoundedKDE_2d (class in RIFT.misc.bounded_kde)</a>, <a href="api_reference/misc/index.html#RIFT.misc.bounded_kde.BoundedKDE_2d">[1]</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api_reference/simulation_manager/PBSManager.html#RIFT.simulation_manager.PBSManager.SimulationArchiveOnLocalDiskIntegratedPBSQueue.build_array_job">build_array_job() (RIFT.simulation_manager.PBSManager.SimulationArchiveOnLocalDiskIntegratedPBSQueue method)</a>
 </li>
       <li><a href="api_reference/simulation_manager/CondorManager.html#RIFT.simulation_manager.CondorManager.SimulationArchiveOnLocalDiskIntegratedCondorQueue.build_master_job">build_master_job() (RIFT.simulation_manager.CondorManager.SimulationArchiveOnLocalDiskIntegratedCondorQueue method)</a>
+</li>
+      <li><a href="api_reference/calmarg.html#RIFT.calmarg.generate_realizations.build_realizations_from_nodes">build_realizations_from_nodes() (in module RIFT.calmarg.generate_realizations)</a>, <a href="api_reference/calmarg/index.html#RIFT.calmarg.generate_realizations.build_realizations_from_nodes">[1]</a>
 </li>
       <li><a href="api_reference/misc/index.html#RIFT.misc.dag_utils.build_resolved_env">build_resolved_env() (in module RIFT.misc.dag_utils)</a>
 </li>
@@ -1085,6 +1088,8 @@
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerGPU.MCSampler.draw">(RIFT.integrators.mcsamplerGPU.MCSampler method)</a>
 </li>
       </ul></li>
+      <li><a href="api_reference/calmarg.html#RIFT.calmarg.generate_realizations.draw_prior_realizations_with_nodes">draw_prior_realizations_with_nodes() (in module RIFT.calmarg.generate_realizations)</a>, <a href="api_reference/calmarg/index.html#RIFT.calmarg.generate_realizations.draw_prior_realizations_with_nodes">[1]</a>
+</li>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.draw_simple">draw_simple() (RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler method)</a>
 </li>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsampler_generic.MCSamplerGeneric.draw_simplified">draw_simplified() (RIFT.integrators.mcsampler_generic.MCSamplerGeneric method)</a>
@@ -1151,7 +1156,15 @@
 </li>
       <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSReprimand">EOSReprimand (class in RIFT.physics.EOSManager)</a>
 </li>
+      <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceFromFile">EOSSequenceFromFile() (in module RIFT.physics.EOSManager)</a>
+</li>
       <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry">EOSSequenceLandry (class in RIFT.physics.EOSManager)</a>
+</li>
+      <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceNMB">EOSSequenceNMB (class in RIFT.physics.EOSManager)</a>
+</li>
+      <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequencePCA">EOSSequencePCA (class in RIFT.physics.EOSManager)</a>
+</li>
+      <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceSingleIndex">EOSSequenceSingleIndex (class in RIFT.physics.EOSManager)</a>
 </li>
       <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.epsilon">epsilon() (in module RIFT.physics.EOSManager)</a>
 </li>
@@ -1161,12 +1174,12 @@
 </li>
       <li><a href="api_reference/physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.estimateDurationSec">estimateDurationSec() (RIFT.physics.ROMWaveformManager.WaveformModeCatalog method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.estimateEventTimeRelative">estimateEventTimeRelative() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.estimateEventTimeRelative">[1]</a>
 </li>
       <li><a href="api_reference/physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.estimateFminHz">estimateFminHz() (RIFT.physics.ROMWaveformManager.WaveformModeCatalog method)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="RIFT/likelihood/factored_likelihood.html#RIFT.likelihood.factored_likelihood.estimateUpperDistanceBoundInMpc">estimateUpperDistanceBoundInMpc() (in module RIFT.likelihood.factored_likelihood)</a>, <a href="api_reference/likelihood/index.html#RIFT.likelihood.factored_likelihood.estimateUpperDistanceBoundInMpc">[1]</a>
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.estimateWaveformDuration">estimateWaveformDuration() (in module RIFT.lalsimutils)</a>
@@ -1514,6 +1527,12 @@
         <li><a href="api_reference/integrators/index.html#RIFT.integrators.MonteCarloEnsemble.identity_convert_togpu">(in module RIFT.integrators.MonteCarloEnsemble)</a>
 </li>
       </ul></li>
+      <li><a href="api_reference/misc/index.html#RIFT.misc.dag_utils.ile_gpu_fanout_value">ile_gpu_fanout_value() (in module RIFT.misc.dag_utils)</a>
+</li>
+      <li><a href="api_reference/misc/index.html#RIFT.misc.dag_utils.ile_gpu_request">ile_gpu_request() (in module RIFT.misc.dag_utils)</a>
+</li>
+      <li><a href="api_reference/misc/index.html#RIFT.misc.dag_utils.ile_invocation_shell">ile_invocation_shell() (in module RIFT.misc.dag_utils)</a>
+</li>
       <li><a href="api_reference/simulation_manager/database.html#RIFT.simulation_manager.database.Index">Index (class in RIFT.simulation_manager.database)</a>
 </li>
       <li><a href="api_reference/simulation_manager/BaseManager.html#RIFT.simulation_manager.BaseManager.SimulationArchiveOnLocalDisk.index_simulation">index_simulation() (RIFT.simulation_manager.BaseManager.SimulationArchiveOnLocalDisk method)</a>
@@ -1667,9 +1686,15 @@
       <ul>
         <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSReprimand.lambda_from_m">(RIFT.physics.EOSManager.EOSReprimand method)</a>
 </li>
+        <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceSingleIndex.lambda_from_m">(RIFT.physics.EOSManager.EOSSequenceSingleIndex method)</a>
+</li>
       </ul></li>
       <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSConcrete.lambda_from_m_vector">lambda_from_m_vector() (RIFT.physics.EOSManager.EOSConcrete method)</a>
+
+      <ul>
+        <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceSingleIndex.lambda_from_m_vector">(RIFT.physics.EOSManager.EOSSequenceSingleIndex method)</a>
 </li>
+      </ul></li>
       <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry.lambda_of_m_indx">lambda_of_m_indx() (RIFT.physics.EOSManager.EOSSequenceLandry method)</a>
 </li>
       <li><a href="api_reference/likelihood/index.html#RIFT.likelihood.rift_priors.lambda_prior">lambda_prior() (in module RIFT.likelihood.rift_priors)</a>
@@ -1692,10 +1717,10 @@
 </li>
       <li><a href="RIFT/misc/spokes.html#RIFT.misc.spokes.Line_to_spoke_label">Line_to_spoke_label() (in module RIFT.misc.spokes)</a>, <a href="api_reference/misc/index.html#RIFT.misc.spokes.Line_to_spoke_label">[1]</a>
 </li>
-      <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.linear_down_samp">linear_down_samp() (in module RIFT.integrators.mcsampler)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.linear_down_samp">linear_down_samp() (in module RIFT.integrators.mcsampler)</a>
+</li>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsampler.linear_down_samp_cdf">linear_down_samp_cdf() (in module RIFT.integrators.mcsampler)</a>
 </li>
       <li><a href="api_reference/physics/effectiveFisher.html#RIFT.physics.effectiveFisher.linear_spoked_ellipsoid">linear_spoked_ellipsoid() (in module RIFT.physics.effectiveFisher)</a>
@@ -2051,6 +2076,8 @@
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.NINJA_data_to_norm_hoff">NINJA_data_to_norm_hoff() (in module RIFT.lalsimutils)</a>
 </li>
+      <li><a href="api_reference/calmarg.html#RIFT.calmarg.generate_realizations.node_prior">node_prior() (in module RIFT.calmarg.generate_realizations)</a>, <a href="api_reference/calmarg/index.html#RIFT.calmarg.generate_realizations.node_prior">[1]</a>
+</li>
       <li><a href="api_reference/calmarg.html#RIFT.calmarg.generate_realizations.nodes_to_spline_coefficients_matrix">nodes_to_spline_coefficients_matrix() (in module RIFT.calmarg.generate_realizations)</a>, <a href="api_reference/calmarg/index.html#RIFT.calmarg.generate_realizations.nodes_to_spline_coefficients_matrix">[1]</a>
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.non_herm_hoff">non_herm_hoff() (in module RIFT.lalsimutils)</a>
@@ -2061,6 +2088,8 @@
         <li><a href="api_reference/physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.non_herm_hoff">(RIFT.physics.ROMWaveformManager.WaveformModeCatalog method)</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.ComplexIP.norm">norm() (RIFT.lalsimutils.ComplexIP method)</a>
 
       <ul>
@@ -2075,8 +2104,6 @@
         <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.RealIP.norm">(RIFT.lalsimutils.RealIP method)</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="api_reference/likelihood/index.html#RIFT.likelihood.priors_utils.norm_and_inverse_via_grid_interp">norm_and_inverse_via_grid_interp() (in module RIFT.likelihood.priors_utils)</a>
 </li>
       <li><a href="api_reference/likelihood/index.html#RIFT.likelihood.priors_utils.norm_cdf_and_inverse">norm_cdf_and_inverse() (in module RIFT.likelihood.priors_utils)</a>
@@ -2229,6 +2256,8 @@
         <li><a href="api_reference/physics/ROMWaveformManager.html#RIFT.physics.ROMWaveformManager.WaveformModeCatalog.print_params">(RIFT.physics.ROMWaveformManager.WaveformModeCatalog method)</a>
 </li>
       </ul></li>
+      <li><a href="api_reference/calmarg.html#RIFT.calmarg.generate_realizations.prior_cal_breadcrumb_dict">prior_cal_breadcrumb_dict() (in module RIFT.calmarg.generate_realizations)</a>, <a href="api_reference/calmarg/index.html#RIFT.calmarg.generate_realizations.prior_cal_breadcrumb_dict">[1]</a>
+</li>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.prior_prod">prior_prod() (RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler method)</a>
 </li>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.mcsamplerAdaptiveVolume.profile">profile() (in module RIFT.integrators.mcsamplerAdaptiveVolume)</a>
@@ -2323,6 +2352,8 @@
 <h2 id="R">R</h2>
 <table style="width: 100%" class="indextable genindextable"><tr>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceSingleIndex.R_from_m">R_from_m() (RIFT.physics.EOSManager.EOSSequenceSingleIndex method)</a>
+</li>
       <li><a href="api_reference/physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry.R_of_m_indx">R_of_m_indx() (RIFT.physics.EOSManager.EOSSequenceLandry method)</a>
 </li>
       <li><a href="api_reference/lalsimutils.html#RIFT.lalsimutils.ChooseWaveformParams.randomize">randomize() (RIFT.lalsimutils.ChooseWaveformParams method)</a>
@@ -2571,6 +2602,8 @@
         <li><a href="api_reference/interpolators/index.html#module-RIFT.interpolators.gp">module</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     RIFT.interpolators.internal_GP
 
@@ -2578,8 +2611,6 @@
         <li><a href="api_reference/interpolators/index.html#module-RIFT.interpolators.internal_GP">module</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     RIFT.lalsimutils
 
@@ -2936,6 +2967,8 @@
 </li>
       </ul></li>
       <li><a href="api_reference/integrators/index.html#RIFT.integrators.weighted_gmm.WeightedGMM.score_samples">score_samples() (RIFT.integrators.weighted_gmm.WeightedGMM method)</a>
+</li>
+      <li><a href="api_reference/calmarg.html#RIFT.calmarg.generate_realizations.seed_realizations_from_breadcrumb">seed_realizations_from_breadcrumb() (in module RIFT.calmarg.generate_realizations)</a>, <a href="api_reference/calmarg/index.html#RIFT.calmarg.generate_realizations.seed_realizations_from_breadcrumb">[1]</a>
 </li>
       <li><a href="RIFT/misc/amrlib.html#RIFT.misc.amrlib.serialize_grid_cells">serialize_grid_cells() (in module RIFT.misc.amrlib)</a>, <a href="api_reference/misc/index.html#RIFT.misc.amrlib.serialize_grid_cells">[1]</a>
 </li>
@@ -3438,6 +3471,8 @@
 </li>
       <li><a href="api_reference/misc/index.html#RIFT.misc.dag_utils.write_calibration_uncertainty_reweighting_sub">write_calibration_uncertainty_reweighting_sub() (in module RIFT.misc.dag_utils)</a>
 </li>
+      <li><a href="api_reference/misc/index.html#RIFT.misc.dag_utils.write_calpilot_sub">write_calpilot_sub() (in module RIFT.misc.dag_utils)</a>
+</li>
       <li><a href="api_reference/misc/index.html#RIFT.misc.dag_utils.write_cat_sub">write_cat_sub() (in module RIFT.misc.dag_utils)</a>
 </li>
       <li><a href="api_reference/misc/index.html#RIFT.misc.dag_utils.write_CIP_single_iteration_subdag">write_CIP_single_iteration_subdag() (in module RIFT.misc.dag_utils)</a>
@@ -3448,10 +3483,10 @@
 </li>
       <li><a href="api_reference/misc/index.html#RIFT.misc.dag_utils.write_consolidate_sub_simple">write_consolidate_sub_simple() (in module RIFT.misc.dag_utils)</a>
 </li>
-      <li><a href="api_reference/misc/index.html#RIFT.misc.dag_utils.write_convert_ascii_to_h5_sub">write_convert_ascii_to_h5_sub() (in module RIFT.misc.dag_utils)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="api_reference/misc/index.html#RIFT.misc.dag_utils.write_convert_ascii_to_h5_sub">write_convert_ascii_to_h5_sub() (in module RIFT.misc.dag_utils)</a>
+</li>
       <li><a href="api_reference/misc/index.html#RIFT.misc.dag_utils.write_convert_sub">write_convert_sub() (in module RIFT.misc.dag_utils)</a>
 </li>
       <li><a href="api_reference/misc/index.html#RIFT.misc.dag_utils.write_convertpsd_sub">write_convertpsd_sub() (in module RIFT.misc.dag_utils)</a>

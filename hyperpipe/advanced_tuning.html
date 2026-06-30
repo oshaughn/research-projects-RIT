@@ -1,0 +1,231 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Advanced Tuning &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Marg Driver Development" href="driver_dev.html" />
+    <link rel="prev" title="Getting Started" href="getting_started.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../containers.html">Containers and multi-architecture deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="getting_started.html">Getting Started</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Advanced Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="driver_dev.html">Marg Driver Development</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference.html">Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html">Troubleshooting</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../hyperpipe.html">HyperPipe</a></li>
+      <li class="breadcrumb-item active">Advanced Tuning</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/hyperpipe/advanced_tuning.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="advanced-tuning">
+<h1>Advanced Tuning<a class="headerlink" href="#advanced-tuning" title="Link to this heading"></a></h1>
+<p>This guide is for power users looking to optimize their inference or implement complex constraints.</p>
+<section id="multi-constraint-inference">
+<h2>Multi-Constraint Inference<a class="headerlink" href="#multi-constraint-inference" title="Link to this heading"></a></h2>
+<p>HyperPipe can evaluate multiple observational constraints simultaneously (e.g., combining GW data with nuclear physics experiments).</p>
+<p>To incorporate multiple constraints, add multiple entries to <code class="docutils literal notranslate"><span class="pre">marg-list</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">marg</span><span class="o">-</span><span class="nb">list</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">gw_event</span> <span class="c1"># Used for output directory and log tagging</span>
+    <span class="n">exe</span><span class="p">:</span> <span class="n">example_gaussian</span><span class="o">.</span><span class="n">py</span>
+    <span class="n">args</span><span class="p">:</span> <span class="s2">&quot;--outdir gw_out --conforming-output-name&quot;</span>
+    <span class="n">n</span><span class="o">-</span><span class="n">chunk</span><span class="p">:</span> <span class="mi">100</span> <span class="c1"># Parallelization lever: higher = more jobs, smaller chunks</span>
+  <span class="o">-</span> <span class="n">name</span><span class="p">:</span> <span class="n">nicer_event</span>
+    <span class="n">exe</span><span class="p">:</span> <span class="n">example_gaussian2</span><span class="o">.</span><span class="n">py</span>
+    <span class="n">args</span><span class="p">:</span> <span class="s2">&quot;--outdir nicer_out --conforming-output-name&quot;</span>
+    <span class="n">n</span><span class="o">-</span><span class="n">chunk</span><span class="p">:</span> <span class="mi">200</span>
+</pre></div>
+</div>
+<p>Each entry results in a separate set of MARG jobs. Results are combined
+by the <code class="docutils literal notranslate"><span class="pre">CON_PROD</span></code> stage. By default, the pipeline multiplies the likelihoods;
+to switch to additive combination, edit <code class="docutils literal notranslate"><span class="pre">con_prod.sh</span></code> and change
+<code class="docutils literal notranslate"><span class="pre">--combination</span> <span class="pre">product</span></code> to <code class="docutils literal notranslate"><span class="pre">--combination</span> <span class="pre">sum</span></code>.</p>
+</section>
+<section id="coordinate-transformation">
+<h2>Coordinate Transformation<a class="headerlink" href="#coordinate-transformation" title="Link to this heading"></a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">post</span></code> section accepts a <code class="docutils literal notranslate"><span class="pre">coord-module</span></code> (an importable Python
+module name) and three parameter lists:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">coords-fit</span></code></dt><dd><p>Space-separated names of parameters to include in the GP fit.
+Example: <code class="docutils literal notranslate"><span class="pre">&quot;x</span> <span class="pre">y</span> <span class="pre">z&quot;</span></code></p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">coords-sample</span></code></dt><dd><p>Space-separated <code class="docutils literal notranslate"><span class="pre">name:[lo,hi]</span></code> ranges for MC integration.
+Example: <code class="docutils literal notranslate"><span class="pre">&quot;x:[-7,7]</span> <span class="pre">y:[-7,7]</span> <span class="pre">z:[-7,7]&quot;</span></code></p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">coords-implied</span></code></dt><dd><p>Parameters used in the fit but not independently sampled.
+Example: <code class="docutils literal notranslate"><span class="pre">&quot;R1.4</span> <span class="pre">Mmax&quot;</span></code></p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">coords-nofit</span></code></dt><dd><p>Parameters sampled but excluded from the fit.
+Example: <code class="docutils literal notranslate"><span class="pre">&quot;delta_mc</span> <span class="pre">s1z</span> <span class="pre">s2z&quot;</span></code></p>
+</dd>
+</dl>
+<p>These are emitted as
+<code class="docutils literal notranslate"><span class="pre">--parameter</span></code>, <code class="docutils literal notranslate"><span class="pre">--integration-parameter-range</span></code>,
+<code class="docutils literal notranslate"><span class="pre">--parameter-implied</span></code>, and <code class="docutils literal notranslate"><span class="pre">--parameter-nofit</span></code> flags for the
+post-stage executable — the same convention that
+<code class="docutils literal notranslate"><span class="pre">util_ConstructEOSPosterior.py</span></code> already uses. Existing CIP coordinate
+modules (e.g. for neutron-star EOS inference) are reusable without change.</p>
+</section>
+<section id="parsimonious-placement-tracer-workflow">
+<h2>Parsimonious-placement Tracer Workflow<a class="headerlink" href="#parsimonious-placement-tracer-workflow" title="Link to this heading"></a></h2>
+<p>The <em>tracer</em> workflow replaces the puffball’s “draw from posterior +
+puff” combination with a single placement step that reads the evaluated
+likelihood table (<code class="docutils literal notranslate"><span class="pre">all.marg_net</span></code>) directly, skipping the MARG_PUFF lane
+entirely and saving ~1.7–1.8× in wall time.</p>
+<p>Enable it by setting <code class="docutils literal notranslate"><span class="pre">puff.exe</span></code> to a tracer-aware updater and
+<code class="docutils literal notranslate"><span class="pre">puff.input-source:</span> <span class="pre">marg_net</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">puff</span><span class="p">:</span>
+  <span class="n">exe</span><span class="p">:</span> <span class="n">util_HyperparameterTracerUpdate</span><span class="o">.</span><span class="n">py</span>
+  <span class="nb">input</span><span class="o">-</span><span class="n">source</span><span class="p">:</span> <span class="n">marg_net</span> <span class="c1"># Bypasses PUFF jobs; reads cumulative grid directly</span>
+  <span class="n">puff</span><span class="o">-</span><span class="n">factor</span><span class="p">:</span> <span class="mf">0.5</span>       <span class="c1"># Search width around maxima; lower = tighter focus</span>
+  <span class="n">force</span><span class="o">-</span><span class="n">away</span><span class="p">:</span> <span class="mf">0.03</span>       <span class="c1"># Min distance from existing points to prevent clustering</span>
+  <span class="n">settings</span><span class="p">:</span>
+    <span class="n">update</span><span class="o">-</span><span class="n">method</span><span class="p">:</span> <span class="n">smc</span><span class="o">-</span><span class="n">mala</span><span class="o">-</span><span class="n">bd</span> <span class="c1"># Sequential Monte Carlo / Metropolis-Adjusted Langevin</span>
+    <span class="n">tracer</span><span class="o">-</span><span class="n">fit</span><span class="o">-</span><span class="n">method</span><span class="p">:</span> <span class="n">rf</span>      <span class="c1"># Random Forest fit for the likelihood surface</span>
+    <span class="n">n</span><span class="o">-</span><span class="n">mala</span><span class="o">-</span><span class="n">steps</span><span class="p">:</span> <span class="mi">8</span>            <span class="c1"># Number of Langevin steps for proposal refinement</span>
+    <span class="n">target</span><span class="o">-</span><span class="n">ess</span><span class="o">-</span><span class="n">frac</span><span class="p">:</span> <span class="mf">0.5</span>       <span class="c1"># Target Effective Sample Size fraction for resampling</span>
+    <span class="n">birth</span><span class="o">-</span><span class="n">death</span><span class="o">-</span><span class="n">rate</span><span class="p">:</span> <span class="mf">1.0</span>      <span class="c1"># Rate of particle birth/death in the SMC process</span>
+</pre></div>
+</div>
+<p>Run the tracer demo:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">make</span> <span class="n">rundir_tracer</span>
+</pre></div>
+</div>
+<p>Or directly:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">util_RIFT_hyperpipe</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">config</span> <span class="n">hyperpipe_conf_tracer</span><span class="o">.</span><span class="n">yaml</span>
+</pre></div>
+</div>
+</section>
+<section id="convergence-testing">
+<h2>Convergence Testing<a class="headerlink" href="#convergence-testing" title="Link to this heading"></a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">test</span></code> section controls <code class="docutils literal notranslate"><span class="pre">convergence_test_samples</span></code>:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">test</span><span class="p">:</span>
+  <span class="n">exe</span><span class="p">:</span> <span class="n">convergence_test_samples</span>
+  <span class="n">method</span><span class="p">:</span> <span class="n">JS</span> <span class="c1"># Options: JS (Jensen-Shannon), KL, etc.</span>
+  <span class="n">threshold</span><span class="p">:</span> <span class="mf">0.05</span> <span class="c1"># Halts DAG when divergence &lt; threshold; typically 0.01-0.1</span>
+  <span class="n">settings</span><span class="p">:</span>
+    <span class="n">always</span><span class="o">-</span><span class="n">succeed</span><span class="p">:</span> <span class="n">true</span>   <span class="c1"># diagnostic mode: never stop the DAG</span>
+</pre></div>
+</div>
+<p>The DAG halts when the convergence metric (default: Jensen–Shannon
+divergence, JS) falls below <code class="docutils literal notranslate"><span class="pre">threshold</span></code>. Set <code class="docutils literal notranslate"><span class="pre">always-succeed:</span> <span class="pre">true</span></code>
+to run all iterations regardless for diagnostic purposes.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="getting_started.html" class="btn btn-neutral float-left" title="Getting Started" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="driver_dev.html" class="btn btn-neutral float-right" title="Marg Driver Development" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

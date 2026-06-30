@@ -60,6 +60,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
 </ul>
@@ -68,6 +69,7 @@
 <li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html#differentiable-jax-surrogates-jax-gp">Differentiable (JAX) surrogates: <code class="docutils literal notranslate"><span class="pre">jax_gp</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
 <li class="toctree-l2 current"><a class="reference internal" href="index.html">Physics API Reference</a><ul class="current">
 <li class="toctree-l3"><a class="reference internal" href="EOBTidalExternal.html">EOBTidalExternal API Reference</a></li>
@@ -356,6 +358,21 @@ load_eos takes a 2D array with pressure, energy_density and rest_mass_density (n
 
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceFromFile">
+<span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSSequenceFromFile</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceFromFile" title="Link to this definition"></a></dt>
+<dd><p>Open an EOS sequence file, auto-detecting the format.</p>
+<p>Dispatches on the HDF5 <code class="docutils literal notranslate"><span class="pre">representation</span></code> / <code class="docutils literal notranslate"><span class="pre">schema_version</span></code> attribute:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">pca_hc</span></code>  (<code class="docutils literal notranslate"><span class="pre">nmbackend.pca</span></code>)  -&gt; <a class="reference internal" href="#RIFT.physics.EOSManager.EOSSequencePCA" title="RIFT.physics.EOSManager.EOSSequencePCA"><code class="xref py py-class docutils literal notranslate"><span class="pre">EOSSequencePCA</span></code></a>  (compressed);</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">tabular</span></code> (<code class="docutils literal notranslate"><span class="pre">nmbackend.nss</span></code>)  -&gt; <a class="reference internal" href="#RIFT.physics.EOSManager.EOSSequenceNMB" title="RIFT.physics.EOSManager.EOSSequenceNMB"><code class="xref py py-class docutils literal notranslate"><span class="pre">EOSSequenceNMB</span></code></a>  (tabular);</p></li>
+<li><p>anything else                    -&gt; <a class="reference internal" href="#RIFT.physics.EOSManager.EOSSequenceLandry" title="RIFT.physics.EOSManager.EOSSequenceLandry"><code class="xref py py-class docutils literal notranslate"><span class="pre">EOSSequenceLandry</span></code></a> (legacy/LCEHL).</p></li>
+</ul>
+<p>All expose the identical consumer API (<code class="docutils literal notranslate"><span class="pre">oned_order_values</span></code>,
+<code class="docutils literal notranslate"><span class="pre">lambda_of_m_indx</span></code>, <code class="docutils literal notranslate"><span class="pre">R_of_m_indx</span></code>, <code class="docutils literal notranslate"><span class="pre">m_max_of_indx</span></code>, <code class="docutils literal notranslate"><span class="pre">lookup_closest</span></code>), so
+callers can pass any of the three file types transparently.</p>
+</dd></dl>
+
 <dl class="py class">
 <dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceLandry">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSSequenceLandry</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fname</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_eos</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_ns</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">oned_order_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">oned_order_mass</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_sort</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eos_tables_units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceLandry" title="Link to this definition"></a></dt>
@@ -444,6 +461,63 @@ Does not require ordering</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceLandry.m_max_of_indx">
 <span class="sig-name descname"><span class="pre">m_max_of_indx</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">indx</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceLandry.m_max_of_indx" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceNMB">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSSequenceNMB</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fname</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_eos</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_ns</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">oned_order_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">oned_order_mass</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_sort</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eos_tables_units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceNMB" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.physics.EOSManager.EOSSequenceLandry" title="RIFT.physics.EOSManager.EOSSequenceLandry"><code class="xref py py-class docutils literal notranslate"><span class="pre">EOSSequenceLandry</span></code></a></p>
+<p>Drop-in reader for the NuclearMatter-Backend <code class="docutils literal notranslate"><span class="pre">NSSequence</span></code> HDF5 format.</p>
+<p>The NSSequence file stores every quantity as a function of central
+pseudo-enthalpy h_c (monotone along the sequence), with an explicit <code class="docutils literal notranslate"><span class="pre">stable</span></code>
+flag, in a single <code class="docutils literal notranslate"><span class="pre">(n_eos,</span> <span class="pre">n_pts,</span> <span class="pre">n_fields)</span></code> dataset (see
+docs/rift-sequence-audit.md in NuclearMatter-Backend).  This subclass reads that
+file, extracts the <strong>stable rising branch</strong> (M increasing up to M_max) for each
+EOS into the same in-memory <code class="docutils literal notranslate"><span class="pre">eos_ns_tov</span></code> dict of {M,R,Lambda} structured arrays
+that EOSSequenceLandry uses – so all inherited accessors
+(<code class="docutils literal notranslate"><span class="pre">lambda_of_m_indx</span></code>, <code class="docutils literal notranslate"><span class="pre">R_of_m_indx</span></code>, <code class="docutils literal notranslate"><span class="pre">m_max_of_indx</span></code>, <code class="docutils literal notranslate"><span class="pre">lookup_closest</span></code>,
+<code class="docutils literal notranslate"><span class="pre">oned_order_values</span></code>) work unchanged and are branch-safe by construction.</p>
+<p>Only <code class="docutils literal notranslate"><span class="pre">load_ns</span></code> is honoured (TOV sequence); the optional microphysical EOS
+tables are not read here (use the legacy emitter / EOSSequenceLandry for those).</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequencePCA">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSSequencePCA</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fname</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_eos</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">load_ns</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">oned_order_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">oned_order_mass</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">no_sort</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eos_tables_units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequencePCA" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.physics.EOSManager.EOSSequenceNMB" title="RIFT.physics.EOSManager.EOSSequenceNMB"><code class="xref py py-class docutils literal notranslate"><span class="pre">EOSSequenceNMB</span></code></a></p>
+<p>Reader for the compressed NuclearMatter-Backend <code class="docutils literal notranslate"><span class="pre">pca_hc/1</span></code> representation.</p>
+<p>The file stores a per-channel PCA decomposition of the M(u), R(u), logLambda(u)
+curves (mean + basis <code class="docutils literal notranslate"><span class="pre">components</span></code> + per-EOS <code class="docutils literal notranslate"><span class="pre">coeffs</span></code>).  We reconstruct each
+EOS’s curves, take the stable rising branch, and populate the same in-memory
+<code class="docutils literal notranslate"><span class="pre">eos_ns_tov</span></code> dict EOSSequenceLandry/EOSSequenceNMB use – so every inherited
+accessor works unchanged.  Self-contained (numpy only); no nmbackend dependency.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceSingleIndex">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.physics.EOSManager.</span></span><span class="sig-name descname"><span class="pre">EOSSequenceSingleIndex</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">index</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceSingleIndex" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>A SINGLE EOS realization drawn from a sequence file, exposed with the
+fixed-EOS (<code class="docutils literal notranslate"><span class="pre">--using-eos</span></code>) interface: <code class="docutils literal notranslate"><span class="pre">lambda_from_m(m_Msun)</span></code>.</p>
+<p>This enables the exact per-EOS-evidence pattern (one full CIP evidence per
+realization, MARG-style) for tabular/compressed sequence files – the
+reference computation against which the ordering-statistic (tabular
+hyperpipeline) approximation is validated.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceSingleIndex.R_from_m">
+<span class="sig-name descname"><span class="pre">R_from_m</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m_Msun</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceSingleIndex.R_from_m" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceSingleIndex.lambda_from_m">
+<span class="sig-name descname"><span class="pre">lambda_from_m</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceSingleIndex.lambda_from_m" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.physics.EOSManager.EOSSequenceSingleIndex.lambda_from_m_vector">
+<span class="sig-name descname"><span class="pre">lambda_from_m_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">m</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.physics.EOSManager.EOSSequenceSingleIndex.lambda_from_m_vector" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 </dd></dl>

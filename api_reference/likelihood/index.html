@@ -60,6 +60,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
 </ul>
@@ -68,6 +69,7 @@
 <li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html#differentiable-jax-surrogates-jax-gp">Differentiable (JAX) surrogates: <code class="docutils literal notranslate"><span class="pre">jax_gp</span></code></a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Likelihood and Priors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics API Reference</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
@@ -295,15 +297,51 @@ This generally is marginally faster, particularly if Lmax is large.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.likelihood.factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop">
-<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tvals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">P_vec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lookupNKDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholmsArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctUArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctVArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">epochDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax=2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">array_output=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">loglikelihood=&lt;function</span> <span class="pre">_factored_lnL_helper&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_lnLt=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phase_marginalization=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.likelihood.factored_likelihood.</span></span><span class="sig-name descname"><span class="pre">DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tvals</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">P_vec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lookupNKDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rholmsArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctUArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ctVArrayDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">epochDict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Lmax=2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">array_output=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">loglikelihood=&lt;function</span> <span class="pre">_factored_lnL_helper&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_lnLt=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phase_marginalization=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_cal=1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cal_method='loop'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cal_distmarg=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cal_log_weights=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_cal_components=False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.likelihood.factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop" title="Link to this definition"></a></dt>
 <dd><p>DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
-either as an array vs time <em>or</em> marginalized in time. 
+either as an array vs time <em>or</em> marginalized in time.
 This generally is marginally faster, particularly if Lmax is large.
 The timeseries quantities are computed via discrete shifts of an existing grid
 Note ‘P’ must have the <em>sampling rate</em> set to correctly interpret the event time.</p>
 <blockquote>
 <div><p>Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have ‘Vector’ postfix</p>
 </div></blockquote>
+<section id="calibration-marginalization-n-cal-1">
+<h3>Calibration marginalization (n_cal&gt;1)<a class="headerlink" href="#calibration-marginalization-n-cal-1" title="Link to this heading"></a></h3>
+<p>When n_cal&gt;1, the rholm timeseries are assumed to hold <code class="docutils literal notranslate"><span class="pre">n_cal</span></code> contiguous
+calibration realizations, each of length N_window = npts_full/n_cal (built by
+ComputeModeIPTimeSeries with the calibration applied to the <em>data</em>).  Because
+calibration is applied to the data, the template-template cross terms U,V
+(rho_sq) are calibration-INDEPENDENT and are computed only once; only the data
+term kappa changes per realization, selected by shifting the window offset
+ifirst -&gt; ifirst + c*N_window.  We then Monte-Carlo marginalize:</p>
+<blockquote>
+<div><p>Z_cal(theta) = (1/n_cal) sum_c  integral dt exp( lnL_t(theta, c) )</p>
+</div></blockquote>
+<p>via a streaming log-sum-exp over the n_cal realizations (memory unchanged vs
+the n_cal==1 path; one extra GPU kernel launch per realization).  The n_cal==1
+code path below is unchanged.</p>
+<dl class="simple">
+<dt>cal_method selects the n_cal&gt;1 reduction:</dt><dd><dl class="simple">
+<dt>‘loop’  (default, Option B): Python loop over realizations reusing the</dt><dd><p>existing Q_inner_product kernel; works on CPU and GPU and with any
+loglikelihood callback (distance/phase marginalization).</p>
+</dd>
+<dt>‘fused’ (Option C): a single fused kernel (RIFT.likelihood.Q_fused_calmarg)</dt><dd><p>does the Q-product, the loglikelihood, and the cal+time log-sum-exp in
+one launch – a CUDA kernel on GPU, or pure numpy on CPU.  Supports
+phase marginalization (<a href="#id9"><span class="problematic" id="id10">|kappa|</span></a>).  With cal_distmarg=None it
+uses the default (distance-unmarginalized) helper kernel; with
+cal_distmarg=&lt;table dict&gt; it uses the separate distance-marginalization
+kernel (Q_fused_calmarg_distmarg) reproducing distmarg_loglikelihood.
+Raises NotImplementedError for unsupported combinations; the ‘loop’
+path is the fallback for everything (incl. distmarg, on CPU and GPU).</p>
+</dd>
+</dl>
+</dd>
+<dt>cal_distmarg<span class="classifier">dict or None</span></dt><dd><p>Distance-marginalization table+params for the fused distmarg kernel; see
+RIFT.likelihood.Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy.</p>
+</dd>
+</dl>
+</section>
 </dd></dl>
 
 <dl class="py function">

@@ -1,0 +1,185 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Troubleshooting &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="General Troubleshooting" href="../troubleshooting.html" />
+    <link rel="prev" title="Reference" href="reference.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../containers.html">Containers and multi-architecture deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="getting_started.html">Getting Started</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_tuning.html">Advanced Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="driver_dev.html">Marg Driver Development</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference.html">Reference</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Troubleshooting</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../hyperpipe.html">HyperPipe</a></li>
+      <li class="breadcrumb-item active">Troubleshooting</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/hyperpipe/troubleshooting.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="troubleshooting">
+<h1>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading"></a></h1>
+<p>This guide provides recovery steps and environment-specific caveats for HyperPipe.</p>
+<section id="operational-context">
+<h2>Operational Context<a class="headerlink" href="#operational-context" title="Link to this heading"></a></h2>
+<p>The HyperPipe workflow is split into two primary functional roles:</p>
+<ol class="arabic simple">
+<li><p><strong>Worker MARG Jobs</strong>: These are the high-volume physics evaluations. If these are failing, check your marginal driver’s CLI contract or the input grid format.</p></li>
+<li><p><strong>Fitting &amp; Posterior Jobs</strong>: These are the single-node tasks that compute the posterior and generate the next grid. Failures here typically indicate issues with MC integration or <cite>util_ConstructEOSPosterior.py</cite>.</p></li>
+</ol>
+</section>
+<section id="for-rift-users">
+<h2>For RIFT Users<a class="headerlink" href="#for-rift-users" title="Link to this heading"></a></h2>
+<p>HyperPipe is a generalized version of the RIFT gravitational-wave PE pipeline. The mapping between the two:</p>
+<p>The key difference is that HyperPipe is <em>coordinate-free</em>. The coordinate system is declared in the YAML and passed to the post stage via the same flags that CIP uses.</p>
+</section>
+<section id="diagnostic-commands">
+<h2>Diagnostic Commands<a class="headerlink" href="#diagnostic-commands" title="Link to this heading"></a></h2>
+<p>Use these commands to monitor and recover your pipeline:</p>
+<p>Check DAG status:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">condor_q</span>
+</pre></div>
+</div>
+<p>Tail a worker’s log (Essential for debugging driver crashes):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">condor_tail</span> <span class="o">-</span><span class="n">f</span> <span class="o">&lt;</span><span class="n">job</span><span class="o">-</span><span class="nb">id</span><span class="o">&gt;</span> <span class="o">&lt;</span><span class="n">log</span><span class="o">-</span><span class="n">file</span><span class="o">&gt;</span>
+</pre></div>
+</div>
+<p>Re-submit a stalled DAG (Use after fixing a driver bug):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">condor_submit_dag</span> <span class="n">marginalize_hyperparameters</span><span class="o">.</span><span class="n">dag</span>
+</pre></div>
+</div>
+<p>Inspect the generated args files (Verify that the DAG created the correct paths):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">cat</span> <span class="n">rundir</span><span class="o">/</span><span class="n">args_marg_eos</span><span class="o">.</span><span class="n">txt</span>
+<span class="n">cat</span> <span class="n">rundir</span><span class="o">/</span><span class="n">args_puff</span><span class="o">.</span><span class="n">txt</span>
+<span class="n">cat</span> <span class="n">rundir</span><span class="o">/</span><span class="n">args_eos_post</span><span class="o">.</span><span class="n">txt</span>
+</pre></div>
+</div>
+<p>Dry run validation:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">general</span><span class="p">:</span>
+  <span class="n">dry</span><span class="o">-</span><span class="n">run</span><span class="p">:</span> <span class="n">true</span> <span class="c1"># Validates config -&gt; DAG translation without submitting to Condor</span>
+
+<span class="n">util_RIFT_hyperpipe</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">config</span> <span class="n">my_conf</span><span class="o">.</span><span class="n">yaml</span>
+
+<span class="c1"># prints the create_eos_posterior_pipeline command without running it</span>
+</pre></div>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="reference.html" class="btn btn-neutral float-left" title="Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../troubleshooting.html" class="btn btn-neutral float-right" title="General Troubleshooting" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

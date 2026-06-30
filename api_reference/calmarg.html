@@ -60,6 +60,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../executables/index.html">Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
 </ul>
@@ -68,6 +69,7 @@
 <li class="toctree-l1 current"><a class="reference internal" href="index.html">API Reference</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="integrators/index.html">Integrators (MC Sampling)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="interpolators/index.html#differentiable-jax-surrogates-jax-gp">Differentiable (JAX) surrogates: <code class="docutils literal notranslate"><span class="pre">jax_gp</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="likelihood/index.html">Likelihood and Priors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="physics/index.html">Physics API Reference</a></li>
 <li class="toctree-l2"><a class="reference internal" href="plot_utilities/index.html">Plot Utilities</a></li>
@@ -110,14 +112,77 @@
 <h1>Calibration Marginalization API Reference<a class="headerlink" href="#calibration-marginalization-api-reference" title="Link to this heading"></a></h1>
 <p>This module provides tools for performing calibration marginalization in RIFT, allowing for the estimation of parameters while accounting for uncertainty in the calibration.</p>
 <dl class="py function" id="module-RIFT.calmarg.generate_realizations">
-<span id="module-RIFT.calmarg"></span><dt class="sig sig-object py" id="RIFT.calmarg.generate_realizations.create_realizations">
+<span id="module-RIFT.calmarg"></span><dt class="sig sig-object py" id="RIFT.calmarg.generate_realizations.build_realizations_from_nodes">
+<span class="sig-prename descclassname"><span class="pre">RIFT.calmarg.generate_realizations.</span></span><span class="sig-name descname"><span class="pre">build_realizations_from_nodes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">amp_rand_array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">phase_rand_array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_segment</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dT</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_freq_spline_locations</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.calmarg.generate_realizations.build_realizations_from_nodes" title="Link to this definition"></a></dt>
+<dd><p>Build the complex two-sided per-realization calibration factor array from
+spline-node values.  Factored out of create_realizations() so the SAME spline
+construction is reused both for prior draws and for proposal-seeded draws
+(seed_realizations_from_breadcrumb).</p>
+<p>amp_rand_array, phase_rand_array : (n_spline_points, n_realizations).
+Returns dat_out (npts_seg, n_realizations) complex, unity outside [fmin,fmax].</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.calmarg.generate_realizations.create_realizations">
 <span class="sig-prename descclassname"><span class="pre">RIFT.calmarg.generate_realizations.</span></span><span class="sig-name descname"><span class="pre">create_realizations</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_segment</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dT</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_spline_points</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_realizations</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.calmarg.generate_realizations.create_realizations" title="Link to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.calmarg.generate_realizations.draw_prior_realizations_with_nodes">
+<span class="sig-prename descclassname"><span class="pre">RIFT.calmarg.generate_realizations.</span></span><span class="sig-name descname"><span class="pre">draw_prior_realizations_with_nodes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">env_dir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_segment</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dT</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_spline_points</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_realizations</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin_ifo</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rng</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.calmarg.generate_realizations.draw_prior_realizations_with_nodes" title="Link to this definition"></a></dt>
+<dd><p>Draw PRIOR calibration realizations AND keep the spline-node draws.</p>
+<p>Same prior as create_realizations(), but it returns the node vectors (which
+create_realizations discards) so a pilot can fit a proposal over them.  Used by
+the ILE –calibration-dump-responsibilities path.</p>
+<p>env_dir : directory of per-detector envelope files &lt;ifo&gt;.txt.
+dets    : detector order; the returned node vector is concatenated per det as</p>
+<blockquote>
+<div><p>[det0_amp, det0_phase, det1_amp, det1_phase, …] (breadcrumb layout).</p>
+</div></blockquote>
+<dl class="simple">
+<dt>Returns dict with:</dt><dd><p>realizations : {ifo: (npts_seg, n_realizations) complex}
+nodes        : (n_realizations, 2*n_spline_points*len(dets))  prior draws
+prior_mean   : (dim,)   diagonal-Gaussian prior mean over the full node vector
+prior_sigma  : (dim,)   prior sigma
+node_log_f   : (n_spline_points,)  log10 spline node frequencies (det 0)
+n_nodes_amp  : n_spline_points
+dets         : list</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.calmarg.generate_realizations.node_prior">
+<span class="sig-prename descclassname"><span class="pre">RIFT.calmarg.generate_realizations.</span></span><span class="sig-name descname"><span class="pre">node_prior</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_spline_points</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.calmarg.generate_realizations.node_prior" title="Link to this definition"></a></dt>
+<dd><p>Return the calibration PRIOR over spline nodes for one detector, as the
+diagonal Gaussian implied by the envelope file.</p>
+<dl class="simple">
+<dt>The per-detector node vector is laid out as</dt><dd><p>[amp_0 .. amp_{N-1}, phase_0 .. phase_{N-1}]   (N = n_spline_points)</p>
+</dd>
+</dl>
+<p>with amp node i ~ N(median_amp_i, sigma_amp_i) and phase node i ~
+N(median_phase_i, sigma_phase_i), independent (this is exactly the prior that
+create_realizations() draws from).</p>
+<p>Returns dict(mean, sigma, node_log_f, n_nodes_amp) – mean/sigma length 2N.</p>
+</dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.calmarg.generate_realizations.nodes_to_spline_coefficients_matrix">
 <span class="sig-prename descclassname"><span class="pre">RIFT.calmarg.generate_realizations.</span></span><span class="sig-name descname"><span class="pre">nodes_to_spline_coefficients_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_points</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.calmarg.generate_realizations.nodes_to_spline_coefficients_matrix" title="Link to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.calmarg.generate_realizations.prior_cal_breadcrumb_dict">
+<span class="sig-prename descclassname"><span class="pre">RIFT.calmarg.generate_realizations.</span></span><span class="sig-name descname"><span class="pre">prior_cal_breadcrumb_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">env_dir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dets</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_spline_points</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin_ifo</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.calmarg.generate_realizations.prior_cal_breadcrumb_dict" title="Link to this definition"></a></dt>
+<dd><p>Build the ‘cal’ breadcrumb dict for the broad PRIOR, with proposal == prior.</p>
+<p>Suitable as an iteration-0 placeholder breadcrumb: seeding from it
+(seed_realizations_from_breadcrumb) draws cal realizations from the prior with ZERO
+importance weights (log prior - log proposal = 0), i.e. it is equivalent to the cold
+prior draws – but, unlike a 0-byte placeholder, it LOADS cleanly (so an older ILE binary
+that does not guard against an empty placeholder will not crash on it).</p>
+<p>Layout matches seed_realizations_from_breadcrumb: the full node vector is concatenated per
+detector in <cite>dets</cite> order as [det0_amp_0..,det0_phase_0..,det1_amp..,…]; dim = 2N*len(dets).</p>
+</dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.calmarg.generate_realizations.retrieve_envelope_from_file">
@@ -132,6 +197,37 @@ amplitude data is centered around <em>1</em></p>
 </dd>
 </dl>
 <p>frequency_array : list of <em>positive</em> frequencies to interpolate to, for efficiency</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.calmarg.generate_realizations.seed_realizations_from_breadcrumb">
+<span class="sig-prename descclassname"><span class="pre">RIFT.calmarg.generate_realizations.</span></span><span class="sig-name descname"><span class="pre">seed_realizations_from_breadcrumb</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">bc</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T_segment</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dT</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_spline_points</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_realizations</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fmin_ifo</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rng</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.calmarg.generate_realizations.seed_realizations_from_breadcrumb" title="Link to this definition"></a></dt>
+<dd><p>Draw n_realizations calibration factors per detector from a LEARNED Gaussian
+proposal (a breadcrumb), and return the Phase-0 importance weights.</p>
+<p>This is the production seed path (Option C): instead of drawing cal nodes from
+the broad prior, draw them from the consolidated pilot proposal (concentrated on
+the high-likelihood cal region), and carry log_w = log prior - log proposal so the
+marginalization stays unbiased.</p>
+<dl class="simple">
+<dt>bc<span class="classifier">breadcrumb dict (breadcrumbs.load(…)) OR its [“cal”] sub-dict.  The proposal</span></dt><dd><p>is a joint Gaussian over the FULL multi-detector node vector, concatenated over
+bc[“dets”] in order: [det0_amp, det0_phase, det1_amp, det1_phase, …].</p>
+</dd>
+</dl>
+<p>fmin : scalar template fmin (used for all dets) OR ignored per-det if fmin_ifo given.
+fmin_ifo : optional {ifo: fmin} for per-detector low-frequency cutoffs.
+rng : numpy Generator (default: a fresh default_rng()).</p>
+<dl>
+<dt>Returns (dat_out_dict, cal_log_weights, nodes):</dt><dd><p>dat_out_dict   : {ifo: (npts_seg, n_realizations) complex}
+cal_log_weights: (n_realizations,) = log prior - log proposal (shared across dets,</p>
+<blockquote>
+<div><p>since it is ONE joint draw per realization).</p>
+</div></blockquote>
+<dl class="simple">
+<dt>nodes<span class="classifier">(n_realizations, dim) the proposal-drawn node vectors (so a pilot</span></dt><dd><p>can refit a proposal from a seeded run).</p>
+</dd>
+</dl>
+</dd>
+</dl>
 </dd></dl>
 
 <p id="module-RIFT.calmarg.rift_source">Source functions to match how RIFT generates waveforms</p>

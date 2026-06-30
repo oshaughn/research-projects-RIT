@@ -60,6 +60,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
 </ul>
@@ -68,6 +69,7 @@
 <li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
 <li class="toctree-l2 current"><a class="current reference internal" href="#">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#differentiable-jax-surrogates-jax-gp">Differentiable (JAX) surrogates: <code class="docutils literal notranslate"><span class="pre">jax_gp</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics API Reference</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
@@ -364,6 +366,31 @@ of the training data in that dimension.</p>
 </section>
 <section id="senni-surrogate-enabled-nested-nested-importance-sampling">
 <h2>SENNI (Surrogate Enabled Nested Nested Importance Sampling)<a class="headerlink" href="#senni-surrogate-enabled-nested-nested-importance-sampling" title="Link to this heading"></a></h2>
+</section>
+</section>
+<section id="differentiable-jax-surrogates-jax-gp">
+<h1>Differentiable (JAX) surrogates: <code class="docutils literal notranslate"><span class="pre">jax_gp</span></code><a class="headerlink" href="#differentiable-jax-surrogates-jax-gp" title="Link to this heading"></a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">RIFT.interpolators.jax_gp</span></code> is a pure-JAX framework for fitting a continuous,
+<code class="docutils literal notranslate"><span class="pre">jax.grad</span></code>-able surrogate of the marginalized log-likelihood <code class="docutils literal notranslate"><span class="pre">lnL(theta)</span></code> over
+the ILE intrinsic grid, and exporting it as a small, portable artifact that reloads
+with <strong>no RIFT/lalsimutils dependency</strong>.  It is the differentiable counterpart to the
+GP/RF fits the legacy CIP uses, intended for AD use cases (gradient-based sampling,
+population inference) and for shipping a self-contained likelihood surrogate.</p>
+<section id="interpolators">
+<h2>Interpolators<a class="headerlink" href="#interpolators" title="Link to this heading"></a></h2>
+<p>Each interpolator fits in a per-dimension <em>whitened</em> space and exposes a pure-JAX
+<code class="docutils literal notranslate"><span class="pre">lnL_physical(theta)</span></code> (differentiable in the fit coordinates).</p>
+</section>
+<section id="artifact-export-import">
+<h2>Artifact export / import<a class="headerlink" href="#artifact-export-import" title="Link to this heading"></a></h2>
+</section>
+<section id="applications">
+<h2>Applications<a class="headerlink" href="#applications" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">export_artifact</span></code> packages a single ILE <code class="docutils literal notranslate"><span class="pre">.net</span></code> into a differentiable artifact;
+<code class="docutils literal notranslate"><span class="pre">jax_cip</span></code> is a standalone pure-JAX intrinsic-posterior path; <code class="docutils literal notranslate"><span class="pre">export_at_scale</span></code>
+points at a <em>real run directory</em>, exports the artifact, and validates it against the
+run’s own CIP posterior (apples-to-apples, with RIFT’s priors), locally or over
+HTCondor.  See <code class="docutils literal notranslate"><span class="pre">applications/EXPORT_AT_SCALE.md</span></code> and <code class="docutils literal notranslate"><span class="pre">applications/ARTIFACT.md</span></code>.</p>
 </section>
 </section>
 

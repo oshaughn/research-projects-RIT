@@ -60,6 +60,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../executables/index.html">Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../physics/index.html">Waveform Generation</a></li>
 </ul>
@@ -68,6 +69,7 @@
 <li class="toctree-l1 current"><a class="reference internal" href="../index.html">API Reference</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="../integrators/index.html">Integrators (MC Sampling)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../interpolators/index.html#differentiable-jax-surrogates-jax-gp">Differentiable (JAX) surrogates: <code class="docutils literal notranslate"><span class="pre">jax_gp</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="../likelihood/index.html">Likelihood and Priors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../physics/index.html">Physics API Reference</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../plot_utilities/index.html">Plot Utilities</a></li>
@@ -213,12 +215,12 @@ Use alternative configuration methods instead.</p>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.misc.spokes.LoadSpokeDAT">
-<span class="sig-prename descclassname"><span class="pre">RIFT.misc.spokes.</span></span><span class="sig-name descname"><span class="pre">LoadSpokeDAT</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_eccentric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.spokes.LoadSpokeDAT" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.spokes.</span></span><span class="sig-name descname"><span class="pre">LoadSpokeDAT</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_eccentric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">digits</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.spokes.LoadSpokeDAT" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.misc.spokes.LoadSpokeXML">
-<span class="sig-prename descclassname"><span class="pre">RIFT.misc.spokes.</span></span><span class="sig-name descname"><span class="pre">LoadSpokeXML</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_eccentric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.spokes.LoadSpokeXML" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.spokes.</span></span><span class="sig-name descname"><span class="pre">LoadSpokeXML</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_eccentric</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">digits</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.spokes.LoadSpokeXML" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
@@ -1145,6 +1147,54 @@ Borrowed and modified from the LAL code in glue/glue/pipeline.py</p>
 </dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.dag_utils.ile_gpu_fanout_value">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.dag_utils.</span></span><span class="sig-name descname"><span class="pre">ile_gpu_fanout_value</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.dag_utils.ile_gpu_fanout_value" title="Link to this definition"></a></dt>
+<dd><p>Launcher directive baked into ile_pre.sh, resolved from RIFT_ILE_GPU_FANOUT
+at DAG-build time.  Recognised values (see ile_gpu_request for the matching
+condor request):</p>
+<blockquote>
+<div><p>‘1’ / ‘single’ / ‘off’  -&gt; no fan-out, single-GPU run (the fallback)
+‘all’  (DEFAULT)        -&gt; split across EVERY physical GPU (ignore CVD; whole node)
+N (int)                 -&gt; split the granted GPUs into &lt;=N shards
+‘auto’                  -&gt; split across exactly the GPUs condor granted (CUDA_VISIBLE_DEVICES)
+‘auto-max-N’            -&gt; adaptive (partitionable slots): condor grants 1..N GPUs;</p>
+<blockquote>
+<div><p>launcher splits across the granted set, so baked value is ‘auto’.</p>
+</div></blockquote>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.dag_utils.ile_gpu_request">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.dag_utils.</span></span><span class="sig-name descname"><span class="pre">ile_gpu_request</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.dag_utils.ile_gpu_request" title="Link to this definition"></a></dt>
+<dd><p>Resolve RIFT_ILE_GPU_FANOUT into the condor (request_gpus, request_cpus)
+values for an ILE job.  Each is an int (fixed count) OR a string ClassAd
+expression (adaptive).  Returns (1, 1) for the default ‘all’ and for ‘auto’/’off’
+(those keep request_GPUs=1 – ‘all’/’auto’ obtain their GPUs at runtime from a node
+you have reserved; the request cannot size them ahead of time).</p>
+<p>‘auto-max-N’ emits an expression that requests up to N of the capability-matching
+GPUs actually available on the matched (partitionable) slot.  Override the expression
+with RIFT_ILE_GPU_REQUEST_EXPR if your pool exposes GPU counts differently
+(verify the attribute with <cite>condor_status -long &lt;gpu-node&gt;</cite>).  Partitionable GPU
+slots are not the recommended path; ‘all’ is the default instead.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.dag_utils.ile_invocation_shell">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.dag_utils.</span></span><span class="sig-name descname"><span class="pre">ile_invocation_shell</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">exe</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fanout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.dag_utils.ile_invocation_shell" title="Link to this definition"></a></dt>
+<dd><p>Return the shell snippet that invokes the ILE executable <cite>exe</cite> with
+multi-GPU fan-out (see RIFT_ILE_GPU_FANOUT).  The launcher reads its source
+from stdin via a quoted here-doc, so the ILE arguments in “$&#64;” (which include
+nested-quoted values) are passed through untouched.  With fan-out disabled
+the launcher simply exec()s the binary, so default behaviour is unchanged.</p>
+<p>The build-time fan-out value is BAKED into ile_pre.sh as the runtime default
+(still overridable by a runtime RIFT_ILE_GPU_FANOUT), so the job does NOT
+depend on the submit/execute environment propagating the variable – this is
+what makes the feature work under asimov, whose blueprints can only set the
+value at DAG-build time.</p>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="RIFT.misc.dag_utils.is_exe">
 <span class="sig-prename descclassname"><span class="pre">RIFT.misc.dag_utils.</span></span><span class="sig-name descname"><span class="pre">is_exe</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fpath</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.dag_utils.is_exe" title="Link to this definition"></a></dt>
 <dd></dd></dl>
@@ -1273,6 +1323,18 @@ Outputs:</p>
 </ul>
 </dd>
 </dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.misc.dag_utils.write_calpilot_sub">
+<span class="sig-prename descclassname"><span class="pre">RIFT.misc.dag_utils.</span></span><span class="sig-name descname"><span class="pre">write_calpilot_sub</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'calpilot'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">exe</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">universe</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'vanilla'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">working_directory</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ile_args_file</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">top_fraction</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_points</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">32</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">request_memory</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">4096</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">request_gpu</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_singularity</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">singularity_image</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_oauth_files</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">transfer_files</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_runtime_minutes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">300</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.misc.dag_utils.write_calpilot_sub" title="Link to this definition"></a></dt>
+<dd><p>Submit file for a calibration PILOT stage (Option C; see
+RIFT/calmarg/DESIGN_adaptive_driver.md): harvest top-lnL points from iteration
+$(macroiteration)’s composite, run ILE –calibration-dump-responsibilities on them,
+fit + consolidate a cal proposal that seeds wide_{N+1}.  Runs util_CalPilotStage.py.</p>
+<p>Macros expected at instantiation: macroiteration, macroiterationprev.
+Produces  &lt;wd&gt;/cal_consolidated_$(macroiteration).npz  (consumed by wide_{N+1} ILE via
+–calibration-proposal-breadcrumb).</p>
 </dd></dl>
 
 <dl class="py function">

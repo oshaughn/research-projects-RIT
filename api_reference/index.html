@@ -60,6 +60,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../executables/index.html">Executables</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
 </ul>
@@ -68,6 +69,7 @@
 <li class="toctree-l1 current"><a class="current reference internal" href="#">API Reference</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="integrators/index.html">Integrators (MC Sampling)</a></li>
 <li class="toctree-l2"><a class="reference internal" href="interpolators/index.html">Interpolators (Surrogates)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="interpolators/index.html#differentiable-jax-surrogates-jax-gp">Differentiable (JAX) surrogates: <code class="docutils literal notranslate"><span class="pre">jax_gp</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="likelihood/index.html">Likelihood and Priors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="physics/index.html">Physics API Reference</a></li>
 <li class="toctree-l2"><a class="reference internal" href="plot_utilities/index.html">Plot Utilities</a></li>
@@ -422,6 +424,12 @@
 <li class="toctree-l2"><a class="reference internal" href="interpolators/index.html#senni-surrogate-enabled-nested-nested-importance-sampling">SENNI (Surrogate Enabled Nested Nested Importance Sampling)</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="interpolators/index.html#differentiable-jax-surrogates-jax-gp">Differentiable (JAX) surrogates: <code class="docutils literal notranslate"><span class="pre">jax_gp</span></code></a><ul>
+<li class="toctree-l2"><a class="reference internal" href="interpolators/index.html#interpolators">Interpolators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="interpolators/index.html#artifact-export-import">Artifact export / import</a></li>
+<li class="toctree-l2"><a class="reference internal" href="interpolators/index.html#applications">Applications</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="likelihood/index.html">Likelihood and Priors</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="likelihood/index.html#overview">Overview</a></li>
 <li class="toctree-l2"><a class="reference internal" href="likelihood/index.html#q-inner-product">Q Inner Product</a></li>
@@ -576,6 +584,7 @@
 <li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSReprimand.update"><code class="docutils literal notranslate"><span class="pre">EOSReprimand.update()</span></code></a></li>
 </ul>
 </li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceFromFile"><code class="docutils literal notranslate"><span class="pre">EOSSequenceFromFile()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry"><code class="docutils literal notranslate"><span class="pre">EOSSequenceLandry</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry.R_of_m_indx"><code class="docutils literal notranslate"><span class="pre">EOSSequenceLandry.R_of_m_indx()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry.extract_one_eos_object"><code class="docutils literal notranslate"><span class="pre">EOSSequenceLandry.extract_one_eos_object()</span></code></a></li>
@@ -583,6 +592,14 @@
 <li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry.lambda_of_m_indx"><code class="docutils literal notranslate"><span class="pre">EOSSequenceLandry.lambda_of_m_indx()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry.lookup_closest"><code class="docutils literal notranslate"><span class="pre">EOSSequenceLandry.lookup_closest()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceLandry.m_max_of_indx"><code class="docutils literal notranslate"><span class="pre">EOSSequenceLandry.m_max_of_indx()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceNMB"><code class="docutils literal notranslate"><span class="pre">EOSSequenceNMB</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequencePCA"><code class="docutils literal notranslate"><span class="pre">EOSSequencePCA</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceSingleIndex"><code class="docutils literal notranslate"><span class="pre">EOSSequenceSingleIndex</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceSingleIndex.R_from_m"><code class="docutils literal notranslate"><span class="pre">EOSSequenceSingleIndex.R_from_m()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceSingleIndex.lambda_from_m"><code class="docutils literal notranslate"><span class="pre">EOSSequenceSingleIndex.lambda_from_m()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.EOSSequenceSingleIndex.lambda_from_m_vector"><code class="docutils literal notranslate"><span class="pre">EOSSequenceSingleIndex.lambda_from_m_vector()</span></code></a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="physics/EOSManager.html#RIFT.physics.EOSManager.LookupCrustEpsilonAtPressure"><code class="docutils literal notranslate"><span class="pre">LookupCrustEpsilonAtPressure()</span></code></a></li>
@@ -956,9 +973,14 @@
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="calmarg.html">Calibration Marginalization API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.generate_realizations.build_realizations_from_nodes"><code class="docutils literal notranslate"><span class="pre">build_realizations_from_nodes()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.generate_realizations.create_realizations"><code class="docutils literal notranslate"><span class="pre">create_realizations()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.generate_realizations.draw_prior_realizations_with_nodes"><code class="docutils literal notranslate"><span class="pre">draw_prior_realizations_with_nodes()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.generate_realizations.node_prior"><code class="docutils literal notranslate"><span class="pre">node_prior()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.generate_realizations.nodes_to_spline_coefficients_matrix"><code class="docutils literal notranslate"><span class="pre">nodes_to_spline_coefficients_matrix()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.generate_realizations.prior_cal_breadcrumb_dict"><code class="docutils literal notranslate"><span class="pre">prior_cal_breadcrumb_dict()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.generate_realizations.retrieve_envelope_from_file"><code class="docutils literal notranslate"><span class="pre">retrieve_envelope_from_file()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.generate_realizations.seed_realizations_from_breadcrumb"><code class="docutils literal notranslate"><span class="pre">seed_realizations_from_breadcrumb()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.rift_source.RIFT_lal_binary_black_hole"><code class="docutils literal notranslate"><span class="pre">RIFT_lal_binary_black_hole()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.rift_source.RIFT_lal_binary_black_hole_orig"><code class="docutils literal notranslate"><span class="pre">RIFT_lal_binary_black_hole_orig()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="calmarg.html#RIFT.calmarg.rift_source.RIFT_lal_eccentric_binary_black_hole"><code class="docutils literal notranslate"><span class="pre">RIFT_lal_eccentric_binary_black_hole()</span></code></a></li>
@@ -1139,6 +1161,9 @@
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.bilby_prior_dict_string_from_mc_q"><code class="docutils literal notranslate"><span class="pre">bilby_prior_dict_string_from_mc_q()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.build_resolved_env"><code class="docutils literal notranslate"><span class="pre">build_resolved_env()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.generate_job_id"><code class="docutils literal notranslate"><span class="pre">generate_job_id()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.ile_gpu_fanout_value"><code class="docutils literal notranslate"><span class="pre">ile_gpu_fanout_value()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.ile_gpu_request"><code class="docutils literal notranslate"><span class="pre">ile_gpu_request()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.ile_invocation_shell"><code class="docutils literal notranslate"><span class="pre">ile_invocation_shell()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.is_exe"><code class="docutils literal notranslate"><span class="pre">is_exe()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.match_expr"><code class="docutils literal notranslate"><span class="pre">match_expr()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.mkdir"><code class="docutils literal notranslate"><span class="pre">mkdir()</span></code></a></li>
@@ -1151,6 +1176,7 @@
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.write_ILE_sub_simple"><code class="docutils literal notranslate"><span class="pre">write_ILE_sub_simple()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.write_bilby_pickle_sub"><code class="docutils literal notranslate"><span class="pre">write_bilby_pickle_sub()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.write_calibration_uncertainty_reweighting_sub"><code class="docutils literal notranslate"><span class="pre">write_calibration_uncertainty_reweighting_sub()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.write_calpilot_sub"><code class="docutils literal notranslate"><span class="pre">write_calpilot_sub()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.write_cat_sub"><code class="docutils literal notranslate"><span class="pre">write_cat_sub()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.write_comov_distance_reweighting_sub"><code class="docutils literal notranslate"><span class="pre">write_comov_distance_reweighting_sub()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="misc/index.html#RIFT.misc.dag_utils.write_consolidate_sub_simple"><code class="docutils literal notranslate"><span class="pre">write_consolidate_sub_simple()</span></code></a></li>

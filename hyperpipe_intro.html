@@ -1,0 +1,174 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quick-start: the Gaussian toy demo &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=82021441" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=911654a9"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="containers.html">Containers and multi-architecture deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Quick-start: the Gaussian toy demo</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/hyperpipe_intro.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <p>The adaptive HyperPipe code, written by Richard O’Shaughnessy and Atul Kedia,
+aims to conduct parameter estimation adaptively on <strong>any</strong> observable or
+simulated data. The code generalizes RIFT for applications other than
+gravitational-wave data analysis.</p>
+<p>HyperPipe adaptively explores regions of parameter space for fully generic,
+simulation-based inference. Given an initial grid and a user-supplied
+<em>likelihood evaluator</em> (a.k.a. a “marg driver”), the pipeline iteratively:</p>
+<ol class="arabic simple">
+<li><p>Evaluates the (marginalized) likelihood on the current hyperparameter grid.</p></li>
+<li><p>Constructs a posterior via Monte Carlo integration.</p></li>
+<li><p>Draws new exploration points from the posterior (and optionally a
+“puff” stage that widens coverage).</p></li>
+<li><p>Repeats for the configured number of iterations.</p></li>
+</ol>
+<p>Two interfaces are available:</p>
+<dl class="simple">
+<dt>:<code class="docutils literal notranslate"><span class="pre">util_RIFT_hyperpipe.py</span></code> (recommended)</dt><dd><p>Hydra/OmegaConf-based configuration. Write a single YAML file,
+run one command. Supports multi-event inputs, coordinate transforms,
+and the parsimonious-placement tracer workflow.</p>
+</dd>
+<dt>:<code class="docutils literal notranslate"><span class="pre">create_eos_posterior_pipeline.py</span></code> + hand-crafted args files (legacy)</dt><dd><p>The original approach. Assembles DAG submission files from
+manually-written <code class="docutils literal notranslate"><span class="pre">args_*.txt</span></code> files. Still fully supported.</p>
+</dd>
+</dl>
+<p>This document covers both interfaces, using the Gaussian toy demo as a
+running example.</p>
+<section id="quick-start-the-gaussian-toy-demo">
+<h1>Quick-start: the Gaussian toy demo<a class="headerlink" href="#quick-start-the-gaussian-toy-demo" title="Link to this heading"></a></h1>
+<p>The fastest way to understand HyperPipe is to run the included 3-D
+Gaussian demo:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">cd</span> <span class="n">RIFT</span><span class="o">/</span><span class="n">MonteCarloMarginalizeCode</span><span class="o">/</span><span class="n">Code</span><span class="o">/</span><span class="n">demo</span><span class="o">/</span><span class="n">hyperpipe</span>
+<span class="n">make</span> <span class="n">rundir</span>
+</pre></div>
+</div>
+<p>This invokes <code class="docutils literal notranslate"><span class="pre">util_RIFT_hyperpipe.py</span></code> with the demo configuration
+<code class="docutils literal notranslate"><span class="pre">hyperpipe_conf.yaml</span></code>. When it finishes, submit the DAG:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">cd</span> <span class="n">rundir</span>
+<span class="n">condor_submit_dag</span> <span class="n">marginalize_hyperparameters</span><span class="o">.</span><span class="n">dag</span>
+</pre></div>
+</div>
+<p>Monitor with <code class="docutils literal notranslate"><span class="pre">watch</span> <span class="pre">condor_q</span></code>. When done, plot the result:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">plot_posterior_corner</span><span class="o">.</span><span class="n">py</span> \
+    <span class="o">--</span><span class="n">posterior</span><span class="o">-</span><span class="n">file</span> <span class="n">posterior</span><span class="o">-</span><span class="mf">3.</span><span class="n">dat</span> \
+    <span class="o">--</span><span class="n">composite</span><span class="o">-</span><span class="n">file</span> <span class="nb">all</span><span class="o">.</span><span class="n">marg_net</span> \
+    <span class="o">--</span><span class="n">composite</span><span class="o">-</span><span class="n">file</span><span class="o">-</span><span class="n">has</span><span class="o">-</span><span class="n">labels</span> \
+    <span class="o">--</span><span class="n">parameter</span> <span class="n">x</span> <span class="o">--</span><span class="n">parameter</span> <span class="n">y</span> <span class="o">--</span><span class="n">parameter</span> <span class="n">z</span> \
+    <span class="o">--</span><span class="n">lnL</span><span class="o">-</span><span class="n">cut</span> <span class="mi">15</span> <span class="o">--</span><span class="n">use</span><span class="o">-</span><span class="nb">all</span><span class="o">-</span><span class="n">composite</span><span class="o">-</span><span class="n">but</span><span class="o">-</span><span class="n">grayscale</span>
+</pre></div>
+</div>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
