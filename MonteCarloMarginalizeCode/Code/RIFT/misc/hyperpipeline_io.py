@@ -197,6 +197,11 @@ def sniff(fname):
     The check is cheap: read the first non-empty line and look for the
     magic marker, or fall back to a header-only sniff (a ``#`` line listing
     the canonical first column names).
+
+    A hyperpipeline file is UTF-8 text, so any file that fails to decode as
+    text (e.g. a gzipped XML injection file, ``*.xml.gz``, whose second byte
+    ``0x8b`` is not valid UTF-8) is by definition not a hyperpipeline file:
+    such input is treated as a negative sniff rather than an error.
     """
     try:
         with open(fname, "r") as fp:
@@ -214,7 +219,7 @@ def sniff(fname):
                 if len(toks) >= 2 and toks[0] == "lnL" and toks[1] == "sigma_lnL":
                     return True
                 return False
-    except (OSError, IOError):
+    except (OSError, IOError, UnicodeDecodeError):
         return False
     return False
 
