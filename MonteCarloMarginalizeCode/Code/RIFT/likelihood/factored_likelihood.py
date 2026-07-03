@@ -1838,7 +1838,53 @@ def _factored_lnL_helper(kappa_sq, rho_sq):
     return kappa_sq - 0.5 * rho_sq
 
 
-def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None,return_cal_components=False):
+def _cubic_Q_window_numpy(Q_block, start_indices, fractional_offsets, npts):
+    """Return cubic-interpolated Q windows with zero extension.
+
+    Q_block has shape (n_time, n_lm).  The returned array has shape
+    (n_extrinsic, npts, n_lm), matching the CPU fallback layout used by NoLoop.
+    The interpolation is a local four-point cubic Lagrange stencil; at integer
+    offsets it reproduces the original samples exactly.
+    """
+    npts_extrinsic = len(start_indices)
+    n_lms_det = Q_block.shape[1]
+    Qlms = np.zeros((npts_extrinsic, npts, n_lms_det), dtype=np.complex128)
+    tgrid = np.arange(npts)
+    n_time = Q_block.shape[0]
+    for i in range(npts_extrinsic):
+        idxs = int(start_indices[i]) + tgrid
+        u = float(fractional_offsets[i])
+        u2 = u*u
+        u3 = u2*u
+        weights = (
+            -u * (u - 1.0) * (u - 2.0) / 6.0,
+            (u + 1.0) * (u - 1.0) * (u - 2.0) / 2.0,
+            -(u + 1.0) * u * (u - 2.0) / 2.0,
+            (u + 1.0) * u * (u - 1.0) / 6.0,
+        )
+        for offset, weight in zip((-1, 0, 1, 2), weights):
+            idxs_here = idxs + offset
+            valid = (idxs_here >= 0) & (idxs_here < n_time)
+            if np.any(valid):
+                Qlms[i, valid] += weight * Q_block[idxs_here[valid]]
+    return Qlms
+
+
+def _nearest_Q_window_numpy(Q_block, start_indices, npts, xpy=np):
+    """Return nearest-grid Q windows with zero extension."""
+    npts_extrinsic = len(start_indices)
+    n_lms_det = Q_block.shape[1]
+    Qlms = xpy.zeros((npts_extrinsic, npts, n_lms_det), dtype=np.complex128)
+    tgrid = np.arange(npts)
+    n_time = Q_block.shape[0]
+    for i in range(npts_extrinsic):
+        idxs = int(start_indices[i]) + tgrid
+        valid = (idxs >= 0) & (idxs < n_time)
+        Qlms[i, valid] = Q_block[idxs[valid]]
+    return Qlms
+
+
+def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDict, rholmsArrayDict, ctUArrayDict,ctVArrayDict,epochDict,Lmax=2,array_output=False,xpy=np, loglikelihood=_factored_lnL_helper,return_lnLt=False,phase_marginalization=False,n_cal=1,cal_method='loop',cal_distmarg=None,cal_log_weights=None,return_cal_components=False,time_interp='nearest'):
     """
     DiscreteFactoredLogLikelihoodViaArray uses the array-ized data structures to compute the log likelihood,
     either as an array vs time *or* marginalized in time.
@@ -1878,8 +1924,20 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     cal_distmarg : dict or None
         Distance-marginalization table+params for the fused distmarg kernel; see
         RIFT.likelihood.Q_fused_calmarg.Q_fused_calmarg_distmarg_cupy.
+
+    time_interp : {'nearest', 'cubic'}
+        Detector-time sampling convention for the data term.  'nearest'
+        preserves the historical NoLoop integer-bin gather.  'cubic' evaluates
+        the precomputed Q_lm time series at the fractional detector arrival time
+        using a four-sample cubic Lagrange stencil, with zero extension outside
+        the precomputed buffer.
     """
     global distMpcRef
+
+    if time_interp not in ('nearest', 'cubic'):
+        raise ValueError("time_interp must be 'nearest' or 'cubic'")
+    if time_interp != 'nearest' and cal_method == 'fused':
+        raise NotImplementedError("time_interp='{}' is not implemented for cal_method='fused'".format(time_interp))
 
     detectors = rholmsArrayDict.keys()
     npts = len(tvals)
@@ -1980,7 +2038,13 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         )
         tfirst = t_det + tvals[0]
 
-        ifirst = (xpy.rint((tfirst) / deltaT) + 0.5).astype(np.int32)  # C uses 32 bit integers : be careful
+        sample_first = tfirst / deltaT
+        if time_interp == 'nearest':
+            ifirst = (xpy.rint(sample_first) + 0.5).astype(np.int32)  # C uses 32 bit integers : be careful
+            frac_first = None
+        else:
+            ifirst = xpy.floor(sample_first).astype(np.int32)
+            frac_first = (sample_first - xpy.floor(sample_first)).astype(np.float64)
 #        ilast = ifirst + npts
 
 
@@ -2055,15 +2119,23 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             # Shape Q = (npts_time_full, nlms)
             # Shape A=FY_conj = (npts_extrinsic, nlms)
             # shape result = (npts_extrinsic, npts_time_*window* = npts)
-            Q_prod_result = Q_inner_product.Q_inner_product_cupy(
-              Q, FY_conj,
-              ifirst, npts,
-              )
+            if time_interp == 'nearest':
+              Q_prod_result = Q_inner_product.Q_inner_product_cupy(
+                Q, FY_conj,
+                ifirst, npts,
+                )
+            else:
+              Q_prod_result = Q_inner_product.Q_inner_product_cubic_cupy(
+                Q, FY_conj,
+                ifirst, frac_first, npts,
+                )
           else:
             # Use old code completely unchanged ... very wasteful on memory management!
-            Qlms = xpy.empty((npts_extrinsic, npts, n_lms), dtype=np.complex128)
-            for i in range(npts_extrinsic):
-                Qlms[i] = rholmsArrayDict[det][...,ifirst[i]:(ifirst[i]+npts)].T
+            Q_block = rholmsArrayDict[det].T
+            if time_interp == 'nearest':
+                Qlms = _nearest_Q_window_numpy(Q_block, ifirst, npts, xpy=xpy)
+            else:
+                Qlms = _cubic_Q_window_numpy(Q_block, ifirst, frac_first, npts)
             if phase_marginalization:
                 Qlms[:, :, 1] = xpy.conj(Qlms[:, :, 1])
 
@@ -2087,7 +2159,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
           npts_full_det = Q.shape[0]
           N_window_block = npts_full_det // n_cal
           FY_conj_cal = xpy.conj(F_vec_dummy_lm * Ylms_vec)
-          cal_cache[det] = (Q, FY_conj_cal, ifirst, N_window_block)
+          cal_cache[det] = (Q, FY_conj_cal, ifirst, N_window_block, frac_first)
         # lnL_t_accum += Q_prod_result * (distMpcRef/distMpc)[...,None]
 
         # lnL_t_accum += Q_inner_product.Q_inner_product_cupy(
@@ -2198,7 +2270,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     for c in range(n_cal):
         kappa_sq_c = xpy.zeros((npts_extrinsic, npts), dtype=np.complex128)
         for det in detectors:
-            Q_det, FY_conj_det, ifirst_det, N_window_block = cal_cache[det]
+            Q_det, FY_conj_det, ifirst_det, N_window_block, frac_first_det = cal_cache[det]
             # Restrict to THIS realization block and use the within-block offset, so
             # the window is confined to [0, N_window): an over-running window then
             # zeros (the shared kernel / CPU fill below guard against N_window_block)
@@ -2208,17 +2280,19 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
             Q_block = Q_det[c*N_window_block:(c+1)*N_window_block]   # (N_window, n_lms)
             ifirst_within = ifirst_det.astype(np.int32)
             if not (xpy is np):
-                Q_prod_result = Q_inner_product.Q_inner_product_cupy(
-                    Q_block, FY_conj_det, ifirst_within, npts,
-                )
+                if time_interp == 'nearest':
+                    Q_prod_result = Q_inner_product.Q_inner_product_cupy(
+                        Q_block, FY_conj_det, ifirst_within, npts,
+                    )
+                else:
+                    Q_prod_result = Q_inner_product.Q_inner_product_cubic_cupy(
+                        Q_block, FY_conj_det, ifirst_within, frac_first_det, npts,
+                    )
             else:
-                n_lms_det = Q_block.shape[1]
-                Qlms = xpy.zeros((npts_extrinsic, npts, n_lms_det), dtype=np.complex128)
-                tgrid = np.arange(npts)
-                for i in range(npts_extrinsic):
-                    idxs = int(ifirst_within[i]) + tgrid
-                    valid = (idxs >= 0) & (idxs < N_window_block)
-                    Qlms[i, valid] = Q_block[idxs[valid]]
+                if time_interp == 'nearest':
+                    Qlms = _nearest_Q_window_numpy(Q_block, ifirst_within, npts, xpy=xpy)
+                else:
+                    Qlms = _cubic_Q_window_numpy(Q_block, ifirst_within, frac_first_det, npts)
                 # Q_det and FY_conj_det already encode any phase-marg conjugation
                 Q_prod_result = np.einsum("ej,etj->et", FY_conj_det, Qlms)
             kappa_sq_c += Q_prod_result * invDistMpc[..., np.newaxis]
@@ -2376,5 +2450,3 @@ def ComputeYlmsArrayVector(lookupNK, theta, phi):
 
             Ylms[indx] = lalylm(theta, phi, s, l, m)
     return Ylms
-
-
