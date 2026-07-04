@@ -302,3 +302,102 @@ def PrecomputeLikelihoodTermsWithRotation(
                 a_list=a_list, event_time_geo=float(event_time_geo),
                 omega_earth=OMEGA_EARTH, modes=list(hlms.keys()))
     return rholms_intp_rot, crossTerms_rot, crossTermsV_rot, rholms_rot, meta
+
+
+# ---------------------------------------------------------------------------
+# Rotation-aware log-likelihood assembly (Path A: amplitude drift, p_max=0).
+# ---------------------------------------------------------------------------
+def antenna_harmonics_tilde(det, RA, DEC, psi, tref):
+    """Return {n: A_tilde_n} where F_k(t) = sum_n A_tilde_n exp(i n Omega (t - tref)).
+
+    A_tilde_n = A_n(response, dec, psi) * exp(i n (GMST(tref) - RA)), with A_n the
+    RA/time-independent antenna harmonics from slowrot_response.  So A_tilde_n is the
+    coefficient of the precompute's modulation exp(i n Omega (t - tref)); sum_n A_tilde_n
+    = F_k(tref) reproduces lal.ComputeDetAMResponse exactly.
+    """
+    import lal
+    import lalsimulation as lalsim
+    from . import slowrot_response as srr
+    lald = lalsim.DetectorPrefixToLALDetector(det)
+    A = srr.antenna_harmonics(lald.response, DEC, psi)
+    g_ev = float(lal.GreenwichMeanSiderealTime(lal.LIGOTimeGPS(float(tref)))) - RA
+    return {n: A[n] * np.exp(1.0j * n * g_ev) for n in A}
+
+
+def FactoredLogLikelihoodWithRotation(extr_params, rholms_intp_rot, crossTerms_rot,
+                                      crossTermsV_rot, meta, Lmax):
+    """Slow-rotation analogue of factored_likelihood.FactoredLogLikelihood (Path A).
+
+    Contracts the harmonic-resolved precompute bank with the antenna harmonics
+    A_tilde_n(det, RA, DEC, psi, tref).  Reduces EXACTLY to the baseline
+    FactoredLogLikelihood when f_sidereal -> 0 (all modulations become identity and
+    sum_n A_tilde_n -> F_k(tref)).
+
+    Currently implements p_max=0 (amplitude drift only); the delay-derivative (Path B)
+    contraction with B_n is a TODO.
+    """
+    import lal
+    from . import factored_likelihood as FL
+    from .. import lalsimutils as lsu
+
+    assert meta['p_max'] == 0, "FactoredLogLikelihoodWithRotation implements Path A (p_max=0)"
+    harmonics = list(meta['harmonics'])
+    hset = set(harmonics)
+    for n in harmonics:
+        assert -n in hset, "harmonic set must be symmetric (need -n for the V term): %s" % harmonics
+
+    RA = extr_params.phi
+    DEC = extr_params.theta
+    tref = extr_params.tref
+    phiref = extr_params.phiref
+    incl = extr_params.incl
+    psi = extr_params.psi
+    dist = extr_params.dist
+
+    detectors = list(rholms_intp_rot.keys())
+    modes = list(rholms_intp_rot[detectors[0]][(0, harmonics[0])].keys())
+    Ylms = FL.ComputeYlms(Lmax, incl, -phiref, selected_modes=modes)
+
+    distMpc = dist / (lsu.lsu_PC * 1e6)
+    invDistMpc = FL.distMpcRef / distMpc
+
+    lnL = 0.
+    for det in detectors:
+        At = antenna_harmonics_tilde(det, RA, DEC, psi, tref)
+        t_det = FL.ComputeArrivalTimeAtDetector(det, RA, DEC, tref)
+        CT = crossTerms_rot[det]
+        CTV = crossTermsV_rot[det]
+
+        # Q^{(0,n)}_lm(t_det) for each harmonic n
+        Q = {n: {m: rholms_intp_rot[det][(0, n)][m](float(t_det))
+                 for m in modes} for n in harmonics}
+
+        # term1 = Re[ sum_lm conj(Ylm) sum_n conj(A_tilde_n) Q^{(0,n)}_lm(t_det) ]
+        term1 = 0.
+        for m in modes:
+            s = 0.
+            for n in harmonics:
+                s += np.conj(At[n]) * Q[n][m]
+            term1 += np.conj(Ylms[m]) * s
+        term1 = np.real(term1) * invDistMpc
+
+        # term2 = -1/4 Re[ sum_{p1,p2} ( U-part conj(Y1)Y2 + V-part Y1 Y2 ) ]
+        #   U-part = sum_{n,n'} conj(A_tilde_n) A_tilde_n' U^{((0,n),(0,n'))}[p1,p2]
+        #   V-part = sum_{nu,n'} A_tilde_{-nu} A_tilde_n' V^{((0,nu),(0,n'))}[p1,p2]
+        term2 = 0.
+        for p1 in modes:
+            for p2 in modes:
+                u = 0.
+                v = 0.
+                for n in harmonics:
+                    for npr in harmonics:
+                        u += np.conj(At[n]) * At[npr] * CT[((0, n), (0, npr))][(p1, p2)]
+                for nu in harmonics:
+                    for npr in harmonics:
+                        v += At[-nu] * At[npr] * CTV[((0, nu), (0, npr))][(p1, p2)]
+                term2 += u * np.conj(Ylms[p1]) * Ylms[p2] + v * Ylms[p1] * Ylms[p2]
+        term2 = -np.real(term2) / 4. / (distMpc / FL.distMpcRef) ** 2
+
+        lnL += term1 + term2
+
+    return lnL
