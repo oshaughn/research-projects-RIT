@@ -256,6 +256,7 @@ optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm 
 optp.add_option("--force-gpu-only", action="store_true", help="Hard fail if no GPU present (assessed by cupy not loading)")
 optp.add_option("--rotation-slow", action="store_true", help="[Path A] Slow-rotation likelihood: account for the sidereal time-dependence of the antenna pattern F(t) over the signal (harmonic modulation).  Requires --vectorized and CPU (not --gpu).  Uses factored_likelihood_with_rotation.")
 optp.add_option("--rotation-n-harmonics", type=int, default=2, help="Number of sidereal harmonics for --rotation-slow (antenna pattern needs 2, i.e. n=-2..2).")
+optp.add_option("--rotation-p-max", type=int, default=0, help="[Path B] Max delay-derivative order for --rotation-slow (0 = amplitude drift only; >=1 adds propagation-delay drift).")
 optp.add_option("--force-xpy", action="store_true", help="Use the xpy code path.  Use with --vectorized --gpu to use the fallback CPU-based code path. Useful for debugging.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
@@ -1837,18 +1838,19 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # [Path A] slow-rotation precompute: build the harmonic-indexed bank and pack it.
         rotation_slow_data = None
         if opts.rotation_slow:
-            _nh = int(opts.rotation_n_harmonics)
+            _pmax = int(opts.rotation_p_max)
+            _nh = max(int(opts.rotation_n_harmonics), 2 + _pmax)  # wide enough to cover all C_{(p,ntilde)}
             _harm = tuple(range(-_nh, _nh + 1))
             _rint_r, _ct_r, _ctV_r, _rho_r, _meta_r = factored_likelihood_with_rotation.PrecomputeLikelihoodTermsWithRotation(
                 fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
-                harmonics=_harm, p_max=0, analyticPSD_Q=False,
+                harmonics=_harm, p_max=_pmax, analyticPSD_Q=False,
                 inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec,
                 verbose=opts.verbose, quiet=not opts.verbose, skip_interpolation=True)
             _lkR, _rhoN, _uNN, _vNN, _epR = factored_likelihood_with_rotation.pack_rotation_arrays(
                 _meta_r, _rho_r, _ct_r, _ctV_r)
             rotation_slow_data = dict(meta=_meta_r, lookupNKDict=_lkR, rho_by_n=_rhoN,
                                       U_by_nn=_uNN, V_by_nn=_vNN, epochDict=_epR)
-            print("  [rotation-slow] Path A precompute complete; sidereal harmonics", _harm)
+            print("  [rotation-slow] precompute complete; p_max", _pmax, "sidereal harmonics", _harm)
 
         def _cal_error_probe(n_cal_now, n_start=256, n_cap=None, rel_tol=0.1):
             """Estimate (sigma_lnZ_cal, neff_cal, n_used, dist_mode): the calibration

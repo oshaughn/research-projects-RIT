@@ -227,6 +227,18 @@ def delay_harmonics(location_xyz, dec):
     return B
 
 
+def delay_harmonics_vector(location_xyz, dec):
+    """Vectorized delay_harmonics: dec is an array (shape S).  Returns {n: complex ndarray
+    shape S} for n=-1,0,1.  Same algebra as delay_harmonics."""
+    r = np.asarray(location_xyz, dtype=float)
+    dec = np.asarray(dec, dtype=float)
+    cd, sd = np.cos(dec), np.sin(dec)
+    T0 = -(r[2] * sd) / C_SI
+    T1c = -(cd * r[0]) / C_SI
+    T1s = (cd * r[1]) / C_SI
+    return {0: T0 + 0j, 1: 0.5 * (T1c - 1j * T1s), -1: 0.5 * (T1c + 1j * T1s)}
+
+
 # ---------------------------------------------------------------------------
 # Reconstruction helpers (evaluate the harmonic series at given hour angle g).
 # ---------------------------------------------------------------------------
