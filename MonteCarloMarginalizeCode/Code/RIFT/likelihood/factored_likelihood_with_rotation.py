@@ -401,3 +401,114 @@ def FactoredLogLikelihoodWithRotation(extr_params, rholms_intp_rot, crossTerms_r
         lnL += term1 + term2
 
     return lnL
+
+
+# ---------------------------------------------------------------------------
+# Vectorized (NoLoop) rotation likelihood -- the maintained batchmode path.
+# ---------------------------------------------------------------------------
+def pack_rotation_arrays(meta, rholms_rot, crossTerms_rot, crossTermsV_rot):
+    """Pack the harmonic-indexed precompute bank into dense arrays for the NoLoop path.
+
+    Returns (lookupNKDict, rho_by_n, U_by_nn, V_by_nn, epochDict) where, per detector:
+      lookupNKDict[det] : int array of (l,m) rows (consistent ordering everywhere)
+      rho_by_n[det][n]  : (n_lms, npts) complex data-term array for harmonic n
+      U_by_nn[det][(n,np)], V_by_nn[det][(nu,np)] : (n_lms, n_lms) complex cross matrices
+      epochDict[det]    : float epoch of the packed rholms window
+    Analogue of factored_likelihood.PackLikelihoodDataStructuresAsArrays, per harmonic.
+    """
+    harmonics = list(meta['harmonics'])
+    lookupNKDict = {}; rho_by_n = {}; U_by_nn = {}; V_by_nn = {}; epochDict = {}
+    for det in rholms_rot:
+        a0 = (0, harmonics[0])
+        modes = list(rholms_rot[det][a0].keys())
+        n_lms = len(modes)
+        idx = {m: i for i, m in enumerate(modes)}
+        lookupNKDict[det] = np.array([[m[0], m[1]] for m in modes], dtype=int)
+        npts = rholms_rot[det][a0][modes[0]].data.length
+        epochDict[det] = float(rholms_rot[det][a0][modes[0]].epoch)
+        rho_by_n[det] = {}
+        for n in harmonics:
+            arr = np.zeros((n_lms, npts), dtype=np.complex128)
+            for m in modes:
+                arr[idx[m]] = rholms_rot[det][(0, n)][m].data.data
+            rho_by_n[det][n] = arr
+        U_by_nn[det] = {}; V_by_nn[det] = {}
+        for n in harmonics:
+            for npr in harmonics:
+                Um = np.zeros((n_lms, n_lms), dtype=np.complex128)
+                Vm = np.zeros((n_lms, n_lms), dtype=np.complex128)
+                cU = crossTerms_rot[det][((0, n), (0, npr))]
+                cV = crossTermsV_rot[det][((0, n), (0, npr))]
+                for m1 in modes:
+                    for m2 in modes:
+                        Um[idx[m1], idx[m2]] = cU[(m1, m2)]
+                        Vm[idx[m1], idx[m2]] = cV[(m1, m2)]
+                U_by_nn[det][(n, npr)] = Um
+                V_by_nn[det][(n, npr)] = Vm
+    return lookupNKDict, rho_by_n, U_by_nn, V_by_nn, epochDict
+
+
+def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
+        tvals, P_vec, meta, lookupNKDict, rho_by_n, U_by_nn, V_by_nn, epochDict,
+        Lmax=2, array_output=False):
+    """Vectorized rotation-aware lnL (Path A).
+
+    Mirrors factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopOrig with
+    sums over sidereal harmonics and the per-sample antenna harmonics
+    A_tilde_n = A_n(det,dec,psi) exp(i n (GMST(tref)-RA)).  Extrinsic params in P_vec are
+    ARRAYS of length npts_ex (RA, DEC, incl, phiref, psi, dist); tref, deltaT scalar.
+
+    array_output=True returns lnL_t of shape (npts_ex, npts) (before time marginalization);
+    array_output=False returns the time-marginalized lnL of shape (npts_ex,).
+    """
+    import lal
+    import lalsimulation as lalsim
+    from . import factored_likelihood as FL
+    from . import slowrot_response as srr
+
+    harmonics = list(meta['harmonics'])
+    gmst_ev = float(lal.GreenwichMeanSiderealTime(lal.LIGOTimeGPS(float(P_vec.tref))))
+    npts = len(tvals); npts_ex = len(P_vec.phi)
+    RA = P_vec.phi; DEC = P_vec.theta
+    incl = P_vec.incl; phiref = P_vec.phiref; psi = P_vec.psi
+    distMpc = P_vec.dist / (lal.PC_SI * 1e6)
+    lnL_t = np.zeros((npts_ex, npts), dtype=np.float64)
+
+    for det in rho_by_n:
+        n_lms = len(lookupNKDict[det])
+        Ylms = FL.ComputeYlmsArrayVector(lookupNKDict[det], incl, -phiref).T  # (npts_ex, n_lms)
+        resp = lalsim.DetectorPrefixToLALDetector(det).response
+        A_n = srr.antenna_harmonics_vector(resp, DEC, psi)
+        At = {n: A_n[n] * np.exp(1j * n * (gmst_ev - RA)) for n in harmonics}
+        t_ref = epochDict[det]
+        t_det = FL.lalT(det, RA, DEC, P_vec.tref)
+        ifirst = (np.round((t_det + tvals[0] - t_ref) / P_vec.deltaT) + 0.5).astype(int)
+        ilast = ifirst + npts
+
+        term1 = np.zeros((npts_ex, npts), dtype=np.complex128)
+        for n in harmonics:
+            det_rho = rho_by_n[det][n]
+            Qn = np.empty((npts_ex, npts, n_lms), dtype=np.complex128)
+            for i in range(npts_ex):
+                Qn[i] = det_rho[..., ifirst[i]:ilast[i]].T
+            term1 += np.conj(At[n])[:, None] * np.einsum('xi,xti->xt', np.conj(Ylms), Qn)
+        term1 = term1.real * (FL.distMpcRef / distMpc)[:, None]
+
+        term2 = np.zeros(npts_ex, dtype=np.complex128)
+        for n in harmonics:
+            for npr in harmonics:
+                term2 += np.conj(At[n]) * At[npr] * np.einsum(
+                    'xi,xj,ij->x', np.conj(Ylms), Ylms, U_by_nn[det][(n, npr)])
+        for nu in harmonics:
+            for npr in harmonics:
+                term2 += At[-nu] * At[npr] * np.einsum(
+                    'xi,xj,ij->x', Ylms, Ylms, V_by_nn[det][(nu, npr)])
+        term2 = (-0.25 * term2.real) * (FL.distMpcRef / distMpc) ** 2
+
+        lnL_t += term1 + term2[:, None]
+
+    if array_output:
+        return lnL_t
+    lnLmax = np.max(lnL_t, axis=-1, keepdims=True)
+    L = FL.my_simps(np.exp(lnL_t - lnLmax), dx=P_vec.deltaT, axis=-1)
+    return lnLmax[..., 0] + np.log(L)

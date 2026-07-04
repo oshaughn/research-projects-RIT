@@ -127,6 +127,72 @@ def antenna_harmonics(response_matrix, dec, psi):
     return A
 
 
+def antenna_harmonics_vector(response_matrix, dec, psi):
+    """Vectorized antenna_harmonics: dec, psi arrays (broadcast shape S).
+
+    Returns {n: complex ndarray shape S} for n in -2..2.  Mirrors antenna_harmonics
+    exactly (same algebra), but dec/psi may be numpy arrays (or plain Python floats/
+    0-d arrays) of a common broadcastable shape S.
+    """
+    D = np.asarray(response_matrix, dtype=float)
+    dec = np.asarray(dec, dtype=float)
+    psi = np.asarray(psi, dtype=float)
+    cd, sd = np.cos(dec), np.sin(dec)
+    cp, sp = np.cos(psi), np.sin(psi)
+
+    # np.broadcast(dec, psi) misbehaves/raises for plain Python floats or 0-d arrays
+    # in some numpy versions (it wants array-like objects, and its .shape attribute
+    # is not the intuitive broadcast shape for scalar inputs). np.broadcast_shapes
+    # operates purely on shapes and works uniformly for scalars (shape ()), 0-d
+    # arrays, and full arrays.
+    out_shape = np.broadcast_shapes(np.shape(dec), np.shape(psi))
+    zero = np.zeros(out_shape)
+
+    def vec(a, b, c):
+        return np.stack(np.broadcast_arrays(a, b, c), axis=-1)
+
+    Xc = vec(-sp * sd, -cp,       zero)
+    Xs = vec(-cp,        sp * sd, zero)
+    X0 = vec(zero,       zero,    sp * cd)
+
+    Yc = vec(-cp * sd,  sp,       zero)
+    Ys = vec( sp,       cp * sd,  zero)
+    Y0 = vec(zero,      zero,     cp * cd)
+
+    def B(u, v):
+        return np.einsum('...i,ij,...j->...', u, D, v)
+
+    Pp0 = 0.5 * (B(Xc, Xc) + B(Xs, Xs)) + B(X0, X0) - (0.5 * (B(Yc, Yc) + B(Ys, Ys)) + B(Y0, Y0))
+    Pp1 = 2.0 * (B(Xc, X0) - B(Yc, Y0))
+    Qp1 = 2.0 * (B(Xs, X0) - B(Ys, Y0))
+    Pp2 = 0.5 * ((B(Xc, Xc) - B(Xs, Xs)) - (B(Yc, Yc) - B(Ys, Ys)))
+    Qp2 = B(Xc, Xs) - B(Yc, Ys)
+
+    Pc0 = B(Xc, Yc) + B(Xs, Ys) + 2.0 * B(X0, Y0)
+    Pc1 = 2.0 * (B(Xc, Y0) + B(X0, Yc))
+    Qc1 = 2.0 * (B(Xs, Y0) + B(X0, Ys))
+    Pc2 = B(Xc, Yc) - B(Xs, Ys)
+    Qc2 = B(Xc, Ys) + B(Xs, Yc)
+
+    P0 = Pp0 + 1j * Pc0
+    P1 = Pp1 + 1j * Pc1
+    Q1 = Qp1 + 1j * Qc1
+    P2 = Pp2 + 1j * Pc2
+    Q2 = Qp2 + 1j * Qc2
+
+    # B(u,v) already contracts down to shape out_shape (einsum drops the trailing
+    # vector index), so no additional broadcasting of P0/P1/... is actually needed;
+    # multiply by ones defensively/explicitly to guarantee the advertised return shape.
+    ones = np.ones(out_shape)
+    return {
+        0:  P0 * ones,
+        1:  0.5 * (P1 - 1j * Q1) * ones,
+        -1: 0.5 * (P1 + 1j * Q1) * ones,
+        2:  0.5 * (P2 - 1j * Q2) * ones,
+        -2: 0.5 * (P2 + 1j * Q2) * ones,
+    }
+
+
 def delay_harmonics(location_xyz, dec):
     """Geometric-delay harmonics B_n, n = -1..1  [seconds].
 

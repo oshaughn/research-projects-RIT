@@ -2402,9 +2402,10 @@ if fallback or ('RIFT_LOWLATENCY' in os.environ):
         numba_on = False
         if log_loud:
           print(" Numba off ")
-        # Very inefficient
-        def lalylm(th,ph,s,l,m):
-                return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
+        # Very inefficient.  np.vectorize replicates the numba @vectorize elementwise
+        # behavior (the plain scalar wrapper below breaks ComputeYlmsArrayVector, which
+        # passes numpy ARRAYS for th,ph,s,l,m -> LAL raises 'argument 1 of type REAL8').
+        lalylm = np.vectorize(lal.SpinWeightedSphericalHarmonic, otypes=[complex])
         def lalF(det, RA, DEC,psi,tref):
                 if isinstance(RA, float):
                         return ComplexAntennaFactor(det, RA, DEC, psi,tref)
