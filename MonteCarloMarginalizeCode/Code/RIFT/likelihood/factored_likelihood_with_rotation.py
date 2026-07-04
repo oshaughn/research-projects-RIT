@@ -130,13 +130,18 @@ def fd_apply_time_derivative(hf, p):
     return out
 
 
-def _lal_freq_modulate(hf, coef, f_sidereal=F_SIDEREAL):
-    """Production exp(i coef Omega t) modulation via a LAL-FFT round trip (O(N log N)).
+def _lal_freq_modulate(hf, coef, f_sidereal=F_SIDEREAL, t_ref=0.0):
+    """Modulate by exp(i coef Omega (t_abs - t_ref)) via a LAL-FFT round trip (O(N log N)).
 
-    Reverse-FFT the spectrum to the time domain, multiply by the sidereal linear phase,
-    forward-FFT back.  Uses the same COMPLEX16 transforms RIFT uses for its overlaps, so
-    the convention is identical.  The absolute time origin only sets a constant phase
-    (carried analytically by A_n / GMST_ref downstream), so t_j = j*deltaT is fine.
+    Reverse-FFT the spectrum to the time domain, multiply by the sidereal linear phase
+    referenced to ABSOLUTE sample time t_abs = float(hf.epoch) + j*deltaT (minus t_ref),
+    forward-FFT back.  Uses the same COMPLEX16 transforms RIFT uses for its overlaps.
+
+    The reference t_ref is physical, not cosmetic: the true antenna phase is
+    exp(i n (GMST(t')-RA)) = exp(i n (GMST(t_ev)-RA)) * exp(i n Omega (t'-t_ev)), so the
+    precompute must carry exactly exp(i n Omega (t' - t_ev)) at absolute data time t',
+    with the constant GMST(t_ev) piece carried analytically by A_n (slowrot_response).
+    Hence callers pass t_ref = event_time_geo.
     """
     import lal
     if coef == 0:
@@ -148,16 +153,17 @@ def _lal_freq_modulate(hf, coef, f_sidereal=F_SIDEREAL):
     revplan = lal.CreateReverseCOMPLEX16FFTPlan(npts, 0)
     fwdplan = lal.CreateForwardCOMPLEX16FFTPlan(npts, 0)
     lal.COMPLEX16FreqTimeFFT(ts, hf, revplan)
-    t = np.arange(npts) * deltaT
-    ts.data.data[:] = ts.data.data * np.exp(1.0j * coef * 2.0 * np.pi * f_sidereal * t)
+    t_abs = float(hf.epoch) + np.arange(npts) * deltaT
+    ts.data.data[:] = ts.data.data * np.exp(
+        1.0j * coef * 2.0 * np.pi * f_sidereal * (t_abs - t_ref))
     out = _copy_freqseries(hf)
     lal.COMPLEX16TimeFreqFFT(out, ts, fwdplan)
     return out
 
 
-def fd_apply_sidereal_modulation(hf, n, f_sidereal=F_SIDEREAL):
-    """COMPLEX16FrequencySeries -> new series for exp(i n Omega t) h(t)."""
-    return _lal_freq_modulate(hf, n, f_sidereal)
+def fd_apply_sidereal_modulation(hf, n, f_sidereal=F_SIDEREAL, t_ref=0.0):
+    """COMPLEX16FrequencySeries -> new series for exp(i n Omega (t_abs - t_ref)) h(t)."""
+    return _lal_freq_modulate(hf, n, f_sidereal, t_ref)
 
 
 def build_elementary_template(hf, p, n, f_sidereal=F_SIDEREAL):
@@ -210,8 +216,11 @@ def PrecomputeLikelihoodTermsWithRotation(
 
     assert data_dict.keys() == psd_dict.keys()
     detectors = list(data_dict.keys())
-    modulate_data = True  # apply the exp(i n Omega t) frequency shift on the DATA for Q
-                          # (mode-independent: one shift per (det,n) instead of per template)
+    t_ev = float(event_time_geo)
+    # The exp(i n Omega t) modulation for the data term Q is applied to the DATA (shift by
+    # -n f_sidereal, referenced to t_ev), which is mode-independent: one shift per (det,n),
+    # and -- since the modulation lives on the fixed absolute data-time axis -- needs NO
+    # arrival-time-dependent post-phase.  U,V use modulated templates (same t_ev reference).
 
     # Reference distance handling identical to the base precompute.
     P.dist = FL.distMpcRef * 1e6 * lsu.lsu_PC
@@ -231,9 +240,9 @@ def PrecomputeLikelihoodTermsWithRotation(
 
     # For U,V we need the modulated templates chi_a (modulation cannot be pushed onto data
     # in a <template|template> overlap).  Build them once per a (cheap FD op).
-    chi = {a: {lm: fd_apply_sidereal_modulation(hlms_p[a[0]][lm], a[1], f_sidereal)
+    chi = {a: {lm: fd_apply_sidereal_modulation(hlms_p[a[0]][lm], a[1], f_sidereal, t_ev)
                for lm in hlms} for a in a_list}
-    chi_conj = {a: {lm: fd_apply_sidereal_modulation(hlms_conj_p[a[0]][lm], a[1], f_sidereal)
+    chi_conj = {a: {lm: fd_apply_sidereal_modulation(hlms_conj_p[a[0]][lm], a[1], f_sidereal, t_ev)
                     for lm in hlms_conj} for a in a_list}
 
     rholms_rot = {}
@@ -252,31 +261,23 @@ def PrecomputeLikelihoodTermsWithRotation(
         t = np.arange(N_window) * P.deltaT + float(rho_epoch + N_shift * P.deltaT)
 
         # ---- data-term overlaps Q^a_lm(t) ----
+        # exp(i n Omega t) on the template is equivalent to shifting the data spectrum by
+        # -n f_sidereal (mode-independent).  Realize it by modulating the DATA time series
+        # by exp(-i n Omega (t_abs - t_ev)) (round trip).  Because the modulation lives on
+        # the absolute data-time axis, the resulting overlap is directly
+        #   Q^a_lm(t) = int e^{-i n Omega (t'-t_ev)} [d^p h_lm]^*(t'-t) d(t') dt'
+        # with NO arrival-time-dependent post-phase.
         rholms_rot[det] = {}
         rholms_intp_rot[det] = {}
-        # Pre-shift the (whitened-by-the-IP) data once per harmonic n: exp(i n Omega t) on
-        # the template is equivalent to shifting the data spectrum by -n f_sidereal, which
-        # is mode-independent.  We realize it by modulating the DATA time series by
-        # exp(-i n Omega t) (round trip), then post-multiply Q by exp(+i n Omega t).
         data_by_n = {}
         for n in set(nn for (_, nn) in a_list):
-            if modulate_data and n != 0:
-                data_by_n[n] = _lal_freq_modulate(data, -n, f_sidereal)
-            else:
-                data_by_n[n] = data
+            data_by_n[n] = data if n == 0 else _lal_freq_modulate(data, -n, f_sidereal, t_ev)
 
         for a in a_list:
             p, n = a
-            templates = hlms_p[p] if modulate_data else chi[a]
             rho = FL.ComputeModeIPTimeSeries(
-                templates, data_by_n[n], psd, P.fmin, fMax, 1. / 2. / P.deltaT,
+                hlms_p[p], data_by_n[n], psd, P.fmin, fMax, 1. / 2. / P.deltaT,
                 N_shift, N_window, analyticPSD_Q, inv_spec_trunc_Q, T_spec)
-            # post-phase exp(+i n Omega (t - event_time_geo)); the constant piece
-            # exp(i n Omega event_time_geo) is carried analytically by A_n (GMST_ref).
-            if n != 0:
-                phase = np.exp(1.0j * n * OMEGA_EARTH * (t - float(event_time_geo)))
-                for lm in rho:
-                    rho[lm].data.data[:] = rho[lm].data.data[:len(t)] * phase[:rho[lm].data.length]
             rholms_rot[det][a] = rho
             if not skip_interpolation:
                 rholms_intp_rot[det][a] = FL.InterpolateRholms(rho, t, verbose=verbose)
