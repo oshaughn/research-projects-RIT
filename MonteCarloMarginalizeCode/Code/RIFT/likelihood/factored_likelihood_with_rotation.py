@@ -240,9 +240,18 @@ def PrecomputeLikelihoodTermsWithRotation(
 
     # For U,V we need the modulated templates chi_a (modulation cannot be pushed onto data
     # in a <template|template> overlap).  Build them once per a (cheap FD op).
-    chi = {a: {lm: fd_apply_sidereal_modulation(hlms_p[a[0]][lm], a[1], f_sidereal, t_ev)
+    #
+    # CRITICAL reference-time note: the template time series carry the INTRINSIC epoch
+    # (hlms.epoch ~ -T_dur, i.e. near 0), NOT the absolute event time t_ev ~ 1e9.  When the
+    # template is placed at the event, sample j sits at absolute time t' = t_ev + (hlms.epoch
+    # + j*dt), so the physical modulation exp(i n Omega (t' - t_ev)) = exp(i n Omega
+    # (hlms.epoch + j*dt)) -- i.e. reference the template modulation to 0, NOT to t_ev.
+    # (Referencing to t_ev with the tiny template epoch would apply exp(i n Omega * ~-1e9),
+    # a ~1e4 rad spurious phase that randomizes U,V and inflates lnL beyond 0.5<d|d>.)
+    # The data-term route above keeps t_ev because the DATA epoch really is ~ t_ev.
+    chi = {a: {lm: fd_apply_sidereal_modulation(hlms_p[a[0]][lm], a[1], f_sidereal, 0.0)
                for lm in hlms} for a in a_list}
-    chi_conj = {a: {lm: fd_apply_sidereal_modulation(hlms_conj_p[a[0]][lm], a[1], f_sidereal, t_ev)
+    chi_conj = {a: {lm: fd_apply_sidereal_modulation(hlms_conj_p[a[0]][lm], a[1], f_sidereal, 0.0)
                     for lm in hlms_conj} for a in a_list}
 
     rholms_rot = {}

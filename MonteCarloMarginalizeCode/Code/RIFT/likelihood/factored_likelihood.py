@@ -1396,7 +1396,7 @@ def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetec
         rholmArray[indx1][:] = rholmsDictionaryForDetector[pair1].data.data  # Copy the array of time values.
 
     ### Step 3: Create rholm_intp array-ized structure
-    rholm_intpArray = range(nKeys)   # create a flexible python array of the desired size, to hold function pointers
+    rholm_intpArray = [None] * nKeys   # create a flexible python array of the desired size, to hold function pointers
     if rholms_intpDictionaryForDetector:
         for pair1 in pairKeys:
             indx1 = lookupKeysToNumber[pair1]

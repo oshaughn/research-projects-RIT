@@ -141,7 +141,9 @@ def _pathR_lnL(modes):
         modFc = {}
         for m in modes:
             h_td = _to_td(hlms[m])
-            F_mode = _sample_F(det, float(hlms[m].epoch), hlms[m].data.length, dt)
+            # template modes carry the INTRINSIC epoch (~0); their absolute time when
+            # placed at the event is event_time + (hlms.epoch + j*dt), so sample F there.
+            F_mode = _sample_F(det, event_time + float(hlms[m].epoch), hlms[m].data.length, dt)
             prod = lal.CreateCOMPLEX16TimeSeries("Fh", hlms[m].epoch, 0., dt,
                                                  lal.DimensionlessUnit, hlms[m].data.length)
             prod.data.data[:] = F_mode * h_td.data.data

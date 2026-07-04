@@ -59,7 +59,7 @@ def bf_lnLt(det):
     IP=lsu.ComplexIP(fmin,fmax,fNyq,data.deltaF,psd,True,False,0.)
     modF={};modC={}
     for m in modes:
-        htd=to_td(hlms[m]);Fm=Fsample(det,float(hlms[m].epoch),hlms[m].data.length,dt)
+        htd=to_td(hlms[m]);Fm=Fsample(det,event_time+float(hlms[m].epoch),hlms[m].data.length,dt)
         pr=lal.CreateCOMPLEX16TimeSeries("Fh",hlms[m].epoch,0.,dt,lal.DimensionlessUnit,hlms[m].data.length);pr.data.data[:]=Fm*htd.data.data;modF[m]=lsu.DataFourier(pr)
         pc=lal.CreateCOMPLEX16TimeSeries("Fc",hlms[m].epoch,0.,dt,lal.DimensionlessUnit,hlms[m].data.length);pc.data.data[:]=np.conj(Fm*htd.data.data);modC[m]=lsu.DataFourier(pc)
     t2=0j
