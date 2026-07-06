@@ -94,13 +94,31 @@ conventions.**
 1. **Path B rigorous validation** (TWO parts, do together):
    (a) FIX the p>=3 high-frequency derivative blow-up by band-limiting the delay-derivative
        terms to low frequency (see PATH B STATUS above); re-check convergence is monotone.
-   (b) Validate vs an INDEPENDENT brute force with TIME-VARYING DELAY tau_k(t) (build the
-       detector strain h_k(t')=Re[F(t') Sigma(t'-tau(t'))] by TD-warping the complex source
-       strain -- lsu.hoft_from_hlm(...,return_complex=True) gives Sigma with the right epoch --
-       then direct lnL = <d|h_k> - 0.5<h_k|h_k>).  CALIBRATE it against baseline in the static
-       limit (F=const, tau=const) BEFORE trusting the drift result.  A convergence test alone is
-       NOT enough: Path B could converge to a WRONG value if the C coefficients are off (the
-       delay analogue of the reference-time bug).  Cross-check against 0.5<d|d>.
+   (b) Validate vs an INDEPENDENT ground truth that uses LAL's OWN full delay-time map --
+       lalsim.SimDetectorStrainREAL8TimeSeries (Jolien's code).  KEY FACTS FOUND 2026-07-04:
+       - RIFT's data ALREADY uses it: non_herm_hoff -> hoft -> SimInspiralTD +
+         SimDetectorStrainREAL8TimeSeries (lalsimutils.py ~line 3020).  So a LONG injection
+         already carries the real Earth-rotation response; baseline (static) will under-recover
+         it and Path A/B should recover it.
+       - GROUND TRUTH for the rotation likelihood must apply SimDetectorStrain to the SAME
+         RIFT modes the likelihood uses:  hk = lsu.hoft_from_hlm(hlmsT, P_extr)  (radec path,
+         applies SimDetectorStrain).  Then convert to 2-sided FD exactly like non_herm_hoff
+         (copy REAL8 -> COMPLEX16, COMPLEX16TimeFreqFFT) and lnL = ComplexIP(d,hk).real -
+         0.5*ComplexIP(hk,hk).real.
+       - DO NOT use non_herm_hoff(P_extr) as the template ground truth: it regenerates via
+         SimInspiralTD, whose modes differ from RIFT's hlmoff modes -- with IMRPhenomD the
+         mode-based baseline recovers only ~SNR 35 of the data's ~SNR 82 at the injection (a
+         waveform-convention mismatch, NOT rotation).  Using hoft_from_hlm keeps the modes
+         identical so ONLY the rotation differs.
+       - Two gotchas to fix: (i) hoft_from_hlm output length = mode length (e.g. 16451) !=
+         padded data length (16384) -> ResizeREAL8TimeSeries + align epoch (replicate
+         non_herm_hoff padding); (ii) the mode-based likelihood at a FIXED tref is OFF-PEAK
+         (epoch bookkeeping) -> compare at the time-MAXIMIZED / marginalized value, not at
+         extr.tref.
+       - Use a LONG signal (real sidereal rate) so delay drift matters, OR the inflated-Omega
+         path (already shows p=1,2 capture the delay, p>=3 needs the band-limit fix).
+       A convergence test alone is NOT enough: Path B could converge to a WRONG value if the C
+       coefficients are off (the delay analogue of the reference-time bug).  Cross-check 0.5<d|d>.
 2. **Matched-seed quantitative ILE head-to-head** (fixed RNG seed) -> exact, regression-grade
    baseline-vs-rotation comparison (currently only MC-noise-level agreement).
 3. Cauchy-Schwarz bound checks everywhere; sweep for other shared-convention bugs.
