@@ -31,8 +31,8 @@ for fname in fnames_cip:
     net_dat.append([lnL, sigma_lnL, n_eff])
 net_dat =np.array(net_dat)
 
-lnL = np.average(lnL, weights=1./sigma_lnL**2)
-sigma_lnL = np.max([np.sqrt(np.mean(sigma_lnL**2)/len(net_dat)),np.std(lnL)]) # not quite right but ok
+lnL = np.average(net_dat[:, 0], weights=1./net_dat[:, 1]**2)
+sigma_lnL = np.max([np.sqrt(np.mean(net_dat[:, 1]**2)/len(net_dat)),np.std(net_dat[:, 0])]) # not quite right but ok
 dat_out = [lnL, sigma_lnL]
 if opts.stream_output:
  print(*dat_out)
