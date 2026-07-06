@@ -71,11 +71,36 @@ convention, so `vec == brute-force` PASSED while both were wrong. **Always cross
 against the Cauchy-Schwarz bound 0.5<d|d>, not only against a reference that can share
 conventions.**
 
+## PATH B STATUS (findings 2026-07-04, the systematic pass in progress)
+- Matched-seed head-to-head DONE (test_slowrot_headtohead.py): rot(f_sid=0)==baseline 9e-13;
+  evidence shift ln Z_rot - ln Z_base = -1.1e-3 (MC-noise-free) for the short signal.
+- Path B DELAY PHYSICS still only partially validated. In an INFLATED-Omega regime (f_sidereal
+  x3000, single-det 30+25 BBH) where the delay drift matters, scalar Path B gives
+  lnL(p_max=0..3) = [1794.39, 1781.31, 1781.63, 928.30]: p=0->1->2 captures a real ~13-in-lnL
+  delay effect and appears to converge (~1781.6) and respects 0.5<d|d>=1938 -- BUT p_max=3
+  BLOWS UP (increment 853).
+- ROOT CAUSE of the p>=3 blow-up (likely): the FD derivative weight (2 pi i f)^p amplifies high
+  frequencies; in the model norm the integrand ~ (2 pi f)^{2p} |h(f)|^2 / S grows like f^{11/3}
+  for a chirp (|h|^2 ~ f^{-7/3}), so high-order terms are dominated by the f_max edge, not the
+  physical low-frequency delay drift.  FIX for the systematic pass: BAND-LIMIT the delay-
+  derivative (p>=1) terms to low frequency (the delay drift physically matters in the long early
+  inspiral, i.e. low f, not at merger).  Options: apply a low-pass / taper before the (2 pi i f)^p
+  weight, or use a reduced f_max for p>=1 templates, or work with dimensionless (f/f_ref) weights.
+- Consequence: current Path B is trustworthy only through p_max<=2 and only after the band-limit
+  fix is validated.  Do NOT ship Path B (p>=1) until this is fixed AND checked against an
+  independent time-varying-delay brute force (below).
+
 ## OPEN / NEXT (the one remaining systematic pass — do it all together)
-1. **Path B rigorous validation**: vs a brute force with TIME-VARYING DELAY tau_k(t) on a
-   genuinely LONG (BNS) signal, where p>=1 delay drift is non-negligible (short-BBH delay
-   drift is ~1e-8, so current Path B tests exercise machinery/bound but not the delay
-   PHYSICS). This is the analogue of V1b that caught the reference-time bug.
+1. **Path B rigorous validation** (TWO parts, do together):
+   (a) FIX the p>=3 high-frequency derivative blow-up by band-limiting the delay-derivative
+       terms to low frequency (see PATH B STATUS above); re-check convergence is monotone.
+   (b) Validate vs an INDEPENDENT brute force with TIME-VARYING DELAY tau_k(t) (build the
+       detector strain h_k(t')=Re[F(t') Sigma(t'-tau(t'))] by TD-warping the complex source
+       strain -- lsu.hoft_from_hlm(...,return_complex=True) gives Sigma with the right epoch --
+       then direct lnL = <d|h_k> - 0.5<h_k|h_k>).  CALIBRATE it against baseline in the static
+       limit (F=const, tau=const) BEFORE trusting the drift result.  A convergence test alone is
+       NOT enough: Path B could converge to a WRONG value if the C coefficients are off (the
+       delay analogue of the reference-time bug).  Cross-check against 0.5<d|d>.
 2. **Matched-seed quantitative ILE head-to-head** (fixed RNG seed) -> exact, regression-grade
    baseline-vs-rotation comparison (currently only MC-noise-level agreement).
 3. Cauchy-Schwarz bound checks everywhere; sweep for other shared-convention bugs.
