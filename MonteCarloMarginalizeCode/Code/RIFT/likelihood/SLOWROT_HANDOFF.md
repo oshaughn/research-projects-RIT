@@ -24,6 +24,20 @@ confirmed: it vanishes when fmax is lowered).  NoLoop uses nearest-neighbor time
 floor (~0.1-0.2); the time-interpolated NoLoop is in oshaughn/rift_O4d and
 origin/rift_O4d_junior_calmarg_in_loop if a cleaner absolute comparison is wanted.
 
+## TWO PARALLEL THRUSTS (2026-07)
+Path A + Path B are implemented, validated, and wired into the ILE.  Next work is two tracks:
+1. **Rotation PE value demo (near-term).**  End-to-end injection-recovery showing the static
+   analysis is BIASED on a long signal and `--rotation-slow` (+`--rotation-p-max`) recovers the
+   truth.  Scaffolded at `~/RIFT_roboto_paper/analyses/slowrot_demo/`.  RIFT injections already
+   carry the time-varying response (hoft -> SimDetectorStrain).  Deliverable: overlay + bias
+   figure for `paper/` cited from `sec:slowrot`.
+2. **Frequency-dependent (finite-size) response (later; the 3G regime where 'long' lives).**
+   Path D, ELEVATED from deferred to an ACTIVE track.  F(f; sky) (finite arm size, free spectral
+   range ~c/2L ~ 3.7 kHz for a 40 km CE arm).  Approaches (notes/sec_freqdep.tex): fold a per-mode
+   transfer T(f;sky) (pinned sky, LISA Evaluate_Gslr machinery) or sky-harmonic expand to keep sky
+   extrinsic.  HARD: precessing+HM break the per-mode SPA -> likely pinned-sky + TD folding.
+   Sequence AFTER the rotation demo lands.
+
 ## What this is
 Generalizes RIFT's marginalized likelihood to account for the **time dependence of the
 ground-based detector response over the signal** (Earth rotation), while reusing the
