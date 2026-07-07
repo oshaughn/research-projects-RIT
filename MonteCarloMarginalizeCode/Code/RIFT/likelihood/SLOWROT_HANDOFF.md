@@ -26,17 +26,23 @@ origin/rift_O4d_junior_calmarg_in_loop if a cleaner absolute comparison is wante
 
 ## TWO PARALLEL THRUSTS (2026-07)
 Path A + Path B are implemented, validated, and wired into the ILE.  Next work is two tracks:
-1. **Rotation PE value demo (near-term).**  End-to-end injection-recovery showing the static
-   analysis is BIASED on a long signal and `--rotation-slow` (+`--rotation-p-max`) recovers the
-   truth.  Scaffolded at `~/RIFT_roboto_paper/analyses/slowrot_demo/`.  RIFT injections already
-   carry the time-varying response (hoft -> SimDetectorStrain).  Deliverable: overlay + bias
-   figure for `paper/` cited from `sec:slowrot`.
-2. **Frequency-dependent (finite-size) response (later; the 3G regime where 'long' lives).**
-   Path D, ELEVATED from deferred to an ACTIVE track.  F(f; sky) (finite arm size, free spectral
-   range ~c/2L ~ 3.7 kHz for a 40 km CE arm).  Approaches (notes/sec_freqdep.tex): fold a per-mode
-   transfer T(f;sky) (pinned sky, LISA Evaluate_Gslr machinery) or sky-harmonic expand to keep sky
-   extrinsic.  HARD: precessing+HM break the per-mode SPA -> likely pinned-sky + TD folding.
-   Sequence AFTER the rotation demo lands.
+1. **Rotation PE value demo (near-term).**  VERIFY-ANYWHERE quick-look DONE
+   (`~/RIFT_roboto_paper/analyses/slowrot_demo/`, `make demo` / `demo_local.py`): rotation-vs-
+   static lnL gain grows with Omega*T (null 0.004 -> 64s 0.19 at fixed SNR~30); figure
+   `outputs/gain_vs_duration.png`.  REMAINING: the full DAG injection-recovery PE (posterior
+   bias + single-network sky map) on the cluster -> `paper/` figure cited from `sec:slowrot`
+   (structured Makefile targets inject/baseline/rotationA/rotationB/compare).
+2. **Frequency-dependent (finite-size) response = Path D (3G regime where 'long' lives).**
+   RESPONSE FUNCTION IMPLEMENTED + VALIDATED: `slowrot_freqresponse.py` +
+   `test_slowrot_freqresponse.py`.  F_k(f;RA,DEC,psi) from arXiv:2412.01693 single-arm sinc
+   transfer; f->0 == ComputeDetAMResponse to 6.7e-16; exact FSR null at c/2L=3747 Hz (40 km);
+   in-band SHAPE distortion 0.24%@1kHz/0.62%@2kHz (LIGO) vs 11.8%/42% (CE) -> negligible for
+   LIGO, first-order only for 3G.  Key: the complex ratio ~1 for CE is dominated by a benign
+   common e^{-i2pi fL/c} delay (degenerate with tc), NOT sky shape.  LAL has NO closed-form FD
+   response.  ROUTE DECISION (notes/sec_freqdep.tex): CE -> route (b) sky-harmonic expansion
+   (keeps sky extrinsic; fold the common delay into geocenter time; few angular orders);
+   precessing+HM -> route (a) pinned-sky TD fold.  REMAINING: precompute integration (fold
+   T_p(f) into the mode inner products) + validation vs a direct finite-size injection.
 
 ## What this is
 Generalizes RIFT's marginalized likelihood to account for the **time dependence of the
