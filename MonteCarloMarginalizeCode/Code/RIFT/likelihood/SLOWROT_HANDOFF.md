@@ -4,6 +4,26 @@ Branch: `rift_slowrot` (off `rift_O4d_fix_rvs_clear_fairdraw_batch`). Design not
 paper live in a **separate local repo** `~/rift-slow-rotation` (no git remote — local only;
 21-page PDF via `latexmk -pdf notes/main.tex`).
 
+## PATH B DELAY PHYSICS — VALIDATED (2026-07 update)
+Path B's propagation-delay drift is validated against an INDEPENDENT folded-template ground
+truth (`test_slowrot_pathB_bruteforce.py`): data built as Re[F(t) Sigma(t-tau(t))] from the
+SAME harmonic F(t),tau(t) model + the SAME modes the likelihood uses (no SimDetectorStrain
+convention floor), at an inflated sidereal rate so the delay drift is large.  At the REAL
+90-min-BNS rate (= x340 inflation on a 16s test): p_max=0 deficit 3.43 -> p_max=1 0.23 ->
+p_max=2 0.207 -> p_max=3 0.207: CONVERGES, bound-respected, NO blow-up.  So Path B recovers
+the delay drift and is production-ready for the target signals with p_max<=2.
+KNOWN LIMIT: the p>=3 catastrophic cancellation (huge high-f U terms x tiny delta_tau^p
+coefficients) only bites at x1000+ inflation (>2.6x faster than any physical signal): x1000
+gives p=2 deficit 5.9 but p=3 blows to 1e5.  So the band-limit fix (low-pass the p>=1
+derivative templates) is a robustness nicety, NOT a blocker for real signals.
+Separately validated vs LAL's SimDetectorStrainREAL8TimeSeries (`test_slowrot_pathB_groundtruth.py`):
+baseline/PathA/PathB all agree with Jolien's full delay map to ~0.07 at fmax=256 (the ~26
+deficit at fmax=1024 was SimDetectorStrain's high-f TD delay-INTERPOLATION, not a bug --
+confirmed: it vanishes when fmax is lowered).  NoLoop uses nearest-neighbor time sampling
+(factored_likelihood.py ~L1691), so absolute peak comparisons at high SNR have a resolution
+floor (~0.1-0.2); the time-interpolated NoLoop is in oshaughn/rift_O4d and
+origin/rift_O4d_junior_calmarg_in_loop if a cleaner absolute comparison is wanted.
+
 ## What this is
 Generalizes RIFT's marginalized likelihood to account for the **time dependence of the
 ground-based detector response over the signal** (Earth rotation), while reusing the
