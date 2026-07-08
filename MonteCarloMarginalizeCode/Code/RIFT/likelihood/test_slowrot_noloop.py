@@ -160,14 +160,15 @@ def test_B_rotation_matches_baseline_at_zero_sidereal_rate():
         flwr.PrecomputeLikelihoodTermsWithRotation(
             event_time, t_window, Psig, data_dict, psd_dict, Lmax, fmax,
             harmonics=HARM, p_max=0, f_sidereal=0.0, analyticPSD_Q=True,
-            verbose=False, quiet=True, skip_interpolation=False,time_interp='cubic')
+            verbose=False, quiet=True, skip_interpolation=False)
 
     lookupNKDict_r, rho_by_n, U_by_nn, V_by_nn, epochDict_r = flwr.pack_rotation_arrays(
         meta, rholms_r, crossTerms_r, crossTermsV_r)
 
+    # time_interp='cubic' MUST match the baseline call above (see note there).
     lnL_t_rot = flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
         tvals, P_vec, meta, lookupNKDict_r, rho_by_n, U_by_nn, V_by_nn, epochDict_r,
-        Lmax=Lmax, array_output=True)
+        Lmax=Lmax, array_output=True, time_interp='cubic')
 
     assert lnL_t_base.shape == lnL_t_rot.shape, \
         "shape mismatch: base %s vs rot %s" % (lnL_t_base.shape, lnL_t_rot.shape)
