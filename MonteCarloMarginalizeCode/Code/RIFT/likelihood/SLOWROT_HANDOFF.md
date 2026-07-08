@@ -41,8 +41,22 @@ Path A + Path B are implemented, validated, and wired into the ILE.  Next work i
    common e^{-i2pi fL/c} delay (degenerate with tc), NOT sky shape.  LAL has NO closed-form FD
    response.  ROUTE DECISION (notes/sec_freqdep.tex): CE -> route (b) sky-harmonic expansion
    (keeps sky extrinsic; fold the common delay into geocenter time; few angular orders);
-   precessing+HM -> route (a) pinned-sky TD fold.  REMAINING: precompute integration (fold
-   T_p(f) into the mode inner products) + validation vs a direct finite-size injection.
+   precessing+HM -> route (a) pinned-sky TD fold.
+   LIKELIHOOD INTEGRATION DONE + VALIDATED (route b): `factored_likelihood_freqresponse.py`
+   (+ `test_slowrot_freqresponse_likelihood.py`).  Fold the common e^{-i2pi fL/c} delay into the
+   arrival time; power-series the residual transfer -> sky-independent W_p(f) folded into the FD
+   modes (reuse ComputeModeIP*) x analytic b_p(sky) -> SKY EXTRINSIC.  MAINTAINED-STYLE NoLoop
+   entry point DiscreteFactoredLogLikelihoodFreqResponseNoLoop (NOT SingleDetectorLogLikelihood).
+   Validated (CE 40km, 16s): V1 finite-size(L->0) == maintained NoLoop baseline to 3.3e-9; V2 on
+   a finite-size injection the long-wavelength NoLoop deficit 2.71 -> finite-size 0.558 (converged
+   Qmax=2), residual ~= peak-resolution floor; V3 Cauchy-Schwarz respected.  Scalar companion
+   agrees with the NoLoop to 0.156 (interp-vs-nearest floor).
+   REMAINING: ILE wiring (a --freqresponse flag mirroring --rotation-slow); full precessing+HM
+   (route a pinned-sky); a value demo (the finite-size effect only bites for CE/3G).
+   AUDIT NOTE (2026-07): all slowrot likelihoods route through the maintained NoLoop; there are
+   NO SingleDetectorLogLikelihood calls; the ILE wires only NoLoop paths.  The scalar
+   FactoredLogLikelihood*/SingleDetectorLogLikelihood are used only as secondary references and
+   carry a peak-resolution floor at high SNR -- prefer NoLoop for any absolute comparison.
 
 ## What this is
 Generalizes RIFT's marginalized likelihood to account for the **time dependence of the
