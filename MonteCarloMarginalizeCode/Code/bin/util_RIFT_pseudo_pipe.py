@@ -588,13 +588,6 @@ parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_f
 parser.add_argument("--internal-force-puff-iterations", default=4, type=int, help="Number of iterations to be puffed")
 opts=  parser.parse_args()
 
-# Multi-GPU ILE fan-out: --ile-gpu-fanout funnels through RIFT_ILE_GPU_FANOUT, which
-# create_event_parameter_pipeline_BasicIteration (run via os.system, inheriting this
-# environment) and dag_utils read at DAG-build time to size request_GPUs/CPUs and bake
-# the value into ile_pre.sh.  A CLI value wins over any inherited environment value.
-if opts.ile_gpu_fanout is not None:
-    os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
-
 config_stored=None; config_dict=None
 ile_condor_commands = None
 if (opts.use_ini):
@@ -619,7 +612,16 @@ if (opts.use_ini):
 
         if not('RIFT_REQUIRE_GPUS' in os.environ) and 'ile_require_gpus' in rift_items:
             os.environ['RIFT_REQUIRE_GPUS'] = rift_items['ile_require_gpus']
-        
+
+        # Container family (multi-container per-machine image selection): let the ini
+        # carry the manifest + base exe dir, so a single ini is self-contained.  These
+        # are read from os.environ by create_event_parameter_pipeline_BasicIteration /
+        # write_ILE_sub_simple; the environment still dominates if already set.
+        if not('SINGULARITY_RIFT_IMAGE' in os.environ) and 'singularity_rift_image' in rift_items:
+            os.environ['SINGULARITY_RIFT_IMAGE'] = rift_items['singularity_rift_image']
+        if not('SINGULARITY_BASE_EXE_DIR' in os.environ) and 'singularity_base_exe_dir' in rift_items:
+            os.environ['SINGULARITY_BASE_EXE_DIR'] = rift_items['singularity_base_exe_dir']
+
         # attempt to lazy-select the command-line that are present in the ini file section
         for item in rift_items:
             item_renamed = item.replace('-','_')
@@ -643,7 +645,14 @@ if (opts.use_ini):
         for item in rift_items:
             val = rift_items[item].strip()
             ile_condor_commands.append([item, val])
-            
+
+# Multi-GPU ILE fan-out: funnel --ile-gpu-fanout (CLI) OR ile-gpu-fanout=... (ini
+# [rift-pseudo-pipe]) through RIFT_ILE_GPU_FANOUT.  Done AFTER the ini is parsed so an
+# ini-only value also lands.  create_event_parameter_pipeline_BasicIteration (run via
+# os.system, inheriting this environment) and dag_utils read it at DAG-build time to
+# size request_GPUs/CPUs and bake the value into ile_pre.sh.
+if opts.ile_gpu_fanout is not None:
+    os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
 
 if opts.lisa_known_sky:
     run_lisa_known_sky_surface(opts)

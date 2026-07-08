@@ -145,6 +145,46 @@ make inspect       # show the generated launcher + sub resource lines
 `make build` only builds the DAG (it does not submit). To actually run it you need
 a pool with ≥ N-GPU nodes; submit with `condor_submit_dag` from the run dir.
 
+### 2b. `make build-combo` + `make verify-combo` — fan-out **and** multi-container from one ini
+
+[`multigpu_multicontainer.ini`](multigpu_multicontainer.ini) is a copy-me template that
+carries **both** features in a single ini — the multi-GPU fan-out *and* the
+multi-container **container family** (per-machine `.sif` selection by GPU capability):
+
+```ini
+[rift-pseudo-pipe]
+# multi-GPU fan-out
+ile-force-gpu=True
+ile-gpu-fanout="all"            # QUOTED (ini values are eval'd); grab all node GPUs
+ile-jobs-per-worker=100
+# multi-container (container family)
+use-osg=True
+use-singularity=True
+singularity_rift_image=/abs/path/rift_container_family.cit.yaml   # the manifest of >=2 .sif images
+singularity_base_exe_dir=/usr/local/bin/
+ile_require_gpus=(Capability >= 8.0) && (Capability <= 12.0)
+```
+
+```
+make build-combo      # builds rundir_combo; the container comes from the INI (env not set)
+make verify-combo     # asserts BOTH landed
+```
+
+> If `make build`/`build-combo` dies in `util_ManualOverlapGrid.py` with an intermittent
+> `from scipy import interpolate` import error, that is a known flaky scipy-import race in the
+> grid step (unrelated to this feature) — just re-run the target.
+
+`verify-combo` confirms every option lands in the generated `ILE.sub`:
+- **multi-container:** `MY.SingularityImage = ifThenElse(TARGET.GPUs_Capability >= 9.0, "…cc90-120.sif", "…cc60-90.sif")`, the selective `osdf:///…$$([...])` image transfer, and the combined `require_gpus` capability floor.
+- **fan-out:** `request_GPUs` / `request_CPUs`, and `ile_pre.sh` baking `RIFT_ILE_GPU_FANOUT`.
+
+**ini value rules (important):** keys that match a `util_RIFT_pseudo_pipe.py` option are
+`eval()`'d, so **string values must be quoted** (`ile-gpu-fanout="all"`, `approx="IMRPhenomD"`);
+numbers/booleans are bare (`ile-jobs-per-worker=100`, `use-osg=True`). Three keys are read
+as **raw strings into the environment** (not eval'd, not quoted) —
+`singularity_rift_image`, `singularity_base_exe_dir`, `ile_require_gpus` — and the
+environment still wins over the ini for those (export to override a shared ini).
+
 ### 3. `blueprints/` — the asimov path
 
 - `rift-multigpu.yaml` — analysis blueprint showing **both** blueprint encodings
