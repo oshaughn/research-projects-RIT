@@ -10,13 +10,21 @@ VALIDATED antenna_response_fd, using a 40-km CE arm.  Then:
        DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop (NOT the older scalar
        SingleDetectorLogLikelihood/FactoredLogLikelihood).
   (V2) GROUND TRUTH       : the finite-size NoLoop likelihood reconstructs the finite-size
-       injection -- deficit vs 0.5<d|d> falls as Qmax grows -- while the standard
-       long-wavelength NoLoop leaves a residual = the finite-size effect.
+       injection -- deficit vs 0.5<d|d> converges as Qmax grows.  NOTE this default config
+       (1.6+1.4 BNS, fmax=1024) is a WEAK demonstration: the model-distinguishing part of
+       the response (beyond the common e^{-i2pi f L/c} light-crossing delay, which the
+       baseline absorbs by time-marginalization) is only ~0.1% in-band, so finite-size ~=
+       baseline here and no gain is expected.  The meaningful demonstration is run_strong (V4).
   (V3) CAUCHY-SCHWARZ     : every lnL <= 0.5<d|d> (network).  A violation => a wrong term.
+  (V4) POSITIVE CONTROL   : run_strong -- in an in-band-effect config (15+13 Msun, fmax=2000,
+       loud CE) the finite-size likelihood beats the long-wavelength baseline by a large,
+       ASSERTED margin.  This is what validates the finite-L assembly (V1 only tests L->0).
 
-All comparisons use the maintained NoLoop path, time-MAXIMIZED (NoLoop point eval is off-peak).
-Measured (CE 40 km, 16 s): V1 |diff| ~3e-9; V2 baseline deficit 2.71 -> finite-size 0.558
-(converged by Qmax=2, the residual ~= the NoLoop peak-resolution floor); V3 bound respected.
+All comparisons use the maintained NoLoop path, time-MAXIMIZED (NoLoop point eval is off-peak),
+with cubic sub-bin time interpolation.  Measured: V1 |diff| ~3e-9; V2 (BNS/1024, weak) baseline
+deficit 7.76 -> finite-size 7.80 (no gain, as expected); V3 bound respected; V4 (15+13/2000)
+baseline deficit 55.8 -> finite-size 16.9, GAIN +38.9 nats (Qmax=6; residual is series
+truncation at fL/c~0.27).
 """
 from __future__ import print_function, division
 import sys
@@ -200,5 +208,88 @@ def _wrap_fd(arr, epoch, deltaF):
     return hf
 
 
+def run_strong(fmax=2000., seglen=8., SCALE_strong=40., m1=15., m2=13., Qmax=6):
+    """(V4) POSITIVE CONTROL: in a config where the direction-dependent finite-size effect
+    is actually in-band with SNR behind it (heavier system -> high-f power, higher fmax,
+    loud), the finite-size likelihood must reconstruct the finite-size injection much better
+    than the long-wavelength baseline.
+
+    This is the meaningful demonstration of the finite-size likelihood.  The default `run()`
+    at BNS/fmax=1024 is a WEAK config: there the model-distinguishing effect (beyond the
+    common e^{-i2pi f L/c} light-crossing delay, which the baseline absorbs by
+    time-marginalization) is ~0.1% in-band -- below the peak-resolution floor -- so
+    finite-size ~= baseline there and NO gain is expected (or asserted).
+
+    Measured (H1, 40-km CE arm, 15+13 Msun, fmax=2000, loud): baseline deficit ~55.8,
+    finite-size deficit ~16.9 -> gain ~+38.9 nats (Qmax=6; residual is series truncation at
+    fL/c~0.27, shrinks with Qmax).
+    """
+    event_time = 1e9; t_window = 0.1; det = 'H1'; L_arm = L_CE
+    deltaT = 1. / (2. * fmax); fmin = 30.
+    deltaF = 1. / seglen; fNyq = 1. / 2. / deltaT
+    RA, DEC, PSI, INCL, PHIREF = 1.2, 0.3, 0.5, 0.4, 0.0
+    DLOUD = fl.distMpcRef * 1e6 * lsu.lsu_PC / SCALE_strong
+
+    Psig = lsu.ChooseWaveformParams(
+        fmin=fmin, radec=True, incl=INCL, phiref=PHIREF, theta=DEC, phi=RA, psi=PSI,
+        m1=m1 * lal.MSUN_SI, m2=m2 * lal.MSUN_SI, detector=det, dist=200e6 * lal.PC_SI,
+        deltaT=deltaT, tref=event_time, deltaF=deltaF)
+    Psig.approx = apx
+    Pm = Psig.manual_copy(); Pm.dist = DLOUD
+
+    hlms_fd, _ = fl.internal_hlm_generator(Pm, Lmax, verbose=False, quiet=True)
+    hlmsT = _ifft(hlms_fd); lm0 = list(hlmsT.keys())[0]
+    nn = hlmsT[lm0].data.length; dt = hlmsT[lm0].deltaT; e0 = float(hlmsT[lm0].epoch)
+    Sig = np.zeros(nn, complex)
+    for lm in hlmsT:
+        Sig += hlmsT[lm].data.data * lal.SpinWeightedSphericalHarmonic(INCL, -PHIREF, -2, lm[0], lm[1])
+    dt_geo = float(fl.ComputeArrivalTimeAtDetector(det, RA, DEC, event_time)) - event_time
+    data_epoch = lal.LIGOTimeGPS(e0 + event_time)
+    fvals = flfr.evaluate_fvals_from_length(nn, deltaF)
+    Sig_fd = _fwd_fd(Sig, data_epoch, dt, nn).data.data
+    Sig_del = _rev_td(_wrap_fd(Sig_fd * np.exp(-1j * 2 * np.pi * fvals * dt_geo), data_epoch, deltaF)).data.data
+    hpf = _fwd_fd(np.real(Sig_del), data_epoch, dt, nn).data.data
+    hcf = _fwd_fd(-np.imag(Sig_del), data_epoch, dt, nn).data.data
+    gmst = float(lal.GreenwichMeanSiderealTime(lal.LIGOTimeGPS(event_time)))
+    Fp, Fc = sfr.antenna_response_fd(det, RA, DEC, PSI, fvals, gmst=gmst, L_arm=L_arm)
+    data = _wrap_fd(Fp * hpf + Fc * hcf, data_epoch, deltaF)
+    dd = {det: data}; pdd = {det: psd}
+    IPc = lsu.ComplexIP(fmin, fmax, fNyq, data.deltaF, psd, True, False, 0.)
+    HALF = 0.5 * IPc.ip(data, data).real
+
+    Pv = Psig.manual_copy()
+    for k, v in [('phi', RA), ('theta', DEC), ('incl', INCL), ('phiref', PHIREF),
+                 ('psi', PSI), ('dist', DLOUD)]:
+        setattr(Pv, k, np.ones(1) * v)
+    Pv.tref = event_time; Pv.deltaT = deltaT
+    Nw = int(0.03 / deltaT); tvals = np.arange(-Nw, Nw) * deltaT
+
+    ri, ct, ctV, rho, snr, rest = fl.PrecomputeLikelihoodTerms(
+        event_time, t_window, Psig, dd, pdd, Lmax, fmax,
+        analyticPSD_Q=True, verbose=False, quiet=True, ignore_threshold=None)
+    lk = {}; rA = {}; cu = {}; cv = {}; ep = {}
+    for d in dd:
+        a, b, c, U, V, r, rI, e = fl.PackLikelihoodDataStructuresAsArrays(
+            list(rho[d].keys()), None, rho[d], ct[d], ctV[d])
+        lk[d] = a; rA[d] = r; cu[d] = U; cv[d] = V; ep[d] = e
+    base = _peak(fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
+        tvals, Pv, lk, rA, cu, cv, ep, Lmax=Lmax, xpy=np, return_lnLt=True, time_interp='cubic')[0])
+    bk = flfr.PrecomputeLikelihoodTermsFreqResponse(
+        event_time, t_window, Psig, dd, pdd, Lmax, fmax, Qmax=Qmax, L_arm=L_arm,
+        analyticPSD_Q=True, verbose=False, quiet=True, skip_interpolation=True)
+    lkf, rbp, ubp, vbp, epf = flfr.pack_freqresponse_arrays(bk[4], bk[3], bk[1], bk[2])
+    fin = _peak(flfr.DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
+        tvals, Pv, bk[4], lkf, rbp, ubp, vbp, epf, Lmax=Lmax, array_output=True, time_interp='cubic')[0])
+    gain = (HALF - base) - (HALF - fin)
+    print("\n(V4) POSITIVE CONTROL %g+%g Msun, fmax=%g, CE %gkm, loud:" % (m1, m2, fmax, L_arm / 1e3))
+    print("   0.5<d|d>=%.1f  baseline_deficit=%.3f  finite_deficit=%.3f  GAIN=%+.3f nats"
+          % (HALF, HALF - base, HALF - fin, gain))
+    assert base <= HALF + 1e-6 and fin <= HALF + 1e-6, "Cauchy-Schwarz bound violated"
+    assert gain > 10.0, "finite-size failed to beat baseline where the effect is in-band: gain=%g" % gain
+    return HALF, base, fin, gain
+
+
 if __name__ == "__main__":
     run()
+    run_strong()
+    print("\nALL SLOWROT FREQRESPONSE LIKELIHOOD CHECKS PASSED")
