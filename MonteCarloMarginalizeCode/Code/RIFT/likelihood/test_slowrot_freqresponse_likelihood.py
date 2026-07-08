@@ -140,7 +140,7 @@ def run(Qlist=(0, 2, 4, 6, 8)):
             list(rho[d].keys()), None, rho[d], ct[d], ctV[d])
         lkB[d] = a; rAB[d] = rA; cuB[d] = U; cvB[d] = V; epB[d] = e
     lnL_base = _peak(fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
-        tvals, Pv, lkB, rAB, cuB, cvB, epB, Lmax=Lmax, xpy=np, return_lnLt=True)[0])
+        tvals, Pv, lkB, rAB, cuB, cvB, epB, Lmax=Lmax, xpy=np, return_lnLt=True,time_interp='cubic')[0])
     print("  baseline (long-wavelength) lnL = %.5f   deficit = %.5f   [<= 0.5<d|d> ? %s]"
           % (lnL_base, HALF_DD - lnL_base, lnL_base <= HALF_DD + 1e-6))
 
@@ -154,7 +154,7 @@ def run(Qlist=(0, 2, 4, 6, 8)):
             skip_interpolation=True)
         lk, rbp, ubp, vbp, ep = flfr.pack_freqresponse_arrays(bk[4], bk[3], bk[1], bk[2])
         lnLt = flfr.DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
-            tvals, Pv, bk[4], lk, rbp, ubp, vbp, ep, Lmax=Lmax, array_output=True)[0]
+            tvals, Pv, bk[4], lk, rbp, ubp, vbp, ep, Lmax=Lmax, array_output=True,time_interp='cubic')[0]
         lnL = _peak(lnLt)
         excess = lnL - HALF_DD
         worst_excess = max(worst_excess, excess)
@@ -176,7 +176,7 @@ def run(Qlist=(0, 2, 4, 6, 8)):
             list(rho2[d].keys()), None, rho2[d], ct2[d], ctV2[d])
         lkB2[d] = a; rAB2[d] = rA; cuB2[d] = U; cvB2[d] = V; epB2[d] = e
     lnL_base2 = fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
-        tvals, Pv, lkB2, rAB2, cuB2, cvB2, epB2, Lmax=Lmax, xpy=np, return_lnLt=True)[0]
+        tvals, Pv, lkB2, rAB2, cuB2, cvB2, epB2, Lmax=Lmax, xpy=np, return_lnLt=True,time_interp='cubic')[0]
     for Qmax in [0, 4]:
         bk = flfr.PrecomputeLikelihoodTermsFreqResponse(
             event_time, t_window, Psig, dd_lwl, psd_dict, Lmax, fmax,
@@ -184,7 +184,7 @@ def run(Qlist=(0, 2, 4, 6, 8)):
             skip_interpolation=True)
         lk, rbp, ubp, vbp, ep = flfr.pack_freqresponse_arrays(bk[4], bk[3], bk[1], bk[2])
         lnLt = flfr.DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
-            tvals, Pv, bk[4], lk, rbp, ubp, vbp, ep, Lmax=Lmax, array_output=True)[0]
+            tvals, Pv, bk[4], lk, rbp, ubp, vbp, ep, Lmax=Lmax, array_output=True,time_interp='cubic')[0]
         worst = np.max(np.abs(lnLt - lnL_base2))
         print("   Qmax=%d L->0: max|lnL_fr - lnL_baseline| over window = %.3e" % (Qmax, worst))
 

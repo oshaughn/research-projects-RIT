@@ -538,7 +538,7 @@ def pack_rotation_arrays(meta, rholms_rot, crossTerms_rot, crossTermsV_rot):
 
 def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
         tvals, P_vec, meta, lookupNKDict, rho_by_a, U_by_aa, V_by_aa, epochDict,
-        Lmax=2, array_output=False):
+        Lmax=2, array_output=False, time_interp='nearest'):
     """Vectorized rotation-aware lnL (Path A).
 
     Mirrors factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopOrig with
@@ -569,16 +569,34 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
         def Cg(a):
             return C[a] if a in C else zeroC
         t_ref = epochDict[det]
-        t_det = FL.lalT(det, RA, DEC, P_vec.tref)
-        ifirst = (np.round((t_det + tvals[0] - t_ref) / P_vec.deltaT) + 0.5).astype(int)
+        # Match the maintained baseline NoLoop's precision-preserving time reference: keep the
+        # tiny (tref - epoch) offset and the small geometric delay separate, rather than
+        # subtracting two ~1e9 s absolute arrival times.  The absolute-difference form loses
+        # ~1e-3 of a sample bin, which is harmless for nearest-neighbour snapping but shows up
+        # directly in the sub-bin fraction used by cubic interpolation.
+        detector_location = np.asarray(FL.lalsim.DetectorPrefixToLALDetector(det).location)
+        gmst_tref = float(lal.GreenwichMeanSiderealTime(P_vec.tref))
+        t_det = float(P_vec.tref - float(t_ref)) + FL.TimeDelayFromEarthCenter(
+            detector_location, RA, DEC, gmst_tref)
+        sample_first = (t_det + tvals[0]) / P_vec.deltaT
+        if time_interp == 'nearest':
+            ifirst = (np.round(sample_first) + 0.5).astype(int)
+        else:
+            ifirst = np.floor(sample_first).astype(int)
+            frac_first = (sample_first - np.floor(sample_first)).astype(np.float64)
         ilast = ifirst + npts
 
         term1 = np.zeros((npts_ex, npts), dtype=np.complex128)
         for a in a_list:
             det_rho = rho_by_a[det][a]
-            Qa = np.empty((npts_ex, npts, n_lms), dtype=np.complex128)
-            for i in range(npts_ex):
-                Qa[i] = det_rho[..., ifirst[i]:ilast[i]].T
+            if time_interp == 'nearest':
+                Qa = np.empty((npts_ex, npts, n_lms), dtype=np.complex128)
+                for i in range(npts_ex):
+                    Qa[i] = det_rho[..., ifirst[i]:ilast[i]].T
+            else:
+                # cubic sub-sample interpolation (calmarg time_interp='cubic'):
+                # _cubic_Q_window_numpy expects Q_block shape (n_time, n_lm).
+                Qa = FL._cubic_Q_window_numpy(det_rho.T, ifirst, frac_first, npts)
             term1 += np.conj(Cg(a))[:, None] * np.einsum('xi,xti->xt', np.conj(Ylms), Qa)
         term1 = term1.real * (FL.distMpcRef / distMpc)[:, None]
 

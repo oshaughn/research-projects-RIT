@@ -153,14 +153,14 @@ def test_B_rotation_matches_baseline_at_zero_sidereal_rate():
 
     lnL_t_base = fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
         tvals, P_vec, lookupNKDict_b, rholmArrayDict_b, ctUArrayDict_b, ctVArrayDict_b,
-        epochDict_b, Lmax=Lmax, xpy=np, return_lnLt=True)
+        epochDict_b, Lmax=Lmax, xpy=np, return_lnLt=True,time_interp='cubic')
 
     # ---- rotation precompute (f_sidereal=0) + pack + rotation NoLoop ----
     rholms_intp_r, crossTerms_r, crossTermsV_r, rholms_r, meta = \
         flwr.PrecomputeLikelihoodTermsWithRotation(
             event_time, t_window, Psig, data_dict, psd_dict, Lmax, fmax,
             harmonics=HARM, p_max=0, f_sidereal=0.0, analyticPSD_Q=True,
-            verbose=False, quiet=True, skip_interpolation=False)
+            verbose=False, quiet=True, skip_interpolation=False,time_interp='cubic')
 
     lookupNKDict_r, rho_by_n, U_by_nn, V_by_nn, epochDict_r = flwr.pack_rotation_arrays(
         meta, rholms_r, crossTerms_r, crossTermsV_r)

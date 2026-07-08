@@ -123,12 +123,16 @@ _lkB, _rAB, _cuB, _cvB, _epB = _pack_baseline()
 _metaR0, _lkR0, _rbn0, _ubn0, _vbn0, _epR0 = _pack_rotation(0.0)
 _metaRW, _lkRW, _rbnW, _ubnW, _vbnW, _epRW = _pack_rotation(flwr.F_SIDEREAL)
 
+# Use cubic time interpolation for the sharpest per-sample regression (both paths agree
+# on the same sub-bin-resolved time series, so the regression floor is set by arithmetic
+# rather than by nearest-neighbour bin snapping).
+TIME_INTERP = 'cubic'
 lnL_base = fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
-    tvals, P_vec, _lkB, _rAB, _cuB, _cvB, _epB, Lmax=Lmax, xpy=np)
+    tvals, P_vec, _lkB, _rAB, _cuB, _cvB, _epB, Lmax=Lmax, xpy=np, time_interp=TIME_INTERP)
 lnL_rot0 = flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
-    tvals, P_vec, _metaR0, _lkR0, _rbn0, _ubn0, _vbn0, _epR0, Lmax=Lmax)
+    tvals, P_vec, _metaR0, _lkR0, _rbn0, _ubn0, _vbn0, _epR0, Lmax=Lmax, time_interp=TIME_INTERP)
 lnL_rotW = flwr.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
-    tvals, P_vec, _metaRW, _lkRW, _rbnW, _ubnW, _vbnW, _epRW, Lmax=Lmax)
+    tvals, P_vec, _metaRW, _lkRW, _rbnW, _ubnW, _vbnW, _epRW, Lmax=Lmax, time_interp=TIME_INTERP)
 
 
 # NOTE: the baseline DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop uses a GLOBAL lnLmax

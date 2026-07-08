@@ -327,7 +327,7 @@ def pack_freqresponse_arrays(meta, rholms_fr, crossTerms_fr, crossTermsV_fr):
 
 def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
         tvals, P_vec, meta, lookupNKDict, rho_by_p, U_by_pp, V_by_pp, epochDict,
-        Lmax=2, array_output=False):
+        Lmax=2, array_output=False, time_interp='nearest'):
     """Vectorized finite-size lnL over a time window (single extrinsic point per call
     is supported; P_vec fields RA,DEC,incl,phiref,psi,dist may be length-1 arrays).
 
@@ -364,16 +364,29 @@ def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
                 bvec[p][i] = bi[p]
 
         t_ref = epochDict[det]
-        t_det = FL.lalT(det, RA, DEC, P_vec.tref)
-        ifirst = (np.round((t_det + tvals[0] - t_ref) / P_vec.deltaT) + 0.5).astype(int)
+        # Precision-preserving time reference (see rotation NoLoop): keep (tref - epoch) and the
+        # geometric delay separate so the sub-bin fraction is exact under cubic interpolation.
+        detector_location = np.asarray(FL.lalsim.DetectorPrefixToLALDetector(det).location)
+        gmst_tref = float(lal.GreenwichMeanSiderealTime(P_vec.tref))
+        t_det = float(P_vec.tref - float(t_ref)) + FL.TimeDelayFromEarthCenter(
+            detector_location, RA, DEC, gmst_tref)
+        sample_first = (t_det + tvals[0]) / P_vec.deltaT
+        if time_interp == 'nearest':
+            ifirst = (np.round(sample_first) + 0.5).astype(int)
+        else:
+            ifirst = np.floor(sample_first).astype(int)
+            frac_first = (sample_first - np.floor(sample_first)).astype(np.float64)
         ilast = ifirst + npts
 
         term1 = np.zeros((npts_ex, npts), dtype=np.complex128)
         for p in p_list:
             det_rho = rho_by_p[det][p]
-            Qa = np.empty((npts_ex, npts, n_lms), dtype=np.complex128)
-            for i in range(npts_ex):
-                Qa[i] = det_rho[..., ifirst[i]:ilast[i]].T
+            if time_interp == 'nearest':
+                Qa = np.empty((npts_ex, npts, n_lms), dtype=np.complex128)
+                for i in range(npts_ex):
+                    Qa[i] = det_rho[..., ifirst[i]:ilast[i]].T
+            else:
+                Qa = FL._cubic_Q_window_numpy(det_rho.T, ifirst, frac_first, npts)
             term1 += np.conj(bvec[p])[:, None] * np.einsum('xi,xti->xt', np.conj(Ylms), Qa)
         term1 = term1.real * (FL.distMpcRef / distMpc)[:, None]
 
