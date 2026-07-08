@@ -254,6 +254,12 @@ optp.add_option("--extrinsic-proposal-adapt",action='store_true',default=False, 
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
 optp.add_option("--force-gpu-only", action="store_true", help="Hard fail if no GPU present (assessed by cupy not loading)")
+optp.add_option("--rotation-slow", action="store_true", help="[Path A] Slow-rotation likelihood: account for the sidereal time-dependence of the antenna pattern F(t) over the signal (harmonic modulation).  Requires --vectorized and CPU (not --gpu).  Uses factored_likelihood_with_rotation.")
+optp.add_option("--rotation-n-harmonics", type=int, default=2, help="Number of sidereal harmonics for --rotation-slow (antenna pattern needs 2, i.e. n=-2..2).")
+optp.add_option("--rotation-p-max", type=int, default=0, help="[Path B] Max delay-derivative order for --rotation-slow (0 = amplitude drift only; >=1 adds propagation-delay drift).")
+optp.add_option("--freqresponse", action="store_true", help="[Path D] Finite-size (frequency-dependent) detector-response likelihood: account for the finite light-travel-time transfer across the arms (matters for 3G/CE-ET).  Requires --vectorized and CPU (not --gpu).  Uses factored_likelihood_freqresponse (sky-harmonic route b, sky stays extrinsic).")
+optp.add_option("--freqresponse-qmax", type=int, default=4, help="Highest power of the arm projection retained for --freqresponse (basis size Qmax+2).  Higher for larger fL/c (heavier systems / higher fmax).")
+optp.add_option("--freqresponse-arm-length", type=float, default=None, help="Arm-length override [m] for --freqresponse (e.g. 40000 for 40-km CE).  Default: each detector's native LAL arm length.")
 optp.add_option("--force-xpy", action="store_true", help="Use the xpy code path.  Use with --vectorized --gpu to use the fallback CPU-based code path. Useful for debugging.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
@@ -385,6 +391,26 @@ def _truthy_option(value):
 
 opts._noloop_time_interp = "cubic" if _truthy_option(opts.interpolate_time) else "nearest"
 
+if opts.rotation_slow:
+    # Path A slow-rotation is currently wired only into the CPU vectorized branch.
+    if not opts.vectorized:
+        raise ValueError("--rotation-slow requires --vectorized")
+    if opts.gpu:
+        raise ValueError("--rotation-slow is CPU-only for now; do not combine with --gpu")
+    if getattr(opts, 'distance_marginalization', False) or getattr(opts, 'phase_marginalization', False):
+        raise ValueError("--rotation-slow does not yet support distance/phase marginalization")
+
+if opts.freqresponse:
+    # Path D finite-size response is currently wired only into the CPU vectorized branch.
+    if opts.rotation_slow:
+        raise ValueError("--freqresponse and --rotation-slow both replace the likelihood; use at most one")
+    if not opts.vectorized:
+        raise ValueError("--freqresponse requires --vectorized")
+    if opts.gpu:
+        raise ValueError("--freqresponse is CPU-only for now; do not combine with --gpu")
+    if getattr(opts, 'distance_marginalization', False) or getattr(opts, 'phase_marginalization', False):
+        raise ValueError("--freqresponse does not yet support distance/phase marginalization")
+
 # cosmo d prior tools for interpolation:  not used normally, but set if needed
 final_scipy_interpolate=None
 if 'cosmo' in opts.d_prior:
@@ -431,6 +457,8 @@ if cupy_success and opts.gpu and opts.sampler_method == 'adaptive_cartesian_gpu'
 if not(opts.use_gwsignal):
   os.environ['RIFT_NO_GWSIGNAL'] = 'True'
 import RIFT.likelihood.factored_likelihood as factored_likelihood
+import RIFT.likelihood.factored_likelihood_with_rotation as factored_likelihood_with_rotation
+import RIFT.likelihood.factored_likelihood_freqresponse as factored_likelihood_freqresponse
 
 if opts.use_gwsignal and not(factored_likelihood.has_GWS):
   print(" HARD FAILURE: this node could not import gwsignal ! ")
@@ -1822,6 +1850,39 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 ctVArrayDict[det] = cupy.asarray(ctVArrayDict[det])
                 epochDict[det] = cupy.asarray(epochDict[det])
 
+        # [Path A] slow-rotation precompute: build the harmonic-indexed bank and pack it.
+        rotation_slow_data = None
+        if opts.rotation_slow:
+            _pmax = int(opts.rotation_p_max)
+            _nh = max(int(opts.rotation_n_harmonics), 2 + _pmax)  # wide enough to cover all C_{(p,ntilde)}
+            _harm = tuple(range(-_nh, _nh + 1))
+            _rint_r, _ct_r, _ctV_r, _rho_r, _meta_r = factored_likelihood_with_rotation.PrecomputeLikelihoodTermsWithRotation(
+                fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
+                harmonics=_harm, p_max=_pmax, analyticPSD_Q=False,
+                inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec,
+                verbose=opts.verbose, quiet=not opts.verbose, skip_interpolation=True)
+            _lkR, _rhoN, _uNN, _vNN, _epR = factored_likelihood_with_rotation.pack_rotation_arrays(
+                _meta_r, _rho_r, _ct_r, _ctV_r)
+            rotation_slow_data = dict(meta=_meta_r, lookupNKDict=_lkR, rho_by_n=_rhoN,
+                                      U_by_nn=_uNN, V_by_nn=_vNN, epochDict=_epR)
+            print("  [rotation-slow] precompute complete; p_max", _pmax, "sidereal harmonics", _harm)
+
+        # [Path D] finite-size (frequency-dependent) response precompute: fold each W_p(f)
+        # into the modes once and pack the response-basis overlap bank.
+        freqresponse_data = None
+        if opts.freqresponse:
+            _qmax = int(opts.freqresponse_qmax)
+            _rint_f, _ct_f, _ctV_f, _rho_f, _meta_f = factored_likelihood_freqresponse.PrecomputeLikelihoodTermsFreqResponse(
+                fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
+                Qmax=_qmax, L_arm=opts.freqresponse_arm_length, analyticPSD_Q=False,
+                inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec,
+                verbose=opts.verbose, quiet=not opts.verbose, skip_interpolation=True)
+            _lkF, _rhoP, _uPP, _vPP, _epF = factored_likelihood_freqresponse.pack_freqresponse_arrays(
+                _meta_f, _rho_f, _ct_f, _ctV_f)
+            freqresponse_data = dict(meta=_meta_f, lookupNKDict=_lkF, rho_by_p=_rhoP,
+                                     U_by_pp=_uPP, V_by_pp=_vPP, epochDict=_epF)
+            print("  [freqresponse] precompute complete; Qmax", _qmax, "arm-length", opts.freqresponse_arm_length)
+
         def _cal_error_probe(n_cal_now, n_start=256, n_cap=None, rel_tol=0.1):
             """Estimate (sigma_lnZ_cal, neff_cal, n_used, dist_mode): the calibration
             MC error of lnZ and the effective cal draw count, from per-realization
@@ -2091,7 +2152,20 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
               P.psi= psi_true
               P.phiref = phi_orb_true
 
-            lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
+            if opts.rotation_slow:
+              lnL = factored_likelihood_with_rotation.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
+                        tvals, P, rotation_slow_data['meta'], rotation_slow_data['lookupNKDict'],
+                        rotation_slow_data['rho_by_n'], rotation_slow_data['U_by_nn'],
+                        rotation_slow_data['V_by_nn'], rotation_slow_data['epochDict'], Lmax=opts.l_max,
+                        time_interp=opts._noloop_time_interp)
+            elif opts.freqresponse:
+              lnL = factored_likelihood_freqresponse.DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
+                        tvals, P, freqresponse_data['meta'], freqresponse_data['lookupNKDict'],
+                        freqresponse_data['rho_by_p'], freqresponse_data['U_by_pp'],
+                        freqresponse_data['V_by_pp'], freqresponse_data['epochDict'], Lmax=opts.l_max,
+                        time_interp=opts._noloop_time_interp)
+            else:
+              lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
 #            nEvals +=len(right_ascension)
             if supplemental_ln_likelihood:

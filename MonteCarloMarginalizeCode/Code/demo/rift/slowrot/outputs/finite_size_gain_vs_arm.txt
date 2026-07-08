@@ -1,0 +1,6 @@
+# finite-size (Path D) demo: --freqresponse recovers SNR the long-wavelength analysis loses
+# label L_arm[m] fL/c@fmax SNR lnL_LWL lnL_finite gain=lnL_finite-lnL_LWL
+LIGO_4km 4000 0.0266851 318.345 50657 50657.3 0.250481
+ET_10km 10000 0.0667128 319.525 51029.7 51033.1 3.47031
+CE_20km 20000 0.133426 321.377 51613.5 51625.9 12.4271
+CE_40km 40000 0.266851 324.621 52633.5 52673 39.5546
