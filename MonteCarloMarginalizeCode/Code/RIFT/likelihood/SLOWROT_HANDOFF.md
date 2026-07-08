@@ -100,12 +100,24 @@ precompute-and-marginalize architecture. Two effects, both implemented (Path A +
     python RIFT/likelihood/test_slowrot_noloop.py              # vectorized Path A vs baseline NoLoop
     python RIFT/likelihood/test_slowrot_noloop_bruteforce.py   # vectorized Path A vs brute force
     python RIFT/likelihood/test_slowrot_pathB.py               # Path B reduction + bound
+    python RIFT/likelihood/test_slowrot_headtohead.py          # matched-sample rotation vs baseline (cubic)
+    python RIFT/likelihood/test_slowrot_freqresponse.py        # [Path D] finite-size response vs LAL
+    python RIFT/likelihood/test_slowrot_freqresponse_likelihood.py  # [Path D] likelihood: V1/V3 + V4 positive control
 
-End-to-end ILE head-to-head (ILE-GPU-Paper demo data), baseline vs rotation:
+VALUE DEMOS (verify-anywhere, no condor/GPU) -- consolidated in the RIFT tree:
+    cd demo/rift/slowrot && make demo        # rotation (Path A/B) + finite-size (Path D)
+    #   demo_rotation.py    : gain lnL_rot-lnL_static grows with Omega*T (null control at short T)
+    #   demo_finite_size.py : gain lnL_finite-lnL_LWL grows with arm length fL/c (null at LIGO 4km,
+    #                         +39.6 nats at CE 40km); writes outputs/*.{txt,png}.  See its README.md.
+
+End-to-end ILE head-to-head (ILE-GPU-Paper demo data), baseline vs rotation vs finite-size:
     D=~/RIFT_develUWM/src/research-projects-RIT/.travis/ILE-GPU-Paper/demos
     integrate_likelihood_extrinsic_batchmode --vectorized [std opts] ...            # baseline
     integrate_likelihood_extrinsic_batchmode --vectorized --rotation-slow ...        # Path A
     integrate_likelihood_extrinsic_batchmode --vectorized --rotation-slow --rotation-p-max 1 ...  # Path B
+    integrate_likelihood_extrinsic_batchmode --vectorized --freqresponse \
+        --freqresponse-arm-length 40000 --freqresponse-qmax 6 ...                     # Path D (finite-size)
+    # --interpolate-time selects cubic sub-bin time interpolation for all of the above (default nearest).
 
 ## Validation status (all PASSING)
 - Response harmonics vs LAL: ~1e-16.  FD ops vs LAL round trips: ~1e-13.
@@ -113,7 +125,13 @@ End-to-end ILE head-to-head (ILE-GPU-Paper demo data), baseline vs rotation:
 - Path A vectorized: vs baseline NoLoop 3.6e-12; vs brute force 3.2e-10; V0 (precompute
   recovery on real data) exact.
 - Path B: scalar reduce-to-baseline 9e-13; respects 0.5<d|d>; vectorized reduce 6.4e-12.
-- ILE runs clean (no inf/nan) for baseline / Path A / Path B; rotation ~ baseline for the
+- Path D (finite-size, --freqresponse): response Sum_p b_p W_p == antenna_response_fd to 6e-11
+  on both +/-f; likelihood L->0 reduces to baseline NoLoop 3e-9; Cauchy-Schwarz respected;
+  V4 positive control asserts finite-size beats LWL by +38.9 nats (15+13 Msun, fmax=2000, CE 40km).
+- Cubic time-interp (from calmarg_in_loop, --interpolate-time): both slow-response NoLoops now
+  support time_interp='nearest'|'cubic'.  Cubic exposed+fixed a sub-bin GPS-cancellation bug in
+  the time reference; head-to-head regression floor 1.6e-3 -> 4.5e-13, test_slowrot_noloop 3.6e-12.
+- ILE runs clean (no inf/nan) for baseline / Path A / Path B / Path D; rotation ~ baseline for the
   short demo signal (rotation effect ~0.008 in lnL, negligible as physics requires).
 
 ## CRITICAL lesson (a bug that hid for a while)
