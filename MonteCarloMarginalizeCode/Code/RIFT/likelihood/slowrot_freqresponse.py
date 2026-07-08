@@ -260,3 +260,183 @@ def antenna_response_fd_geom(response, x_arm, y_arm, L, ra, dec, psi, f, gmst=0.
 def free_spectral_range(L):
     """Free spectral range f_FSR = c / (2 L) [Hz]."""
     return C_SI / (2.0 * L)
+
+
+# ===========================================================================
+# Step 1 : sky-harmonic / power-series expansion of the finite-size response.
+# ===========================================================================
+# The finite-size antenna response is (pure Eqs. 4-6, no LWL split)
+#
+#     F_A(f;sky) = (1/2)[ D~(x,n,f) (eps^A:xx) - D~(y,n,f) (eps^A:yy) ] .
+#
+# Factor out the common one-way light-crossing delay T = L/c that both arms
+# share (DIRECTION-INDEPENDENT, degenerate with coalescence time):
+#
+#     D~(a,n,f) = e^{-i 2 pi f T} g(f; a) ,   a = a-hat . n-hat ,
+#     g(f; a)   = (1/2)[ e^{+i u(1-a)} sinc(u(1+a)) + e^{-i u(1+a)} sinc(u(1-a)) ] ,
+#     u = pi f T ,   sinc(x) = sin(x)/x ,   g(f;0) = sinc(2u) , g -> 1 as f->0.
+#
+# Taylor-expand the residual g in the arm projection a  (the small in-band
+# parameter is eps*a with eps = f L/c = f T):
+#
+#     g(f; a) = sum_{q>=0} c_q(f) a^q .                        (c_q sky-INDEPENDENT)
+#
+# The arm projections a_x = x-hat.n, a_y = y-hat.n and the arm-basis polarization
+# contractions combine into a single COMPLEX analytic sky/pol scalar per power q,
+#
+#     beta_q(sky) = (1/2)[ zx^2 a_x^q - zy^2 a_y^q ] ,
+#     zx = X.x-hat + i Y.x-hat ,  zy = X.y-hat + i Y.y-hat     (X,Y polarization triad)
+#
+# so that  G_A(f;sky) := F_A e^{+i2 pi f T}  gives the complex response
+#
+#     G(f) = G_+ + i G_x = sum_q c_q(f) beta_q(sky) ,          (the analogue of A_n)
+#     beta_0 = (1/2)(zx^2 - zy^2) = F_+^LWL + i F_x^LWL   (== ComputeDetAMResponse, up
+#                                                          to the ~1e-7 REAL4 geodety).
+#
+# The full response, EXACTLY reproducing antenna_response_fd, is then
+#
+#     F(f)    = F0_lal  +  e^{-i2 pi f T} G(f)  -  beta_0            (Fp+iFc form)
+#     Fbar(f) = conj(F0_lal) + e^{-i2 pi f T} Gbar(f) - conj(beta_0),  Gbar=sum_q c_q conj(beta_q)
+#     F_+ = (F+Fbar)/2 ,   F_x = (F-Fbar)/(2i)
+#
+# with F0_lal the EXACT lal.ComputeDetAMResponse baseline (so f->0 is machine
+# precise even though beta_0 from the arm triads carries the ~1e-7 geodetic error;
+# the arm-based pieces enter only the finite-size correction, which vanishes at f=0).
+# ---------------------------------------------------------------------------
+from math import comb as _comb, factorial as _factorial
+
+
+def _sinc_shift_apoly(u, s, Qmax, jmax=64):
+    """a-power coefficients d_m(u), m=0..Qmax, of  sinc(u(1 + s a))  (s = +/-1).
+
+    Entire-series form (stable at u=0):  sinc(x) = sum_j (-1)^j x^{2j}/(2j+1)!,
+    x = u(1+s a) => coeff of a^m is  s^m sum_{j>=ceil(m/2)} (-1)^j u^{2j}/(2j+1)! C(2j,m).
+    u may be a numpy array (frequencies); returns shape (Qmax+1,) + u.shape.
+    """
+    u = np.asarray(u, dtype=float)
+    out = np.zeros((Qmax + 1,) + u.shape, dtype=float)
+    u2 = u * u
+    # precompute u^{2j}
+    upow = np.ones_like(u)          # u^{0}
+    for j in range(0, jmax + 1):
+        coef = ((-1) ** j) / float(_factorial(2 * j + 1))
+        for m in range(0, min(Qmax, 2 * j) + 1):
+            out[m] += coef * _comb(2 * j, m) * upow
+        upow = upow * u2
+    for m in range(Qmax + 1):
+        out[m] *= float(s) ** m
+    return out.astype(complex)
+
+
+def _poly_mul(A, B, Qmax):
+    """Truncated product (to order Qmax) of two a-power stacks A[k],B[k] over freq axis."""
+    out = np.zeros_like(A[:Qmax + 1])
+    for i in range(min(len(A), Qmax + 1)):
+        for j in range(min(len(B), Qmax + 1 - i)):
+            out[i + j] += A[i] * B[j]
+    return out
+
+
+def finite_size_c_coeffs(f, L, Qmax):
+    """Sky-independent frequency basis c_q(f), q = 0..Qmax, of g(f;a)=sum_q c_q(f) a^q.
+
+    Parameters
+    ----------
+    f : ndarray        frequency [Hz] (signed values allowed; c_q(-f)=conj(c_q(f)))
+    L : float          arm length [m]
+    Qmax : int         highest power of the arm projection a retained
+
+    Returns
+    -------
+    c : complex ndarray, shape (Qmax+1,) + f.shape.  c_0(f)=sinc(2 pi f T),
+        c_{q>=1} carry the finite-size shape distortion; all -> delta_{q0} as f->0.
+    """
+    f = np.asarray(f, dtype=float)
+    T = L / C_SI
+    u = np.pi * f * T
+    # exp(-i u a): coeff of a^k is (-i u)^k / k!
+    exp_neg = np.zeros((Qmax + 1,) + u.shape, dtype=complex)
+    term = np.ones_like(u, dtype=complex)
+    for k in range(Qmax + 1):
+        exp_neg[k] = term / float(_factorial(k))
+        term = term * (-1j * u)
+    sinc_p = _sinc_shift_apoly(u, +1.0, Qmax)      # sinc(u(1+a))
+    sinc_m = _sinc_shift_apoly(u, -1.0, Qmax)      # sinc(u(1-a))
+    eiu = np.exp(1j * u)
+    term1 = eiu * _poly_mul(exp_neg, sinc_p, Qmax)         # e^{iu} e^{-iua} sinc(u(1+a))
+    term2 = np.conj(eiu) * _poly_mul(exp_neg, sinc_m, Qmax)  # e^{-iu} e^{-iua} sinc(u(1-a))
+    return 0.5 * (term1 + term2)
+
+
+def finite_size_geometry(det, ra, dec, psi, gmst=0.0, L_arm=None):
+    """Geometric scalars for the finite-size expansion at (det, ra, dec, psi, gmst).
+
+    Returns dict with:
+        T      = L/c common one-way delay [s]
+        L      arm length [m]
+        ax, ay arm projections x-hat.n, y-hat.n
+        zx, zy = X.a-hat + i Y.a-hat (complex pol/arm scalars)
+        F0     = Fp_lwl + i Fc_lwl  (EXACT lal baseline response, machine precise f=0)
+    """
+    response, x_arm, y_arm, L = detector_geometry(det, L_arm=L_arm)
+    g = gmst - ra
+    X, Y, nhat = _triad(dec, psi, g)
+    Fp_lwl, Fc_lwl = _lwl_response(response, X, Y)
+    Xx, Yx = float(X @ x_arm), float(Y @ x_arm)
+    Xy, Yy = float(X @ y_arm), float(Y @ y_arm)
+    zx = Xx + 1j * Yx
+    zy = Xy + 1j * Yy
+    ax = float(x_arm @ nhat)
+    ay = float(y_arm @ nhat)
+    return dict(T=L / C_SI, L=L, ax=ax, ay=ay, zx=zx, zy=zy,
+                F0=complex(Fp_lwl) + 1j * complex(Fc_lwl))
+
+
+def finite_size_beta(geom, Qmax):
+    """Analytic sky/pol coefficients beta_q = (1/2)[zx^2 a_x^q - zy^2 a_y^q], q=0..Qmax."""
+    zx2, zy2, ax, ay = geom['zx'] ** 2, geom['zy'] ** 2, geom['ax'], geom['ay']
+    return np.array([0.5 * (zx2 * ax ** q - zy2 * ay ** q) for q in range(Qmax + 1)],
+                    dtype=complex)
+
+
+def F_fd_expanded(det, ra, dec, psi, f, Qmax, gmst=0.0, L_arm=None):
+    """Order-Qmax reconstruction of the finite-size response F_+(f), F_x(f).
+
+    Converges to antenna_response_fd(det,ra,dec,psi,f,...) as Qmax -> infinity.
+    Uses the EXACT lal baseline F0 for the constant part and the power-series
+    finite-size correction e^{-i2 pi f T}(sum_q c_q beta_q) - beta_0.
+    """
+    f = np.asarray(f, dtype=float)
+    geom = finite_size_geometry(det, ra, dec, psi, gmst=gmst, L_arm=L_arm)
+    beta = finite_size_beta(geom, Qmax)
+    c = finite_size_c_coeffs(f, geom['L'], Qmax)             # (Qmax+1,)+f.shape
+    G = np.tensordot(beta, c, axes=(0, 0))                   # sum_q beta_q c_q(f)
+    Gbar = np.tensordot(np.conj(beta), c, axes=(0, 0))
+    phase = np.exp(-1j * 2.0 * np.pi * f * geom['T'])
+    F = geom['F0'] + phase * G - beta[0]
+    Fbar = np.conj(geom['F0']) + phase * Gbar - np.conj(beta[0])
+    Fp = 0.5 * (F + Fbar)
+    Fc = (F - Fbar) / (2.0j)
+    return Fp, Fc
+
+
+def finite_size_response_weights(fvals, geom, Qmax):
+    """Per-basis frequency weights W_p(f) folded into the FD modes for the likelihood.
+
+    Response basis (p = 0..Qmax+1) reproducing F(f) = sum_p b_p W_p(f):
+        p=0   ("baseline") : W_0(f) = 1                       b_0 = F0 (exact lal)
+        p=1+q              : W_{1+q}(f) = e^{-i2pi f T} c_q(f) - [q==0]
+                                                              b_{1+q} = beta_q  (arm)
+    Each W_p is Hermitian (W_p(-f)=conj(W_p(f))) so the V cross term needs NO
+    harmonic reflection.  The common delay e^{-i2 pi f T} (= a T=L/c arrival-time
+    shift of the finite-size correction relative to the LWL baseline) is carried
+    inside the correction weights.  Returns (weights (Npbasis, Nf) complex, coeff-builder).
+    """
+    fvals = np.asarray(fvals, dtype=float)
+    c = finite_size_c_coeffs(fvals, geom['L'], Qmax)
+    phase = np.exp(-1j * 2.0 * np.pi * fvals * geom['T'])
+    W = np.empty((Qmax + 2, fvals.shape[0]), dtype=complex)
+    W[0] = 1.0
+    for q in range(Qmax + 1):
+        W[1 + q] = phase * c[q] - (1.0 if q == 0 else 0.0)
+    return W
