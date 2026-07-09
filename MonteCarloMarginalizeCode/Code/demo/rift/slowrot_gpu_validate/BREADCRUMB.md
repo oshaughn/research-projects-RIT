@@ -72,12 +72,26 @@ make show                                   # prints gpu_test.out
   `factored_likelihood_with_rotation.py` term1 GPU branch.
 - **NUMBA_CACHE_DIR**: set to `.` (job scratch) via the sub's `environment`.
 
-## After it passes
-- End-to-end GPU ILE run: same as the CPU rotation ILE but add `--gpu` (keep `--vectorized`,
-  n_cal=1). Compare a short head-to-head vs the CPU run (should match to sampler noise).
-- **Follow-ups not yet done:** (1) Path D (freqresponse) GPU port — identical fused-kernel pattern;
-  (2) a dedicated benchmark container (see `~/rift_cit_build_container_family/` build kit in memory)
-  if you want a self-contained image for end-users; (3) `create_event_parameter_pipeline`-based
-  standard-pipeline example (like `.travis/ILE-GPU-Paper`).
+## End-to-end GPU ILE — DONE (2026-07-09, commit 4c7ea1c2)
+Ran the real `integrate_likelihood_extrinsic_batchmode` with `--gpu` on the finite-size CE-ET SNR30
+inputs (`~/RIFT_roboto_paper/analyses/slowrot_finite-size/3g/run_CE-ET_snr30/`). GPU-vs-CPU marginalized
+lnL agree to <0.5 sampler-sigma for BOTH paths (freqresponse ΔlnL=0.005, rotation ΔlnL=0.085; σ~0.17 at
+n_eff~130k); GPU 2–4× faster. Three more bugs the unit tests could NOT catch (only the real GPU ILE did):
+- **AV sampler `prior_prod`** fed the host CPU sample copy to mcsamplerGPU prior helpers that default
+  `xpy=cupy` → `cupy.sin(numpy)` raised "Unsupported type numpy.ndarray" (broke ANY AV run in a cupy
+  container). Fixed: pass `xpy=numpy` to helpers that accept it.
+- **`mcsamplerGPU.cupy_pi`** was a device scalar (`cupy.array(pi)`) → `numpy_array/cupy_pi` re-dispatched to
+  cupy → same error. Fixed: `cupy_pi = np.pi`.
+- **freqresponse GPU port** missed the `_h()` host-copy of `P_vec` extrinsic params; under `--gpu` the ILE
+  hands RA/DEC/incl as cupy arrays and `np.atleast_1d(cupy)` raised in ComputeYlmsArrayVector. Fixed.
+**Invocation note:** `--force-xpy` alone is INERT (opts.gpu stays False unless `--gpu` is *also* passed and
+cupy is absent, batchmode ~L520). Use `--gpu` (cupy present) to actually hit the xpy GPU likelihood_function.
+Pure-CPU baseline (no `--gpu`) FAILS in a cupy container ("Unsupported dtype float128", old CPU-vectorized
+path) — pre-existing, unrelated; use `--gpu` in a cupy container.
+
+## Remaining follow-ups
+- A dedicated benchmark container (see `~/rift_cit_build_container_family/` build kit in memory) for a
+  self-contained end-user image; and a `create_event_parameter_pipeline`-based standard-pipeline example
+  (like `.travis/ILE-GPU-Paper`).
 - The finite-size sky-loc DAG (`~/RIFT_roboto_paper/analyses/slowrot_finite-size/3g/`) is a
   SEPARATE, already-launched run; `make post` there builds the figure once it finishes.
