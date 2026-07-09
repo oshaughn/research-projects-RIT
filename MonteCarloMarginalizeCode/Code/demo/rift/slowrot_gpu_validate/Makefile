@@ -1,5 +1,6 @@
 # Validate the GPU (xpy=cupy) rotation + freqresponse likelihood on a real GPU.
-#   make local-gpu  run directly in the RIFT container on THIS host's GPU (no Condor)  <-- easiest
+#   make local-gpu  run the LIKELIHOOD parity unit tests in the container on THIS host's GPU  <-- fastest
+#   make e2e        run the REAL ILE CPU-vs-GPU consistency check (rotation + freqresponse)   <-- end-to-end
 #   make submit     tar the branch code + condor_submit gpu_test.sub  (source your env first!)
 #   make local      run the wrapper locally (validates plumbing; SKIPS the GPU test if no cupy)
 #   make show       print the job stdout once it finishes
@@ -14,7 +15,11 @@ CODE_PARENT := $(dir $(RIFT_CODE:/=))
 # SINGULARITY_RIFT_IMAGE, so `make submit` needs it set by hand; `make local-gpu` does not.)
 RIFT_LOCAL_IMAGE ?= /home/richard.oshaughnessy/rift_cit_build_container_family/built_containers/rift_o4d-calmarg_in_loop_cc60-90_cuda118_20260615b.sif
 
-.PHONY: tarball submit local local-gpu show clean
+# End-to-end ILE consistency: a real ILE case dir (frames/PSD/grid + case.json).  Defaults to the
+# finite-size pipeline's CE-ET SNR30 inputs; override to any such case dir.
+RIFT_E2E_CASE ?= /home/richard.oshaughnessy/RIFT_roboto_paper/analyses/slowrot_finite-size/3g/run_CE-ET_snr30
+
+.PHONY: tarball submit local local-gpu e2e show clean
 tarball:
 	# write OUTSIDE the Code tree (tar can't read a file it is growing), then move it in;
 	# exclude this kit's own scratch so a stale tarball is never re-packed.
@@ -36,6 +41,14 @@ local-gpu:
 	@nvidia-smi -L | head -1
 	CUDA_VISIBLE_DEVICES=$${CUDA_VISIBLE_DEVICES:-0} singularity exec --nv "$(RIFT_LOCAL_IMAGE)" \
 	    bash -c 'export RIFT_CODE=$(RIFT_CODE); export NUMBA_CACHE_DIR=$$(mktemp -d); RIFT_CODE=$(RIFT_CODE) PYTHON=$(PYTHON) ./run_gpu_test.sh' 2>&1 | grep -v 'underlay of'
+
+# Real ILE CPU-vs-GPU consistency: runs {rotation,finite} x {cpu,gpu} on RIFT_E2E_CASE and asserts
+# the marginalized lnL agrees to sampler noise.  Runs in the container on THIS host's GPU.
+e2e:
+	@test -f "$(RIFT_LOCAL_IMAGE)" || (echo "ERROR: RIFT_LOCAL_IMAGE not found: $(RIFT_LOCAL_IMAGE)"; exit 1)
+	@nvidia-smi -L | head -1
+	CUDA_VISIBLE_DEVICES=$${CUDA_VISIBLE_DEVICES:-0} singularity exec --nv "$(RIFT_LOCAL_IMAGE)" \
+	    bash -c 'RIFT_CODE=$(RIFT_CODE) PYTHON=$(PYTHON) RIFT_E2E_CASE=$(RIFT_E2E_CASE) ./run_e2e_consistency.sh' 2>&1 | grep -v 'underlay of'
 
 show:
 	@echo '--- gpu_test.out ---'; cat gpu_test.out 2>/dev/null; echo '--- gpu_test.err (tail) ---'; tail -20 gpu_test.err 2>/dev/null

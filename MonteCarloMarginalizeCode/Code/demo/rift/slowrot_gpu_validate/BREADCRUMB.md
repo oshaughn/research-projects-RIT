@@ -73,10 +73,14 @@ make show                                   # prints gpu_test.out
 - **NUMBA_CACHE_DIR**: set to `.` (job scratch) via the sub's `environment`.
 
 ## End-to-end GPU ILE — DONE (2026-07-09, commit 4c7ea1c2)
-Ran the real `integrate_likelihood_extrinsic_batchmode` with `--gpu` on the finite-size CE-ET SNR30
-inputs (`~/RIFT_roboto_paper/analyses/slowrot_finite-size/3g/run_CE-ET_snr30/`). GPU-vs-CPU marginalized
-lnL agree to <0.5 sampler-sigma for BOTH paths (freqresponse ΔlnL=0.005, rotation ΔlnL=0.085; σ~0.17 at
-n_eff~130k); GPU 2–4× faster. Three more bugs the unit tests could NOT catch (only the real GPU ILE did):
+**Re-run any time with `make e2e`** (runs `run_e2e_consistency.sh` in the container on this host's GPU):
+runs the real `integrate_likelihood_extrinsic_batchmode` four ways — {rotation,finite}×{cpu,gpu} — on a
+real ILE case (default `RIFT_E2E_CASE=`the finite-size CE-ET SNR30 dir; override to any case dir with
+frames/PSD/grid + case.json) and asserts CPU-vs-GPU marginalized lnL agree within `TOL_SIGMA` (4) × sampler
+error. Args built by `e2e_mkargs.py`. Original run on the finite-size CE-ET SNR30 inputs
+(`~/RIFT_roboto_paper/analyses/slowrot_finite-size/3g/run_CE-ET_snr30/`): GPU-vs-CPU marginalized lnL agree
+to <0.5 sampler-sigma for BOTH paths (freqresponse ΔlnL=0.005, rotation ΔlnL=0.085; σ~0.17 at n_eff~130k);
+GPU 2–4× faster. Three more bugs the unit tests could NOT catch (only the real GPU ILE did):
 - **AV sampler `prior_prod`** fed the host CPU sample copy to mcsamplerGPU prior helpers that default
   `xpy=cupy` → `cupy.sin(numpy)` raised "Unsupported type numpy.ndarray" (broke ANY AV run in a cupy
   container). Fixed: pass `xpy=numpy` to helpers that accept it.
