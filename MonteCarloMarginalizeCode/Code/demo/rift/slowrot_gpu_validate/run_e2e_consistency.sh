@@ -16,29 +16,28 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${RIFT_CODE:?set RIFT_CODE to the Code dir}"
 PYTHON="${PYTHON:-python3}"
 TOL_SIGMA="${TOL_SIGMA:-4}"
-# Default case: the finite-size pipeline's CE-ET SNR30 inputs (frames + PSD xml + grid + case.json,
-# with ile_common / ile_finite_extra).  Override RIFT_E2E_CASE to point at any such case dir.
-RIFT_E2E_CASE="${RIFT_E2E_CASE:-/home/richard.oshaughnessy/RIFT_roboto_paper/analyses/slowrot_finite-size/3g/run_CE-ET_snr30}"
+# By default this is SELF-CONTAINED: it generates its own throwaway 2-detector injection (frames + PSD +
+# grid + case.json) via make_e2e_inputs.py.  Set RIFT_E2E_CASE to reuse an existing ILE case dir instead
+# (frames *.gwf + PSD *-psd.xml.gz + grid.xml.gz + case.json carrying ile_common / ile_finite_extra).
+RIFT_E2E_CASE="${RIFT_E2E_CASE:-}"
 export PYTHONPATH="$RIFT_CODE:${PYTHONPATH:-}"
 export NUMBA_CACHE_DIR="${NUMBA_CACHE_DIR:-$(mktemp -d)}"
 
-for f in case.json grid.xml.gz; do
-  if [ ! -e "$RIFT_E2E_CASE/$f" ]; then
-    echo "ERROR: RIFT_E2E_CASE is missing '$f': $RIFT_E2E_CASE"
-    echo "  Point RIFT_E2E_CASE at a finite-size ILE case dir: frames (*.gwf) + PSD (*-psd.xml.gz) +"
-    echo "  grid.xml.gz + case.json (carrying ile_common / ile_finite_extra)."
-    echo "  Regenerate one with the finite-size pipeline generator:"
-    echo "    ~/RIFT_roboto_paper/analyses/slowrot_finite-size/3g/make_inputs.py  (writes run_<net>_snr<N>/)"
-    exit 2
-  fi
-done
-
 WORK="$(mktemp -d)"
-cp "$RIFT_E2E_CASE"/*.gwf "$RIFT_E2E_CASE"/*.xml.gz "$RIFT_E2E_CASE"/case.json "$WORK"/ 2>/dev/null
-cp "$HERE/e2e_mkargs.py" "$WORK"/
-# Rebuild data.cache against the LOCAL frame copies (the submit-host absolute paths in the case's own
-# data.cache may not resolve here).
-( cd "$WORK" && $PYTHON - <<'PY'
+if [ -n "$RIFT_E2E_CASE" ]; then
+  for f in case.json grid.xml.gz; do
+    if [ ! -e "$RIFT_E2E_CASE/$f" ]; then
+      echo "ERROR: RIFT_E2E_CASE is missing '$f': $RIFT_E2E_CASE"
+      echo "  It must hold frames (*.gwf) + PSD (*-psd.xml.gz) + grid.xml.gz + case.json"
+      echo "  (with ile_common / ile_finite_extra).  Unset RIFT_E2E_CASE to auto-generate one."
+      exit 2
+    fi
+  done
+  echo "=== slowrot GPU<->CPU end-to-end consistency (external case) ==="
+  echo "    case: $RIFT_E2E_CASE"
+  cp "$RIFT_E2E_CASE"/*.gwf "$RIFT_E2E_CASE"/*.xml.gz "$RIFT_E2E_CASE"/case.json "$WORK"/ 2>/dev/null
+  # Rebuild data.cache against the LOCAL frame copies (the case's own absolute paths may not resolve here).
+  ( cd "$WORK" && $PYTHON - <<'PY'
 import glob, os
 lines = []
 for g in sorted(glob.glob("*.gwf")):
@@ -47,11 +46,14 @@ for g in sorted(glob.glob("*.gwf")):
     lines.append("%s %s %s %s file://localhost%s\n" % (obs, desc, start, dur, os.path.abspath(g)))
 open("data.cache", "w").writelines(lines)
 PY
-)
+  )
+else
+  echo "=== slowrot GPU<->CPU end-to-end consistency (self-contained) ==="
+  echo "    generating a throwaway 2-detector injection ..."
+  $PYTHON "$HERE/make_e2e_inputs.py" "$WORK" || { echo "RESULT: FAILED (input generation)"; exit 1; }
+fi
+cp "$HERE/e2e_mkargs.py" "$WORK"/
 cd "$WORK"
-
-echo "=== slowrot GPU<->CPU end-to-end consistency ==="
-echo "    case: $RIFT_E2E_CASE"
 echo "    work: $WORK   (n-eff=${E2E_NEFF:-200}, tol=${TOL_SIGMA} sigma)"
 
 declare -A LNL ERR

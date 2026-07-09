@@ -106,4 +106,5 @@ both paths (see `../slowrot_gpu_validate/`, `make local-gpu` and `make e2e`).
   bound respected, and a **V4 positive control** asserting finite-size beats LWL by +38.9 nats
   in an in-band-effect config.
 - **GPU:** `test_slowrot_gpu.py` / `test_slowrot_freqresponse_gpu.py` — GPU↔CPU likelihood parity
-  (skip without a GPU). End-to-end ILE CPU-vs-GPU consistency: `../slowrot_gpu_validate/` (`make e2e`).
+  (skip without a GPU). End-to-end ILE CPU-vs-GPU consistency: `../slowrot_gpu_validate/` `make e2e`
+  (self-contained — generates its own throwaway H1L1 injection; asserts GPU==CPU evidence to sampler noise).

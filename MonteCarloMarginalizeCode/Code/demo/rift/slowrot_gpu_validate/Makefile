@@ -15,9 +15,9 @@ CODE_PARENT := $(dir $(RIFT_CODE:/=))
 # SINGULARITY_RIFT_IMAGE, so `make submit` needs it set by hand; `make local-gpu` does not.)
 RIFT_LOCAL_IMAGE ?= /home/richard.oshaughnessy/rift_cit_build_container_family/built_containers/rift_o4d-calmarg_in_loop_cc60-90_cuda118_20260615b.sif
 
-# End-to-end ILE consistency: a real ILE case dir (frames/PSD/grid + case.json).  Defaults to the
-# finite-size pipeline's CE-ET SNR30 inputs; override to any such case dir.
-RIFT_E2E_CASE ?= /home/richard.oshaughnessy/RIFT_roboto_paper/analyses/slowrot_finite-size/3g/run_CE-ET_snr30
+# End-to-end ILE consistency case.  EMPTY = self-contained (make_e2e_inputs.py generates a throwaway
+# 2-detector injection).  Override to reuse an existing ILE case dir: `make e2e RIFT_E2E_CASE=/path/to/case`.
+RIFT_E2E_CASE ?=
 
 .PHONY: tarball submit local local-gpu e2e show clean
 tarball:
