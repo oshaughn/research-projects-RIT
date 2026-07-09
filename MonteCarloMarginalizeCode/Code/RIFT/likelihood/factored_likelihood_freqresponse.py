@@ -344,14 +344,18 @@ def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
     if on_gpu:
         from . import Q_inner_product
 
+    def _h(v):   # host (numpy) copy -- response_coefficients / Ylm / delay helpers are numpy/LAL.
+        # Under --gpu the ILE hands P_vec fields as cupy arrays; np.atleast_1d(cupy) would raise.
+        return np.atleast_1d(v.get() if hasattr(v, 'get') else np.asarray(v))
+
     p_list = list(meta['p_list'])
     Qmax = meta['Qmax']
     L_arm = meta.get('L_arm', None)
-    npts = len(tvals); npts_ex = len(np.atleast_1d(P_vec.phi))
-    RA = np.atleast_1d(P_vec.phi); DEC = np.atleast_1d(P_vec.theta)
-    incl = np.atleast_1d(P_vec.incl); phiref = np.atleast_1d(P_vec.phiref)
-    psi = np.atleast_1d(P_vec.psi)
-    distMpc = np.atleast_1d(P_vec.dist) / (lal.PC_SI * 1e6)
+    RA = _h(P_vec.phi); DEC = _h(P_vec.theta)
+    incl = _h(P_vec.incl); phiref = _h(P_vec.phiref)
+    psi = _h(P_vec.psi)
+    npts = len(tvals); npts_ex = len(RA)
+    distMpc = _h(P_vec.dist) / (lal.PC_SI * 1e6)
     inv_dist = xpy.asarray(FL.distMpcRef / distMpc)   # (npts_ex,) on device under --gpu
     lnL_t = xpy.zeros((npts_ex, npts), dtype=np.float64)
 
