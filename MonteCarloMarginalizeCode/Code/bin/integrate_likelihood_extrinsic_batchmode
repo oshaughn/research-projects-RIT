@@ -396,11 +396,13 @@ def _truthy_option(value):
 opts._noloop_time_interp = "cubic" if _truthy_option(opts.interpolate_time) else "nearest"
 
 if opts.rotation_slow:
-    # Path A slow-rotation is currently wired only into the CPU vectorized branch.
+    # Path A/B slow-rotation: wired into BOTH the CPU-vectorized and GPU (xpy) branches; the
+    # NoLoop-with-rotation reuses the baseline fused Q_inner_product kernel per elementary
+    # template on GPU (same memory footprint as the baseline).
     if not opts.vectorized:
         raise ValueError("--rotation-slow requires --vectorized")
-    if opts.gpu:
-        raise ValueError("--rotation-slow is CPU-only for now; do not combine with --gpu")
+    if opts.gpu and getattr(opts, 'calibration_marginalization', False):
+        raise ValueError("--rotation-slow on GPU does not support calibration/glitch marginalization (n_cal>1)")
     if getattr(opts, 'distance_marginalization', False) or getattr(opts, 'phase_marginalization', False):
         raise ValueError("--rotation-slow does not yet support distance/phase marginalization")
 
@@ -1876,9 +1878,20 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 verbose=opts.verbose, quiet=not opts.verbose, skip_interpolation=True)
             _lkR, _rhoN, _uNN, _vNN, _epR = factored_likelihood_with_rotation.pack_rotation_arrays(
                 _meta_r, _rho_r, _ct_r, _ctV_r)
+            if opts.gpu and (not xpy_default is np):
+                # move the (per-elementary-template) Q banks + U/V to device; the NoLoop
+                # reuses the baseline fused kernel per template.  epoch/lookup stay on host.
+                for _det in _rhoN:
+                    for _a in _rhoN[_det]:
+                        _rhoN[_det][_a] = cupy.asarray(_rhoN[_det][_a])
+                    for _pair in _uNN[_det]:
+                        _uNN[_det][_pair] = cupy.asarray(_uNN[_det][_pair])
+                    for _pair in _vNN[_det]:
+                        _vNN[_det][_pair] = cupy.asarray(_vNN[_det][_pair])
             rotation_slow_data = dict(meta=_meta_r, lookupNKDict=_lkR, rho_by_n=_rhoN,
                                       U_by_nn=_uNN, V_by_nn=_vNN, epochDict=_epR)
-            print("  [rotation-slow] precompute complete; p_max", _pmax, "sidereal harmonics", _harm)
+            print("  [rotation-slow] precompute complete; p_max", _pmax, "sidereal harmonics", _harm,
+                  "(GPU)" if (opts.gpu and not xpy_default is np) else "(CPU)")
 
         # [Path D] finite-size (frequency-dependent) response precompute: fold each W_p(f)
         # into the modes once and pack the response-basis overlap bank.
@@ -2236,7 +2249,14 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   P.phiref = phi_orb_true
 
 
-                lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                if opts.rotation_slow:
+                  lnL = factored_likelihood_with_rotation.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
+                        tvals, P, rotation_slow_data['meta'], rotation_slow_data['lookupNKDict'],
+                        rotation_slow_data['rho_by_n'], rotation_slow_data['U_by_nn'],
+                        rotation_slow_data['V_by_nn'], rotation_slow_data['epochDict'], Lmax=opts.l_max,
+                        time_interp=opts._noloop_time_interp, xpy=xpy_default)
+                else:
+                  lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,n_cal=n_cal_for_likelihood,
                         cal_method=('fused' if use_fused_calmarg and opts._noloop_time_interp == 'nearest' else 'loop'), cal_log_weights=calibration_log_weights,
                         time_interp=opts._noloop_time_interp)  # non-distmarg: default-helper fused kernel (cal_distmarg=None)
