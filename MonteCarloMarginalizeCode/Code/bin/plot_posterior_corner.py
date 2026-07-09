@@ -478,11 +478,11 @@ if opts.change_parameter_label:
           lalsimutils.tex_dictionary[name] = "$"+new_str+"$"  # should be able to ASSIGN NEW NAMES, not restrict
 
 special_param_ranges = {
-  'q':[0,1],
-  'eta':[0,0.25],
+  #'q':[0,1],
+  #'eta':[0,0.25],
   'a1z':[-opts.chi_max,opts.chi_max],
   'a2z':[-opts.chi_max,opts.chi_max],
-  'chi_eff': [-opts.chi_max,opts.chi_max],  # this can backfire for very narrow constraints
+  #'chi_eff': [-opts.chi_max,opts.chi_max],  # this can backfire for very narrow constraints
   'lambda1':[0,4000],
   'lambda2':[0,4000],
   'chi_pavg':[0,2],
