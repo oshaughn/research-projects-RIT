@@ -3,3 +3,17 @@ _code/
 gpu_test.out
 gpu_test.err
 gpu_test.log
+# numba JIT on-disk cache (regenerated per run via NUMBA_CACHE_DIR; never commit)
+*.nbc
+*.nbi
+e2e_case/
+# numba cache dirs (module_<sha>/) written when tests run in this dir with NUMBA_CACHE_DIR=.
+SWSH_*/
+WignerD_*/
+qnm_*/
+quaternionic_*/
+recursions_*/
+scri_*/
+spherical_*/
+utilities_*/
+utils_*/
