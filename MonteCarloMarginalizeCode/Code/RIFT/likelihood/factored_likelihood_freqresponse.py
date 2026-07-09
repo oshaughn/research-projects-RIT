@@ -327,14 +327,22 @@ def pack_freqresponse_arrays(meta, rholms_fr, crossTerms_fr, crossTermsV_fr):
 
 def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
         tvals, P_vec, meta, lookupNKDict, rho_by_p, U_by_pp, V_by_pp, epochDict,
-        Lmax=2, array_output=False, time_interp='nearest'):
+        Lmax=2, array_output=False, time_interp='nearest', xpy=np):
     """Vectorized finite-size lnL over a time window (single extrinsic point per call
     is supported; P_vec fields RA,DEC,incl,phiref,psi,dist may be length-1 arrays).
+
+    GPU: pass xpy=cupy with rho_by_p/U_by_pp/V_by_pp already on device (the ILE converts them
+    when --gpu).  term1 reuses the baseline fused Q_inner_product kernel PER basis weight p
+    (A = conj(Ylm)) -> no (n_ext,npts,n_lms) temporary, same GPU memory footprint as the baseline;
+    term2 is small |p_list|^2 einsums over n_lms^2.  Exactly mirrors the rotation NoLoop GPU port.
 
     array_output=True returns lnL_t of shape (npts_ex, npts); else time-marginalized.
     """
     import lal
     from . import factored_likelihood as FL
+    on_gpu = not (xpy is np)
+    if on_gpu:
+        from . import Q_inner_product
 
     p_list = list(meta['p_list'])
     Qmax = meta['Qmax']
@@ -344,7 +352,8 @@ def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
     incl = np.atleast_1d(P_vec.incl); phiref = np.atleast_1d(P_vec.phiref)
     psi = np.atleast_1d(P_vec.psi)
     distMpc = np.atleast_1d(P_vec.dist) / (lal.PC_SI * 1e6)
-    lnL_t = np.zeros((npts_ex, npts), dtype=np.float64)
+    inv_dist = xpy.asarray(FL.distMpcRef / distMpc)   # (npts_ex,) on device under --gpu
+    lnL_t = xpy.zeros((npts_ex, npts), dtype=np.float64)
 
     def _L_of(det):
         if isinstance(L_arm, dict):
@@ -368,9 +377,12 @@ def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
         # geometric delay separate so the sub-bin fraction is exact under cubic interpolation.
         detector_location = np.asarray(FL.lalsim.DetectorPrefixToLALDetector(det).location)
         gmst_tref = float(lal.GreenwichMeanSiderealTime(P_vec.tref))
+        # RA/DEC are host numpy arrays; TimeDelayFromEarthCenter defaults xpy=cupy whenever cupy
+        # is importable, so force the host path (else it feeds host arrays to cupy.cos and raises
+        # -- this likelihood is CPU-only but runs inside the GPU cvmfs container).
         t_det = float(P_vec.tref - float(t_ref)) + FL.TimeDelayFromEarthCenter(
-            detector_location, RA, DEC, gmst_tref)
-        sample_first = (t_det + tvals[0]) / P_vec.deltaT
+            detector_location, RA, DEC, gmst_tref, xpy=np)
+        sample_first = (t_det + float(tvals[0])) / P_vec.deltaT   # float(): tvals may be a cupy array on GPU
         if time_interp == 'nearest':
             ifirst = (np.round(sample_first) + 0.5).astype(int)
         else:
@@ -378,31 +390,49 @@ def DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
             frac_first = (sample_first - np.floor(sample_first)).astype(np.float64)
         ilast = ifirst + npts
 
-        term1 = np.zeros((npts_ex, npts), dtype=np.complex128)
-        for p in p_list:
-            det_rho = rho_by_p[det][p]
-            if time_interp == 'nearest':
-                Qa = np.empty((npts_ex, npts, n_lms), dtype=np.complex128)
-                for i in range(npts_ex):
-                    Qa[i] = det_rho[..., ifirst[i]:ilast[i]].T
-            else:
-                Qa = FL._cubic_Q_window_numpy(det_rho.T, ifirst, frac_first, npts)
-            term1 += np.conj(bvec[p])[:, None] * np.einsum('xi,xti->xt', np.conj(Ylms), Qa)
-        term1 = term1.real * (FL.distMpcRef / distMpc)[:, None]
+        # Device-side arrays for the heavy contraction (identity on CPU; host->device on GPU).
+        Ylms_d = xpy.asarray(Ylms); conjY_d = xpy.conj(Ylms_d)
+        b_d = {p: xpy.asarray(bvec[p]) for p in p_list}
 
-        term2 = np.zeros(npts_ex, dtype=np.complex128)
+        term1 = xpy.zeros((npts_ex, npts), dtype=np.complex128)
+        if on_gpu:
+            # term1 = Re[ sum_p conj(b_p) sum_lm conj(Ylm) Q^p_lm(t) ]: reuse the baseline fused
+            # kernel per basis weight p (A = conj(Ylm)), no (n_ex,npts,n_lms) temporary.
+            ifirst_i32 = xpy.asarray(ifirst).astype(np.int32)
+            frac_d = None if time_interp == 'nearest' else xpy.asarray(frac_first)
+            for p in p_list:
+                Q = xpy.ascontiguousarray(rho_by_p[det][p].T)   # (n_time, n_lms), device
+                if time_interp == 'nearest':
+                    res = Q_inner_product.Q_inner_product_cupy(Q, conjY_d, ifirst_i32, npts)
+                else:
+                    res = Q_inner_product.Q_inner_product_cubic_cupy(Q, conjY_d, ifirst_i32, frac_d, npts)
+                term1 += xpy.conj(b_d[p])[:, None] * res
+        else:
+            for p in p_list:
+                det_rho = rho_by_p[det][p]
+                if time_interp == 'nearest':
+                    Qa = np.empty((npts_ex, npts, n_lms), dtype=np.complex128)
+                    for i in range(npts_ex):
+                        Qa[i] = det_rho[..., ifirst[i]:ilast[i]].T
+                else:
+                    Qa = FL._cubic_Q_window_numpy(det_rho.T, ifirst, frac_first, npts)
+                term1 += np.conj(bvec[p])[:, None] * np.einsum('xi,xti->xt', np.conj(Ylms), Qa)
+        term1 = term1.real * inv_dist[:, None]
+
+        term2 = xpy.zeros(npts_ex, dtype=np.complex128)
         for p in p_list:
             for pp in p_list:
-                term2 += np.conj(bvec[p]) * bvec[pp] * np.einsum(
-                    'xi,xj,ij->x', np.conj(Ylms), Ylms, U_by_pp[det][(p, pp)])
-                term2 += bvec[p] * bvec[pp] * np.einsum(
-                    'xi,xj,ij->x', Ylms, Ylms, V_by_pp[det][(p, pp)])
-        term2 = (-0.25 * term2.real) * (FL.distMpcRef / distMpc) ** 2
+                term2 += xpy.conj(b_d[p]) * b_d[pp] * xpy.einsum(
+                    'xi,xj,ij->x', conjY_d, Ylms_d, xpy.asarray(U_by_pp[det][(p, pp)]))
+                term2 += b_d[p] * b_d[pp] * xpy.einsum(
+                    'xi,xj,ij->x', Ylms_d, Ylms_d, xpy.asarray(V_by_pp[det][(p, pp)]))
+        term2 = (-0.25 * term2.real) * inv_dist ** 2
 
         lnL_t += term1 + term2[:, None]
 
     if array_output:
         return lnL_t
-    lnLmax = np.max(lnL_t, axis=-1, keepdims=True)
-    L = FL.my_simps(np.exp(lnL_t - lnLmax), dx=P_vec.deltaT, axis=-1)
-    return lnLmax[..., 0] + np.log(L)
+    lnLmax = xpy.max(lnL_t, axis=-1, keepdims=True)
+    simps = FL.optimized_gpu_tools.simps if on_gpu else FL.my_simps
+    L = simps(xpy.exp(lnL_t - lnLmax), dx=P_vec.deltaT, axis=-1)
+    return lnLmax[..., 0] + xpy.log(L)

@@ -22,8 +22,11 @@ print("cupy", cupy.__version__, "| device", p['name'].decode(),
       "| CUDA runtime", cupy.cuda.runtime.runtimeGetVersion())
 PY
 
-echo "=== GPU<->CPU rotation consistency (the actual validation) ==="
+echo "=== GPU<->CPU rotation consistency (Path A/B, the actual validation) ==="
 $PYTHON "$RIFT_CODE/RIFT/likelihood/test_slowrot_gpu.py"
+
+echo "=== GPU<->CPU freqresponse consistency (Path D finite-size, same fused-kernel port) ==="
+$PYTHON "$RIFT_CODE/RIFT/likelihood/test_slowrot_freqresponse_gpu.py"
 
 echo "=== CPU rotation sanity (baseline, must still pass) ==="
 $PYTHON "$RIFT_CODE/RIFT/likelihood/test_slowrot_noloop.py" 2>&1 | grep -E 'PASSED|Assert|\(B\)'

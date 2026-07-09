@@ -589,8 +589,11 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
         # directly in the sub-bin fraction used by cubic interpolation.
         detector_location = np.asarray(FL.lalsim.DetectorPrefixToLALDetector(det).location)
         gmst_tref = float(lal.GreenwichMeanSiderealTime(P_vec.tref))
+        # RA/DEC are host (numpy) copies via _h(); force the delay onto the host too.
+        # TimeDelayFromEarthCenter defaults xpy=cupy whenever cupy is importable, which would
+        # feed host arrays to cupy.cos and raise -- invisible in a no-cupy sandbox, fatal on a GPU.
         t_det = float(P_vec.tref - float(t_ref)) + FL.TimeDelayFromEarthCenter(
-            detector_location, RA, DEC, gmst_tref)
+            detector_location, RA, DEC, gmst_tref, xpy=np)
         sample_first = (t_det + float(tvals[0])) / P_vec.deltaT   # float(): tvals may be a cupy array on GPU
         if time_interp == 'nearest':
             ifirst = (np.round(sample_first) + 0.5).astype(int)

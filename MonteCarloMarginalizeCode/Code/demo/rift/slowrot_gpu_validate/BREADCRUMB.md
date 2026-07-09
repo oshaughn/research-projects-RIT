@@ -1,8 +1,31 @@
-# GPU rotation validation — breadcrumb / resume guide
+# GPU rotation + freqresponse validation — breadcrumb / resume guide
 
-**Goal:** validate the GPU (`xpy=cupy`) rotation likelihood on real hardware. It was implemented
-and CPU-verified, but this sandbox has **no cupy/CUDA** (`libcuda.so.1` absent), so the GPU path
-is UNTESTED. This kit runs one Condor GPU job to confirm GPU↔CPU parity.
+## ✅ VALIDATED (2026-07-09, ldas-pcdev12, NVIDIA A100-SXM4-80GB, cc 8.0, cupy 13.6 / CUDA 11.8)
+Ran directly in the RIFT container on this GPU host (`make local-gpu`), no Condor needed:
+- **Path A/B rotation** GPU↔CPU parity: nearest `7.3e-12`, cubic `8.2e-12`  (< 1e-8 threshold)
+- **Path D freqresponse** GPU↔CPU parity: nearest `7.3e-12`, cubic `7.3e-12`  (NEW GPU port)
+- CPU baseline-vs-rotation still `3.6e-12`; freqresponse CPU V4 positive control still `+38.88` nats.
+
+**A REAL BUG was caught that the no-cupy sandbox could not:** `TimeDelayFromEarthCenter`
+(vectorized_lal_tools) defaults `xpy=xpy_default`, which is **cupy whenever cupy is importable**.
+The rotation/freqresponse NoLoops keep the delay on the HOST (RA/DEC are `_h()` numpy copies), so the
+default fed host arrays to `cupy.cos` and crashed on the GPU. Fixed by pinning `xpy=np` at both call
+sites (`factored_likelihood_with_rotation.py`, `factored_likelihood_freqresponse.py`). Lesson: a
+cupy-defaulting helper is invisible in a CPU-only sandbox; always validate on real hardware.
+
+**Path D freqresponse GPU port + ILE wiring done this pass** (mirrors the rotation port exactly):
+`DiscreteFactoredLogLikelihoodFreqResponseNoLoop` gained `xpy=np` + the fused-kernel term1 GPU branch;
+ILE `--freqresponse` now accepts `--gpu` (n_cal=1, no glitch/cal marg) — guard relaxed, precompute
+`cupy.asarray`'s the Q/U/V banks, GPU `likelihood_function` gained the freqresponse branch. Test:
+`RIFT/likelihood/test_slowrot_freqresponse_gpu.py`.
+
+**NOTE:** `setup_generic_env_vars.sh` no longer exports `SINGULARITY_RIFT_IMAGE`, so `make submit`
+needs it set by hand (a cvmfs or local cc60-90 CUDA-11.8 image). `make local-gpu` sidesteps this by
+pinning a local image (`RIFT_LOCAL_IMAGE` in the Makefile).
+
+**Goal (original):** validate the GPU (`xpy=cupy`) rotation likelihood on real hardware. It was
+implemented and CPU-verified, but the dev sandbox had **no cupy/CUDA** (`libcuda.so.1` absent), so the
+GPU path was UNTESTED. This kit runs one Condor GPU job to confirm GPU↔CPU parity.
 
 ## What was done (commits on branch `rift_slowrot`)
 - `d038f582` — GPU support for the rotation NoLoop (`factored_likelihood_with_rotation.py`):
