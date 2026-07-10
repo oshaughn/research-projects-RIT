@@ -94,10 +94,31 @@ def test_extrinsic_batch_weighting():
     print("test_extrinsic_batch_weighting: OK")
 
 
+def test_total_underflow_guard():
+    # A sample with -inf lnL across ALL cal draws (e.g. a zero-response extrinsic point)
+    # must not poison the batch with NaN; it carries zero weight, so the answer must equal
+    # the finite-samples-only answer.
+    rng = np.random.default_rng(17)
+    n_cal = 200
+    good = rng.normal(0.0, 0.8, size=(8, n_cal))
+    s_good, neff_good, a_good = cal_mc_error_from_components(good)
+    comp = np.vstack([good, np.full((1, n_cal), -np.inf)])   # append a dead sample
+    s, neff, a = cal_mc_error_from_components(comp)
+    assert np.isfinite(s) and np.isfinite(neff), (s, neff)
+    assert abs(a.sum() - 1.0) < 1e-12 and np.all(np.isfinite(a))
+    assert abs(s - s_good) < 1e-9 and abs(neff - neff_good) < 1e-7, (s, s_good, neff, neff_good)
+    # fully-degenerate batch (every sample dead) returns a finite sentinel, not NaN
+    dead = np.full((3, n_cal), -np.inf)
+    s0, neff0, a0 = cal_mc_error_from_components(dead)
+    assert np.isinf(s0) and neff0 == 1.0 and abs(a0.sum() - 1.0) < 1e-12
+    print("test_total_underflow_guard: OK")
+
+
 if __name__ == "__main__":
     test_lognormal_closed_form()
     test_brute_force_scatter()
     test_neff_dominated()
     test_importance_weights_consistency()
     test_extrinsic_batch_weighting()
+    test_total_underflow_guard()
     print("ALL OK")

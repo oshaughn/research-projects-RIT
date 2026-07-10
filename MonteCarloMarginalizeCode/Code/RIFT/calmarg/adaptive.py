@@ -170,11 +170,23 @@ def cal_mc_error_from_components(comp, cal_log_weights=None, sample_log_weights=
     logw = np.zeros(n_cal) if cal_log_weights is None else np.asarray(cal_log_weights, dtype=float)
     lc = comp + logw[None, :]                       # log( w_c L_jc )
     lnL_marg = logsumexp(lc, axis=1)                # per-sample log sum_c w_c L_jc (norm cancels)
-    log_r = lc - lnL_marg[:, None]                  # responsibilities r_jc, sum_c r_jc = 1
+    # Guard total underflow: a sample whose likelihood is -inf across ALL cal draws has
+    # lnL_marg = -inf, so lc - lnL_marg = -inf - -inf = NaN, which would poison log_a (and
+    # hence a_c / sigma / neff, and the adaptive-doubling stop test) for the whole batch.
+    # Such samples carry zero posterior weight, so force their responsibilities to -inf
+    # (contribute nothing) instead of NaN.  A pathological extrinsic point (e.g. a sky
+    # position with ~zero antenna response) can produce this on a real run.
+    finite = np.isfinite(lnL_marg)
+    log_r = np.full_like(lc, -np.inf)               # responsibilities r_jc, sum_c r_jc = 1
+    if np.any(finite):
+        log_r[finite] = lc[finite] - lnL_marg[finite, None]
     if sample_log_weights is None:
-        slw = lnL_marg                              # prior-drawn batch -> weight by marginal L
+        slw = np.where(finite, lnL_marg, -np.inf)   # prior-drawn batch -> weight by marginal L
     else:
         slw = np.asarray(sample_log_weights, dtype=float)
+    slw = np.where(np.isfinite(slw), slw, -np.inf)
+    if not np.any(np.isfinite(slw)):                # fully-degenerate batch: nothing to weight
+        return float('inf'), 1.0, np.full(n_cal, 1.0 / n_cal)
     slw = slw - logsumexp(slw)                      # sum_j W_j = 1
     log_a = logsumexp(slw[:, None] + log_r, axis=0) # a_c = sum_j W_j r_jc
     a_c = np.exp(log_a - logsumexp(log_a))          # exact renormalization
