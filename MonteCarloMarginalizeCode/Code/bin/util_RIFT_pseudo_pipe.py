@@ -1846,6 +1846,30 @@ if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
 if opts.calmarg_pilot:
     cmd += " --calmarg-pilot --calmarg-pilot-cadence {} --calmarg-pilot-max-it {} --calmarg-pilot-top-fraction {} --calmarg-pilot-max-points {} ".format(
         opts.calmarg_pilot_cadence, opts.calmarg_pilot_max_it, opts.calmarg_pilot_top_fraction, opts.calmarg_pilot_max_points)
+    if opts.use_osg_file_transfer:
+        # Graceful degradation for the OSG file-transfer regime.  The wide ILE jobs (and the
+        # last-iteration EXTRINSIC ILE jobs) list cal_consolidated_$(macroiterationprev).npz in
+        # transfer_input_files; condor HARD-HOLDS (HoldReasonCode 13) if that source file is
+        # absent on the submit node.  A calpilot only produces cal_consolidated_<it>.npz for
+        # iterations it<=--calmarg-pilot-max-it on-cadence, so any wide/extrinsic iteration
+        # whose seed was never produced (e.g. --calmarg-pilot-max-it 1 but 5 wide iterations)
+        # would dead-hold.  Pre-seed a VALID prior-breadcrumb placeholder (a copy of the always
+        # -present cal_consolidated_-1.npz iteration-0 seed) for EVERY iteration index a wide or
+        # extrinsic job can reference.  A real calpilot OVERWRITES its placeholder at runtime via
+        # transfer_output_files (the DAG seed barrier guarantees ordering), so behavior is
+        # unchanged whenever the learned seed IS produced; a missing seed now falls back to the
+        # prior (the placeholder == proposal==prior -> zero-weight prior cal draws) instead of
+        # dead-holding.  skip-if-exists preserves real seeds across a DAG rescue/resume.
+        _cal_ph_seed = os.getcwd() + "/cal_consolidated_-1.npz"
+        if os.path.exists(_cal_ph_seed):
+            # wide it in [it_start, n_iterations-1] references prev=it-1; the extrinsic stage
+            # (it=n_iterations) references prev=n_iterations-1 -> indices 0 .. n_iterations-1.
+            for _kit in range(0, int(n_iterations)):
+                _cal_ph_dst = os.getcwd() + "/cal_consolidated_{}.npz".format(_kit)
+                if not os.path.exists(_cal_ph_dst):
+                    shutil.copyfile(_cal_ph_seed, _cal_ph_dst)
+        else:
+            print("  WARNING: cal_consolidated_-1.npz placeholder absent; cannot pre-seed missing cal proposal breadcrumbs (wide/extrinsic ILE may hard-hold if a calpilot stage is skipped).")
 if opts.extrinsic_handoff:
     cmd += " --extrinsic-handoff --extrinsic-handoff-select {} ".format(opts.extrinsic_handoff_select)
 if opts.assume_eccentric:
