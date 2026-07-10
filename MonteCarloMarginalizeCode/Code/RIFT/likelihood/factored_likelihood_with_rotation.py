@@ -538,8 +538,14 @@ def pack_rotation_arrays(meta, rholms_rot, crossTerms_rot, crossTermsV_rot):
 
 def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
         tvals, P_vec, meta, lookupNKDict, rho_by_a, U_by_aa, V_by_aa, epochDict,
-        Lmax=2, array_output=False, time_interp='nearest'):
+        Lmax=2, array_output=False, time_interp='nearest', xpy=np):
     """Vectorized rotation-aware lnL (Path A).
+
+    GPU: pass xpy=cupy with rho_by_a/U_by_aa/V_by_aa already on device (the ILE converts them
+    when --gpu).  term1 reuses the baseline fused Q_inner_product kernel PER elementary
+    template a (no (n_ext,npts,n_lms) temporary -> same memory footprint as the baseline,
+    looped over |a_list|); term2 is small |a_list|^2 einsums over n_lms^2.  Requires n_cal=1
+    (no glitch/calibration marginalization).
 
     Mirrors factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopOrig with
     sums over sidereal harmonics and the per-sample antenna harmonics
@@ -551,14 +557,21 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
     """
     import lal
     from . import factored_likelihood as FL
+    on_gpu = not (xpy is np)
+    if on_gpu:
+        from . import Q_inner_product
+
+    def _h(v):   # host (numpy) copy -- the antenna-harmonic / Ylm / delay helpers are numpy/LAL
+        return v.get() if hasattr(v, 'get') else np.asarray(v)
 
     a_list = list(meta['a_list'])
     p_max = meta['p_max']
-    npts = len(tvals); npts_ex = len(P_vec.phi)
-    RA = P_vec.phi; DEC = P_vec.theta
-    incl = P_vec.incl; phiref = P_vec.phiref; psi = P_vec.psi
-    distMpc = P_vec.dist / (lal.PC_SI * 1e6)
-    lnL_t = np.zeros((npts_ex, npts), dtype=np.float64)
+    RA = _h(P_vec.phi); DEC = _h(P_vec.theta)
+    incl = _h(P_vec.incl); phiref = _h(P_vec.phiref); psi = _h(P_vec.psi)
+    npts = len(tvals); npts_ex = len(RA)
+    distMpc = _h(P_vec.dist) / (lal.PC_SI * 1e6)
+    inv_dist = xpy.asarray(FL.distMpcRef / distMpc)   # (npts_ex,) on device
+    lnL_t = xpy.zeros((npts_ex, npts), dtype=np.float64)
 
     for det in rho_by_a:
         n_lms = len(lookupNKDict[det])
@@ -576,9 +589,12 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
         # directly in the sub-bin fraction used by cubic interpolation.
         detector_location = np.asarray(FL.lalsim.DetectorPrefixToLALDetector(det).location)
         gmst_tref = float(lal.GreenwichMeanSiderealTime(P_vec.tref))
+        # RA/DEC are host (numpy) copies via _h(); force the delay onto the host too.
+        # TimeDelayFromEarthCenter defaults xpy=cupy whenever cupy is importable, which would
+        # feed host arrays to cupy.cos and raise -- invisible in a no-cupy sandbox, fatal on a GPU.
         t_det = float(P_vec.tref - float(t_ref)) + FL.TimeDelayFromEarthCenter(
-            detector_location, RA, DEC, gmst_tref)
-        sample_first = (t_det + tvals[0]) / P_vec.deltaT
+            detector_location, RA, DEC, gmst_tref, xpy=np)
+        sample_first = (t_det + float(tvals[0])) / P_vec.deltaT   # float(): tvals may be a cupy array on GPU
         if time_interp == 'nearest':
             ifirst = (np.round(sample_first) + 0.5).astype(int)
         else:
@@ -586,34 +602,54 @@ def DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
             frac_first = (sample_first - np.floor(sample_first)).astype(np.float64)
         ilast = ifirst + npts
 
-        term1 = np.zeros((npts_ex, npts), dtype=np.complex128)
-        for a in a_list:
-            det_rho = rho_by_a[det][a]
-            if time_interp == 'nearest':
-                Qa = np.empty((npts_ex, npts, n_lms), dtype=np.complex128)
-                for i in range(npts_ex):
-                    Qa[i] = det_rho[..., ifirst[i]:ilast[i]].T
-            else:
-                # cubic sub-sample interpolation (calmarg time_interp='cubic'):
-                # _cubic_Q_window_numpy expects Q_block shape (n_time, n_lm).
-                Qa = FL._cubic_Q_window_numpy(det_rho.T, ifirst, frac_first, npts)
-            term1 += np.conj(Cg(a))[:, None] * np.einsum('xi,xti->xt', np.conj(Ylms), Qa)
-        term1 = term1.real * (FL.distMpcRef / distMpc)[:, None]
+        # Device-side arrays for the heavy contraction (identity on CPU; host->device on GPU).
+        Ylms_d = xpy.asarray(Ylms); conjY_d = xpy.conj(Ylms_d)
+        zero_d = xpy.zeros(npts_ex, dtype=complex)
+        C_d = {k: xpy.asarray(v) for k, v in C.items()}
+        Cg_d = lambda a: C_d[a] if a in C_d else zero_d
 
-        term2 = np.zeros(npts_ex, dtype=np.complex128)
+        term1 = xpy.zeros((npts_ex, npts), dtype=np.complex128)
+        if on_gpu:
+            # term1 = Re[ sum_a conj(C_a) sum_lm conj(Ylm) Q^a_lm(t) ]: reuse the baseline fused
+            # kernel per elementary template a (A = conj(Ylm)), no (n_ex,npts,n_lms) temporary.
+            ifirst_i32 = xpy.asarray(ifirst).astype(np.int32)
+            frac_d = None if time_interp == 'nearest' else xpy.asarray(frac_first)
+            for a in a_list:
+                Q = xpy.ascontiguousarray(rho_by_a[det][a].T)   # (n_time, n_lms), device
+                if time_interp == 'nearest':
+                    res = Q_inner_product.Q_inner_product_cupy(Q, conjY_d, ifirst_i32, npts)
+                else:
+                    res = Q_inner_product.Q_inner_product_cubic_cupy(Q, conjY_d, ifirst_i32, frac_d, npts)
+                term1 += xpy.conj(Cg_d(a))[:, None] * res
+        else:
+            for a in a_list:
+                det_rho = rho_by_a[det][a]
+                if time_interp == 'nearest':
+                    Qa = np.empty((npts_ex, npts, n_lms), dtype=np.complex128)
+                    for i in range(npts_ex):
+                        Qa[i] = det_rho[..., ifirst[i]:ilast[i]].T
+                else:
+                    # cubic sub-sample interpolation (calmarg time_interp='cubic'):
+                    # _cubic_Q_window_numpy expects Q_block shape (n_time, n_lm).
+                    Qa = FL._cubic_Q_window_numpy(det_rho.T, ifirst, frac_first, npts)
+                term1 += np.conj(Cg(a))[:, None] * np.einsum('xi,xti->xt', np.conj(Ylms), Qa)
+        term1 = term1.real * inv_dist[:, None]
+
+        term2 = xpy.zeros(npts_ex, dtype=np.complex128)
         for a in a_list:
             aR = (a[0], -a[1])
             for ap in a_list:
-                term2 += np.conj(Cg(a)) * Cg(ap) * np.einsum(
-                    'xi,xj,ij->x', np.conj(Ylms), Ylms, U_by_aa[det][(a, ap)])
-                term2 += Cg(aR) * Cg(ap) * np.einsum(
-                    'xi,xj,ij->x', Ylms, Ylms, V_by_aa[det][(a, ap)])
-        term2 = (-0.25 * term2.real) * (FL.distMpcRef / distMpc) ** 2
+                term2 += xpy.conj(Cg_d(a)) * Cg_d(ap) * xpy.einsum(
+                    'xi,xj,ij->x', conjY_d, Ylms_d, xpy.asarray(U_by_aa[det][(a, ap)]))
+                term2 += Cg_d(aR) * Cg_d(ap) * xpy.einsum(
+                    'xi,xj,ij->x', Ylms_d, Ylms_d, xpy.asarray(V_by_aa[det][(a, ap)]))
+        term2 = (-0.25 * term2.real) * inv_dist ** 2
 
         lnL_t += term1 + term2[:, None]
 
     if array_output:
         return lnL_t
-    lnLmax = np.max(lnL_t, axis=-1, keepdims=True)
-    L = FL.my_simps(np.exp(lnL_t - lnLmax), dx=P_vec.deltaT, axis=-1)
-    return lnLmax[..., 0] + np.log(L)
+    lnLmax = xpy.max(lnL_t, axis=-1, keepdims=True)
+    simps = FL.optimized_gpu_tools.simps if on_gpu else FL.my_simps
+    L = simps(xpy.exp(lnL_t - lnLmax), dx=P_vec.deltaT, axis=-1)
+    return lnLmax[..., 0] + xpy.log(L)

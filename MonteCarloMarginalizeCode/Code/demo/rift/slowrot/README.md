@@ -75,6 +75,28 @@ extra ILE flag appended: `--rotation-slow` / `--freqresponse`). The three analys
 differ *only* in that appended option. See `RIFT/likelihood/SLOWROT_HANDOFF.md` and
 `~/RIFT_roboto_paper/analyses/slowrot_demo/` for the pipeline scaffolding.
 
+## Running on GPU (`--gpu`)
+
+Both likelihoods are GPU-enabled (`xpy=cupy`): the rotation/finite-size NoLoop reuses the
+baseline fused `Q_inner_product` kernel per elementary template, so the GPU memory footprint
+matches the baseline. Add `--gpu` to the ILE command (keep `--vectorized`; requires `n_cal=1`,
+i.e. no glitch/calibration marginalization, and no distance/phase marginalization). Validated on
+an A100: GPU↔CPU likelihood parity 7e-12, and the full ILE evidence agrees to sampler noise for
+both paths (see `../slowrot_gpu_validate/`, `make local-gpu` and `make e2e`).
+
+**Two invocation gotchas — longstanding, RIFT-wide, NOT slowrot-specific:**
+
+1. **`--force-xpy` alone does NOT select the GPU path.** It only forces the xpy code path when
+   `--gpu` is *also* passed and cupy is unavailable (a debug fallback). By itself `opts.gpu`
+   stays `False` and you get the CPU-vectorized branch (see
+   `integrate_likelihood_extrinsic_batchmode` ~line 520). **To run on GPU, pass `--gpu`** (with
+   cupy present). A DAG that passes `--force-xpy` but not `--gpu` runs on CPU — correct, just
+   not GPU.
+2. **In a cupy-enabled container, the pure-CPU path (no `--gpu`) fails** with
+   `ValueError: Unsupported dtype float128`: the legacy CPU-vectorized branch uses
+   `RiftFloat=float128`, which cupy rejects. So *inside a GPU/cupy container, run with `--gpu`*;
+   the CPU-only path is for CPU-only containers. (Pre-existing; independent of slowrot.)
+
 ## Validation (the demos show value; these prove correctness)
 
 `RIFT/likelihood/test_slowrot_*.py` (run under the venv with this Code dir on `PYTHONPATH`):
@@ -83,3 +105,6 @@ differ *only* in that appended option. See `RIFT/likelihood/SLOWROT_HANDOFF.md` 
 - `test_slowrot_freqresponse_likelihood.py` — finite-size: L→0 reduces to baseline (3e-9),
   bound respected, and a **V4 positive control** asserting finite-size beats LWL by +38.9 nats
   in an in-band-effect config.
+- **GPU:** `test_slowrot_gpu.py` / `test_slowrot_freqresponse_gpu.py` — GPU↔CPU likelihood parity
+  (skip without a GPU). End-to-end ILE CPU-vs-GPU consistency: `../slowrot_gpu_validate/` `make e2e`
+  (self-contained — generates its own throwaway H1L1 injection; asserts GPU==CPU evidence to sampler noise).

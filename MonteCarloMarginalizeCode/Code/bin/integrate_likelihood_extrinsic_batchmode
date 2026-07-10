@@ -254,12 +254,12 @@ optp.add_option("--extrinsic-proposal-adapt",action='store_true',default=False, 
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
 optp.add_option("--force-gpu-only", action="store_true", help="Hard fail if no GPU present (assessed by cupy not loading)")
-optp.add_option("--rotation-slow", action="store_true", help="[Path A] Slow-rotation likelihood: account for the sidereal time-dependence of the antenna pattern F(t) over the signal (harmonic modulation).  Requires --vectorized and CPU (not --gpu).  Uses factored_likelihood_with_rotation.")
+optp.add_option("--rotation-slow", action="store_true", help="[Path A] Slow-rotation likelihood: account for the sidereal time-dependence of the antenna pattern F(t) over the signal (harmonic modulation).  Requires --vectorized; supports --gpu (n_cal=1, no glitch/cal marg).  Uses factored_likelihood_with_rotation.")
 optp.add_option("--rotation-n-harmonics", type=int, default=2, help="Number of sidereal harmonics for --rotation-slow (antenna pattern needs 2, i.e. n=-2..2).")
 optp.add_option("--rotation-p-max", type=int, default=0, help="[Path B] Max delay-derivative order for --rotation-slow (0 = amplitude drift only; >=1 adds propagation-delay drift).")
-optp.add_option("--freqresponse", action="store_true", help="[Path D] Finite-size (frequency-dependent) detector-response likelihood: account for the finite light-travel-time transfer across the arms (matters for 3G/CE-ET).  Requires --vectorized and CPU (not --gpu).  Uses factored_likelihood_freqresponse (sky-harmonic route b, sky stays extrinsic).")
+optp.add_option("--freqresponse", action="store_true", help="[Path D] Finite-size (frequency-dependent) detector-response likelihood: account for the finite light-travel-time transfer across the arms (matters for 3G/CE-ET).  Requires --vectorized; supports --gpu (n_cal=1, no glitch/cal marg).  Uses factored_likelihood_freqresponse (sky-harmonic route b, sky stays extrinsic).")
 optp.add_option("--freqresponse-qmax", type=int, default=4, help="Highest power of the arm projection retained for --freqresponse (basis size Qmax+2).  Higher for larger fL/c (heavier systems / higher fmax).")
-optp.add_option("--freqresponse-arm-length", type=float, default=None, help="Arm-length override [m] for --freqresponse (e.g. 40000 for 40-km CE).  Default: each detector's native LAL arm length.")
+optp.add_option("--freqresponse-arm-length", default=None, help="Arm-length override [m] for --freqresponse.  Either a single float applied to ALL detectors (e.g. 40000 for 40-km CE), or per-detector 'C1=40000,E1=10000,...' (needed for mixed CE+ET networks, since LAL's cached C1 arm is a placeholder).  Default: each detector's native LAL arm length.")
 optp.add_option("--force-xpy", action="store_true", help="Use the xpy code path.  Use with --vectorized --gpu to use the fallback CPU-based code path. Useful for debugging.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
@@ -310,6 +310,10 @@ integration_params.add_option("--d-max", default=10000,type=float,help="Maximum 
 integration_params.add_option("--d-min", default=1,type=float,help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
 integration_params.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
+integration_params.add_option("--limit-right-ascension",default=None,help="Restrict RA sampling AND prior to 'LO,HI' [rad] (truth-centered zoom box). Narrows the extrinsic prior like --d-min/--d-max do for distance; keep the box large vs the posterior so credible regions are unaffected.  Assumes the plain (non-cosine) dec/incl samplers.")
+integration_params.add_option("--limit-declination",default=None,help="Restrict declination sampling AND prior to 'LO,HI' [rad].")
+integration_params.add_option("--limit-inclination",default=None,help="Restrict inclination sampling AND prior to 'LO,HI' [rad].")
+integration_params.add_option("--limit-psi",default=None,help="Restrict polarization psi sampling AND prior to 'LO,HI' [rad].")
 integration_params.add_option("--internal-rotate-phase", action='store_true',help="If specified, the integration sampler uses phase_p ==phi+psi and phase_m == phi-psi as sampling coordinates, both ranging from 0 to 4 pi.  The prior is twice as large.")
 integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
 integration_params.add_option("--internal-sky-network-coordinates-raw",action='store_true',help="If specified, does not attempt to organize IFO network sensibly, uses them AS PROVIDED IN ORDER.")
@@ -392,22 +396,26 @@ def _truthy_option(value):
 opts._noloop_time_interp = "cubic" if _truthy_option(opts.interpolate_time) else "nearest"
 
 if opts.rotation_slow:
-    # Path A slow-rotation is currently wired only into the CPU vectorized branch.
+    # Path A/B slow-rotation: wired into BOTH the CPU-vectorized and GPU (xpy) branches; the
+    # NoLoop-with-rotation reuses the baseline fused Q_inner_product kernel per elementary
+    # template on GPU (same memory footprint as the baseline).
     if not opts.vectorized:
         raise ValueError("--rotation-slow requires --vectorized")
-    if opts.gpu:
-        raise ValueError("--rotation-slow is CPU-only for now; do not combine with --gpu")
+    if opts.gpu and getattr(opts, 'calibration_marginalization', False):
+        raise ValueError("--rotation-slow on GPU does not support calibration/glitch marginalization (n_cal>1)")
     if getattr(opts, 'distance_marginalization', False) or getattr(opts, 'phase_marginalization', False):
         raise ValueError("--rotation-slow does not yet support distance/phase marginalization")
 
 if opts.freqresponse:
-    # Path D finite-size response is currently wired only into the CPU vectorized branch.
+    # Path D finite-size response: wired into BOTH the CPU-vectorized and GPU (xpy) branches;
+    # the NoLoop reuses the baseline fused Q_inner_product kernel per basis weight p on GPU
+    # (same memory footprint as the baseline), mirroring --rotation-slow.
     if opts.rotation_slow:
         raise ValueError("--freqresponse and --rotation-slow both replace the likelihood; use at most one")
     if not opts.vectorized:
         raise ValueError("--freqresponse requires --vectorized")
-    if opts.gpu:
-        raise ValueError("--freqresponse is CPU-only for now; do not combine with --gpu")
+    if opts.gpu and getattr(opts, 'calibration_marginalization', False):
+        raise ValueError("--freqresponse on GPU does not support calibration/glitch marginalization (n_cal>1)")
     if getattr(opts, 'distance_marginalization', False) or getattr(opts, 'phase_marginalization', False):
         raise ValueError("--freqresponse does not yet support distance/phase marginalization")
 
@@ -1073,6 +1081,15 @@ param_limits = { "psi": (0, 2*numpy.pi),
 if opts.internal_rotate_phase:
   param_limits['psi'] = (0, 4*numpy.pi)
   param_limits['phi_orb'] = (0, 4*numpy.pi)
+# Optional truth-centered "zoom box": narrow the extrinsic sampling AND prior ranges so the
+# adaptive sampler can resolve a narrow high-SNR peak it could never find from the full prior.
+# Threads through param_limits into every sky/orientation sampler + its pdf/cdf_inv/prior_pdf.
+for _optv, _k in [(opts.limit_psi, 'psi'), (opts.limit_right_ascension, 'right_ascension'),
+                  (opts.limit_declination, 'declination'), (opts.limit_inclination, 'inclination')]:
+  if _optv:
+    _lo, _hi = [float(_x) for _x in str(_optv).split(',')]
+    param_limits[_k] = (_lo, _hi)
+    print("  [limit] restricting {} sampling/prior to [{:.4f}, {:.4f}]".format(_k, _lo, _hi))
 
 #
 # Parameter integral sampling strategy
@@ -1863,25 +1880,53 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 verbose=opts.verbose, quiet=not opts.verbose, skip_interpolation=True)
             _lkR, _rhoN, _uNN, _vNN, _epR = factored_likelihood_with_rotation.pack_rotation_arrays(
                 _meta_r, _rho_r, _ct_r, _ctV_r)
+            if opts.gpu and (not xpy_default is np):
+                # move the (per-elementary-template) Q banks + U/V to device; the NoLoop
+                # reuses the baseline fused kernel per template.  epoch/lookup stay on host.
+                for _det in _rhoN:
+                    for _a in _rhoN[_det]:
+                        _rhoN[_det][_a] = cupy.asarray(_rhoN[_det][_a])
+                    for _pair in _uNN[_det]:
+                        _uNN[_det][_pair] = cupy.asarray(_uNN[_det][_pair])
+                    for _pair in _vNN[_det]:
+                        _vNN[_det][_pair] = cupy.asarray(_vNN[_det][_pair])
             rotation_slow_data = dict(meta=_meta_r, lookupNKDict=_lkR, rho_by_n=_rhoN,
                                       U_by_nn=_uNN, V_by_nn=_vNN, epochDict=_epR)
-            print("  [rotation-slow] precompute complete; p_max", _pmax, "sidereal harmonics", _harm)
+            print("  [rotation-slow] precompute complete; p_max", _pmax, "sidereal harmonics", _harm,
+                  "(GPU)" if (opts.gpu and not xpy_default is np) else "(CPU)")
 
         # [Path D] finite-size (frequency-dependent) response precompute: fold each W_p(f)
         # into the modes once and pack the response-basis overlap bank.
         freqresponse_data = None
         if opts.freqresponse:
             _qmax = int(opts.freqresponse_qmax)
+            _arm = opts.freqresponse_arm_length
+            if _arm is not None:
+                if '=' in str(_arm):   # per-detector 'C1=40000,E1=10000'
+                    _arm = {kv.split('=')[0]: float(kv.split('=')[1]) for kv in str(_arm).split(',')}
+                else:
+                    _arm = float(_arm)
             _rint_f, _ct_f, _ctV_f, _rho_f, _meta_f = factored_likelihood_freqresponse.PrecomputeLikelihoodTermsFreqResponse(
                 fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
-                Qmax=_qmax, L_arm=opts.freqresponse_arm_length, analyticPSD_Q=False,
+                Qmax=_qmax, L_arm=_arm, analyticPSD_Q=False,
                 inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec,
                 verbose=opts.verbose, quiet=not opts.verbose, skip_interpolation=True)
             _lkF, _rhoP, _uPP, _vPP, _epF = factored_likelihood_freqresponse.pack_freqresponse_arrays(
                 _meta_f, _rho_f, _ct_f, _ctV_f)
+            if opts.gpu and (not xpy_default is np):
+                # move the (per-basis-weight) Q banks + U/V to device; the NoLoop reuses the
+                # baseline fused kernel per weight p.  epoch/lookup stay on host (as in rotation).
+                for _det in _rhoP:
+                    for _p in _rhoP[_det]:
+                        _rhoP[_det][_p] = cupy.asarray(_rhoP[_det][_p])
+                    for _pair in _uPP[_det]:
+                        _uPP[_det][_pair] = cupy.asarray(_uPP[_det][_pair])
+                    for _pair in _vPP[_det]:
+                        _vPP[_det][_pair] = cupy.asarray(_vPP[_det][_pair])
             freqresponse_data = dict(meta=_meta_f, lookupNKDict=_lkF, rho_by_p=_rhoP,
                                      U_by_pp=_uPP, V_by_pp=_vPP, epochDict=_epF)
-            print("  [freqresponse] precompute complete; Qmax", _qmax, "arm-length", opts.freqresponse_arm_length)
+            print("  [freqresponse] precompute complete; Qmax", _qmax, "arm-length", opts.freqresponse_arm_length,
+                  "(GPU)" if (opts.gpu and not xpy_default is np) else "(CPU)")
 
         def _cal_error_probe(n_cal_now, n_start=256, n_cap=None, rel_tol=0.1):
             """Estimate (sigma_lnZ_cal, neff_cal, n_used, dist_mode): the calibration
@@ -2217,7 +2262,20 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   P.phiref = phi_orb_true
 
 
-                lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                if opts.rotation_slow:
+                  lnL = factored_likelihood_with_rotation.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
+                        tvals, P, rotation_slow_data['meta'], rotation_slow_data['lookupNKDict'],
+                        rotation_slow_data['rho_by_n'], rotation_slow_data['U_by_nn'],
+                        rotation_slow_data['V_by_nn'], rotation_slow_data['epochDict'], Lmax=opts.l_max,
+                        time_interp=opts._noloop_time_interp, xpy=xpy_default)
+                elif opts.freqresponse:
+                  lnL = factored_likelihood_freqresponse.DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
+                        tvals, P, freqresponse_data['meta'], freqresponse_data['lookupNKDict'],
+                        freqresponse_data['rho_by_p'], freqresponse_data['U_by_pp'],
+                        freqresponse_data['V_by_pp'], freqresponse_data['epochDict'], Lmax=opts.l_max,
+                        time_interp=opts._noloop_time_interp, xpy=xpy_default)
+                else:
+                  lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,n_cal=n_cal_for_likelihood,
                         cal_method=('fused' if use_fused_calmarg and opts._noloop_time_interp == 'nearest' else 'loop'), cal_log_weights=calibration_log_weights,
                         time_interp=opts._noloop_time_interp)  # non-distmarg: default-helper fused kernel (cal_distmarg=None)
