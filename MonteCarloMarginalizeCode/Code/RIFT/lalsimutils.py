@@ -4634,6 +4634,16 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
     with open(fname) as cfile:
         cachef = Cache.fromfile(cfile)
     cachef=cachef.sieve(ifos=channel[:1])
+    # ET's three detectors (E1,E2,E3) share the site letter, so the channel[:1] sieve above is
+    # ambiguous and would read the wrong frame (e.g. E2:... served from the E1 frame -> "channel
+    # not found").  When the cache carries full-IFO observatories (E1/E2/E3/C1 from <IFO>-*.gwf
+    # frames), narrow to the exact IFO.  Standard single-letter observatories ('H','L','V') never
+    # equal the 2-char IFO, so this leaves ordinary H1/L1/V1 caches untouched.
+    ifo_full = channel.split(':')[0]
+    if len(ifo_full) > 1:
+        exact = [e for e in cachef if getattr(e, 'observatory', None) == ifo_full]
+        if exact:
+            cachef = cachef.__class__(exact)
     for name in cachef:
         print(name)
         
