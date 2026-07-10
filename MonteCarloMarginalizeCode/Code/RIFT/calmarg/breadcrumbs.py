@@ -54,14 +54,14 @@ def save(path, cal=None, extrinsic=None, kind="gaussian", meta=None):
             cal_prior_sigma=np.asarray(cal["prior_sigma"], dtype=float),
             cal_node_log_f=np.asarray(cal["node_log_f"], dtype=float),
             cal_n_nodes_amp=np.int64(cal["n_nodes_amp"]),
-            cal_dets=np.array(list(cal["dets"]), dtype=object),
+            cal_dets=np.array([str(x) for x in cal["dets"]]),   # string dtype (NOT object): no
         )
     if extrinsic is not None:
         groups = extrinsic["groups"]
         d["ext_kind"] = str(extrinsic.get("kind", "gmm"))
         d["ext_n_groups"] = np.int64(len(groups))
         for i, g in enumerate(groups):
-            d["ext_g%d_params" % i] = np.array(list(g["params"]), dtype=object)
+            d["ext_g%d_params" % i] = np.array([str(x) for x in g["params"]])   # string, not object
             d["ext_g%d_means" % i] = np.asarray(g["means"], dtype=float)
             d["ext_g%d_covs" % i] = np.asarray(g["covariances"], dtype=float)
             d["ext_g%d_weights" % i] = np.asarray(g["weights"], dtype=float)
@@ -113,6 +113,12 @@ if __name__ == "__main__":
     assert g["kind"] == "gaussian" and g["cal"]["dets"] == ["H1", "L1", "V1"]
     assert np.allclose(g["cal"]["proposal_mean"], cal["proposal_mean"])
     assert g["meta"]["iteration"] == 2
+    # PORTABILITY: the file must contain NO pickled objects, so a breadcrumb written by
+    # one numpy (e.g. the container's 2.x) loads under any other (e.g. the host's 1.x).
+    # np.load(allow_pickle=False) raises if any array is object-dtype -- guards the dets/
+    # params regression where dtype=object silently pickled and broke cross-version load.
+    with np.load(p, allow_pickle=False) as _z:
+        assert _z["cal_dets"].dtype.kind in ("U", "S"), _z["cal_dets"].dtype
 
     # extrinsic (GMM) round-trip
     ext = dict(kind="gmm", groups=[
@@ -133,4 +139,7 @@ if __name__ == "__main__":
     assert np.allclose(g2["extrinsic"]["groups"][0]["means"], ext["groups"][0]["means"])
     assert np.allclose(g2["extrinsic"]["groups"][1]["covariances"], ext["groups"][1]["covariances"])
     assert g2["cal"] is not None   # cal + extrinsic coexist in one breadcrumb
-    print("PASS: breadcrumb save/load round-trips (cal Gaussian + extrinsic GMM, schema v%d)." % SCHEMA_VERSION)
+    with np.load(p2, allow_pickle=False) as _z2:   # portability: no pickled object arrays
+        assert _z2["ext_g0_params"].dtype.kind in ("U", "S"), _z2["ext_g0_params"].dtype
+    print("PASS: breadcrumb save/load round-trips (cal Gaussian + extrinsic GMM, schema v%d), "
+          "pickle-free (portable across numpy versions)." % SCHEMA_VERSION)
