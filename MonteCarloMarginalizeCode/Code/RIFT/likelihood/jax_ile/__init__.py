@@ -45,8 +45,11 @@ from .wrapper import (
     JAXDistPhiMargLikelihood,
     JAXDistPsiMargLikelihood,
     build_data_from_precompute,
+    build_rotation_data_from_precompute,
+    build_freqresponse_data_from_precompute,
     EXTRINSIC_PARAM_ORDER,
 )
+from .banded import build_rotation_data, build_freqresponse_data
 from .coordinates import (
     build_network_frame,
     equatorial_to_network,
@@ -65,6 +68,10 @@ __all__ = [
     "JAXDistPhiMargLikelihood",
     "JAXDistPsiMargLikelihood",
     "build_data_from_precompute",
+    "build_rotation_data_from_precompute",
+    "build_freqresponse_data_from_precompute",
+    "build_rotation_data",
+    "build_freqresponse_data",
     "EXTRINSIC_PARAM_ORDER",
     "build_network_frame",
     "equatorial_to_network",
