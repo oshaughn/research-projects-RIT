@@ -146,6 +146,9 @@ def run_one(src, net, target_snr):
     # ~1).  Distinct from the evidence-estimator neff (Gaussian-mixture IS).
     ess = _posterior_ess(res.get("theta_per_chain"))          # min over all 5 dims
     ess_sky = _posterior_ess(res.get("theta_per_chain"), dims=(0, 1))  # sky only
+    ess_by = {nm: _posterior_ess(res.get("theta_per_chain"), dims=(j,))
+              for j, nm in enumerate(("sindec", "skyx", "psi", "incl", "phiref"))}
+    print("  per-dim ESS:", {k: int(v) for k, v in ess_by.items()})
 
     # Ring-aware sky diagnostics (CE+ET is a 2-SITE timing net -> ring posterior,
     # so a circular mean is meaningless).  Report: great-circle distance from the
