@@ -288,7 +288,7 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
                     num_samples=500, n_prior_pilot=8000, seed=0,
                     target_accept=0.8, min_sep=0.3, proposal_inflate=2.0,
                     n_is=40000, sky_coords="equatorial",
-                    dense_mass=True, max_tree_depth=10,
+                    dense_mass=True, max_tree_depth=10, rotate_phase=False,
                     verbose=False, chain_progress_bar=False):
     """Multimodal posterior sampling by multi-start gradient-based NUTS.
 
@@ -334,6 +334,22 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
         warmup window -- before the mass matrix has adapted -- cannot blow up
         wall-clock.  A ``(warmup_depth, sampling_depth)`` tuple caps warmup more
         tightly than sampling; a scalar applies to both.
+    rotate_phase : bool
+        Sample the rotated "polarization-phase" coordinates
+        ``phase_p = phiref + psi`` and ``phase_m = phiref - psi`` (each over
+        ``[0, 4pi)``) instead of ``(psi, phiref)`` directly, then map back
+        ``psi = (phase_p - phase_m)/2``, ``phiref = (phase_p + phase_m)/2``.
+        This is the JAX mirror of production RIFT's ``--internal-rotate-phase``:
+        the quadrupole-dominated likelihood depends on ``2psi +/- 2phiref``, so
+        the curved psi/phiref degeneracy ridge becomes AXIS-ALIGNED in
+        ``(phase_p, phase_m)`` -- the sampler's (dense) mass matrix is then
+        near-diagonal and NUTS keeps a healthy step at high SNR.  The map is a
+        constant-Jacobian rotation, so the flat prior is preserved (exactly, in
+        the enlarged periodic domain).  Combine with ``sky_coords="network"``
+        (which similarly straightens the sky time-delay ring) for the full
+        high-SNR reparameterization.  Exact for the (2,+/-2) quadrupole; still a
+        valid (just less-perfectly-decorrelating) reparameterization with higher
+        modes.
     min_sep : float
         Minimum angular separation (radians, in the combined sky+angle metric)
         between seeds.
@@ -397,52 +413,81 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
     # well-conditioned space with the prior Jacobians handled automatically;
     # the uniform sky prior is uniform in (cos_theta_n, phi_n) too, since the
     # rotation preserves the sphere measure.
+    # Shared phase parameterization: either sample (psi, phiref) directly, or
+    # the rotated (phase_p, phase_m) = (phiref+psi, phiref-psi) that decorrelate
+    # the 2psi+/-2phiref degeneracy (production --internal-rotate-phase).
+    _4PI = 4.0 * _PI
+
+    def _sample_phase():
+        if rotate_phase:
+            pp = numpyro.sample("phase_p", dist.Uniform(0.0, _4PI))
+            pm = numpyro.sample("phase_m", dist.Uniform(0.0, _4PI))
+            return (pp - pm) * 0.5, (pp + pm) * 0.5      # psi, phiref
+        psi = numpyro.sample("psi", dist.Uniform(0.0, _PI))
+        phiref = numpyro.sample("phiref", dist.Uniform(0.0, _TWO_PI))
+        return psi, phiref
+
+    def _init_phase(th0):
+        psi0, phi0 = float(th0[2]), float(th0[4])
+        if rotate_phase:
+            return {"phase_p": (phi0 + psi0) % _4PI,
+                    "phase_m": (phi0 - psi0) % _4PI}
+        return {"psi": psi0, "phiref": phi0}
+
+    def _extract_phase(s):
+        if rotate_phase:
+            pp = np.asarray(s["phase_p"]); pm = np.asarray(s["phase_m"])
+            return np.mod((pp - pm) * 0.5, _PI), np.mod((pp + pm) * 0.5, _TWO_PI)
+        return np.mod(np.asarray(s["psi"]), _PI), np.mod(np.asarray(s["phiref"]), _TWO_PI)
+
     if net is None:
         def model():
             ra = numpyro.sample("ra", dist.Uniform(0.0, _TWO_PI))
             sin_dec = numpyro.sample("sin_dec", dist.Uniform(-1.0, 1.0))
-            psi = numpyro.sample("psi", dist.Uniform(0.0, _PI))
             cos_incl = numpyro.sample("cos_incl", dist.Uniform(-1.0, 1.0))
-            phiref = numpyro.sample("phiref", dist.Uniform(0.0, _TWO_PI))
+            psi, phiref = _sample_phase()
             lnL = like._scalar(jnp.stack(
                 [ra, jnp.arcsin(sin_dec), psi, jnp.arccos(cos_incl), phiref]))
             numpyro.factor("loglike", lnL)
 
         def make_init(th0):
-            return {"ra": float(th0[0]), "sin_dec": float(np.sin(th0[1])),
-                    "psi": float(th0[2]), "cos_incl": float(np.cos(th0[3])),
-                    "phiref": float(th0[4])}
+            d = {"ra": float(th0[0]), "sin_dec": float(np.sin(th0[1])),
+                 "cos_incl": float(np.cos(th0[3]))}
+            d.update(_init_phase(th0))
+            return d
 
         def extract(s):
+            psi, phiref = _extract_phase(s)
             return np.stack([np.asarray(s["ra"]), np.arcsin(np.asarray(s["sin_dec"])),
-                             np.asarray(s["psi"]), np.arccos(np.asarray(s["cos_incl"])),
-                             np.asarray(s["phiref"])], axis=-1)
+                             psi, np.arccos(np.asarray(s["cos_incl"])),
+                             phiref], axis=-1)
     else:
         _C, R, gmst = net
 
         def model():
             cos_tn = numpyro.sample("cos_theta_n", dist.Uniform(-1.0, 1.0))
             phi_n = numpyro.sample("phi_n", dist.Uniform(0.0, _TWO_PI))
-            psi = numpyro.sample("psi", dist.Uniform(0.0, _PI))
             cos_incl = numpyro.sample("cos_incl", dist.Uniform(-1.0, 1.0))
-            phiref = numpyro.sample("phiref", dist.Uniform(0.0, _TWO_PI))
+            psi, phiref = _sample_phase()
             ra, dec = _C.network_to_equatorial(jnp.arccos(cos_tn), phi_n, R, gmst)
             lnL = like._scalar(jnp.stack([ra, dec, psi, jnp.arccos(cos_incl), phiref]))
             numpyro.factor("loglike", lnL)
 
         def make_init(th0):
             tn, pn = _C.equatorial_to_network(float(th0[0]), float(th0[1]), R, gmst)
-            return {"cos_theta_n": float(np.cos(float(tn))),
-                    "phi_n": float(float(pn) % _TWO_PI),
-                    "psi": float(th0[2]), "cos_incl": float(np.cos(th0[3])),
-                    "phiref": float(th0[4])}
+            d = {"cos_theta_n": float(np.cos(float(tn))),
+                 "phi_n": float(float(pn) % _TWO_PI),
+                 "cos_incl": float(np.cos(th0[3]))}
+            d.update(_init_phase(th0))
+            return d
 
         def extract(s):
             tn = np.arccos(np.asarray(s["cos_theta_n"]))
             ra, dec = _C.network_to_equatorial(tn, np.asarray(s["phi_n"]), R, gmst)
-            return np.stack([np.asarray(ra), np.asarray(dec), np.asarray(s["psi"]),
+            psi, phiref = _extract_phase(s)
+            return np.stack([np.asarray(ra), np.asarray(dec), psi,
                              np.arccos(np.asarray(s["cos_incl"])),
-                             np.asarray(s["phiref"])], axis=-1)
+                             phiref], axis=-1)
 
     # -- 2. one NUTS chain per seed, pooled --------------------------------
     per_chain = []     # (num_samples, 5) per seed, in equatorial theta5
@@ -1919,10 +1964,12 @@ def fisher_nuts_sample_phimarg(like, num_warmup=300, num_samples=1000,
               "logZ=%.3f  neff(IS)=%.1f  mode mass=%s"
               % (len(theta), K, logZ, neff,
                  np.array2string(mass, precision=3)))
+    theta_per_chain = per_chain    # list of (num_samples, 4) arrays, one per mode
     return dict(theta=theta, lnL=lnL, post_weight=post_weight, logZ=logZ,
                 sigma_over_Z=sigma_over_Z, neff=neff,
                 theta_map=modes[0], modes=modes, mode_lnL=mode_lnL,
-                mode_logZ=mode_logZ, flow_state=None)
+                mode_logZ=mode_logZ, theta_per_chain=theta_per_chain,
+                flow_state=None)
 
 
 # ---------------------------------------------------------------------------

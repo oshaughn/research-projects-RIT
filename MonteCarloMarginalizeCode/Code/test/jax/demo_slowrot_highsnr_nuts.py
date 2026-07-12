@@ -44,33 +44,32 @@ TBUF = 0.12           # rholm buffer half-width [s] (covers CE<->ET delay excurs
 SNRS = [float(x) for x in os.environ.get("SLOWROT_SNRS", "100,300,1000").split(",")]
 
 
-def _posterior_ess(theta_per_chain):
+def _posterior_ess(theta_per_chain, dims=(0, 1, 2, 3, 4)):
     """Total posterior effective sample size: within-chain ESS summed over chains.
 
     Uses numpyro.diagnostics.effective_sample_size per chain (shape (1, nsamp))
     and sums, giving the number of effectively-independent posterior draws NUTS
-    produced.  Computed on sin(dec) and the sky-ring arclength proxy so a curved
-    ring doesn't spuriously deflate/inflate ESS.  Falls back to the pooled count
-    if the diagnostic is unavailable.
+    produced.  Reduction dims (default all 5) map to physical proxies:
+      0 = sin(dec), 1 = sky-x (cos dec cos ra), 2 = psi, 3 = incl, 4 = phiref.
+    Returns the MIN ESS over the selected dims (worst-mixing = the honest one).
+    Pass ``dims=(0,1)`` for a sky-only ESS.
     """
     if theta_per_chain is None:
         return float("nan")
     from numpyro.diagnostics import effective_sample_size
     tpc = np.asarray(theta_per_chain)                 # (n_chain, nsamp, 5)
-    # use sin(dec) and cos(dec)*ra-ish proxies + psi/incl/phiref; take the MIN
-    # ESS across the 5 sampled dims (the worst-mixing direction is the honest one)
-    dims = np.stack([np.sin(tpc[..., 1]),             # sin dec
-                     np.cos(tpc[..., 1]) * np.cos(tpc[..., 0]),  # sky x
-                     tpc[..., 2], tpc[..., 3], tpc[..., 4]], axis=-1)
+    proxy = np.stack([np.sin(tpc[..., 1]),                        # 0 sin dec
+                      np.cos(tpc[..., 1]) * np.cos(tpc[..., 0]),  # 1 sky x
+                      tpc[..., 2], tpc[..., 3], tpc[..., 4]], axis=-1)
     per_dim = []
-    for j in range(dims.shape[-1]):
+    for j in dims:
         tot = 0.0
-        for c in range(dims.shape[0]):
-            x = dims[c, :, j][None, :]                # (1, nsamp)
+        for c in range(proxy.shape[0]):
+            x = proxy[c, :, j][None, :]               # (1, nsamp)
             try:
                 tot += float(effective_sample_size(x))
             except Exception:
-                tot += float(dims.shape[1])
+                tot += float(proxy.shape[1])
         per_dim.append(tot)
     return float(np.min(per_dim))
 
@@ -123,12 +122,15 @@ def run_one(src, net, target_snr):
     # Pilot must land on the (~1/SNR-thin) time-delay ring to seed NUTS, so scale
     # the prior scan with SNR (cheap: the lnL eval is vectorized on GPU).
     n_pilot = int(max(2e4, 50.0 * target_snr))
-    # dense_mass=True (default) whitens the anisotropic ring geometry so NUTS does
-    # NOT hit max_tree_depth every sample at high SNR; the (7,10) cap bounds the
-    # pre-adaptation warmup window as a backstop.
+    # Full high-SNR reparameterization (mirrors production RIFT):
+    #  * sky_coords="network"  -> baseline-frame sky, straightens the time-delay ring;
+    #  * rotate_phase=True     -> (phase_p,phase_m)=(phiref+/-psi), axis-aligns the
+    #                             2psi+/-2phiref degeneracy so the dense mass matrix
+    #                             is near-diagonal.
+    # dense_mass=True mops up the residual; (7,10) caps the pre-adaptation warmup.
     res = samplers.multistart_nuts(
         like, d_min, d_max, n_starts=6, num_warmup=300, num_samples=500,
-        n_prior_pilot=n_pilot, seed=1, sky_coords="network",
+        n_prior_pilot=n_pilot, seed=1, sky_coords="network", rotate_phase=True,
         dense_mass=True, max_tree_depth=(7, 10), verbose=True)
 
     ra = np.asarray(res["theta"][:, 0]); dec = np.asarray(res["theta"][:, 1])
@@ -142,7 +144,8 @@ def run_one(src, net, target_snr):
     # POSTERIOR effective sample size: within-chain ESS summed over chains -- the
     # honest "how many effective posterior draws did NUTS get" (contrast: AV gets
     # ~1).  Distinct from the evidence-estimator neff (Gaussian-mixture IS).
-    ess = _posterior_ess(res.get("theta_per_chain"))
+    ess = _posterior_ess(res.get("theta_per_chain"))          # min over all 5 dims
+    ess_sky = _posterior_ess(res.get("theta_per_chain"), dims=(0, 1))  # sky only
 
     # Ring-aware sky diagnostics (CE+ET is a 2-SITE timing net -> ring posterior,
     # so a circular mean is meaningless).  Report: great-circle distance from the
@@ -155,13 +158,14 @@ def run_one(src, net, target_snr):
     d_map = float(_gc_dist(np.array([ra_map]), np.array([dec_map]), src.ra, src.dec)[0])
     truth_in90 = _truth_in_cred(ra, dec, src.ra, src.dec, cred=0.9)
 
-    print("  NUTS: posterior_ESS=%.0f (of %d pooled draws)  evidence_neff=%.1f  logZ=%.2f"
-          % (ess, len(ra), res["neff"], res["logZ"]))
+    print("  NUTS: posterior_ESS=%.0f  sky_ESS=%.0f (of %d pooled draws)  "
+          "evidence_neff=%.1f  logZ=%.2f"
+          % (ess, ess_sky, len(ra), res["neff"], res["logZ"]))
     print("  sky: 90%% area=%.3e deg^2 (nbin=%d)  nearest-sample=%.2f deg  "
           "MAP=(%.3f,%.3f) d=%.2f deg  truth-in-90%%=%s  truth=(%.3f,%.3f)" %
           (area, nb, d_near, ra_map, dec_map, d_map, truth_in90, src.ra, src.dec))
     return dict(target_snr=target_snr, snr=meta["snr"], ess=float(ess),
-                n_pool=int(len(ra)), neff=float(res["neff"]),
+                ess_sky=float(ess_sky), n_pool=int(len(ra)), neff=float(res["neff"]),
                 logZ=float(res["logZ"]), area=float(area),
                 d_near=d_near, d_map=d_map, truth_in90=bool(truth_in90))
 
@@ -181,10 +185,11 @@ def main():
             import traceback; traceback.print_exc()
             print("  SNR %.0f FAILED: %s" % (snr, e))
     print("\n==== SUMMARY (finite-size, network=%s) ====" % NETWORK)
-    print("  target_snr  actual_snr  post_ESS  evid_neff  90%_area_deg2  MAP_deg")
+    print("  target_snr  actual_snr  post_ESS  sky_ESS  evid_neff  90%_area_deg2  MAP_deg")
     for r in rows:
-        print("  %8.0f   %8.1f  %8.0f  %8.1f   %12.3e  %7.2f"
-              % (r["target_snr"], r["snr"], r["ess"], r["neff"], r["area"], r["d_map"]))
+        print("  %8.0f   %8.1f  %8.0f  %7.0f  %8.1f   %12.3e  %7.2f"
+              % (r["target_snr"], r["snr"], r["ess"], r["ess_sky"], r["neff"],
+                 r["area"], r["d_map"]))
     print("\n  post_ESS = effective independent POSTERIOR draws from NUTS (the sampling"
           " win; AV gives ~1 -- it never lands on the peak).")
     print("  evid_neff = Gaussian-mixture importance EVIDENCE estimator quality; it"
