@@ -496,8 +496,14 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
     logZ, sigma_over_Z, neff = _finalize_evidence(
         logZ, sigma_over_Z, neff, float(np.max(lnL)) if len(lnL) else np.nan)
 
+    # Per-chain posterior draws (stacked) so callers can compute a POSTERIOR
+    # effective-sample-size / R-hat -- the right "did we resolve the posterior"
+    # diagnostic, distinct from the importance-sampling evidence ``neff`` above
+    # (which is limited by the Gaussian-mixture proposal's fit to the target).
+    theta_per_chain = np.stack(per_chain, axis=0)   # (n_starts, num_samples, 5)
     return dict(theta=theta, lnL=lnL, seeds=seeds, seed_lnL=seed_lnL,
-                logZ=logZ, sigma_over_Z=sigma_over_Z, neff=neff)
+                logZ=logZ, sigma_over_Z=sigma_over_Z, neff=neff,
+                theta_per_chain=theta_per_chain)
 
 
 # ---------------------------------------------------------------------------

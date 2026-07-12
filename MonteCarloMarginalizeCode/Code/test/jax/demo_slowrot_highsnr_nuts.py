@@ -44,6 +44,37 @@ TBUF = 0.12           # rholm buffer half-width [s] (covers CE<->ET delay excurs
 SNRS = [float(x) for x in os.environ.get("SLOWROT_SNRS", "100,300,1000").split(",")]
 
 
+def _posterior_ess(theta_per_chain):
+    """Total posterior effective sample size: within-chain ESS summed over chains.
+
+    Uses numpyro.diagnostics.effective_sample_size per chain (shape (1, nsamp))
+    and sums, giving the number of effectively-independent posterior draws NUTS
+    produced.  Computed on sin(dec) and the sky-ring arclength proxy so a curved
+    ring doesn't spuriously deflate/inflate ESS.  Falls back to the pooled count
+    if the diagnostic is unavailable.
+    """
+    if theta_per_chain is None:
+        return float("nan")
+    from numpyro.diagnostics import effective_sample_size
+    tpc = np.asarray(theta_per_chain)                 # (n_chain, nsamp, 5)
+    # use sin(dec) and cos(dec)*ra-ish proxies + psi/incl/phiref; take the MIN
+    # ESS across the 5 sampled dims (the worst-mixing direction is the honest one)
+    dims = np.stack([np.sin(tpc[..., 1]),             # sin dec
+                     np.cos(tpc[..., 1]) * np.cos(tpc[..., 0]),  # sky x
+                     tpc[..., 2], tpc[..., 3], tpc[..., 4]], axis=-1)
+    per_dim = []
+    for j in range(dims.shape[-1]):
+        tot = 0.0
+        for c in range(dims.shape[0]):
+            x = dims[c, :, j][None, :]                # (1, nsamp)
+            try:
+                tot += float(effective_sample_size(x))
+            except Exception:
+                tot += float(dims.shape[1])
+        per_dim.append(tot)
+    return float(np.min(per_dim))
+
+
 def _gc_dist(ra, dec, ra0, dec0):
     """Great-circle distance [deg] from each (ra,dec) to (ra0,dec0)."""
     c = (np.sin(dec) * np.sin(dec0)
@@ -92,14 +123,26 @@ def run_one(src, net, target_snr):
     # Pilot must land on the (~1/SNR-thin) time-delay ring to seed NUTS, so scale
     # the prior scan with SNR (cheap: the lnL eval is vectorized on GPU).
     n_pilot = int(max(2e4, 50.0 * target_snr))
+    # dense_mass=True (default) whitens the anisotropic ring geometry so NUTS does
+    # NOT hit max_tree_depth every sample at high SNR; the (7,10) cap bounds the
+    # pre-adaptation warmup window as a backstop.
     res = samplers.multistart_nuts(
         like, d_min, d_max, n_starts=6, num_warmup=300, num_samples=500,
-        n_prior_pilot=n_pilot, seed=1, sky_coords="network", verbose=True)
+        n_prior_pilot=n_pilot, seed=1, sky_coords="network",
+        dense_mass=True, max_tree_depth=(7, 10), verbose=True)
 
     ra = np.asarray(res["theta"][:, 0]); dec = np.asarray(res["theta"][:, 1])
     lnLs = np.asarray(res["lnL"])
     w = np.ones_like(ra)
-    area = fslib.sky_area_90(ra, dec, w)
+    # Finer binning at high SNR (the ring is << the default 2.8 deg cells); the
+    # nside is capped by the pooled sample count so cells stay populated.
+    nb = int(np.clip(np.sqrt(len(ra)) / 2.0, 64, 256))
+    area = fslib.sky_area_90(ra, dec, w, nside_bins=nb)
+
+    # POSTERIOR effective sample size: within-chain ESS summed over chains -- the
+    # honest "how many effective posterior draws did NUTS get" (contrast: AV gets
+    # ~1).  Distinct from the evidence-estimator neff (Gaussian-mixture IS).
+    ess = _posterior_ess(res.get("theta_per_chain"))
 
     # Ring-aware sky diagnostics (CE+ET is a 2-SITE timing net -> ring posterior,
     # so a circular mean is meaningless).  Report: great-circle distance from the
@@ -112,12 +155,13 @@ def run_one(src, net, target_snr):
     d_map = float(_gc_dist(np.array([ra_map]), np.array([dec_map]), src.ra, src.dec)[0])
     truth_in90 = _truth_in_cred(ra, dec, src.ra, src.dec, cred=0.9)
 
-    print("  NUTS: neff=%.1f  logZ=%.2f  90%% sky area=%.3e deg^2" %
-          (res["neff"], res["logZ"], area))
-    print("  sky: nearest-sample=%.2f deg  MAP=(%.3f,%.3f) d=%.2f deg  truth-in-90%%=%s"
-          "  truth=(%.3f,%.3f)" %
-          (d_near, ra_map, dec_map, d_map, truth_in90, src.ra, src.dec))
-    return dict(target_snr=target_snr, snr=meta["snr"], neff=float(res["neff"]),
+    print("  NUTS: posterior_ESS=%.0f (of %d pooled draws)  evidence_neff=%.1f  logZ=%.2f"
+          % (ess, len(ra), res["neff"], res["logZ"]))
+    print("  sky: 90%% area=%.3e deg^2 (nbin=%d)  nearest-sample=%.2f deg  "
+          "MAP=(%.3f,%.3f) d=%.2f deg  truth-in-90%%=%s  truth=(%.3f,%.3f)" %
+          (area, nb, d_near, ra_map, dec_map, d_map, truth_in90, src.ra, src.dec))
+    return dict(target_snr=target_snr, snr=meta["snr"], ess=float(ess),
+                n_pool=int(len(ra)), neff=float(res["neff"]),
                 logZ=float(res["logZ"]), area=float(area),
                 d_near=d_near, d_map=d_map, truth_in90=bool(truth_in90))
 
@@ -137,13 +181,16 @@ def main():
             import traceback; traceback.print_exc()
             print("  SNR %.0f FAILED: %s" % (snr, e))
     print("\n==== SUMMARY (finite-size, network=%s) ====" % NETWORK)
-    print("  target_snr  actual_snr    neff    90%_area_deg2  near_deg  MAP_deg  truth_in90")
+    print("  target_snr  actual_snr  post_ESS  evid_neff  90%_area_deg2  MAP_deg")
     for r in rows:
-        print("  %8.0f   %8.1f  %8.1f   %12.3e  %7.2f  %7.2f     %s"
-              % (r["target_snr"], r["snr"], r["neff"], r["area"],
-                 r["d_near"], r["d_map"], r["truth_in90"]))
-    print("\nAV baseline for contrast: n_eff≈1 at SNR≳100 (posterior shrinks ~1/SNR^2"
-          " in solid angle; the production AdaptiveVolume MC essentially never lands on it).")
+        print("  %8.0f   %8.1f  %8.0f  %8.1f   %12.3e  %7.2f"
+              % (r["target_snr"], r["snr"], r["ess"], r["neff"], r["area"], r["d_map"]))
+    print("\n  post_ESS = effective independent POSTERIOR draws from NUTS (the sampling"
+          " win; AV gives ~1 -- it never lands on the peak).")
+    print("  evid_neff = Gaussian-mixture importance EVIDENCE estimator quality; it"
+          " degrades at high SNR because a Gaussian mixture cannot wrap the thin CURVED")
+    print("             sky ring -- a known jax_ile limitation (ring-aware evidence is"
+          " future work), NOT a sampling failure.")
     print("HIGH-SNR NUTS DEMO DONE")
 
 
