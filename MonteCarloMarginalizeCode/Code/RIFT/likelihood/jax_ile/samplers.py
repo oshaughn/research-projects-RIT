@@ -288,6 +288,7 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
                     num_samples=500, n_prior_pilot=8000, seed=0,
                     target_accept=0.8, min_sep=0.3, proposal_inflate=2.0,
                     n_is=40000, sky_coords="equatorial",
+                    dense_mass=True, max_tree_depth=10,
                     verbose=False, chain_progress_bar=False):
     """Multimodal posterior sampling by multi-start gradient-based NUTS.
 
@@ -316,6 +317,23 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
         Base PRNG seed (numpy + JAX).
     target_accept : float
         NUTS target acceptance probability.
+    dense_mass : bool
+        Adapt a FULL (dense) mass matrix during warmup instead of the default
+        diagonal one.  The distance-marginalized angular posterior is strongly
+        correlated -- at high SNR it is a thin, curved sky ring entangled with
+        the psi/incl/phiref degeneracies -- so a diagonal mass matrix leaves the
+        Hamiltonian geometry wildly anisotropic and NUTS hits ``max_tree_depth``
+        (~2^depth leapfrog steps) on essentially every sample, stalling the run.
+        A dense mass matrix ≈ the inverse posterior covariance whitens the
+        geometry so trajectories are short and acceptance is high.  ``True`` is
+        the sane production default for this problem; only set ``False`` for a
+        deliberately cheap low-SNR run where the posterior is broad and round.
+    max_tree_depth : int or (int, int)
+        NUTS maximum tree depth (numpyro passthrough).  Bounds the worst-case
+        leapfrog steps per sample (``2^depth``) so an ill-conditioned *early*
+        warmup window -- before the mass matrix has adapted -- cannot blow up
+        wall-clock.  A ``(warmup_depth, sampling_depth)`` tuple caps warmup more
+        tightly than sampling; a scalar applies to both.
     min_sep : float
         Minimum angular separation (radians, in the combined sky+angle metric)
         between seeds.
@@ -430,6 +448,7 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
     per_chain = []     # (num_samples, 5) per seed, in equatorial theta5
     for k in range(n_starts):
         kernel = NUTS(model, target_accept_prob=target_accept,
+                      dense_mass=dense_mass, max_tree_depth=max_tree_depth,
                       init_strategy=init_to_value(values=make_init(seeds[k])))
         mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples,
                     num_chains=1, progress_bar=chain_progress_bar)
