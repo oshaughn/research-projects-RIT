@@ -74,6 +74,30 @@ def _posterior_ess(theta_per_chain, dims=(0, 1, 2, 3, 4)):
     return float(np.min(per_dim))
 
 
+def _cov_sky_area_90(ra, dec):
+    """90% credible sky area [deg^2] from the sample COVARIANCE (Gaussian proxy).
+
+    The histogram sky_area_90 is floored by the bin size (~5 deg^2/cell), so it
+    cannot show a compact high-SNR peak shrinking.  For a compact (near-Gaussian)
+    sky blob the 90% area is  pi * chi2_0.9(2df) * sqrt(det Cov)  in a local
+    East-North tangent plane (x=(ra-ra0)cos dec0, y=dec-dec0), which resolves
+    sub-deg^2 localization from a few thousand samples.  (Overestimates for a
+    genuinely curved ring arc -- read alongside the histogram value.)
+    """
+    ra = np.asarray(ra); dec = np.asarray(dec)
+    ra0 = np.angle(np.mean(np.exp(1j * ra)))
+    dec0 = float(np.mean(dec))
+    x = ((ra - ra0 + np.pi) % (2 * np.pi) - np.pi) * np.cos(dec0)
+    y = dec - dec0
+    cov = np.cov(np.vstack([x, y]))
+    det = float(np.linalg.det(cov))
+    if not np.isfinite(det) or det <= 0:
+        return float("nan")
+    chi2_90 = 4.60517  # chi2.ppf(0.9, df=2)
+    area_sr = np.pi * chi2_90 * np.sqrt(det)
+    return float(area_sr * (180.0 / np.pi) ** 2)
+
+
 def _gc_dist(ra, dec, ra0, dec0):
     """Great-circle distance [deg] from each (ra,dec) to (ra0,dec0)."""
     c = (np.sin(dec) * np.sin(dec0)
@@ -140,6 +164,7 @@ def run_one(src, net, target_snr):
     # nside is capped by the pooled sample count so cells stay populated.
     nb = int(np.clip(np.sqrt(len(ra)) / 2.0, 64, 256))
     area = fslib.sky_area_90(ra, dec, w, nside_bins=nb)
+    area_cov = _cov_sky_area_90(ra, dec)   # sample-efficient compact-peak area
 
     # POSTERIOR effective sample size: within-chain ESS summed over chains -- the
     # honest "how many effective posterior draws did NUTS get" (contrast: AV gets
@@ -164,12 +189,12 @@ def run_one(src, net, target_snr):
     print("  NUTS: posterior_ESS=%.0f  sky_ESS=%.0f (of %d pooled draws)  "
           "evidence_neff=%.1f  logZ=%.2f"
           % (ess, ess_sky, len(ra), res["neff"], res["logZ"]))
-    print("  sky: 90%% area=%.3e deg^2 (nbin=%d)  nearest-sample=%.2f deg  "
-          "MAP=(%.3f,%.3f) d=%.2f deg  truth-in-90%%=%s  truth=(%.3f,%.3f)" %
-          (area, nb, d_near, ra_map, dec_map, d_map, truth_in90, src.ra, src.dec))
+    print("  sky: 90%% area hist=%.3e cov=%.3e deg^2  nearest=%.2f deg  "
+          "MAP=(%.3f,%.3f) d=%.2f deg  truth=(%.3f,%.3f)" %
+          (area, area_cov, d_near, ra_map, dec_map, d_map, src.ra, src.dec))
     return dict(target_snr=target_snr, snr=meta["snr"], ess=float(ess),
                 ess_sky=float(ess_sky), n_pool=int(len(ra)), neff=float(res["neff"]),
-                logZ=float(res["logZ"]), area=float(area),
+                logZ=float(res["logZ"]), area=float(area), area_cov=float(area_cov),
                 d_near=d_near, d_map=d_map, truth_in90=bool(truth_in90))
 
 
@@ -188,11 +213,13 @@ def main():
             import traceback; traceback.print_exc()
             print("  SNR %.0f FAILED: %s" % (snr, e))
     print("\n==== SUMMARY (finite-size, network=%s) ====" % NETWORK)
-    print("  target_snr  actual_snr  post_ESS  sky_ESS  evid_neff  90%_area_deg2  MAP_deg")
+    print("  target_snr  actual_snr  sky_ESS  area_hist  area_cov_deg2  MAP_deg")
     for r in rows:
-        print("  %8.0f   %8.1f  %8.0f  %7.0f  %8.1f   %12.3e  %7.2f"
-              % (r["target_snr"], r["snr"], r["ess"], r["ess_sky"], r["neff"],
-                 r["area"], r["d_map"]))
+        print("  %8.0f   %8.1f  %7.0f   %.3e  %.3e   %7.2f"
+              % (r["target_snr"], r["snr"], r["ess_sky"],
+                 r["area"], r["area_cov"], r["d_map"]))
+    print("  (area_cov = covariance-ellipse 90%% area, resolves the compact peak the"
+          " bin-floored histogram cannot; MAP_deg = recovered sky vs truth.)")
     print("\n  post_ESS = effective independent POSTERIOR draws from NUTS (the sampling"
           " win; AV gives ~1 -- it never lands on the peak).")
     print("  evid_neff = Gaussian-mixture importance EVIDENCE estimator quality; it"
