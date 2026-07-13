@@ -289,6 +289,7 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
                     target_accept=0.8, min_sep=0.3, proposal_inflate=2.0,
                     n_is=40000, sky_coords="equatorial",
                     dense_mass=True, max_tree_depth=10, rotate_phase=False,
+                    polish_seeds=True,
                     verbose=False, chain_progress_bar=False):
     """Multimodal posterior sampling by multi-start gradient-based NUTS.
 
@@ -350,6 +351,16 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
         high-SNR reparameterization.  Exact for the (2,+/-2) quadrupole; still a
         valid (just less-perfectly-decorrelating) reparameterization with higher
         modes.
+    polish_seeds : bool
+        Gradient-ascend (+ Newton) each pilot seed to its local MAP before
+        running NUTS.  At very high SNR the sky posterior is a ~1/SNR-thin ring
+        that a finite prior pilot cannot land ON -- the best raw pilot draw sits
+        many nats below the peak (e.g. SNR=1000: seed lnL ~24500 below
+        0.5<d|d>), so a chain started there samples the wrong arc (MAP degrees
+        off truth).  A few hundred AD-gradient steps + Fisher-inverse Newton
+        steps climb from the broad basin onto the true peak, so NUTS starts AT
+        the needle -- the whole point of having exact gradients.  Cheap
+        (a few hundred grad evals per seed); default on.
     min_sep : float
         Minimum angular separation (radians, in the combined sky+angle metric)
         between seeds.
@@ -389,6 +400,18 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
               (n_prior_pilot, pilot_lnL.max()))
         print("  chose %d seeds (lnL): %s" %
               (len(seeds), np.array2string(seed_lnL, precision=1)))
+
+    # Gradient MAP-polish: climb each raw pilot seed onto the true (1/SNR-thin)
+    # peak so NUTS starts AT the needle rather than degrees off it on the wrong
+    # arc.  Uses the exact JAX gradient (+ Fisher-inverse Newton); cheap.  Keeps
+    # each seed at its OWN local MAP (preserves the multi-start mode coverage).
+    if polish_seeds:
+        _, _, _pol = _map_polish_4(like, seeds, bounds=_BOUNDS5)
+        seeds = np.array([p[0] for p in _pol])
+        seed_lnL = np.array([p[1] for p in _pol])
+        if verbose:
+            print("  polished seeds to MAP (lnL): %s"
+                  % np.array2string(seed_lnL, precision=1))
 
     # Optional: sample the sky in NETWORK-frame coordinates (polar axis = the
     # baseline of the first two detectors), which folds the time-delay ring onto
@@ -705,6 +728,9 @@ def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
 
 _BOUNDS4 = [(0.0, _TWO_PI), (-_PI / 2 + 1e-3, _PI / 2 - 1e-3),
             (0.0, _PI), (1e-3, _PI - 1e-3)]
+# 5-D support (ra, dec, psi, incl, phiref) for MAP-polishing the 5-D
+# distance-marginalized seeds in multistart_nuts.
+_BOUNDS5 = _BOUNDS4 + [(0.0, _TWO_PI)]
 
 
 def sample_prior_4(n, rng):
