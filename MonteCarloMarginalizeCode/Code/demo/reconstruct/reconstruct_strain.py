@@ -14,8 +14,15 @@ Two waveform back-ends:
                                   so the time/phase reference matches the reported
                                   geocent_end_time (avoids an fref-dependent ~1 ms bias
                                   that the direct lalsimutils.hoft path has).
-  --group G --nr-param F.h5      : a fixed NR simulation (NRWaveformCatalogManager3,
-                                  --nr-use-provided-strain), scaled by total mass.
+  --group G --nr-param F.h5      : a fixed NR simulation, via real_hoft() from a
+                                  WaveformModeCatalog instantiated with the SAME options
+                                  ILE's likelihood uses (factored_likelihood.py:286:
+                                  align_at_peak_l2_m2_emission, shift_by_extraction_radius,
+                                  clean_*, perturbative_extraction=False; NOT
+                                  reference_phase_at_peak) so the time reference matches.
+                                  (real_hoft, not hlmoft->hoft_from_hlm: the generic mode
+                                  sum scrambles the NR phase; residual real_hoft-vs-hlmoff
+                                  time offset ~0.5 ms, below plot resolution.)
 
 The essential point: the ILE run MUST have been produced with
     --fairdraw-extrinsic-output --resample-time-marginalization
@@ -101,9 +108,11 @@ def _init(mode, group, nr_param, approx, fref, psd_files, fs, flo, fhi, lmax, te
               psd={ifo: lalsimutils.get_psd_series_from_xmldoc(f, ifo) for ifo, f in psd_files.items()})
     if mode == "nr":
         import NRWaveformCatalogManager3 as nrwf
-        wfP = nrwf.WaveformModeCatalog(group, nr_param, use_provided_strain=True, lmax=lmax,
-                                       perturbative_extraction=True, reference_phase_at_peak=True)
-        wfP.P.taper = lalsim.SIM_INSPIRAL_TAPER_NONE
+        wfP = nrwf.WaveformModeCatalog(group, nr_param,
+                                       clean_initial_transient=True, clean_final_decay=True,
+                                       shift_by_extraction_radius=True, align_at_peak_l2_m2_emission=True,
+                                       perturbative_extraction=False, lmax=lmax, use_provided_strain=True)
+        wfP.P.taper = lalsimutils.lsu_TAPER_START
         wfP.P.deltaF = 1.0 / 16.0
         wfP.P.deltaT = 1.0 / fs
         wfP.P.radec = True
