@@ -43,6 +43,7 @@ def extract(src, out):
     d = dict(
         m1=col("mass1"), m2=col("mass2"),
         a1z=col("spin1z"), a2z=col("spin2z"),
+        a1x=col("spin1x"), a1y=col("spin1y"), a2x=col("spin2x"), a2y=col("spin2y"),
         ra=col("longitude"), dec=col("latitude"),
         incl=col("inclination"), psi=col("polarization"),
         phiorb=col("coa_phase"), distance=col("distance"),

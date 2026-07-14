@@ -15,8 +15,18 @@ Shared tools (used by both):
 | file | role |
 |---|---|
 | `reconstruct_strain.py`       | pool fair-draw samples → generate whitened waveforms at each sample's own (time, phase) → 90% band vs data.  Back-ends: `--approx MODEL` or `--group/--nr-param` (NR). |
-| `extract_ile_samples.py`      | fast RIFT ILE `sim_inspiral` XML → compact `.npz` (keeps the per-sample `time`). |
+| `extract_ile_samples.py`      | fast RIFT ILE `sim_inspiral` XML → compact `.npz` (keeps per-sample `time` and full spins). |
+| `dat_to_compact.py`           | `extrinsic_posterior_samples.dat` → compact `.npz` (pipeline output). |
 | `make_reconstruct_subfile.sh` | turn a pipeline `ILE.sub` into a reconstruction submit file (condor). |
+
+**Model waveforms use the mode path, not `hoft`.** For `--approx` models the code
+builds `h(t)` from the `hlmoft` modes (`lalsimutils.hlmoft` → `hoft_from_hlm`, with
+`fd_standoff_factor=0.9`) — the *same* construction ILE's likelihood uses. This makes
+the reconstruction's coalescence-time (and phase) reference match the `geocent_end_time`
+ILE reports; reconstructing with `lalsimutils.hoft()` instead leaves an **fref-dependent
+~1 ms time bias** (most visible for precessing/spinning systems). Full spins, including
+in-plane components, are carried through so precession is reconstructed correctly. NR
+mode is unaffected — it uses the raw provided strain in both ILE and reconstruct.
 
 ## The one thing you must get right
 
