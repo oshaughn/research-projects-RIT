@@ -529,6 +529,27 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
     theta = np.concatenate(per_chain, axis=0)
     lnL = eval_lnL(like, theta)
 
+    # Evidence-weighted pooling.  Multi-start places one chain per mode, but the
+    # modes carry vastly different posterior mass -- at high SNR the sub-dominant
+    # time-delay-ring images and amplitude-degeneracy branches sit many nats below
+    # the true peak.  Pooling the chains with EQUAL weight over-represents those
+    # negligible modes (they dominate a naive credible-region or corner plot).
+    # Weight each chain by its mode's peak likelihood (a robust proxy for the mode
+    # evidence when the modes have comparable width -- exact enough here, since the
+    # sub-dominant modes are exp(-O(100)) suppressed): sample i from chain k gets
+    # w_k = exp(peak_lnL_k - max_k peak_lnL) / n_k, normalized.  ``theta`` stays the
+    # raw pooled draws; ``post_weight`` is the per-sample posterior weight callers
+    # should use for credible regions, sky areas, and corner plots.
+    n_per = [len(c) for c in per_chain]
+    _off = np.cumsum([0] + n_per)
+    chain_peak = np.array([lnL[_off[k]:_off[k + 1]].max() if n_per[k] else -np.inf
+                           for k in range(len(per_chain))])
+    cw = np.exp(chain_peak - np.max(chain_peak))
+    post_weight = np.concatenate([
+        np.full(n_per[k], cw[k] / max(n_per[k], 1)) for k in range(len(per_chain))])
+    sw = post_weight.sum()
+    post_weight = post_weight / sw if sw > 0 else np.full(len(theta), 1.0 / max(len(theta), 1))
+
     # -- 3. Gaussian-mixture importance evidence (one comp per seed) -------
     mus, covs = [], []
     for th in per_chain:
@@ -571,7 +592,7 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
     theta_per_chain = np.stack(per_chain, axis=0)   # (n_starts, num_samples, 5)
     return dict(theta=theta, lnL=lnL, seeds=seeds, seed_lnL=seed_lnL,
                 logZ=logZ, sigma_over_Z=sigma_over_Z, neff=neff,
-                theta_per_chain=theta_per_chain)
+                theta_per_chain=theta_per_chain, post_weight=post_weight)
 
 
 # ---------------------------------------------------------------------------

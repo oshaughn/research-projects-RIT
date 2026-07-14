@@ -107,6 +107,13 @@ def run_one(src, net, target_snr, want_samples=False):
         n_prior_pilot=n_pilot, seed=1, sky_coords="network", rotate_phase=True,
         dense_mass=True, max_tree_depth=(7, 10), polish_seeds=True, verbose=True)
     th = np.asarray(res["theta"])
+    # Evidence-weighted pooling: resample the multi-start draws by post_weight so
+    # the effective posterior collapses the negligible (exp(-O(100))-suppressed)
+    # sub-dominant modes -- otherwise the equal-weight pool over-represents them.
+    pw = np.asarray(res.get("post_weight", np.ones(len(th)) / len(th)))
+    idx = np.random.default_rng(0).choice(len(th), size=len(th), p=pw / pw.sum())
+    th = th[idx]
+    lnL_all = np.asarray(res["lnL"])[idx]
     ra, dec, psi, incl, phiref = (th[:, 0], th[:, 1], th[:, 2], th[:, 3], th[:, 4])
     tpc = res.get("theta_per_chain")
     from numpyro.diagnostics import effective_sample_size
@@ -120,7 +127,7 @@ def run_one(src, net, target_snr, want_samples=False):
         area_kde = float(fslib.sky_area_90_kde(ra, dec, np.ones_like(ra)))
     except Exception:
         area_kde = float("nan")
-    imap = int(np.argmax(np.asarray(res["lnL"])))
+    imap = int(np.argmax(lnL_all))
     map_d = float(_gc_dist(np.array([ra[imap]]), np.array([dec[imap]]), src.ra, src.dec)[0])
     row = dict(snr=meta["snr"], area_cov=area_cov, area_hist=area_hist,
                area_kde=area_kde, sky_ess=sky_ess, map_dist=map_d, dist_true=dist)
@@ -134,7 +141,7 @@ def run_one(src, net, target_snr, want_samples=False):
         dist_s = _draw_distance(data, ra, dec, psi, incl, phiref, d_min, d_max)
         np.savez(os.path.join(OUT, "samples_snr%d.npz" % int(round(target_snr))),
                  ra=ra, dec=dec, psi=psi, incl=incl, phiref=phiref, distMpc=dist_s,
-                 lnL=np.asarray(res["lnL"]),
+                 lnL=lnL_all,
                  truth=np.array([src.ra, src.dec, src.psi, src.incl, src.phiref, dist]),
                  snr=meta["snr"])
         print("  saved samples_snr%d.npz (%d draws)" % (int(round(target_snr)), len(ra)))
