@@ -27,6 +27,7 @@ def convert(src, out):
 
     d = dict(
         m1=col("m1"), m2=col("m2"), a1z=col("a1z"), a2z=col("a2z"),
+        a1x=col("a1x"), a1y=col("a1y"), a2x=col("a2x"), a2y=col("a2y"),
         ra=col("ra"), dec=col("dec"), incl=col("incl"), psi=col("psi"),
         phiorb=col("phiorb"), distance=col("distance"), time=col("time"),
         lnL=col("lnL"), p=col("p", 1.0), ps=col("ps", 1.0),

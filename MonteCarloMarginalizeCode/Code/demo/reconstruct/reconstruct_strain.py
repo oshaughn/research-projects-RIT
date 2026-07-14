@@ -7,8 +7,13 @@ from extract_ile_samples.py), reconstruct the whitened detector strain with a
 90% credible band and overlay it on the whitened data.
 
 Two waveform back-ends:
-  --approx IMRPhenomD           : a waveform MODEL (RIFT.lalsimutils.hoft),
-                                  using each sample's own m1,m2,spins,extrinsic.
+  --approx IMRPhenomD           : a waveform MODEL, built from the hlmoft modes
+                                  (RIFT.lalsimutils.hlmoft -> hoft_from_hlm) using each
+                                  sample's own m1,m2,spins(incl. in-plane),extrinsic.
+                                  This is the same mode construction ILE's likelihood uses,
+                                  so the time/phase reference matches the reported
+                                  geocent_end_time (avoids an fref-dependent ~1 ms bias
+                                  that the direct lalsimutils.hoft path has).
   --group G --nr-param F.h5      : a fixed NR simulation (NRWaveformCatalogManager3,
                                   --nr-use-provided-strain), scaled by total mass.
 
@@ -92,7 +97,7 @@ _W = {}
 
 
 def _init(mode, group, nr_param, approx, fref, psd_files, fs, flo, fhi, lmax, tev):
-    _W.update(mode=mode, fs=fs, flo=flo, fhi=fhi, tev=tev, fref=fref,
+    _W.update(mode=mode, fs=fs, flo=flo, fhi=fhi, tev=tev, fref=fref, lmax=lmax,
               psd={ifo: lalsimutils.get_psd_series_from_xmldoc(f, ifo) for ifo, f in psd_files.items()})
     if mode == "nr":
         import NRWaveformCatalogManager3 as nrwf
@@ -113,7 +118,7 @@ def _project_whiten(h, tev, fs, flo, fhi, psd):
 
 
 def _gen(a):
-    (m1, m2, mtot, a1z, a2z, ecc, incl, dist, ra, dec, psi, phiorb, tgeo) = a
+    (m1, m2, mtot, a1z, a2z, a1x, a1y, a2x, a2y, ecc, incl, dist, ra, dec, psi, phiorb, tgeo) = a
     fs, tev, flo, fhi = _W["fs"], _W["tev"], _W["flo"], _W["fhi"]
     out = {}
     if _W["mode"] == "nr":
@@ -134,6 +139,7 @@ def _gen(a):
         P.approx = _W["approx"]
         P.m1, P.m2 = m1 * lal.MSUN_SI, m2 * lal.MSUN_SI
         P.s1z, P.s2z = a1z, a2z
+        P.s1x, P.s1y, P.s2x, P.s2y = a1x, a1y, a2x, a2y   # in-plane spins (precession)
         P.fmin, P.fref = flo, _W["fref"]
         P.deltaT = 1.0 / fs
         P.deltaF = 1.0 / 16.0
@@ -141,9 +147,15 @@ def _gen(a):
         P.incl, P.dist = incl, dist * lal.PC_SI * 1e6
         P.phi, P.theta, P.psi = ra, dec, psi
         P.phiref, P.tref = phiorb, tgeo
+        # Build h(t) from the hlmoft modes (fd_standoff 0.9, as ILE's internal_hlm_generator uses)
+        # and combine with hoft_from_hlm.  This is the SAME mode construction ILE's likelihood
+        # uses, so the coalescence-time (and phase) reference matches the geocent_end_time ILE
+        # reports.  Reconstructing with lalsimutils.hoft() instead leaves an fref-dependent ~1 ms
+        # time bias (its coalescence reference differs from the hlmoff likelihood path).
+        hlms = lalsimutils.hlmoft(P, Lmax=_W["lmax"], fd_standoff_factor=0.9)
         for ifo, psd in _W["psd"].items():
             P.detector = ifo
-            out[ifo] = _project_whiten(lalsimutils.hoft(P), tev, fs, flo, fhi, psd)
+            out[ifo] = _project_whiten(lalsimutils.hoft_from_hlm(hlms, P), tev, fs, flo, fhi, psd)
     return out
 
 
@@ -156,13 +168,15 @@ def main(argv=None):
     IFOS = list(PSD.keys())
     psd_series = {ifo: lalsimutils.get_psd_series_from_xmldoc(f, ifo) for ifo, f in PSD.items()}
 
-    keys = ["m1", "m2", "a1z", "a2z", "ra", "dec", "time", "phiorb", "incl", "psi",
+    keys = ["m1", "m2", "a1z", "a2z", "a1x", "a1y", "a2x", "a2y",
+            "ra", "dec", "time", "phiorb", "incl", "psi",
             "distance", "lnL", "p", "ps", "eccentricity"]
     parts = {k: [] for k in keys}
     for f in o.samples:
         Z = np.load(f)
-        for k in keys:
-            parts[k].append(np.asarray(Z[k], float))
+        n = len(Z["m1"])
+        for k in keys:                      # tolerate older npz lacking in-plane spins etc.
+            parts[k].append(np.asarray(Z[k], float) if k in Z.files else np.zeros(n))
     D = {k: np.concatenate(parts[k]) for k in keys}
     lnL, p, ps = D["lnL"], D["p"], D["ps"]
     fin = np.isfinite(lnL) & np.isfinite(p) & np.isfinite(ps) & (ps > 0)
@@ -197,7 +211,9 @@ def main(argv=None):
         mtot = (D["m1"] + D["m2"])[sel]
 
     args = [(float(D["m1"][j]), float(D["m2"][j]), float(mtot[i]),
-             float(D["a1z"][j]), float(D["a2z"][j]), float(D["eccentricity"][j]),
+             float(D["a1z"][j]), float(D["a2z"][j]),
+             float(D["a1x"][j]), float(D["a1y"][j]), float(D["a2x"][j]), float(D["a2y"][j]),
+             float(D["eccentricity"][j]),
              float(D["incl"][j]), float(D["distance"][j]), float(D["ra"][j]), float(D["dec"][j]),
              float(D["psi"][j]), float(D["phiorb"][j]), float(D["time"][j]))
             for i, j in enumerate(sel)]
