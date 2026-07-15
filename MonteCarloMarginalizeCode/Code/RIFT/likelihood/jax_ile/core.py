@@ -201,7 +201,38 @@ def _gather_linear(Q_col, pos):
     return jnp.where(valid, val, 0.0 + 0.0j)
 
 
-_GATHERERS = {"nearest": _gather_nearest, "linear": _gather_linear}
+def _gather_cubic(Q_col, pos):
+    """Four-point cubic-Lagrange interpolation of Q_col at continuous ``pos``.
+
+    Mirrors the production ``factored_likelihood._cubic_Q_window_numpy`` /
+    ``Q_inner_product_cubic`` stencil EXACTLY: with ``i0 = floor(pos)`` and
+    ``u = pos - i0`` the value is ``sum_{k=-1}^{2} w_k(u) Q[i0+k]`` with the cubic
+    Lagrange weights below (at integer ``pos`` it reproduces the sample).  Unlike
+    linear, cubic captures the curvature of the razor-sharp high-frequency rholm
+    peak; for 3G/high-SNR signals linear *undershoots* that peak (worse than
+    nearest) and biases the recovered arrival time -- hence the sky -- so this is
+    the interpolation the maintained likelihood uses.  Still differentiable in
+    ``pos`` (a polynomial in ``u``), so it drives gradient sampling.  Stencil
+    points outside the buffer contribute ZERO (per-point zero extension, matching
+    the reference), so an over-running window falls off to zero.
+    """
+    n = Q_col.shape[0]
+    i0 = jnp.floor(pos).astype(jnp.int32)
+    u = pos - jnp.floor(pos)
+    w = (-u * (u - 1.0) * (u - 2.0) / 6.0,
+         (u + 1.0) * (u - 1.0) * (u - 2.0) / 2.0,
+         -(u + 1.0) * u * (u - 2.0) / 2.0,
+         (u + 1.0) * u * (u - 1.0) / 6.0)
+    out = jnp.zeros(pos.shape, dtype=jnp.complex128)
+    for off, wk in zip((-1, 0, 1, 2), w):
+        idx = i0 + off
+        valid = (idx >= 0) & (idx < n)
+        out = out + wk * jnp.where(valid, Q_col[jnp.clip(idx, 0, n - 1)], 0.0 + 0.0j)
+    return out
+
+
+_GATHERERS = {"nearest": _gather_nearest, "linear": _gather_linear,
+              "cubic": _gather_cubic}
 
 
 def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,

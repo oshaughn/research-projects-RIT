@@ -68,8 +68,14 @@ def build_rotation_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
 
     deltaT = float(P.deltaT)
     if tvals is None:
-        npts = int(2 * integration_window_half / deltaT)
-        tvals = np.linspace(-integration_window_half, integration_window_half, npts)
+        # tvals spaced EXACTLY by deltaT (arange, not linspace) so the grid matches
+        # the pos<->sample mapping and Simpson weights the likelihood assumes; the
+        # maintained NoLoop path uses this same arange(-Nw,Nw)*deltaT convention.
+        # (A linspace grid is spaced deltaT*npts/(npts-1) and shifts the time
+        # reference by a fraction of a sample -> a sky bias that only shows up at
+        # high SNR, where cubic interpolation resolves the razor-sharp peak.)
+        Nw = int(integration_window_half / deltaT)
+        tvals = np.arange(-Nw, Nw) * deltaT
     data = build_rotation_data(meta, lk, rbn, ubn, vbn, ep, deltaT, tvals)
     extras = dict(meta=meta, rho_by_a=rbn, U_by_aa=ubn, V_by_aa=vbn,
                   epochDict=ep, lookupNKDict=lk)
@@ -111,8 +117,14 @@ def build_freqresponse_data_from_precompute(P, data_dict, psd_dict, fiducial_epo
 
     deltaT = float(P.deltaT)
     if tvals is None:
-        npts = int(2 * integration_window_half / deltaT)
-        tvals = np.linspace(-integration_window_half, integration_window_half, npts)
+        # tvals spaced EXACTLY by deltaT (arange, not linspace) so the grid matches
+        # the pos<->sample mapping and Simpson weights the likelihood assumes; the
+        # maintained NoLoop path uses this same arange(-Nw,Nw)*deltaT convention.
+        # (A linspace grid is spaced deltaT*npts/(npts-1) and shifts the time
+        # reference by a fraction of a sample -> a sky bias that only shows up at
+        # high SNR, where cubic interpolation resolves the razor-sharp peak.)
+        Nw = int(integration_window_half / deltaT)
+        tvals = np.arange(-Nw, Nw) * deltaT
     data = build_freqresponse_data(meta, lk, rbp, ubp, vbp, ep, deltaT, tvals,
                                    det_geom)
     extras = dict(meta=meta, rho_by_p=rbp, U_by_pp=ubp, V_by_pp=vbp,
@@ -167,9 +179,10 @@ def build_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
 
     deltaT = float(P.deltaT)
     if tvals is None:
-        npts = int(2 * integration_window_half / deltaT)
-        tvals = np.linspace(-integration_window_half,
-                            integration_window_half, npts)
+        # arange(-Nw,Nw)*deltaT: spacing exactly deltaT (see the freqresponse
+        # builder) -- matches the maintained NoLoop tvals convention.
+        Nw = int(integration_window_half / deltaT)
+        tvals = np.arange(-Nw, Nw) * deltaT
 
     data = build_likelihood_data(packed, deltaT, float(fiducial_epoch), tvals)
     extras = dict(rholms=rholms, cross_terms=cross_terms,

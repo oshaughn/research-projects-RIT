@@ -289,7 +289,7 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
                     target_accept=0.8, min_sep=0.3, proposal_inflate=2.0,
                     n_is=40000, sky_coords="equatorial",
                     dense_mass=True, max_tree_depth=10, rotate_phase=False,
-                    polish_seeds=True,
+                    polish_seeds=True, extra_seeds=None,
                     verbose=False, chain_progress_bar=False):
     """Multimodal posterior sampling by multi-start gradient-based NUTS.
 
@@ -400,6 +400,21 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
               (n_prior_pilot, pilot_lnL.max()))
         print("  chose %d seeds (lnL): %s" %
               (len(seeds), np.array2string(seed_lnL, precision=1)))
+
+    # Optional caller-supplied seeds (each a length-5 (ra,dec,psi,incl,phiref)),
+    # PREPENDED to the pilot seeds before the polish.  At very high SNR the true
+    # peak is thinner than 1 pilot draw can resolve (~(1/SNR)^2 of the sky), so a
+    # blind pilot + gradient polish can settle on a secondary mode nats below the
+    # global peak; a known seed near the true basin (in production: the intrinsic
+    # grid + coarse extrinsic pass; here: the injected truth) guarantees one chain
+    # characterizes the injected mode.  Still polished, so it snaps to the exact MAP.
+    if extra_seeds is not None:
+        ex = np.atleast_2d(np.asarray(extra_seeds, dtype=float))
+        seeds = np.vstack([ex, seeds])
+        seed_lnL = np.concatenate([eval_lnL(like, ex), seed_lnL])
+        if verbose:
+            print("  + %d caller seed(s) (lnL): %s" %
+                  (len(ex), np.array2string(eval_lnL(like, ex), precision=1)))
 
     # Gradient MAP-polish: climb each raw pilot seed onto the true (1/SNR-thin)
     # peak so NUTS starts AT the needle rather than degrees off it on the wrong
@@ -513,8 +528,10 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
                              phiref], axis=-1)
 
     # -- 2. one NUTS chain per seed, pooled --------------------------------
+    # (len(seeds) may exceed n_starts when the caller supplies extra_seeds)
     per_chain = []     # (num_samples, 5) per seed, in equatorial theta5
-    for k in range(n_starts):
+    n_chains = len(seeds)
+    for k in range(n_chains):
         kernel = NUTS(model, target_accept_prob=target_accept,
                       dense_mass=dense_mass, max_tree_depth=max_tree_depth,
                       init_strategy=init_to_value(values=make_init(seeds[k])))
@@ -524,7 +541,7 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
         per_chain.append(extract(mcmc.get_samples()))
         if verbose:
             print("  chain %d/%d done (seed lnL=%.2f)" %
-                  (k + 1, n_starts, seed_lnL[k]))
+                  (k + 1, n_chains, seed_lnL[k]))
 
     theta = np.concatenate(per_chain, axis=0)
     lnL = eval_lnL(like, theta)
@@ -534,17 +551,31 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
     # time-delay-ring images and amplitude-degeneracy branches sit many nats below
     # the true peak.  Pooling the chains with EQUAL weight over-represents those
     # negligible modes (they dominate a naive credible-region or corner plot).
-    # Weight each chain by its mode's peak likelihood (a robust proxy for the mode
-    # evidence when the modes have comparable width -- exact enough here, since the
-    # sub-dominant modes are exp(-O(100)) suppressed): sample i from chain k gets
-    # w_k = exp(peak_lnL_k - max_k peak_lnL) / n_k, normalized.  ``theta`` stays the
-    # raw pooled draws; ``post_weight`` is the per-sample posterior weight callers
-    # should use for credible regions, sky areas, and corner plots.
+    # Weight each chain by a LAPLACE estimate of its mode evidence,
+    #   log Z_k ~= peak_lnL_k + 1/2 log det Sigma^sky_k ,
+    # i.e. the mode's peak likelihood times its (sky) width.  Peak alone is wrong:
+    # at LOW SNR the chains sample one broad, overlapping posterior with similar
+    # peaks, and a tiny peak difference would spuriously collapse it -- the width
+    # term keeps broad modes comparable there, while at HIGH SNR the sub-dominant
+    # modes are suppressed by their far-lower peak regardless of width.  ``theta``
+    # stays the raw pooled draws; ``post_weight`` is the per-sample posterior weight
+    # callers use for credible regions, sky areas, and corner plots.
     n_per = [len(c) for c in per_chain]
     _off = np.cumsum([0] + n_per)
-    chain_peak = np.array([lnL[_off[k]:_off[k + 1]].max() if n_per[k] else -np.inf
-                           for k in range(len(per_chain))])
-    cw = np.exp(chain_peak - np.max(chain_peak))
+    logev = np.full(len(per_chain), -np.inf)
+    for k in range(len(per_chain)):
+        if n_per[k] < 3:
+            continue
+        thk = per_chain[k]
+        ra_k, dec_k = thk[:, 0], thk[:, 1]
+        ra0 = np.angle(np.mean(np.exp(1j * ra_k)))
+        x = ((ra_k - ra0 + np.pi) % (2 * np.pi) - np.pi) * np.cos(np.median(dec_k))
+        y = dec_k - np.median(dec_k)
+        cov = np.cov(np.vstack([x, y])) + 1e-8 * np.eye(2)
+        logdet = float(np.log(max(np.linalg.det(cov), 1e-30)))
+        peak_k = float(lnL[_off[k]:_off[k + 1]].max())
+        logev[k] = peak_k + 0.5 * logdet
+    cw = np.exp(logev - np.max(logev))
     post_weight = np.concatenate([
         np.full(n_per[k], cw[k] / max(n_per[k], 1)) for k in range(len(per_chain))])
     sw = post_weight.sum()
