@@ -57,6 +57,7 @@ import h5py
 # TODO this should not be a hardcoded path!
 
 import RIFT.calmarg.rift_source as rift_source
+from RIFT.calmarg.calibration import correction_type_for_ifo
 
 from  bilby.core.utils import logger
 
@@ -315,6 +316,8 @@ time_marginalization_interval = args.data_integration_window_half #args.time_mar
 
 spline_calibration_envelope_dict = bilby_pipe.utils.convert_string_to_dict(
                 data.meta_data['command_line_args']['spline_calibration_envelope_dict'])
+calibration_correction_type = data.meta_data['command_line_args'].get(
+    'calibration_correction_type')
 ifos_for_reweighting = deepcopy(ifos)
 for ifo in ifos: # removes any model for the calibration that was set up in the file
     ifo.calibration_model = bilby.gw.calibration.Recalibrate()
@@ -392,7 +395,10 @@ for ifo in ifos_for_reweighting:
     if args.use_local_cal_files:
         calibration_file_path = './cal_envelopes/' + os.path.basename(calibration_file_path) # force local, specific name. Copied in place earlier
     ifo_calibration_priors = bilby.gw.prior.CalibrationPriorDict.from_envelope_file(
-        calibration_file_path, ifo.minimum_frequency, ifo.maximum_frequency, 10, ifo.name)
+        calibration_file_path, ifo.minimum_frequency, ifo.maximum_frequency, 10,
+        ifo.name, correction_type=correction_type_for_ifo(
+            calibration_correction_type, ifo.name,
+            parse_dict=bilby_pipe.utils.convert_string_to_dict))
 
     # TODO FOR DEBUGGING PURPOSES
     # for key in ifo_calibration_priors.keys():
