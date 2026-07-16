@@ -54,7 +54,7 @@ FANOUT  ?= 4
 BUILD_DIR := $(CURDIR)/rundir_multigpu
 DAG       := marginalize_intrinsic_parameters_BasicIterationWorkflow.dag
 
-.PHONY: all smoke-local build verify inspect requests clean coinc help
+.PHONY: all smoke-local build verify build-combo verify-combo inspect requests clean coinc help
 
 help:
 	@sed -n '2,40p' Makefile
@@ -145,6 +145,50 @@ verify:
 	@echo "    and will split each 100-point ILE block into $(FANOUT) shards, one per GPU."
 
 # ---------------------------------------------------------------------------
+# build-combo / verify-combo: the COMBINED example -- multi-GPU fan-out AND the
+# multi-container (container family) selection, driven ENTIRELY from one ini
+# (multigpu_multicontainer.ini), including the container manifest.  Proves an
+# end-user ini shape where every option lands.  Deliberately does NOT export
+# SINGULARITY_RIFT_IMAGE, so the container really comes from the ini.
+# ---------------------------------------------------------------------------
+COMBO_DIR := $(CURDIR)/rundir_combo
+BASE_EXE_DIR ?= /usr/local/bin/
+build-combo: ci_coinc.xml
+	@test -f "$(MANIFEST)" || (echo "ERROR: container-family manifest not found: $(MANIFEST)"; false)
+	rm -rf $(COMBO_DIR)
+	@# Fill the ini placeholders (@MANIFEST@/@BASE_EXE_DIR@) into a run-local copy.
+	sed -e 's#@MANIFEST@#$(MANIFEST)#' -e 's#@BASE_EXE_DIR@#$(BASE_EXE_DIR)#' \
+	  multigpu_multicontainer.ini > $(CURDIR)/_combo.ini
+	@# NOTE: no SINGULARITY_RIFT_IMAGE / RIFT_ILE_GPU_FANOUT in the env -- both come from the ini.
+	env -u SINGULARITY_RIFT_IMAGE -u SINGULARITY_BASE_EXE_DIR -u RIFT_ILE_GPU_FANOUT -u RIFT_REQUIRE_GPUS \
+	  $(ENV) util_RIFT_pseudo_pipe.py \
+	    --use-ini $(CURDIR)/_combo.ini --use-coinc $(CURDIR)/ci_coinc.xml --use-rundir $(COMBO_DIR) \
+	    --fake-data-cache $(CACHE) --assume-nospin \
+	    --use-osg-file-transfer --internal-truncate-files-for-osg-file-transfer \
+	    --internal-force-iterations 2
+	rm -rf $(COMBO_DIR)/frames_dir; cp -r $(FRAMES) $(COMBO_DIR)/frames_dir
+	for ifo in H1 L1 V1; do cp $(PSD) $(COMBO_DIR)/$$ifo-psd.xml.gz; done
+	@rm -f $(CURDIR)/_combo.ini
+	@echo; echo "Built $(COMBO_DIR).  Now:  make verify-combo"
+
+verify-combo:
+	@test -f $(COMBO_DIR)/ILE.sub || (echo "no $(COMBO_DIR)/ILE.sub -- run 'make build-combo' first"; false)
+	@echo "===== MULTI-CONTAINER (container family) ====="
+	@echo "--- per-machine image selection (>=2 images chosen by GPU capability) ---"
+	@grep -iE 'MY.SingularityImage|container_image' $(COMBO_DIR)/ILE.sub | sed 's/^/  /'
+	@grep -qi 'ifThenElse.*Capability.*\.sif' $(COMBO_DIR)/ILE.sub || (echo "FAIL: no per-machine image ifThenElse selection"; false)
+	@echo "--- selective osdf image transfer (only the matching .sif) ---"
+	@grep -qi 'osdf:.*\.sif' $(COMBO_DIR)/ILE.sub || (echo "FAIL: no osdf image transfer"; false)
+	@grep -oiE 'require_gpus = .*' $(COMBO_DIR)/ILE.sub | sed 's/^/  /'
+	@grep -qi 'Capability >= 8.0' $(COMBO_DIR)/ILE.sub || (echo "FAIL: ini ile_require_gpus floor did not land"; false)
+	@echo "===== MULTI-GPU FAN-OUT ====="
+	@grep -iE 'request_GPUs|request_CPUs' $(COMBO_DIR)/ILE.sub | sed 's/^/  /'
+	@grep -oE 'RIFT_ILE_GPU_FANOUT:-[A-Za-z0-9]*' $(COMBO_DIR)/ile_pre.sh | sed 's/^/  ile_pre.sh baked: /'
+	@grep -qE 'RIFT_ILE_GPU_FANOUT:-all' $(COMBO_DIR)/ile_pre.sh || (echo "FAIL: ini ile-gpu-fanout=all did not bake into ile_pre.sh"; false)
+	@echo; echo "OK: one ini -> multi-container per-machine .sif selection + capability floor + osdf transfer,"
+	@echo "    AND multi-GPU fan-out (grab all node GPUs).  Every option landed."
+
+# ---------------------------------------------------------------------------
 # requests: show the condor request_GPUs/request_CPUs + baked launcher directive
 # that each fan-out mode produces (fixed N vs. adaptive vs. all-physical).  Fast:
 # calls write_ILE_sub_simple directly, no full pipeline build.  This is the
@@ -173,4 +217,4 @@ inspect:
 	@grep -iE 'request_|require_gpus|SingularityImage|executable|when_to_transfer' $(BUILD_DIR)/ILE.sub
 
 clean:
-	rm -rf _smoke _req $(BUILD_DIR) ci_coinc.xml
+	rm -rf _smoke _req $(BUILD_DIR) $(COMBO_DIR) _combo.ini ci_coinc.xml

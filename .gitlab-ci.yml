@@ -92,6 +92,11 @@ import_check:
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_lisa_operational_synthetic.py
     - python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_lisa_helper_contract.py
 
+dependency_compat_check:
+  stage: system tests
+  script:
+    - python .travis/test-dependency-compat.py
+
 sim_manager_check:
   stage: unit tests
   script:

@@ -2287,6 +2287,14 @@ if opts.last_iteration_extrinsic:
         ile_node.add_macro("macroevent", event*n_group)
         ile_node.add_macro("macrongroup", n_group)
         ile_node.add_macro("macroiteration", it)
+        # Option C cal-pilot / extrinsic-handoff seed path.  The wide ILE args carry
+        # --calibration-proposal-breadcrumb .../cal_consolidated_$(macroiterationprev).npz
+        # (and the extrinsic-handoff analogue).  This last-iteration EXTRINSIC ILE node was
+        # missing macroiterationprev, so the macro expanded to blank -> the job requested the
+        # literal cal_consolidated_.npz, which never exists -> transfer hard-hold (OSG) or a
+        # silently-unseeded run (shared FS).  Set it just like the wide ILE node so the
+        # extrinsic stage seeds from the previous iteration's consolidated proposal.
+        ile_node.add_macro("macroiterationprev", it-1)
         if not(parent_fit_node is None):
             ile_node.add_parent(parent_fit_node)
         dag.add_node(ile_node)

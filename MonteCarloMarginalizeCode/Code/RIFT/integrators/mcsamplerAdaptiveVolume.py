@@ -15,6 +15,18 @@ from RIFT.precision import RiftFloat  # platform-portable replacement for np.flo
 from scipy import integrate, interpolate, special
 import itertools
 import functools
+import inspect
+
+
+@functools.lru_cache(maxsize=None)
+def _prior_pdf_accepts_xpy(fn):
+    """True if a prior_pdf callable takes an `xpy` kwarg.  Many of the mcsamplerGPU prior
+    helpers default xpy=cupy, so evaluating them on the host CPU copy (as prior_prod does)
+    would feed a numpy array to cupy and raise; we pass xpy=numpy to those that accept it."""
+    try:
+        return 'xpy' in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
 
 import os
 
@@ -290,8 +302,13 @@ class MCSampler(object):
         x_cpu = identity_convert(x)
         indx = 0
         for param in self.params_ordered:
-            p_out *= identity_convert_togpu(self.prior_pdf[param](x_cpu[:,indx]))
-            indx +=1
+            fn = self.prior_pdf[param]
+            xc = x_cpu[:, indx]
+            # Force host evaluation: several mcsamplerGPU prior helpers default xpy=cupy, which
+            # would raise on the numpy host copy when cupy is importable (e.g. GPU container runs).
+            val = fn(xc, xpy=numpy) if _prior_pdf_accepts_xpy(fn) else fn(xc)
+            p_out *= identity_convert_togpu(val)
+            indx += 1
         return p_out
 
 

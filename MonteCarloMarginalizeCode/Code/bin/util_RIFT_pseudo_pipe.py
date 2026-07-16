@@ -588,13 +588,6 @@ parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_f
 parser.add_argument("--internal-force-puff-iterations", default=4, type=int, help="Number of iterations to be puffed")
 opts=  parser.parse_args()
 
-# Multi-GPU ILE fan-out: --ile-gpu-fanout funnels through RIFT_ILE_GPU_FANOUT, which
-# create_event_parameter_pipeline_BasicIteration (run via os.system, inheriting this
-# environment) and dag_utils read at DAG-build time to size request_GPUs/CPUs and bake
-# the value into ile_pre.sh.  A CLI value wins over any inherited environment value.
-if opts.ile_gpu_fanout is not None:
-    os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
-
 config_stored=None; config_dict=None
 ile_condor_commands = None
 if (opts.use_ini):
@@ -619,7 +612,16 @@ if (opts.use_ini):
 
         if not('RIFT_REQUIRE_GPUS' in os.environ) and 'ile_require_gpus' in rift_items:
             os.environ['RIFT_REQUIRE_GPUS'] = rift_items['ile_require_gpus']
-        
+
+        # Container family (multi-container per-machine image selection): let the ini
+        # carry the manifest + base exe dir, so a single ini is self-contained.  These
+        # are read from os.environ by create_event_parameter_pipeline_BasicIteration /
+        # write_ILE_sub_simple; the environment still dominates if already set.
+        if not('SINGULARITY_RIFT_IMAGE' in os.environ) and 'singularity_rift_image' in rift_items:
+            os.environ['SINGULARITY_RIFT_IMAGE'] = rift_items['singularity_rift_image']
+        if not('SINGULARITY_BASE_EXE_DIR' in os.environ) and 'singularity_base_exe_dir' in rift_items:
+            os.environ['SINGULARITY_BASE_EXE_DIR'] = rift_items['singularity_base_exe_dir']
+
         # attempt to lazy-select the command-line that are present in the ini file section
         for item in rift_items:
             item_renamed = item.replace('-','_')
@@ -643,7 +645,14 @@ if (opts.use_ini):
         for item in rift_items:
             val = rift_items[item].strip()
             ile_condor_commands.append([item, val])
-            
+
+# Multi-GPU ILE fan-out: funnel --ile-gpu-fanout (CLI) OR ile-gpu-fanout=... (ini
+# [rift-pseudo-pipe]) through RIFT_ILE_GPU_FANOUT.  Done AFTER the ini is parsed so an
+# ini-only value also lands.  create_event_parameter_pipeline_BasicIteration (run via
+# os.system, inheriting this environment) and dag_utils read it at DAG-build time to
+# size request_GPUs/CPUs and bake the value into ile_pre.sh.
+if opts.ile_gpu_fanout is not None:
+    os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
 
 if opts.lisa_known_sky:
     run_lisa_known_sky_surface(opts)
@@ -1837,6 +1846,30 @@ if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
 if opts.calmarg_pilot:
     cmd += " --calmarg-pilot --calmarg-pilot-cadence {} --calmarg-pilot-max-it {} --calmarg-pilot-top-fraction {} --calmarg-pilot-max-points {} ".format(
         opts.calmarg_pilot_cadence, opts.calmarg_pilot_max_it, opts.calmarg_pilot_top_fraction, opts.calmarg_pilot_max_points)
+    if opts.use_osg_file_transfer:
+        # Graceful degradation for the OSG file-transfer regime.  The wide ILE jobs (and the
+        # last-iteration EXTRINSIC ILE jobs) list cal_consolidated_$(macroiterationprev).npz in
+        # transfer_input_files; condor HARD-HOLDS (HoldReasonCode 13) if that source file is
+        # absent on the submit node.  A calpilot only produces cal_consolidated_<it>.npz for
+        # iterations it<=--calmarg-pilot-max-it on-cadence, so any wide/extrinsic iteration
+        # whose seed was never produced (e.g. --calmarg-pilot-max-it 1 but 5 wide iterations)
+        # would dead-hold.  Pre-seed a VALID prior-breadcrumb placeholder (a copy of the always
+        # -present cal_consolidated_-1.npz iteration-0 seed) for EVERY iteration index a wide or
+        # extrinsic job can reference.  A real calpilot OVERWRITES its placeholder at runtime via
+        # transfer_output_files (the DAG seed barrier guarantees ordering), so behavior is
+        # unchanged whenever the learned seed IS produced; a missing seed now falls back to the
+        # prior (the placeholder == proposal==prior -> zero-weight prior cal draws) instead of
+        # dead-holding.  skip-if-exists preserves real seeds across a DAG rescue/resume.
+        _cal_ph_seed = os.getcwd() + "/cal_consolidated_-1.npz"
+        if os.path.exists(_cal_ph_seed):
+            # wide it in [it_start, n_iterations-1] references prev=it-1; the extrinsic stage
+            # (it=n_iterations) references prev=n_iterations-1 -> indices 0 .. n_iterations-1.
+            for _kit in range(0, int(n_iterations)):
+                _cal_ph_dst = os.getcwd() + "/cal_consolidated_{}.npz".format(_kit)
+                if not os.path.exists(_cal_ph_dst):
+                    shutil.copyfile(_cal_ph_seed, _cal_ph_dst)
+        else:
+            print("  WARNING: cal_consolidated_-1.npz placeholder absent; cannot pre-seed missing cal proposal breadcrumbs (wide/extrinsic ILE may hard-hold if a calpilot stage is skipped).")
 if opts.extrinsic_handoff:
     cmd += " --extrinsic-handoff --extrinsic-handoff-select {} ".format(opts.extrinsic_handoff_select)
 if opts.assume_eccentric:

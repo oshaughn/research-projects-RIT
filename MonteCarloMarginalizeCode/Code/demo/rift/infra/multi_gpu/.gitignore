@@ -3,3 +3,5 @@ rundir_multigpu/
 _smoke/
 ci_coinc.xml
 proposed-grid*
+rundir_combo/
+_combo.ini

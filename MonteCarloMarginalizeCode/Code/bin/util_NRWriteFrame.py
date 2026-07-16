@@ -21,9 +21,9 @@ import lalsimulation as lalsim
 import lalframe
 import lal
 
-import NRWaveformCatalogManager3 as nrwf
+from RIFT.physics._nrwf_loader import get_nrwf as _rift_get_nrwf
 
-
+nrwf, _useNR = _rift_get_nrwf()    # prefers nrcatalog.compat_nrwf, falls back to NRWaveformCatalogManager3
 parser = argparse.ArgumentParser()
 parser.add_argument("--group", default="Sequence-GT-Aligned-UnequalMass",help="inspiral XML file containing injection information.")
 parser.add_argument("--param", default=(0.0, 2.),help="Parameter value")

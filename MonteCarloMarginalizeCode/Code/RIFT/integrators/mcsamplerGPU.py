@@ -34,7 +34,11 @@ try:
   identity_convert_togpu = cupy.asarray
   junk_to_check_installed = cupy.array(5)  # this will fail if GPU not installed correctly
   cupy_ok = True
-  cupy_pi = cupy.array(np.pi)
+  # Keep pi a plain Python float (NOT a device scalar): the prior helpers below divide/add it to
+  # arrays that may be host (numpy) -- e.g. AV's prior_prod evaluates them on a CPU copy -- and
+  # `numpy_array / cupy_scalar` re-dispatches to cupy and raises "Unsupported type numpy.ndarray".
+  # A float works for both backends (cupy_array / float stays on device).
+  cupy_pi = np.pi
 
   from RIFT.interpolators.interp_gpu import interp
 

@@ -16,8 +16,9 @@ import subprocess
 from shutil import copyfile
 
 from RIFT.precision import RiftFloat
+from RIFT.physics._nrwf_loader import get_nrwf as _rift_get_nrwf
 
-import NRWaveformCatalogManager3 as nrwf
+nrwf, _useNR = _rift_get_nrwf()    # prefers nrcatalog.compat_nrwf, falls back to NRWaveformCatalogManager3
 import lal
 import RIFT.lalsimutils as lalsimutils
 
