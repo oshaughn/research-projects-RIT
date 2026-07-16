@@ -70,6 +70,8 @@ import lalsimulation as lalsim
 
 from .detector import compute_detamresponse, time_delay_from_earth_center
 from .spherical import spherical_harmonics_vectorized
+from . import response_slowrot as _rs
+from . import response_freqresponse as _rf
 
 # Fiducial template distance (Mpc); identical to factored_likelihood.distMpcRef.
 DIST_MPC_REF = 1000.0
@@ -199,7 +201,38 @@ def _gather_linear(Q_col, pos):
     return jnp.where(valid, val, 0.0 + 0.0j)
 
 
-_GATHERERS = {"nearest": _gather_nearest, "linear": _gather_linear}
+def _gather_cubic(Q_col, pos):
+    """Four-point cubic-Lagrange interpolation of Q_col at continuous ``pos``.
+
+    Mirrors the production ``factored_likelihood._cubic_Q_window_numpy`` /
+    ``Q_inner_product_cubic`` stencil EXACTLY: with ``i0 = floor(pos)`` and
+    ``u = pos - i0`` the value is ``sum_{k=-1}^{2} w_k(u) Q[i0+k]`` with the cubic
+    Lagrange weights below (at integer ``pos`` it reproduces the sample).  Unlike
+    linear, cubic captures the curvature of the razor-sharp high-frequency rholm
+    peak; for 3G/high-SNR signals linear *undershoots* that peak (worse than
+    nearest) and biases the recovered arrival time -- hence the sky -- so this is
+    the interpolation the maintained likelihood uses.  Still differentiable in
+    ``pos`` (a polynomial in ``u``), so it drives gradient sampling.  Stencil
+    points outside the buffer contribute ZERO (per-point zero extension, matching
+    the reference), so an over-running window falls off to zero.
+    """
+    n = Q_col.shape[0]
+    i0 = jnp.floor(pos).astype(jnp.int32)
+    u = pos - jnp.floor(pos)
+    w = (-u * (u - 1.0) * (u - 2.0) / 6.0,
+         (u + 1.0) * (u - 1.0) * (u - 2.0) / 2.0,
+         -(u + 1.0) * u * (u - 2.0) / 2.0,
+         (u + 1.0) * u * (u - 1.0) / 6.0)
+    out = jnp.zeros(pos.shape, dtype=jnp.complex128)
+    for off, wk in zip((-1, 0, 1, 2), w):
+        idx = i0 + off
+        valid = (idx >= 0) & (idx < n)
+        out = out + wk * jnp.where(valid, Q_col[jnp.clip(idx, 0, n - 1)], 0.0 + 0.0j)
+    return out
+
+
+_GATHERERS = {"nearest": _gather_nearest, "linear": _gather_linear,
+              "cubic": _gather_cubic}
 
 
 def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
@@ -210,7 +243,16 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
     is complex; the distance factor and the Re/abs reduction are applied by the
     caller (so the same accumulation feeds both the fixed-distance and the
     distance-marginalized paths).
+
+    When ``data`` carries a slow-rotation / finite-size ``feature`` (built by
+    :func:`banded.build_rotation_data` / :func:`banded.build_freqresponse_data`),
+    the multi-band accumulator is used instead.  It returns the *identical*
+    ``(kappa_unit, rho_sq_unit)`` contract, so every downstream marginalization
+    variant (distance, phi_ref, psi, ...) inherits the feature for free.
     """
+    if getattr(data, "feature", None) is not None:
+        return _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
+                                       phase_marginalization)
     ra = jnp.asarray(ra, dtype=jnp.float64)
     dec = jnp.asarray(dec, dtype=jnp.float64)
     psi = jnp.asarray(psi, dtype=jnp.float64)
@@ -265,6 +307,117 @@ def _accumulate_unit(data, ra, dec, psi, incl, phiref, interp,
             Qi = gather(Q[:, k], pos)
             kappa_det = kappa_det + FY_conj[:, k][:, None] * Qi
         kappa_unit = kappa_unit + kappa_det
+        rho_sq_unit = rho_sq_unit + rho_sq_det[:, None]
+
+    return kappa_unit, rho_sq_unit
+
+
+def _banded_coefficients(data, det, ra, dec, psi):
+    """Per-sample response coefficients ``C`` of shape (A, S) for detector ``det``.
+
+    Dispatches on ``data.feature``: ``"rotation"`` -> the sidereal-harmonic
+    coefficients ``C_{(p,n)}`` (Path A/B), ``"freqresponse"`` -> the finite-size
+    basis coefficients ``b_p`` (Path D).  ``data.gmst`` (= GMST(tref), a host
+    constant) is the sidereal reference, exactly as in the numpy NoLoop path.
+    """
+    dd = data.detectors[det]
+    b = data.band
+    if data.feature == "rotation":
+        return _rs.rotation_coefficients_packed(
+            dd["response"], dd["location"], ra, dec, psi, data.gmst,
+            b["p_max"], b["a_list"])
+    if data.feature == "freqresponse":
+        return _rf.response_coefficients_packed(
+            dd["response"], dd["x_arm"], dd["y_arm"], ra, dec, psi, data.gmst,
+            b["Qmax"], b["p_list"])
+    raise ValueError("unknown banded feature %r" % (data.feature,))
+
+
+def _accumulate_unit_banded(data, ra, dec, psi, incl, phiref, interp,
+                            phase_marginalization):
+    """Multi-band (slow-rotation / finite-size) network kappa and rho^2.
+
+    Generalizes :func:`_accumulate_unit` by an extra summed "band" index
+    ``a`` (sidereal harmonic ``(p,n)`` / finite-size basis weight ``p``), sized
+    ``A``, contracted with the per-sample coefficient vector ``C_a`` from
+    :func:`_banded_coefficients`.  The baseline is the ``A==1``, ``C==[F]`` case.
+
+    Mirrors the numpy NoLoop references
+    ``DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation`` and
+    ``DiscreteFactoredLogLikelihoodFreqResponseNoLoop``:
+
+        kappa_unit = sum_a conj(C_a) sum_lm conj(Y_lm) Q^a_lm(t)
+        rho_sq_unit = 0.5 Re[ sum_{a,a'} conj(C_a) C_a' (Ybar U^{a,a'} Y)
+                                       +  C_{aR}  C_a' (Y    V^{a,a'} Y) ]
+
+    with the caller applying ``invDist`` / ``invDist^2`` and the ``Re / -1/2``
+    reduction (so ``-0.5*rho_sq_unit == -0.25 Re[...]`` matches the reference
+    ``term2``).  ``aR`` is the V-term reflection (``(p,-n)`` for rotation, the
+    identity for finite-size), supplied as ``data.band['refl_idx']``.
+
+    ``phase_marginalization`` is not supported for banded features.
+    """
+    if phase_marginalization:
+        raise NotImplementedError(
+            "phase marginalization is not supported for slow-rotation / "
+            "finite-size (banded) likelihoods")
+
+    ra = jnp.asarray(ra, dtype=jnp.float64)
+    dec = jnp.asarray(dec, dtype=jnp.float64)
+    psi = jnp.asarray(psi, dtype=jnp.float64)
+    incl = jnp.asarray(incl, dtype=jnp.float64)
+    phiref = jnp.asarray(phiref, dtype=jnp.float64)
+
+    gather = _GATHERERS[interp]
+    gmst = data.gmst
+    inv_deltaT = 1.0 / data.deltaT
+    S = ra.shape[0]
+    npts = data.npts
+    t_offsets = jnp.arange(npts, dtype=jnp.float64)
+    refl_idx = data.band["refl_idx"]           # (A,) int, static
+
+    kappa_unit = jnp.zeros((S, npts), dtype=jnp.complex128)
+    rho_sq_unit = jnp.zeros((S, npts), dtype=jnp.float64)
+
+    for det in data.detector_names:
+        dd = data.detectors[det]
+        lms = dd["lms"]
+        Q_bank = dd["Q_bank"]                   # (A, npts_full, K)
+        U_bank = dd["U_bank"]                   # (A, A, K, K)
+        V_bank = dd["V_bank"]                   # (A, A, K, K)
+        A = Q_bank.shape[0]
+        K = len(lms)
+
+        Y = spherical_harmonics_vectorized(lms, incl, -phiref, l_max=dd["l_max"])
+        conjY = jnp.conj(Y)                     # (S, K)
+
+        C = _banded_coefficients(data, det, ra, dec, psi)   # (A, S) complex
+        C_refl = C[refl_idx]                                 # (A, S)
+
+        t_det = (data.tref_minus_epoch(det)
+                 + time_delay_from_earth_center(dd["location"], ra, dec, gmst))
+        p0 = (t_det + data.tval0) * inv_deltaT
+        pos = p0[:, None] + t_offsets[None, :]              # (S, npts)
+
+        # --- term1: sum_a conj(C_a) * ( sum_lm conj(Y_lm) Q^a_lm(t) ) ---
+        kappa_det = jnp.zeros((S, npts), dtype=jnp.complex128)
+        for a in range(A):
+            inner_a = jnp.zeros((S, npts), dtype=jnp.complex128)
+            Qa = Q_bank[a]                                   # (npts_full, K)
+            for k in range(K):
+                inner_a = inner_a + conjY[:, k][:, None] * gather(Qa[:, k], pos)
+            kappa_det = kappa_det + jnp.conj(C[a])[:, None] * inner_a
+        kappa_unit = kappa_unit + kappa_det
+
+        # --- term2: 0.5 Re[ sum_{a,a'} conj(C_a)C_a' YbarUY + C_aR C_a' YVY ] ---
+        # YUY[a,a'] = einsum(conjY, Y, U_bank[a,a']); YVY[a,a'] = einsum(Y, Y, V)
+        YUY = jnp.einsum("si,sj,abij->abs", conjY, Y, U_bank)   # (A,A,S)
+        YVY = jnp.einsum("si,sj,abij->abs", Y, Y, V_bank)       # (A,A,S)
+        # conj(C_a) C_a'  and  C_aR C_a'  contracted over (a,a')
+        CC_U = jnp.einsum("as,bs->abs", jnp.conj(C), C)          # (A,A,S)
+        CC_V = jnp.einsum("as,bs->abs", C_refl, C)              # (A,A,S)
+        term2_c = jnp.sum(CC_U * YUY + CC_V * YVY, axis=(0, 1))  # (S,) complex
+        rho_sq_det = 0.5 * term2_c.real                          # (S,)
         rho_sq_unit = rho_sq_unit + rho_sq_det[:, None]
 
     return kappa_unit, rho_sq_unit
