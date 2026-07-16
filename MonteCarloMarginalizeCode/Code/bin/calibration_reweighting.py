@@ -51,6 +51,8 @@ import pickle
 import bilby
 import bilby_pipe
 
+import h5py
+
 # So I can import the RIFT source while not making this some setup.py-able package
 # TODO this should not be a hardcoded path!
 
@@ -177,6 +179,12 @@ def alt_reweight(result, label=None, new_likelihood=None, new_prior=None,
 
 parser = argparse.ArgumentParser(description='calibration marginalization via reweighting of posterior samples')
 parser.add(
+    "--dump_cal_realization", action='store_true',
+    help="Dumps output file (in same location as weights) ")
+parser.add(
+    "--use_local_cal_files", action='store_true',
+    help="Assume cal files have been transferred to the current working directory, without name conflicts!")
+parser.add(
     "--posterior_sample_file", default=None,
     help="Bilby result file or text file with posterior samples to reweight")
 parser.add(
@@ -230,9 +238,23 @@ with open(args.data_dump_file, "rb") as data_file:
 start_index = args.start_index
 end_index = args.end_index
 
+key_swap_dict = None
+key_swap_dict_backwards = None
+
+outdir = os.path.dirname(os.path.abspath(args.posterior_sample_file))
+# make IMMEDIATELY, so we don't get held when evicted for OSG operation
+if not os.path.exists(f'{outdir}/weight_files/'):
+    os.makedirs(f'{outdir}/weight_files/')
+
+result=None # scoping requirement
 # read in the posterior samples for reweighting
+rift_time_samples=None # save b/c bilby somehow distorts them?
 if args.posterior_sample_file.split(".")[-1] == 'json':
     result = bilby.core.result.read_in_result(args.posterior_sample_file)
+    if start_index is not None:
+        if start_index > len(result.posterior):
+            print(" Stopping : no work after end of file")
+            sys.exit(0)  # no work needed, stop
     if end_index is not None:
         if end_index > len(result.posterior):
             end_index = len(result.posterior)
@@ -240,6 +262,10 @@ if args.posterior_sample_file.split(".")[-1] == 'json':
 elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sample_file.split(".")[-1] == 'dat'):
     result = bilby.core.result.Result()
     result.posterior = pd.DataFrame(np.genfromtxt(args.posterior_sample_file, names=True))
+    if start_index is not None:
+        if start_index > len(result.posterior):
+            print(" Stopping : no work after end of file")
+            sys.exit(0)  # no work needed, stop
     if end_index is not None:
         if end_index > len(result.posterior):
             end_index = len(result.posterior)
@@ -247,6 +273,7 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
     result.meta_data = {}
 
     if args.use_rift_samples:
+        rift_time_samples = np.array(result.posterior['time']) # save copy of original samples
         result.posterior  = result.posterior.drop(columns=['lnL','ps'])
         result.posterior['p'] = np.log(result.posterior['p'])  # not sure if used, but if so define correctly
         # The key_sap_dict does not have an 'eccentricity' key since both RIFT and Bilby use "eccentricity" as the key.
@@ -256,11 +283,14 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
                              'a2x':'spin_2x', 'a2y':'spin_2y', 'a2z':'spin_2z', 'incl':'iota', 'time':'geocent_time',
                              'phiorb':'phase', 'p':'log_prior', 'distance':'luminosity_distance', 'lambda1':'lambda_1', 'lambda2':'lambda_2',
                              'meanPerAno':'mean_per_ano'}
+            key_swap_dict_backwards = dict(zip(key_swap_dict.values(), key_swap_dict.keys()))
+
         else:
             key_swap_dict = {'m1':'mass_1', 'm2':'mass_2', 'a1x':'spin_1x', 'a1y':'spin_1y', 'a1z':'spin_1z',
                              'a2x':'spin_2x', 'a2y':'spin_2y', 'a2z':'spin_2z', 'incl':'iota', 'time':'geocent_time',
                              'phiorb':'phase', 'p':'log_prior', 'distance':'luminosity_distance', 'lambda1':'lambda_1', 'lambda2':'lambda_2'
                              }
+            key_swap_dict_backwards = dict(zip(key_swap_dict.values(), key_swap_dict.keys()))
             
 
         names = list(result.posterior.keys())  # dangerous to have iterator tied to changing structure
@@ -277,8 +307,8 @@ elif (args.posterior_sample_file.split(".")[-1] == 'txt') or (args.posterior_sam
             else:
               result.posterior['lambda_1'] = np.zeros(len(result.posterior['mass_1']))
               result.posterior['lambda_2'] = np.zeros(len(result.posterior['mass_1']))
-
-outdir = os.path.dirname(os.path.abspath(args.posterior_sample_file))
+else:
+  raise Exception(" Unknown posterior_sample_file format ")          
 
 ifos = data.interferometers
 time_marginalization_interval = args.data_integration_window_half #args.time_marginalization_interval
@@ -359,6 +389,8 @@ waveform_generator = bilby.gw.waveform_generator.WaveformGenerator(
 priors = bilby.core.prior.PriorDict()
 for ifo in ifos_for_reweighting:
     calibration_file_path = f'{spline_calibration_envelope_dict[ifo.name]}'
+    if args.use_local_cal_files:
+        calibration_file_path = './cal_envelopes/' + os.path.basename(calibration_file_path) # force local, specific name. Copied in place earlier
     ifo_calibration_priors = bilby.gw.prior.CalibrationPriorDict.from_envelope_file(
         calibration_file_path, ifo.minimum_frequency, ifo.maximum_frequency, 10, ifo.name)
 
@@ -426,7 +458,7 @@ else:
 
 # Setting up the resume and weight file names
 resume_file = None
-if (start_index != None) and (start_index != None):
+if (start_index != None) and (end_index != None):
     weights_file = f'{outdir}/weight_files/weights_s{start_index}e{end_index}.dat'
 elif start_index != None:
     weights_file = f'{outdir}/weight_files/weights_s{start_index}eNone.dat'
@@ -453,11 +485,108 @@ else:
         resume_file=resume_file, n_checkpoint=5000,
         use_nested_samples=args.use_nested_samples)
 
+
+
+    
 # Save the weights to a file, with the sample index in the name
 if not os.path.exists(f'{outdir}/weight_files/'):
     os.makedirs(f'{outdir}/weight_files/')
-
 np.savetxt(weights_file, weights)
+
+if args.dump_cal_realization:
+    # Save callibration realization
+    extended_posterior_file = weights_file[:-4]+'.extended_posterior'
+    recal_indx_array = np.zeros(len(result.posterior),dtype=int)
+    new_posterior = copy(result.posterior)  # includes existing fields
+    recal_file_dict={}; cal_names_for = {}
+    # DRAW CAL REALIZATIONS FOR EACH SAMPLE
+    for indx in range(len(result.posterior)):
+        dict_samples = {key: result.posterior[key][indx] for key in result.posterior}
+        calibration_likelihood.parameters = dict_samples
+        try:
+            recal_indx_array[indx] = int(calibration_likelihood.generate_calibration_sample_from_marginalized_likelihood())
+        except:
+            # sometimes probabilities are 'nan'
+            recal_indx_array[indx] = -1
+    bad_indexes = recal_indx_array == -1   # boolean
+    bad_indexes_array=None
+    has_bad=False
+    print(bad_indexes, np.sum(bad_indexes))
+    if np.sum(bad_indexes) > 0.5:
+      print("has bad items")
+      bad_indexes_array = np.arange(len(bad_indexes))[bad_indexes]
+      has_bad=True
+    #  ADD THEM TO THE RESULT OBJECT
+    for ifo in ifos:
+        ifo_name = ifo.name
+        # add cal parameters to result file
+        recal_file_dict[ifo.name] = h5py.File(calibration_lookup_table[ifo.name], 'r')
+        cal_param_names = recal_file_dict[ifo.name]["CalParams"]["table"].dtype.names
+        cal_param_names = [x for x in cal_param_names if 'recalib' in x]
+        cal_param_names_freq = [x for x in cal_param_names if 'frequency' in x]
+        cal_param_names_rest = list( set(cal_param_names) - set(cal_param_names_freq) )
+        cal_names_for[ifo_name] =  cal_param_names_rest
+        # assign blank entries for remaining parameters
+        cal_args = dict(zip( cal_param_names_rest, [ np.zeros(len(new_posterior))  for x in cal_param_names_rest] ) )
+        new_posterior = new_posterior.assign(**cal_args) # empty arrays
+        freq_values = [ recal_file_dict[ifo.name]["CalParams"]["table"][name][0]  for name in cal_param_names_freq]
+        cal_args = dict(zip( cal_param_names_freq, [ freq_values[indx]*np.ones(len(new_posterior))  for indx in range(len(freq_values))] )) # frequency values
+        new_posterior = new_posterior.assign(**cal_args)
+
+        # now add cal results, based on cal index.
+        for name in cal_names_for[ifo_name]:
+            values = recal_file_dict[ifo.name]["CalParams"]["table"][name][    recal_indx_array]
+            bad_indexes = (recal_indx_array == -1)
+            values[bad_indexes] = float('nan')  # these will not be selected anyways
+            new_posterior[name] = values
+            #for indx_event in range(len(result.posterior)):
+            #    new_posterior.loc[indx_event,name] = recal_file_dict[ifo.name]["CalParams"]["table"][name][    recal_indx_array[indx_event]]
+
+    # remove events with no cal sample generated 
+    if has_bad:
+       print(" WARNING: Some samples have no cal realization generated ", len(bad_indexes_array))
+       print(" WARNING: These will be retained nominally to preserve shape for later recombination ")
+       
+    # Re-insert RIFT key names if needed
+    if args.use_rift_samples:
+        new_posterior.rename(columns=key_swap_dict_backwards,inplace=True)
+        #names = list(new_posterior.keys())  # dangerous to have iterator tied to changing structure
+        # for old_key in names:
+        #     if old_key in key_swap_dict:
+        #         new_posterior[key_swap_dict_backwards[old_key]] = new_posterior[old_key]
+        #         del new_posterior[old_key]
+        # delete some undesired fields
+        undesired_fields = ['neff','time_jitter', 'p']
+        overlap = set(undesired_fields).intersection(set(new_posterior.columns))
+        for name in undesired_fields:          
+            if name in new_posterior.columns:
+                new_posterior.drop(columns=name,inplace=True)
+
+        # rewrite time field: bilby internally distorts it somehow, restore actual values from input
+        new_posterior['time'] = rift_time_samples
+
+            
+    # WRITE TO FILE
+    #   - problem with corrupted output if job fails on write (happens too often)
+#    new_posterior.to_csv(extended_posterior_file,sep=' ',index=False)
+    with open(extended_posterior_file, 'w+') as f:
+        new_posterior.to_csv(f,sep=' ',index=False)
+        f.flush()
+
+    # DELETE CAL FILES
+    for name in calibration_lookup_table:
+        try:
+          os.remove(calibration_lookup_table[name])
+        except:
+          print(" Can't remove  file")        
+        
+    # with tempfile.NamedTemporaryFile(mode='w+',delete=False) as temp:
+    #     print(" Writing to temporary file: ".temp.name)
+    #     new_posterior.to_csv(temp.name,sep=' ',index=False)
+    #     shutil.copy(temp.name, extended_posterior_file)
+        #os.rename(temp.name, extended_posterior_file)
+        
+
 
 if (start_index == None) and (end_index == None):
     result_reweighted.save_posterior_samples(filename=outdir+'/reweighted_posterior_samples.dat', outdir=outdir)
