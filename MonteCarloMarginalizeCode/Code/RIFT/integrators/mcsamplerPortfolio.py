@@ -111,6 +111,12 @@ def portfolio_default_weights(n_ess_list, wt_previous, portfolio_probability_flo
   # don't update if we have insane answers
   if any(np.isnan(rewt)):
     return wt_previous
+  # if every member is degenerate (n_ess ~ 1, e.g. a very hard target's first
+  # chunk found nothing), the normalization below would divide by zero and
+  # produce nan weights -> negative per-member sample counts downstream.  Keep
+  # the previous (typically uniform) weights instead.
+  if np.sum(rewt) <= 0:
+    return wt_previous
   rewt = np.ones(len(rewt))*portfolio_probability_floor + (rewt/np.sum(rewt)) * (1-portfolio_probability_floor)
   net = (rewt * history_factor + wt_previous*(1-history_factor))
   return net/np.sum(net) # make SURE normalized correctly
@@ -261,6 +267,9 @@ class MCSampler(object):
         # if only one method is active, just call the low-level function
         if len(indx_active) == 1:
            joint_p_s, joint_p_prior, rv = self.portfolio[indx_active[0]].draw_simplified(n_samples, *self.params_ordered, **kwargs)
+           # The portfolio aggregates on the host (self.xpy is numpy); members
+           # may be GPU-backed (cupy), so bring their draws to the host.
+           joint_p_s = identity_convert(joint_p_s); joint_p_prior = identity_convert(joint_p_prior); rv = identity_convert(rv)
         else:
           # Identify number of samples per member of the portfolio. Can be zero.
           n_samples_per_member = ((np.array(weights_active))*n_samples).astype(int)
@@ -282,11 +291,13 @@ class MCSampler(object):
             joint_p_s_here, joint_p_prior_here, rv_here = member.draw_simplified(
                 n_samples_per_member[indx_member], *self.params_ordered, **kwargs
                 )
-            # type convert as needed, to GPU
-            if not(isinstance( type(joint_p_s_here), type(joint_p_s))):
-              joint_p_s_here = self.identity_convert_togpu(joint_p_s_here)
-              joint_p_prior_here = self.identity_convert_togpu(joint_p_prior_here)
-              rv_here = self.identity_convert_togpu(rv_here)
+            # Bring member draws to the host backend the portfolio aggregates in
+            # (self.xpy is numpy).  identity_convert is cupy.asnumpy when a member
+            # is GPU-backed, else a no-op.  (The previous isinstance(type(x),..)
+            # guard never fired, leaving cupy arrays to collide with numpy ones.)
+            joint_p_s_here = identity_convert(joint_p_s_here)
+            joint_p_prior_here = identity_convert(joint_p_prior_here)
+            rv_here = identity_convert(rv_here)
             indx_start = int(n_index_start_per_member[indx_member])
             indx_end = indx_start + int(n_samples_per_member[indx_member])
             joint_p_s[indx_start:indx_end] = joint_p_s_here
@@ -318,7 +329,14 @@ class MCSampler(object):
 
     def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
         xpy_here = self.xpy
-        
+        # The portfolio AGGREGATES on the host: draw() returns host arrays and the
+        # integrand is a host function, so force the running-estimate math onto
+        # numpy/scipy regardless of the xpy=cupy default.  Members still do their
+        # own heavy sampling/adaptation on GPU internally.  Mixing a cupy `xpy`
+        # with host arrays here is what previously broke the GPU path.
+        xpy = self.xpy            # = numpy
+        special_here = special    # scipy.special (host); statutils uses this
+
         #
         # Determine stopping conditions
         #
@@ -416,15 +434,15 @@ class MCSampler(object):
             unpacked = unpacked0 = rv #numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
             unpacked = dict(list(zip(params, unpacked)))
 
-            # Evaluate function, protecting argument order
+            # Evaluate function, protecting argument order.  rv is on the host
+            # (see draw()); the integrand is a host function, so lnL is host too.
             if 'no_protect_names' in kwargs:
                 lnL = lnF(*unpacked0)  # do not protect order
             else:
                 lnL= lnF(**unpacked)  # protect order using dictionary
-            # take log if we are NOT using lnL
-            if cupy_ok:
-              if not(isinstance(lnL,cupy.ndarray)):
-                lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
+            # Aggregation is on the host (self.xpy is numpy); keep lnL there too
+            # (identity_convert is cupy.asnumpy if a member handed back a cupy lnL).
+            lnL = identity_convert(lnL)
 
             log_integrand =lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
             # tempering_exp done inside the update proposal, NOT here
@@ -455,9 +473,9 @@ class MCSampler(object):
 
             # n, Mean, error tracked by statutils structure
             if current_log_aggregate is None:
-              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
+              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=special_here)
             else:
-              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=xpy_special_default)
+              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=special_here)
             outvals = finalize_log(current_log_aggregate,xpy=xpy)
             self.ntotal = current_log_aggregate[0]
             # effective samples
@@ -516,27 +534,41 @@ class MCSampler(object):
             ###
             ### ORACLE BLOCK
             ###
+            # Oracles PROPOSE points (hill-climb hotspots, a Fisher/Gaussian, a
+            # previous posterior).  We evaluate the true likelihood there and
+            # APPEND those (point, weight) pairs to the training data the other
+            # portfolio members adapt from, so they learn about regions the plain
+            # sampling missed.  Oracles never enter the integral estimate itself,
+            # so they cannot bias it -- at worst they cost a few evaluations.
             rvs_train = self._rvs
+            log_weights_train = log_weights   # weights aligned with rvs_train tail
             if it_now < it_max_oracle and len(self.oracle_realizations )>0:
               rvs_train = deepcopy(self._rvs)  # duplicate deeply, since we will append to it
               n_samples_per_oracle = int(n*0.1/len(self.oracle_realizations)) # try to minimize oracle effort
-              print(" ORACLE: attempting updates ")
-              # update each oracle
-              for member in self.oracle_realizations:
-                member.update_sampling_prior(log_weights, n_history, external_rvs=rvs_train, log_scale_weights=True)
-              # generate samples from oracles
-              rv_oracle = self.xpy.empty((n_samples_per_oracle*len(self.oracle_realizations), len(self.params_ordered)))
-              base_now = 0
-              for member in self.oracle_realizations:
-                _, _, rv_here = member.draw_simplified(n_samples_per_oracle)
-                rv_oracle[base_now:base_now+n_samples_per_oracle] = rv_here
-                base_now += n_samples_per_oracle
-              # evaluate lnL for each,
-              lnL_oracles = lnF(*rv_oracle.T)
-              # put into weights and rvs, for use in training other samples
-              self.xpy.append(log_weights, lnL_oracles)
-              for indx, p in enumerate(self.params_ordered):
-                self.xpy.append(rvs_train[p],  rv_oracle[:,indx])
+              if n_samples_per_oracle > 0:
+                print(" ORACLE: attempting updates ")
+                # update each oracle from the current (host) history
+                for member in self.oracle_realizations:
+                  member.update_sampling_prior(log_weights, n_history, external_rvs=rvs_train, log_scale_weights=True)
+                # generate proposals from oracles (oracles are host/numpy)
+                rv_list = []
+                for member in self.oracle_realizations:
+                  _, _, rv_here = member.draw_simplified(n_samples_per_oracle)
+                  rv_list.append(numpy.asarray(identity_convert(rv_here)))  # (n, ndim) host
+                rv_oracle = numpy.vstack(rv_list)  # host, (n_oracle_total, ndim)
+                # evaluate the true integrand at the proposals (host function)
+                if 'no_protect_names' in kwargs:
+                  lnL_oracles = numpy.asarray(identity_convert(lnF(*rv_oracle.T)))
+                else:
+                  lnL_oracles = numpy.asarray(identity_convert(lnF(**dict(zip(self.params_ordered, rv_oracle.T)))))
+                # training weight for a proposal = its lnL (same log scale as
+                # log_weights up to the shared normalization the members remove)
+                log_w_oracle = lnL_oracles
+                # ACTUALLY append (numpy.append is not in-place -- must reassign)
+                for indx, p in enumerate(self.params_ordered):
+                  base = identity_convert(rvs_train[p])
+                  rvs_train[p] = numpy.append(base, rv_oracle[:, indx])
+                log_weights_train = numpy.append(identity_convert(log_weights), log_w_oracle)
 
 
             ###
@@ -554,7 +586,8 @@ class MCSampler(object):
                   pass
                 elif (len(self.oracle_realizations) > 0 and it_now <it_max_oracle) or (   self.portfolio_weights[indx] > self.portfolio_freeze_wt):
                   if not(hasattr(member, 'is_varaha')):
-                    member.update_sampling_prior(log_weights, n_history,external_rvs=rvs_train,log_scale_weights=True, **update_dict)
+                    # log_weights_train / rvs_train include any oracle proposals appended above
+                    member.update_sampling_prior(log_weights_train, n_history,external_rvs=rvs_train,log_scale_weights=True, **update_dict)
                   else:
                     # just do a single VARAHA step, independent of others
                     member.update_sampling_prior_selfish(lnF)
