@@ -439,6 +439,8 @@ class MCSampler(MCSamplerGeneric):
         self.nf_epoch = 0
 
         self.mean_affine_set = False
+        # pre-trained flow to warm-load (see load_flow); applied inside integrate_log
+        self._preloaded_state = None
 
 
     def setup(self, nf_method='default',**kwargs):
@@ -697,6 +699,48 @@ class MCSampler(MCSamplerGeneric):
       self.nf_epoch +=1
 
 
+    ###
+    ### FLOW STORAGE / REUSE
+    ###
+    # Training a normalizing flow is slow and expensive, and only pays off if the
+    # trained flow can be RE-USED across the many ILE instances that share similar
+    # posterior structure.  These helpers persist a trained flow to a small file
+    # and warm-load it into a fresh sampler, which can then either sample from it
+    # directly (n_adapt=0) or do a few cheap 'polish' epochs (small n_adapt) to
+    # adapt it to the new instance -- amortizing the training cost.
+
+    def save_flow(self, path):
+        """Serialize the trained flow (torch state_dict + the architecture
+        metadata needed to rebuild it) to `path`."""
+        if self.nf_flow is None:
+            raise Exception("mcsamplerNFlow.save_flow: no trained flow to save (run integrate first)")
+        payload = dict(
+            state_dict=self.nf_flow.state_dict(),
+            params_ordered=[str(p) for p in self.params_ordered],
+            bounds=[[float(self.llim[p]), float(self.rlim[p])] for p in self.params_ordered],
+            nf_method=getattr(self, 'nf_method', 'default'),
+            num_layers=int(getattr(self, 'num_layers', max(1, len(self.params_ordered) // 2))),
+            nf_epoch=int(self.nf_epoch),
+        )
+        torch.save(payload, path)
+        return path
+
+    def load_flow(self, path):
+        """Stage a pre-trained flow saved by save_flow().  The weights are applied
+        inside integrate_log() (after the architecture is rebuilt), so this must be
+        called before integrate/integrate_log.  Verifies the parameters and box
+        match this sampler."""
+        payload = torch.load(path, map_location='cpu')
+        if [str(p) for p in payload['params_ordered']] != [str(p) for p in self.params_ordered]:
+            raise ValueError("saved flow params {} != sampler params {}".format(
+                payload['params_ordered'], [str(p) for p in self.params_ordered]))
+        saved_bounds = np.array(payload['bounds'], dtype=float)
+        my_bounds = np.array([[self.llim[p], self.rlim[p]] for p in self.params_ordered], dtype=float)
+        if not np.allclose(saved_bounds, my_bounds):
+            raise ValueError("saved flow box does not match sampler box")
+        self._preloaded_state = payload
+        return payload
+
     @profile
     def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
         """
@@ -722,7 +766,13 @@ class MCSampler(MCSamplerGeneric):
 
 
         xpy_here = self.xpy
-        
+        # The normalizing flow (nflows/torch) samples and scores on the host, and
+        # the integrand is a host function, so the NF integrator AGGREGATES on the
+        # host.  Force the running estimate onto numpy/scipy regardless of the
+        # xpy=cupy default -- mixing a cupy xpy with the flow's host arrays is what
+        # crashed the GPU path (cupy rv handed to a numpy integrand).
+        xpy = self.xpy            # = numpy
+        special_here = special    # scipy.special (host)
         #
         # Determine stopping conditions
         #
@@ -748,10 +798,12 @@ class MCSampler(MCSamplerGeneric):
             
 
         save_intg = kwargs["save_intg"] if "save_intg" in kwargs else False
-        # FIXME: The adaptive step relies on the _rvs cache, so this has to be
-        # on in order to work
-        if n_adapt > 0 and tempering_exp > 0.0:
-            save_intg = True
+        # The NF's final integral estimate reads log_integrand/log_joint_prior/
+        # log_joint_s_prior back out of self._rvs, so those MUST be accumulated
+        # regardless of adaptation.  (Previously save_intg was only turned on when
+        # n_adapt>0 and tempering_exp>0, so pure flow REUSE with n_adapt=0 hit a
+        # KeyError('log_integrand') at the end.)
+        save_intg = True
 
         deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
@@ -783,8 +835,25 @@ class MCSampler(MCSamplerGeneric):
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
 
         self.n_chunk = n
-        self.setup(nf_method=nf_method)  
-        
+        # a warm-loaded flow dictates the architecture; use its method so the
+        # rebuilt transform matches the saved weights
+        if self._preloaded_state is not None:
+            nf_method = self._preloaded_state.get('nf_method', nf_method)
+        self.setup(nf_method=nf_method)
+
+        # WARM-LOAD: rebuild the flow object on the freshly-created architecture
+        # and load the pre-trained weights, so this run starts from a trained flow
+        # (n_adapt=0 -> pure reuse; small n_adapt -> a few polish epochs).
+        if self._preloaded_state is not None:
+            flow = Flow(self.nf_model, StandardNormal(shape=[len(self.params_ordered)]))
+            flow.load_state_dict(self._preloaded_state['state_dict'])
+            self.nf_flow = flow
+            self.nf_trainer.flow = flow
+            self.mean_affine_set = True   # affine layer is part of the loaded weights
+            self.nf_epoch = int(self._preloaded_state.get('nf_epoch', 0))
+            if bShowEvaluationLog:
+                print("  [NF warm-load] restored pre-trained flow ({} layers)".format(self.num_layers))
+
         ntotal_true = 0
         max_epochs_requested =300
         while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
@@ -798,9 +867,10 @@ class MCSampler(MCSamplerGeneric):
             log_joint_p_s = np.log(joint_p_s)
             log_joint_p_prior = np.log(joint_p_prior)
             ntotal_true += len(joint_p_s)
-            if cupy_ok:
-              rv = identity_convert_togpu(rv) # send random numbers to GPU : ugh
-              log_joint_p_prior = identity_convert_togpu(log_joint_p_prior)    # send to GPU if required. Don't waste memory reassignment otherwise
+            # rv is a host array from the flow; keep everything on the host so the
+            # host integrand can be evaluated directly (previously rv was pushed to
+            # cupy and then handed to a numpy integrand, which raised).
+            rv = identity_convert(rv)
 
             # Evaluate function, protecting argument order
             params = []
@@ -816,10 +886,9 @@ class MCSampler(MCSamplerGeneric):
             else:
                 unpacked = dict(list(zip(self.params_ordered,rv.T)))
                 lnL= lnF(**unpacked)  # protect order using dictionary
-            # take log if we are NOT using lnL
-            if cupy_ok:
-              if not(isinstance(lnL,cupy.ndarray)):
-                lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
+            # keep lnL on the host (identity_convert is cupy.asnumpy if the
+            # integrand handed back a cupy array, else a no-op)
+            lnL = identity_convert(lnL)
 
 
             # For now: no prior, just duplicate VT algorithm
@@ -828,9 +897,9 @@ class MCSampler(MCSamplerGeneric):
 #            log_weights = tempering_exp*lnL + log_joint_p_prior
             # log aggregate: NOT USED at present, remember the threshold is floating
             if current_log_aggregate is None:
-              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
+              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=special_here)
             else:
-              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=xpy_special_default)
+              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=special_here)
 
             # Monitoring for i/o
             outvals = finalize_log(current_log_aggregate,xpy=xpy)
