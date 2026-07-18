@@ -116,7 +116,7 @@ class CorrelatedGaussian(Target):
         self.true_lnZ = np.log(scale) - np.sum(np.log(self.rlim - self.llim))
 
     def lnL(self, X):
-        return np.log(self.scale * self._mvn.pdf(X) + 1e-300)
+        return np.atleast_1d(np.log(self.scale * self._mvn.pdf(X) + 1e-300))
 
     def true_marginal_pdf(self, dim, x):
         return norm.pdf(x, loc=self.mu[dim], scale=np.sqrt(self.cov[dim][dim]))
@@ -137,7 +137,7 @@ class Rosenbrock2D(Target):
     def lnL(self, X):
         x1 = X[:, 0]; x2 = X[:, 1]
         minus = (1.0 - x1) ** 2 + 100.0 * (x2 - x1 ** 2) ** 2
-        return self.lnL_offset - minus
+        return np.atleast_1d(self.lnL_offset - minus)
 
     def true_marginal_pdf(self, dim, x):
         if dim == 0:
@@ -186,7 +186,7 @@ class GaussianMixture(Target):
         val = np.zeros(len(X))
         for k in range(self.ncomp):
             val += self.wt[k] * self._rvs[k].pdf(X)
-        return np.log(self.scale * val + 1e-300)
+        return np.atleast_1d(np.log(self.scale * val + 1e-300))
 
     def true_marginal_pdf(self, dim, x):
         p = np.zeros_like(x, dtype=float)

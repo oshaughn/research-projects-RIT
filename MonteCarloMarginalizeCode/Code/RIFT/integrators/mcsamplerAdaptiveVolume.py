@@ -218,7 +218,8 @@ class MCSampler(object):
         # sampling tool
         self.V=None  # fractional volume
         self.delta_V=None  # fractional volume
-        
+        self._warm=None  # bootstrap/warm-start live-volume state (see bootstrap_from_*)
+
 
     def setup(self, **kwargs):
         ndim = len(self.params)
@@ -443,7 +444,232 @@ class MCSampler(object):
 
         self.V = V
         self.delta_V  = delta_V
-        
+
+
+    ###
+    ### BOOTSTRAP / WARM-START SUPPORT
+    ###
+    # The VARAHA algorithm normally starts every integrate_log() call cold: one
+    # bin spanning the whole box, threshold -1e15, fractional volume V=1, and
+    # spends its first several chunks carving the live volume down from the full
+    # prior.  In production (repeated ILE instances, successive CIP iterations,
+    # or events with a known Fisher matrix) we already know roughly where the
+    # posterior lives, so that carving is wasted work -- worst in high dimension.
+    #
+    # These methods seed the live-volume state (`self._warm`) from prior
+    # information; integrate_log() then starts from that concentrated grid.  The
+    # seeded fractional volume is set GEOMETRICALLY (n_occupied_bins / prod(nbins))
+    # so the final integral normalization (log_joint_s_prior = log(1/V) - sum log dx0)
+    # stays unbiased regardless of how the state was produced.
+
+    def _order_columns(self, samples, params=None):
+        """Return samples as an (M, ndim) array whose columns are in
+        self.params_ordered order.  `params` names the columns of `samples`;
+        if None the caller guarantees they are already in order."""
+        X = np.atleast_2d(np.asarray(samples, dtype=float))
+        if X.shape[1] != len(self.params_ordered) and X.shape[0] == len(self.params_ordered):
+            X = X.T  # tolerate (ndim, M)
+        if params is None:
+            return X
+        out = np.empty((X.shape[0], len(self.params_ordered)))
+        for j, p in enumerate(self.params_ordered):
+            out[:, j] = X[:, list(params).index(p)]
+        return out
+
+    def _build_grid_from_points(self, pts, loglkl=None, enc_prob=0.999, dilate=1):
+        """Build a VARAHA live-volume grid (binunique, dx, nbins) and a
+        geometrically-consistent fractional volume V from points that populate
+        the high-likelihood region.  Mirrors the bin-refinement block of
+        integrate_log() so a warm start lands on the same kind of grid the cold
+        algorithm would have converged to.
+
+        `dilate` (>=0): grow the occupied-bin set by this many axis-neighbor
+        layers along the adaptive dimensions.  This is a SAFETY margin: VARAHA's
+        live volume only ever *contracts*, so a warm start that seeded a grid
+        tighter than the true support could never recover the missing region and
+        would bias the integral low.  Dilating guarantees the seed is a superset
+        of the sampled support (at a small efficiency cost the first few chunks
+        then trim away)."""
+        ndim = len(self.params_ordered)
+        pts = np.atleast_2d(np.asarray(pts, dtype=float))
+        box_lo = self.my_ranges.T[0]
+        box_hi = self.my_ranges.T[1]
+        inside = np.all((pts >= box_lo) & (pts <= box_hi), axis=1)
+        pts = pts[inside]
+        if loglkl is not None:
+            loglkl = np.asarray(loglkl, dtype=float)[inside]
+        nrec = len(pts)
+        if nrec < 2:
+            raise ValueError("AV bootstrap needs >=2 in-box reference points (got {})".format(nrec))
+        box = box_hi - box_lo
+        # Estimate the live fractional volume from the FULL extent of the cloud
+        # (near-min/near-max per dim), so a uniform cover_frac tail widens the
+        # extent to the box and the resulting bin grid is coarse enough that the
+        # uniform points tile it CONTIGUOUSLY (covering every mode), rather than
+        # landing in sparse isolated fine bins.
+        lo = np.quantile(pts, 0.5 * (1 - enc_prob), axis=0)
+        hi = np.quantile(pts, 1 - 0.5 * (1 - enc_prob), axis=0)
+        ext = np.clip(hi - lo, box * 1e-6, None)
+        V_extent = float(np.prod(ext / box))
+        # VARAHA bin count: nbins = (1/delta_V)^(1/d_adaptive), delta_V = V/sqrt(nrec)
+        delta_V = V_extent / np.sqrt(nrec)
+        if self.d_adaptive > 0:
+            nbins = np.ones(ndim) * (1.0 / delta_V) ** (1.0 / self.d_adaptive)
+            nbins[self.indx_not_adaptive] = 1
+        else:
+            nbins = np.ones(ndim)
+        nbins = np.maximum(np.floor(nbins), 1)
+        dx = box / nbins
+        binidx = ((pts - box_lo) / dx).astype(int)
+        binunique = np.unique(binidx, axis=0)
+        # SAFETY dilation: grow occupied bins by axis-neighbor layers along the
+        # adaptive dims, clipped to [0, nbins-1].  Uses a bounded 2*d_adaptive
+        # neighborhood per layer (not the full 3^d) so the volume grows linearly.
+        if dilate and self.d_adaptive > 0:
+            bins = set(map(tuple, binunique.tolist()))
+            nb_max = nbins.astype(int)
+            for _ in range(int(dilate)):
+                grown = set(bins)
+                for b in bins:
+                    for ax in self.indx_adaptive:
+                        for step in (-1, 1):
+                            nb = list(b); nb[ax] += step
+                            if 0 <= nb[ax] < nb_max[ax]:
+                                grown.add(tuple(nb))
+                bins = grown
+            binunique = np.array(sorted(bins))
+        # fractional volume ACTUALLY sampled = occupied bins / total bins
+        V = float(binunique.shape[0] / np.prod(nbins))
+        # seed the threshold just below the reference support so the first chunk
+        # keeps the seeded region; if no lnL given, let integrate_log recompute it
+        # (the concentrated grid already delivers the efficiency win).
+        loglkl_thr = -1e15 if loglkl is None else float(np.min(loglkl))
+        return dict(binunique=binunique, dx=dx, nbins=nbins, V=V,
+                    loglkl_thr=loglkl_thr, trunc_p=1e-10)
+
+    def bootstrap_from_samples(self, samples, params=None, loglkl=None, enc_prob=0.999):
+        """Warm-start from an explicit set of reference points populating the
+        high-likelihood region (e.g. a previous run's posterior draws, a puff of
+        an earlier MAP point, or fair-draw samples from a prior ILE instance).
+        `loglkl` (optional) is L*prior at those points, used to seed the threshold."""
+        if not hasattr(self, 'my_ranges'):
+            self.setup()
+        X = self._order_columns(samples, params)
+        self._warm = self._build_grid_from_points(X, loglkl=loglkl, enc_prob=enc_prob)
+        return self._warm
+
+    def bootstrap_from_gaussian(self, mean, cov, n=None, params=None, enc_prob=0.999,
+                                seed=None, cover_frac=0.0, dilate=1):
+        """Warm-start from a single Gaussian proposal N(mean, cov) -- the
+        Fisher-oracle entry point.  Draws `n` points from the (box-clipped)
+        Gaussian and builds the live-volume grid from them.
+
+        IMPORTANT -- this is a UNIMODAL seed.  A single Gaussian covers only one
+        mode, and because VARAHA's live volume only ever contracts, any mode the
+        seed misses is lost forever and biases the integral low.  Use this only
+        when the target is (locally) unimodal -- e.g. a Fisher matrix at the MAP.
+        For known multimodal structure use bootstrap_from_gaussian_mixture(); for
+        an empirical proposal use bootstrap_from_samples() (both cover the full
+        support and stay unbiased).
+
+        `cover_frac` (0..1): optional safety valve -- fraction of the seed cloud
+        drawn uniformly from the full box, trading efficiency for coverage on a
+        possibly-misspecified seed.  Default 0."""
+        if not hasattr(self, 'my_ranges'):
+            self.setup()
+        rng = np.random.RandomState(seed)
+        mean = np.asarray(mean, dtype=float)
+        cov = np.atleast_2d(np.asarray(cov, dtype=float))
+        if params is not None:
+            order = [list(params).index(p) for p in self.params_ordered]
+            mean = mean[order]
+            cov = cov[np.ix_(order, order)]
+        n = int(n or self.n_chunk)
+        n_cover = int(np.clip(cover_frac, 0.0, 1.0) * n)
+        n_gauss = n - n_cover
+        X = rng.multivariate_normal(mean, cov, size=n_gauss)
+        X = np.clip(X, self.my_ranges.T[0], self.my_ranges.T[1])
+        if n_cover > 0:
+            Xc = rng.uniform(self.my_ranges.T[0], self.my_ranges.T[1],
+                             size=(n_cover, len(self.params_ordered)))
+            X = np.vstack([X, Xc])
+        self._warm = self._build_grid_from_points(X, enc_prob=enc_prob, dilate=dilate)
+        return self._warm
+
+    def bootstrap_from_fisher(self, mean, fisher, **kwargs):
+        """Warm-start from a Fisher matrix (mean, Gamma): cov = Gamma^{-1}.
+        This is the 'Fisher-matrix oracle' -- an essentially free substitute for
+        an expensively-trained flow, giving the integrator a correct-to-2nd-order
+        starting proposal."""
+        cov = np.linalg.inv(np.atleast_2d(np.asarray(fisher, dtype=float)))
+        return self.bootstrap_from_gaussian(mean, cov, **kwargs)
+
+    def bootstrap_from_gaussian_mixture(self, means, covs, weights=None, n=None,
+                                        params=None, enc_prob=0.999, seed=None, dilate=1):
+        """Warm-start from a MIXTURE of Gaussians -- the general oracle seed for
+        multimodal targets.  This is what a flow oracle, a GMM fit of a previous
+        posterior, or a set of known degenerate modes (e.g. sky reflections)
+        provides.  Because the seed cloud covers every component, the resulting
+        live volume is a superset of the support and the integral stays
+        unbiased."""
+        if not hasattr(self, 'my_ranges'):
+            self.setup()
+        rng = np.random.RandomState(seed)
+        means = [np.asarray(m, dtype=float) for m in means]
+        covs = [np.atleast_2d(np.asarray(c, dtype=float)) for c in covs]
+        k = len(means)
+        weights = np.ones(k) / k if weights is None else np.asarray(weights, float) / np.sum(weights)
+        if params is not None:
+            order = [list(params).index(p) for p in self.params_ordered]
+            means = [m[order] for m in means]
+            covs = [c[np.ix_(order, order)] for c in covs]
+        n = int(n or self.n_chunk)
+        counts = rng.multinomial(n, weights)
+        chunks = []
+        for c, m, cov in zip(counts, means, covs):
+            if c > 0:
+                chunks.append(rng.multivariate_normal(m, cov, size=c))
+        X = np.vstack(chunks)
+        X = np.clip(X, self.my_ranges.T[0], self.my_ranges.T[1])
+        self._warm = self._build_grid_from_points(X, enc_prob=enc_prob, dilate=dilate)
+        return self._warm
+
+    def save_state(self, path):
+        """Serialize the compact live-volume state (occupied bins + widths +
+        volume + threshold) to a lightweight .npz.  This is RIFT's cheap
+        alternative to persisting a trained flow: the entire adapted proposal is
+        just an integer bin-index array plus a few scalars."""
+        warm = getattr(self, '_warm', None)
+        if warm is None:
+            thr = float(self.lnL_thresh) if np.isfinite(self.lnL_thresh) else -1e15
+            warm = dict(binunique=self.binunique, dx=self.dx, nbins=self.nbins,
+                        V=float(self.V), loglkl_thr=thr, trunc_p=1e-10)
+        np.savez(path,
+                 params=np.array([str(p) for p in self.params_ordered]),
+                 llim=self.my_ranges.T[0], rlim=self.my_ranges.T[1],
+                 binunique=warm['binunique'], dx=warm['dx'], nbins=warm['nbins'],
+                 V=warm['V'], loglkl_thr=warm['loglkl_thr'],
+                 trunc_p=warm.get('trunc_p', 1e-10))
+        return path
+
+    def load_state(self, path):
+        """Restore a live-volume state saved by save_state().  Verifies the
+        parameter names and box match this sampler before warm-starting."""
+        if not hasattr(self, 'my_ranges'):
+            self.setup()
+        d = np.load(path, allow_pickle=True)
+        saved_params = [str(p) for p in d['params']]
+        if saved_params != [str(p) for p in self.params_ordered]:
+            raise ValueError("saved state params {} != sampler params {}".format(
+                saved_params, [str(p) for p in self.params_ordered]))
+        if not (np.allclose(d['llim'], self.my_ranges.T[0]) and
+                np.allclose(d['rlim'], self.my_ranges.T[1])):
+            raise ValueError("saved state box does not match sampler box")
+        self._warm = dict(binunique=np.array(d['binunique']), dx=np.array(d['dx']),
+                          nbins=np.array(d['nbins']), V=float(d['V']),
+                          loglkl_thr=float(d['loglkl_thr']), trunc_p=float(d['trunc_p']))
+        return self._warm
+
 
     @profile
     def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
@@ -562,6 +788,24 @@ class MCSampler(object):
         trunc_p = 1e-10 #How much probability analysis removes with evolution
         nsel = 1000# number of largest log-likelihood samples selected to estimate lkl_thr for the next cycle.
         nsel = np.min([nsel, int(0.1*self.n_chunk)]) #  if chunk size is small, don't pick too many points
+
+        # WARM START: if this sampler was bootstrapped (bootstrap_from_* /
+        # load_state), override the cold single-bin grid, fractional volume and
+        # threshold with the seeded live-volume state.  self.setup() above has
+        # already reset these to cold defaults, so we re-apply the seed here.
+        warm = getattr(self, '_warm', None)
+        if warm is not None:
+            self.binunique = np.array(warm['binunique'])
+            self.dx = np.array(warm['dx'])
+            self.nbins = np.array(warm['nbins'])
+            self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1) * np.ones(self.binunique.shape[0])).astype(int)
+            V = float(warm['V'])
+            loglkl_thr = float(warm['loglkl_thr'])
+            trunc_p = float(warm.get('trunc_p', 1e-10))
+            if bShowEvaluationLog:
+                print("  [AV warm-start] live bins={} V={:.3e} loglkl_thr={:.3g}".format(
+                    self.binunique.shape[0], V, loglkl_thr))
+
         if cupy_ok:
           allx = identity_convert_togpu(allx)
           allloglkl = identity_convert_togpu(allloglkl)
