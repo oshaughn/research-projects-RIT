@@ -2,15 +2,22 @@
 """
 util_BuildProposalField.py
 
-L3 producer: aggregate one ILE iteration's per-point extrinsic outputs into a
-ProposalField keyed by intrinsic parameters, for warm-starting the NEXT iteration
-(consumed by integrate_likelihood_extrinsic_batchmode --extrinsic-proposal-field).
+L3 producer (MULTI-pilot generalization): aggregate the extrinsic outputs of a FEW
+cherry-picked points into a ProposalField keyed by intrinsic parameters, consumed by
+integrate_likelihood_extrinsic_batchmode --extrinsic-proposal-field.
 
-Intended to run as a small post-iteration DAG node.  For each intrinsic grid point it
-reads that point's saved extrinsic samples (the ILE --save-samples .xml.gz), keeps the
-high-likelihood subset, converts to the sampler's coordinate convention (matching
---declination-cosine-sampler / --inclination-cosine-sampler), and records it against the
-point's intrinsic lambda = [m1, m2, s1x..s2z].
+IMPORTANT -- do NOT point this at a whole grid analyzed with --save-samples: per-point
+sample dumps blow up disk fast, and a full field is rarely needed.  The standard,
+disk-safe path is a SINGLE cherry-picked pilot (util_PickPilotPoint.py picks the best
+point by lnL after a cheap iteration 0; run ONLY that point with --save-samples;
+warm-start the rest with --sampler-warmstart-samples).  Use this multi-pilot field only
+when a few (2-4) well-separated pilots are genuinely warranted (e.g. a known multimodal
+source) -- run save-samples on THOSE few points only.
+
+For each provided point it reads that point's saved extrinsic samples (--save-samples
+.xml.gz), keeps the high-likelihood subset, converts to the sampler's coordinate
+convention (matching --declination-cosine-sampler / --inclination-cosine-sampler), and
+records it against the point's intrinsic lambda = [m1, m2, s1x..s2z].
 
 A proposal only ever shapes p_s, so a stale/partial field can only cost efficiency, never
 bias -- missing points are simply skipped.

@@ -326,7 +326,9 @@ integration_params.add_option("--sampler-portfolio-args",default=None, action='a
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
 # Integrator warm-start / reuse (bootstrap AV, persist/reuse a trained NF flow).  All
 # default off.  A warm start only affects the initial PROPOSAL, never the integral.
-integration_params.add_option("--sampler-warmstart-samples",default=None,help="AV only: ASCII file (named columns) of prior extrinsic samples used to warm-start the adaptive-volume live region (bootstrap_from_samples). Columns are matched to the sampler's extrinsic parameters by name.")
+integration_params.add_option("--sampler-warmstart-samples",default=None,help="AV only: ASCII file (named columns) of prior extrinsic samples used to warm-start the adaptive-volume live region.  Intended for the CHERRY-PICKED-PILOT workflow: after iteration 0, run ONE ILE at the best (highest-lnL / CIP-MAP) point with --save-samples (~tens of KB for a single point), then warm-start every subsequent point from it.  Do NOT --save-samples the whole grid (disk) and do NOT pick the pilot at random (a poor fit endangers the grid) -- pick the best point.  Columns matched to the sampler's extrinsic parameters by name; the coverage-floor + inflation margins below keep a shifted peak from biasing.")
+integration_params.add_option("--sampler-warmstart-cover-frac",type=float,default=0.1,help="Coverage floor for --sampler-warmstart-samples (default 0.1): fraction of full-prior coverage mixed in so a mismatched pilot degrades to cold rather than biasing.")
+integration_params.add_option("--sampler-warmstart-inflate",type=float,default=1.5,help="Handoff safety margin for --sampler-warmstart-samples (default 1.5): widen the pilot seed about its mean to cover the peak shift between the pilot point and this one.")
 integration_params.add_option("--sampler-load-state",default=None,help="AV only: load a saved live-volume state (.npz from --sampler-save-state) to warm-start this integration. Overrides --sampler-warmstart-samples.")
 integration_params.add_option("--sampler-save-state",default=None,help="AV only: after integration, write the adapted live-volume state (.npz) for reuse by later instances/iterations. Point --sampler-load-state at the same file across a grid to warm-start each point from the previous one.")
 integration_params.add_option("--nf-flow-load",default=None,help="NF only: load a pre-trained normalizing flow (.pt from --nf-flow-save); with --n-adapt 0 this reuses it directly (skips training), otherwise it is polished.")
@@ -2567,8 +2569,14 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             elif opts.sampler_warmstart_samples:
                 _dat = np.genfromtxt(opts.sampler_warmstart_samples, names=True)
                 _cols = np.vstack([np.asarray(_dat[p], dtype=float) for p in sampler.params_ordered]).T
-                print("  AV warm-start: bootstrapping from", opts.sampler_warmstart_samples, _cols.shape)
-                sampler.bootstrap_from_samples(_cols)
+                print("  AV warm-start: bootstrapping from", opts.sampler_warmstart_samples, _cols.shape,
+                      "(cover_frac={}, inflate={})".format(opts.sampler_warmstart_cover_frac, opts.sampler_warmstart_inflate))
+                # cover_frac + inflate are the handoff safety margins: this seed usually
+                # comes from a DIFFERENT (cherry-picked pilot) point, so it must not be
+                # able to bias if the peak has shifted.  Default them >0 in this path.
+                sampler.bootstrap_from_samples(_cols,
+                                               cover_frac=opts.sampler_warmstart_cover_frac,
+                                               inflate=opts.sampler_warmstart_inflate)
             elif oracleRS:
                 _, _, _rv_oracle = oracleRS.draw_simplified(opts.n_chunk)
                 print("  AV warm-start: bootstrapping live volume from skymap oracle")
