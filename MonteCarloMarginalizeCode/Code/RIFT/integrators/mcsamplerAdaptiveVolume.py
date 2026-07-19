@@ -547,15 +547,35 @@ class MCSampler(object):
         return dict(binunique=binunique, dx=dx, nbins=nbins, V=V,
                     loglkl_thr=loglkl_thr, trunc_p=1e-10)
 
-    def bootstrap_from_samples(self, samples, params=None, loglkl=None, enc_prob=0.999):
+    def bootstrap_from_samples(self, samples, params=None, loglkl=None, enc_prob=0.999,
+                               cover_frac=0.0, dilate=1, seed=None):
         """Warm-start from an explicit set of reference points populating the
         high-likelihood region (e.g. a previous run's posterior draws, a puff of
         an earlier MAP point, or fair-draw samples from a prior ILE instance).
-        `loglkl` (optional) is L*prior at those points, used to seed the threshold."""
+        `loglkl` (optional) is L*prior at those points, used to seed the threshold.
+
+        `cover_frac` (0..1) is the SAFETY FLOOR for reuse across DIFFERENT problems
+        (a neighbouring intrinsic point, a stale breadcrumb): it mixes this fraction
+        of uniform full-box points into the seed cloud, so the seeded live volume is
+        a superset of a cold (uniform) start.  Then a mis-placed proposal can only
+        cost efficiency -- warm coverage always contains cold coverage, so the
+        warm-started integral can never be MORE biased than a cold one.  Leave 0
+        when reusing a proposal for the SAME problem (e.g. an in-run second pass)."""
         if not hasattr(self, 'my_ranges'):
             self.setup()
         X = self._order_columns(samples, params)
-        self._warm = self._build_grid_from_points(X, loglkl=loglkl, enc_prob=enc_prob)
+        cover_frac = float(np.clip(cover_frac, 0.0, 1.0))
+        if cover_frac > 0:
+            rng = np.random.RandomState(seed)
+            n_cover = max(int(cover_frac / (1.0 - cover_frac) * len(X)), 1)
+            Xc = rng.uniform(self.my_ranges.T[0], self.my_ranges.T[1],
+                             size=(n_cover, len(self.params_ordered)))
+            X = np.vstack([X, Xc])
+            # the cover points are not part of the high-L region, so drop the
+            # lnL-threshold seed (let integrate_log recompute it from the data)
+            loglkl = None
+        self._warm = self._build_grid_from_points(X, loglkl=loglkl, enc_prob=enc_prob,
+                                                  dilate=dilate)
         return self._warm
 
     def bootstrap_from_gaussian(self, mean, cov, n=None, params=None, enc_prob=0.999,
