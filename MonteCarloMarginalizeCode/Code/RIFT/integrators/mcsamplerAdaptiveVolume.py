@@ -330,10 +330,62 @@ class MCSampler(object):
                indx_p = self.params_ordered.index(p)
                x[:,indx_p] = self.params_pinned_vals[p]
           
-        # probabilities at these points.  
+        # probabilities at these points.
         log_p = np.log(self.prior_prod(x))
         # Not including any sampling prior factors, since it is de facto uniform right now (just discarding 'irrelevant' regions)
         return x, log_p
+
+    def sampling_density(self, X):
+        """Pointwise sampling density q(theta) of THIS member, evaluated at
+        ARBITRARY points X (shape (N, ndim), columns in self.params_ordered
+        order).  Returns a host (numpy) array of length N, or None if the
+        live-volume state has not been set up yet.
+
+        VARAHA draws uniformly over its live volume -- the union of the
+        currently-occupied hypercubes (self.binunique), each of width self.dx.
+        The density is therefore the SAME constant this sampler reports in
+        integrate_log's log_joint_s_prior,
+
+            q_live = 1 / (n_occupied_bins * prod(dx))   (== 1/(V*prod(dx0))
+                                                          for VARAHA's geometric V),
+
+        inside the live volume and 0 outside it.  We use the geometric form
+        1/(n_bins*prod(dx)) directly: it is *exactly* the density of the points
+        draw_simple() produces (equal draws per occupied bin, uniform within a
+        bin), so a multiple-importance-sampling denominator built from it is
+        unbiased regardless of any drift between the tracked scalar V and the
+        actual bin grid.
+
+        This method is READ-ONLY -- it does not touch any sampler state and does
+        not affect this sampler's own integrate_log.  It exists so the portfolio
+        can form the balance-heuristic mixture density q_mix = sum_m w_m q_m.
+        """
+        binunique = getattr(self, 'binunique', None)
+        dx = getattr(self, 'dx', None)
+        if binunique is None or dx is None or not hasattr(self, 'my_ranges'):
+            return None
+        X = np.atleast_2d(np.asarray(identity_convert(X), dtype=float))
+        ndim = len(self.params_ordered)
+        if X.shape[1] != ndim and X.shape[0] == ndim:
+            X = X.T  # tolerate (ndim, N)
+        box_lo = self.my_ranges.T[0]
+        box_hi = self.my_ranges.T[1]
+        dx = np.asarray(identity_convert(dx), dtype=float)
+        bins = np.asarray(identity_convert(binunique)).astype(np.int64)
+        n_bins = bins.shape[0]
+        if n_bins == 0:
+            return np.zeros(X.shape[0], dtype=float)
+        # bin index of each point (same floor((x-lo)/dx) mapping the sampler uses
+        # in integrate_log to build binidx), then test membership in the occupied
+        # set.  Points outside the box floor out of range and are excluded below.
+        binidx = np.floor((X - box_lo) / dx).astype(np.int64)
+        binset = set(map(tuple, bins.tolist()))
+        inside = np.array([tuple(row) in binset for row in binidx], dtype=bool)
+        inside &= np.all((X >= box_lo) & (X <= box_hi), axis=1)
+        q_live = 1.0 / (float(n_bins) * float(np.prod(dx)))
+        q = np.zeros(X.shape[0], dtype=float)
+        q[inside] = q_live
+        return q
 
     def update_sampling_prior_selfish(self, lnF, *args, xpy=xpy_default,no_protect_names=True,**kwargs):
         """

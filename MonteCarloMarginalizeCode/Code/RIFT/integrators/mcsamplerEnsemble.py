@@ -241,11 +241,20 @@ class MCSampler(object):
 
       gmm_dict = self.integrator.gmm_dict
 
-      n_history_to_use = self.xpy.min([n_history, len(ln_weights), len(rvs_here[self.params_ordered[0]])] )
+      # These are all host ints; use the Python builtin min (self.xpy.min([list])
+      # crashes on cupy -- "'list' object has no attribute 'min'" -- the same
+      # backend-min-of-a-list bug fixed in integrate()'s fairdraw block).  A host
+      # int is also required for the [-n_history_to_use:] slices just below.
+      n_history_to_use = int(min(n_history, len(ln_weights), len(rvs_here[self.params_ordered[0]])))
 
+      # external_rvs (e.g. the portfolio's host history) may be host numpy while
+      # sample_array lives on the active backend (cupy on GPU); assigning a host
+      # slice into a cupy row raises "non-scalar numpy.ndarray cannot be used for
+      # fill".  Convert each slice to the backend first so this method is
+      # backend-consistent (previously it only worked on CPU).
       sample_array = self.xpy.empty( (len(self.params_ordered), n_history_to_use))
       for indx, p in enumerate(self.params_ordered):
-          sample_array[indx] = rvs_here[p][-n_history_to_use:]
+          sample_array[indx] = self.identity_convert_togpu(rvs_here[p][-n_history_to_use:])
       sample_array = sample_array.T
 
       for dim_group in gmm_dict:
@@ -259,7 +268,11 @@ class MCSampler(object):
             temp_samples = self.xpy.empty((n_history_to_use, len(dim_group)))
             index = 0
             for dim in dim_group:
-                temp_samples[:,index] = self.identity_convert(sample_array[:,dim])
+                # keep on the active backend: temp_samples and sample_array are
+                # both self.xpy arrays, and the GMM model.fit/update below runs on
+                # self.xpy.  (The old identity_convert here forced a host array
+                # into a cupy column -> the same fill error as above on GPU.)
+                temp_samples[:,index] = sample_array[:,dim]
                 index += 1
 
             if self.xpy.any(self.xpy.isnan(ln_weights)):
@@ -305,6 +318,46 @@ class MCSampler(object):
         joint_p_prior = self.calc_pdf(rv.T).flatten()
 
         return joint_p_s, joint_p_prior, rv
+
+    def sampling_density(self, X):
+        """Pointwise sampling density q(theta) of THIS GMM member, evaluated at
+        ARBITRARY points X (shape (N, ndim), columns in self.params_ordered
+        order).  Returns a host (numpy) array of length N, or None if the
+        integrator/GMM has not been built yet.
+
+        This is exactly the per-sample product MonteCarloEnsemble._sample stores
+        as sampling_prior_array, but evaluated at supplied points rather than at
+        the member's own draws: for each grouped set of dimensions it is the
+        fitted mixture density gmm.score(...) (already normalized to integrate to
+        1 over the box, in ORIGINAL coordinates), or the uniform density 1/vol
+        for a not-yet-fitted (None) group.  READ-ONLY; does not affect this
+        sampler's own integrate().  Used by the portfolio balance heuristic.
+        """
+        integrator = getattr(self, 'integrator', None)
+        if integrator is None:
+            return None
+        Xc = np.atleast_2d(np.asarray(self.identity_convert(X), dtype=float))
+        ndim = len(self.params_ordered)
+        if Xc.shape[1] != ndim and Xc.shape[0] == ndim:
+            Xc = Xc.T  # tolerate (ndim, N)
+        Xg = self.identity_convert_togpu(Xc)
+        q = self.xpy.ones(Xg.shape[0])
+        for dim_group in integrator.gmm_dict:
+            new_bounds = integrator.bounds[dim_group]
+            if len(new_bounds.shape) < 2:
+                new_bounds = self.xpy.array([new_bounds])
+            model = integrator.gmm_dict[dim_group]
+            cols = self.xpy.empty((Xg.shape[0], len(dim_group)))
+            for index, dim in enumerate(dim_group):
+                cols[:, index] = Xg[:, dim]
+            if model is None:
+                llim = new_bounds[:, 0]
+                rlim = new_bounds[:, 1]
+                vol = self.xpy.prod(rlim - llim)
+                q *= 1.0 / vol
+            else:
+                q *= model.score(cols)
+        return self.identity_convert(q)
 
 
     def integrate_log(self, func, *args,**kwargs):

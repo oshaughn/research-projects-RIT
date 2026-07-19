@@ -266,10 +266,16 @@ class MCSampler(object):
 
         # if only one method is active, just call the low-level function
         if len(indx_active) == 1:
-           joint_p_s, joint_p_prior, rv = self.portfolio[indx_active[0]].draw_simplified(n_samples, *self.params_ordered, **kwargs)
+           only_member = self.portfolio_realizations[indx_active[0]]
+           joint_p_s, joint_p_prior, rv = only_member.draw_simplified(n_samples, *self.params_ordered, **kwargs)
            # The portfolio aggregates on the host (self.xpy is numpy); members
            # may be GPU-backed (cupy), so bring their draws to the host.
            joint_p_s = identity_convert(joint_p_s); joint_p_prior = identity_convert(joint_p_prior); rv = identity_convert(rv)
+           # Record which members produced this chunk, and each member's SAMPLING
+           # FRACTION (n_from_member / n_total).  integrate_log uses these to form
+           # the balance-heuristic mixture density q_mix = sum_m frac_m * q_m.
+           self._chunk_members = [only_member]
+           self._chunk_fractions = np.array([1.0])
         else:
           # Identify number of samples per member of the portfolio. Can be zero.
           n_samples_per_member = ((np.array(weights_active))*n_samples).astype(int)
@@ -303,7 +309,15 @@ class MCSampler(object):
             joint_p_s[indx_start:indx_end] = joint_p_s_here
             joint_p_prior[indx_start:indx_end] = joint_p_prior_here
             rv[:,indx_start:indx_end] = rv_here
-            
+
+          # Record the ACTUAL per-member sampling fractions for this chunk (the
+          # counts actually drawn, not the raw portfolio_weights).  These are the
+          # w_m in the balance-heuristic mixture density q_mix = sum_m w_m q_m
+          # that integrate_log builds; using the true drawn fractions is what
+          # keeps the deterministic-mixture estimator exactly unbiased.
+          self._chunk_members = list(portfolio_active)
+          self._chunk_fractions = np.array(n_samples_per_member, dtype=float) / float(n_samples)
+
         #
         # Cache the samples we chose.  REQUIRED
         #
@@ -453,6 +467,57 @@ class MCSampler(object):
                     lnL = _eval_integrand(rv)
             # bring lnL back to the host for the host-side aggregation
             lnL = identity_convert(lnL)
+
+            # ---- BALANCE-HEURISTIC (deterministic-mixture) sampling density ----
+            # The pooled draw is, by construction, a sample from the MIXTURE
+            #     q_mix(theta) = sum_m frac_m * q_m(theta),
+            # where frac_m = (# samples member m contributed)/n for THIS chunk and
+            # q_m is member m's own sampling density evaluated at theta.  Using
+            # q_mix (rather than each sample's own member density -- the previous
+            # STRATIFIED estimator) makes the estimate unbiased for ANY member
+            # weights, provided the mixture covers the peak (Veach & Guibas MIS
+            # balance heuristic).  A broad member with even a small weight then
+            # guarantees coverage, so a wrongly-contracted member can no longer
+            # drive the integral low.  See portfolio_default_weights: n_ess-based
+            # weighting made the old stratified denominator UNSAFE.
+            #
+            # We require EVERY active member (that drew >0 samples) to expose a
+            # sampling_density; if any does not (e.g. an AC-histogram member with
+            # no pointwise density yet), we fall back to the legacy per-member
+            # joint_p_s so those portfolios keep running unchanged.
+            use_mixture = kwargs['portfolio_use_mixture_density'] if 'portfolio_use_mixture_density' in kwargs else True
+            q_mix = None
+            if use_mixture:
+                X_all = numpy.asarray(identity_convert(rv), dtype=float)
+                if X_all.shape[0] == len(self.params_ordered):
+                    X_all = X_all.T   # -> (N, ndim), columns in params_ordered order
+                members_here = getattr(self, '_chunk_members', [])
+                fracs_here = getattr(self, '_chunk_fractions', None)
+                if len(members_here) > 0 and fracs_here is not None:
+                    acc = numpy.zeros(X_all.shape[0], dtype=float)
+                    all_ok = True
+                    any_active = False
+                    for frac_m, member_m in zip(fracs_here, members_here):
+                        if frac_m <= 0:
+                            continue   # member drew nothing this chunk
+                        dens_fn = getattr(member_m, 'sampling_density', None)
+                        q_m = dens_fn(X_all) if dens_fn is not None else None
+                        if q_m is None:
+                            all_ok = False
+                            break
+                        acc = acc + float(frac_m) * numpy.asarray(identity_convert(q_m), dtype=float)
+                        any_active = True
+                    if all_ok and any_active:
+                        # every pooled sample was drawn by some active member, so
+                        # q_mix >= frac*q_m(own) > 0 there; floor only guards FP.
+                        q_mix = numpy.maximum(acc, 1e-300)
+            if q_mix is not None:
+                joint_p_s = q_mix   # deterministic-mixture denominator
+            else:
+                if use_mixture and getattr(self, '_warned_no_mixture', False) is False:
+                    print(" PORTFOLIO: some active member lacks sampling_density; "
+                          "falling back to legacy stratified per-member density.")
+                    self._warned_no_mixture = True
 
             log_integrand =lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
             # tempering_exp done inside the update proposal, NOT here
