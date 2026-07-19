@@ -139,10 +139,24 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_defau
     return identity_convert(lkl_thr), identity_convert(truncp)  # send both to CPU as needed
 
 def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
-    
+        # Draw uniformly within each occupied hypercube bin.  VECTORIZED: the old
+        # implementation looped over bins in Python (a list comprehension + vstack
+        # over one entry per bin), which is O(n_bins) per chunk and becomes the
+        # bottleneck once the live volume is finely resolved -- e.g. a concentrated
+        # warm start from a full PE posterior can seed thousands of bins.  Here we
+        # instead repeat each bin's lower corner ninbin[k] times and add a single
+        # (N, ndim) uniform draw, so cost is O(N) with no Python-level bin loop.
         ndim = xrange.shape[0]
-        xlo, xhi = xrange.T[0] + dx * bu, xrange.T[0] + dx * (bu+1)
-        x = xpy_default.vstack([xpy_default.random.uniform(xlo[kk], xhi[kk], size = (npb, ndim)) for kk, npb in enumerate(ninbin)])
+        # per-bin lower corners + the point->bin expansion are done on the HOST
+        # (np.repeat with an int-array of counts is reliable everywhere; cupy.repeat
+        # with array repeats is version-fragile), then the single uniform draw is on
+        # the active backend so the output matches the previous cupy behaviour.
+        bu_h = identity_convert(bu); dx_h = np.asarray(identity_convert(dx))
+        xlo_h = np.asarray(identity_convert(xrange)).T[0] + dx_h * np.asarray(bu_h)  # (n_bins, ndim)
+        reps = np.asarray(identity_convert(ninbin)).astype(int)
+        lo_per_point = np.repeat(xlo_h, reps, axis=0)      # host (N, ndim)
+        N = lo_per_point.shape[0]
+        x = xpy_default.asarray(lo_per_point) + xpy_default.asarray(dx_h) * xpy_default.random.uniform(0.0, 1.0, size=(N, ndim))
         # remove points that are out of range.  Due to rounding issues etc, the sampler above can generate points out of range!
         # Note this rejection will bias the integral, because volumes are calculated assuming a regular grid. We *should* fix the grid sizes to integers
         if reject_out_of_range:
