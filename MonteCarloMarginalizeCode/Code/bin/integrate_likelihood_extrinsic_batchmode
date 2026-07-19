@@ -335,6 +335,9 @@ integration_params.add_option("--sampler-sequential-warmstart",action='store_tru
 integration_params.add_option("--sampler-sequential-warmstart-cover-frac",type=float,default=0.1,help="Coverage floor for --sampler-sequential-warmstart: fraction of full-prior coverage mixed into the seed so the warm live volume always contains a cold start (a mis-matched proposal then only costs efficiency, never bias).  Default 0.1.")
 integration_params.add_option("--sampler-sequential-warmstart-deltalnL",type=float,default=15.0,help="Keep previous-point samples within this lnL of the max as the warm seed for the next point.  Default 15.")
 integration_params.add_option("--sampler-warmstart-retry-neff",type=float,default=None,help="AV only (L0 auto-rescue): if a cold pass finishes below this n_eff (i.e. it stalled on a very sharp / high-amplitude peak), automatically re-run a second pass warm-started from THIS point's own highest-likelihood samples.  Same-problem reuse, so it cannot bias the result.  Recommended for high-SNR events; e.g. 5.")
+integration_params.add_option("--extrinsic-proposal-field",default=None,help="AV only (L3): path to a ProposalField (.npz built by util_BuildProposalField.py from a previous ILE iteration).  Each intrinsic point warm-starts its extrinsic integral from the field's nearest entry.  Cross-problem reuse, so a coverage floor + an inflation margin are applied (see the two options below); a stale/mismatched field can only cost efficiency, never bias.")
+integration_params.add_option("--extrinsic-proposal-field-cover-frac",type=float,default=0.1,help="Coverage floor for --extrinsic-proposal-field handoff (default 0.1).")
+integration_params.add_option("--extrinsic-proposal-field-inflate",type=float,default=1.5,help="Handoff safety margin for --extrinsic-proposal-field: widen the imported seed by this factor about its mean to cover the peak shift between the neighbouring intrinsic point and this one (default 1.5).")
 integration_params.add_option("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., EM observations). EXPERTS-ONLY")
 integration_params.add_option("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external prior. EXPERTS ONLY")
 integration_params.add_option("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
@@ -3290,13 +3293,40 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 lnL_sofar = -np.inf
 no_adapt_sky = False
 
+# L3: load a proposal field (from a previous ILE iteration) once, if provided
+_proposal_field = None
+if opts.extrinsic_proposal_field and hasattr(sampler, 'bootstrap_from_samples'):
+    try:
+        from RIFT.integrators.proposal_field import ProposalField, lambda_from_P
+        _proposal_field = ProposalField.load(opts.extrinsic_proposal_field)
+        print(" [proposal-field] loaded {} entries from {}".format(len(_proposal_field), opts.extrinsic_proposal_field))
+    except Exception as _e_pf:
+        print(" [proposal-field] could not load {} ({}); ignoring".format(opts.extrinsic_proposal_field, _e_pf))
+        _proposal_field = None
+
 _seq_ws_proposal = None   # L1 sequential hot-feed: previous point's extrinsic seed (in-memory)
 for indx in numpy.arange(len(P_list)):
  try:
-  # L1: warm-start this point's extrinsic integral from the previous point in this
-  # worker.  Order is preserved (no grid reordering), and a coverage floor makes a
-  # poorly-matched transfer degrade to cold rather than bias.  AV only.
-  if opts.sampler_sequential_warmstart and (_seq_ws_proposal is not None) and hasattr(sampler, 'bootstrap_from_samples'):
+  # Warm-start this point's extrinsic integral.  Order is preserved (no grid
+  # reordering), so a truncated worker still drops a spatially-unbiased subset; a
+  # coverage floor + inflation margin make a poorly-matched transfer degrade to
+  # cold rather than bias.  AV only.  Priority: L3 proposal field (cross-iteration)
+  # over L1 sequential (same worker).
+  if _proposal_field is not None and len(_proposal_field) > 0:
+    try:
+      from RIFT.integrators.proposal_field import lambda_from_P
+      _seed = _proposal_field.warm_seed_for(lambda_from_P(P_list[indx]), k=1)
+      if _seed is not None and len(_seed) >= 2:
+        sampler.bootstrap_from_samples(_seed,
+                                       params=_proposal_field.extrinsic_params,
+                                       cover_frac=opts.extrinsic_proposal_field_cover_frac,
+                                       inflate=opts.extrinsic_proposal_field_inflate)
+        print("  [proposal-field] point {} seeded from nearest entry ({} pts, cover_frac={}, inflate={})".format(
+            indx, len(_seed), opts.extrinsic_proposal_field_cover_frac, opts.extrinsic_proposal_field_inflate))
+    except Exception as _e_pfq:
+      print("  [proposal-field] seed skipped for point {} ({})".format(indx, _e_pfq))
+      sampler._warm = None
+  elif opts.sampler_sequential_warmstart and (_seq_ws_proposal is not None) and hasattr(sampler, 'bootstrap_from_samples'):
     try:
       sampler.bootstrap_from_samples(_seq_ws_proposal,
                                      cover_frac=opts.sampler_sequential_warmstart_cover_frac)

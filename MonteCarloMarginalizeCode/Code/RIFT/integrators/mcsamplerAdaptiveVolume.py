@@ -548,7 +548,7 @@ class MCSampler(object):
                     loglkl_thr=loglkl_thr, trunc_p=1e-10)
 
     def bootstrap_from_samples(self, samples, params=None, loglkl=None, enc_prob=0.999,
-                               cover_frac=0.0, dilate=1, seed=None):
+                               cover_frac=0.0, dilate=1, inflate=1.0, seed=None):
         """Warm-start from an explicit set of reference points populating the
         high-likelihood region (e.g. a previous run's posterior draws, a puff of
         an earlier MAP point, or fair-draw samples from a prior ILE instance).
@@ -560,10 +560,24 @@ class MCSampler(object):
         a superset of a cold (uniform) start.  Then a mis-placed proposal can only
         cost efficiency -- warm coverage always contains cold coverage, so the
         warm-started integral can never be MORE biased than a cold one.  Leave 0
-        when reusing a proposal for the SAME problem (e.g. an in-run second pass)."""
+        when reusing a proposal for the SAME problem (e.g. an in-run second pass).
+
+        `inflate` (>=1) is the HANDOFF SAFETY MARGIN: widen the seed cloud by this
+        factor about its own mean before building the grid.  When importing a proposal
+        that came from a *neighbouring* intrinsic point, the true peak is shifted (and
+        often slightly broader) at this point, so an un-inflated seed may sit just off
+        it; inflate>1 (e.g. 1.5-2) gives margin for that shift while staying far tighter
+        than a cold start.  cover_frac is the coarse safety net for gross mismatch;
+        inflate is the fine margin for a modest shift."""
         if not hasattr(self, 'my_ranges'):
             self.setup()
         X = self._order_columns(samples, params)
+        inflate = float(max(inflate, 1.0))
+        if inflate > 1.0 and len(X) >= 2:
+            _m = np.mean(X, axis=0)
+            X = _m + inflate * (X - _m)
+            X = np.clip(X, self.my_ranges.T[0], self.my_ranges.T[1])
+            loglkl = None   # inflated points no longer carry their original lnL
         cover_frac = float(np.clip(cover_frac, 0.0, 1.0))
         if cover_frac > 0:
             rng = np.random.RandomState(seed)

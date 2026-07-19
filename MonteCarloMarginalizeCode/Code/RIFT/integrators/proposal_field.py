@@ -106,6 +106,24 @@ class ProposalField(object):
         return len(self._lambdas)
 
 
+#: canonical intrinsic key: masses (Msun) + the six spin components
+LAMBDA_INTRINSIC_PARAMS = ["m1", "m2", "s1x", "s1y", "s1z", "s2x", "s2y", "s2z"]
+
+
+def lambda_from_P(P):
+    """Canonical intrinsic coordinate for a RIFT ChooseWaveformParams P:
+    [m1, m2 (Msun), s1x, s1y, s1z, s2x, s2y, s2z].  Used as the field key so
+    'nearby' is measured in the physical intrinsic parameters (the whitened metric
+    in ProposalField then handles their different scales)."""
+    try:
+        import lal
+        msun = lal.MSUN_SI
+    except Exception:
+        msun = 1.98892e30
+    return np.array([P.m1 / msun, P.m2 / msun,
+                     P.s1x, P.s1y, P.s1z, P.s2x, P.s2y, P.s2z], dtype=float)
+
+
 def build_field_from_run_outputs(entries, intrinsic_params=None, extrinsic_params=None):
     """Aggregate a list of (lam, proposal) pairs (one per converged ILE point in an
     iteration) into a ProposalField.  Intended to be called by a small post-iteration
