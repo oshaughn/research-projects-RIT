@@ -819,17 +819,26 @@ class MCSampler(object):
               rv = identity_convert_togpu(rv) # send random numbers to GPU : ugh
               log_joint_p_prior = identity_convert_togpu(log_joint_p_prior)    # send to GPU if required. Don't waste memory reassignment otherwise
 
-            # Evaluate function, protecting argument order. The user integrand is
-            # a host function in general, so feed it CPU samples; lnL is pushed
-            # back to the active backend just below. identity_convert is a no-op
-            # without cupy.
-            rv_cpu = identity_convert(rv)
-            if 'no_protect_names' in kwargs:
-                unpacked0 = rv_cpu.T
-                lnL = lnF(*unpacked0)  # do not protect order
+            # Evaluate the integrand.  Two contracts exist: the production
+            # GPU/vectorized ILE likelihood is DEVICE-native (wants cupy arrays),
+            # while synthetic/host integrands (CI tests, benchmarks) want numpy.
+            # Feed the native (device) array -- matching production -- but if a
+            # host-only integrand chokes on a cupy array, fall back to a host copy
+            # and remember the choice for the rest of the run.  (The previous
+            # version always fed a host copy, which silently broke the real GPU
+            # ILE likelihood with 'Unsupported type numpy.ndarray'.)
+            def _eval_integrand(samples):
+                if 'no_protect_names' in kwargs:
+                    return lnF(*samples.T)
+                return lnF(**dict(list(zip(self.params_ordered, samples.T))))
+            if getattr(self, '_integrand_wants_host', False):
+                lnL = _eval_integrand(identity_convert(rv))
             else:
-                unpacked = dict(list(zip(self.params_ordered,rv_cpu.T)))
-                lnL= lnF(**unpacked)  # protect order using dictionary
+                try:
+                    lnL = _eval_integrand(rv)
+                except (TypeError, ValueError):
+                    self._integrand_wants_host = True
+                    lnL = _eval_integrand(identity_convert(rv))
             # take log if we are NOT using lnL
             if cupy_ok:
               if not(isinstance(lnL,cupy.ndarray)):
