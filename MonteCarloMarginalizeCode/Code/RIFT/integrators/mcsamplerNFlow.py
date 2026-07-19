@@ -867,27 +867,32 @@ class MCSampler(MCSamplerGeneric):
             log_joint_p_s = np.log(joint_p_s)
             log_joint_p_prior = np.log(joint_p_prior)
             ntotal_true += len(joint_p_s)
-            # rv is a host array from the flow; keep everything on the host so the
-            # host integrand can be evaluated directly (previously rv was pushed to
-            # cupy and then handed to a numpy integrand, which raised).
+            # rv is a host array from the flow (nflows/torch samples on the host).
             rv = identity_convert(rv)
-
-            # Evaluate function, protecting argument order
             params = []
             for item in self.params_ordered:  # USE IN ORDER
                 if isinstance(item, tuple):
                     params.extend(item)
                 else:
                     params.append(item)
-            unpacked = unpacked0 = rv #numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
-            unpacked = dict(list(zip(params, unpacked)))
-            if 'no_protect_names' in kwargs:
-                lnL = lnF(*unpacked0)  # do not protect order
+            # Evaluate the integrand.  The real GPU ILE likelihood is DEVICE-native
+            # (wants cupy); synthetic/CI integrands are host-native.  Feed
+            # device-first, fall back to host on a type error, and remember the
+            # choice (same contract as AV / the portfolio).  The flow's own math
+            # stays on the host, so lnL is brought back to host afterwards.
+            def _eval_integrand(cols):
+                if 'no_protect_names' in kwargs:
+                    return lnF(*cols)
+                return lnF(**dict(list(zip(params, cols))))
+            if getattr(self, '_integrand_wants_host', False) or not cupy_ok:
+                lnL = _eval_integrand(rv)
             else:
-                unpacked = dict(list(zip(self.params_ordered,rv.T)))
-                lnL= lnF(**unpacked)  # protect order using dictionary
-            # keep lnL on the host (identity_convert is cupy.asnumpy if the
-            # integrand handed back a cupy array, else a no-op)
+                try:
+                    lnL = _eval_integrand(identity_convert_togpu(rv))
+                except (TypeError, ValueError):
+                    self._integrand_wants_host = True
+                    lnL = _eval_integrand(rv)
+            # bring lnL back to the host for the flow-side / aggregation math
             lnL = identity_convert(lnL)
 
 

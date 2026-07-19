@@ -328,13 +328,16 @@ class MCSampler(object):
         
 
     def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
-        xpy_here = self.xpy
-        # The portfolio AGGREGATES on the host: draw() returns host arrays and the
-        # integrand is a host function, so force the running-estimate math onto
-        # numpy/scipy regardless of the xpy=cupy default.  Members still do their
-        # own heavy sampling/adaptation on GPU internally.  Mixing a cupy `xpy`
-        # with host arrays here is what previously broke the GPU path.
-        xpy = self.xpy            # = numpy
+        # The portfolio AGGREGATES on the host: draw() brings member draws to the
+        # host, so force the running-estimate math onto numpy/scipy regardless of
+        # what the driver set self.xpy to (it sets cupy for GPU members).  Members
+        # still do their own heavy sampling/adaptation on their own backend.  The
+        # INTEGRAND, however, may be device-native (the real vectorized GPU ILE
+        # likelihood) or host-native (synthetic/CI): _eval_integrand() below feeds
+        # it device-first and falls back to host, so both work.
+        self.xpy = numpy
+        xpy_here = numpy
+        xpy = numpy
         special_here = special    # scipy.special (host); statutils uses this
 
         #
@@ -431,17 +434,24 @@ class MCSampler(object):
                     params.extend(item)
                 else:
                     params.append(item)
-            unpacked = unpacked0 = rv #numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
-            unpacked = dict(list(zip(params, unpacked)))
-
-            # Evaluate function, protecting argument order.  rv is on the host
-            # (see draw()); the integrand is a host function, so lnL is host too.
-            if 'no_protect_names' in kwargs:
-                lnL = lnF(*unpacked0)  # do not protect order
+            # Evaluate the integrand.  rv is on the host (see draw()).  The real
+            # GPU ILE likelihood is DEVICE-native (wants cupy); synthetic/CI
+            # integrands are host-native.  Feed device-first, fall back to host on
+            # a type error, and remember the choice (same contract as the AV
+            # integrator).  lnL is brought back to the host for aggregation.
+            def _eval_integrand(cols):
+                if 'no_protect_names' in kwargs:
+                    return lnF(*cols)
+                return lnF(**dict(list(zip(params, cols))))
+            if getattr(self, '_integrand_wants_host', False) or not cupy_ok:
+                lnL = _eval_integrand(rv)
             else:
-                lnL= lnF(**unpacked)  # protect order using dictionary
-            # Aggregation is on the host (self.xpy is numpy); keep lnL there too
-            # (identity_convert is cupy.asnumpy if a member handed back a cupy lnL).
+                try:
+                    lnL = _eval_integrand(identity_convert_togpu(rv))
+                except (TypeError, ValueError):
+                    self._integrand_wants_host = True
+                    lnL = _eval_integrand(rv)
+            # bring lnL back to the host for the host-side aggregation
             lnL = identity_convert(lnL)
 
             log_integrand =lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
@@ -556,11 +566,19 @@ class MCSampler(object):
                   _, _, rv_here = member.draw_simplified(n_samples_per_oracle)
                   rv_list.append(numpy.asarray(identity_convert(rv_here)))  # (n, ndim) host
                 rv_oracle = numpy.vstack(rv_list)  # host, (n_oracle_total, ndim)
-                # evaluate the true integrand at the proposals (host function)
-                if 'no_protect_names' in kwargs:
-                  lnL_oracles = numpy.asarray(identity_convert(lnF(*rv_oracle.T)))
+                # evaluate the true integrand at the proposals; feed it device-first
+                # (real GPU ILE likelihood) with host fallback, mirroring the main loop
+                _cols = rv_oracle.T
+                if getattr(self, '_integrand_wants_host', False) or not cupy_ok:
+                  _lnLo = lnF(*_cols) if 'no_protect_names' in kwargs else lnF(**dict(zip(self.params_ordered, _cols)))
                 else:
-                  lnL_oracles = numpy.asarray(identity_convert(lnF(**dict(zip(self.params_ordered, rv_oracle.T)))))
+                  try:
+                    _colsg = identity_convert_togpu(_cols)
+                    _lnLo = lnF(*_colsg) if 'no_protect_names' in kwargs else lnF(**dict(zip(self.params_ordered, _colsg)))
+                  except (TypeError, ValueError):
+                    self._integrand_wants_host = True
+                    _lnLo = lnF(*_cols) if 'no_protect_names' in kwargs else lnF(**dict(zip(self.params_ordered, _cols)))
+                lnL_oracles = numpy.asarray(identity_convert(_lnLo))
                 # training weight for a proposal = its lnL (same log scale as
                 # log_weights up to the shared normalization the members remove)
                 log_w_oracle = lnL_oracles
