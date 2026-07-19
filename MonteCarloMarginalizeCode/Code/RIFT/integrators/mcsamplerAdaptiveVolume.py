@@ -572,7 +572,13 @@ class MCSampler(object):
             nbins = np.ones(ndim)
         nbins = np.maximum(np.floor(nbins), 1)
         dx = box / nbins
-        binidx = ((pts - box_lo) / dx).astype(int)
+        # CLIP bin indices to [0, nbins-1]: a point exactly on the upper box edge
+        # maps to binidx == nbins (out of range), which would put out-of-range bins
+        # in binunique -> V = n_bins/prod(nbins) can exceed 1 (an invalid fractional
+        # volume) and draw_simple would sample outside the box.  This bites hardest
+        # for a WIDE seed (e.g. a full PE posterior + cover_frac spanning the box).
+        nb_int = np.maximum(nbins.astype(np.int64), 1)
+        binidx = np.clip(((pts - box_lo) / dx).astype(np.int64), 0, nb_int - 1)
         binunique = np.unique(binidx, axis=0)
         # SAFETY dilation: grow occupied bins by axis-neighbor layers along the
         # adaptive dims, clipped to [0, nbins-1].  Uses a bounded 2*d_adaptive
