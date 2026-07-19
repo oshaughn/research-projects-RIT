@@ -528,7 +528,8 @@ class MCSampler(object):
             out[:, j] = X[:, list(params).index(p)]
         return out
 
-    def _build_grid_from_points(self, pts, loglkl=None, enc_prob=0.999, dilate=1):
+    def _build_grid_from_points(self, pts, loglkl=None, enc_prob=0.999, dilate=1,
+                                resolution_pts=None):
         """Build a VARAHA live-volume grid (binunique, dx, nbins) and a
         geometrically-consistent fractional volume V from points that populate
         the high-likelihood region.  Mirrors the bin-refinement block of
@@ -554,17 +555,20 @@ class MCSampler(object):
         if nrec < 2:
             raise ValueError("AV bootstrap needs >=2 in-box reference points (got {})".format(nrec))
         box = box_hi - box_lo
-        # Estimate the live fractional volume from the FULL extent of the cloud
-        # (near-min/near-max per dim), so a uniform cover_frac tail widens the
-        # extent to the box and the resulting bin grid is coarse enough that the
-        # uniform points tile it CONTIGUOUSLY (covering every mode), rather than
-        # landing in sparse isolated fine bins.
-        lo = np.quantile(pts, 0.5 * (1 - enc_prob), axis=0)
-        hi = np.quantile(pts, 1 - 0.5 * (1 - enc_prob), axis=0)
+        # Bin RESOLUTION (nbins) is set from the CONCENTRATED core, not the full
+        # cloud: when a coverage floor (cover_frac) adds uniform full-box points,
+        # they must not coarsen the grid to a single bin per dim (which collapses
+        # V to 1 and throws away the seed's concentration).  resolution_pts is the
+        # core (the actual proposal, without the uniform floor); coverage points
+        # then land in scattered fine bins that still guarantee coverage.
+        res_pts = pts if resolution_pts is None else np.atleast_2d(np.asarray(resolution_pts, dtype=float))
+        n_res = max(len(res_pts), 2)
+        lo = np.quantile(res_pts, 0.5 * (1 - enc_prob), axis=0)
+        hi = np.quantile(res_pts, 1 - 0.5 * (1 - enc_prob), axis=0)
         ext = np.clip(hi - lo, box * 1e-6, None)
         V_extent = float(np.prod(ext / box))
         # VARAHA bin count: nbins = (1/delta_V)^(1/d_adaptive), delta_V = V/sqrt(nrec)
-        delta_V = V_extent / np.sqrt(nrec)
+        delta_V = V_extent / np.sqrt(n_res)
         if self.d_adaptive > 0:
             nbins = np.ones(ndim) * (1.0 / delta_V) ** (1.0 / self.d_adaptive)
             nbins[self.indx_not_adaptive] = 1
@@ -637,6 +641,7 @@ class MCSampler(object):
             X = np.clip(X, self.my_ranges.T[0], self.my_ranges.T[1])
             loglkl = None   # inflated points no longer carry their original lnL
         cover_frac = float(np.clip(cover_frac, 0.0, 1.0))
+        _core = X   # the concentrated proposal; sets the grid RESOLUTION
         if cover_frac > 0:
             rng = np.random.RandomState(seed)
             n_cover = max(int(cover_frac / (1.0 - cover_frac) * len(X)), 1)
@@ -646,8 +651,11 @@ class MCSampler(object):
             # the cover points are not part of the high-L region, so drop the
             # lnL-threshold seed (let integrate_log recompute it from the data)
             loglkl = None
+        # resolution from the core (not the uniform cover), so the coverage floor
+        # cannot coarsen away the proposal's concentration (a wide PE + cover_frac
+        # would otherwise collapse the grid to one bin per dim, V->1)
         self._warm = self._build_grid_from_points(X, loglkl=loglkl, enc_prob=enc_prob,
-                                                  dilate=dilate)
+                                                  dilate=dilate, resolution_pts=_core)
         return self._warm
 
     def bootstrap_from_gaussian(self, mean, cov, n=None, params=None, enc_prob=0.999,
