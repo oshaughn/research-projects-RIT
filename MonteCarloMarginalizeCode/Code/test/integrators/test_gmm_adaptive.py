@@ -71,6 +71,18 @@ def test_bic_respects_weights():
     assert mx < -1.0, "weighted fit should sit on the up-weighted blob"
 
 
+def test_k_min_safety_floor():
+    """A single blob would BIC-select k=1, but k_min must floor the count so a
+    stress-tested hard-coded allocation is never reduced (multi-modal-sky
+    safety)."""
+    d = 2
+    X = rng.normal(0.0, 0.7, size=(4000, d))
+    model = GMM.fit_gmm_adaptive(GMM.xpy_default.array(X), _bounds(d), k_max=8,
+                                 k_min=4, defensive_frac=0.0)
+    print("  single-gaussian, k_min=4 -> k =", model.k)
+    assert model.k >= 4, "k_min floor violated: got %d < 4" % model.k
+
+
 def test_prune_removes_dead_components():
     d = 2
     model = GMM.gmm(4, _bounds(d))
@@ -120,6 +132,7 @@ if __name__ == "__main__":
     tests = [test_bic_picks_one_for_single_gaussian,
              test_bic_grows_for_separated_modes,
              test_bic_respects_weights,
+             test_k_min_safety_floor,
              test_prune_removes_dead_components,
              test_matching_matches_permutation_optimum]
     nfail = 0

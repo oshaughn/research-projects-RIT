@@ -79,11 +79,38 @@ tight fit to the elite cloud cannot blow up n_eff on the broad/degenerate
 directions (the AV sampler gets the same guarantee from its cover-fraction floor).
 Kept as an option; see the caveat below.
 
+### Safety: opt-in, and a floor at the stress-tested layout
+The flexible allocation is a **refinement layer, never a replacement**:
+  * It is **opt-in** (`--internal-gmm-adaptive-components`, default OFF).  With
+    the flag off the driver builds the exact hard-coded `gmm_dict`/`comp_dict`/
+    `gmm_adapt` as before -- byte-identical behavior for the primary ILE use case.
+  * When on, BIC chooses k in **[k_min, k_max]** with `k_min` = the group's
+    stress-tested hard-coded count, and pruning never drops below `k_min`.  So
+    adaptive can only ADD components where the data earns them; it can never
+    allocate fewer than the validated layout.  This protects broad multi-modal
+    posteriors (e.g. a multi-modal sky keeps its default components even if the
+    *initial* elite cloud -- fit before the proposal has explored every mode --
+    looks single-peaked; the spare capacity lets the merge adaptation grow into
+    the other modes as they appear).
+
+### Portfolio
+`--internal-gmm-adaptive-components` also works with `--sampler-method portfolio`:
+the driver injects `gmm_adaptive` as a **scalar cap** into the shared setup
+kwargs, which the portfolio forwards to every member; the GMM member honors it in
+`update_sampling_prior` (the path the portfolio drives), floored at its own
+`n_comp`.  Non-GMM members ignore it.  Default OFF -> the portfolio's
+stress-tested GMM member config is unchanged.  (Note: a working portfolio needs
+`draw_simplified`-capable members; the `AV,GMM` combo currently fails in the
+portfolio draw path for a PRE-EXISTING, unrelated reason -- `AV` has no
+`draw_simplified`.)  This is the recommended way to use the flexible GMM: AV
+carries convergence, and the GMM member contributes a hands-free correlated
+proposal instead of a hand-tuned component layout.
+
 ### Driver flags
 ```
---internal-gmm-adaptive-components         # enable BIC allocation on adapting groups
---internal-gmm-max-components N   (def 8)  # per-group cap
---internal-gmm-defensive-frac F   (def .05)
+--internal-gmm-adaptive-components         # enable BIC allocation (opt-in; OFF by default)
+--internal-gmm-max-components N   (def 8)  # per-group cap (floor = the hard-coded count)
+--internal-gmm-defensive-frac F   (def 0)  # opt-in defensive tail component
 --internal-gmm-inflate X          (def 1)  # covariance (std) inflation
 ```
 
@@ -156,8 +183,9 @@ its own ~3e-5 efficiency ceiling).
   Use the flexible GMM **inside the portfolio** (`--sampler-method portfolio`),
   where AV carries convergence and the balance-heuristic mixture density keeps a
   weak member from biasing -- now with a **hands-free** GMM member instead of a
-  hand-tuned component layout. Wiring `--internal-gmm-adaptive-components` through
-  the portfolio member setup is the natural next step.
+  hand-tuned component layout. `--internal-gmm-adaptive-components` is wired
+  through the portfolio (see Portfolio above); the remaining pre-existing blocker
+  is the portfolio draw path's `draw_simplified` requirement for the `AV` member.
 * **Future levers** for making GMM itself competitive here would be *coordinate*
   changes that de-curve the arc (a distance-inclination reparametrization,
   rotate-phase for phase<->pol) so a low-k axis-aligned mixture fits -- i.e.

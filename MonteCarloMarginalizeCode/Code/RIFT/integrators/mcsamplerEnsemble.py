@@ -284,8 +284,34 @@ class MCSampler(object):
                 temp_samples = temp_samples[ok_indx]
                 ln_weights = ln_weights[ok_indx]
             
+            # Data-driven component count (matches integrator._train): scalar or
+            # per-group gmm_adaptive picks k by BIC at init, floored at the
+            # stress-tested n_comp, then the merge path below adapts.  This is the
+            # path the PORTFOLIO drives its GMM member through (update_sampling_prior).
+            adaptive_kmax = None
+            _ga = getattr(self.integrator, 'gmm_adaptive', None)
+            if _ga:
+                if isinstance(_ga, dict):
+                    adaptive_kmax = _ga.get(dim_group)
+                elif isinstance(_ga, bool):
+                    adaptive_kmax = 8
+                else:
+                    adaptive_kmax = int(_ga)
             if model is None:
-                if isinstance(self.integrator.n_comp, int) and self.integrator.n_comp != 0:
+                if adaptive_kmax:
+                    if isinstance(self.integrator.n_comp, dict):
+                        k_floor = self.integrator.n_comp.get(dim_group, 1)
+                    else:
+                        k_floor = self.integrator.n_comp
+                    k_floor = int(k_floor) if isinstance(k_floor, int) and k_floor > 0 else 1
+                    model = GMM.fit_gmm_adaptive(temp_samples, new_bounds,
+                                                 log_sample_weights=ln_weights,
+                                                 k_max=max(int(adaptive_kmax), k_floor),
+                                                 k_min=k_floor,
+                                                 epsilon=self.integrator.gmm_epsilon,
+                                                 defensive_frac=getattr(self.integrator,'gmm_defensive_frac',0.0),
+                                                 inflate=getattr(self.integrator,'gmm_inflate',1.0))
+                elif isinstance(self.integrator.n_comp, int) and self.integrator.n_comp != 0:
                     model = GMM.gmm(self.integrator.n_comp, new_bounds,epsilon=self.integrator.gmm_epsilon)
                     model.fit(temp_samples, log_sample_weights=ln_weights)
                 elif isinstance(self.integrator.n_comp, dict) and self.integrator.n_comp[dim_group] != 0:

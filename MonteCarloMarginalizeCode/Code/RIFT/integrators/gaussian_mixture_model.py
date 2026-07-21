@@ -433,19 +433,23 @@ class gmm:
         d = self.d
         return self.k*d + self.k*(d*(d+1))//2 + (self.k - 1)
 
-    def prune_components(self, weight_floor=1e-3):
+    def prune_components(self, weight_floor=1e-3, min_keep=1):
         '''Drop mixture components whose weight falls below weight_floor and
         renormalize.  Over-allocated components collapse to ~zero weight under
         EM; removing them (a) prevents a spurious sharp component from dominating
         the importance weights and (b) cuts score() cost, which is O(k) in the
-        per-component mvnun box normalization.  Always keeps at least one
-        component (the largest).  No-op if nothing is below the floor.'''
+        per-component mvnun box normalization.  Keeps at least max(1, min_keep)
+        components (the highest-weight ones) -- pass min_keep to preserve a safety
+        floor.  No-op if nothing is below the floor.'''
+        min_keep = max(1, int(min_keep))
         w = np.asarray(self.identity_convert(self.weights), dtype=float)
         keep = np.where(w >= weight_floor)[0]
-        if len(keep) == 0:
-            keep = np.array([int(np.argmax(w))])
+        if len(keep) < min_keep:
+            # keep the min_keep highest-weight components
+            keep = np.argsort(w)[::-1][:min(min_keep, self.k)]
         if len(keep) == self.k:
             return
+        keep = np.sort(keep)
         self.means = [self.means[i] for i in keep]
         self.covariances = [self.covariances[i] for i in keep]
         w_keep = w[keep]
@@ -749,7 +753,7 @@ def add_defensive_component(model, defensive_frac=0.05, width_norm=1.0):
 
 
 def fit_gmm_adaptive(sample_array, bounds, log_sample_weights=None, k_max=8,
-                     k_candidates=None, epsilon=None, tempering_coeff=1e-8,
+                     k_min=1, k_candidates=None, epsilon=None, tempering_coeff=1e-8,
                      prune_weight_floor=1e-3, defensive_frac=0.05, inflate=1.0):
     '''Fit a GMM whose COMPONENT COUNT is chosen from the data by BIC, then
     prune near-zero-weight components.  Data-driven replacement for a hard-coded
@@ -769,14 +773,24 @@ def fit_gmm_adaptive(sample_array, bounds, log_sample_weights=None, k_max=8,
     components only where the (importance-weighted) cloud is genuinely
     non-Gaussian and stays at k=1 for a single blob.
 
+    SAFETY FLOOR: k is chosen in [k_min, k_max], and pruning never drops below
+    k_min.  Pass k_min = the stress-tested hard-coded per-group count so opting
+    into adaptive can only ADD components where the data earns them, never fewer
+    than the layout that was validated for the primary ILE use case (e.g. a broad
+    multi-modal sky keeps its default components even if the INITIAL elite cloud
+    -- fit before the proposal has explored every mode -- looks single-peaked).
+
     Parameters
     ----------
     sample_array : (N, d) array in ORIGINAL coordinates.
     bounds       : (d, 2) array of [llim, rlim] per dimension (as gmm expects).
     log_sample_weights : (N,) importance/elite log-weights (default: equal).
     k_max        : cap on the number of components.
-    k_candidates : explicit ladder (overrides k_max-derived ladder).
-    prune_weight_floor : components below this mixture weight are removed.
+    k_min        : floor on the number of components (default 1); the stress-
+                   tested hard-coded count when used as a refinement layer.
+    k_candidates : explicit ladder (overrides k_max/k_min-derived ladder).
+    prune_weight_floor : components below this mixture weight are removed (but
+                   never below k_min).
 
     Returns a fitted `gmm`.
     '''
@@ -800,17 +814,22 @@ def fit_gmm_adaptive(sample_array, bounds, log_sample_weights=None, k_max=8,
     wn = wn / sw
     N_eff = float(1.0 / xpy.sum(wn ** 2))
 
+    k_min = max(1, int(k_min))
+    k_max = max(k_min, int(k_max))
     if k_candidates is None:
         base = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32]
-        k_candidates = [k for k in base if k <= k_max]
-        if int(k_max) not in k_candidates:
-            k_candidates.append(int(k_max))
+        k_candidates = [k for k in base if k_min <= k <= k_max]
+        for kk in (k_min, k_max):   # always evaluate the endpoints
+            if int(kk) not in k_candidates:
+                k_candidates.append(int(kk))
     # cap k so each component retains >~ (d+2) effective samples (an EM stability
-    # floor mirroring estimator._m_step's ESS>=d+1 guard).
-    k_cap = max(1, int(N_eff // max(d + 2, 4)))
-    k_candidates = sorted(set(int(k) for k in k_candidates if 1 <= k <= max(1, k_cap)))
+    # floor mirroring estimator._m_step's ESS>=d+1 guard) -- but never below the
+    # safety floor k_min (the stress-tested count), even if the initial elite
+    # cloud is small.
+    k_cap = max(k_min, int(N_eff // max(d + 2, 4)))
+    k_candidates = sorted(set(int(k) for k in k_candidates if k_min <= k <= max(k_min, k_cap)))
     if not k_candidates:
-        k_candidates = [1]
+        k_candidates = [k_min]
 
     ln_Neff = math.log(max(N_eff, 2.0))
     wn_scaled = N_eff * wn   # effective-count weights (sum to N_eff)
@@ -826,11 +845,13 @@ def fit_gmm_adaptive(sample_array, bounds, log_sample_weights=None, k_max=8,
             continue
         if best_bic is None or bic < best_bic:
             best, best_bic = model, bic
-    if best is None:   # every candidate failed: fall back to a single component
-        best = gmm(1, bounds, epsilon=epsilon, tempering_coeff=tempering_coeff)
+    if best is None:   # every candidate failed: fall back to the floor count
+        best = gmm(k_min, bounds, epsilon=epsilon, tempering_coeff=tempering_coeff)
         best.fit(sample_array, log_sample_weights=log_sample_weights)
     if prune_weight_floor:
-        best.prune_components(prune_weight_floor)
+        # never prune below the safety floor: the extra components carry the
+        # capacity to capture modes the merge adaptation discovers later.
+        best.prune_components(prune_weight_floor, min_keep=k_min)
     if inflate and inflate != 1.0:
         # widen every fitted component so the proposal has heavier tails than the
         # (tight) elite cloud it was fit to -- a basic importance-sampling

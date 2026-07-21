@@ -1618,6 +1618,16 @@ if opts.sampler_method =="AV" and opts.internal_use_lnL:
 if opts.sampler_method =="portfolio":
   return_lnL=True
   pinned_params.update({"use_lnL":True})
+  # FLEXIBLE allocation for the portfolio's GMM member: forward gmm_adaptive as a
+  # SCALAR cap (applies to whichever groups the member uses -- its grouping is not
+  # built here) so it is opt-in and floored at the member's own n_comp.  The
+  # portfolio forwards setup() kwargs to every member; non-GMM members ignore it.
+  # Default OFF -> the portfolio's stress-tested GMM member config is unchanged.
+  if opts.internal_gmm_adaptive_components:
+    pinned_params.update({'gmm_adaptive': int(opts.internal_gmm_max_components),
+                          'gmm_defensive_frac': float(opts.internal_gmm_defensive_frac),
+                          'gmm_inflate': float(opts.internal_gmm_inflate)})
+    print(" Portfolio: GMM member adaptive components enabled (BIC, cap {})".format(opts.internal_gmm_max_components))
 if opts.sampler_method == "GMM":
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)

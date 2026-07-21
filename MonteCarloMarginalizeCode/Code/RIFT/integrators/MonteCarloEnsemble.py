@@ -345,9 +345,17 @@ class integrator:
             for dim in dim_group:
                 temp_samples[:,index] = sample_array[:,dim]
                 index += 1
+            # gmm_adaptive may be a dict {group:k_max} (per-group opt-in) or a
+            # scalar/bool (apply to every adapting group -- used by the portfolio,
+            # whose GMM member's grouping is not known here).
             adaptive_kmax = None
-            if self.gmm_adaptive and (dim_group in self.gmm_adaptive):
-                adaptive_kmax = self.gmm_adaptive[dim_group]
+            if self.gmm_adaptive:
+                if isinstance(self.gmm_adaptive, dict):
+                    adaptive_kmax = self.gmm_adaptive.get(dim_group)
+                elif isinstance(self.gmm_adaptive, bool):
+                    adaptive_kmax = 8   # default cap when enabled globally
+                else:
+                    adaptive_kmax = int(self.gmm_adaptive)
             if model is None:
                 if adaptive_kmax:
                     # FLEXIBLE allocation: choose this group's component count
@@ -356,13 +364,20 @@ class integrator:
                     # deliberately do NOT re-fit fresh every chunk: a per-chunk
                     # BIC refit makes the proposal wander (measured: n_eff peaks
                     # then collapses) because each fit sees a different elite
-                    # cloud; the incremental merge smooths that out.  BIC replaces
-                    # ONLY the hard-coded per-group count (e.g. sky=4, dist-incl=2)
-                    # -- more components where the weighted cloud is genuinely
-                    # non-Gaussian, k=1 for a single blob.
+                    # cloud; the incremental merge smooths that out.
+                    # SAFETY FLOOR: never fewer components than the stress-tested
+                    # hard-coded count for this group (self.n_comp) -- adaptive is
+                    # a REFINEMENT that only adds capacity, e.g. a broad multi-modal
+                    # sky keeps its default components.
+                    if isinstance(self.n_comp, dict):
+                        k_floor = self.n_comp.get(dim_group, 1)
+                    else:
+                        k_floor = self.n_comp
+                    k_floor = int(k_floor) if isinstance(k_floor, int) and k_floor > 0 else 1
                     model = GMM.fit_gmm_adaptive(temp_samples, new_bounds,
                                                  log_sample_weights=log_weights,
-                                                 k_max=int(adaptive_kmax),
+                                                 k_max=max(int(adaptive_kmax), k_floor),
+                                                 k_min=k_floor,
                                                  epsilon=self.gmm_epsilon,
                                                  defensive_frac=self.gmm_defensive_frac,
                                                  inflate=self.gmm_inflate)
