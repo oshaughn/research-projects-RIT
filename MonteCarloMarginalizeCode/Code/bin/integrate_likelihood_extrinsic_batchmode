@@ -323,6 +323,14 @@ integration_params.add_option("--internal-use-lnL",action='store_true',help="lik
 integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
 integration_params.add_option("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionaryo to be passed to that sampler')
+# Portfolio freeze-policy knobs (only meaningful with --sampler-method portfolio).  A member
+# whose balance weight drops below --portfolio-freeze-wt normally stops updating its proposal;
+# these control that.  Defaults (None here) mean "use the sampler's built-in default".
+integration_params.add_option("--portfolio-grace-iters",default=None,type=int,help="Portfolio: never freeze ANY member during the first N integration chunks (let slow starters contract). Sampler default 25.")
+integration_params.add_option("--portfolio-revive-period",default=None,type=int,help="Portfolio: every N chunks, update even a frozen member one step so it can recover. 0 disables. Sampler default 8.")
+integration_params.add_option("--portfolio-freeze-wt",default=None,type=float,help="Portfolio: a member whose balance weight is below this stops updating its proposal (subject to grace/revive/VARAHA-exemption). Sampler default 0.05.")
+integration_params.add_option("--portfolio-varaha-never-freeze",action='store_true',default=False,help="Portfolio: VARAHA/AV members always update every chunk past their breakpoint (freeze-exempt). This is the sampler default; the flag is here for explicitness/pipe pass-through.")
+integration_params.add_option("--portfolio-varaha-can-freeze",action='store_true',default=False,help="Portfolio: DISABLE the VARAHA freeze-exemption, so VARAHA/AV members obey the grace/revive/weight freeze schedule like other members. Use only if a VARAHA member is a known-bad fit and you want to save its selfish-draw eval cycles.")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
 # Integrator warm-start / reuse (bootstrap AV, persist/reuse a trained NF flow).  All
 # default off.  A warm start only affects the initial PROPOSAL, never the integral.
@@ -1182,7 +1190,11 @@ elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
     use_portfolio=True
     opts.internal_use_lnL=True  # required, we only implement those scenarios right now
     sampler_list = []
-    sampler_types = opts.sampler_portfolio
+    # --sampler-portfolio is action='append' AND documented as comma-separated, so honor BOTH:
+    # flatten the appended list and split every element on ',' (e.g. ['AV,GMM'] -> ['AV','GMM'],
+    # ['AV','GMM'] -> ['AV','GMM']).  Without this, 'AV,GMM' was one bogus member name that matched
+    # no branch, silently yielding a single-member portfolio.
+    sampler_types = [s.strip() for item in opts.sampler_portfolio for s in str(item).split(',') if s.strip()]
 
     # prep xpy, etc
     my_xpy = xpy_default
@@ -1738,7 +1750,22 @@ if use_portfolio:
             if not(isinstance(opts.sampler_portfolio_args[indx], dict)):
                 print(indx,opts.sampler_portfolio_args[indx]) 
           print(" ARGS ", opts.sampler_portfolio_args)
-      sampler.setup(portfolio_args=opts.sampler_portfolio_args, **pinned_params) # directly pass all parameters set above to low-level portfolios.  In particular, GMM setup
+      # Assemble freeze-policy overrides from the CLI.  Only include options the user actually
+      # set (None = unset) so the sampler keeps its built-in defaults otherwise.  The two VARAHA
+      # flags are mutually exclusive; --portfolio-varaha-can-freeze wins if both are given.
+      _freeze_policy_kwargs = {}
+      if opts.portfolio_grace_iters is not None:
+          _freeze_policy_kwargs['portfolio_grace_iters'] = opts.portfolio_grace_iters
+      if opts.portfolio_revive_period is not None:
+          _freeze_policy_kwargs['portfolio_revive_period'] = opts.portfolio_revive_period
+      if opts.portfolio_freeze_wt is not None:
+          _freeze_policy_kwargs['portfolio_freeze_wt'] = opts.portfolio_freeze_wt
+      if opts.portfolio_varaha_can_freeze:
+          _freeze_policy_kwargs['portfolio_varaha_never_freeze'] = False
+      elif opts.portfolio_varaha_never_freeze:
+          _freeze_policy_kwargs['portfolio_varaha_never_freeze'] = True
+      print(" PORTFOLIO freeze-policy overrides: ", _freeze_policy_kwargs)
+      sampler.setup(portfolio_args=opts.sampler_portfolio_args, **_freeze_policy_kwargs, **pinned_params) # directly pass all parameters set above to low-level portfolios.  In particular, GMM setup
       # NOTE: the portfolio oracle MECHANISM is fixed (proposals now actually enter
       # member training; see mcsamplerPortfolio), and a FisherGaussianOracle can be
       # attached via sampler.oracle_realizations.  It is not auto-wired here because

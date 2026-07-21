@@ -88,7 +88,15 @@ discovered_plugins = entry_points(group='RIFT.integrator_plugins')
 known_pipelines = {}
 for pipeline in discovered_plugins:
   print(" Portfolio discovery: loading ", pipeline.name)
-  known_pipelines[pipeline.name] = pipeline.load()
+  try:
+    known_pipelines[pipeline.name] = pipeline.load()
+  except Exception as e:
+    # A plugin whose OPTIONAL deps are missing must not abort the whole portfolio import.
+    # e.g. the NF plugin does `import torch`, which the production GPU container does NOT ship;
+    # without this guard the entire mcsamplerPortfolio import raised, the driver silently set
+    # mcsampler_Portfolio_ok=False, and any portfolio run died with a NameError.  Skip the
+    # unusable plugin (a portfolio that doesn't request it is unaffected).
+    print("  Portfolio discovery: SKIP {} ( {} )".format(pipeline.name, e))
 print('RIFT portfolio plugins:', [ep.name for ep in discovered_plugins])
 
 
@@ -167,6 +175,20 @@ class MCSampler(object):
         # Both are overridable via setup(**kwargs).
         self.portfolio_grace_iters = kwargs.get('portfolio_grace_iters', 25)
         self.portfolio_revive_period = kwargs.get('portfolio_revive_period', 8)
+        # VARAHA/AV members are a special case.  A VARAHA member ONLY contracts its live
+        # volume on the chunk where it is UPDATED (update_sampling_prior_selfish); grace/revive
+        # update it only intermittently, so it contracts ~revive_period x slower than a
+        # standalone AV that updates every chunk -- it never becomes the workhorse.  Because the
+        # balance-heuristic mixture density (q_mix) makes the estimate unbiased for ANY member
+        # weights, a continuously-updated VARAHA can only ever COST efficiency (extra selfish
+        # draws), never bias the integral.  So by default we make VARAHA members freeze-EXEMPT:
+        # once past their activation breakpoint they update every chunk, exactly like standalone
+        # AV.  Set portfolio_varaha_never_freeze=False to fall back to the grace/revive schedule
+        # (e.g. to save eval cycles on a VARAHA member you know is a genuinely bad fit).
+        self.portfolio_varaha_never_freeze = kwargs.get('portfolio_varaha_never_freeze', True)
+        # Diagnostic: per-member n_ess history (one list per portfolio member), appended each
+        # chunk in the report block.  Enables plateau-aware policies and post-hoc analysis.
+        self.portfolio_member_ness_history = [[] for _ in range(len(self.portfolio))]
 
         # Total number of samples drawn
         self.ntotal = 0
@@ -244,10 +266,16 @@ class MCSampler(object):
 
     def setup(self,  **kwargs):
         self.extra_args =kwargs  # may need to pass/use during the 'update' step
-        # allow the driver/CLI to tune the freeze-protection knobs
-        self.portfolio_freeze_wt = kwargs.get('portfolio_freeze_wt', self.portfolio_freeze_wt)
-        self.portfolio_grace_iters = kwargs.get('portfolio_grace_iters', self.portfolio_grace_iters)
-        self.portfolio_revive_period = kwargs.get('portfolio_revive_period', self.portfolio_revive_period)
+        # allow the driver/CLI to tune the freeze-protection knobs.  A None means "not set on
+        # the CLI" (optparse default), so keep the current value rather than clobbering it.
+        def _kw_keep(name):
+            v = kwargs.get(name, None)
+            if v is not None:
+                setattr(self, name, v)
+        _kw_keep('portfolio_freeze_wt')
+        _kw_keep('portfolio_grace_iters')
+        _kw_keep('portfolio_revive_period')
+        _kw_keep('portfolio_varaha_never_freeze')
         if 'oracle_realizations' in kwargs:
           if kwargs['oracle_realizations']: 
             self.oracle_realizations = kwargs['oracle_realizations']  # might not have been initialized earlier
@@ -660,6 +688,10 @@ class MCSampler(object):
               # evaluate  n_ess, n_eff for this set of samples in batch specifically,
               portfolio_report[indx_member] = [ self.portfolio_weights[indx_member], self.identity_convert(self.xpy.sum(self.xpy.exp(ln_wt_here))**2/self.xpy.sum(self.xpy.exp(ln_wt_here*2))), identity_convert(self.xpy.sum(self.xpy.exp(ln_wt_here)))]
             print("\t",portfolio_report)
+            # Record each member's per-chunk n_ess so freeze policies (and post-hoc analysis)
+            # can tell a member that is still CLIMBING from one that has PLATEAUED.
+            for indx_member in range(len(self.portfolio)):
+              self.portfolio_member_ness_history[indx_member].append(float(portfolio_report[indx_member][1]))
             # Weight based on n_ESS from batch.  remember these are >=1, so no negatives or 0 will happen
             dat =np.array([ portfolio_report[k][1] for k in range(len(self.portfolio))])
             self.portfolio_weights = portfolio_wt_func(dat, self.portfolio_weights, xpy=self.xpy, identity_convert=self.identity_convert) # call weighting function
@@ -723,6 +755,12 @@ class MCSampler(object):
                 # update sampling prior, using ALL past data
                 # Don't update samples which are not being drawn
                 # always update if we have an oracle  - don't freeze out out oracle, UNLESS we have explicitly frozen it with a breakpoint
+                _is_varaha = hasattr(member, 'is_varaha')
+                # VARAHA EXEMPTION: a VARAHA/AV member contracts its live volume ONLY on the chunk
+                # it is updated, so it must update EVERY chunk (like standalone AV) to become the
+                # workhorse.  q_mix keeps this unbiased regardless of weight, so exempt it from the
+                # freeze schedule entirely by default (see portfolio_varaha_never_freeze).
+                _varaha_exempt = _is_varaha and self.portfolio_varaha_never_freeze
                 # GRACE: don't freeze anyone during the first grace_iters iterations (let a slow
                 # starter like a VARAHA member contract before its weight is judged).
                 _in_grace = (self.portfolio_draw_iteration <= self.portfolio_grace_iters)
@@ -730,11 +768,19 @@ class MCSampler(object):
                 # instead of being starved forever.
                 _revive = (self.portfolio_revive_period > 0
                            and (self.portfolio_draw_iteration % self.portfolio_revive_period == 0))
+                # PLATEAU-AWARE revive: also update a low-weight member while its OWN per-chunk
+                # n_ess is still climbing (it is still learning); only let the freeze schedule
+                # govern a member that has plateaued.  Uses the n_ess history recorded above.
+                _climbing = False
+                _hist = self.portfolio_member_ness_history[indx]
+                if len(_hist) >= 3:
+                  _recent = _hist[-1]; _older = np.median(_hist[-3:-1])
+                  _climbing = (_recent > 1.05*max(_older, 1.0))
                 if self.portfolio_draw_iteration < self.portfolio_breakpoints[indx]:
                   print("  - before activation breakpoint for member {} ".format( indx))
                   pass
-                elif (len(self.oracle_realizations) > 0 and it_now <it_max_oracle) or (self.portfolio_weights[indx] > self.portfolio_freeze_wt) or _in_grace or _revive:
-                  if not(hasattr(member, 'is_varaha')):
+                elif (len(self.oracle_realizations) > 0 and it_now <it_max_oracle) or (self.portfolio_weights[indx] > self.portfolio_freeze_wt) or _in_grace or _revive or _varaha_exempt or _climbing:
+                  if not(_is_varaha):
                     # log_weights_train / rvs_train include any oracle proposals appended above
                     member.update_sampling_prior(log_weights_train, n_history,external_rvs=rvs_train,log_scale_weights=True, **update_dict)
                   else:
