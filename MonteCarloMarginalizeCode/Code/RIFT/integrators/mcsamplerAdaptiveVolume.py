@@ -501,15 +501,29 @@ class MCSampler(object):
 
             # For now: no prior, just duplicate VT algorithm
             log_integrand =lnL  + log_joint_p_prior
-            
+
             loglkl = log_integrand # note we are putting the prior in here
 
-            idxsel = xpy_here.where(loglkl > loglkl_thr)
+            # admit only FINITE samples above threshold: a cold portfolio member can draw points
+            # whose loglkl is -inf/NaN (out-of-support / degenerate extrinsic config).  With the
+            # initial threshold -1e15 the plain "> thr" test then passes NaN (breaking later maxes)
+            # or, if ALL are non-finite, yields an empty set -> the reported crash chain
+            # (get_likelihood_threshold max of empty array; then this method's max at line ~532).
+            idxsel = xpy_here.where(xpy_here.logical_and(loglkl > loglkl_thr, xpy_here.isfinite(loglkl)))
             #only admit samples that lie inside the live volume, i.e. one that cross likelihood threshold
             allx = xpy_here.append(allx, rv[idxsel], axis = 0)
             allloglkl = xpy_here.append(allloglkl, loglkl[idxsel])
             allp = xpy_here.append(allp, log_joint_p_prior[idxsel])
             ninj = len(allloglkl)
+            if ninj == 0:
+                # Nothing finite in the live volume this step (cold portfolio member / degenerate
+                # draw).  Leave V and the grid UNCHANGED rather than crashing on empty-array
+                # reductions downstream.  The portfolio's other members carry this step; a later
+                # draw with finite samples lets AV resume training.  (This method is a SINGLE
+                # selfish step, so an early return is correct -- unlike integrate_log's loop.)
+                print("  [AV selfish-update] no finite in-volume samples this step; live volume unchanged")
+                self.V = V
+                return
 
 
             #just some test to verify if we dont discard more than 1 - Pthr probability
@@ -525,6 +539,11 @@ class MCSampler(object):
             allp = allp[idxsel]
             allx = allx[idxsel]
             nrec = len(allloglkl)   # recovered size of active volume at present, after selection
+            if nrec == 0:
+                # threshold selected nothing (degenerate all-equal finite draws): leave the
+                # live volume unchanged instead of crashing on max()/divide-by-zero below.
+                self.V = V
+                return
 
             # Weights
             lw = allloglkl - xpy_here.max(allloglkl)
