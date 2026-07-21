@@ -156,8 +156,17 @@ class MCSampler(object):
         if not(self.portfolio_weights ):
             self.portfolio_weights = np.ones(len(self.portfolio))/(1.0*len(self.portfolio))
 
-        self.portfolio_adapt = np.ones(len(self.portfolio),dtype=bool) # default : everything adapts.  
+        self.portfolio_adapt = np.ones(len(self.portfolio),dtype=bool) # default : everything adapts.
         self.portfolio_freeze_wt =portfolio_freeze_wt  # if weight is below this number, the portfolio member's distribution will NOT update. SCALAR
+        # Freeze protection.  A member (esp. a VARAHA/AV workhorse) contributes little on its
+        # first chunks -- before it has contracted -- so a plain weight<freeze_wt freeze starves
+        # it from chunk 1 and it never gets going.  Instead of freezing permanently:
+        #  * GRACE: never freeze during the first `grace_iters` iterations (let members contract);
+        #  * REVIVE: every `revive_period` iterations, update the frozen members anyway (one step)
+        #    so a starved-but-recoverable member gets periodic chances instead of wasting cycles.
+        # Both are overridable via setup(**kwargs).
+        self.portfolio_grace_iters = kwargs.get('portfolio_grace_iters', 25)
+        self.portfolio_revive_period = kwargs.get('portfolio_revive_period', 8)
 
         # Total number of samples drawn
         self.ntotal = 0
@@ -235,6 +244,10 @@ class MCSampler(object):
 
     def setup(self,  **kwargs):
         self.extra_args =kwargs  # may need to pass/use during the 'update' step
+        # allow the driver/CLI to tune the freeze-protection knobs
+        self.portfolio_freeze_wt = kwargs.get('portfolio_freeze_wt', self.portfolio_freeze_wt)
+        self.portfolio_grace_iters = kwargs.get('portfolio_grace_iters', self.portfolio_grace_iters)
+        self.portfolio_revive_period = kwargs.get('portfolio_revive_period', self.portfolio_revive_period)
         if 'oracle_realizations' in kwargs:
           if kwargs['oracle_realizations']: 
             self.oracle_realizations = kwargs['oracle_realizations']  # might not have been initialized earlier
@@ -559,6 +572,15 @@ class MCSampler(object):
             log_integrand =lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
             # tempering_exp done inside the update proposal, NOT here
             log_weights = lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
+            # NaN guard: a frozen/degenerate member (e.g. an un-contracted VARAHA) can emit NaN
+            # samples -> NaN lnL / joint_p_s -> NaN weights, which otherwise propagate into the
+            # aggregation and the reported crash ("boolean index did not match ... 10000 vs 9882"
+            # when a NaN mask is applied downstream).  Map any non-finite weight to -inf (zero
+            # weight) IN PLACE, keeping the array length fixed so no mask-size mismatch can arise.
+            _bad = ~self.xpy.isfinite(log_integrand)
+            if bool(self.identity_convert(self.xpy.any(_bad))):
+                log_integrand = self.xpy.where(_bad, -self.xpy.inf, log_integrand)
+                log_weights   = self.xpy.where(_bad, -self.xpy.inf, log_weights)
 
             if save_intg:
                 # FIXME: See warning at beginning of function. The prior values
@@ -701,10 +723,17 @@ class MCSampler(object):
                 # update sampling prior, using ALL past data
                 # Don't update samples which are not being drawn
                 # always update if we have an oracle  - don't freeze out out oracle, UNLESS we have explicitly frozen it with a breakpoint
+                # GRACE: don't freeze anyone during the first grace_iters iterations (let a slow
+                # starter like a VARAHA member contract before its weight is judged).
+                _in_grace = (self.portfolio_draw_iteration <= self.portfolio_grace_iters)
+                # REVIVE: periodically update even a frozen member so it gets a chance to recover
+                # instead of being starved forever.
+                _revive = (self.portfolio_revive_period > 0
+                           and (self.portfolio_draw_iteration % self.portfolio_revive_period == 0))
                 if self.portfolio_draw_iteration < self.portfolio_breakpoints[indx]:
                   print("  - before activation breakpoint for member {} ".format( indx))
                   pass
-                elif (len(self.oracle_realizations) > 0 and it_now <it_max_oracle) or (   self.portfolio_weights[indx] > self.portfolio_freeze_wt):
+                elif (len(self.oracle_realizations) > 0 and it_now <it_max_oracle) or (self.portfolio_weights[indx] > self.portfolio_freeze_wt) or _in_grace or _revive:
                   if not(hasattr(member, 'is_varaha')):
                     # log_weights_train / rvs_train include any oracle proposals appended above
                     member.update_sampling_prior(log_weights_train, n_history,external_rvs=rvs_train,log_scale_weights=True, **update_dict)
