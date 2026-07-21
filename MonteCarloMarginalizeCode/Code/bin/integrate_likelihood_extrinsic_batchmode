@@ -337,6 +337,7 @@ integration_params.add_option("--sampler-sequential-warmstart",action='store_tru
 integration_params.add_option("--sampler-sequential-warmstart-cover-frac",type=float,default=0.1,help="Coverage floor for --sampler-sequential-warmstart: fraction of full-prior coverage mixed into the seed so the warm live volume always contains a cold start (a mis-matched proposal then only costs efficiency, never bias).  Default 0.1.")
 integration_params.add_option("--sampler-sequential-warmstart-deltalnL",type=float,default=15.0,help="Keep previous-point samples within this lnL of the max as the warm seed for the next point.  Default 15.")
 integration_params.add_option("--sampler-warmstart-retry-neff",type=float,default=None,help="AV only (L0 auto-rescue): if a cold pass finishes below this n_eff (i.e. it stalled on a very sharp / high-amplitude peak), automatically re-run a second pass warm-started from THIS point's own highest-likelihood samples.  Same-problem reuse, so it cannot bias the result.  Recommended for high-SNR events; e.g. 5.")
+integration_params.add_option("--sampler-anisotropic-bins",action="store_true",help="AV only: give each extrinsic axis a DIFFERENT number of bins during contraction -- fine where the live points cluster tightly (phase/polarization/sky), coarse where they are broad (distance/inclination) -- instead of the default equal split.  Keeps the same total bin budget, so the estimator is unchanged; helps AV wrap a correlated/degenerate posterior more tightly.")
 integration_params.add_option("--extrinsic-proposal-field",default=None,help="AV only (L3): path to a ProposalField (.npz built by util_BuildProposalField.py from a previous ILE iteration).  Each intrinsic point warm-starts its extrinsic integral from the field's nearest entry.  Cross-problem reuse, so a coverage floor + an inflation margin are applied (see the two options below); a stale/mismatched field can only cost efficiency, never bias.")
 integration_params.add_option("--extrinsic-proposal-field-cover-frac",type=float,default=0.1,help="Coverage floor for --extrinsic-proposal-field handoff (default 0.1).")
 integration_params.add_option("--extrinsic-proposal-field-inflate",type=float,default=1.5,help="Handoff safety margin for --extrinsic-proposal-field: widen the imported seed by this factor about its mean to cover the peak shift between the neighbouring intrinsic point and this one (default 1.5).")
@@ -2615,6 +2616,14 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         except Exception as _eb:
             print(" [calmarg burn-in] integrate failed ({}); proceeding to production".format(_eb))
         n_cal_for_likelihood = _ncal_full   # restore: production uses the full cal set
+
+    # opt-in anisotropic per-axis bin allocation: set on the AV sampler and any AV portfolio members
+    if getattr(opts, 'sampler_anisotropic_bins', False):
+        _aniso_targets = [sampler] + list(getattr(sampler, 'portfolio_realizations', []))
+        for _t in _aniso_targets:
+            if hasattr(_t, 'anisotropic_bins'):
+                _t.anisotropic_bins = True
+        print("  AV: anisotropic per-axis bin allocation ENABLED")
 
     res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
 

@@ -233,6 +233,11 @@ class MCSampler(object):
         self.V=None  # fractional volume
         self.delta_V=None  # fractional volume
         self._warm=None  # bootstrap/warm-start live-volume state (see bootstrap_from_*)
+        # Opt-in ANISOTROPIC bin allocation: give each axis a different number of bins
+        # (fine where the live points cluster tightly -- phase/pol/sky; coarse where they are
+        # broad -- distance/inclination), instead of the default equal split.  Keeps the same
+        # total bin budget (prod(nbins)=1/delta_V) so the estimator is unchanged.  Default off.
+        self.anisotropic_bins = False
 
 
     def setup(self, **kwargs):
@@ -401,6 +406,42 @@ class MCSampler(object):
         q[inside] = q_live
         return q
 
+    def _allocate_nbins(self, live_pts, delta_V, ndim):
+        """Per-axis bin counts whose product over adaptive dims equals 1/delta_V (the same
+        total resolution the isotropic split uses, so the volume V=n_bins*prod(dx) and hence
+        the estimator are unchanged).
+
+        Default (self.anisotropic_bins False): equal split -- nbins_i = (1/delta_V)**(1/d).
+        Anisotropic: redistribute that SAME total bin budget by each axis's *compressibility*
+        c_i = log(range_i / spread_i), where spread_i is the std of the live points on axis i.
+        Axes whose points fill only a small fraction of their range (tight: phase, polarization,
+        sky) get many bins (fine); broad axes (distance, inclination) get few (coarse).  This
+        lets the live hypercube wrap a correlated/degenerate posterior far more tightly than an
+        isotropic grid, which must use one resolution for both the narrow and the broad axes."""
+        nbins = np.ones(ndim)
+        if self.d_adaptive <= 0:
+            return nbins
+        adaptive = np.ones(ndim, dtype=bool)
+        if len(self.indx_not_adaptive):
+            adaptive[np.array(self.indx_not_adaptive, dtype=int)] = False
+        total_log = -np.log(max(float(delta_V), 1e-300))   # log(1/delta_V): total log-bins to spread
+        n_live = 0 if live_pts is None else len(live_pts)
+        if (not self.anisotropic_bins) or n_live < max(8, 2 * self.d_adaptive):
+            nbins[adaptive] = np.exp(total_log / self.d_adaptive)      # isotropic fallback
+            return nbins
+        lp = np.asarray(identity_convert(live_pts))
+        rng = np.diff(self.my_ranges, axis=1).flatten()               # range per axis
+        spread = lp.std(axis=0)
+        spread = np.maximum(spread, 1e-6 * np.maximum(rng, 1e-30))
+        c = np.clip(np.log(np.maximum(rng, 1e-30) / spread), 0.0, None)  # compressibility
+        c[~adaptive] = 0.0
+        csum = c[adaptive].sum()
+        if csum <= 0:
+            nbins[adaptive] = np.exp(total_log / self.d_adaptive)     # degenerate -> isotropic
+        else:
+            nbins[adaptive] = np.exp(c[adaptive] / csum * total_log)  # prod(adaptive)=1/delta_V
+        return nbins
+
     def update_sampling_prior_selfish(self, lnF, *args, xpy=xpy_default,no_protect_names=True,**kwargs):
         """
       update_sampling_prior
@@ -491,7 +532,8 @@ class MCSampler(object):
             # Redefine bin sizes, reassign points to redefined hypercube set. [Asymptotically this becomes stationary]
             # Note hypercube calculation is on CPU at present, always
             if self.d_adaptive > 0:
-              self.nbins = np.ones(ndim)*(1/delta_V) ** (1/self.d_adaptive)  # uniform split in each dimension is normal, but we have array - can be irregular
+              # per-axis (anisotropic) or equal (default) split; same total bin budget either way
+              self.nbins = self._allocate_nbins(allx, delta_V, ndim)
               self.nbins[self.indx_not_adaptive] = 1  # reset to 1 bin for non-adaptive dimensions
             else:
               self.nbins = np.ones(ndim) # why are we even doing this!
@@ -584,7 +626,8 @@ class MCSampler(object):
         # VARAHA bin count: nbins = (1/delta_V)^(1/d_adaptive), delta_V = V/sqrt(nrec)
         delta_V = V_extent / np.sqrt(n_res)
         if self.d_adaptive > 0:
-            nbins = np.ones(ndim) * (1.0 / delta_V) ** (1.0 / self.d_adaptive)
+            # per-axis (anisotropic) or equal (default) split of the warm-seed grid
+            nbins = self._allocate_nbins(res_pts, delta_V, ndim)
             nbins[self.indx_not_adaptive] = 1
         else:
             nbins = np.ones(ndim)
@@ -854,6 +897,9 @@ class MCSampler(object):
             
 
         save_intg = kwargs["save_intg"] if "save_intg" in kwargs else False
+        # opt-in anisotropic (per-axis) bin allocation; also settable as a sampler attribute
+        if "anisotropic_bins" in kwargs:
+            self.anisotropic_bins = bool(kwargs["anisotropic_bins"])
         # FIXME: The adaptive step relies on the _rvs cache, so this has to be
         # on in order to work
         if n_adapt > 0 and tempering_exp > 0.0:
@@ -1005,7 +1051,8 @@ class MCSampler(object):
             # Redefine bin sizes, reassign points to redefined hypercube set. [Asymptotically this becomes stationary]
             # Note hypercube calculation is on CPU at present, always
             if self.d_adaptive > 0:
-              self.nbins = np.ones(ndim)*(1/delta_V) ** (1/self.d_adaptive)  # uniform split in each dimension is normal, but we have array - can be irregular
+              # per-axis (anisotropic) or equal (default) split; same total bin budget either way
+              self.nbins = self._allocate_nbins(allx, delta_V, ndim)
               self.nbins[self.indx_not_adaptive] = 1  # reset to 1 bin for non-adaptive dimensions
             else:
               self.nbins = np.ones(ndim) # why are we even doing this!
