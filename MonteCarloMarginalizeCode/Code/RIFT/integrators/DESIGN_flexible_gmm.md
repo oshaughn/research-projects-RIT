@@ -94,17 +94,29 @@ The flexible allocation is a **refinement layer, never a replacement**:
     the other modes as they appear).
 
 ### Portfolio
-`--internal-gmm-adaptive-components` also works with `--sampler-method portfolio`:
-the driver injects `gmm_adaptive` as a **scalar cap** into the shared setup
-kwargs, which the portfolio forwards to every member; the GMM member honors it in
-`update_sampling_prior` (the path the portfolio drives), floored at its own
-`n_comp`.  Non-GMM members ignore it.  Default OFF -> the portfolio's
-stress-tested GMM member config is unchanged.  (Note: a working portfolio needs
-`draw_simplified`-capable members; the `AV,GMM` combo currently fails in the
-portfolio draw path for a PRE-EXISTING, unrelated reason -- `AV` has no
-`draw_simplified`.)  This is the recommended way to use the flexible GMM: AV
-carries convergence, and the GMM member contributes a hands-free correlated
-proposal instead of a hand-tuned component layout.
+`--internal-gmm-adaptive-components` also works with `--sampler-method portfolio`.
+Invoke the members with the flag REPEATED (it is `append`, not comma-split):
+`--sampler-portfolio AV --sampler-portfolio GMM` (NOT `"AV,GMM"`, which becomes
+one bogus member).  When `GMM` is a member the driver sets `sampler_method='GMM'`,
+so the full GMM config section runs for the member: it gets the stress-tested
+pairing `{sky:4, dist-incl:2, phase:frozen}` AND, with the flag on, the per-group
+adaptive allocation on the ADAPTING groups only -- e.g. `gmm_adaptive={(4,5):8,
+(3,2):8}` (sky, dist-incl), floored at 4/2, phase excluded.  The GMM member honors
+this in `update_sampling_prior` (the path the portfolio drives).  Default OFF ->
+the portfolio's stress-tested GMM member config is unchanged.  This is the intended
+way to use the flexible GMM: AV carries convergence, the GMM member contributes a
+hands-free correlated proposal instead of a hand-tuned component layout.
+
+**Status (2026-07-21):** `d44fe486` fixed the `draw_simplified` crash, so both
+members now instantiate and warm-start (`warm-started 2/2 members`).  The AV+GMM
+portfolio benchmark on S250114ax is still blocked by a SEPARATE, PRE-EXISTING
+AV-member bug (orthogonal to this PR; reproduces cold, with the default hard-coded
+GMM member, no adaptive flag): the AV member's first portfolio selfish-update
+selects zero samples above `loglkl_thr`, so `allloglkl` is empty and
+`mcsamplerAdaptiveVolume.update_sampling_prior_selfish` crashes on
+`xpy.max(allloglkl)` (get_likelihood_threshold:121, then :532).  Fix belongs in the
+AV member's threshold init / empty-selection handling (PR #26), after which the
+flexible-GMM-in-portfolio n_eff-vs-N comparison can be filled in here.
 
 ### Driver flags
 ```
@@ -185,7 +197,8 @@ its own ~3e-5 efficiency ceiling).
   weak member from biasing -- now with a **hands-free** GMM member instead of a
   hand-tuned component layout. `--internal-gmm-adaptive-components` is wired
   through the portfolio (see Portfolio above); the remaining pre-existing blocker
-  is the portfolio draw path's `draw_simplified` requirement for the `AV` member.
+  is the AV member's empty-selection crash in `update_sampling_prior_selfish`
+  (PR #26 territory).
 * **Future levers** for making GMM itself competitive here would be *coordinate*
   changes that de-curve the arc (a distance-inclination reparametrization,
   rotate-phase for phase<->pol) so a low-k axis-aligned mixture fits -- i.e.
