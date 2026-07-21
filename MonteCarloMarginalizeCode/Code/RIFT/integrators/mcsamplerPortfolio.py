@@ -253,7 +253,11 @@ class MCSampler(object):
               portfolio_extra_args = kwargs['portfolio_args']
             else:
               print(" PORTFOLIO - format ERROR ", kwargs['portfolio_args'])
-        for indx, member in enumerate(self.portfolio):
+        # Iterate the INSTANTIATED samplers (portfolio_realizations), NOT self.portfolio: the
+        # latter may hold modules/names (see __init__), which lack .setup(), so member setup was
+        # silently skipped -> a cold member's internal state (AV my_ranges, GMM integrator) was
+        # never built and draw_simplified failed.  Setting up the realizations fixes AV+GMM cold.
+        for indx, member in enumerate(self.portfolio_realizations):
             if hasattr(member, 'setup'):
               print(" PORTFOLIO setup ", member, portfolio_extra_args[indx])
               args_here = {}

@@ -333,6 +333,13 @@ class MCSampler(object):
 
 
     def draw_simplified(self,n_to_get, *args, **kwargs):
+        # Self-contained cold start.  A PORTFOLIO (mcsamplerPortfolio) drives draw_simplified on
+        # its members directly, WITHOUT running each member's own integrate()/setup(), so a cold
+        # AV member may not have its live-volume grid (my_ranges/dx/binunique/ninbin) built yet
+        # -> AttributeError on self.my_ranges.  (A WARM member is fine: bootstrap_from_* builds it.)
+        # Build the cold full-box grid on first use so AV works as a portfolio member cold or warm.
+        if getattr(self, 'my_ranges', None) is None:
+            self.setup()
         rv, log_p = self.draw_simple()
         p = np.exp(log_p)[:n_to_get]
         ps = self.xpy.ones(len(p))*self.V_s/self.V   # sampling prior, full hypercube normalized to 1
