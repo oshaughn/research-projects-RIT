@@ -107,16 +107,31 @@ the portfolio's stress-tested GMM member config is unchanged.  This is the inten
 way to use the flexible GMM: AV carries convergence, the GMM member contributes a
 hands-free correlated proposal instead of a hand-tuned component layout.
 
-**Status (2026-07-21):** `d44fe486` fixed the `draw_simplified` crash, so both
-members now instantiate and warm-start (`warm-started 2/2 members`).  The AV+GMM
-portfolio benchmark on S250114ax is still blocked by a SEPARATE, PRE-EXISTING
-AV-member bug (orthogonal to this PR; reproduces cold, with the default hard-coded
-GMM member, no adaptive flag): the AV member's first portfolio selfish-update
-selects zero samples above `loglkl_thr`, so `allloglkl` is empty and
-`mcsamplerAdaptiveVolume.update_sampling_prior_selfish` crashes on
-`xpy.max(allloglkl)` (get_likelihood_threshold:121, then :532).  Fix belongs in the
-AV member's threshold init / empty-selection handling (PR #26), after which the
-flexible-GMM-in-portfolio n_eff-vs-N comparison can be filled in here.
+**Status (2026-07-21).** `d44fe486` (member setup) + `edf775c7` (AV empty-selection)
+made the AV+GMM portfolio instantiate and run past startup on S250114ax.  Measured
+the requested comparison (warm + cold, default vs adaptive GMM member, GPU, 4 M cap;
+`--sampler-portfolio AV --sampler-portfolio GMM`):
+
+| portfolio config                    | warm peak n_eff (@N) | cold peak n_eff (@N) |
+|-------------------------------------|---------------------:|---------------------:|
+| default (hard-coded GMM member)     | 3.55 @0.65 M         | 1.92 @0.29 M *(crash @0.82 M)* |
+| adaptive GMM member (BIC, cap 8)    | 1.72 @0.82 M         | 1.00 @0.01 M *(crash @0.21 M)* |
+
+**Both stall, and the comparison is CONFOUNDED by a portfolio-dynamics pathology,
+not the GMM allocation.**  The balance heuristic assigns the AV member weight
+~0.0099 on chunk 1 -- below `portfolio_freeze_wt` (0.05, a portfolio constructor
+default with no CLI knob) -- so **AV is frozen from chunk 1** ("frozen sampling for
+member 0", its n_eff pinned at 1 with `nan`s) and never contracts its live volume.
+The portfolio then rides the warm **GMM** member (weight ~0.99), which stalls at
+n_eff~1-3 exactly as standalone GMM does.  So the intended workhorse (AV, which
+reaches ~89 standalone) is starved out before it can converge.  This is independent
+of the flexible allocation (identical with the default hard-coded GMM member) and
+is portfolio balance-heuristic territory (PR #26).  Two follow-ons for that side:
+(1) AV must not be frozen below `portfolio_freeze_wt` before it has had a chance to
+contract on a high-SNR event (a warm/cold bootstrap-protection or a breakpoint);
+(2) the cold run additionally crashes in the portfolio combine (`boolean index ...
+dimension is 10000 but ... 9882`) when the frozen AV member emits `nan` samples.
+Once AV is not starved, the flexible-GMM contribution can be isolated here.
 
 ### Driver flags
 ```
