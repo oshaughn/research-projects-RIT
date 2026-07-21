@@ -105,8 +105,9 @@ class integrator:
         self.gmm_dict = gmm_dict
         self.gmm_adapt = gmm_adapt
         # gmm_adaptive: {dim_group: k_max}.  Groups listed here choose their
-        # component count from the data by BIC (refit-fresh each chunk via
-        # GMM.fit_gmm_adaptive) instead of using a fixed n_comp -- see _train.
+        # component count from the data by BIC (GMM.fit_gmm_adaptive) at
+        # initialization, then adapt via the stable merge path, instead of using
+        # a fixed n_comp -- see _train.
         self.gmm_adaptive = gmm_adaptive
         # defensive tail coverage + covariance inflation for adaptive groups
         self.gmm_defensive_frac = gmm_defensive_frac
