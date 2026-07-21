@@ -107,31 +107,33 @@ the portfolio's stress-tested GMM member config is unchanged.  This is the inten
 way to use the flexible GMM: AV carries convergence, the GMM member contributes a
 hands-free correlated proposal instead of a hand-tuned component layout.
 
-**Status (2026-07-21).** `d44fe486` (member setup) + `edf775c7` (AV empty-selection)
-made the AV+GMM portfolio instantiate and run past startup on S250114ax.  Measured
-the requested comparison (warm + cold, default vs adaptive GMM member, GPU, 4 M cap;
-`--sampler-portfolio AV --sampler-portfolio GMM`):
+**Status (2026-07-21).** After the AV/portfolio fixes on the base branch
+(`d44fe486` member setup, `edf775c7` AV empty-selection, `f2d51de0` freeze grace +
+revive + NaN-weight guard) the AV+GMM portfolio runs to completion on S250114ax and
+the default-vs-adaptive comparison is measurable.  Warm, GPU, 4 M cap,
+`--sampler-portfolio AV --sampler-portfolio GMM`:
 
-| portfolio config                    | warm peak n_eff (@N) | cold peak n_eff (@N) |
-|-------------------------------------|---------------------:|---------------------:|
-| default (hard-coded GMM member)     | 3.55 @0.65 M         | 1.92 @0.29 M *(crash @0.82 M)* |
-| adaptive GMM member (BIC, cap 8)    | 1.72 @0.82 M         | 1.00 @0.01 M *(crash @0.21 M)* |
+| warm portfolio, GMM member   | peak n_eff (grace=25, default) | peak n_eff (freeze-exempt) |
+|------------------------------|-------------------------------:|---------------------------:|
+| default (hard-coded pairing) | 3.01                           | 1.66                       |
+| **adaptive (BIC, cap 8)**    | **18.2**                       | 4.16                       |
 
-**Both stall, and the comparison is CONFOUNDED by a portfolio-dynamics pathology,
-not the GMM allocation.**  The balance heuristic assigns the AV member weight
-~0.0099 on chunk 1 -- below `portfolio_freeze_wt` (0.05, a portfolio constructor
-default with no CLI knob) -- so **AV is frozen from chunk 1** ("frozen sampling for
-member 0", its n_eff pinned at 1 with `nan`s) and never contracts its live volume.
-The portfolio then rides the warm **GMM** member (weight ~0.99), which stalls at
-n_eff~1-3 exactly as standalone GMM does.  So the intended workhorse (AV, which
-reaches ~89 standalone) is starved out before it can converge.  This is independent
-of the flexible allocation (identical with the default hard-coded GMM member) and
-is portfolio balance-heuristic territory (PR #26).  Two follow-ons for that side:
-(1) AV must not be frozen below `portfolio_freeze_wt` before it has had a chance to
-contract on a high-SNR event (a warm/cold bootstrap-protection or a breakpoint);
-(2) the cold run additionally crashes in the portfolio combine (`boolean index ...
-dimension is 10000 but ... 9882`) when the frozen AV member emits `nan` samples.
-Once AV is not starved, the flexible-GMM contribution can be isolated here.
+**The flexible allocation clearly helps the portfolio: the adaptive GMM member
+gives ~6x the peak n_eff of the hard-coded member (18.2 vs 3.01)** at the default
+grace(25).  This is the headline portfolio result -- a hands-free GMM member that
+outperforms the hand-tuned layout inside the mix.
+
+**AV is still not contributing, and freeze-exemption does NOT fix it (a separate
+balance-heuristic issue, PR #26 territory).**  AV's mixture weight stays pinned at
+~0.0099 (= 1/101, a weight floor) for the ENTIRE run whether it is frozen or not --
+so the earlier "freeze-out" was a symptom, not the cause: the balance heuristic
+simply never assigns AV meaningful weight when a warm GMM member is present, so the
+portfolio always rides the GMM member.  Making AV freeze-exempt (grace spanning the
+whole run) is actually *worse* (adaptive 4.16 vs 18.2): AV then keeps drawing its
+~1% share unproductively (with `nan`s) and dilutes the estimate, instead of being
+frozen out of the way.  So the open question for the AV/portfolio side is why the
+balance heuristic floors AV's weight at 1/101 here -- not the freezing per se.  The
+GMM-member allocation result above stands regardless.
 
 ### Driver flags
 ```
@@ -208,12 +210,14 @@ its own ~3e-5 efficiency ceiling).
   and unbiased.
 * **Do not** expect pure GMM to beat AV on high-SNR, strongly-degenerate events.
   Use the flexible GMM **inside the portfolio** (`--sampler-method portfolio`),
-  where AV carries convergence and the balance-heuristic mixture density keeps a
-  weak member from biasing -- now with a **hands-free** GMM member instead of a
-  hand-tuned component layout. `--internal-gmm-adaptive-components` is wired
-  through the portfolio (see Portfolio above); the remaining pre-existing blocker
-  is the AV member's empty-selection crash in `update_sampling_prior_selfish`
-  (PR #26 territory).
+  where the balance-heuristic mixture density keeps a weak member from biasing --
+  with a **hands-free** GMM member instead of a hand-tuned component layout.  This
+  is now wired and MEASURED (see Portfolio Status): the adaptive GMM member gives
+  ~6x the portfolio peak n_eff of the hard-coded member on S250114ax.  The one
+  remaining item is on the AV/portfolio side (PR #26): the balance heuristic floors
+  the AV member's weight at ~1/101 on this event, so AV never contributes (and
+  freeze-exemption does not fix it) -- once AV pulls its weight, the portfolio
+  should combine AV's convergence with the flexible GMM's correlated proposal.
 * **Future levers** for making GMM itself competitive here would be *coordinate*
   changes that de-curve the arc (a distance-inclination reparametrization,
   rotate-phase for phase<->pol) so a low-k axis-aligned mixture fits -- i.e.
