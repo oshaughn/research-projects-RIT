@@ -429,25 +429,47 @@ class gmm:
     def _match_components(self, new_model):
         '''
         Match components in new model to those in current model by minimizing the
-        net Mahalanobis between all pairs of components
+        net Mahalanobis between all pairs of components.
+
+        The objective is a SUM of per-pair distances, so the optimal old->new
+        assignment is a linear assignment problem, solved exactly in O(k^3) by
+        the Hungarian algorithm.  The legacy implementation enumerated all k!
+        permutations (itertools.permutations), which is fine for k<=6 but
+        explodes (8!=40320, 12!~5e8, 16!~2e13) -- it made any many-component
+        proposal (e.g. a chain of small Gaussians wrapping a curved degeneracy
+        arc) impossible to refit through update().  linear_sum_assignment
+        returns the SAME optimum (identical additive objective); only tie-break
+        ordering can differ.  Returns a tuple `order` with order[i]=j meaning
+        old component i is matched to new component j.
         '''
-        orders = list(itertools.permutations(list(range(self.k)), self.k))
-        distances = np.empty(len(orders))
-        index = 0
-        for order in orders:
-            dist = 0
-            i = 0
-            for j in order:
-                # These are likely small vectors, stay on CPU
-                diff = self.identity_convert(new_model.means[j]) - self.identity_convert(self.means[i])
-                cov_inv = np.linalg.inv(self.identity_convert(self.covariances[i]))
-                temp_cov_inv = np.linalg.inv(self.identity_convert(new_model.covariances[j]))
-                dist += np.sqrt(np.dot(np.dot(diff, cov_inv), diff))
-                dist += np.sqrt(np.dot(np.dot(diff, temp_cov_inv), diff))
-                i += 1
-            distances[index] = dist
-            index += 1
-        return orders[np.argmin(distances)]
+        k = self.k
+        # cost[i,j] = mahalanobis(new_j - old_i) under old_i cov + under new_j cov
+        cost = np.empty((k, k))
+        old_means = [self.identity_convert(m) for m in self.means]
+        new_means = [self.identity_convert(m) for m in new_model.means]
+        old_cov_inv = [np.linalg.inv(self.identity_convert(c)) for c in self.covariances]
+        new_cov_inv = [np.linalg.inv(self.identity_convert(c)) for c in new_model.covariances]
+        for i in range(k):
+            for j in range(k):
+                diff = new_means[j] - old_means[i]
+                cost[i, j] = np.sqrt(np.dot(np.dot(diff, old_cov_inv[i]), diff)) \
+                           + np.sqrt(np.dot(np.dot(diff, new_cov_inv[j]), diff))
+        try:
+            from scipy.optimize import linear_sum_assignment
+            row_ind, col_ind = linear_sum_assignment(cost)
+            # row_ind is sorted 0..k-1, so col_ind[i] is the new index for old i
+            return tuple(int(j) for j in col_ind)
+        except Exception:
+            # Defensive fallback (should not trigger: scipy.optimize is a hard
+            # RIFT dependency).  Greedy nearest assignment, O(k^2 log k).
+            order = [None] * k
+            used = set()
+            for i in np.argsort(cost.min(axis=1)):
+                j = int(min((jj for jj in range(k) if jj not in used),
+                            key=lambda jj: cost[i, jj]))
+                order[i] = j
+                used.add(j)
+            return tuple(order)
 
     def _merge(self, new_model, M):
         '''
