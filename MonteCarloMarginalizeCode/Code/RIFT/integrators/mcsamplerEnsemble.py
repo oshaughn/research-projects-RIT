@@ -291,6 +291,42 @@ class MCSampler(object):
                 model.update(temp_samples, log_sample_weights=ln_weights)
             self.integrator.gmm_dict[dim_group] = model
 
+    def bootstrap_from_samples(self, samples, params=None, n_comp_warm=2, **kwargs):
+        """Warm-start: fit this GMM's proposal to a seed cloud so it samples AT the peak from
+        the first draw, instead of having to discover the peak location from scratch.  For a
+        needle-in-a-haystack extrinsic posterior (peak ~ 10^-11 of the prior box) this is the
+        difference between converging and never finding the peak by cold draws.
+
+        Builds the integrator if setup() has not run yet, then (re)fits one GMM per dim-group
+        from the seed with EQUAL weights -- this only shapes the proposal, carries no lnL
+        information, so it cannot bias the estimate (the importance weights still use the true
+        likelihood).  AV-only kwargs (cover_frac / inflate) are accepted and ignored, so a
+        portfolio can forward a single seed to every member uniformly.
+
+        `samples`: (N, ndim) array, columns in self.params_ordered order."""
+        samples = np.asarray(self.identity_convert(samples))
+        ndim = len(self.params_ordered)
+        if samples.ndim != 2 or samples.shape[1] != ndim:
+            raise ValueError("GMM warm-start expects (N,{}) samples in params_ordered order".format(ndim))
+        # (Re)build the integrator as a SINGLE full-dimensional Gaussian group.  Two reasons:
+        #  * modeling -- a localized high-SNR peak has strong cross-parameter correlations
+        #    (sky<->phase<->distance); one full-dim mixture captures them, whereas the default
+        #    per-dimension factored proposal cannot and "can stall at the prior".
+        #  * robustness -- the default gmm_dict=None path leaves integrator.bounds as a raw
+        #    array (not a per-group dict), which breaks the per-group fit; the correlate-all
+        #    path builds proper dict bounds.
+        n_comp = n_comp_warm
+        if (self.integrator is not None and isinstance(self.integrator.n_comp, int)
+                and self.integrator.n_comp > 0):
+            n_comp = self.integrator.n_comp
+        self.setup(n_comp=int(n_comp), correlate_all_dims=True)
+        rvs = {p: samples[:, j] for j, p in enumerate(self.params_ordered)}
+        # equal weights == "put proposal mass at these seed locations" (no lnL info)
+        self.update_sampling_prior(self.xpy.zeros(len(samples)), len(samples),
+                                   external_rvs=rvs, log_scale_weights=True)
+        print("  [GMM warm-start] fitted full-dim proposal to {} seed samples (n_comp={})".format(
+            len(samples), n_comp))
+        return True
 
     def draw_simplified(self,n,*args,**kwargs):
         n_samples = int(n)
