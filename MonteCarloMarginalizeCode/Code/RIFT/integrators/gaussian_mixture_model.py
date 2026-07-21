@@ -66,6 +66,7 @@ if not _ORIGINAL_AVAILABLE:
 from scipy.special import logsumexp
 from . import multivariate_truncnorm as truncnorm
 import itertools
+import math
 
 
 def _xpy_logsumexp(a, axis=None):
@@ -426,6 +427,33 @@ class gmm:
         self.p_nk = model.p_nk
         self.log_prob = model.log_prob
 
+    def num_free_params(self):
+        '''Number of free parameters of this k-component d-dim mixture:
+        k means (k*d) + k covariances (k*d*(d+1)/2) + (k-1) mixture weights.'''
+        d = self.d
+        return self.k*d + self.k*(d*(d+1))//2 + (self.k - 1)
+
+    def prune_components(self, weight_floor=1e-3):
+        '''Drop mixture components whose weight falls below weight_floor and
+        renormalize.  Over-allocated components collapse to ~zero weight under
+        EM; removing them (a) prevents a spurious sharp component from dominating
+        the importance weights and (b) cuts score() cost, which is O(k) in the
+        per-component mvnun box normalization.  Always keeps at least one
+        component (the largest).  No-op if nothing is below the floor.'''
+        w = np.asarray(self.identity_convert(self.weights), dtype=float)
+        keep = np.where(w >= weight_floor)[0]
+        if len(keep) == 0:
+            keep = np.array([int(np.argmax(w))])
+        if len(keep) == self.k:
+            return
+        self.means = [self.means[i] for i in keep]
+        self.covariances = [self.covariances[i] for i in keep]
+        w_keep = w[keep]
+        w_keep = w_keep / w_keep.sum()
+        self.weights = self.identity_convert_togpu(w_keep)
+        self.adapt = [self.adapt[i] for i in keep] if isinstance(self.adapt, list) else self.adapt
+        self.k = len(keep)
+
     def _match_components(self, new_model):
         '''
         Match components in new model to those in current model by minimizing the
@@ -663,3 +691,153 @@ class gmm:
                 print(weight, '\n')
             else:
                 print(i, weight, self._unnormalize(np.array([mean]))[0,0], mean[0], np.sqrt(cov[0,0]))
+
+
+def _mixture_log_density_normalized(model, Xn):
+    '''Log mixture density (n,) of a fitted `gmm` at NORMALIZED samples Xn (n,d),
+    in the model's normalized [-1,1] coordinate frame.  Backend-portable.'''
+    xpy = model.xpy
+    n = Xn.shape[0]
+    logk = xpy.empty((n, model.k))
+    for j in range(model.k):
+        mean = model.means[j]
+        cov = model.covariances[j]
+        if cupy_ok:
+            lp = gpu_logpdf(Xn, mean, cov, xpy)
+        else:
+            lp = multivariate_normal.logpdf(x=model.identity_convert(Xn),
+                                            mean=model.identity_convert(mean),
+                                            cov=model.identity_convert(cov),
+                                            allow_singular=True)
+        logk[:, j] = lp + xpy.log(model.weights[j])
+    return _xpy_logsumexp(logk, axis=1)
+
+
+def add_defensive_component(model, defensive_frac=0.05, width_norm=1.0):
+    '''Append a broad, box-covering "defensive" component to a fitted mixture so
+    the proposal has heavy enough tails for importance sampling.
+
+    This is the single most important fix for the SNR~82 extrinsic posterior: a
+    mixture fit to the (tight) elite cloud UNDER-COVERS the broad, degenerate
+    directions (distance-inclination), so the importance weight L*p/q blows up on
+    the rare draw that lands in a poorly-covered high-likelihood pocket and the
+    effective sample size collapses to ~1.  A defensive component (Hesterberg
+    1995) with weight `defensive_frac`, wide in the model's normalized [-1,1]
+    frame, bounds the weights: q >= defensive_frac * q_broad everywhere, so no
+    single sample can dominate.  The AV sampler gets the same guarantee from its
+    cover-fraction floor; the fitted GMM had none.
+
+    width_norm is the std of the defensive Gaussian in normalized coords (1.0 ~
+    covers the whole [-1,1] box; truncated to the box it is near-uniform).
+    '''
+    if not defensive_frac or defensive_frac <= 0:
+        return model
+    xpy = model.xpy
+    d = model.d
+    w = np.asarray(model.identity_convert(model.weights), dtype=float)
+    means = [model.identity_convert(m) for m in model.means]
+    covs = [model.identity_convert(c) for c in model.covariances]
+    means.append(np.zeros(d))                       # box center (normalized)
+    covs.append((width_norm ** 2) * np.eye(d))      # broad, box-covering
+    w = np.concatenate([w * (1.0 - defensive_frac), [defensive_frac]])
+    model.means = [model.identity_convert_togpu(m) for m in means]
+    model.covariances = [model.identity_convert_togpu(c) for c in covs]
+    model.weights = model.identity_convert_togpu(w / w.sum())
+    model.adapt = list(model.adapt) + [False] if isinstance(model.adapt, list) else model.adapt
+    model.k = len(means)
+    return model
+
+
+def fit_gmm_adaptive(sample_array, bounds, log_sample_weights=None, k_max=8,
+                     k_candidates=None, epsilon=None, tempering_coeff=1e-8,
+                     prune_weight_floor=1e-3, defensive_frac=0.05, inflate=1.0):
+    '''Fit a GMM whose COMPONENT COUNT is chosen from the data by BIC, then
+    prune near-zero-weight components.  Data-driven replacement for a hard-coded
+    per-group component count.
+
+    Rationale (measured on the S250114ax extrinsic posterior, SNR~82):
+      * A fixed SMALL k (e.g. the correlate-all default of 2) cannot wrap a
+        curved distance-inclination degeneracy arc: the elite fit is one broad
+        Gaussian over the ridge, the proposal never locks onto the peak, and
+        the honest effective sample size stays ~1.
+      * A fixed LARGE k is both statistically fragile (a spurious sharp
+        component collapses onto ~1 elite sample and dominates the importance
+        weights) and computationally costly (score() does an O(k) per-component
+        mvnun box normalization on the CPU).
+    BIC threads between the two: fit k over a ladder, penalize free parameters
+    by ln(N_eff), keep the best, and drop dead components.  It allocates more
+    components only where the (importance-weighted) cloud is genuinely
+    non-Gaussian and stays at k=1 for a single blob.
+
+    Parameters
+    ----------
+    sample_array : (N, d) array in ORIGINAL coordinates.
+    bounds       : (d, 2) array of [llim, rlim] per dimension (as gmm expects).
+    log_sample_weights : (N,) importance/elite log-weights (default: equal).
+    k_max        : cap on the number of components.
+    k_candidates : explicit ladder (overrides k_max-derived ladder).
+    prune_weight_floor : components below this mixture weight are removed.
+
+    Returns a fitted `gmm`.
+    '''
+    xpy = xpy_default
+    N, d = sample_array.shape
+    if log_sample_weights is None:
+        log_sample_weights = xpy.zeros(N)
+    # Kish effective sample size of the fit weights (drives both the BIC penalty
+    # and the per-component sample-count cap).
+    lw = xpy.where(xpy.isfinite(log_sample_weights), log_sample_weights,
+                   -xpy.inf * xpy.ones(N))
+    lw_max = xpy.max(lw)
+    if not bool(xpy.isfinite(lw_max)):
+        wn = xpy.ones(N)
+    else:
+        wn = xpy.exp(lw - lw_max)
+    wn = xpy.where(xpy.isfinite(wn), wn, xpy.zeros(N))
+    sw = xpy.sum(wn)
+    if not bool(sw > 0):
+        wn = xpy.ones(N); sw = float(N)
+    wn = wn / sw
+    N_eff = float(1.0 / xpy.sum(wn ** 2))
+
+    if k_candidates is None:
+        base = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32]
+        k_candidates = [k for k in base if k <= k_max]
+        if int(k_max) not in k_candidates:
+            k_candidates.append(int(k_max))
+    # cap k so each component retains >~ (d+2) effective samples (an EM stability
+    # floor mirroring estimator._m_step's ESS>=d+1 guard).
+    k_cap = max(1, int(N_eff // max(d + 2, 4)))
+    k_candidates = sorted(set(int(k) for k in k_candidates if 1 <= k <= max(1, k_cap)))
+    if not k_candidates:
+        k_candidates = [1]
+
+    ln_Neff = math.log(max(N_eff, 2.0))
+    wn_scaled = N_eff * wn   # effective-count weights (sum to N_eff)
+    best, best_bic = None, None
+    for k in k_candidates:
+        try:
+            model = gmm(k, bounds, epsilon=epsilon, tempering_coeff=tempering_coeff)
+            model.fit(sample_array, log_sample_weights=log_sample_weights)
+            logmix = _mixture_log_density_normalized(model, model._normalize(sample_array))
+            wll = float(xpy.sum(wn_scaled * logmix))       # weighted log-likelihood
+            bic = -2.0 * wll + model.num_free_params() * ln_Neff
+        except Exception:
+            continue
+        if best_bic is None or bic < best_bic:
+            best, best_bic = model, bic
+    if best is None:   # every candidate failed: fall back to a single component
+        best = gmm(1, bounds, epsilon=epsilon, tempering_coeff=tempering_coeff)
+        best.fit(sample_array, log_sample_weights=log_sample_weights)
+    if prune_weight_floor:
+        best.prune_components(prune_weight_floor)
+    if inflate and inflate != 1.0:
+        # widen every fitted component so the proposal has heavier tails than the
+        # (tight) elite cloud it was fit to -- a basic importance-sampling
+        # requirement the raw EM fit violates on a peaked/degenerate posterior.
+        fac = float(inflate) ** 2
+        best.covariances = [best.identity_convert_togpu(fac * best.identity_convert(c))
+                            for c in best.covariances]
+    if defensive_frac:
+        add_defensive_component(best, defensive_frac=defensive_frac)
+    return best

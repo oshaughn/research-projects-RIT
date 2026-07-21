@@ -180,6 +180,9 @@ class MCSampler(object):
       write_to_file = kwargs['write_to_file'] if "write_to_file" in kwargs else False
       correlate_all_dims = kwargs['correlate_all_dims'] if  "correlate_all_dims" in kwargs else False
       gmm_adapt = kwargs['gmm_adapt'] if "gmm_adapt" in kwargs else None
+      gmm_adaptive = kwargs['gmm_adaptive'] if "gmm_adaptive" in kwargs else None
+      gmm_defensive_frac = kwargs['gmm_defensive_frac'] if "gmm_defensive_frac" in kwargs else 0.05
+      gmm_inflate = kwargs['gmm_inflate'] if "gmm_inflate" in kwargs else 1.0
       gmm_epsilon = kwargs['gmm_epsilon'] if "gmm_epsilon" in kwargs else None
       L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
       tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 1.0
@@ -229,7 +232,8 @@ class MCSampler(object):
 
       self.integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp, n=self.n, prior=self.calc_pdf,
                          user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_adapt=gmm_adapt,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp,
-                         tempering_adapt=tempering_adapt, ess_target=ess_target, ess_floor=ess_floor)
+                         tempering_adapt=tempering_adapt, ess_target=ess_target, ess_floor=ess_floor, gmm_adaptive=gmm_adaptive,
+                         gmm_defensive_frac=gmm_defensive_frac, gmm_inflate=gmm_inflate)
 
     def update_sampling_prior(self,ln_weights, n_history,tempering_exp=1,log_scale_weights=True,floor_integrated_probability=0,external_rvs=None,**kwargs):
       rvs_here = self._rvs
@@ -423,6 +427,9 @@ class MCSampler(object):
         write_to_file = kwargs['write_to_file'] if "write_to_file" in kwargs else False
         correlate_all_dims = kwargs['correlate_all_dims'] if  "correlate_all_dims" in kwargs else False
         gmm_adapt = kwargs['gmm_adapt'] if "gmm_adapt" in kwargs else None
+        gmm_adaptive = kwargs['gmm_adaptive'] if "gmm_adaptive" in kwargs else None
+        gmm_defensive_frac = kwargs['gmm_defensive_frac'] if "gmm_defensive_frac" in kwargs else 0.05
+        gmm_inflate = kwargs['gmm_inflate'] if "gmm_inflate" in kwargs else 1.0
         gmm_epsilon = kwargs['gmm_epsilon'] if "gmm_epsilon" in kwargs else None
         L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 1.0
@@ -486,7 +493,26 @@ class MCSampler(object):
 
         integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp, n=n, prior=self.calc_pdf,
                          user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_adapt=gmm_adapt,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp,
-                         tempering_adapt=tempering_adapt, ess_target=ess_target, ess_floor=ess_floor)
+                         tempering_adapt=tempering_adapt, ess_target=ess_target, ess_floor=ess_floor, gmm_adaptive=gmm_adaptive,
+                         gmm_defensive_frac=gmm_defensive_frac, gmm_inflate=gmm_inflate)
+        # Warm-start survival: a prior setup()/bootstrap_from_samples fits proposal
+        # models and stores them on self.integrator, but integrate() rebuilds a fresh
+        # integrator from the passed gmm_dict (values None) -- so without this the
+        # bootstrapped fit is SILENTLY DISCARDED and a "warm" run starts cold
+        # (measured: warm correlate-all began at n_eff=1.0, climbed to only ~7 @4M).
+        # Transfer any fitted model whose dim-group key matches; a key mismatch
+        # (e.g. bootstrap built correlate-all but the run uses the factored pairing)
+        # simply falls back to cold, so this can never bias or crash.
+        prev = getattr(self, 'integrator', None)
+        if prev is not None and prev is not integrator and getattr(prev, 'gmm_dict', None):
+            n_xfer = 0
+            for key, model in prev.gmm_dict.items():
+                if model is not None and key in integrator.gmm_dict and integrator.gmm_dict[key] is None:
+                    integrator.gmm_dict[key] = model
+                    n_xfer += 1
+            if n_xfer:
+                print("  [GMM warm-start] transferred {} fitted proposal group(s) into the integrator".format(n_xfer))
+        self.integrator = integrator
         if not direct_eval:
             func = self.evaluate
         if use_lnL:

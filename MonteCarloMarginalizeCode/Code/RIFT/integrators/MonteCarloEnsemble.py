@@ -96,13 +96,21 @@ class integrator:
 
     def __init__(self, d, bounds, gmm_dict, n_comp, n=None, prior=None,
                 user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,return_lnI=False,gmm_adapt=None,gmm_epsilon=None,tempering_exp=1,temper_log=False,lnw_failure_cut=None,
-                tempering_adapt=False, ess_target=None, ess_floor=None):
+                tempering_adapt=False, ess_target=None, ess_floor=None, gmm_adaptive=None,
+                gmm_defensive_frac=0.05, gmm_inflate=1.0):
         # if 'return_lnI' is active, 'integral' holds the *logarithm* of the integral.
         # user-specified parameters
         self.d = d
         self.bounds = bounds
         self.gmm_dict = gmm_dict
         self.gmm_adapt = gmm_adapt
+        # gmm_adaptive: {dim_group: k_max}.  Groups listed here choose their
+        # component count from the data by BIC (refit-fresh each chunk via
+        # GMM.fit_gmm_adaptive) instead of using a fixed n_comp -- see _train.
+        self.gmm_adaptive = gmm_adaptive
+        # defensive tail coverage + covariance inflation for adaptive groups
+        self.gmm_defensive_frac = gmm_defensive_frac
+        self.gmm_inflate = gmm_inflate
         self.gmm_epsilon= gmm_epsilon
         self.n_comp = n_comp
         self.user_func=user_func
@@ -336,8 +344,28 @@ class integrator:
             for dim in dim_group:
                 temp_samples[:,index] = sample_array[:,dim]
                 index += 1
+            adaptive_kmax = None
+            if self.gmm_adaptive and (dim_group in self.gmm_adaptive):
+                adaptive_kmax = self.gmm_adaptive[dim_group]
             if model is None:
-                if isinstance(self.n_comp, int) and self.n_comp != 0:
+                if adaptive_kmax:
+                    # FLEXIBLE allocation: choose this group's component count
+                    # from the data by BIC at INITIALIZATION, then hand off to the
+                    # proven-stable merge adaptation below (model.update()).  We
+                    # deliberately do NOT re-fit fresh every chunk: a per-chunk
+                    # BIC refit makes the proposal wander (measured: n_eff peaks
+                    # then collapses) because each fit sees a different elite
+                    # cloud; the incremental merge smooths that out.  BIC replaces
+                    # ONLY the hard-coded per-group count (e.g. sky=4, dist-incl=2)
+                    # -- more components where the weighted cloud is genuinely
+                    # non-Gaussian, k=1 for a single blob.
+                    model = GMM.fit_gmm_adaptive(temp_samples, new_bounds,
+                                                 log_sample_weights=log_weights,
+                                                 k_max=int(adaptive_kmax),
+                                                 epsilon=self.gmm_epsilon,
+                                                 defensive_frac=self.gmm_defensive_frac,
+                                                 inflate=self.gmm_inflate)
+                elif isinstance(self.n_comp, int) and self.n_comp != 0:
                     model = GMM.gmm(self.n_comp, new_bounds,epsilon=self.gmm_epsilon)
                     model.fit(temp_samples, log_sample_weights=log_weights)
                 elif isinstance(self.n_comp, dict) and self.n_comp[dim_group] != 0:

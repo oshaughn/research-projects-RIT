@@ -303,6 +303,10 @@ integration_params.add_option("--adapt-log",action='store_true',help="Use a loga
 integration_params.add_option("--internal-gmm-correlate-all",action='store_true',help="GMM sampler: use a SINGLE full-dimension GMM group instead of the default (sky)(distance,inclination)(psi,phi) pairing. The default pairing targets quadrupole-dominated binaries with a large sky ring; a product of per-group GMMs cannot represent cross-group correlations (e.g. sky-phase), and for a strongly-localized single-peak source the factored proposal can stall at the prior. Component count from --internal-gmm-sky-components (default 2 in this mode).")
 integration_params.add_option("--internal-gmm-sky-components",type=int,default=None,help="GMM sampler: number of mixture components for the (ra,dec) group (default 4, sized for a large sky ring; use 1-2 for a well-localized single peak, e.g. 3+ IFOs / high SNR). With --internal-gmm-correlate-all, sets the single full-dimension group's component count.")
 integration_params.add_option("--internal-gmm-phase-components",type=int,default=None,help="GMM sampler: number of mixture components for the (psi,phi_orb) group (default 4; use 1-2 for a single dominant phase peak).")
+integration_params.add_option("--internal-gmm-adaptive-components",action='store_true',help="GMM sampler (FLEXIBLE allocation): choose each adaptive group's component count from the DATA by BIC each chunk (GMM.fit_gmm_adaptive), instead of the hard-coded per-group counts (sky=4,dist-incl=2,...) that target quadrupole/large-sky-ring binaries.  BIC allocates more components only where the importance-weighted cloud is genuinely non-Gaussian (e.g. a curved distance-inclination arc) and stays at k=1 for a single blob; a defensive tail component (see --internal-gmm-defensive-frac) keeps the importance weights bounded.  Cap per group via --internal-gmm-max-components.")
+integration_params.add_option("--internal-gmm-max-components",type=int,default=8,help="Cap on the per-group component count for --internal-gmm-adaptive-components (default 8).")
+integration_params.add_option("--internal-gmm-defensive-frac",type=float,default=0.05,help="Weight of the broad box-covering 'defensive' mixture component added to each adaptive GMM group (default 0.05).  Bounds the importance weights so a tight fit to the elite cloud cannot blow up n_eff on the broad/degenerate directions (the fix that gets GMM n_eff off ~1 at high SNR).  Set 0 to disable.")
+integration_params.add_option("--internal-gmm-inflate",type=float,default=1.0,help="Covariance inflation factor (std multiplier) applied to each adaptive GMM component (default 1.0 = none).  A value >1 widens the proposal relative to the elite cloud it was fit to; complements --internal-gmm-defensive-frac.")
 integration_params.add_option("--interpolate-time", default=False,help="If using the maintained NoLoop likelihood, evaluate Q_lm at fractional detector times using cubic interpolation instead of nearest sample bins. Accepts truthy values such as True/1/yes. (Default=false)")
 integration_params.add_option("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean), 'pseudo_cosmo', and 'cosmo'  and 'cosmo_sourceframe' .")
 integration_params.add_option("--d-prior-redshift", action='store_true', help="If true, distance prior is computed in redshift. This option MAY be enforced for 'cosmo' sampling")
@@ -1692,6 +1696,21 @@ if opts.sampler_method == "GMM":
     else:
       comp_dict = {pair_ra_dec:n_sky,pair_d_incl:n_d,pair_phi_psi:n_phase}
     extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict, 'gmm_adapt':gmm_adapt}  # made up for now, should adjust
+    # FLEXIBLE allocation: each ADAPTING group chooses its component count from
+    # the data by BIC (GMM.fit_gmm_adaptive), replacing the hard-coded per-group
+    # counts above.  A defensive tail component + optional inflation keep the
+    # importance weights bounded (the fix that gets GMM n_eff off ~1 at high SNR).
+    if opts.internal_gmm_adaptive_components:
+      k_cap = int(opts.internal_gmm_max_components)
+      gmm_adaptive = {}
+      for _g in gmm_dict:
+        if (gmm_adapt is None) or gmm_adapt.get(_g, True):   # only groups that adapt
+          gmm_adaptive[_g] = k_cap
+      extra_args['gmm_adaptive'] = gmm_adaptive
+      extra_args['gmm_defensive_frac'] = float(opts.internal_gmm_defensive_frac)
+      extra_args['gmm_inflate'] = float(opts.internal_gmm_inflate)
+      print("GMM adaptive components (BIC, cap {}, defensive {}, inflate {}): groups {}".format(
+          k_cap, opts.internal_gmm_defensive_frac, opts.internal_gmm_inflate, list(gmm_adaptive.keys())))
     print("GMM:",extra_args)
     print("GMM:",sampler.params_ordered)
     # if opts.distance_marginalization:
