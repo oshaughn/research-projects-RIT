@@ -338,6 +338,7 @@ integration_params.add_option("--sampler-sequential-warmstart-cover-frac",type=f
 integration_params.add_option("--sampler-sequential-warmstart-deltalnL",type=float,default=15.0,help="Keep previous-point samples within this lnL of the max as the warm seed for the next point.  Default 15.")
 integration_params.add_option("--sampler-warmstart-retry-neff",type=float,default=None,help="AV only (L0 auto-rescue): if a cold pass finishes below this n_eff (i.e. it stalled on a very sharp / high-amplitude peak), automatically re-run a second pass warm-started from THIS point's own highest-likelihood samples.  Same-problem reuse, so it cannot bias the result.  Recommended for high-SNR events; e.g. 5.")
 integration_params.add_option("--sampler-anisotropic-bins",action="store_true",help="AV only: give each extrinsic axis a DIFFERENT number of bins during contraction -- fine where the live points cluster tightly (phase/polarization/sky), coarse where they are broad (distance/inclination) -- instead of the default equal split.  Keeps the same total bin budget, so the estimator is unchanged; helps AV wrap a correlated/degenerate posterior more tightly.")
+integration_params.add_option("--internal-reparam-dl-incl",action="store_true",help="Sample the DISTANCE axis as an effective distance D_eff = d_L / A(iota), with A(iota)=sqrt(((1+cos^2 i)/2)^2 + cos^2 i) the leading (l=|m|=2) inclination amplitude.  This axis-aligns the distance<->inclination degeneracy (L depends mostly on A(iota)/d_L), decorrelating the two broad directions so the sampler wraps them efficiently.  The likelihood reconstructs physical d_L=D_eff*A(iota); the measure correction is PRIOR-AGNOSTIC -- ln p(d_L) - ln p(D_eff) + ln A(iota), using the ACTUAL --d-prior (dist_prior_pdf), so it is correct for Euclidean, cosmo, cosmo_sourceframe, pseudo_cosmo alike (normalization cancels in the ratio; reduces to +3 ln A only for Euclidean).  The physical d_L bound is enforced.  NOT compatible with --d-prior-redshift (errors out).  Estimator stays unbiased (validate vs baseline posterior).")
 integration_params.add_option("--extrinsic-proposal-field",default=None,help="AV only (L3): path to a ProposalField (.npz built by util_BuildProposalField.py from a previous ILE iteration).  Each intrinsic point warm-starts its extrinsic integral from the field's nearest entry.  Cross-problem reuse, so a coverage floor + an inflation margin are applied (see the two options below); a stale/mismatched field can only cost efficiency, never bias.")
 integration_params.add_option("--extrinsic-proposal-field-cover-frac",type=float,default=0.1,help="Coverage floor for --extrinsic-proposal-field handoff (default 0.1).")
 integration_params.add_option("--extrinsic-proposal-field-inflate",type=float,default=1.5,help="Handoff safety margin for --extrinsic-proposal-field: widen the imported seed by this factor about its mean to cover the peak shift between the neighbouring intrinsic point and this one (default 1.5).")
@@ -502,6 +503,17 @@ if opts.resample_time_marginalization and not(opts.fairdraw_extrinsic_output):
 #  if opts.sampler_method == 'GMM':
 #    raise Exception(" Fairdraw not available  for this sampler")
 
+
+def _reparam_A_of_incl(incl_rad, xpy=numpy):
+    """Leading (l=|m|=2) inclination amplitude A(iota)=sqrt(((1+cos^2 i)/2)^2 + cos^2 i).
+    Used by --internal-reparam-dl-incl to map the effective distance D_eff <-> physical d_L
+    (d_L = D_eff * A(iota)).  A in [0.5 (edge-on), sqrt(2) (face-on)]."""
+    ci = xpy.cos(incl_rad)
+    return xpy.sqrt(((1.0 + ci*ci)/2.0)**2 + ci*ci)
+
+_REPARAM_A_MIN = 0.5           # A(iota=pi/2), edge-on
+_REPARAM_A_MAX = numpy.sqrt(2.0)  # A(iota=0), face-on
+_REPARAM_LNF = 0.0            # ln(physical-range prior mass fraction); set at setup for --internal-reparam-dl-incl
 
 supplemental_ln_likelihood= None
 supplemental_ln_likelhood_prep=None
@@ -1098,6 +1110,19 @@ param_limits = { "psi": (0, 2*numpy.pi),
 if opts.internal_rotate_phase:
   param_limits['psi'] = (0, 4*numpy.pi)
   param_limits['phi_orb'] = (0, 4*numpy.pi)
+if opts.internal_reparam_dl_incl:
+  # The reparam operates in DISTANCE units (D_eff = d_L/A in Mpc).  --d-prior-redshift samples
+  # in redshift and converts, which does not compose with the amplitude relation -- refuse it
+  # rather than silently bias.  All distance-space priors (Euclidean/cosmo/cosmo_sourceframe/
+  # pseudo_cosmo) ARE supported: the measure correction below uses dist_prior_pdf directly.
+  if getattr(opts, 'd_prior_redshift', False):
+    raise SystemExit(" --internal-reparam-dl-incl is not compatible with --d-prior-redshift (redshift-space sampling). Use a distance-space --d-prior.")
+  # sample the distance axis as D_eff = d_L / A(iota); widen it so physical d_L = D_eff*A(iota)
+  # can cover [dmin,dmax] for all iota (A in [0.5, sqrt(2)]).  dist_prior_pdf auto-normalizes
+  # over this range (=> a constant lnZ offset vs baseline, computable; posterior unaffected);
+  # the physical d_L bound and the prior-agnostic measure term are applied in the likelihood closure.
+  param_limits['distance'] = (dmin/_REPARAM_A_MAX, dmax/_REPARAM_A_MIN)
+  print("  [reparam d_L<->D_eff] distance axis is D_eff; sampling range {:.1f}..{:.1f}".format(*param_limits['distance']))
 # Optional truth-centered "zoom box": narrow the extrinsic sampling AND prior ranges so the
 # adaptive sampler can resolve a narrow high-SNR peak it could never find from the full prior.
 # Threads through param_limits into every sky/orientation sampler + its pdf/cdf_inv/prior_pdf.
@@ -1337,8 +1362,19 @@ elif not opts.distance_marginalization:
   elif opts.d_prior != 'Euclidean':
     print(" ==== WARNING UNKNOWN DISTANCE PRIOR === ")
     raise Exception('distance prior')
+  if opts.internal_reparam_dl_incl:
+    # dist_prior_pdf is normalized over the WIDENED D_eff range; the physical prior must be
+    # normalized over [dmin,dmax].  ln F = ln(mass of dist_prior_pdf in [dmin,dmax]); the closure
+    # subtracts it so the reported lnZ matches the baseline physical-range normalization exactly.
+    _xg = numpy.linspace(dmin, dmax, 40000)
+    try:
+      _pg = numpy.asarray(dist_prior_pdf(_xg), dtype=float)
+    except Exception:
+      _pg = numpy.array([float(dist_prior_pdf(numpy.array([_x]))[0]) for _x in _xg])
+    _REPARAM_LNF = float(numpy.log(numpy.trapz(_pg, _xg)))
+    print("  [reparam] physical-range prior-mass fraction F={:.4f} (lnF={:.3f}); lnZ normalization matched".format(numpy.exp(_REPARAM_LNF), _REPARAM_LNF))
   #dist_sampler_cdf_inv=None
-  sampler.add_parameter("distance", 
+  sampler.add_parameter("distance",
                         pdf = dist_sampler, 
                         cdf_inv = dist_sampler_cdf_inv,
                         left_limit = param_limits["distance"][0], 
@@ -2268,6 +2304,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   distance = redshift_to_distance(distance)
 
                 P.psi = xpy_default.asarray(psi, dtype=np.float64)
+                if opts.internal_reparam_dl_incl:
+                  # distance axis holds D_eff; reconstruct physical d_L = D_eff * A(iota)
+                  distance = distance * _reparam_A_of_incl(P.incl, xpy=xpy_default)
                 P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC, dtype=np.float64) # luminosity distance
 
                 # rotate sky if needed
@@ -2304,6 +2343,19 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         cal_method=('fused' if use_fused_calmarg and opts._noloop_time_interp == 'nearest' else 'loop'), cal_log_weights=calibration_log_weights,
                         time_interp=opts._noloop_time_interp)  # non-distmarg: default-helper fused kernel (cal_distmarg=None)
 #                nEvals +=len(right_ascension)
+                if opts.internal_reparam_dl_incl:
+                  # PRIOR-AGNOSTIC measure for the D_eff<->d_L reparam: the integrand needs
+                  #   p_prior(d_L) * |dd_L/dD_eff|  but the sampler applied p_prior(D_eff),
+                  # so add  ln p(d_L) - ln p(D_eff) + ln A , using the ACTUAL --d-prior
+                  # (dist_prior_pdf).  Its normalization cancels in the ratio, so this is correct
+                  # for Euclidean / cosmo / cosmo_sourceframe / pseudo_cosmo (reduces to +3 ln A
+                  # only for Euclidean).  Then enforce the physical d_L in [dmin,dmax].
+                  _A = _reparam_A_of_incl(P.incl, xpy=xpy_default)
+                  _dl = distance                # physical d_L (reconstructed above)
+                  _deff = _dl / _A              # the sampled D_eff
+                  # physical prior normalized over [dmin,dmax] (=> - _REPARAM_LNF); sampler prior at D_eff; Jacobian A
+                  lnL = lnL + (xpy_default.log(dist_prior_pdf(_dl)) - _REPARAM_LNF) - xpy_default.log(dist_prior_pdf(_deff)) + xpy_default.log(_A)
+                  lnL = xpy_default.where((_dl >= dmin) & (_dl <= dmax), lnL, -1e300)
                 if supplemental_ln_likelihood:
                   lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist,xpy=xpy_default) # use these variables so they are already float-type
                 if return_lnL:
