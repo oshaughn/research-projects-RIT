@@ -200,6 +200,39 @@ class MCSampler(object):
             self.adaptive = member.adaptive  # top level list of adaptive coordinates
 
 
+    def bootstrap_from_samples(self, samples, params=None, **kwargs):
+        """Warm-start: forward a seed cloud to every member that supports it (e.g. the
+        AV/VARAHA member's live volume).  Members without bootstrap_from_samples are left
+        cold.  This is safe: a warm start only ever shapes a member's proposal, and the
+        portfolio combines members with the balance-heuristic mixture density (q_mix), so a
+        cold or mis-seeded member can only cost efficiency, never bias the estimate.  Column
+        order matches self.params_ordered, which every member shares (add_parameter forwards
+        to all members in the same order), so no per-member remapping is needed.
+
+        Only VARAHA/AV-style members (those exposing bootstrap_from_samples) are seeded
+        directly here.  GMM / adaptive-Gaussian members cannot be seeded pre-integration
+        (their internal integrator, hence gmm_dict, does not exist until the first
+        integrate() call), but they still warm up STRUCTURALLY during the run: the portfolio
+        lets the cold GMM member adapt its proposal from the warm AV member's high-likelihood
+        draws, which is what gives the mixture a faster early n_eff than warm-AV alone.  An
+        explicit GMM pre-seed (build an initial gmm_dict from the sample cloud) is a future
+        enhancement.  q_mix keeps any cold/mis-seeded member from biasing the estimate.
+
+        Returns the number of members warm-started (0 is fine; the portfolio still runs)."""
+        samples = np.asarray(samples)
+        n_warmed = 0
+        for indx, member in enumerate(self.portfolio_realizations):
+            if not hasattr(member, 'bootstrap_from_samples'):
+                continue
+            try:
+                member.bootstrap_from_samples(samples, params=params, **kwargs)
+                n_warmed += 1
+            except Exception as e:
+                print("  [portfolio] member {} warm-start skipped ( {} )".format(indx, e))
+        print("  [portfolio] warm-started {}/{} members directly (others warm structurally)".format(
+            n_warmed, len(self.portfolio_realizations)))
+        return n_warmed
+
     def setup(self,  **kwargs):
         self.extra_args =kwargs  # may need to pass/use during the 'update' step
         if 'oracle_realizations' in kwargs:

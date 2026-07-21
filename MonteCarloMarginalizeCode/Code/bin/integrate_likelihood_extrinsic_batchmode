@@ -2557,19 +2557,22 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
              lnL_oracles  = np.zeros(opts.n_chunk)
              sampler.update_sampling_prior(lnL_oracles, opts.n_chunk, external_rvs=rvs_train,log_scale_weights=True,floor_integrated_probability=opts.adapt_floor_level)
 
-    # AV warm-start / bootstrap.  The AV (VARAHA) sampler has no update_sampling_prior,
-    # so the skymap-oracle seeding above is skipped for it; instead seed its live
-    # volume directly (bootstrap_from_samples).  A seed only shapes the initial
-    # proposal, never the integral, so this cannot bias the result.
-    if opts.sampler_method == 'AV' and hasattr(sampler, 'bootstrap_from_samples'):
+    # Warm-start / bootstrap.  The AV (VARAHA) sampler has no update_sampling_prior, so the
+    # skymap-oracle seeding above is skipped for it; instead seed its live volume directly
+    # (bootstrap_from_samples).  A PORTFOLIO forwards the seed to its warm-startable members
+    # (e.g. its AV member) via the same method; members without it stay cold, and the
+    # balance-heuristic mixture density (q_mix) keeps a cold/mis-seeded member from biasing.
+    # A seed only shapes the initial proposal, never the integral, so this cannot bias.
+    # Fires for any sampler exposing bootstrap_from_samples (AV directly, or a portfolio).
+    if hasattr(sampler, 'bootstrap_from_samples'):
         try:
-            if opts.sampler_load_state:
-                print("  AV warm-start: loading live-volume state from", opts.sampler_load_state)
+            if opts.sampler_load_state and hasattr(sampler, 'load_state'):
+                print("  warm-start: loading saved sampler state from", opts.sampler_load_state)
                 sampler.load_state(opts.sampler_load_state)
             elif opts.sampler_warmstart_samples:
                 _dat = np.genfromtxt(opts.sampler_warmstart_samples, names=True)
                 _cols = np.vstack([np.asarray(_dat[p], dtype=float) for p in sampler.params_ordered]).T
-                print("  AV warm-start: bootstrapping from", opts.sampler_warmstart_samples, _cols.shape,
+                print("  warm-start: bootstrapping from", opts.sampler_warmstart_samples, _cols.shape,
                       "(cover_frac={}, inflate={})".format(opts.sampler_warmstart_cover_frac, opts.sampler_warmstart_inflate))
                 # cover_frac + inflate are the handoff safety margins: this seed usually
                 # comes from a DIFFERENT (cherry-picked pilot) point, so it must not be
