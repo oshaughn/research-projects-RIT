@@ -31,3 +31,5 @@ python benchmark_integrators.py --target gaussmix4 --samplers default,AC,GMM,AV 
 ## Cold-vs-warm
 `run(..., warm_start=callable(sampler,target))` seeds prior information before
 `integrate()`, for measuring bootstrap gains (see the bootstrappable-AV work).
+
+NOTE: the benchmarks here measure efficiency/accuracy interactively; the pre-merge REQUIREMENT is the shape-recovery gate in ../expensive_before_merging/integrators/ (see RIFT/integrators/TESTING.md).
