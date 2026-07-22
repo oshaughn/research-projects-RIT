@@ -1359,10 +1359,17 @@ def resample_samples(my_samples,
   # IF UPSAMPLING, PERFORM NOW.  (Currently on
   if opts.srate_resample_time_marginalization and opts.srate_resample_time_marginalization > fSample:
     deltaT_orig = tvals[1]-tvals[0]
-    tvals_denser = tvals[0] + deltaT_orig/2 * np.arange(2*len(tvals))
+    # Refinement factor from the REQUESTED rate, measured against the actual grid
+    # spacing (tvals is a closed-interval linspace, so deltaT_orig is slightly
+    # larger than 1/fSample and ceil(requested/fSample) would fall just short).
+    n_upsample = max(2, int(np.ceil(opts.srate_resample_time_marginalization * deltaT_orig)))
+    n_dense = n_upsample*(len(tvals)-1) + 1
+    # Terminate on tvals[-1]: the old grid ran half a sample past the last knot,
+    # forcing the spline to extrapolate.
+    tvals_denser = tvals[0] + (deltaT_orig/n_upsample) * np.arange(n_dense)
     from scipy.interpolate import RegularGridInterpolator, CubicSpline
     # cubic spline at first, easiest  - generally not exporting too many events
-    lnLt_new = np.zeros( (lnLt.shape[0], lnLt.shape[1]*2) )
+    lnLt_new = np.zeros( (lnLt.shape[0], n_dense) )
     for indx_here in np.arange(n_samples):
       cs = CubicSpline(tvals, lnLt[indx_here])
       lnLt_new[indx_here] = cs(tvals_denser)
