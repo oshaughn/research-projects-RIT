@@ -26,6 +26,16 @@ python MonteCarloMarginalizeCode/Code/test/test_likelihood.py
 ## Testing
 Tests use pytest but have no standard runner. Run individual test files directly.
 
+### Merge gate for integrator changes (IMPORTANT)
+Any change under `MonteCarloMarginalizeCode/Code/RIFT/integrators/` must pass the
+**posterior shape-recovery gate** in
+`MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/`
+before merging into a production line (run base + candidate with identical seeds,
+then `compare_shape_results.py base.json pr.json`; exit 1 = merge-blocking).
+The fast CI integral test is NOT sufficient — integrators have shipped confident,
+integral-invisible shape failures and silent n_eff~1 degradations that only this
+gate catches. See `RIFT/integrators/TESTING.md` for the recipe and caveats.
+
 ## Important CLI tools
 - `integrate_likelihood_extrinsic_batchmode` - Main PE engine
 - `create_event_parameter_pipeline_BasicIteration` - Full pipeline
