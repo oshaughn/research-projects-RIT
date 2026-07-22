@@ -51,18 +51,23 @@ class ClimbingOracle(MCSamplerGeneric):
 
         n_history_to_use = np.min([n_history,  len(rvs_here[self.params_ordered[0]])] )
         if not(ln_weights is None):
-            n_history_to_use = np.min([n_history,len(ln_weights)])
-        
+            n_history_to_use = np.min([n_history,len(ln_weights), len(rvs_here[self.params_ordered[0]])])
+
+        # sample_array is (ndim, n_history_to_use): rows params, columns samples
         sample_array = self.xpy.empty( (len(self.params_ordered), n_history_to_use))
         for indx, p in enumerate(self.params_ordered):
             sample_array[indx] = rvs_here[p][-n_history_to_use:]
 
 
-        if lnw_cut and not(ln_weights is None): # we can override and trainon all data
-            sample_array = sample_array[:, ln_weights > np.max(ln_weights) + lnw_cut ]  # training range
+        if lnw_cut and not(ln_weights is None): # start climbs from the high-weight region
+            lnw = np.asarray(ln_weights)[-n_history_to_use:]
+            keep = lnw > np.max(lnw) + lnw_cut
+            if np.sum(keep) > 0:
+                sample_array = sample_array[:, keep]  # select COLUMNS (samples)
 
-        # Pick points to climb
-        drawn_indx = np.random.choice(range(len(sample_array)), replace=True,size=self.n_climbers) # random samples
+        # Pick starting points to climb from (index over SAMPLES = columns)
+        n_avail = sample_array.shape[1]
+        drawn_indx = np.random.choice(range(n_avail), replace=True,size=self.n_climbers) # random samples
         sample_array = sample_array[:,drawn_indx].T
 
         # Climb 

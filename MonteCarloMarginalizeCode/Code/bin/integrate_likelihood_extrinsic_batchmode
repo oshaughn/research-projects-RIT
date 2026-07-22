@@ -324,6 +324,24 @@ integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu
 integration_params.add_option("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
 integration_params.add_option("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionaryo to be passed to that sampler')
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
+# Integrator warm-start / reuse (bootstrap AV, persist/reuse a trained NF flow).  All
+# default off.  A warm start only affects the initial PROPOSAL, never the integral.
+integration_params.add_option("--sampler-warmstart-samples",default=None,help="AV only: ASCII file (named columns) of prior extrinsic samples used to warm-start the adaptive-volume live region.  Intended for the CHERRY-PICKED-PILOT workflow: after iteration 0, run ONE ILE at the best (highest-lnL / CIP-MAP) point with --save-samples (~tens of KB for a single point), then warm-start every subsequent point from it.  Do NOT --save-samples the whole grid (disk) and do NOT pick the pilot at random (a poor fit endangers the grid) -- pick the best point.  Columns matched to the sampler's extrinsic parameters by name; the coverage-floor + inflation margins below keep a shifted peak from biasing.")
+integration_params.add_option("--sampler-warmstart-cover-frac",type=float,default=0.5,help="Coverage floor for --sampler-warmstart-samples (default 0.5): fraction of full-prior coverage mixed in so a mismatched pilot degrades to cold rather than biasing.  0.5 is the MEASURED-safe floor (test_AV_warmstart_safety.py, 20 calibration seeds: max |bias| 0.164, max degradation vs cold 0.113); 0.1 is genuinely under-covered (1.1-1.7 in log bias across seeds) and raising --n-max does not rescue it, because the runs terminate on n_eff first.  Lower it only for SAME-problem reuse, where the peak is already in the seed.")
+integration_params.add_option("--sampler-warmstart-inflate",type=float,default=1.5,help="Handoff safety margin for --sampler-warmstart-samples (default 1.5): widen the pilot seed about its mean to cover the peak shift between the pilot point and this one.")
+integration_params.add_option("--sampler-load-state",default=None,help="AV only: load a saved live-volume state (.npz from --sampler-save-state) to warm-start this integration. Overrides --sampler-warmstart-samples.")
+integration_params.add_option("--sampler-save-state",default=None,help="AV only: after integration, write the adapted live-volume state (.npz) for reuse by later instances/iterations. Point --sampler-load-state at the same file across a grid to warm-start each point from the previous one.")
+integration_params.add_option("--nf-flow-load",default=None,help="NF only: load a pre-trained normalizing flow (.pt from --nf-flow-save); with --n-adapt 0 this reuses it directly (skips training), otherwise it is polished.")
+integration_params.add_option("--nf-flow-save",default=None,help="NF only: after integration, serialize the trained normalizing flow (.pt) for reuse across ILE instances.")
+integration_params.add_option("--sampler-sequential-warmstart",action='store_true',help="AV only: when a worker analyzes several intrinsic points (--n-events-to-analyze>1), warm-start each point's extrinsic integral from the previous point's converged high-likelihood samples.  Points are processed in their given order (NOT reordered), so a truncated/failed worker still drops a spatially-unbiased subset.  A coverage floor (see --sampler-sequential-warmstart-cover-frac) keeps a poorly-matched transfer from ever biasing the result.")
+integration_params.add_option("--sampler-sequential-warmstart-cover-frac",type=float,default=0.5,help="Coverage floor for --sampler-sequential-warmstart: fraction of full-prior coverage mixed into the seed so the warm live volume always contains a cold start (a mis-matched proposal then only costs efficiency, never bias).  Default 0.5, the measured-safe floor (see --sampler-warmstart-cover-frac); 0.1 is under-covered.")
+integration_params.add_option("--sampler-sequential-warmstart-deltalnL",type=float,default=15.0,help="Keep previous-point samples within this lnL of the max as the warm seed for the next point.  Default 15.")
+integration_params.add_option("--sampler-warmstart-retry-neff",type=float,default=None,help="AV only (L0 auto-rescue): if a cold pass finishes below this n_eff (i.e. it stalled on a very sharp / high-amplitude peak), automatically re-run a second pass warm-started from THIS point's own highest-likelihood samples.  Same-problem reuse, so it cannot bias the result.  Recommended for high-SNR events; e.g. 5.")
+integration_params.add_option("--sampler-anisotropic-bins",action="store_true",help="AV only: give each extrinsic axis a DIFFERENT number of bins during contraction -- fine where the live points cluster tightly (phase/polarization/sky), coarse where they are broad (distance/inclination) -- instead of the default equal split.  Keeps the same total bin budget, so the estimator is unchanged; helps AV wrap a correlated/degenerate posterior more tightly.")
+integration_params.add_option("--internal-reparam-dl-incl",action="store_true",help="Sample the DISTANCE axis as an effective distance D_eff = d_L / A(iota), with A(iota)=sqrt(((1+cos^2 i)/2)^2 + cos^2 i) the leading (l=|m|=2) inclination amplitude.  This axis-aligns the distance<->inclination degeneracy (L depends mostly on A(iota)/d_L), decorrelating the two broad directions so the sampler wraps them efficiently.  The likelihood reconstructs physical d_L=D_eff*A(iota); the measure correction is PRIOR-AGNOSTIC -- ln p(d_L) - ln p(D_eff) + ln A(iota), using the ACTUAL --d-prior (dist_prior_pdf), so it is correct for Euclidean, cosmo, cosmo_sourceframe, pseudo_cosmo alike (normalization cancels in the ratio; reduces to +3 ln A only for Euclidean).  The physical d_L bound is enforced.  NOT compatible with --d-prior-redshift (errors out).  Estimator stays unbiased (validate vs baseline posterior).")
+integration_params.add_option("--extrinsic-proposal-field",default=None,help="AV only (L3): path to a ProposalField (.npz built by util_BuildProposalField.py from a previous ILE iteration).  Each intrinsic point warm-starts its extrinsic integral from the field's nearest entry.  Cross-problem reuse, so a coverage floor + an inflation margin are applied (see the two options below); a stale/mismatched field can only cost efficiency, never bias.")
+integration_params.add_option("--extrinsic-proposal-field-cover-frac",type=float,default=0.5,help="Coverage floor for --extrinsic-proposal-field handoff (default 0.5, the measured-safe floor -- see --sampler-warmstart-cover-frac; 0.1 is under-covered).")
+integration_params.add_option("--extrinsic-proposal-field-inflate",type=float,default=1.5,help="Handoff safety margin for --extrinsic-proposal-field: widen the imported seed by this factor about its mean to cover the peak shift between the neighbouring intrinsic point and this one (default 1.5).")
 integration_params.add_option("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., EM observations). EXPERTS-ONLY")
 integration_params.add_option("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external prior. EXPERTS ONLY")
 integration_params.add_option("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
@@ -485,6 +503,17 @@ if opts.resample_time_marginalization and not(opts.fairdraw_extrinsic_output):
 #  if opts.sampler_method == 'GMM':
 #    raise Exception(" Fairdraw not available  for this sampler")
 
+
+def _reparam_A_of_incl(incl_rad, xpy=numpy):
+    """Leading (l=|m|=2) inclination amplitude A(iota)=sqrt(((1+cos^2 i)/2)^2 + cos^2 i).
+    Used by --internal-reparam-dl-incl to map the effective distance D_eff <-> physical d_L
+    (d_L = D_eff * A(iota)).  A in [0.5 (edge-on), sqrt(2) (face-on)]."""
+    ci = xpy.cos(incl_rad)
+    return xpy.sqrt(((1.0 + ci*ci)/2.0)**2 + ci*ci)
+
+_REPARAM_A_MIN = 0.5           # A(iota=pi/2), edge-on
+_REPARAM_A_MAX = numpy.sqrt(2.0)  # A(iota=0), face-on
+_REPARAM_LNF = 0.0            # ln(physical-range prior mass fraction); set at setup for --internal-reparam-dl-incl
 
 supplemental_ln_likelihood= None
 supplemental_ln_likelhood_prep=None
@@ -1081,6 +1110,19 @@ param_limits = { "psi": (0, 2*numpy.pi),
 if opts.internal_rotate_phase:
   param_limits['psi'] = (0, 4*numpy.pi)
   param_limits['phi_orb'] = (0, 4*numpy.pi)
+if opts.internal_reparam_dl_incl:
+  # The reparam operates in DISTANCE units (D_eff = d_L/A in Mpc).  --d-prior-redshift samples
+  # in redshift and converts, which does not compose with the amplitude relation -- refuse it
+  # rather than silently bias.  All distance-space priors (Euclidean/cosmo/cosmo_sourceframe/
+  # pseudo_cosmo) ARE supported: the measure correction below uses dist_prior_pdf directly.
+  if getattr(opts, 'd_prior_redshift', False):
+    raise SystemExit(" --internal-reparam-dl-incl is not compatible with --d-prior-redshift (redshift-space sampling). Use a distance-space --d-prior.")
+  # sample the distance axis as D_eff = d_L / A(iota); widen it so physical d_L = D_eff*A(iota)
+  # can cover [dmin,dmax] for all iota (A in [0.5, sqrt(2)]).  dist_prior_pdf auto-normalizes
+  # over this range (=> a constant lnZ offset vs baseline, computable; posterior unaffected);
+  # the physical d_L bound and the prior-agnostic measure term are applied in the likelihood closure.
+  param_limits['distance'] = (dmin/_REPARAM_A_MAX, dmax/_REPARAM_A_MIN)
+  print("  [reparam d_L<->D_eff] distance axis is D_eff; sampling range {:.1f}..{:.1f}".format(*param_limits['distance']))
 # Optional truth-centered "zoom box": narrow the extrinsic sampling AND prior ranges so the
 # adaptive sampler can resolve a narrow high-SNR peak it could never find from the full prior.
 # Threads through param_limits into every sky/orientation sampler + its pdf/cdf_inv/prior_pdf.
@@ -1320,8 +1362,19 @@ elif not opts.distance_marginalization:
   elif opts.d_prior != 'Euclidean':
     print(" ==== WARNING UNKNOWN DISTANCE PRIOR === ")
     raise Exception('distance prior')
+  if opts.internal_reparam_dl_incl:
+    # dist_prior_pdf is normalized over the WIDENED D_eff range; the physical prior must be
+    # normalized over [dmin,dmax].  ln F = ln(mass of dist_prior_pdf in [dmin,dmax]); the closure
+    # subtracts it so the reported lnZ matches the baseline physical-range normalization exactly.
+    _xg = numpy.linspace(dmin, dmax, 40000)
+    try:
+      _pg = numpy.asarray(dist_prior_pdf(_xg), dtype=float)
+    except Exception:
+      _pg = numpy.array([float(dist_prior_pdf(numpy.array([_x]))[0]) for _x in _xg])
+    _REPARAM_LNF = float(numpy.log(numpy.trapz(_pg, _xg)))
+    print("  [reparam] physical-range prior-mass fraction F={:.4f} (lnF={:.3f}); lnZ normalization matched".format(numpy.exp(_REPARAM_LNF), _REPARAM_LNF))
   #dist_sampler_cdf_inv=None
-  sampler.add_parameter("distance", 
+  sampler.add_parameter("distance",
                         pdf = dist_sampler, 
                         cdf_inv = dist_sampler_cdf_inv,
                         left_limit = param_limits["distance"][0], 
@@ -1686,6 +1739,13 @@ if use_portfolio:
                 print(indx,opts.sampler_portfolio_args[indx]) 
           print(" ARGS ", opts.sampler_portfolio_args)
       sampler.setup(portfolio_args=opts.sampler_portfolio_args, **pinned_params) # directly pass all parameters set above to low-level portfolios.  In particular, GMM setup
+      # NOTE: the portfolio oracle MECHANISM is fixed (proposals now actually enter
+      # member training; see mcsamplerPortfolio), and a FisherGaussianOracle can be
+      # attached via sampler.oracle_realizations.  It is not auto-wired here because
+      # (a) ILE has no natural Fisher source for the full extrinsic space, and
+      # (b) MCSampler.setup() re-runs each oracle's setup(), which would reset a
+      # pre-configured skymap ResamplingOracle.  Wire deliberately when a proposal
+      # source is available.
 
 # initialize sampler, before we call integrate, so we can seed it
 if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
@@ -1740,10 +1800,17 @@ def resample_samples(my_samples,
   # IF UPSAMPLING, PERFORM NOW.  (Currently on
   if opts.srate_resample_time_marginalization and opts.srate_resample_time_marginalization > fSample:
     deltaT_orig = tvals[1]-tvals[0]
-    tvals_denser = tvals[0] + deltaT_orig/2 * np.arange(2*len(tvals))
+    # Refinement factor from the REQUESTED rate, measured against the actual grid
+    # spacing (tvals is a closed-interval linspace, so deltaT_orig is slightly
+    # larger than 1/fSample and ceil(requested/fSample) would fall just short).
+    n_upsample = max(2, int(np.ceil(opts.srate_resample_time_marginalization * deltaT_orig)))
+    n_dense = n_upsample*(len(tvals)-1) + 1
+    # Terminate on tvals[-1]: the old grid ran half a sample past the last knot,
+    # forcing the spline to extrapolate.
+    tvals_denser = tvals[0] + (deltaT_orig/n_upsample) * np.arange(n_dense)
     from scipy.interpolate import RegularGridInterpolator, CubicSpline
     # cubic spline at first, easiest  - generally not exporting too many events
-    lnLt_new = np.zeros( (lnLt.shape[0], lnLt.shape[1]*2) )
+    lnLt_new = np.zeros( (lnLt.shape[0], n_dense) )
     for indx_here in np.arange(n_samples):
       cs = CubicSpline(tvals, lnLt[indx_here])
       lnLt_new[indx_here] = cs(tvals_denser)
@@ -2244,6 +2311,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   distance = redshift_to_distance(distance)
 
                 P.psi = xpy_default.asarray(psi, dtype=np.float64)
+                if opts.internal_reparam_dl_incl:
+                  # distance axis holds D_eff; reconstruct physical d_L = D_eff * A(iota)
+                  distance = distance * _reparam_A_of_incl(P.incl, xpy=xpy_default)
                 P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC, dtype=np.float64) # luminosity distance
 
                 # rotate sky if needed
@@ -2280,6 +2350,19 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         cal_method=('fused' if use_fused_calmarg and opts._noloop_time_interp == 'nearest' else 'loop'), cal_log_weights=calibration_log_weights,
                         time_interp=opts._noloop_time_interp)  # non-distmarg: default-helper fused kernel (cal_distmarg=None)
 #                nEvals +=len(right_ascension)
+                if opts.internal_reparam_dl_incl:
+                  # PRIOR-AGNOSTIC measure for the D_eff<->d_L reparam: the integrand needs
+                  #   p_prior(d_L) * |dd_L/dD_eff|  but the sampler applied p_prior(D_eff),
+                  # so add  ln p(d_L) - ln p(D_eff) + ln A , using the ACTUAL --d-prior
+                  # (dist_prior_pdf).  Its normalization cancels in the ratio, so this is correct
+                  # for Euclidean / cosmo / cosmo_sourceframe / pseudo_cosmo (reduces to +3 ln A
+                  # only for Euclidean).  Then enforce the physical d_L in [dmin,dmax].
+                  _A = _reparam_A_of_incl(P.incl, xpy=xpy_default)
+                  _dl = distance                # physical d_L (reconstructed above)
+                  _deff = _dl / _A              # the sampled D_eff
+                  # physical prior normalized over [dmin,dmax] (=> - _REPARAM_LNF); sampler prior at D_eff; Jacobian A
+                  lnL = lnL + (xpy_default.log(dist_prior_pdf(_dl)) - _REPARAM_LNF) - xpy_default.log(dist_prior_pdf(_deff)) + xpy_default.log(_A)
+                  lnL = xpy_default.where((_dl >= dmin) & (_dl <= dmax), lnL, -1e300)
                 if supplemental_ln_likelihood:
                   lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist,xpy=xpy_default) # use these variables so they are already float-type
                 if return_lnL:
@@ -2534,6 +2617,44 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
              lnL_oracles  = np.zeros(opts.n_chunk)
              sampler.update_sampling_prior(lnL_oracles, opts.n_chunk, external_rvs=rvs_train,log_scale_weights=True,floor_integrated_probability=opts.adapt_floor_level)
 
+    # Warm-start / bootstrap.  The AV (VARAHA) sampler has no update_sampling_prior, so the
+    # skymap-oracle seeding above is skipped for it; instead seed its live volume directly
+    # (bootstrap_from_samples).  A PORTFOLIO forwards the seed to its warm-startable members
+    # (e.g. its AV member) via the same method; members without it stay cold, and the
+    # balance-heuristic mixture density (q_mix) keeps a cold/mis-seeded member from biasing.
+    # A seed only shapes the initial proposal, never the integral, so this cannot bias.
+    # Fires for any sampler exposing bootstrap_from_samples (AV directly, or a portfolio).
+    if hasattr(sampler, 'bootstrap_from_samples'):
+        try:
+            if opts.sampler_load_state and hasattr(sampler, 'load_state'):
+                print("  warm-start: loading saved sampler state from", opts.sampler_load_state)
+                sampler.load_state(opts.sampler_load_state)
+            elif opts.sampler_warmstart_samples:
+                _dat = np.genfromtxt(opts.sampler_warmstart_samples, names=True)
+                _cols = np.vstack([np.asarray(_dat[p], dtype=float) for p in sampler.params_ordered]).T
+                print("  warm-start: bootstrapping from", opts.sampler_warmstart_samples, _cols.shape,
+                      "(cover_frac={}, inflate={})".format(opts.sampler_warmstart_cover_frac, opts.sampler_warmstart_inflate))
+                # cover_frac + inflate are the handoff safety margins: this seed usually
+                # comes from a DIFFERENT (cherry-picked pilot) point, so it must not be
+                # able to bias if the peak has shifted.  Default them >0 in this path.
+                sampler.bootstrap_from_samples(_cols,
+                                               cover_frac=opts.sampler_warmstart_cover_frac,
+                                               inflate=opts.sampler_warmstart_inflate)
+            elif oracleRS:
+                _, _, _rv_oracle = oracleRS.draw_simplified(opts.n_chunk)
+                print("  AV warm-start: bootstrapping live volume from skymap oracle")
+                sampler.bootstrap_from_samples(_rv_oracle, params=list(sampler.params_ordered))
+        except Exception as _e_ws:
+            print("  AV warm-start skipped (", _e_ws, ")")
+
+    # NF flow reuse: warm-load a pre-trained flow so this instance skips/shortens training.
+    if opts.nf_flow_load and hasattr(sampler, 'load_flow'):
+        try:
+            print("  NF: loading pre-trained flow from", opts.nf_flow_load)
+            sampler.load_flow(opts.nf_flow_load)
+        except Exception as _e_nf:
+            print("  NF flow load skipped (", _e_nf, ")")
+
     # Optional ZERO-CAL burn-in (generally useful; see RIFT/calmarg/DESIGN_adaptive_driver.md).
     # Adapt the extrinsic sampler cheaply on the n_cal=1 baseline first, then run the full
     # cal-marginalized integration reusing the adapted proposal.  The likelihood closures
@@ -2555,7 +2676,58 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             print(" [calmarg burn-in] integrate failed ({}); proceeding to production".format(_eb))
         n_cal_for_likelihood = _ncal_full   # restore: production uses the full cal set
 
+    # opt-in anisotropic per-axis bin allocation: set on the AV sampler and any AV portfolio members
+    if getattr(opts, 'sampler_anisotropic_bins', False):
+        _aniso_targets = [sampler] + list(getattr(sampler, 'portfolio_realizations', []))
+        for _t in _aniso_targets:
+            if hasattr(_t, 'anisotropic_bins'):
+                _t.anisotropic_bins = True
+        print("  AV: anisotropic per-axis bin allocation ENABLED")
+
     res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
+
+    # L0 auto-rescue: on a very sharply-peaked (high-amplitude) point a cold AV can
+    # stall at n_eff ~ 1 because it never draws near the tiny peak.  If so, seed a
+    # SECOND pass from this same point's own highest-likelihood samples and re-run.
+    # This is SAME-problem reuse (the peak provably lies in the seed, since the cold
+    # pass found it), so no coverage floor is needed (cover_frac=0) and it cannot
+    # bias the result.  AV only; opt-in via --sampler-warmstart-retry-neff.
+    if (opts.sampler_method == 'AV' and opts.sampler_warmstart_retry_neff
+            and hasattr(sampler, 'bootstrap_from_samples')
+            and neff is not None and float(sampler.identity_convert(neff)) < float(opts.sampler_warmstart_retry_neff)):
+        try:
+            _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
+            _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel() if _lnkey else np.array([])
+            if _lnv.size >= 1 and np.any(np.isfinite(_lnv)):
+                _cols = np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel() for p in sampler.params_ordered]).T
+                _kthr = np.nanmax(_lnv) - opts.sampler_sequential_warmstart_deltalnL
+                _seed = _cols[_lnv > _kthr]
+                if len(_seed) < 2:   # peak found with too few points -> puff the single best point
+                    _best = _cols[int(np.nanargmax(_lnv))]
+                    _wid = (np.array([sampler.rlim[p] for p in sampler.params_ordered]) - np.array([sampler.llim[p] for p in sampler.params_ordered])) / 200.0
+                    _seed = np.random.RandomState(0).normal(_best, _wid, size=(2000, len(_best)))
+                print("  [L0 auto-rescue] cold n_eff {:.1f} < {}; re-running warm from this point's peak ({} pts)".format(
+                    float(sampler.identity_convert(neff)), opts.sampler_warmstart_retry_neff, len(_seed)))
+                sampler.bootstrap_from_samples(_seed, cover_frac=0.0)   # same problem: peak is in the seed
+                res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
+                sampler._warm = None
+        except Exception as _e_l0:
+            print("  [L0 auto-rescue] skipped (", _e_l0, ")")
+            sampler._warm = None
+
+    # Persist adapted state / trained flow for reuse by later instances.
+    if opts.sampler_method == 'AV' and opts.sampler_save_state and hasattr(sampler, 'save_state'):
+        try:
+            sampler.save_state(opts.sampler_save_state)
+            print("  AV: saved live-volume state to", opts.sampler_save_state)
+        except Exception as _e_ss:
+            print("  AV: could not save state (", _e_ss, ")")
+    if opts.nf_flow_save and hasattr(sampler, 'save_flow'):
+        try:
+            sampler.save_flow(opts.nf_flow_save)
+            print("  NF: saved trained flow to", opts.nf_flow_save)
+        except Exception as _e_fs:
+            print("  NF: could not save flow (", _e_fs, ")")
 
     if not(res): # no resut
       raise ValueError(" No integral result returned")
@@ -3200,9 +3372,67 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 lnL_sofar = -np.inf
 no_adapt_sky = False
 
+# L3: load a proposal field (from a previous ILE iteration) once, if provided
+_proposal_field = None
+if opts.extrinsic_proposal_field and hasattr(sampler, 'bootstrap_from_samples'):
+    try:
+        from RIFT.integrators.proposal_field import ProposalField, lambda_from_P
+        _proposal_field = ProposalField.load(opts.extrinsic_proposal_field)
+        print(" [proposal-field] loaded {} entries from {}".format(len(_proposal_field), opts.extrinsic_proposal_field))
+    except Exception as _e_pf:
+        print(" [proposal-field] could not load {} ({}); ignoring".format(opts.extrinsic_proposal_field, _e_pf))
+        _proposal_field = None
+
+_seq_ws_proposal = None   # L1 sequential hot-feed: previous point's extrinsic seed (in-memory)
 for indx in numpy.arange(len(P_list)):
  try:
+  # Warm-start this point's extrinsic integral.  Order is preserved (no grid
+  # reordering), so a truncated worker still drops a spatially-unbiased subset; a
+  # coverage floor + inflation margin make a poorly-matched transfer degrade to
+  # cold rather than bias.  AV only.  Priority: L3 proposal field (cross-iteration)
+  # over L1 sequential (same worker).
+  if _proposal_field is not None and len(_proposal_field) > 0:
+    try:
+      from RIFT.integrators.proposal_field import lambda_from_P
+      _seed = _proposal_field.warm_seed_for(lambda_from_P(P_list[indx]), k=1)
+      if _seed is not None and len(_seed) >= 2:
+        sampler.bootstrap_from_samples(_seed,
+                                       params=_proposal_field.extrinsic_params,
+                                       cover_frac=opts.extrinsic_proposal_field_cover_frac,
+                                       inflate=opts.extrinsic_proposal_field_inflate)
+        print("  [proposal-field] point {} seeded from nearest entry ({} pts, cover_frac={}, inflate={})".format(
+            indx, len(_seed), opts.extrinsic_proposal_field_cover_frac, opts.extrinsic_proposal_field_inflate))
+    except Exception as _e_pfq:
+      print("  [proposal-field] seed skipped for point {} ({})".format(indx, _e_pfq))
+      sampler._warm = None
+  elif opts.sampler_sequential_warmstart and (_seq_ws_proposal is not None) and hasattr(sampler, 'bootstrap_from_samples'):
+    try:
+      sampler.bootstrap_from_samples(_seq_ws_proposal,
+                                     cover_frac=opts.sampler_sequential_warmstart_cover_frac)
+      print("  [seq warm-start] point {} seeded from previous point ({} pts, cover_frac={})".format(
+          indx, len(_seq_ws_proposal), opts.sampler_sequential_warmstart_cover_frac))
+    except Exception as _e_sw:
+      print("  [seq warm-start] skipped for point {} ({})".format(indx, _e_sw))
+      sampler._warm = None
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
+  # capture this point's converged high-likelihood extrinsic samples as the seed
+  # for the next point (in-memory; no files leave the job)
+  if opts.sampler_sequential_warmstart and hasattr(sampler, 'bootstrap_from_samples'):
+    _seq_ws_proposal = None
+    try:
+      _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
+      if _lnkey is not None and all(p in sampler._rvs for p in sampler.params_ordered):
+        _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel()
+        if _lnv.size >= 2 and np.any(np.isfinite(_lnv)):
+          _cols = np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel() for p in sampler.params_ordered]).T
+          _keep = _lnv > (np.nanmax(_lnv) - opts.sampler_sequential_warmstart_deltalnL)
+          if np.sum(_keep) >= 2:
+            _seq_ws_proposal = _cols[_keep]
+          elif _cols.shape[0] >= 2:
+            _seq_ws_proposal = _cols   # fall back to all retained samples (still peak-weighted region)
+    except Exception as _e_cap:
+      print("  [seq warm-start] could not capture seed from point {} ({})".format(indx, _e_cap))
+    sampler._warm = None   # clear before the next point (re-seeded above if enabled)
   # abort if horrible (nan event) - done with 'raise'
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.force_reset_all:  # depends on integrator!  May not always be availble

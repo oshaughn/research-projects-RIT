@@ -111,6 +111,12 @@ def portfolio_default_weights(n_ess_list, wt_previous, portfolio_probability_flo
   # don't update if we have insane answers
   if any(np.isnan(rewt)):
     return wt_previous
+  # if every member is degenerate (n_ess ~ 1, e.g. a very hard target's first
+  # chunk found nothing), the normalization below would divide by zero and
+  # produce nan weights -> negative per-member sample counts downstream.  Keep
+  # the previous (typically uniform) weights instead.
+  if np.sum(rewt) <= 0:
+    return wt_previous
   rewt = np.ones(len(rewt))*portfolio_probability_floor + (rewt/np.sum(rewt)) * (1-portfolio_probability_floor)
   net = (rewt * history_factor + wt_previous*(1-history_factor))
   return net/np.sum(net) # make SURE normalized correctly
@@ -150,8 +156,17 @@ class MCSampler(object):
         if not(self.portfolio_weights ):
             self.portfolio_weights = np.ones(len(self.portfolio))/(1.0*len(self.portfolio))
 
-        self.portfolio_adapt = np.ones(len(self.portfolio),dtype=bool) # default : everything adapts.  
+        self.portfolio_adapt = np.ones(len(self.portfolio),dtype=bool) # default : everything adapts.
         self.portfolio_freeze_wt =portfolio_freeze_wt  # if weight is below this number, the portfolio member's distribution will NOT update. SCALAR
+        # Freeze protection.  A member (esp. a VARAHA/AV workhorse) contributes little on its
+        # first chunks -- before it has contracted -- so a plain weight<freeze_wt freeze starves
+        # it from chunk 1 and it never gets going.  Instead of freezing permanently:
+        #  * GRACE: never freeze during the first `grace_iters` iterations (let members contract);
+        #  * REVIVE: every `revive_period` iterations, update the frozen members anyway (one step)
+        #    so a starved-but-recoverable member gets periodic chances instead of wasting cycles.
+        # Both are overridable via setup(**kwargs).
+        self.portfolio_grace_iters = kwargs.get('portfolio_grace_iters', 25)
+        self.portfolio_revive_period = kwargs.get('portfolio_revive_period', 8)
 
         # Total number of samples drawn
         self.ntotal = 0
@@ -194,8 +209,45 @@ class MCSampler(object):
             self.adaptive = member.adaptive  # top level list of adaptive coordinates
 
 
+    def bootstrap_from_samples(self, samples, params=None, **kwargs):
+        """Warm-start: forward a seed cloud to every member that supports it (e.g. the
+        AV/VARAHA member's live volume).  Members without bootstrap_from_samples are left
+        cold.  This is safe: a warm start only ever shapes a member's proposal, and the
+        portfolio combines members with the balance-heuristic mixture density (q_mix), so a
+        cold or mis-seeded member can only cost efficiency, never bias the estimate.  Column
+        order matches self.params_ordered, which every member shares (add_parameter forwards
+        to all members in the same order), so no per-member remapping is needed.
+
+        Only VARAHA/AV-style members (those exposing bootstrap_from_samples) are seeded
+        directly here.  GMM / adaptive-Gaussian members cannot be seeded pre-integration
+        (their internal integrator, hence gmm_dict, does not exist until the first
+        integrate() call), but they still warm up STRUCTURALLY during the run: the portfolio
+        lets the cold GMM member adapt its proposal from the warm AV member's high-likelihood
+        draws, which is what gives the mixture a faster early n_eff than warm-AV alone.  An
+        explicit GMM pre-seed (build an initial gmm_dict from the sample cloud) is a future
+        enhancement.  q_mix keeps any cold/mis-seeded member from biasing the estimate.
+
+        Returns the number of members warm-started (0 is fine; the portfolio still runs)."""
+        samples = np.asarray(samples)
+        n_warmed = 0
+        for indx, member in enumerate(self.portfolio_realizations):
+            if not hasattr(member, 'bootstrap_from_samples'):
+                continue
+            try:
+                member.bootstrap_from_samples(samples, params=params, **kwargs)
+                n_warmed += 1
+            except Exception as e:
+                print("  [portfolio] member {} warm-start skipped ( {} )".format(indx, e))
+        print("  [portfolio] warm-started {}/{} members directly (others warm structurally)".format(
+            n_warmed, len(self.portfolio_realizations)))
+        return n_warmed
+
     def setup(self,  **kwargs):
         self.extra_args =kwargs  # may need to pass/use during the 'update' step
+        # allow the driver/CLI to tune the freeze-protection knobs
+        self.portfolio_freeze_wt = kwargs.get('portfolio_freeze_wt', self.portfolio_freeze_wt)
+        self.portfolio_grace_iters = kwargs.get('portfolio_grace_iters', self.portfolio_grace_iters)
+        self.portfolio_revive_period = kwargs.get('portfolio_revive_period', self.portfolio_revive_period)
         if 'oracle_realizations' in kwargs:
           if kwargs['oracle_realizations']: 
             self.oracle_realizations = kwargs['oracle_realizations']  # might not have been initialized earlier
@@ -214,7 +266,11 @@ class MCSampler(object):
               portfolio_extra_args = kwargs['portfolio_args']
             else:
               print(" PORTFOLIO - format ERROR ", kwargs['portfolio_args'])
-        for indx, member in enumerate(self.portfolio):
+        # Iterate the INSTANTIATED samplers (portfolio_realizations), NOT self.portfolio: the
+        # latter may hold modules/names (see __init__), which lack .setup(), so member setup was
+        # silently skipped -> a cold member's internal state (AV my_ranges, GMM integrator) was
+        # never built and draw_simplified failed.  Setting up the realizations fixes AV+GMM cold.
+        for indx, member in enumerate(self.portfolio_realizations):
             if hasattr(member, 'setup'):
               print(" PORTFOLIO setup ", member, portfolio_extra_args[indx])
               args_here = {}
@@ -260,7 +316,16 @@ class MCSampler(object):
 
         # if only one method is active, just call the low-level function
         if len(indx_active) == 1:
-           joint_p_s, joint_p_prior, rv = self.portfolio[indx_active[0]].draw_simplified(n_samples, *self.params_ordered, **kwargs)
+           only_member = self.portfolio_realizations[indx_active[0]]
+           joint_p_s, joint_p_prior, rv = only_member.draw_simplified(n_samples, *self.params_ordered, **kwargs)
+           # The portfolio aggregates on the host (self.xpy is numpy); members
+           # may be GPU-backed (cupy), so bring their draws to the host.
+           joint_p_s = identity_convert(joint_p_s); joint_p_prior = identity_convert(joint_p_prior); rv = identity_convert(rv)
+           # Record which members produced this chunk, and each member's SAMPLING
+           # FRACTION (n_from_member / n_total).  integrate_log uses these to form
+           # the balance-heuristic mixture density q_mix = sum_m frac_m * q_m.
+           self._chunk_members = [only_member]
+           self._chunk_fractions = np.array([1.0])
         else:
           # Identify number of samples per member of the portfolio. Can be zero.
           n_samples_per_member = ((np.array(weights_active))*n_samples).astype(int)
@@ -282,17 +347,27 @@ class MCSampler(object):
             joint_p_s_here, joint_p_prior_here, rv_here = member.draw_simplified(
                 n_samples_per_member[indx_member], *self.params_ordered, **kwargs
                 )
-            # type convert as needed, to GPU
-            if not(isinstance( type(joint_p_s_here), type(joint_p_s))):
-              joint_p_s_here = self.identity_convert_togpu(joint_p_s_here)
-              joint_p_prior_here = self.identity_convert_togpu(joint_p_prior_here)
-              rv_here = self.identity_convert_togpu(rv_here)
+            # Bring member draws to the host backend the portfolio aggregates in
+            # (self.xpy is numpy).  identity_convert is cupy.asnumpy when a member
+            # is GPU-backed, else a no-op.  (The previous isinstance(type(x),..)
+            # guard never fired, leaving cupy arrays to collide with numpy ones.)
+            joint_p_s_here = identity_convert(joint_p_s_here)
+            joint_p_prior_here = identity_convert(joint_p_prior_here)
+            rv_here = identity_convert(rv_here)
             indx_start = int(n_index_start_per_member[indx_member])
             indx_end = indx_start + int(n_samples_per_member[indx_member])
             joint_p_s[indx_start:indx_end] = joint_p_s_here
             joint_p_prior[indx_start:indx_end] = joint_p_prior_here
             rv[:,indx_start:indx_end] = rv_here
-            
+
+          # Record the ACTUAL per-member sampling fractions for this chunk (the
+          # counts actually drawn, not the raw portfolio_weights).  These are the
+          # w_m in the balance-heuristic mixture density q_mix = sum_m w_m q_m
+          # that integrate_log builds; using the true drawn fractions is what
+          # keeps the deterministic-mixture estimator exactly unbiased.
+          self._chunk_members = list(portfolio_active)
+          self._chunk_fractions = np.array(n_samples_per_member, dtype=float) / float(n_samples)
+
         #
         # Cache the samples we chose.  REQUIRED
         #
@@ -317,8 +392,18 @@ class MCSampler(object):
         
 
     def integrate_log(self, lnF, *args, xpy=xpy_default,**kwargs):
-        xpy_here = self.xpy
-        
+        # The portfolio AGGREGATES on the host: draw() brings member draws to the
+        # host, so force the running-estimate math onto numpy/scipy regardless of
+        # what the driver set self.xpy to (it sets cupy for GPU members).  Members
+        # still do their own heavy sampling/adaptation on their own backend.  The
+        # INTEGRAND, however, may be device-native (the real vectorized GPU ILE
+        # likelihood) or host-native (synthetic/CI): _eval_integrand() below feeds
+        # it device-first and falls back to host, so both work.
+        self.xpy = numpy
+        xpy_here = numpy
+        xpy = numpy
+        special_here = special    # scipy.special (host); statutils uses this
+
         #
         # Determine stopping conditions
         #
@@ -413,22 +498,89 @@ class MCSampler(object):
                     params.extend(item)
                 else:
                     params.append(item)
-            unpacked = unpacked0 = rv #numpy.hstack([r.flatten() for r in rv]).reshape(len(args), -1)
-            unpacked = dict(list(zip(params, unpacked)))
-
-            # Evaluate function, protecting argument order
-            if 'no_protect_names' in kwargs:
-                lnL = lnF(*unpacked0)  # do not protect order
+            # Evaluate the integrand.  rv is on the host (see draw()).  The real
+            # GPU ILE likelihood is DEVICE-native (wants cupy); synthetic/CI
+            # integrands are host-native.  Feed device-first, fall back to host on
+            # a type error, and remember the choice (same contract as the AV
+            # integrator).  lnL is brought back to the host for aggregation.
+            def _eval_integrand(cols):
+                if 'no_protect_names' in kwargs:
+                    return lnF(*cols)
+                return lnF(**dict(list(zip(params, cols))))
+            if getattr(self, '_integrand_wants_host', False) or not cupy_ok:
+                lnL = _eval_integrand(rv)
             else:
-                lnL= lnF(**unpacked)  # protect order using dictionary
-            # take log if we are NOT using lnL
-            if cupy_ok:
-              if not(isinstance(lnL,cupy.ndarray)):
-                lnL = identity_convert_togpu(lnL)  # send to GPU, if not already there
+                try:
+                    lnL = _eval_integrand(identity_convert_togpu(rv))
+                except (TypeError, ValueError):
+                    self._integrand_wants_host = True
+                    lnL = _eval_integrand(rv)
+            # bring lnL back to the host for the host-side aggregation
+            lnL = identity_convert(lnL)
+
+            # ---- BALANCE-HEURISTIC (deterministic-mixture) sampling density ----
+            # The pooled draw is, by construction, a sample from the MIXTURE
+            #     q_mix(theta) = sum_m frac_m * q_m(theta),
+            # where frac_m = (# samples member m contributed)/n for THIS chunk and
+            # q_m is member m's own sampling density evaluated at theta.  Using
+            # q_mix (rather than each sample's own member density -- the previous
+            # STRATIFIED estimator) makes the estimate unbiased for ANY member
+            # weights, provided the mixture covers the peak (Veach & Guibas MIS
+            # balance heuristic).  A broad member with even a small weight then
+            # guarantees coverage, so a wrongly-contracted member can no longer
+            # drive the integral low.  See portfolio_default_weights: n_ess-based
+            # weighting made the old stratified denominator UNSAFE.
+            #
+            # We require EVERY active member (that drew >0 samples) to expose a
+            # sampling_density; if any does not (e.g. an AC-histogram member with
+            # no pointwise density yet), we fall back to the legacy per-member
+            # joint_p_s so those portfolios keep running unchanged.
+            use_mixture = kwargs['portfolio_use_mixture_density'] if 'portfolio_use_mixture_density' in kwargs else True
+            q_mix = None
+            if use_mixture:
+                X_all = numpy.asarray(identity_convert(rv), dtype=float)
+                if X_all.shape[0] == len(self.params_ordered):
+                    X_all = X_all.T   # -> (N, ndim), columns in params_ordered order
+                members_here = getattr(self, '_chunk_members', [])
+                fracs_here = getattr(self, '_chunk_fractions', None)
+                if len(members_here) > 0 and fracs_here is not None:
+                    acc = numpy.zeros(X_all.shape[0], dtype=float)
+                    all_ok = True
+                    any_active = False
+                    for frac_m, member_m in zip(fracs_here, members_here):
+                        if frac_m <= 0:
+                            continue   # member drew nothing this chunk
+                        dens_fn = getattr(member_m, 'sampling_density', None)
+                        q_m = dens_fn(X_all) if dens_fn is not None else None
+                        if q_m is None:
+                            all_ok = False
+                            break
+                        acc = acc + float(frac_m) * numpy.asarray(identity_convert(q_m), dtype=float)
+                        any_active = True
+                    if all_ok and any_active:
+                        # every pooled sample was drawn by some active member, so
+                        # q_mix >= frac*q_m(own) > 0 there; floor only guards FP.
+                        q_mix = numpy.maximum(acc, 1e-300)
+            if q_mix is not None:
+                joint_p_s = q_mix   # deterministic-mixture denominator
+            else:
+                if use_mixture and getattr(self, '_warned_no_mixture', False) is False:
+                    print(" PORTFOLIO: some active member lacks sampling_density; "
+                          "falling back to legacy stratified per-member density.")
+                    self._warned_no_mixture = True
 
             log_integrand =lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
             # tempering_exp done inside the update proposal, NOT here
             log_weights = lnL + self.xpy.log(joint_p_prior) - self.xpy.log(joint_p_s)
+            # NaN guard: a frozen/degenerate member (e.g. an un-contracted VARAHA) can emit NaN
+            # samples -> NaN lnL / joint_p_s -> NaN weights, which otherwise propagate into the
+            # aggregation and the reported crash ("boolean index did not match ... 10000 vs 9882"
+            # when a NaN mask is applied downstream).  Map any non-finite weight to -inf (zero
+            # weight) IN PLACE, keeping the array length fixed so no mask-size mismatch can arise.
+            _bad = ~self.xpy.isfinite(log_integrand)
+            if bool(self.identity_convert(self.xpy.any(_bad))):
+                log_integrand = self.xpy.where(_bad, -self.xpy.inf, log_integrand)
+                log_weights   = self.xpy.where(_bad, -self.xpy.inf, log_weights)
 
             if save_intg:
                 # FIXME: See warning at beginning of function. The prior values
@@ -455,9 +607,9 @@ class MCSampler(object):
 
             # n, Mean, error tracked by statutils structure
             if current_log_aggregate is None:
-              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
+              current_log_aggregate = init_log(log_integrand,xpy=xpy,special=special_here)
             else:
-              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=xpy_special_default)
+              current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=special_here)
             outvals = finalize_log(current_log_aggregate,xpy=xpy)
             self.ntotal = current_log_aggregate[0]
             # effective samples
@@ -516,27 +668,49 @@ class MCSampler(object):
             ###
             ### ORACLE BLOCK
             ###
+            # Oracles PROPOSE points (hill-climb hotspots, a Fisher/Gaussian, a
+            # previous posterior).  We evaluate the true likelihood there and
+            # APPEND those (point, weight) pairs to the training data the other
+            # portfolio members adapt from, so they learn about regions the plain
+            # sampling missed.  Oracles never enter the integral estimate itself,
+            # so they cannot bias it -- at worst they cost a few evaluations.
             rvs_train = self._rvs
+            log_weights_train = log_weights   # weights aligned with rvs_train tail
             if it_now < it_max_oracle and len(self.oracle_realizations )>0:
               rvs_train = deepcopy(self._rvs)  # duplicate deeply, since we will append to it
               n_samples_per_oracle = int(n*0.1/len(self.oracle_realizations)) # try to minimize oracle effort
-              print(" ORACLE: attempting updates ")
-              # update each oracle
-              for member in self.oracle_realizations:
-                member.update_sampling_prior(log_weights, n_history, external_rvs=rvs_train, log_scale_weights=True)
-              # generate samples from oracles
-              rv_oracle = self.xpy.empty((n_samples_per_oracle*len(self.oracle_realizations), len(self.params_ordered)))
-              base_now = 0
-              for member in self.oracle_realizations:
-                _, _, rv_here = member.draw_simplified(n_samples_per_oracle)
-                rv_oracle[base_now:base_now+n_samples_per_oracle] = rv_here
-                base_now += n_samples_per_oracle
-              # evaluate lnL for each,
-              lnL_oracles = lnF(*rv_oracle.T)
-              # put into weights and rvs, for use in training other samples
-              self.xpy.append(log_weights, lnL_oracles)
-              for indx, p in enumerate(self.params_ordered):
-                self.xpy.append(rvs_train[p],  rv_oracle[:,indx])
+              if n_samples_per_oracle > 0:
+                print(" ORACLE: attempting updates ")
+                # update each oracle from the current (host) history
+                for member in self.oracle_realizations:
+                  member.update_sampling_prior(log_weights, n_history, external_rvs=rvs_train, log_scale_weights=True)
+                # generate proposals from oracles (oracles are host/numpy)
+                rv_list = []
+                for member in self.oracle_realizations:
+                  _, _, rv_here = member.draw_simplified(n_samples_per_oracle)
+                  rv_list.append(numpy.asarray(identity_convert(rv_here)))  # (n, ndim) host
+                rv_oracle = numpy.vstack(rv_list)  # host, (n_oracle_total, ndim)
+                # evaluate the true integrand at the proposals; feed it device-first
+                # (real GPU ILE likelihood) with host fallback, mirroring the main loop
+                _cols = rv_oracle.T
+                if getattr(self, '_integrand_wants_host', False) or not cupy_ok:
+                  _lnLo = lnF(*_cols) if 'no_protect_names' in kwargs else lnF(**dict(zip(self.params_ordered, _cols)))
+                else:
+                  try:
+                    _colsg = identity_convert_togpu(_cols)
+                    _lnLo = lnF(*_colsg) if 'no_protect_names' in kwargs else lnF(**dict(zip(self.params_ordered, _colsg)))
+                  except (TypeError, ValueError):
+                    self._integrand_wants_host = True
+                    _lnLo = lnF(*_cols) if 'no_protect_names' in kwargs else lnF(**dict(zip(self.params_ordered, _cols)))
+                lnL_oracles = numpy.asarray(identity_convert(_lnLo))
+                # training weight for a proposal = its lnL (same log scale as
+                # log_weights up to the shared normalization the members remove)
+                log_w_oracle = lnL_oracles
+                # ACTUALLY append (numpy.append is not in-place -- must reassign)
+                for indx, p in enumerate(self.params_ordered):
+                  base = identity_convert(rvs_train[p])
+                  rvs_train[p] = numpy.append(base, rv_oracle[:, indx])
+                log_weights_train = numpy.append(identity_convert(log_weights), log_w_oracle)
 
 
             ###
@@ -549,12 +723,20 @@ class MCSampler(object):
                 # update sampling prior, using ALL past data
                 # Don't update samples which are not being drawn
                 # always update if we have an oracle  - don't freeze out out oracle, UNLESS we have explicitly frozen it with a breakpoint
+                # GRACE: don't freeze anyone during the first grace_iters iterations (let a slow
+                # starter like a VARAHA member contract before its weight is judged).
+                _in_grace = (self.portfolio_draw_iteration <= self.portfolio_grace_iters)
+                # REVIVE: periodically update even a frozen member so it gets a chance to recover
+                # instead of being starved forever.
+                _revive = (self.portfolio_revive_period > 0
+                           and (self.portfolio_draw_iteration % self.portfolio_revive_period == 0))
                 if self.portfolio_draw_iteration < self.portfolio_breakpoints[indx]:
                   print("  - before activation breakpoint for member {} ".format( indx))
                   pass
-                elif (len(self.oracle_realizations) > 0 and it_now <it_max_oracle) or (   self.portfolio_weights[indx] > self.portfolio_freeze_wt):
+                elif (len(self.oracle_realizations) > 0 and it_now <it_max_oracle) or (self.portfolio_weights[indx] > self.portfolio_freeze_wt) or _in_grace or _revive:
                   if not(hasattr(member, 'is_varaha')):
-                    member.update_sampling_prior(log_weights, n_history,external_rvs=rvs_train,log_scale_weights=True, **update_dict)
+                    # log_weights_train / rvs_train include any oracle proposals appended above
+                    member.update_sampling_prior(log_weights_train, n_history,external_rvs=rvs_train,log_scale_weights=True, **update_dict)
                   else:
                     # just do a single VARAHA step, independent of others
                     member.update_sampling_prior_selfish(lnF)
