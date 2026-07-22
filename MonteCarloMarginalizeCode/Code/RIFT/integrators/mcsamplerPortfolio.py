@@ -230,6 +230,20 @@ class MCSampler(object):
         self.portfolio_quality_decay  = kwargs.get('portfolio_quality_decay', 0.5)    # EMA alpha for quality
         self.portfolio_probe_period   = kwargs.get('portfolio_probe_period', 4)       # probe one member every N chunks
         self.portfolio_probe_frac     = kwargs.get('portfolio_probe_frac', 0.6)       # raise probed member to >= this
+        # WEIGHT CLIPPING (truncated importance sampling) -- OPT-IN, default off.  A single enormous
+        # importance weight crushes the pooled n_eff = (sum w)^2 / sum w^2, so optionally cap w at
+        #     tau = portfolio_weight_clip * sqrt(n) * mean(w)          (Ionides 2008, truncated IS)
+        # trading a small BIAS for a large variance reduction.  tau grows like sqrt(n), so the bias
+        # vanishes asymptotically.  We accumulate the removed and total weight mass (in log space, so
+        # it is exact across chunks) and report the induced ln Z bias -- the clipped mass is TRACKED,
+        # so the bias is always known and recoverable rather than silent.
+        self.portfolio_weight_clip = kwargs.get('portfolio_weight_clip', 0.0)  # 0 = off
+        self.portfolio_clip_log_removed = -np.inf
+        self.portfolio_clip_log_total = -np.inf
+        self.portfolio_clip_n = 0
+        # diagnostic: samples whose mixture density UNDERFLOWED to 0 and hit the 1e-300 floor (those
+        # produce spurious ~1/1e-300 weights -- a numerical artifact, not real tail mass)
+        self.portfolio_qmix_underflow = 0
         self.portfolio_quality = np.ones(len(self.portfolio))   # per-member quality (EMA of the signal)
         self.portfolio_quality_nobs = np.zeros(len(self.portfolio), dtype=int)  # #updates per member
         self.portfolio_probe_ptr = 0                            # round-robin probe pointer
@@ -327,6 +341,7 @@ class MCSampler(object):
         _kw_keep('portfolio_quality_decay')
         _kw_keep('portfolio_probe_period')
         _kw_keep('portfolio_probe_frac')
+        _kw_keep('portfolio_weight_clip')
         if 'oracle_realizations' in kwargs:
           if kwargs['oracle_realizations']: 
             self.oracle_realizations = kwargs['oracle_realizations']  # might not have been initialized earlier
@@ -547,6 +562,9 @@ class MCSampler(object):
         # allow a per-integration override of the adaptive-probe allocation (else use the instance
         # default set at init/setup); falling back to the legacy n_ess reweighting when off.
         use_adaptive_alloc = kwargs.get('portfolio_adaptive_alloc', self.portfolio_adaptive_alloc)
+        # per-integration override of the weight clip (else the instance default from init/setup)
+        if 'portfolio_weight_clip' in kwargs:
+            self.portfolio_weight_clip = kwargs['portfolio_weight_clip']
 
         #
         # Adaptive sampling parameters
@@ -694,6 +712,18 @@ class MCSampler(object):
                     if all_ok and any_active:
                         # every pooled sample was drawn by some active member, so
                         # q_mix >= frac*q_m(own) > 0 there; floor only guards FP.
+                        # UNDERFLOW DIAGNOSTIC: mathematically acc>0 for every drawn sample, so any
+                        # acc==0 is a floating-point UNDERFLOW of the linear-space density sum.  The
+                        # 1e-300 floor then turns it into a spurious ~target/1e-300 weight, which can
+                        # single-handedly dominate the pooled estimator.  Count these so a numerical
+                        # artifact can be told apart from genuine heavy-tailed weights (the former
+                        # wants a log-space q_mix / member fix, the latter wants weight clipping).
+                        _n_uf = int(numpy.sum(acc <= 0))
+                        if _n_uf > 0:
+                            self.portfolio_qmix_underflow += _n_uf
+                            print("  PORTFOLIO: q_mix UNDERFLOW on {}/{} samples this chunk"
+                                  " (density summed to 0 -> floored 1e-300 -> spurious huge weight;"
+                                  " cumulative {})".format(_n_uf, len(acc), self.portfolio_qmix_underflow))
                         q_mix = numpy.maximum(acc, 1e-300)
             if q_mix is not None:
                 joint_p_s = q_mix   # deterministic-mixture denominator
@@ -715,6 +745,44 @@ class MCSampler(object):
             if bool(self.identity_convert(self.xpy.any(_bad))):
                 log_integrand = self.xpy.where(_bad, -self.xpy.inf, log_integrand)
                 log_weights   = self.xpy.where(_bad, -self.xpy.inf, log_weights)
+
+            # WEIGHT CLIPPING (truncated importance sampling; OPT-IN -- see __init__).
+            # Cap w at tau = clip * sqrt(n) * mean(w), tracking the removed mass so the induced
+            # ln Z bias is reported rather than silent.  Applied to BOTH log_integrand (which drives
+            # the estimate and n_eff) and log_weights (the per-member report), keeping them identical.
+            if self.portfolio_weight_clip and self.portfolio_weight_clip > 0:
+                _lw = numpy.asarray(self.identity_convert(log_integrand), dtype=float)
+                _fin = numpy.isfinite(_lw)
+                if bool(numpy.any(_fin)):
+                    _mx = float(numpy.max(_lw[_fin]))
+                    _u = numpy.where(_fin, numpy.exp(_lw - _mx), 0.0)
+                    _n_here = max(1, len(_u))
+                    _total = float(numpy.sum(_u))
+                    _tau = self.portfolio_weight_clip * numpy.sqrt(_n_here) * (_total / _n_here)
+                    if _total > 0:
+                        self.portfolio_clip_log_total = numpy.logaddexp(
+                            self.portfolio_clip_log_total, numpy.log(_total) + _mx)
+                    _over = _u > _tau
+                    _n_over = int(numpy.sum(_over))
+                    if _n_over > 0 and _tau > 0:
+                        _removed = float(numpy.sum(_u[_over] - _tau))
+                        if _removed > 0:
+                            self.portfolio_clip_log_removed = numpy.logaddexp(
+                                self.portfolio_clip_log_removed, numpy.log(_removed) + _mx)
+                        self.portfolio_clip_n += _n_over
+                        _u = numpy.minimum(_u, _tau)
+                        _lw_new = numpy.where(_u > 0, numpy.log(numpy.maximum(_u, 1e-300)) + _mx,
+                                              -numpy.inf)
+                        log_integrand = _lw_new
+                        log_weights = numpy.array(_lw_new, copy=True)
+                        _frac = float(numpy.exp(self.portfolio_clip_log_removed
+                                                - self.portfolio_clip_log_total)) \
+                            if numpy.isfinite(self.portfolio_clip_log_removed) else 0.0
+                        _frac = min(max(_frac, 0.0), 1.0 - 1e-15)
+                        print("  PORTFOLIO: weight-clip tau={:.3e}(rel max) clipped {} this chunk "
+                              "({} total); cumulative removed mass frac={:.3e} -> lnZ bias ~{:+.4f}"
+                              .format(_tau, _n_over, self.portfolio_clip_n, _frac,
+                                      float(numpy.log1p(-_frac))))
 
             if save_intg:
                 # FIXME: See warning at beginning of function. The prior values
