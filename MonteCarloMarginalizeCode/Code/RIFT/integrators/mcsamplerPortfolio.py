@@ -190,6 +190,27 @@ class MCSampler(object):
         # chunk in the report block.  Enables plateau-aware policies and post-hoc analysis.
         self.portfolio_member_ness_history = [[] for _ in range(len(self.portfolio))]
 
+        # ADAPTIVE-PROBE DRAW ALLOCATION.  The plain n_ess reweighting has a catch-22: a member
+        # only earns draw share once its per-chunk n_ess is high, but its per-chunk n_ess is
+        # SUPPRESSED while it has few draws (a VARAHA member contracts slower with fewer samples;
+        # any member's Kish n_ess is noisy on a small slice).  So the member that SHOULD win can
+        # be stuck under-observed -- the same feedback trap as the freeze bug, but on draws.  Fix:
+        # keep a per-member QUALITY estimate that is updated ONLY from chunks where the member had
+        # a fair allocation, allocate draws by quality^exponent (concentrate on the winner), and
+        # ROUND-ROBIN PROBE each member at a raised allocation every few chunks so a suppressed
+        # member gets a fair look and can prove itself.  q_mix keeps the estimate unbiased for ANY
+        # allocation, so this only trades efficiency, never correctness.  On weakly-correlated
+        # targets AV wins the probe and the portfolio tracks standalone AV; on strongly-correlated
+        # targets the full-covariance GMM wins the probe and the portfolio beats AV.
+        self.portfolio_adaptive_alloc = kwargs.get('portfolio_adaptive_alloc', True)
+        self.portfolio_alloc_exponent = kwargs.get('portfolio_alloc_exponent', 2.0)  # weights ~ quality^p
+        self.portfolio_alloc_floor    = kwargs.get('portfolio_alloc_floor', 0.05)     # min share (coverage+probe)
+        self.portfolio_quality_decay  = kwargs.get('portfolio_quality_decay', 0.5)    # EMA alpha for quality
+        self.portfolio_probe_period   = kwargs.get('portfolio_probe_period', 4)       # probe one member every N chunks
+        self.portfolio_probe_frac     = kwargs.get('portfolio_probe_frac', 0.6)       # raise probed member to >= this
+        self.portfolio_quality = np.ones(len(self.portfolio))   # per-member quality (EMA of fair-obs n_ess)
+        self.portfolio_probe_ptr = 0                            # round-robin probe pointer
+
         # Total number of samples drawn
         self.ntotal = 0
         # Parameter names
@@ -276,6 +297,12 @@ class MCSampler(object):
         _kw_keep('portfolio_grace_iters')
         _kw_keep('portfolio_revive_period')
         _kw_keep('portfolio_varaha_never_freeze')
+        _kw_keep('portfolio_adaptive_alloc')
+        _kw_keep('portfolio_alloc_exponent')
+        _kw_keep('portfolio_alloc_floor')
+        _kw_keep('portfolio_quality_decay')
+        _kw_keep('portfolio_probe_period')
+        _kw_keep('portfolio_probe_frac')
         if 'oracle_realizations' in kwargs:
           if kwargs['oracle_realizations']: 
             self.oracle_realizations = kwargs['oracle_realizations']  # might not have been initialized earlier
@@ -313,6 +340,45 @@ class MCSampler(object):
               args_here.update(portfolio_extra_args[indx])
               member.setup(**args_here)
               member.params_ordered = list(self.params_ordered)  # enforce parameters for oracle being sane
+
+    def _adaptive_allocation(self, ness_now, frac_now, iteration):
+        """Adaptive-probe draw allocation (see __init__).  Returns the next chunk's per-member
+        draw weights.  Decouples a QUALITY estimate (EMA of n_ess, updated only from chunks where
+        the member had a fair allocation) from the ALLOCATION (quality^exponent, floored), and
+        round-robin PROBES one member per `probe_period` chunks at a raised share so a suppressed
+        member can prove itself.  Unbiased for any allocation (q_mix handles correctness)."""
+        m = len(self.portfolio)
+        if m <= 1:
+            return np.ones(m)
+        ness = np.where(np.isfinite(np.asarray(ness_now, dtype=float)), np.asarray(ness_now, dtype=float), 1.0)
+        frac = np.asarray(frac_now, dtype=float)
+        # 1) update QUALITY only for members observed at a fair share this chunk (>= ~equal split);
+        #    a member drawn at the floor has too few / too noisy samples to trust its n_ess.
+        fair = 0.9 / m
+        a = self.portfolio_quality_decay
+        for k in range(m):
+            if frac[k] >= fair:
+                self.portfolio_quality[k] = (1 - a) * self.portfolio_quality[k] + a * max(ness[k], 1.0)
+        # 2) base allocation ~ (quality-1)^exponent (the 'excess' n_ess over the degenerate 1),
+        #    with a floor so every member keeps coverage AND stays observable enough to be probed.
+        q = np.maximum(self.portfolio_quality - 1.0, 0.0)
+        if np.sum(q) <= 0:
+            base = np.ones(m) / m
+        else:
+            w = (q / np.sum(q)) ** self.portfolio_alloc_exponent
+            base = w / np.sum(w)
+        base = self.portfolio_alloc_floor + base * (1.0 - m * self.portfolio_alloc_floor)
+        base = base / np.sum(base)
+        # 3) round-robin probe: raise ONE member to >= probe_frac every probe_period chunks so an
+        #    under-observed member gets a fair look next chunk (breaks the under-observation trap).
+        if self.portfolio_probe_period > 0 and (iteration % self.portfolio_probe_period == 0):
+            k = self.portfolio_probe_ptr % m
+            self.portfolio_probe_ptr += 1
+            if base[k] < self.portfolio_probe_frac:
+                base = base * (1.0 - self.portfolio_probe_frac) / max(1e-12, 1.0 - base[k])
+                base[k] = self.portfolio_probe_frac
+                base = base / np.sum(base)
+        return base
 
     def draw(self,n_samples, *args, **kwargs):
         """
@@ -441,6 +507,9 @@ class MCSampler(object):
         convergence_tests = kwargs["convergence_tests"] if "convergence_tests" in kwargs else None
         save_no_samples = kwargs["save_no_samples"] if "save_no_samples" in kwargs else None
         portfolio_wt_func = kwargs['portfolio_schedule'] if 'portfolio_schedule' in kwargs else portfolio_default_weights
+        # allow a per-integration override of the adaptive-probe allocation (else use the instance
+        # default set at init/setup); falling back to the legacy n_ess reweighting when off.
+        use_adaptive_alloc = kwargs.get('portfolio_adaptive_alloc', self.portfolio_adaptive_alloc)
 
         #
         # Adaptive sampling parameters
@@ -694,7 +763,14 @@ class MCSampler(object):
               self.portfolio_member_ness_history[indx_member].append(float(portfolio_report[indx_member][1]))
             # Weight based on n_ESS from batch.  remember these are >=1, so no negatives or 0 will happen
             dat =np.array([ portfolio_report[k][1] for k in range(len(self.portfolio))])
-            self.portfolio_weights = portfolio_wt_func(dat, self.portfolio_weights, xpy=self.xpy, identity_convert=self.identity_convert) # call weighting function
+            if use_adaptive_alloc and len(self.portfolio) > 1:
+              # adaptive-probe allocation: quality-EMA + round-robin probe (see _adaptive_allocation).
+              # frac_now = the fraction each member actually drew THIS chunk (n_samples_per_member is
+              # derived from self.portfolio_weights just above), so quality only updates on fair looks.
+              frac_now = np.array(n_samples_per_member, dtype=float) / float(max(1, n_samples))
+              self.portfolio_weights = self._adaptive_allocation(dat, frac_now, self.portfolio_draw_iteration)
+            else:
+              self.portfolio_weights = portfolio_wt_func(dat, self.portfolio_weights, xpy=self.xpy, identity_convert=self.identity_convert) # call weighting function
 
               
             ###

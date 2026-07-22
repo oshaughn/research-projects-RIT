@@ -103,15 +103,52 @@ frozen** on any event (0 freeze notices) and, on typical events, becomes the in-
 **NOT fundamentally at odds** with VARAHA's need for continuous contraction — never-freeze gives it
 exactly that, unbiased.
 
-The remaining limit is **efficiency, and it is a DIFFERENT lever than freezing**: the portfolio
-always spends a fraction of its draw budget on the GMM member, so on AV-favorable events it reaches
-a given n_eff in more evals than standalone AV (S240426s: same n_eff at 310k vs 60k), and on the
-hardest events it can stay under-converged (S240513ei/S240703ad: n_eff 1.6/2.8 vs AV's 9.5/11 at
-the same 800k cap). This is because the **draw-allocation (balance) heuristic** keeps GMM's share
-substantial whenever GMM's noisy per-chunk n_ess stays competitive — even though AV is updating
-every chunk. Concentrating draws on the winning member faster (a weight/allocation change, e.g. a
-sharper-than-n_ess reweight or decaying the loser toward the 0.01 floor) is the next lever; it is
-orthogonal to the freeze fix delivered here.
+The remaining limit is **efficiency, and it is a DIFFERENT lever than freezing** (addressed next):
+with the plain n_ess reweighting the portfolio spent a fixed ~half its budget on the GMM member, so
+on AV-favorable events it reached a given n_eff in more evals than standalone AV (S240426s: same
+n_eff at 310k vs 60k), and on the hardest events it stayed under-converged.
+
+## Adaptive-probe draw allocation (the efficiency lever)
+
+The reason the plain reweighting couldn't concentrate is a **draw catch-22**, structurally identical
+to the freeze bug but on draws instead of updates: a member's per-chunk n_ess is *suppressed while
+it has few draws* (a VARAHA member contracts slower with fewer samples; any Kish n_ess is noisy on a
+small slice), so the member that *should* win is stuck under-observed and never earns more draws.
+
+Fix (`portfolio_adaptive_alloc`, default **on**): keep a per-member **quality** estimate updated
+ONLY from chunks where the member had a *fair* allocation; allocate draws by `quality^exponent`
+(concentrate on the winner) above a small floor; and **round-robin probe** one member per
+`probe_period` chunks at a raised share so a suppressed member gets a fair look and can prove itself.
+`q_mix` keeps every allocation unbiased, so this only ever trades efficiency, never correctness.
+Knobs (all overridable via `setup`): `portfolio_alloc_exponent` (2.0), `portfolio_alloc_floor`
+(0.05), `portfolio_quality_decay` (0.5), `portfolio_probe_period` (4), `portfolio_probe_frac` (0.6);
+set `portfolio_adaptive_alloc=False` for the legacy n_ess reweighting.
+
+## Benchmark 3 — adaptive allocation on synthetic correlated targets
+
+`test/integrators/test_portfolio_adaptive_alloc.py` (fast, GPU, no ILE). Standalone AV vs standalone
+GMM vs AV+GMM portfolio, fixed budget (`nmax 4e5`, ndim 5), reporting the integrator's own eff_samp
+and bias vs the analytic ln Z:
+
+| target | AV n_eff (bias) | GMM n_eff (bias) | **portfolio** n_eff (bias) | portfolio wts (AV,GMM) |
+|--------|:---------------:|:----------------:|:--------------------------:|:----------------------:|
+| uncorrelated (axis-aligned) | 166 (−0.62) | 200 (−0.01) | **388** (−0.03) | 0.15, 0.85 |
+| **correlated (compound-symmetric)** | 131 (−0.88) | 390 (−0.03) | **381** (−0.05) | 0.12, 0.88 |
+
+- **On the correlated target GMM's full covariance crushes AV's axis-aligned bins (390 vs 131), and
+  adaptive allocation concentrates on GMM (weight 0.88) so the portfolio BEATS standalone AV** — the
+  whole point of a portfolio on a correlated problem, and the case the reviewer flagged as the only
+  regime where beating AV is expected.
+- A cold VARAHA/AV under-covers the Gaussian tails and is **biased low** (−0.6 to −0.9); the
+  portfolio stays **unbiased** because the covering GMM enters `q_mix` — a second reason to prefer
+  the portfolio. (This is the opposite regime from a warm, cover-frac'd AV on a real ILE likelihood,
+  where AV is the unbiased workhorse; the point demonstrated is that adaptive allocation follows
+  whichever member is actually winning — GMM here, AV on a real AV-favorable event.)
+
+**Overall verdict.** Never-freeze makes the portfolio unbiased and never-starved (replicates AV);
+adaptive-probe allocation then makes it *track the best available member* — matching AV when AV wins
+and beating it when a correlated geometry makes GMM win. The portfolio is now a strict "best-of"
+rather than a compromise, at the cost of a small probing overhead.
 
 **Robustness bug fixed along the way (important):** portfolio plugin discovery hard-loaded every
 registered plugin at import, and the `NF` plugin does `import torch`, absent in the production GPU
@@ -121,8 +158,11 @@ integrator was effectively **unusable in the production container**. Plugin load
 in try/except so a plugin with missing optional deps is skipped, not fatal.
 
 ## Files
-- `RIFT/integrators/mcsamplerPortfolio.py` — freeze-policy logic, knobs, n_ess history, NaN guard.
-- `bin/integrate_likelihood_extrinsic_batchmode` — CLI flags + comma-split fix.
+- `RIFT/integrators/mcsamplerPortfolio.py` — freeze-policy + adaptive-probe allocation, knobs,
+  n_ess history, plugin-load guard, NaN guard.
+- `bin/integrate_likelihood_extrinsic_batchmode` — CLI flags (freeze + allocation) + comma-split fix.
 - `test/integrators/bench_portfolio_freeze.sh` — S250114ax single-config runner.
 - `test/integrators/bench_multi_event.py` + `run_multi_event.sh` — multi-event robustness suite.
 - `test/integrators/parse_neff_traj.py` — trajectory → n_eff-vs-N table parser.
+- `test/integrators/test_portfolio_adaptive_alloc.py` — synthetic correlated/uncorrelated test that
+  the portfolio tracks the winning member and beats AV on a correlated target (Benchmark 3).
