@@ -17,12 +17,19 @@ from scipy.stats import multivariate_normal,norm
 try:
     import cupy
     import cupyx.scipy.special
+    # cupy imports cleanly on GPU-less nodes (shared install, or a GPU node
+    # with CUDA_VISIBLE_DEVICES masked); probe for an actual device before
+    # selecting the GPU backend, else every cupy kernel launch dies at call
+    # time with cudaErrorNoDevice.  getDeviceCount raises CUDARuntimeError
+    # (not ImportError) in that case, hence the broad except below.
+    if cupy.cuda.runtime.getDeviceCount() == 0:
+        raise ImportError("cupy installed but no CUDA device available")
     xpy_default = cupy
     xpy_special_default = cupyx.scipy.special
     identity_convert = cupy.asnumpy
     identity_convert_togpu = cupy.asarray
     cupy_ok = True
-except ImportError:
+except Exception:
     xpy_default = np
     xpy_special_default = None # scipy.special is used via scipy if needed
     identity_convert = lambda x: x
@@ -87,21 +94,6 @@ def _xpy_logsumexp(a, axis=None):
     return logsumexp(a, axis=axis)
 
 
-# Symmetric (Hermitian) eigen-routines. cupy.linalg only provides the Hermitian
-# variants (eigh/eigvalsh), not the general eig/eigvals. The matrices fed to
-# _near_psd below are covariance/correlation matrices and hence symmetric, so
-# the Hermitian routines are both correct and the only ones available on GPU.
-if cupy_ok:
-    _xpy_eigvals = cupy.linalg.eigvalsh
-    _xpy_eig = cupy.linalg.eigh
-else:
-    # Symmetric routines on CPU as well: the inputs are covariance/correlation
-    # matrices.  eigvalsh/eigh are faster, return real eigenvalues (no spurious
-    # complex output from round-off asymmetry), and match the GPU path.
-    _xpy_eigvals = np.linalg.eigvalsh
-    _xpy_eig = np.linalg.eigh
-
-
 def _near_psd_impl(x, epsilon, xpy):
     '''
     Shared, hardened nearest-PSD projection for covariance matrices.
@@ -124,12 +116,17 @@ def _near_psd_impl(x, epsilon, xpy):
         floor = xpy.maximum(diag, epsilon)
         x = x + xpy.diag(floor - diag)
     x = 0.5 * (x + x.T)   # symmetrize: eigh assumes it, round-off breaks it
+    # Symmetric (Hermitian) eigen-routines, resolved through the CALLER's xpy:
+    # cupy.linalg only provides eigh/eigvalsh (not general eig/eigvals), and the
+    # inputs here are covariance/correlation matrices, so the Hermitian variants
+    # are correct on both backends.  Do not bind these at import time -- that is
+    # how a cupy install without a GPU broke every CPU refit (cudaErrorNoDevice).
     for _ in range(10):   # bounded: the legacy `while True` could spin forever
         var_list = xpy.sqrt(xpy.diag(x))
         y = x / (var_list[:, None] * var_list[None, :])
-        if bool(xpy.min(_xpy_eigvals(y)) > epsilon):
+        if bool(xpy.min(xpy.linalg.eigvalsh(y)) > epsilon):
             return x
-        eigval, eigvec = _xpy_eig(y)
+        eigval, eigvec = xpy.linalg.eigh(y)
         val_psd = xpy.maximum(eigval, epsilon)
         near_corr = eigvec @ xpy.diag(val_psd) @ eigvec.T
         near_cov = near_corr * (var_list[:, None] * var_list[None, :])

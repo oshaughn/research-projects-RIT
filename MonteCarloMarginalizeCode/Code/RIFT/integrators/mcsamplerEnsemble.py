@@ -9,12 +9,17 @@ from RIFT.precision import RiftFloat  # platform-portable replacement for np.flo
 try:
     import cupy
     import cupyx.scipy.special
+    # Probe for an actual device: cupy imports cleanly on GPU-less nodes but
+    # every kernel launch then dies with cudaErrorNoDevice.  getDeviceCount
+    # raises CUDARuntimeError (not ImportError), hence the broad except.
+    if cupy.cuda.runtime.getDeviceCount() == 0:
+        raise ImportError("cupy installed but no CUDA device available")
     xpy_default = cupy
     xpy_special_default = cupyx.scipy.special
     identity_convert = cupy.asnumpy
     identity_convert_togpu = cupy.asarray
     cupy_ok = True
-except ImportError:
+except Exception:
     xpy_default = np
     xpy_special_default = None
     identity_convert = lambda x: x
@@ -493,7 +498,7 @@ class MCSampler(object):
             print(" ==> input assumed as lnL ")
         if return_lnI:
             print(" ==> internal calculations and return values are lnI ")
-        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,verbose=verbose,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsion=tripwire_epsilon,use_lnL=use_lnL,return_lnI=return_lnI,lnw_failure_cut=lnw_failure_cut)
+        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,verbose=verbose,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsilon=tripwire_epsilon,use_lnL=use_lnL,return_lnI=return_lnI,lnw_failure_cut=lnw_failure_cut)
 
         self.n = int(integrator.n)
         self.ntotal = int(integrator.ntotal)
