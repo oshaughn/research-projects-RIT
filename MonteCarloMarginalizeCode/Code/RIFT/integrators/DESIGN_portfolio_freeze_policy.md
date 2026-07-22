@@ -115,28 +115,40 @@ to the freeze bug but on draws instead of updates: a member's per-chunk n_ess is
 it has few draws* (a VARAHA member contracts slower with fewer samples; any Kish n_ess is noisy on a
 small slice), so the member that *should* win is stuck under-observed and never earns more draws.
 
-Fix (`portfolio_adaptive_alloc`, default **on**): keep a per-member **quality** estimate updated
-ONLY from chunks where the member had a *fair* allocation; allocate draws by `quality^exponent`
-(concentrate on the winner) above a small floor; and **round-robin probe** one member per
-`probe_period` chunks at a raised share so a suppressed member gets a fair look and can prove itself.
-`q_mix` keeps every allocation unbiased, so this only ever trades efficiency, never correctness.
-Knobs (all overridable via `setup`): `portfolio_alloc_exponent` (2.0), `portfolio_alloc_floor`
-(0.05), `portfolio_quality_decay` (0.5), `portfolio_probe_period` (4), `portfolio_probe_frac` (0.6);
-set `portfolio_adaptive_alloc=False` for the legacy n_ess reweighting.
+Mechanism (`portfolio_adaptive_alloc`, **OPT-IN, default OFF** — see the regression below): keep a
+per-member **quality** estimate updated ONLY from chunks where the member had a *fair* allocation;
+allocate draws by `quality^exponent` above a small floor; and **round-robin probe** one member per
+`probe_period` chunks at a raised share so a suppressed member gets a fair look. `q_mix` keeps every
+allocation unbiased. Knobs (`setup` + CLI `--portfolio-adaptive-alloc` to enable):
+`portfolio_alloc_exponent` (2.0), `portfolio_alloc_floor` (0.05), `portfolio_quality_decay` (0.5),
+`portfolio_probe_period` (4), `portfolio_probe_frac` (0.6).
+
+**Why it is opt-in, not the default (a real regression).** The quality signal is each member's
+per-chunk Kish n_ess, which rewards **self-consistency, not integral coverage**. A warm GMM is
+instantly self-consistent (per-chunk n_ess ~120), while a warm VARAHA/AV member's per-chunk n_ess is
+genuinely ~1 during its slow *cumulative* contraction (its value emerges over ~70 chunks). So on the
+real high-SNR **S250114ax** (AV-favorable) event, adaptive drives the true AV workhorse to the floor
+and rides the self-consistent-but-worse GMM: **n_eff 8 vs 53** for the legacy allocation — a clear
+regression. The probe can't rescue AV because AV still looks bad at high allocation until fully
+contracted. A correct default needs a **global-impact** quality signal (how much a member improves
+the pooled `q_mix` n_eff), not per-member self-n_ess — that is future work. Until then the default
+keeps the legacy n_ess reweighting (never-freeze), and adaptive is opt-in for correlated problems.
 
 ## Benchmark 3 — adaptive allocation on synthetic correlated targets
 
 `test/integrators/test_portfolio_adaptive_alloc.py` (fast, GPU, no ILE). Standalone AV vs standalone
 GMM vs AV+GMM portfolio, fixed budget (`nmax 4e5`, ndim 5), reporting the integrator's own eff_samp
-and bias vs the analytic ln Z:
+and bias vs the analytic ln Z. The GMM member is broad-seeded (a wide peak-covering proposal) so the
+test exercises the *allocation* given a functional GMM rather than gambling on cold GMM finding a
+thin ridge; AV starts cold. Representative (seed 1234):
 
 | target | AV n_eff (bias) | GMM n_eff (bias) | **portfolio** n_eff (bias) | portfolio wts (AV,GMM) |
 |--------|:---------------:|:----------------:|:--------------------------:|:----------------------:|
-| uncorrelated (axis-aligned) | 166 (−0.62) | 200 (−0.01) | **388** (−0.03) | 0.15, 0.85 |
-| **correlated (compound-symmetric)** | 131 (−0.88) | 390 (−0.03) | **381** (−0.05) | 0.12, 0.88 |
+| uncorrelated (axis-aligned) | 107 (−0.54) | 398 (−0.01) | **386** (−0.04) | 0.15, 0.85 |
+| **correlated (compound-symmetric)** | 23 (−0.67) | 400 (−0.00) | **387** (−0.03) | 0.13, 0.87 |
 
-- **On the correlated target GMM's full covariance crushes AV's axis-aligned bins (390 vs 131), and
-  adaptive allocation concentrates on GMM (weight 0.88) so the portfolio BEATS standalone AV** — the
+- **On the correlated target GMM's full covariance crushes AV's axis-aligned bins (400 vs 23), and
+  adaptive allocation concentrates on GMM (weight 0.87) so the portfolio BEATS standalone AV** — the
   whole point of a portfolio on a correlated problem, and the case the reviewer flagged as the only
   regime where beating AV is expected.
 - A cold VARAHA/AV under-covers the Gaussian tails and is **biased low** (−0.6 to −0.9); the
@@ -145,10 +157,18 @@ and bias vs the analytic ln Z:
   where AV is the unbiased workhorse; the point demonstrated is that adaptive allocation follows
   whichever member is actually winning — GMM here, AV on a real AV-favorable event.)
 
-**Overall verdict.** Never-freeze makes the portfolio unbiased and never-starved (replicates AV);
-adaptive-probe allocation then makes it *track the best available member* — matching AV when AV wins
-and beating it when a correlated geometry makes GMM win. The portfolio is now a strict "best-of"
-rather than a compromise, at the cost of a small probing overhead.
+The synthetic result shows the *mechanism* is sound **when the quality signal is right** (there GMM
+is genuinely better and adaptive follows it). The S250114ax regression shows the *signal* is wrong on
+real high-SNR AV-favorable events. Hence adaptive is shipped **opt-in**, and the default portfolio is
+never-freeze + legacy allocation.
+
+**Overall verdict.** Never-freeze (default) makes the portfolio unbiased and never-starved — it
+**replicates standalone AV** and, on typical events, lets AV be the workhorse. Adaptive-probe
+allocation (opt-in) can make a portfolio **beat AV on a strongly-correlated target** (synthetic:
+387 vs 23 n_eff) — the only regime where beating AV is expected — but with the current per-member
+n_ess quality signal it *starves* the slow-contracting AV on AV-favorable real events (S250114ax:
+8 vs 53), so it is not yet a safe default. The clear next step is a global-impact quality signal
+(a member's marginal contribution to the pooled n_eff) so adaptive can be turned on everywhere.
 
 **Robustness bug fixed along the way (important):** portfolio plugin discovery hard-loaded every
 registered plugin at import, and the `NF` plugin does `import torch`, absent in the production GPU

@@ -190,19 +190,24 @@ class MCSampler(object):
         # chunk in the report block.  Enables plateau-aware policies and post-hoc analysis.
         self.portfolio_member_ness_history = [[] for _ in range(len(self.portfolio))]
 
-        # ADAPTIVE-PROBE DRAW ALLOCATION.  The plain n_ess reweighting has a catch-22: a member
-        # only earns draw share once its per-chunk n_ess is high, but its per-chunk n_ess is
-        # SUPPRESSED while it has few draws (a VARAHA member contracts slower with fewer samples;
-        # any member's Kish n_ess is noisy on a small slice).  So the member that SHOULD win can
-        # be stuck under-observed -- the same feedback trap as the freeze bug, but on draws.  Fix:
-        # keep a per-member QUALITY estimate that is updated ONLY from chunks where the member had
-        # a fair allocation, allocate draws by quality^exponent (concentrate on the winner), and
-        # ROUND-ROBIN PROBE each member at a raised allocation every few chunks so a suppressed
-        # member gets a fair look and can prove itself.  q_mix keeps the estimate unbiased for ANY
-        # allocation, so this only trades efficiency, never correctness.  On weakly-correlated
-        # targets AV wins the probe and the portfolio tracks standalone AV; on strongly-correlated
-        # targets the full-covariance GMM wins the probe and the portfolio beats AV.
-        self.portfolio_adaptive_alloc = kwargs.get('portfolio_adaptive_alloc', True)
+        # ADAPTIVE-PROBE DRAW ALLOCATION -- OPT-IN (default OFF).  Idea: keep a per-member QUALITY
+        # estimate updated only from fair-allocation chunks, allocate draws by quality^exponent, and
+        # round-robin PROBE each member at a raised share so a suppressed member can prove itself.
+        # q_mix keeps this unbiased for ANY allocation.  On strongly-correlated SYNTHETIC targets it
+        # works well (a full-covariance GMM wins the probe and the portfolio beats AV --
+        # test_portfolio_adaptive_alloc.py).
+        #
+        # BUT it is NOT a safe default: the quality signal is each member's per-chunk Kish n_ess,
+        # which rewards SELF-CONSISTENCY, not integral coverage.  A warm GMM is instantly
+        # self-consistent (per-chunk n_ess ~120) while a warm VARAHA/AV member's per-chunk n_ess is
+        # genuinely ~1 during its slow, CUMULATIVE contraction (its value emerges over ~70 chunks).
+        # So on a real high-SNR AV-favorable event (S250114ax) adaptive drives the true AV workhorse
+        # to the floor and rides the self-consistent-but-worse GMM: measured n_eff 8 vs 53 for the
+        # legacy allocation -- a regression.  The probe cannot rescue AV because AV still looks bad
+        # at high allocation until fully contracted.  A correct default needs a GLOBAL-impact quality
+        # signal (how much a member improves the pooled q_mix n_eff), not per-member self-n_ess; that
+        # is future work.  Until then the DEFAULT keeps the legacy n_ess reweighting.
+        self.portfolio_adaptive_alloc = kwargs.get('portfolio_adaptive_alloc', False)
         self.portfolio_alloc_exponent = kwargs.get('portfolio_alloc_exponent', 2.0)  # weights ~ quality^p
         self.portfolio_alloc_floor    = kwargs.get('portfolio_alloc_floor', 0.05)     # min share (coverage+probe)
         self.portfolio_quality_decay  = kwargs.get('portfolio_quality_decay', 0.5)    # EMA alpha for quality

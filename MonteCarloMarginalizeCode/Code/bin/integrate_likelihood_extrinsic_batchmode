@@ -331,10 +331,12 @@ integration_params.add_option("--portfolio-revive-period",default=None,type=int,
 integration_params.add_option("--portfolio-freeze-wt",default=None,type=float,help="Portfolio: a member whose balance weight is below this stops updating its proposal (subject to grace/revive/VARAHA-exemption). Sampler default 0.05.")
 integration_params.add_option("--portfolio-varaha-never-freeze",action='store_true',default=False,help="Portfolio: VARAHA/AV members always update every chunk past their breakpoint (freeze-exempt). This is the sampler default; the flag is here for explicitness/pipe pass-through.")
 integration_params.add_option("--portfolio-varaha-can-freeze",action='store_true',default=False,help="Portfolio: DISABLE the VARAHA freeze-exemption, so VARAHA/AV members obey the grace/revive/weight freeze schedule like other members. Use only if a VARAHA member is a known-bad fit and you want to save its selfish-draw eval cycles.")
-# Portfolio DRAW-ALLOCATION policy (adaptive-probe): concentrate the draw budget on whichever
-# member is actually winning, with round-robin probing so a suppressed member can prove itself.
-# On by default; unbiased for any allocation (q_mix).  Defaults (None) keep the sampler's built-in.
-integration_params.add_option("--portfolio-static-alloc",action='store_true',default=False,help="Portfolio: DISABLE adaptive-probe draw allocation and use the legacy n_ess reweighting (fixed-ish shares). Adaptive allocation is on by default and concentrates draws on the best-performing member (matches AV when AV wins, beats it when a correlated geometry makes GMM win).")
+# Portfolio DRAW-ALLOCATION policy (adaptive-probe): OPT-IN (default off).  Concentrates the draw
+# budget on the member with the highest per-chunk n_ess, with round-robin probing.  Unbiased for
+# any allocation (q_mix).  Helps on strongly-correlated targets, but the n_ess signal rewards
+# self-consistency and STARVES a slow-contracting VARAHA/AV member on real high-SNR events, so it
+# is not the default -- see DESIGN_portfolio_freeze_policy.md.
+integration_params.add_option("--portfolio-adaptive-alloc",action='store_true',default=False,help="Portfolio: ENABLE (opt-in) adaptive-probe draw allocation -- concentrate draws on the best per-chunk-n_ess member. Good on strongly-correlated targets; NOT recommended for AV-favorable high-SNR events (it starves the slow-contracting AV workhorse). Off by default (legacy n_ess reweighting).")
 integration_params.add_option("--portfolio-alloc-exponent",default=None,type=float,help="Portfolio: adaptive allocation ~ member_quality^exponent. Higher concentrates harder on the winner. Sampler default 2.0.")
 integration_params.add_option("--portfolio-probe-period",default=None,type=int,help="Portfolio: round-robin probe one member at a raised draw share every N chunks (breaks the under-observation trap). 0 disables probing. Sampler default 4.")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
@@ -1770,9 +1772,9 @@ if use_portfolio:
           _freeze_policy_kwargs['portfolio_varaha_never_freeze'] = False
       elif opts.portfolio_varaha_never_freeze:
           _freeze_policy_kwargs['portfolio_varaha_never_freeze'] = True
-      # adaptive-probe draw allocation (on by default in the sampler)
-      if opts.portfolio_static_alloc:
-          _freeze_policy_kwargs['portfolio_adaptive_alloc'] = False
+      # adaptive-probe draw allocation (OPT-IN; off by default in the sampler)
+      if opts.portfolio_adaptive_alloc:
+          _freeze_policy_kwargs['portfolio_adaptive_alloc'] = True
       if opts.portfolio_alloc_exponent is not None:
           _freeze_policy_kwargs['portfolio_alloc_exponent'] = opts.portfolio_alloc_exponent
       if opts.portfolio_probe_period is not None:
