@@ -123,16 +123,43 @@ allocation unbiased. Knobs (`setup` + CLI `--portfolio-adaptive-alloc` to enable
 `portfolio_alloc_exponent` (2.0), `portfolio_alloc_floor` (0.05), `portfolio_quality_decay` (0.5),
 `portfolio_probe_period` (4), `portfolio_probe_frac` (0.6).
 
-**Why it is opt-in, not the default (a real regression).** The quality signal is each member's
-per-chunk Kish n_ess, which rewards **self-consistency, not integral coverage**. A warm GMM is
-instantly self-consistent (per-chunk n_ess ~120), while a warm VARAHA/AV member's per-chunk n_ess is
-genuinely ~1 during its slow *cumulative* contraction (its value emerges over ~70 chunks). So on the
-real high-SNR **S250114ax** (AV-favorable) event, adaptive drives the true AV workhorse to the floor
-and rides the self-consistent-but-worse GMM: **n_eff 8 vs 53** for the legacy allocation — a clear
-regression. The probe can't rescue AV because AV still looks bad at high allocation until fully
-contracted. A correct default needs a **global-impact** quality signal (how much a member improves
-the pooled `q_mix` n_eff), not per-member self-n_ess — that is future work. Until then the default
-keeps the legacy n_ess reweighting (never-freeze), and adaptive is opt-in for correlated problems.
+### Choosing the quality signal (`portfolio_quality_signal`)
+
+Three candidates were implemented and measured. Only the third is defensible, and even it cannot
+rescue S250114ax — for a reason that turns out **not** to be about allocation at all.
+
+1. **`ness`** — per-member Kish n_ess. **Fails.** Kish is *scale-invariant* (`(Σw)²/Σw²` is
+   unchanged if all `w` are scaled), so it cannot see whether a member's samples carry any integral
+   mass: a self-consistent member sitting off-peak scores as well as one covering the peak. A warm
+   GMM is instantly self-consistent (n_ess ~120) while a warm AV's per-chunk n_ess is genuinely ~1
+   during its slow *cumulative* contraction (value emerges over ~70 chunks). On S250114ax this drove
+   the true AV workhorse to the floor: **n_eff 8 vs 53** for the legacy allocation — a regression.
+2. **mean weight** (per-sample contribution). **Also fails, backwards.** A *well-matched* proposal
+   correctly has small uniform weights, while a broad proposal's rare huge-weight outlier sets the
+   maximum. Measured on S250114ax: AV **1e-40** vs GMM **2e-4** — it penalizes the good member.
+3. **`global` (default when adaptive is on)** — marginal gain in **pooled** n_eff per sample,
+   `g_m = 2·mean_w_m/S − mean_w2_m/Q` (`S=Σw`, `Q=Σw²` over all samples). This is the right
+   objective: it credits weight *mass* and debits weight *variance*. It works on the synthetic
+   (below), but on S250114ax it still ranks GMM first — and the numbers say exactly why.
+
+**The S250114ax diagnosis (allocation is not the bottleneck).** With the `global` signal the
+measured values are AV `~1e-73` and GMM `1.053e-4`. That GMM value is precisely `1/9500 = 1/n_GMM`,
+which is the analytic signature of **one sample owning the entire estimator**: for a member holding
+the single dominant outlier, `g = 2/n − 1/n = 1/n`. So the chunk's maximum weight is a catastrophic
+GMM outlier ~**10⁷³×** larger than any AV weight — a draw landing where `q_mix ≈ 0` but the target is
+nonzero. No allocation signal computed from the current weights can rank AV above that, because the
+pooled estimator genuinely *is* dominated by that one sample.
+
+The consequence: on this event the ceiling is set by the GMM member's **unbounded importance
+weights**, not by how draws are split. Even floored at 5% the GMM member still injects outliers, which
+is why the legacy allocation reached only 53 (not AV's 100). **The next lever is therefore weight
+bounding / member exclusion, not allocation**: a defensive covering component to bound `w`, clipping
+or winsorizing member weights, or dropping a member whose weight distribution is unbounded. (PR #27's
+`--internal-gmm-defensive-frac` is the related Hesterberg-defensive knob; its help notes it did not
+help n_eff on this SNR~82 benchmark, consistent with this being a hard pathology.)
+
+Because of this, adaptive allocation remains **opt-in**; the default keeps never-freeze + legacy
+reweighting.
 
 ## Benchmark 3 — adaptive allocation on synthetic correlated targets
 
@@ -164,11 +191,16 @@ never-freeze + legacy allocation.
 
 **Overall verdict.** Never-freeze (default) makes the portfolio unbiased and never-starved — it
 **replicates standalone AV** and, on typical events, lets AV be the workhorse. Adaptive-probe
-allocation (opt-in) can make a portfolio **beat AV on a strongly-correlated target** (synthetic:
-387 vs 23 n_eff) — the only regime where beating AV is expected — but with the current per-member
-n_ess quality signal it *starves* the slow-contracting AV on AV-favorable real events (S250114ax:
-8 vs 53), so it is not yet a safe default. The clear next step is a global-impact quality signal
-(a member's marginal contribution to the pooled n_eff) so adaptive can be turned on everywhere.
+allocation (opt-in, with the `global` marginal-pooled-n_eff signal) makes a portfolio **beat AV on a
+strongly-correlated target** (synthetic: ~375 vs ~61 n_eff) — the only regime where beating AV is
+expected.
+
+It is still opt-in because of what the global signal *revealed* rather than any deficiency in it:
+on S250114ax the pooled estimator is dominated by a single GMM outlier ~10⁷³× the next weight, so
+**allocation is not the bottleneck there — unbounded member weights are**. Turning adaptive on
+everywhere requires first bounding those weights (defensive component / weight clipping / dropping a
+member with an unbounded weight distribution). That is the concrete next lever, and it is a
+*member-quality* fix, not an allocation-policy one.
 
 **Robustness bug fixed along the way (important):** portfolio plugin discovery hard-loaded every
 registered plugin at import, and the `NF` plugin does `import torch`, absent in the production GPU

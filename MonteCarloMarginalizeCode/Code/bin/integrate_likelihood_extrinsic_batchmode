@@ -337,7 +337,8 @@ integration_params.add_option("--portfolio-varaha-can-freeze",action='store_true
 # self-consistency and STARVES a slow-contracting VARAHA/AV member on real high-SNR events, so it
 # is not the default -- see DESIGN_portfolio_freeze_policy.md.
 integration_params.add_option("--portfolio-adaptive-alloc",action='store_true',default=False,help="Portfolio: ENABLE (opt-in) adaptive-probe draw allocation -- concentrate draws on the best per-chunk-n_ess member. Good on strongly-correlated targets; NOT recommended for AV-favorable high-SNR events (it starves the slow-contracting AV workhorse). Off by default (legacy n_ess reweighting).")
-integration_params.add_option("--portfolio-alloc-exponent",default=None,type=float,help="Portfolio: adaptive allocation ~ member_quality^exponent. Higher concentrates harder on the winner. Sampler default 2.0.")
+integration_params.add_option("--portfolio-quality-signal",default=None,type=str,help="Portfolio adaptive allocation: which per-member quality signal to rank members by. 'global' (default) = marginal gain in POOLED n_eff per sample (credits weight mass, debits weight variance); 'ness' = legacy per-member Kish n_ess (scale-invariant, misranks a slow-contracting AV -- see DESIGN_portfolio_freeze_policy.md).")
+integration_params.add_option("--portfolio-alloc-exponent",default=None,type=float,help="Portfolio: adaptive allocation ~ member_quality^exponent. Higher concentrates harder on the winner. Sampler default 1.0.")
 integration_params.add_option("--portfolio-probe-period",default=None,type=int,help="Portfolio: round-robin probe one member at a raised draw share every N chunks (breaks the under-observation trap). 0 disables probing. Sampler default 4.")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
 # Integrator warm-start / reuse (bootstrap AV, persist/reuse a trained NF flow).  All
@@ -1775,6 +1776,8 @@ if use_portfolio:
       # adaptive-probe draw allocation (OPT-IN; off by default in the sampler)
       if opts.portfolio_adaptive_alloc:
           _freeze_policy_kwargs['portfolio_adaptive_alloc'] = True
+      if opts.portfolio_quality_signal is not None:
+          _freeze_policy_kwargs['portfolio_quality_signal'] = opts.portfolio_quality_signal
       if opts.portfolio_alloc_exponent is not None:
           _freeze_policy_kwargs['portfolio_alloc_exponent'] = opts.portfolio_alloc_exponent
       if opts.portfolio_probe_period is not None:

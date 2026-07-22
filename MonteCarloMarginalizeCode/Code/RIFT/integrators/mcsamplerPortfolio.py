@@ -208,12 +208,30 @@ class MCSampler(object):
         # signal (how much a member improves the pooled q_mix n_eff), not per-member self-n_ess; that
         # is future work.  Until then the DEFAULT keeps the legacy n_ess reweighting.
         self.portfolio_adaptive_alloc = kwargs.get('portfolio_adaptive_alloc', False)
-        self.portfolio_alloc_exponent = kwargs.get('portfolio_alloc_exponent', 2.0)  # weights ~ quality^p
+        # QUALITY SIGNAL for the allocation:
+        #  'global' (default) -- each member's MARGINAL GAIN IN POOLED n_eff PER SAMPLE,
+        #      g_m = 2*mean_w_m/S - mean_w2_m/Q  (S=sum w, Q=sum w^2 over ALL samples; see the
+        #      derivation where it is computed).  This directly optimizes the quantity we care
+        #      about: it credits a member for the weight MASS it contributes and debits it for the
+        #      weight VARIANCE it injects.  The two simpler candidates both fail:
+        #        * Kish n_ess is SCALE-INVARIANT ((sum w)^2/sum w^2 is unchanged if all w are
+        #          scaled), so it cannot see whether a member carries any integral mass at all -- a
+        #          self-consistent member sitting off-peak scores as well as one covering the peak.
+        #        * mean weight alone REWARDS badly-matched proposals: a well-matched contracted AV
+        #          correctly has small uniform weights, while a broad GMM's rare huge-weight outlier
+        #          sets the max (measured on S250114ax: AV 1e-40 vs GMM 2e-4 -- backwards).
+        #      g_m is also self-correcting at low allocation: a starved peak-covering member sees
+        #      inflated weights (q_mix is small there) so it earns share, and as its share grows
+        #      q_mix rises and the weights fall -- an equilibrium, with no under-observation trap.
+        #  'ness' -- legacy per-member Kish n_ess (kept for comparison; see the S250114ax regression).
+        self.portfolio_quality_signal = kwargs.get('portfolio_quality_signal', 'global')
+        self.portfolio_alloc_exponent = kwargs.get('portfolio_alloc_exponent', 1.0)  # weights ~ quality^p
         self.portfolio_alloc_floor    = kwargs.get('portfolio_alloc_floor', 0.05)     # min share (coverage+probe)
         self.portfolio_quality_decay  = kwargs.get('portfolio_quality_decay', 0.5)    # EMA alpha for quality
         self.portfolio_probe_period   = kwargs.get('portfolio_probe_period', 4)       # probe one member every N chunks
         self.portfolio_probe_frac     = kwargs.get('portfolio_probe_frac', 0.6)       # raise probed member to >= this
-        self.portfolio_quality = np.ones(len(self.portfolio))   # per-member quality (EMA of fair-obs n_ess)
+        self.portfolio_quality = np.ones(len(self.portfolio))   # per-member quality (EMA of the signal)
+        self.portfolio_quality_nobs = np.zeros(len(self.portfolio), dtype=int)  # #updates per member
         self.portfolio_probe_ptr = 0                            # round-robin probe pointer
 
         # Total number of samples drawn
@@ -303,6 +321,7 @@ class MCSampler(object):
         _kw_keep('portfolio_revive_period')
         _kw_keep('portfolio_varaha_never_freeze')
         _kw_keep('portfolio_adaptive_alloc')
+        _kw_keep('portfolio_quality_signal')
         _kw_keep('portfolio_alloc_exponent')
         _kw_keep('portfolio_alloc_floor')
         _kw_keep('portfolio_quality_decay')
@@ -355,18 +374,31 @@ class MCSampler(object):
         m = len(self.portfolio)
         if m <= 1:
             return np.ones(m)
-        ness = np.where(np.isfinite(np.asarray(ness_now, dtype=float)), np.asarray(ness_now, dtype=float), 1.0)
+        _global = (self.portfolio_quality_signal == 'global')
+        _floor_obs = 0.0 if _global else 1.0   # contribution is zero-based; Kish n_ess is >= 1
+        obs = np.asarray(ness_now, dtype=float)
+        obs = np.where(np.isfinite(obs), obs, _floor_obs)
         frac = np.asarray(frac_now, dtype=float)
-        # 1) update QUALITY only for members observed at a fair share this chunk (>= ~equal split);
-        #    a member drawn at the floor has too few / too noisy samples to trust its n_ess.
-        fair = 0.9 / m
+        # 1) update QUALITY.  With the 'ness' signal a member drawn at the floor has too few/too
+        #    noisy samples to trust, so only fair-allocation chunks count.  The 'global'
+        #    contribution signal is SELF-CORRECTING at low allocation (a starved peak-covering
+        #    member shows inflated weights), so every chunk is informative -- no gating needed.
+        fair = 0.0 if _global else 0.9 / m
         a = self.portfolio_quality_decay
         for k in range(m):
-            if frac[k] >= fair:
-                self.portfolio_quality[k] = (1 - a) * self.portfolio_quality[k] + a * max(ness[k], 1.0)
-        # 2) base allocation ~ (quality-1)^exponent (the 'excess' n_ess over the degenerate 1),
-        #    with a floor so every member keeps coverage AND stays observable enough to be probed.
-        q = np.maximum(self.portfolio_quality - 1.0, 0.0)
+            if frac[k] > 0 and frac[k] >= fair:
+                _o = max(obs[k], _floor_obs)
+                if self.portfolio_quality_nobs[k] == 0:
+                    # first real observation: adopt it outright.  The 'global' contribution signal
+                    # has an arbitrary scale, so EMA-ing from the placeholder 1.0 would bias it.
+                    self.portfolio_quality[k] = _o
+                else:
+                    self.portfolio_quality[k] = (1 - a) * self.portfolio_quality[k] + a * _o
+                self.portfolio_quality_nobs[k] += 1
+        # 2) base allocation ~ quality^exponent above a floor.  For 'ness' we use the EXCESS over the
+        #    degenerate n_ess=1 (a member at n_ess 1 contributes nothing); the 'global' contribution
+        #    is already zero-based.
+        q = np.maximum(self.portfolio_quality - _floor_obs, 0.0)
         if np.sum(q) <= 0:
             base = np.ones(m) / m
         else:
@@ -753,15 +785,45 @@ class MCSampler(object):
             n_index_start_per_member = np.zeros(len(self.portfolio_realizations),dtype=int)
             n_index_start_per_member[1:] = np.cumsum(n_samples_per_member)[:-1]
 
+            # GLOBAL-IMPACT signal: each member's MARGINAL GAIN IN POOLED n_eff PER SAMPLE.
+            # Pooled Kish n_eff = S^2/Q with S = sum(w), Q = sum(w^2) over ALL members' samples.
+            # One extra sample from member m adds (in expectation) mean_w_m to S and mean_w2_m to Q,
+            # so d(n_eff)/dn_m divided by n_eff gives the relative per-sample gain
+            #     g_m = 2*mean_w_m/S  -  mean_w2_m/Q .
+            # This is the quantity the allocation should maximize: it credits a member for the
+            # weight MASS it supplies but debits it for the weight VARIANCE it injects, so an
+            # outlier-heavy broad member (a few enormous weights) scores LOW or negative -- those
+            # outliers are precisely what destroys pooled n_eff.  Note both simpler candidates fail:
+            # Kish n_ess is SCALE-INVARIANT (blind to whether a member carries any integral mass),
+            # and mean weight alone REWARDS badly-matched proposals (a well-matched, contracted AV
+            # correctly has small uniform weights, while a broad GMM's rare huge-weight outlier sets
+            # the maximum) -- measured on S250114ax, mean weight ranked AV at 1e-40 vs GMM 2e-4.
+            # A single global normalization (the chunk's max log-weight) keeps members comparable.
+            _lw_all = numpy.asarray(self.identity_convert(log_weights), dtype=float)
+            _finite = numpy.isfinite(_lw_all)
+            _lw_max = float(numpy.max(_lw_all[_finite])) if bool(numpy.any(_finite)) else 0.0
+            _u_all = numpy.where(_finite, numpy.exp(_lw_all - _lw_max), 0.0)
+            _S_tot = float(numpy.sum(_u_all)); _Q_tot = float(numpy.sum(_u_all * _u_all))
+            contrib_per_sample = numpy.zeros(len(self.portfolio))
+
             portfolio_report = {}
             for indx_member, member in enumerate(self.portfolio):
               indx_start = int(n_index_start_per_member[indx_member])
-              indx_end = indx_start + int(n_samples_per_member[indx_member])    
+              indx_end = indx_start + int(n_samples_per_member[indx_member])
+              _n_here = max(1, indx_end - indx_start)
+              _u_here = _u_all[indx_start:indx_end]
+              if _S_tot > 0 and _Q_tot > 0 and indx_end > indx_start:
+                _mean_w = float(numpy.sum(_u_here)) / _n_here
+                _mean_w2 = float(numpy.sum(_u_here * _u_here)) / _n_here
+                contrib_per_sample[indx_member] = 2.0 * _mean_w / _S_tot - _mean_w2 / _Q_tot
               ln_wt_here =  log_weights[indx_start:indx_end]
               ln_wt_here += - np.max(ln_wt_here)
               # evaluate  n_ess, n_eff for this set of samples in batch specifically,
               portfolio_report[indx_member] = [ self.portfolio_weights[indx_member], self.identity_convert(self.xpy.sum(self.xpy.exp(ln_wt_here))**2/self.xpy.sum(self.xpy.exp(ln_wt_here*2))), identity_convert(self.xpy.sum(self.xpy.exp(ln_wt_here)))]
             print("\t",portfolio_report)
+            if use_adaptive_alloc and len(self.portfolio) > 1:
+              print("\t contrib/sample (global-impact signal):", numpy.array2string(contrib_per_sample, precision=3),
+                    " quality:", numpy.array2string(np.asarray(self.portfolio_quality, dtype=float), precision=3))
             # Record each member's per-chunk n_ess so freeze policies (and post-hoc analysis)
             # can tell a member that is still CLIMBING from one that has PLATEAUED.
             for indx_member in range(len(self.portfolio)):
@@ -771,9 +833,11 @@ class MCSampler(object):
             if use_adaptive_alloc and len(self.portfolio) > 1:
               # adaptive-probe allocation: quality-EMA + round-robin probe (see _adaptive_allocation).
               # frac_now = the fraction each member actually drew THIS chunk (n_samples_per_member is
-              # derived from self.portfolio_weights just above), so quality only updates on fair looks.
+              # derived from self.portfolio_weights just above).  The quality OBSERVABLE is either the
+              # global-impact contribution (default) or the legacy per-member Kish n_ess.
               frac_now = np.array(n_samples_per_member, dtype=float) / float(max(1, n_samples))
-              self.portfolio_weights = self._adaptive_allocation(dat, frac_now, self.portfolio_draw_iteration)
+              _obs = contrib_per_sample if self.portfolio_quality_signal == 'global' else dat
+              self.portfolio_weights = self._adaptive_allocation(_obs, frac_now, self.portfolio_draw_iteration)
             else:
               self.portfolio_weights = portfolio_wt_func(dat, self.portfolio_weights, xpy=self.xpy, identity_convert=self.identity_convert) # call weighting function
 
