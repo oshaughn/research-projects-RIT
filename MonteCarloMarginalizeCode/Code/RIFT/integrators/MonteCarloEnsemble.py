@@ -14,12 +14,17 @@ from scipy.special import logsumexp
 try:
     import cupy
     import cupyx.scipy.special
+    # Probe for an actual device: cupy imports cleanly on GPU-less nodes but
+    # every kernel launch then dies with cudaErrorNoDevice.  getDeviceCount
+    # raises CUDARuntimeError (not ImportError), hence the broad except.
+    if cupy.cuda.runtime.getDeviceCount() == 0:
+        raise ImportError("cupy installed but no CUDA device available")
     xpy_default = cupy
     xpy_special_default = cupyx.scipy.special
     identity_convert = cupy.asnumpy
     identity_convert_togpu = cupy.asarray
     cupy_ok = True
-except ImportError:
+except Exception:
     xpy_default = np
     xpy_special_default = None
     identity_convert = lambda x: x
@@ -146,6 +151,10 @@ class integrator:
         if self.return_lnI:
             self.total_value = None
         self.n_max = float('inf')
+        # set to a descriptive string when integrate() exits abnormally (error
+        # budget exhausted); None means a clean run.  Callers that cannot catch
+        # the consecutive-refit-failure RuntimeError can inspect this instead.
+        self.integration_error = None
         # saved values
         self.cumulative_samples = self.xpy.empty((0, d))
         self.cumulative_values = self.xpy.empty(0)
@@ -432,6 +441,14 @@ class integrator:
         self._verbose_diag = verbose   # per-chunk adaptation diagnostics in _train
 
         err_count = 0
+        # Consecutive-refit-failure budget: if the proposal refit fails this
+        # many chunks IN A ROW the proposal has never adapted and the returned
+        # integral/eff_samp are meaningless (the cupy-without-GPU regression
+        # produced exactly this: every refit raised, 'Error training,
+        # resetting...' each chunk, and integrate() returned eff_samp~1 with no
+        # error signal).  Fail loudly instead.
+        max_train_fail = int(kwargs["max_consecutive_train_failures"]) if "max_consecutive_train_failures" in kwargs else 5
+        consec_train_fail = 0
         cumulative_eval_time = 0
         adapting=True
         if nmax is None:
@@ -445,6 +462,7 @@ class integrator:
                 adapting=False
             if err_count >= max_err:
                 print('Exiting due to errors...')
+                self.integration_error = 'exited after {} sampling/results/training errors'.format(err_count)
                 break
             try:
                 self._sample()
@@ -490,6 +508,7 @@ class integrator:
             try:
                 if adapting:
                     self._train()
+                    consec_train_fail = 0
             except KeyboardInterrupt:
                 print('KeyboardInterrupt, exiting...')
                 break
@@ -497,7 +516,11 @@ class integrator:
                 print(traceback.format_exc())
                 print('Error training, resetting...')
                 err_count += 1
+                consec_train_fail += 1
                 self._reset()
+                if consec_train_fail >= max_train_fail:
+                    self.integration_error = 'proposal refit failed {} consecutive times; proposal never adapted'.format(consec_train_fail)
+                    raise RuntimeError('GMM ' + self.integration_error) from e
             if self.user_func is not None:
                 self.user_func(self)
             if progress:
