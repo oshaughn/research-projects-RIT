@@ -58,16 +58,25 @@ def main():
         if b is None or c is None:
             rows.append((k, "ONLY-IN-" + ("CANDIDATE" if b is None else "BASE"), ""))
             continue
-        ok_b, _ = evaluate(b)
-        ok_c, why_c = evaluate(c)
+        st_b, _ = evaluate(b)
+        st_c, why_c = evaluate(c)
         sb, sc = _summ(b), _summ(c)
         verdict, note = "OK", ""
-        if ok_b and not ok_c:
-            verdict = "REGRESSION(pass->fail)"
+        if st_b == "PASS" and st_c != "PASS":
+            # includes healthy->STARVED: candidate lost the efficiency the
+            # base had on this target -> regression
+            verdict = "REGRESSION(pass->{})".format(st_c.lower())
             note = "; ".join(why_c)
-        elif not ok_b and ok_c:
-            verdict = "IMPROVED(fail->pass)"
-        elif not ok_b and not ok_c:
+        elif st_b != "PASS" and st_c == "PASS":
+            verdict = "IMPROVED({}->pass)".format(st_b.lower())
+        elif st_b == "STARVED" and st_c == "STARVED":
+            verdict = "BOTH-STARVED"
+        elif st_b == "STARVED" and st_c in ("FAIL", "ERROR"):
+            # base gave no shape information here; candidate at least reaches
+            # testability (or crashes) -- flag, don't block
+            verdict = "NEWLY-TESTABLE-" + st_c
+            note = "; ".join(why_c)
+        elif st_b in ("FAIL", "ERROR") and st_c != "PASS":
             verdict = "PREEXISTING-FAIL"
         elif sb and sc:
             worse = []

@@ -450,14 +450,20 @@ def run_one(kind, target, nmax, neff, n_chunk=10000, seed=987654, verbose=False)
 # Pass/fail policy
 # ----------------------------------------------------------------------------
 def evaluate(r):
-    """Return (ok, list-of-reason-strings) for one run record."""
+    """Return (status, reasons) for one run record.
+
+    status: "PASS" | "FAIL" | "STARVED" | "ERROR".
+    STARVED (n_eff below the shape-testability floor at this budget) is NOT an
+    absolute failure: high-dimensional mixtures legitimately exhaust production
+    budgets (the FinerNet high-D degradation), so starved rows gate only
+    *differentially* -- a candidate that starves where its base was healthy is
+    a regression (see compare_shape_results.py)."""
     if r.get("error"):
-        return False, ["ERROR " + r["error"]]
-    reasons = []
+        return "ERROR", ["ERROR " + r["error"]]
     if r["n_eff"] < MIN_NEFF_FOR_SHAPE:
-        reasons.append("n_eff={:.0f} < {:.0f} (starved: shape untestable)".format(
-            r["n_eff"], MIN_NEFF_FOR_SHAPE))
-        return False, reasons
+        return "STARVED", ["n_eff={:.0f} < {:.0f}: shape untestable at this budget".format(
+            r["n_eff"], MIN_NEFF_FOR_SHAPE)]
+    reasons = []
     ness = max(r["n_ess"], 1.0)
     for d, (js, floor) in enumerate(zip(r["js"], r["js_floor"])):
         thresh = JS_MULT * floor + JS_ABS_MIN
@@ -480,7 +486,7 @@ def evaluate(r):
     tol_lnZ = max(4.0 * relerr, 0.10)
     if abs(r["bias_ln"]) > tol_lnZ:
         reasons.append("lnZ bias {:+.3f} > {:.3f}".format(r["bias_ln"], tol_lnZ))
-    return len(reasons) == 0, reasons
+    return ("FAIL" if reasons else "PASS"), reasons
 
 
 # ----------------------------------------------------------------------------
@@ -552,18 +558,23 @@ def main(argv=None):
     else:
         results = [_worker(j) for j in jobs]
 
-    n_fail_strict, n_fail_warn = 0, 0
+    n_fail_strict, n_fail_warn, n_starved = 0, 0, 0
     print("\n{:<10s} {:<16s} {:>9s} {:>9s} {:>7s} {:>7s} {:>8s} {:>7s}  {}".format(
         "sampler", "target", "n_eff", "n_ESS", "JSmax", "|pull|", "widthdev",
         "lnZbias", "verdict"))
     for r in results:
-        ok, reasons = evaluate(r)
-        tag = "PASS" if ok else ("FAIL" if r["kind"] in strict else "WARN")
-        if not ok:
-            if r["kind"] in strict:
-                n_fail_strict += 1
-            else:
-                n_fail_warn += 1
+        status, reasons = evaluate(r)
+        if status == "PASS":
+            tag = "PASS"
+        elif status == "STARVED":
+            tag = "STARVED"   # non-blocking; gates differentially vs base
+            n_starved += 1
+        elif r["kind"] in strict:
+            tag = "FAIL"
+            n_fail_strict += 1
+        else:
+            tag = "WARN"
+            n_fail_warn += 1
         if r.get("error"):
             print("{:<10s} {:<16s} {:>9s} {:>9s} {:>7s} {:>7s} {:>8s} {:>7s}  {} {}".format(
                 r["kind"], r["target"], "-", "-", "-", "-", "-", "-", tag, r["error"]))
@@ -579,8 +590,8 @@ def main(argv=None):
         with open(opts.json, "w") as fh:
             json.dump(results, fh, indent=1)
         print("# wrote", opts.json)
-    print("# strict failures: {}   warn-only failures: {}".format(
-        n_fail_strict, n_fail_warn))
+    print("# strict failures: {}   warn-only failures: {}   starved (non-blocking): {}".format(
+        n_fail_strict, n_fail_warn, n_starved))
     return 1 if n_fail_strict else 0
 
 
