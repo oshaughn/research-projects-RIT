@@ -409,6 +409,27 @@ the wrapper `run_shape_recovery.sh` sets these. My first isolation didn't, silen
 with n_eff nowhere near the gate's. **A valid isolation reproduces the gate's absolute numbers
 row-for-row**; that check is what exposed it. `probe_portfolio_optin_flags.py` now sets this env itself.
 
+### Flag-ON probe (TESTING.md requirement for opt-in changes)
+
+`test/expensive_before_merging/integrators/probe_portfolio_optin_flags.py` scores the opt-in features
+with the gate's own targets, metrics and `evaluate()`, so a PASS here is a PASS by gate criteria.
+**Result: 0 opt-in regressions**, and both features materially help:
+
+| target | flags OFF | adaptive_alloc ON | weight_clip ON |
+|--------|----------:|------------------:|---------------:|
+| d2_n1_s303 | 1502 | **3021** | **3037** |
+| d2_n3_s303 |  517 | **1058** |  **816** |
+| d4_n1_s303 |  163 |  **415** |  **263** |
+| d4_n3_s303 |    7 (starved) | 15 | **54** |
+
+Bias stays small on every PASS row (|lnI−lnZ| ≤ 0.024). This independently corroborates the
+S250114ax finding: clipping lifts the worst (starved) row 7 → 54. Caveat: on that starved row the
+bias grows (−0.147 → −0.279) — at n_eff ≲ 50 the shape is untestable, so treat clipping's gains in
+the starved regime as unvalidated for *shape*, even though n_eff improves.
+
+Note `adaptive+clip` is identical to `clip` alone on these targets — with clipping active the
+allocation rule made no further difference here.
+
 ## Files
 - `RIFT/integrators/mcsamplerPortfolio.py` — freeze-policy + adaptive-probe allocation, knobs,
   n_ess history, plugin-load guard, NaN guard.
