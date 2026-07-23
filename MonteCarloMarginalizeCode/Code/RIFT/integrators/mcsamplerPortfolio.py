@@ -183,6 +183,18 @@ class MCSampler(object):
         # AV.  Set portfolio_varaha_never_freeze=False to fall back to the grace/revive schedule
         # (e.g. to save eval cycles on a VARAHA member you know is a genuinely bad fit).
         self.portfolio_varaha_never_freeze = kwargs.get('portfolio_varaha_never_freeze', True)
+        # PLATEAU-AWARE REVIVE (OPT-IN, default OFF): also update a low-weight member while its
+        # own per-chunk n_ess is still climbing.  It sounded strictly helpful, but the shape
+        # merge gate showed it SYSTEMATICALLY HALVES portfolio n_eff: forcing updates of members
+        # the freeze schedule would have parked makes their proposals worse, not better.
+        # Isolated on the gate's own targets (plateau ON -> OFF, vs gate base):
+        #   d4_n1_s101 25.9 -> 53.5 (base 53.5)   d4_n3_s202 29.1 -> 83.8 (base 83.8)
+        #   d6_n1_s202 64.0 -> 102.1 (base 102.1)  d6_n3_s202  7.2 -> 31.4 (base 31.4)
+        #   d8_n1_s101 37.3 -> 61.9 (base 61.9)
+        # i.e. OFF reproduces base EXACTLY, so this was the sole default-path regression in
+        # PR #28 (never-freeze was measured to be a no-op on these targets, ratio 1.00).
+        # Kept available for experimentation; DO NOT default it on without re-running the gate.
+        self.portfolio_plateau_revive = kwargs.get('portfolio_plateau_revive', False)
         # Diagnostic: per-member n_ess history (one list per portfolio member), appended each
         # chunk in the report block.  Enables plateau-aware policies and post-hoc analysis.
         self.portfolio_member_ness_history = [[] for _ in range(len(self.portfolio))]
@@ -343,6 +355,7 @@ class MCSampler(object):
         _kw_keep('portfolio_grace_iters')
         _kw_keep('portfolio_revive_period')
         _kw_keep('portfolio_varaha_never_freeze')
+        _kw_keep('portfolio_plateau_revive')
         _kw_keep('portfolio_adaptive_alloc')
         _kw_keep('portfolio_quality_signal')
         _kw_keep('portfolio_alloc_exponent')
@@ -1068,7 +1081,7 @@ class MCSampler(object):
                 # govern a member that has plateaued.  Uses the n_ess history recorded above.
                 _climbing = False
                 _hist = self.portfolio_member_ness_history[indx]
-                if len(_hist) >= 3:
+                if self.portfolio_plateau_revive and len(_hist) >= 3:
                   _recent = _hist[-1]; _older = np.median(_hist[-3:-1])
                   _climbing = (_recent > 1.05*max(_older, 1.0))
                 if self.portfolio_draw_iteration < self.portfolio_breakpoints[indx]:
