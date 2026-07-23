@@ -341,10 +341,21 @@ class MCSampler(object):
         if getattr(self, 'my_ranges', None) is None:
             self.setup()
         rv, log_p = self.draw_simple()
-        p = np.exp(log_p)[:n_to_get]
+        # Subsample RANDOMLY, never a head slice: sample_from_bins emits points
+        # grouped in lexicographic bin order (binunique from np.unique), so
+        # rv[:n_to_get] returns only the first ~n_to_get/ninbin bins of the live
+        # volume while sampling_density (hence the portfolio's q_mix) claims
+        # uniform coverage of ALL occupied bins.  In any multi-member portfolio
+        # that mismatch systematically biased the recovered shape (pulls up to
+        # 0.6 sigma at d2; random subsample collapses them to ~1e-3).
+        n_have = len(rv)
+        if n_to_get < n_have:
+            keep = np.random.choice(n_have, size=int(n_to_get), replace=False)
+            rv = rv[keep]
+            log_p = log_p[keep]
+        p = np.exp(log_p)
         ps = self.xpy.ones(len(p))*self.V_s/self.V   # sampling prior, full hypercube normalized to 1
-        ps = ps[:n_to_get]
-        rv = rv[:n_to_get].T
+        rv = rv.T
         return ps, p, rv
 
     def draw_simple(self):
