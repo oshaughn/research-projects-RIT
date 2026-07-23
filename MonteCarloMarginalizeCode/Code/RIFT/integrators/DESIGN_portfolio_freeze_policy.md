@@ -209,67 +209,80 @@ container — so `import mcsamplerPortfolio` raised there, the driver silently s
 integrator was effectively **unusable in the production container**. Plugin loading is now wrapped
 in try/except so a plugin with missing optional deps is skipped, not fatal.
 
-## Weight clipping (truncated IS) — investigated in the portfolio; **do not promote to AV yet**
+## Weight clipping (truncated IS) — ADAPTATION-STREAM ONLY; **do not promote to AV yet**
 
-`portfolio_weight_clip` / `--portfolio-weight-clip C` (OPT-IN, default off) caps each importance
-weight at `tau = C*sqrt(n)*mean(w)` (Ionides 2008 truncated IS). The removed and total weight mass
-are accumulated **in log space and reported every chunk**, so the induced ln Z bias is never silent
-and can be corrected after the fact.
+`portfolio_weight_clip` / `--portfolio-weight-clip C` (OPT-IN, default off) caps weights at
+`tau = C*sqrt(n)*mean(w)` (Ionides 2008 truncated IS). Clipping is a **biased** operation, so the
+key design decision is *what it is allowed to touch*.
 
-**First: the outliers here are real, not a numerical artifact.** A 10⁷³× weight looked like it could
-be the `q_mix = max(acc, 1e-300)` floor firing on an underflowed density sum. An instrumented run
-counts **zero** q_mix underflows, so these are genuine heavy-tailed weights and clipping is a
-legitimate tool rather than a mask. (The `q_mix UNDERFLOW` counter stays in as a permanent guard —
-if it ever fires, the fix is a log-space mixture density, not clipping.)
+**The outliers here are real, not a numerical artifact.** A 10⁷³× weight looked like it could be the
+`q_mix = max(acc, 1e-300)` floor firing on an underflowed density sum. An instrumented run counts
+**zero** q_mix underflows, so these are genuine heavy-tailed weights. (The `q_mix UNDERFLOW` counter
+stays in as a permanent guard — if it ever fires, the fix is a log-space mixture density, not clipping.)
 
-**Synthetic ground truth** (`test/integrators/bench_weight_clip.py`, analytic ln Z, 2 seeds,
-nmax 4e5, ndim 5): where the weights are well-behaved, clipping is a **complete no-op** at every C —
-no n_eff gain, no bias:
-
-| target | C | n_eff | bias | clip_frac |
-|--------|---|------:|-----:|----------:|
-| uncorrelated | 0 / 1 / 5 / 20 | 385 / 384 / 387 / 385 | −0.038 / −0.040 / −0.034 / −0.038 | 0 / 3e−4 / 0 / 0 |
-| correlated   | 0 / 1 / 5 / 20 | 389 / 387 / 388 / 389 | −0.027 / −0.033 / −0.030 / −0.028 | 0 / 2.7e−3 / 0 / 0 |
-
-The tracker also works as a **bias estimator**: at C=1 (correlated) it predicted −0.003 against a
-measured Δbias of −0.006, within the ±0.003 seed noise. That is the "recover later" mechanism.
-
-**Real S250114ax — the trap.** Here the weights *are* heavy-tailed, clipping *does* bite, and the
-result is a beautifully disguised disaster:
+**First attempt — clip the estimator: a disguised disaster (kept as the cautionary result).**
 
 | run | Neff≥5 | Neff=100 | final n_eff | **ln Z** |
 |-----|-------:|---------:|------------:|---------:|
 | standalone AV (reference) | 0.695M | 3.638M | 100.2 | **1191.79** |
 | portfolio, no clip | 0.520M | — | 52.6 @4M | 1183.12 |
-| portfolio, **clip C=1** | **0.030M** | **1.870M** | 100.1 | **1180.25** |
+| portfolio, **estimator**-clip C=1 | **0.030M** | **1.870M** | 100.1 | **1180.25** |
 
-Clipping reaches n_eff=100 in **1.87M evals — 2× faster than standalone AV** — and reports a
-perfectly converged run. But its ln Z is **11.5 nats below** the trusted AV value (the breadcrumb's
-independent reparam/aniso runs also give ~1191.9). The tracker showed why in real time: cumulative
-removed mass frac ≈ 0.87–0.98. **n_eff stops being a validity check the moment clipping engages.**
+Clipping the estimator reached n_eff=100 in 1.87M evals — 2× faster than standalone AV — and reported
+a perfectly converged run, while biasing ln Z **11.5 nats low** (independent reparam/aniso runs give
+~1191.9). **n_eff stops being a validity check the moment the estimator is clipped.** Do not do this.
 
-**Side finding (refines the Benchmark-2 claim).** Even *without* clipping the AV+GMM portfolio reads
-ln Z = 1183.12 on this event, 8.7 nats below AV. Heavy-tailed IS is unbiased *in expectation* but
-realizes LOW in almost every single run (the rare mass-carrying samples are usually missed), so for a
-production run it behaves like a bias. The "portfolio replicates AV's ln Z" result holds on the four
-*typical* events (Benchmark 2); it does **not** hold on S250114ax, where the GMM member's tails make
-the portfolio's evidence unreliable. On such an event the right move is to not carry that member.
+**The unbiased redesign — clip the ADAPTATION stream only.** RIFT already separates the two uses of
+the per-sample weights, and clipping now respects that split:
+- `log_integrand` → the ESTIMATE (`init_log`/`update_log` → ln Z; `maxval` → n_eff) — left UNCLIPPED.
+- `log_weights` → ADAPTATION only (per-member n_ess report, the allocation signal, and
+  `member.update_sampling_prior` proposal training) — the clipped copy `log_weights_adapt`.
 
-**Verdict — clipping is a safety valve and a diagnostic, not a speedup.** It cannot manufacture
-n_eff without discarding integral mass one-for-one: where it is safe it does nothing, and where it
-does something it is biasing. The genuinely valuable artifact is the tracked `clip_frac`, which is a
-sharp, cheap statement about whether an estimate is carried by a handful of samples.
+Because adaptation only ever *shapes proposals* (like warm-starts, oracles, and `q_mix` itself), it
+**cannot bias the estimate** — the ln Z stays exactly unbiased by construction. This is strictly
+better than the alternative of *dropping* a chunk that clipped: dropping conditional on "a big weight
+appeared" is data-dependent selection and would bias ln Z low (it preferentially discards the rare
+mass-carrying chunks). Clipping only the adaptation copy keeps every sample in the estimate.
 
-**Guidance before promoting this to the individual integrators (AV in particular):**
-1. Never ship bare clipping. It must carry the mass tracking and a **refuse-to-clip gate** (e.g.
-   abort/warn rather than clip once `clip_frac` exceeds ~1e-3), otherwise it silently trades
-   evidence accuracy for a flattering convergence number.
-2. `clip_frac` should be surfaced as a first-class run diagnostic regardless of whether clipping is
-   enabled — it detects the "a few samples carry the integral" regime that also invalidates n_eff.
-3. Deep weight changes inside AV need the **full LVK PP campaign**, not one-off runs: a −0.1 nat
-   ln Z bias would not show up in a single-event n_eff check but would surface as PP miscalibration,
-   which is expensive to chase after the fact. The evidence above (a −11.5 nat bias hiding behind a
-   perfect n_eff) is exactly why.
+**Synthetic ground truth** (`test/integrators/bench_weight_clip.py`, analytic ln Z, 2 seeds): with the
+adaptation-only design the estimator bias is **unchanged at every C** (the falsifiable proof the
+estimate is untouched), and where weights are well-behaved clipping is a complete no-op:
+
+| target | C | n_eff | bias |
+|--------|---|------:|-----:|
+| uncorrelated | 0 / 1 / 5 | 386 / 385 / 385 | −0.035 / −0.039 / −0.039 |
+| correlated   | 0 / 1 / 5 | 389 / 387 / 388 | −0.029 / −0.032 / −0.031 |
+
+**Real S250114ax — unbiased, but it does not help (and the tracker explains why).** Adaptation-only
+clip C=1: ln Z = **1184.4** (matches the unclipped 1183.1, NOT the biased estimator-clip 1180.3 — the
+estimator is provably untouched), but n_eff **collapses to 1.2** (vs 52.6 unclipped). The withheld-
+from-adaptation mass is 0.97: on this event the mass-carrying samples **are** the signal the GMM must
+learn from, so clipping them out starves the proposal. The corrupting samples and the informative
+samples are the same samples — clipping cannot separate them, and no clipping fixes a member whose
+proposal is fundamentally heavy-tailed. The right move on this event remains: **do not carry the GMM
+member.**
+
+**Side finding (refines the Benchmark-2 claim).** Even *unclipped* the AV+GMM portfolio reads
+ln Z = 1183.1 here, 8.7 nats below AV. Heavy-tailed IS is unbiased in expectation but realizes LOW in
+almost every run, so in production it behaves like a bias. "Portfolio replicates AV's ln Z" holds on
+the four *typical* events (Benchmark 2); it does **not** on S250114ax.
+
+**Verdict.** Adaptation-only clipping is the *correct, unbiased* form of the tool: on well-behaved
+weights it is a no-op, and it is a safety valve against a single pathological weight wrecking a
+member's covariance fit or the allocation signal. It does **not** manufacture n_eff — where the tail
+carries the integral, clipping the adaptation only hurts. The durably valuable artifact is the tracked
+withheld-mass fraction, a sharp cheap statement of whether an estimate/fit hangs on a handful of
+samples.
+
+**Guidance before promoting to the individual integrators (AV in particular):**
+1. Clip only quantities that feed *adaptation*, never the estimator. If a future design must clip an
+   estimator, it needs the mass tracking **and** a refuse-to-clip gate (abort once the withheld
+   fraction exceeds ~1e-3) — otherwise it trades evidence accuracy for a flattering n_eff.
+2. Surface the withheld-mass fraction as a first-class run diagnostic regardless — it detects the "a
+   few samples carry the integral" regime that also invalidates n_eff.
+3. Deep weight changes inside AV need the **full LVK PP campaign**, not one-off runs: a −0.1 nat ln Z
+   bias passes a single-event n_eff check but shows up as PP miscalibration. The −11.5 nat bias hiding
+   behind a perfect n_eff above is exactly why.
 
 ## Files
 - `RIFT/integrators/mcsamplerPortfolio.py` — freeze-policy + adaptive-probe allocation, knobs,

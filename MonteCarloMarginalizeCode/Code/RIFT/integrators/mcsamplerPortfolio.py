@@ -230,13 +230,14 @@ class MCSampler(object):
         self.portfolio_quality_decay  = kwargs.get('portfolio_quality_decay', 0.5)    # EMA alpha for quality
         self.portfolio_probe_period   = kwargs.get('portfolio_probe_period', 4)       # probe one member every N chunks
         self.portfolio_probe_frac     = kwargs.get('portfolio_probe_frac', 0.6)       # raise probed member to >= this
-        # WEIGHT CLIPPING (truncated importance sampling) -- OPT-IN, default off.  A single enormous
-        # importance weight crushes the pooled n_eff = (sum w)^2 / sum w^2, so optionally cap w at
+        # WEIGHT CLIPPING (truncated importance sampling) -- OPT-IN, default off, and applied to the
+        # ADAPTATION STREAM ONLY (see the clipping block in integrate_log).  Cap w at
         #     tau = portfolio_weight_clip * sqrt(n) * mean(w)          (Ionides 2008, truncated IS)
-        # trading a small BIAS for a large variance reduction.  tau grows like sqrt(n), so the bias
-        # vanishes asymptotically.  We accumulate the removed and total weight mass (in log space, so
-        # it is exact across chunks) and report the induced ln Z bias -- the clipped mass is TRACKED,
-        # so the bias is always known and recoverable rather than silent.
+        # Clipping is a BIASED operation, so it never touches log_integrand (the estimator): only the
+        # copy used for proposal training and the allocation signal is clipped.  That keeps ln Z and
+        # n_eff exactly unbiased while stopping one enormous weight from dominating the GMM fit /
+        # allocation.  The withheld mass is accumulated in log space and reported as a TAIL
+        # DIAGNOSTIC (how much weight adaptation ignored), not as a bias.
         self.portfolio_weight_clip = kwargs.get('portfolio_weight_clip', 0.0)  # 0 = off
         self.portfolio_clip_log_removed = -np.inf
         self.portfolio_clip_log_total = -np.inf
@@ -746,12 +747,24 @@ class MCSampler(object):
                 log_integrand = self.xpy.where(_bad, -self.xpy.inf, log_integrand)
                 log_weights   = self.xpy.where(_bad, -self.xpy.inf, log_weights)
 
-            # WEIGHT CLIPPING (truncated importance sampling; OPT-IN -- see __init__).
-            # Cap w at tau = clip * sqrt(n) * mean(w), tracking the removed mass so the induced
-            # ln Z bias is reported rather than silent.  Applied to BOTH log_integrand (which drives
-            # the estimate and n_eff) and log_weights (the per-member report), keeping them identical.
+            # WEIGHT CLIPPING (truncated IS; OPT-IN) -- ADAPTATION STREAM ONLY.
+            # Clipping is BIASED, so it must never touch the estimator.  RIFT already separates the
+            # two streams and we exploit that here:
+            #   log_integrand -> the ESTIMATE (init_log/update_log -> ln Z, and maxval -> eff_samp)
+            #                    ==> left UNCLIPPED, so the integral stays exactly unbiased.
+            #   log_weights   -> ADAPTATION ONLY (per-member n_ess report, the allocation signal, and
+            #                    member.update_sampling_prior training) ==> safe to clip, since
+            #                    adaptation only ever shapes proposals; it cannot bias the estimate.
+            # Clipping the adaptation copy stops a single enormous weight from dominating the GMM
+            # fit / the allocation signal, which is where the outliers actually do damage.  This is
+            # strictly better than dropping the whole chunk from the integral: dropping conditional
+            # on "a big weight appeared" is DATA-DEPENDENT SELECTION and would bias ln Z low (it
+            # preferentially discards the rare mass-carrying chunks) -- worse than clipping itself.
+            # The tracked mass is therefore a TAIL DIAGNOSTIC here, not a bias: it says how much
+            # weight the adaptation ignored.
+            log_weights_adapt = log_weights
             if self.portfolio_weight_clip and self.portfolio_weight_clip > 0:
-                _lw = numpy.asarray(self.identity_convert(log_integrand), dtype=float)
+                _lw = numpy.asarray(self.identity_convert(log_weights), dtype=float)
                 _fin = numpy.isfinite(_lw)
                 if bool(numpy.any(_fin)):
                     _mx = float(numpy.max(_lw[_fin]))
@@ -771,18 +784,19 @@ class MCSampler(object):
                                 self.portfolio_clip_log_removed, numpy.log(_removed) + _mx)
                         self.portfolio_clip_n += _n_over
                         _u = numpy.minimum(_u, _tau)
-                        _lw_new = numpy.where(_u > 0, numpy.log(numpy.maximum(_u, 1e-300)) + _mx,
-                                              -numpy.inf)
-                        log_integrand = _lw_new
-                        log_weights = numpy.array(_lw_new, copy=True)
+                        # ADAPTATION copy only -- log_integrand (the estimator) is deliberately
+                        # untouched, so ln Z and n_eff remain exactly unbiased.
+                        log_weights_adapt = numpy.where(_u > 0,
+                                                        numpy.log(numpy.maximum(_u, 1e-300)) + _mx,
+                                                        -numpy.inf)
                         _frac = float(numpy.exp(self.portfolio_clip_log_removed
                                                 - self.portfolio_clip_log_total)) \
                             if numpy.isfinite(self.portfolio_clip_log_removed) else 0.0
                         _frac = min(max(_frac, 0.0), 1.0 - 1e-15)
-                        print("  PORTFOLIO: weight-clip tau={:.3e}(rel max) clipped {} this chunk "
-                              "({} total); cumulative removed mass frac={:.3e} -> lnZ bias ~{:+.4f}"
-                              .format(_tau, _n_over, self.portfolio_clip_n, _frac,
-                                      float(numpy.log1p(-_frac))))
+                        print("  PORTFOLIO: adaptation weight-clip tau={:.3e}(rel max) clipped {} "
+                              "this chunk ({} total); cumulative tail mass withheld from ADAPTATION"
+                              " ={:.3e} (estimator unclipped -> ln Z unbiased)"
+                              .format(_tau, _n_over, self.portfolio_clip_n, _frac))
 
             if save_intg:
                 # FIXME: See warning at beginning of function. The prior values
@@ -867,7 +881,7 @@ class MCSampler(object):
             # correctly has small uniform weights, while a broad GMM's rare huge-weight outlier sets
             # the maximum) -- measured on S250114ax, mean weight ranked AV at 1e-40 vs GMM 2e-4.
             # A single global normalization (the chunk's max log-weight) keeps members comparable.
-            _lw_all = numpy.asarray(self.identity_convert(log_weights), dtype=float)
+            _lw_all = numpy.asarray(self.identity_convert(log_weights_adapt), dtype=float)
             _finite = numpy.isfinite(_lw_all)
             _lw_max = float(numpy.max(_lw_all[_finite])) if bool(numpy.any(_finite)) else 0.0
             _u_all = numpy.where(_finite, numpy.exp(_lw_all - _lw_max), 0.0)
@@ -884,7 +898,7 @@ class MCSampler(object):
                 _mean_w = float(numpy.sum(_u_here)) / _n_here
                 _mean_w2 = float(numpy.sum(_u_here * _u_here)) / _n_here
                 contrib_per_sample[indx_member] = 2.0 * _mean_w / _S_tot - _mean_w2 / _Q_tot
-              ln_wt_here =  log_weights[indx_start:indx_end]
+              ln_wt_here =  log_weights_adapt[indx_start:indx_end]
               ln_wt_here += - np.max(ln_wt_here)
               # evaluate  n_ess, n_eff for this set of samples in batch specifically,
               portfolio_report[indx_member] = [ self.portfolio_weights[indx_member], self.identity_convert(self.xpy.sum(self.xpy.exp(ln_wt_here))**2/self.xpy.sum(self.xpy.exp(ln_wt_here*2))), identity_convert(self.xpy.sum(self.xpy.exp(ln_wt_here)))]
@@ -920,7 +934,7 @@ class MCSampler(object):
             # sampling missed.  Oracles never enter the integral estimate itself,
             # so they cannot bias it -- at worst they cost a few evaluations.
             rvs_train = self._rvs
-            log_weights_train = log_weights   # weights aligned with rvs_train tail
+            log_weights_train = log_weights_adapt   # weights aligned with rvs_train tail (clipped copy)
             if it_now < it_max_oracle and len(self.oracle_realizations )>0:
               rvs_train = deepcopy(self._rvs)  # duplicate deeply, since we will append to it
               n_samples_per_oracle = int(n*0.1/len(self.oracle_realizations)) # try to minimize oracle effort
@@ -928,7 +942,7 @@ class MCSampler(object):
                 print(" ORACLE: attempting updates ")
                 # update each oracle from the current (host) history
                 for member in self.oracle_realizations:
-                  member.update_sampling_prior(log_weights, n_history, external_rvs=rvs_train, log_scale_weights=True)
+                  member.update_sampling_prior(log_weights_adapt, n_history, external_rvs=rvs_train, log_scale_weights=True)
                 # generate proposals from oracles (oracles are host/numpy)
                 rv_list = []
                 for member in self.oracle_realizations:
@@ -955,7 +969,7 @@ class MCSampler(object):
                 for indx, p in enumerate(self.params_ordered):
                   base = identity_convert(rvs_train[p])
                   rvs_train[p] = numpy.append(base, rv_oracle[:, indx])
-                log_weights_train = numpy.append(identity_convert(log_weights), log_w_oracle)
+                log_weights_train = numpy.append(identity_convert(log_weights_adapt), log_w_oracle)
 
 
             ###
