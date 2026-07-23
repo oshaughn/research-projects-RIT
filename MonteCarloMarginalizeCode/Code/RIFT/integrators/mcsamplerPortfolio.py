@@ -924,8 +924,15 @@ class MCSampler(object):
                     if _pc is None:
                         continue
                     _share = numpy.where(_qm > 0, _pc / _qm, 0.0)
-                    _n_m = max(1, int(n_samples_per_member[_im]))
-                    credit_per_sample[_im] = float(numpy.sum(_share * _w_all)) / _n_m
+                    # DIVIDE OUT THE MEMBER'S OWN ALLOCATION.  The raw share frac_m*q_m/q_mix scales
+                    # with frac_m, so a member accrues credit simply BECAUSE it is dominant -- the
+                    # same circularity the n_ess signal has (measured: a 0.95-share GMM scored 6e-4
+                    # vs AV's 9e-10 and starved AV to the floor).  Normalizing by frac_m turns this
+                    # into "integral explained PER UNIT ALLOCATION", which is allocation-invariant
+                    # and is what an allocation rule must compare.
+                    _frac_m = float(n_samples_per_member[_im]) / float(max(1, n_samples))
+                    if _frac_m > 0:
+                        credit_per_sample[_im] = float(numpy.sum(_share * _w_all)) / (_frac_m * max(1, n_samples))
 
             portfolio_report = {}
             for indx_member, member in enumerate(self.portfolio):

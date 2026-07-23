@@ -332,12 +332,14 @@ samples.
 Re-run on top of PR #33 (GMM members actually train; AV's `draw_simplified` no longer lies about its
 density), warm, same budget:
 
-| run | final n_eff @4M | note |
-|-----|----------------:|------|
-| standalone AV (reference) | **100.2** | unchanged by #33 (standalone AV paths untouched) |
-| portfolio, default | **2.1** | was 52.6 pre-#33 |
-| portfolio, adaptive alloc | **1.1** | |
-| portfolio, VARAHA draw floor 0.5 / 0.7 | still ~1–2 | AV got 0.97 / 0.85 of draws |
+| run | Neff≥5 | Neff≥10 | final n_eff @4M | note |
+|-----|-------:|--------:|----------------:|------|
+| standalone AV (reference) | 0.695M | 1.374M | **100.2** | unchanged by #33 (standalone AV paths untouched) |
+| portfolio, default | — | — | **2.1** | was 52.6 pre-#33 (when the GMM was a corpse) |
+| portfolio, adaptive alloc | — | — | 1.1 | |
+| portfolio, VARAHA draw floor 0.5 / 0.7 | — | — | ~1–2 | AV got 0.97 / 0.85 of draws |
+| portfolio + defensive GMM 0.05 | — | — | 2.5 | defensive mixture alone does not fix it |
+| **portfolio + proposal-fit clip** | **0.420M** | **0.590M** | 14.4 | **beats AV to the production target** |
 
 **The portfolio got *worse* when the GMM member came alive.** Pre-#33 the GMM member was a corpse, so
 the portfolio was effectively AV-only and scored 52.6; now that it genuinely trains and draws, the
@@ -352,13 +354,26 @@ draw fraction for VARAHA members, applied after either allocation rule (legacy o
 what it says — AV's share went to 0.97 (floor 0.5) and 0.85 (floor 0.7) — but it **does not rescue
 this event**: even a 3–15% GMM share still poisons the pooled n_eff, which stayed ~1–2.
 
-**Conclusion — the missing capability is member EXCLUSION, not re-weighting.** On an event where one
-member's proposal is simply wrong, *any* nonzero share of its draws enters `q_mix` and the pooled
-estimate, and a handful of its samples dominate. Down-weighting cannot fix that; the portfolio needs
-to be able to *drop* a member (or a driver-level rule: don't request GMM on such events). Until such a
-mechanism exists, **the honest production guidance for AV-favorable high-SNR events is to run
-standalone AV, not an AV+GMM portfolio.** The portfolio's demonstrated value remains the correlated
-regime (Benchmark 3), where the GMM member is the better proposal.
+**What actually fixes it: clipping the PROPOSAL-FIT input (the "don't poison the sampling model"
+lever).** With the GMM member alive, the thing that goes wrong is its *fit* being corrupted by a few
+enormous weights; capping the weights that train it (`--portfolio-weight-clip 1.0`, estimator
+untouched) turns the collapse around:
+
+* **n_eff=5 at 0.420M vs AV's 0.695M (1.7× faster); n_eff=10 at 0.590M vs AV's 1.374M (2.3× faster).**
+* **This is the production regime**: the real O4 event configs run `--n-eff 10`, so at the target that
+  actually ships, the clipped AV+GMM portfolio *beats* standalone AV by ~2.3× on this event.
+* It then **plateaus at ~14** rather than climbing to AV's 100, so AV alone still wins the *stress*
+  target (n_eff 100). The ceiling, not the approach, is what the live GMM member still costs.
+
+Note this only became visible after #33: pre-#33 the GMM member was a corpse, so there was nothing to
+poison and clipping did nothing. Ordering of levers on this event: clip (2.1 → 14.4) ≫ defensive
+mixture (2.1 → 2.5) ≈ VARAHA draw floor (no rescue) > adaptive allocation (actively worse, 1.1).
+
+**Remaining gap.** For the stress target the portfolio is still ceiling-limited by the GMM member, and
+down-weighting does not fix that (the draw-floor runs show even a 3–15% share caps the pool). Closing
+it needs member *exclusion* (drop a member whose credit is persistently negligible) rather than more
+re-weighting. Practical guidance today: **use the portfolio with proposal-fit clipping for production
+n_eff targets; use standalone AV if you need n_eff ≫ 10 on an AV-favorable event.**
 
 ## Files
 - `RIFT/integrators/mcsamplerPortfolio.py` — freeze-policy + adaptive-probe allocation, knobs,
