@@ -175,6 +175,17 @@ class MCSampler(object):
         return temp_ret
 
     def setup(self,n_comp=None,**kwargs):
+      # n_comp=None silently disabled ALL training downstream: the integrator
+      # stores it verbatim and update_sampling_prior only builds a model for
+      # int!=0 or dict n_comp, so every gmm_dict entry stayed None forever.  In
+      # default portfolio wiring (setup() forwarded without GMM args) the GMM
+      # member therefore never trained and "portfolio" ran as AV-only, with no
+      # error (2026-07-22 shape-gate probe).  Default to a single component and
+      # say so; n_comp=0 remains the explicit off-switch.
+      if n_comp is None:
+          print(" mcsamplerEnsemble: setup() called without n_comp; defaulting n_comp=1 "
+                "(n_comp=None previously disabled GMM training silently; pass n_comp=0 to disable adaptation)")
+          n_comp = 1
       integrator_func  = kwargs['integrator_func'] if "integrator_func" in kwargs  else None
       mcsamp_func  = kwargs['mcsamp_func'] if "mcsamp_func" in kwargs  else None
       proc_count = kwargs['proc_count'] if "proc_count" in kwargs else None
@@ -269,6 +280,13 @@ class MCSampler(object):
                         continue
             new_bounds = self.xpy.empty((len(dim_group), 2))
             new_bounds = self.integrator.bounds[dim_group]
+            # per-dimension (uncorrelated) groups: setup() hands the integrator raw
+            # (dim,2) array bounds, so bounds[(i,)] is a bare (2,) row; GMM.fit
+            # needs (n_dims,2).  Same up-shape guard as _sample()/q-scoring.
+            # (Latent until now: the n_comp=None bug meant this line was never
+            # reached in the default portfolio configuration.)
+            if len(new_bounds.shape) < 2:
+                new_bounds = self.xpy.array([new_bounds])
             model = self.integrator.gmm_dict[dim_group]
             temp_samples = self.xpy.empty((n_history_to_use, len(dim_group)))
             index = 0
@@ -292,6 +310,17 @@ class MCSampler(object):
                 elif isinstance(self.integrator.n_comp, dict) and self.integrator.n_comp[dim_group] != 0:
                     model = GMM.gmm(self.integrator.n_comp[dim_group], new_bounds,epsilon=self.integrator.gmm_epsilon)
                     model.fit(temp_samples, log_sample_weights=ln_weights)
+                elif not (self.integrator.n_comp == 0 or
+                          (isinstance(self.integrator.n_comp, dict) and self.integrator.n_comp.get(dim_group) == 0)):
+                    # invalid n_comp (e.g. None from an integrator built outside
+                    # setup()): never no-op silently -- that hid a dead GMM
+                    # portfolio member in production.  n_comp==0 is the only
+                    # sanctioned way to skip training.
+                    if not getattr(self, '_warned_invalid_n_comp', False):
+                        self._warned_invalid_n_comp = True
+                        print(" mcsamplerEnsemble: update_sampling_prior SKIPPING training for dim_group {}: "
+                              "invalid n_comp {!r} (use n_comp=0 to disable adaptation intentionally)".format(
+                                  dim_group, self.integrator.n_comp))
             else:
                 model.update(temp_samples, log_sample_weights=ln_weights)
             self.integrator.gmm_dict[dim_group] = model
