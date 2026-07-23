@@ -91,13 +91,10 @@ for pipeline in discovered_plugins:
   try:
     known_pipelines[pipeline.name] = pipeline.load()
   except Exception as e:
-    # A plugin whose OPTIONAL deps are missing must not abort the whole portfolio import.
-    # e.g. the NF plugin does `import torch`, which the production GPU container does NOT ship;
-    # without this guard the entire mcsamplerPortfolio import raised, the driver silently set
-    # mcsampler_Portfolio_ok=False, and any portfolio run died with a NameError.  Skip the
-    # unusable plugin (a portfolio that doesn't request it is unaffected).
-    print("  Portfolio discovery: SKIP {} ( {} )".format(pipeline.name, e))
-print('RIFT portfolio plugins:', [ep.name for ep in discovered_plugins])
+    # optional plugins (e.g. the NF pipeline needing torch) must not make
+    # importing mcsamplerPortfolio itself fail on torch-free installations
+    print(" Portfolio discovery: SKIPPING {} (unavailable: {})".format(pipeline.name, e))
+print('RIFT portfolio plugins:', sorted(known_pipelines))
 
 
 class NanOrInf(Exception):
