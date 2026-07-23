@@ -88,8 +88,13 @@ discovered_plugins = entry_points(group='RIFT.integrator_plugins')
 known_pipelines = {}
 for pipeline in discovered_plugins:
   print(" Portfolio discovery: loading ", pipeline.name)
-  known_pipelines[pipeline.name] = pipeline.load()
-print('RIFT portfolio plugins:', [ep.name for ep in discovered_plugins])
+  try:
+    known_pipelines[pipeline.name] = pipeline.load()
+  except Exception as e:
+    # optional plugins (e.g. the NF pipeline needing torch) must not make
+    # importing mcsamplerPortfolio itself fail on torch-free installations
+    print(" Portfolio discovery: SKIPPING {} (unavailable: {})".format(pipeline.name, e))
+print('RIFT portfolio plugins:', sorted(known_pipelines))
 
 
 class NanOrInf(Exception):

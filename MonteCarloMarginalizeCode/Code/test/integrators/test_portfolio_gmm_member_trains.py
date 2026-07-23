@@ -48,7 +48,7 @@ def _gmm_trained(gmm_sampler):
     return any(m is not None for m in integ.gmm_dict.values())
 
 
-def main():
+def _build_portfolio(portfolio_args=None):
     try:
         av = mcsamplerAdaptiveVolume.MCSampler(n_chunk=5000)
     except TypeError:
@@ -60,8 +60,16 @@ def main():
         pdf = np.vectorize(lambda x: 1.0 / (RLIM - LLIM))
         port.add_parameter(p, pdf, prior_pdf=pdf, left_limit=LLIM,
                            right_limit=RLIM, adaptive_sampling=True)
+    if portfolio_args is None:
+        port.setup()
+    else:
+        port.setup(portfolio_args=portfolio_args)
+    return port, gmm, params
+
+
+def test_default_portfolio_gmm_member_trains():
     # NO explicit n_comp anywhere: this is exactly the default production wiring.
-    port.setup()
+    port, gmm, params = _build_portfolio()
     port.integrate_log(ln_f, *params, no_protect_names=True, nmax=60000,
                        n=5000, neff=50000, n_adapt=100, tempering_exp=0.1,
                        save_intg=True, verbose=False)
@@ -70,21 +78,16 @@ def main():
         "gmm_dict models are all None")
     print("PASS: portfolio GMM member trained under default configuration")
 
-    # the explicit off-switch must still be honored
-    gmm2 = mcsamplerEnsemble.MCSampler()
-    av2 = mcsamplerAdaptiveVolume.MCSampler()
-    port2 = mcsamplerPortfolio.MCSampler(portfolio=[av2, gmm2])
-    for p in params:
-        pdf = np.vectorize(lambda x: 1.0 / (RLIM - LLIM))
-        port2.add_parameter(p, pdf, prior_pdf=pdf, left_limit=LLIM,
-                            right_limit=RLIM, adaptive_sampling=True)
-    port2.setup(portfolio_args=[{}, dict(n_comp=0)])
-    port2.integrate_log(ln_f, *params, no_protect_names=True, nmax=30000,
-                        n=5000, neff=50000, n_adapt=100, tempering_exp=0.1,
-                        save_intg=True, verbose=False)
-    assert not _gmm_trained(gmm2), "n_comp=0 must remain the off-switch"
+
+def test_n_comp_zero_remains_off_switch():
+    port, gmm, params = _build_portfolio(portfolio_args=[{}, dict(n_comp=0)])
+    port.integrate_log(ln_f, *params, no_protect_names=True, nmax=30000,
+                       n=5000, neff=50000, n_adapt=100, tempering_exp=0.1,
+                       save_intg=True, verbose=False)
+    assert not _gmm_trained(gmm), "n_comp=0 must remain the off-switch"
     print("PASS: n_comp=0 off-switch still honored")
 
 
 if __name__ == "__main__":
-    main()
+    test_default_portfolio_gmm_member_trains()
+    test_n_comp_zero_remains_off_switch()
