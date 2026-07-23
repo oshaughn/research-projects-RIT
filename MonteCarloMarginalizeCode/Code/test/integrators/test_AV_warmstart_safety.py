@@ -46,7 +46,12 @@ def _run(target, warm=None, nmax=200000, neff=1500, n_chunk=10000, seed=1234):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--as-test", action="store_true")
-    ap.add_argument("--cover-frac", type=float, default=0.10)
+    ap.add_argument("--cover-frac", type=float, default=0.5,
+                    help="Coverage floor to exercise.  Default 0.5 = the production default: "
+                         "measured-safe across 20 calibration seeds (max |bias| 0.164, max "
+                         "degradation vs cold 0.113).  0.1 is under-covered (1.1-1.7 log bias "
+                         "across seeds), and raising nmax does NOT rescue it because the runs "
+                         "terminate on n_eff=1500 first.")
     args = ap.parse_args()
 
     target = B.CorrelatedGaussian(ndim=3)   # cold AV converges here (unbiased control)

@@ -17,12 +17,19 @@ from scipy.stats import multivariate_normal,norm
 try:
     import cupy
     import cupyx.scipy.special
+    # cupy imports cleanly on GPU-less nodes (shared install, or a GPU node
+    # with CUDA_VISIBLE_DEVICES masked); probe for an actual device before
+    # selecting the GPU backend, else every cupy kernel launch dies at call
+    # time with cudaErrorNoDevice.  getDeviceCount raises CUDARuntimeError
+    # (not ImportError) in that case, hence the broad except below.
+    if cupy.cuda.runtime.getDeviceCount() == 0:
+        raise ImportError("cupy installed but no CUDA device available")
     xpy_default = cupy
     xpy_special_default = cupyx.scipy.special
     identity_convert = cupy.asnumpy
     identity_convert_togpu = cupy.asarray
     cupy_ok = True
-except ImportError:
+except Exception:
     xpy_default = np
     xpy_special_default = None # scipy.special is used via scipy if needed
     identity_convert = lambda x: x
@@ -66,6 +73,7 @@ if not _ORIGINAL_AVAILABLE:
 from scipy.special import logsumexp
 from . import multivariate_truncnorm as truncnorm
 import itertools
+import math
 
 
 def _xpy_logsumexp(a, axis=None):
@@ -85,21 +93,6 @@ def _xpy_logsumexp(a, axis=None):
             return out.reshape(())
         return cupy.squeeze(out, axis=axis)
     return logsumexp(a, axis=axis)
-
-
-# Symmetric (Hermitian) eigen-routines. cupy.linalg only provides the Hermitian
-# variants (eigh/eigvalsh), not the general eig/eigvals. The matrices fed to
-# _near_psd below are covariance/correlation matrices and hence symmetric, so
-# the Hermitian routines are both correct and the only ones available on GPU.
-if cupy_ok:
-    _xpy_eigvals = cupy.linalg.eigvalsh
-    _xpy_eig = cupy.linalg.eigh
-else:
-    # Symmetric routines on CPU as well: the inputs are covariance/correlation
-    # matrices.  eigvalsh/eigh are faster, return real eigenvalues (no spurious
-    # complex output from round-off asymmetry), and match the GPU path.
-    _xpy_eigvals = np.linalg.eigvalsh
-    _xpy_eig = np.linalg.eigh
 
 
 def _near_psd_impl(x, epsilon, xpy):
@@ -124,12 +117,17 @@ def _near_psd_impl(x, epsilon, xpy):
         floor = xpy.maximum(diag, epsilon)
         x = x + xpy.diag(floor - diag)
     x = 0.5 * (x + x.T)   # symmetrize: eigh assumes it, round-off breaks it
+    # Symmetric (Hermitian) eigen-routines, resolved through the CALLER's xpy:
+    # cupy.linalg only provides eigh/eigvalsh (not general eig/eigvals), and the
+    # inputs here are covariance/correlation matrices, so the Hermitian variants
+    # are correct on both backends.  Do not bind these at import time -- that is
+    # how a cupy install without a GPU broke every CPU refit (cudaErrorNoDevice).
     for _ in range(10):   # bounded: the legacy `while True` could spin forever
         var_list = xpy.sqrt(xpy.diag(x))
         y = x / (var_list[:, None] * var_list[None, :])
-        if bool(xpy.min(_xpy_eigvals(y)) > epsilon):
+        if bool(xpy.min(xpy.linalg.eigvalsh(y)) > epsilon):
             return x
-        eigval, eigvec = _xpy_eig(y)
+        eigval, eigvec = xpy.linalg.eigh(y)
         val_psd = xpy.maximum(eigval, epsilon)
         near_corr = eigvec @ xpy.diag(val_psd) @ eigvec.T
         near_cov = near_corr * (var_list[:, None] * var_list[None, :])
@@ -426,28 +424,81 @@ class gmm:
         self.p_nk = model.p_nk
         self.log_prob = model.log_prob
 
+    def num_free_params(self):
+        '''Number of free parameters of this k-component d-dim mixture:
+        k means (k*d) + k covariances (k*d*(d+1)/2) + (k-1) mixture weights.'''
+        d = self.d
+        return self.k*d + self.k*(d*(d+1))//2 + (self.k - 1)
+
+    def prune_components(self, weight_floor=1e-3, min_keep=1):
+        '''Drop mixture components whose weight falls below weight_floor and
+        renormalize.  Over-allocated components collapse to ~zero weight under
+        EM; removing them (a) prevents a spurious sharp component from dominating
+        the importance weights and (b) cuts score() cost, which is O(k) in the
+        per-component mvnun box normalization.  Keeps at least max(1, min_keep)
+        components (the highest-weight ones) -- pass min_keep to preserve a safety
+        floor.  No-op if nothing is below the floor.'''
+        min_keep = max(1, int(min_keep))
+        w = np.asarray(self.identity_convert(self.weights), dtype=float)
+        keep = np.where(w >= weight_floor)[0]
+        if len(keep) < min_keep:
+            # keep the min_keep highest-weight components
+            keep = np.argsort(w)[::-1][:min(min_keep, self.k)]
+        if len(keep) == self.k:
+            return
+        keep = np.sort(keep)
+        self.means = [self.means[i] for i in keep]
+        self.covariances = [self.covariances[i] for i in keep]
+        w_keep = w[keep]
+        w_keep = w_keep / w_keep.sum()
+        self.weights = self.identity_convert_togpu(w_keep)
+        self.adapt = [self.adapt[i] for i in keep] if isinstance(self.adapt, list) else self.adapt
+        self.k = len(keep)
+
     def _match_components(self, new_model):
         '''
         Match components in new model to those in current model by minimizing the
-        net Mahalanobis between all pairs of components
+        net Mahalanobis between all pairs of components.
+
+        The objective is a SUM of per-pair distances, so the optimal old->new
+        assignment is a linear assignment problem, solved exactly in O(k^3) by
+        the Hungarian algorithm.  The legacy implementation enumerated all k!
+        permutations (itertools.permutations), which is fine for k<=6 but
+        explodes (8!=40320, 12!~5e8, 16!~2e13) -- it made any many-component
+        proposal (e.g. a chain of small Gaussians wrapping a curved degeneracy
+        arc) impossible to refit through update().  linear_sum_assignment
+        returns the SAME optimum (identical additive objective); only tie-break
+        ordering can differ.  Returns a tuple `order` with order[i]=j meaning
+        old component i is matched to new component j.
         '''
-        orders = list(itertools.permutations(list(range(self.k)), self.k))
-        distances = np.empty(len(orders))
-        index = 0
-        for order in orders:
-            dist = 0
-            i = 0
-            for j in order:
-                # These are likely small vectors, stay on CPU
-                diff = self.identity_convert(new_model.means[j]) - self.identity_convert(self.means[i])
-                cov_inv = np.linalg.inv(self.identity_convert(self.covariances[i]))
-                temp_cov_inv = np.linalg.inv(self.identity_convert(new_model.covariances[j]))
-                dist += np.sqrt(np.dot(np.dot(diff, cov_inv), diff))
-                dist += np.sqrt(np.dot(np.dot(diff, temp_cov_inv), diff))
-                i += 1
-            distances[index] = dist
-            index += 1
-        return orders[np.argmin(distances)]
+        k = self.k
+        # cost[i,j] = mahalanobis(new_j - old_i) under old_i cov + under new_j cov
+        cost = np.empty((k, k))
+        old_means = [self.identity_convert(m) for m in self.means]
+        new_means = [self.identity_convert(m) for m in new_model.means]
+        old_cov_inv = [np.linalg.inv(self.identity_convert(c)) for c in self.covariances]
+        new_cov_inv = [np.linalg.inv(self.identity_convert(c)) for c in new_model.covariances]
+        for i in range(k):
+            for j in range(k):
+                diff = new_means[j] - old_means[i]
+                cost[i, j] = np.sqrt(np.dot(np.dot(diff, old_cov_inv[i]), diff)) \
+                           + np.sqrt(np.dot(np.dot(diff, new_cov_inv[j]), diff))
+        try:
+            from scipy.optimize import linear_sum_assignment
+            row_ind, col_ind = linear_sum_assignment(cost)
+            # row_ind is sorted 0..k-1, so col_ind[i] is the new index for old i
+            return tuple(int(j) for j in col_ind)
+        except Exception:
+            # Defensive fallback (should not trigger: scipy.optimize is a hard
+            # RIFT dependency).  Greedy nearest assignment, O(k^2 log k).
+            order = [None] * k
+            used = set()
+            for i in np.argsort(cost.min(axis=1)):
+                j = int(min((jj for jj in range(k) if jj not in used),
+                            key=lambda jj: cost[i, jj]))
+                order[i] = j
+                used.add(j)
+            return tuple(order)
 
     def _merge(self, new_model, M):
         '''
@@ -641,3 +692,170 @@ class gmm:
                 print(weight, '\n')
             else:
                 print(i, weight, self._unnormalize(np.array([mean]))[0,0], mean[0], np.sqrt(cov[0,0]))
+
+
+def _mixture_log_density_normalized(model, Xn):
+    '''Log mixture density (n,) of a fitted `gmm` at NORMALIZED samples Xn (n,d),
+    in the model's normalized [-1,1] coordinate frame.  Backend-portable.'''
+    xpy = model.xpy
+    n = Xn.shape[0]
+    logk = xpy.empty((n, model.k))
+    for j in range(model.k):
+        mean = model.means[j]
+        cov = model.covariances[j]
+        if cupy_ok:
+            lp = gpu_logpdf(Xn, mean, cov, xpy)
+        else:
+            lp = multivariate_normal.logpdf(x=model.identity_convert(Xn),
+                                            mean=model.identity_convert(mean),
+                                            cov=model.identity_convert(cov),
+                                            allow_singular=True)
+        logk[:, j] = lp + xpy.log(model.weights[j])
+    return _xpy_logsumexp(logk, axis=1)
+
+
+def add_defensive_component(model, defensive_frac=0.05, width_norm=1.0):
+    '''Append a broad, box-covering "defensive" component to a fitted mixture so
+    the proposal has heavy enough tails for importance sampling.
+
+    This is the single most important fix for the SNR~82 extrinsic posterior: a
+    mixture fit to the (tight) elite cloud UNDER-COVERS the broad, degenerate
+    directions (distance-inclination), so the importance weight L*p/q blows up on
+    the rare draw that lands in a poorly-covered high-likelihood pocket and the
+    effective sample size collapses to ~1.  A defensive component (Hesterberg
+    1995) with weight `defensive_frac`, wide in the model's normalized [-1,1]
+    frame, bounds the weights: q >= defensive_frac * q_broad everywhere, so no
+    single sample can dominate.  The AV sampler gets the same guarantee from its
+    cover-fraction floor; the fitted GMM had none.
+
+    width_norm is the std of the defensive Gaussian in normalized coords (1.0 ~
+    covers the whole [-1,1] box; truncated to the box it is near-uniform).
+    '''
+    if not defensive_frac or defensive_frac <= 0:
+        return model
+    xpy = model.xpy
+    d = model.d
+    w = np.asarray(model.identity_convert(model.weights), dtype=float)
+    means = [model.identity_convert(m) for m in model.means]
+    covs = [model.identity_convert(c) for c in model.covariances]
+    means.append(np.zeros(d))                       # box center (normalized)
+    covs.append((width_norm ** 2) * np.eye(d))      # broad, box-covering
+    w = np.concatenate([w * (1.0 - defensive_frac), [defensive_frac]])
+    model.means = [model.identity_convert_togpu(m) for m in means]
+    model.covariances = [model.identity_convert_togpu(c) for c in covs]
+    model.weights = model.identity_convert_togpu(w / w.sum())
+    model.adapt = list(model.adapt) + [False] if isinstance(model.adapt, list) else model.adapt
+    model.k = len(means)
+    return model
+
+
+def fit_gmm_adaptive(sample_array, bounds, log_sample_weights=None, k_max=8,
+                     k_min=1, k_candidates=None, epsilon=None, tempering_coeff=1e-8,
+                     prune_weight_floor=1e-3, defensive_frac=0.05, inflate=1.0):
+    '''Fit a GMM whose COMPONENT COUNT is chosen from the data by BIC, then
+    prune near-zero-weight components.  Data-driven replacement for a hard-coded
+    per-group component count.
+
+    Rationale (measured on the S250114ax extrinsic posterior, SNR~82):
+      * A fixed SMALL k (e.g. the correlate-all default of 2) cannot wrap a
+        curved distance-inclination degeneracy arc: the elite fit is one broad
+        Gaussian over the ridge, the proposal never locks onto the peak, and
+        the honest effective sample size stays ~1.
+      * A fixed LARGE k is both statistically fragile (a spurious sharp
+        component collapses onto ~1 elite sample and dominates the importance
+        weights) and computationally costly (score() does an O(k) per-component
+        mvnun box normalization on the CPU).
+    BIC threads between the two: fit k over a ladder, penalize free parameters
+    by ln(N_eff), keep the best, and drop dead components.  It allocates more
+    components only where the (importance-weighted) cloud is genuinely
+    non-Gaussian and stays at k=1 for a single blob.
+
+    SAFETY FLOOR: k is chosen in [k_min, k_max], and pruning never drops below
+    k_min.  Pass k_min = the stress-tested hard-coded per-group count so opting
+    into adaptive can only ADD components where the data earns them, never fewer
+    than the layout that was validated for the primary ILE use case (e.g. a broad
+    multi-modal sky keeps its default components even if the INITIAL elite cloud
+    -- fit before the proposal has explored every mode -- looks single-peaked).
+
+    Parameters
+    ----------
+    sample_array : (N, d) array in ORIGINAL coordinates.
+    bounds       : (d, 2) array of [llim, rlim] per dimension (as gmm expects).
+    log_sample_weights : (N,) importance/elite log-weights (default: equal).
+    k_max        : cap on the number of components.
+    k_min        : floor on the number of components (default 1); the stress-
+                   tested hard-coded count when used as a refinement layer.
+    k_candidates : explicit ladder (overrides k_max/k_min-derived ladder).
+    prune_weight_floor : components below this mixture weight are removed (but
+                   never below k_min).
+
+    Returns a fitted `gmm`.
+    '''
+    xpy = xpy_default
+    N, d = sample_array.shape
+    if log_sample_weights is None:
+        log_sample_weights = xpy.zeros(N)
+    # Kish effective sample size of the fit weights (drives both the BIC penalty
+    # and the per-component sample-count cap).
+    lw = xpy.where(xpy.isfinite(log_sample_weights), log_sample_weights,
+                   -xpy.inf * xpy.ones(N))
+    lw_max = xpy.max(lw)
+    if not bool(xpy.isfinite(lw_max)):
+        wn = xpy.ones(N)
+    else:
+        wn = xpy.exp(lw - lw_max)
+    wn = xpy.where(xpy.isfinite(wn), wn, xpy.zeros(N))
+    sw = xpy.sum(wn)
+    if not bool(sw > 0):
+        wn = xpy.ones(N); sw = float(N)
+    wn = wn / sw
+    N_eff = float(1.0 / xpy.sum(wn ** 2))
+
+    k_min = max(1, int(k_min))
+    k_max = max(k_min, int(k_max))
+    if k_candidates is None:
+        base = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32]
+        k_candidates = [k for k in base if k_min <= k <= k_max]
+        for kk in (k_min, k_max):   # always evaluate the endpoints
+            if int(kk) not in k_candidates:
+                k_candidates.append(int(kk))
+    # cap k so each component retains >~ (d+2) effective samples (an EM stability
+    # floor mirroring estimator._m_step's ESS>=d+1 guard) -- but never below the
+    # safety floor k_min (the stress-tested count), even if the initial elite
+    # cloud is small.
+    k_cap = max(k_min, int(N_eff // max(d + 2, 4)))
+    k_candidates = sorted(set(int(k) for k in k_candidates if k_min <= k <= max(k_min, k_cap)))
+    if not k_candidates:
+        k_candidates = [k_min]
+
+    ln_Neff = math.log(max(N_eff, 2.0))
+    wn_scaled = N_eff * wn   # effective-count weights (sum to N_eff)
+    best, best_bic = None, None
+    for k in k_candidates:
+        try:
+            model = gmm(k, bounds, epsilon=epsilon, tempering_coeff=tempering_coeff)
+            model.fit(sample_array, log_sample_weights=log_sample_weights)
+            logmix = _mixture_log_density_normalized(model, model._normalize(sample_array))
+            wll = float(xpy.sum(wn_scaled * logmix))       # weighted log-likelihood
+            bic = -2.0 * wll + model.num_free_params() * ln_Neff
+        except Exception:
+            continue
+        if best_bic is None or bic < best_bic:
+            best, best_bic = model, bic
+    if best is None:   # every candidate failed: fall back to the floor count
+        best = gmm(k_min, bounds, epsilon=epsilon, tempering_coeff=tempering_coeff)
+        best.fit(sample_array, log_sample_weights=log_sample_weights)
+    if prune_weight_floor:
+        # never prune below the safety floor: the extra components carry the
+        # capacity to capture modes the merge adaptation discovers later.
+        best.prune_components(prune_weight_floor, min_keep=k_min)
+    if inflate and inflate != 1.0:
+        # widen every fitted component so the proposal has heavier tails than the
+        # (tight) elite cloud it was fit to -- a basic importance-sampling
+        # requirement the raw EM fit violates on a peaked/degenerate posterior.
+        fac = float(inflate) ** 2
+        best.covariances = [best.identity_convert_togpu(fac * best.identity_convert(c))
+                            for c in best.covariances]
+    if defensive_frac:
+        add_defensive_component(best, defensive_frac=defensive_frac)
+    return best
