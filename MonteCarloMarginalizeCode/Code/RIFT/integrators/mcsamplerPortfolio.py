@@ -230,14 +230,14 @@ class MCSampler(object):
         self.portfolio_quality_decay  = kwargs.get('portfolio_quality_decay', 0.5)    # EMA alpha for quality
         self.portfolio_probe_period   = kwargs.get('portfolio_probe_period', 4)       # probe one member every N chunks
         self.portfolio_probe_frac     = kwargs.get('portfolio_probe_frac', 0.6)       # raise probed member to >= this
-        # WEIGHT CLIPPING (truncated importance sampling) -- OPT-IN, default off, and applied to the
-        # ADAPTATION STREAM ONLY (see the clipping block in integrate_log).  Cap w at
+        # WEIGHT CLIPPING (truncated importance sampling) -- OPT-IN, default off, PROPOSAL-FIT INPUT
+        # ONLY (see the clipping block in integrate_log).  Cap w at
         #     tau = portfolio_weight_clip * sqrt(n) * mean(w)          (Ionides 2008, truncated IS)
-        # Clipping is a BIASED operation, so it never touches log_integrand (the estimator): only the
-        # copy used for proposal training and the allocation signal is clipped.  That keeps ln Z and
-        # n_eff exactly unbiased while stopping one enormous weight from dominating the GMM fit /
-        # allocation.  The withheld mass is accumulated in log space and reported as a TAIL
-        # DIAGNOSTIC (how much weight adaptation ignored), not as a bias.
+        # Clipping is BIASED and distorts n_ess, so the clipped copy feeds ONLY
+        # member.update_sampling_prior (the GMM covariance fit) -- one enormous weight can't make
+        # that fit degenerate.  The estimator (ln Z, n_eff), the n_ess report, and the allocation
+        # signal all use the TRUE weights, so they stay exactly unbiased/undistorted.  The withheld
+        # mass is accumulated in log space and reported as a TAIL DIAGNOSTIC, not a bias.
         self.portfolio_weight_clip = kwargs.get('portfolio_weight_clip', 0.0)  # 0 = off
         self.portfolio_clip_log_removed = -np.inf
         self.portfolio_clip_log_total = -np.inf
@@ -747,21 +747,18 @@ class MCSampler(object):
                 log_integrand = self.xpy.where(_bad, -self.xpy.inf, log_integrand)
                 log_weights   = self.xpy.where(_bad, -self.xpy.inf, log_weights)
 
-            # WEIGHT CLIPPING (truncated IS; OPT-IN) -- ADAPTATION STREAM ONLY.
-            # Clipping is BIASED, so it must never touch the estimator.  RIFT already separates the
-            # two streams and we exploit that here:
-            #   log_integrand -> the ESTIMATE (init_log/update_log -> ln Z, and maxval -> eff_samp)
-            #                    ==> left UNCLIPPED, so the integral stays exactly unbiased.
-            #   log_weights   -> ADAPTATION ONLY (per-member n_ess report, the allocation signal, and
-            #                    member.update_sampling_prior training) ==> safe to clip, since
-            #                    adaptation only ever shapes proposals; it cannot bias the estimate.
-            # Clipping the adaptation copy stops a single enormous weight from dominating the GMM
-            # fit / the allocation signal, which is where the outliers actually do damage.  This is
-            # strictly better than dropping the whole chunk from the integral: dropping conditional
-            # on "a big weight appeared" is DATA-DEPENDENT SELECTION and would bias ln Z low (it
-            # preferentially discards the rare mass-carrying chunks) -- worse than clipping itself.
-            # The tracked mass is therefore a TAIL DIAGNOSTIC here, not a bias: it says how much
-            # weight the adaptation ignored.
+            # WEIGHT CLIPPING (truncated IS; OPT-IN) -- PROPOSAL-TRAINING INPUT ONLY.
+            # Clipping is BIASED and also distorts n_ess, so its scope is deliberately narrow: it
+            # produces log_weights_adapt, which is fed ONLY to member.update_sampling_prior (the GMM
+            # covariance fit), so that a single enormous weight cannot make that fit degenerate.
+            # Everything else uses the TRUE weights:
+            #   * log_integrand -> the ESTIMATE (ln Z, eff_samp): UNCLIPPED -> exactly unbiased.
+            #   * the per-member n_ess REPORT and the ALLOCATION signal: UNCLIPPED -> undistorted
+            #     (clipping flattens weights and would INFLATE the clipped member's Kish n_ess,
+            #      perversely rewarding the very member whose weights had to be clipped).
+            # This is also strictly better than DROPPING a chunk that clipped: dropping conditional
+            # on "a big weight appeared" is data-dependent selection and would bias ln Z low.  The
+            # tracked withheld mass is a TAIL DIAGNOSTIC (how much weight the proposal fit ignored).
             log_weights_adapt = log_weights
             if self.portfolio_weight_clip and self.portfolio_weight_clip > 0:
                 _lw = numpy.asarray(self.identity_convert(log_weights), dtype=float)
@@ -793,9 +790,9 @@ class MCSampler(object):
                                                 - self.portfolio_clip_log_total)) \
                             if numpy.isfinite(self.portfolio_clip_log_removed) else 0.0
                         _frac = min(max(_frac, 0.0), 1.0 - 1e-15)
-                        print("  PORTFOLIO: adaptation weight-clip tau={:.3e}(rel max) clipped {} "
-                              "this chunk ({} total); cumulative tail mass withheld from ADAPTATION"
-                              " ={:.3e} (estimator unclipped -> ln Z unbiased)"
+                        print("  PORTFOLIO: proposal-fit weight-clip tau={:.3e}(rel max) clipped {} "
+                              "this chunk ({} total); cumulative tail mass withheld from PROPOSAL FIT"
+                              " ={:.3e} (estimator + n_ess report + allocation all unclipped)"
                               .format(_tau, _n_over, self.portfolio_clip_n, _frac))
 
             if save_intg:
@@ -881,7 +878,12 @@ class MCSampler(object):
             # correctly has small uniform weights, while a broad GMM's rare huge-weight outlier sets
             # the maximum) -- measured on S250114ax, mean weight ranked AV at 1e-40 vs GMM 2e-4.
             # A single global normalization (the chunk's max log-weight) keeps members comparable.
-            _lw_all = numpy.asarray(self.identity_convert(log_weights_adapt), dtype=float)
+            # NB: the report n_ess and the allocation signal use the TRUE (unclipped) weights.
+            # Feeding them the clipped copy is WRONG: clipping flattens weights, which INFLATES a
+            # member's Kish n_ess, so the allocation would perversely favor exactly the member whose
+            # weights had to be clipped (measured: on S250114ax it starved the AV workhorse to the
+            # 1% floor and collapsed n_eff to ~1).  Clipping's ONLY job is to protect proposal FITS.
+            _lw_all = numpy.asarray(self.identity_convert(log_weights), dtype=float)
             _finite = numpy.isfinite(_lw_all)
             _lw_max = float(numpy.max(_lw_all[_finite])) if bool(numpy.any(_finite)) else 0.0
             _u_all = numpy.where(_finite, numpy.exp(_lw_all - _lw_max), 0.0)
@@ -898,7 +900,7 @@ class MCSampler(object):
                 _mean_w = float(numpy.sum(_u_here)) / _n_here
                 _mean_w2 = float(numpy.sum(_u_here * _u_here)) / _n_here
                 contrib_per_sample[indx_member] = 2.0 * _mean_w / _S_tot - _mean_w2 / _Q_tot
-              ln_wt_here =  log_weights_adapt[indx_start:indx_end]
+              ln_wt_here =  log_weights[indx_start:indx_end]  # TRUE weights (see note above); not the clipped copy
               ln_wt_here += - np.max(ln_wt_here)
               # evaluate  n_ess, n_eff for this set of samples in batch specifically,
               portfolio_report[indx_member] = [ self.portfolio_weights[indx_member], self.identity_convert(self.xpy.sum(self.xpy.exp(ln_wt_here))**2/self.xpy.sum(self.xpy.exp(ln_wt_here*2))), identity_convert(self.xpy.sum(self.xpy.exp(ln_wt_here)))]

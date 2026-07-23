@@ -232,17 +232,22 @@ Clipping the estimator reached n_eff=100 in 1.87M evals — 2× faster than stan
 a perfectly converged run, while biasing ln Z **11.5 nats low** (independent reparam/aniso runs give
 ~1191.9). **n_eff stops being a validity check the moment the estimator is clipped.** Do not do this.
 
-**The unbiased redesign — clip the ADAPTATION stream only.** RIFT already separates the two uses of
-the per-sample weights, and clipping now respects that split:
-- `log_integrand` → the ESTIMATE (`init_log`/`update_log` → ln Z; `maxval` → n_eff) — left UNCLIPPED.
-- `log_weights` → ADAPTATION only (per-member n_ess report, the allocation signal, and
-  `member.update_sampling_prior` proposal training) — the clipped copy `log_weights_adapt`.
+**The unbiased redesign — clip the PROPOSAL-FIT INPUT only.** Clipping is both biased *and*
+n_ess-distorting, so its scope must be narrow. Final split:
+- `log_integrand` → the ESTIMATE (`init_log`/`update_log` → ln Z; `maxval` → n_eff) — UNCLIPPED.
+- per-member **n_ess report** and the **allocation signal** — UNCLIPPED (true weights).
+- ONLY `member.update_sampling_prior` (the GMM covariance fit) gets the clipped copy
+  `log_weights_adapt`, so one enormous weight can't make that fit degenerate.
 
-Because adaptation only ever *shapes proposals* (like warm-starts, oracles, and `q_mix` itself), it
-**cannot bias the estimate** — the ln Z stays exactly unbiased by construction. This is strictly
-better than the alternative of *dropping* a chunk that clipped: dropping conditional on "a big weight
-appeared" is data-dependent selection and would bias ln Z low (it preferentially discards the rare
-mass-carrying chunks). Clipping only the adaptation copy keeps every sample in the estimate.
+Two failure modes ruled this scoping. (a) Clipping the **estimator** biases ln Z (the trap above).
+(b) Clipping the **n_ess report / allocation** is *also* wrong, and subtly: clipping flattens
+weights, which INFLATES a member's Kish n_ess, so the allocation perversely rewards the very member
+whose weights had to be clipped. Measured on S250114ax, a first attempt that clipped the report
+starved the AV workhorse to the 1% floor and stuck n_eff at ~1 (worse than no-clip's 53). Restricting
+clipping to the proposal fit removed that: a short run climbs n_eff normally again. Proposal fitting
+only *shapes* the proposal (like warm-starts / oracles / `q_mix`), so it cannot bias ln Z — and this
+is strictly better than *dropping* a clipped chunk, which (being conditional on "a big weight
+appeared") is data-dependent selection that would bias ln Z low.
 
 **Synthetic ground truth** (`test/integrators/bench_weight_clip.py`, analytic ln Z, 2 seeds): with the
 adaptation-only design the estimator bias is **unchanged at every C** (the falsifiable proof the
@@ -253,19 +258,28 @@ estimate is untouched), and where weights are well-behaved clipping is a complet
 | uncorrelated | 0 / 1 / 5 | 386 / 385 / 385 | −0.035 / −0.039 / −0.039 |
 | correlated   | 0 / 1 / 5 | 389 / 387 / 388 | −0.029 / −0.032 / −0.031 |
 
-**Real S250114ax — unbiased, but it does not help (and the tracker explains why).** Adaptation-only
-clip C=1: ln Z = **1184.4** (matches the unclipped 1183.1, NOT the biased estimator-clip 1180.3 — the
-estimator is provably untouched), but n_eff **collapses to 1.2** (vs 52.6 unclipped). The withheld-
-from-adaptation mass is 0.97: on this event the mass-carrying samples **are** the signal the GMM must
-learn from, so clipping them out starves the proposal. The corrupting samples and the informative
-samples are the same samples — clipping cannot separate them, and no clipping fixes a member whose
-proposal is fundamentally heavy-tailed. The right move on this event remains: **do not carry the GMM
-member.**
+**Real S250114ax — unbiased, and (with the correct scope) not harmful.** Proposal-fit clip C=1
+keeps ln Z at the unclipped ~1183 (NOT the biased estimator-clip 1180.3 — the estimator is provably
+untouched) and n_eff climbs normally again (a short run tracks the no-clip curve). It does not *speed
+up* this event either: the GMM member's proposal is fundamentally heavy-tailed here, and clipping
+only stops its covariance fit from going degenerate — it cannot make a bad proposal good. The right
+move on this event remains to not carry the GMM member. (An earlier, wrongly-scoped attempt that also
+clipped the n_ess report collapsed n_eff to ~1 by starving AV — see the redesign note above; that was
+the bug, not a property of clipping.)
 
 **Side finding (refines the Benchmark-2 claim).** Even *unclipped* the AV+GMM portfolio reads
 ln Z = 1183.1 here, 8.7 nats below AV. Heavy-tailed IS is unbiased in expectation but realizes LOW in
 almost every run, so in production it behaves like a bias. "Portfolio replicates AV's ln Z" holds on
 the four *typical* events (Benchmark 2); it does **not** on S250114ax.
+
+**Can clipping rescue adaptive allocation on S250114ax?** No. Idea: the global allocation signal was
+fooled because one 10⁷³ outlier owned the pooled estimator; since the signal now reads the *clipped*
+adaptation weights, a gentle clip (C=20) that removes only that single outlier does flip the
+first-chunk signal to correctly favor AV (contrib AV 2e-4 vs GMM 9e-21). But it does not *persist*:
+the per-chunk marginal-n_eff signal is too noisy on this event — it oscillates back to GMM within a
+few chunks, and both C=1 and C=20 stall the estimator at n_eff ~1 (worse than legacy's 53). So on an
+AV-favorable event adaptive allocation fails clipped or not; **legacy allocation stays the right
+default there, and adaptive remains a correlated-problem tool.**
 
 **Verdict.** Adaptation-only clipping is the *correct, unbiased* form of the tool: on well-behaved
 weights it is a no-op, and it is a safety valve against a single pathological weight wrecking a
