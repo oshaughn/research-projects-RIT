@@ -281,7 +281,22 @@ few chunks, and both C=1 and C=20 stall the estimator at n_eff ~1 (worse than le
 AV-favorable event adaptive allocation fails clipped or not; **legacy allocation stays the right
 default there, and adaptive remains a correlated-problem tool.**
 
-**Verdict.** Adaptation-only clipping is the *correct, unbiased* form of the tool: on well-behaved
+**Typical-event safety validation** (proposal-fit clip C=1, 4 real events in-container, vs no-clip).
+Clipping is unbiased everywhere (estimator untouched) and a no-op-to-mild-help on n_eff — and it
+recovered the two hard events the broad-scope bug had degraded:
+
+| event | no-clip n_eff (lnZ) | proposal-fit clip n_eff (lnZ) |
+|-------|:-------------------:|:-----------------------------:|
+| S231026ab | 19 (17.62) | 25.5 (17.47) |
+| S240426s  | 31 (29.68) | 30 (29.74) |
+| S240513ei | 1.6 (85.33) | 1.3 (83.20) |
+| S240703ad | 2.8 (41.70) | **6.9** (42.43) |
+
+On S240703ad clipping the GMM covariance fit *helped* (n_eff 2.8 → 6.9): protecting the fit from
+outliers yielded a better proposal. lnZ differences are within the large MC error at these low n_eff
+(the unbiased estimator realizes low on heavy-tailed events; see the side finding below).
+
+**Verdict.** Proposal-fit clipping is the *correct, unbiased* form of the tool: on well-behaved
 weights it is a no-op, and it is a safety valve against a single pathological weight wrecking a
 member's covariance fit or the allocation signal. It does **not** manufacture n_eff — where the tail
 carries the integral, clipping the adaptation only hurts. The durably valuable artifact is the tracked
