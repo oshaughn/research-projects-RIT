@@ -168,7 +168,12 @@ def run(target, n_chunk, nmax, neff, use_mixture, decoy=None, seed=1234,
         nmax=nmax, neff=neff, n=n_chunk, n_adapt=100,
         tempering_exp=tempering_exp, floor_level=0.0, use_lnL=True,
         save_intg=True, verbose=verbose,
-        portfolio_use_mixture_density=use_mixture)
+        portfolio_use_mixture_density=use_mixture,
+        # This test isolates the q_mix ESTIMATOR under a PINNED pathological allocation (the decoy
+        # AV is frozen and, in the stratified case, dominates).  Adaptive-probe allocation would
+        # dynamically re-allocate away from the decoy and change the scenario, so pin it off here;
+        # the adaptive policy itself is exercised in test_portfolio_adaptive_alloc.py.
+        portfolio_adaptive_alloc=False)
     lnI = float(B._asnumpy(lnI))
     ln_wt = B.log_weights_from_rvs(port._rvs)
     return dict(lnI=lnI, bias=lnI - float(target.true_lnZ),
