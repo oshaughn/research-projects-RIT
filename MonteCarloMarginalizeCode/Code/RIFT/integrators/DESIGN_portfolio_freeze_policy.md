@@ -215,10 +215,24 @@ in try/except so a plugin with missing optional deps is skipped, not fatal.
 `tau = C*sqrt(n)*mean(w)` (Ionides 2008 truncated IS). Clipping is a **biased** operation, so the
 key design decision is *what it is allowed to touch*.
 
-**The outliers here are real, not a numerical artifact.** A 10⁷³× weight looked like it could be the
-`q_mix = max(acc, 1e-300)` floor firing on an underflowed density sum. An instrumented run counts
-**zero** q_mix underflows, so these are genuine heavy-tailed weights. (The `q_mix UNDERFLOW` counter
-stays in as a permanent guard — if it ever fires, the fix is a log-space mixture density, not clipping.)
+**⚠ SUPERSEDED — the outliers were an ARTIFACT after all (see PR #33).** This section originally
+concluded the 10⁷³× weights were genuine heavy tails, because an instrumented run counted **zero**
+`q_mix = max(acc, 1e-300)` underflows. That test was correct but incomplete: it rules out a density
+*underflow*, not a density *lie*. PR #33 subsequently found exactly such a lie — AV's
+`draw_simplified` head-sliced a **bin-ordered** cloud (returning only ~50–60% of the live-volume
+bins) while `sampling_density` claimed uniform coverage of **all** occupied bins, so `q_mix` was
+simply wrong, and a member drawing in the region AV never populates gets an arbitrarily inflated
+weight. PR #33 also found that default-wired portfolio GMM members **never trained** (`n_comp=None`
+silently no-op'd), so the runs below carried an untrained corpse member — which both produced junk
+draws and partially masked the density bug.
+
+**Consequences for everything below:** the S250114ax numbers in this document were taken with a dead
+GMM member and a lying AV draw density, so they characterize *those bugs*, not the integrator's real
+behavior. The clipping study remains valid as a *methodological* result (which quantities may be
+clipped, and why — those arguments are analytic, not event-specific), but every S250114ax
+efficiency/ln Z figure needs re-measuring on top of PR #33. The `q_mix UNDERFLOW` counter stays as a
+permanent guard, and the lesson generalizes: **when a weight looks impossible, test the density for a
+LIE (does the member actually draw where it claims density?), not just for underflow.**
 
 **First attempt — clip the estimator: a disguised disaster (kept as the cautionary result).**
 
