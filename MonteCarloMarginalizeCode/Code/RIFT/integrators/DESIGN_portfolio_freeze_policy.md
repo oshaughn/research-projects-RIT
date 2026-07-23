@@ -375,6 +375,40 @@ it needs member *exclusion* (drop a member whose credit is persistently negligib
 re-weighting. Practical guidance today: **use the portfolio with proposal-fit clipping for production
 n_eff targets; use standalone AV if you need n_eff ≫ 10 on an AV-favorable event.**
 
+## Shape-recovery merge gate (PR #31 requirement)
+
+Run on a quiet node (pcdev11; pcdev12 at load ~440 kills the suite via RLIMIT_NPROC), base
+`rift_O4d @4bac7444` vs this branch, both incl. PR #33. Harness: `~/rift_gate_out/run_gate.sh`.
+
+**Result: `COMPARE_EXIT=0`, 0 blocking regressions** — base and PR identical in aggregate (strict 8/8,
+warn-only 5/5, starved 45/45), and 22 of 23 portfolio rows bitwise identical to base.
+
+Getting there required fixing a regression the gate caught, which is worth recording because the
+cause was the opposite of the obvious one:
+
+* The first gate run showed ~13 of 20 portfolio rows losing n_eff vs base, several by 2–4×. It did
+  **not block** (portfolio is warn-only, strict = AV+GMM), but this PR changes the portfolio default
+  path, so it needed attribution rather than a pass-by-classification.
+* **never-freeze — the headline default — was NOT the cause**: toggling it gives ratio 1.00 on those
+  targets (it only engages where a member would actually be frozen).
+* **The plateau-aware `_climbing` revive WAS the sole cause.** Toggling it reproduces base exactly:
+  `d4_n1_s101 25.9→53.5`, `d4_n3_s202 29.1→83.8`, `d6_n1_s202 64.0→102.1`, `d6_n3_s202 7.2→31.4`,
+  `d8_n1_s101 37.3→61.9` (base 53.5 / 83.8 / 102.1 / 31.4 / 61.9). Forcing updates of members the
+  freeze schedule would have parked makes their proposals **worse** — the inverse of the intuition
+  that motivated it. It now defaults **off** (opt-in only).
+
+**The one remaining difference** is `mix_d2_n3_s303` (n_eff 736→517, bias −0.0060→−0.0064): the row
+where never-freeze genuinely engages. Both PASS comfortably (n_eff ≫ 100, bias unchanged), but it
+quantifies never-freeze's cost — **it buys starvation-immunity and pays ~30% n_eff where freezing
+would have been harmless.**
+
+**Method note (a trap worth avoiding).** An isolation that drives `shape_recovery` as a library must
+export `PYTHONPATH` (the checkout under test), `CUDA_VISIBLE_DEVICES=""` and `OMP_NUM_THREADS` — only
+the wrapper `run_shape_recovery.sh` sets these. My first isolation didn't, silently imported the
+**installed** RIFT (where the knob under test does not exist), and confidently reported "no effect"
+with n_eff nowhere near the gate's. **A valid isolation reproduces the gate's absolute numbers
+row-for-row**; that check is what exposed it. `probe_portfolio_optin_flags.py` now sets this env itself.
+
 ## Files
 - `RIFT/integrators/mcsamplerPortfolio.py` — freeze-policy + adaptive-probe allocation, knobs,
   n_ess history, plugin-load guard, NaN guard.

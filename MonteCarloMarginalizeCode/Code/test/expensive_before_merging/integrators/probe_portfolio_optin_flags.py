@@ -24,7 +24,18 @@ Usage (CPU, like the gate):
 """
 from __future__ import print_function
 import argparse
+import os
 import sys
+
+# The merge-gate WRAPPER (run_shape_recovery.sh) exports these; library mode does NOT.  Without
+# them you silently import the INSTALLED RIFT (not the checkout under test) and/or hit the
+# cupy-without-a-device path -- both yield confident, meaningless numbers.  A valid probe
+# reproduces the gate's ABSOLUTE values row-for-row.
+os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')
+os.environ.setdefault('OMP_NUM_THREADS', '1')
+_CODE = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+if _CODE not in sys.path:
+    sys.path.insert(0, _CODE)
 
 import shape_recovery as SR
 
