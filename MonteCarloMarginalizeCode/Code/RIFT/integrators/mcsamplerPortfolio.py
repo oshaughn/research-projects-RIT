@@ -242,6 +242,17 @@ class MCSampler(object):
         # diagnostic: samples whose mixture density UNDERFLOWED to 0 and hit the 1e-300 floor (those
         # produce spurious ~1/1e-300 weights -- a numerical artifact, not real tail mass)
         self.portfolio_qmix_underflow = 0
+        # VARAHA DRAW FLOOR (opt-in, default 0 = off).  never-freeze guarantees a VARAHA/AV member
+        # keeps UPDATING (contracting), but nothing guarantees it keeps DRAWING: both allocation
+        # rules score members by per-chunk n_ess, and a VARAHA member's per-chunk n_ess sits at ~1
+        # during its slow CUMULATIVE contraction, so a member that looks instantly good (a live GMM)
+        # can take almost the whole budget.  Measured on S250114ax after the PR #33 fixes made the
+        # GMM member genuinely live: the allocation gave GMM ~0.84 and the portfolio collapsed to
+        # n_eff ~2 at 4M, versus ~100 for standalone AV.  Setting this to f reserves a combined
+        # fraction f of the draws for VARAHA members (applied AFTER whichever allocation rule runs,
+        # so it protects the legacy and adaptive paths alike).  q_mix keeps any allocation unbiased,
+        # so this only trades efficiency.
+        self.portfolio_varaha_min_frac = kwargs.get('portfolio_varaha_min_frac', 0.0)
         self.portfolio_quality = np.ones(len(self.portfolio))   # per-member quality (EMA of the signal)
         self.portfolio_quality_nobs = np.zeros(len(self.portfolio), dtype=int)  # #updates per member
         self.portfolio_probe_ptr = 0                            # round-robin probe pointer
@@ -340,6 +351,7 @@ class MCSampler(object):
         _kw_keep('portfolio_probe_period')
         _kw_keep('portfolio_probe_frac')
         _kw_keep('portfolio_weight_clip')
+        _kw_keep('portfolio_varaha_min_frac')
         if 'oracle_realizations' in kwargs:
           if kwargs['oracle_realizations']: 
             self.oracle_realizations = kwargs['oracle_realizations']  # might not have been initialized earlier
@@ -921,6 +933,22 @@ class MCSampler(object):
               self.portfolio_weights = self._adaptive_allocation(_obs, frac_now, self.portfolio_draw_iteration)
             else:
               self.portfolio_weights = portfolio_wt_func(dat, self.portfolio_weights, xpy=self.xpy, identity_convert=self.identity_convert) # call weighting function
+            # VARAHA DRAW FLOOR (see __init__): reserve a combined fraction for VARAHA members, so a
+            # slow-contracting workhorse cannot be starved of DRAWS by a member that merely looks
+            # good per-chunk.  Applied after either allocation rule; unbiased (q_mix).
+            _vmin = float(self.portfolio_varaha_min_frac)
+            if _vmin > 0 and len(self.portfolio) > 1:
+              _is_v = np.array([hasattr(m, 'is_varaha') for m in self.portfolio_realizations])
+              if _is_v.any() and not _is_v.all():
+                _w = np.asarray(self.portfolio_weights, dtype=float)
+                _w = np.where(np.isfinite(_w) & (_w > 0), _w, 0.0)
+                _sv = _w[_is_v].sum(); _so = _w[~_is_v].sum()
+                if _sv < _vmin and _so > 0:
+                  # scale VARAHA members up to _vmin (preserving their relative split) and the rest
+                  # down to (1-_vmin); if VARAHA weights are all zero, split _vmin evenly among them
+                  _w[~_is_v] *= (1.0 - _vmin) / _so
+                  _w[_is_v] = (_w[_is_v] * (_vmin / _sv)) if _sv > 0 else (_vmin / _is_v.sum())
+                  self.portfolio_weights = _w / _w.sum()
 
               
             ###

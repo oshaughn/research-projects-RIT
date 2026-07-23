@@ -327,6 +327,39 @@ samples.
    bias passes a single-event n_eff check but shows up as PP miscalibration. The −11.5 nat bias hiding
    behind a perfect n_eff above is exactly why.
 
+## POST-#33 RE-MEASUREMENT (S250114ax) — the live-GMM result
+
+Re-run on top of PR #33 (GMM members actually train; AV's `draw_simplified` no longer lies about its
+density), warm, same budget:
+
+| run | final n_eff @4M | note |
+|-----|----------------:|------|
+| standalone AV (reference) | **100.2** | unchanged by #33 (standalone AV paths untouched) |
+| portfolio, default | **2.1** | was 52.6 pre-#33 |
+| portfolio, adaptive alloc | **1.1** | |
+| portfolio, VARAHA draw floor 0.5 / 0.7 | still ~1–2 | AV got 0.97 / 0.85 of draws |
+
+**The portfolio got *worse* when the GMM member came alive.** Pre-#33 the GMM member was a corpse, so
+the portfolio was effectively AV-only and scored 52.6; now that it genuinely trains and draws, the
+allocation hands it ~0.84 of the budget and the pooled n_eff collapses to ~2 — against standalone
+AV's 100. This is not a freeze problem (never-freeze is working: AV updates every chunk) and not a
+clipping problem. It is the **draw-allocation** pathology in its clean form: both allocation rules
+score members by per-chunk n_ess, and a VARAHA member's per-chunk n_ess sits at ~1 throughout its
+slow *cumulative* contraction, so a member that looks instantly good takes the budget.
+
+**New opt-in lever: `portfolio_varaha_min_frac` / `--portfolio-varaha-min-frac`** reserves a combined
+draw fraction for VARAHA members, applied after either allocation rule (legacy or adaptive). It does
+what it says — AV's share went to 0.97 (floor 0.5) and 0.85 (floor 0.7) — but it **does not rescue
+this event**: even a 3–15% GMM share still poisons the pooled n_eff, which stayed ~1–2.
+
+**Conclusion — the missing capability is member EXCLUSION, not re-weighting.** On an event where one
+member's proposal is simply wrong, *any* nonzero share of its draws enters `q_mix` and the pooled
+estimate, and a handful of its samples dominate. Down-weighting cannot fix that; the portfolio needs
+to be able to *drop* a member (or a driver-level rule: don't request GMM on such events). Until such a
+mechanism exists, **the honest production guidance for AV-favorable high-SNR events is to run
+standalone AV, not an AV+GMM portfolio.** The portfolio's demonstrated value remains the correlated
+regime (Benchmark 3), where the GMM member is the better proposal.
+
 ## Files
 - `RIFT/integrators/mcsamplerPortfolio.py` — freeze-policy + adaptive-probe allocation, knobs,
   n_ess history, plugin-load guard, NaN guard.

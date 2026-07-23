@@ -341,6 +341,7 @@ integration_params.add_option("--portfolio-varaha-can-freeze",action='store_true
 # self-consistency and STARVES a slow-contracting VARAHA/AV member on real high-SNR events, so it
 # is not the default -- see DESIGN_portfolio_freeze_policy.md.
 integration_params.add_option("--portfolio-adaptive-alloc",action='store_true',default=False,help="Portfolio: ENABLE (opt-in) adaptive-probe draw allocation -- concentrate draws on the best per-chunk-n_ess member. Good on strongly-correlated targets; NOT recommended for AV-favorable high-SNR events (it starves the slow-contracting AV workhorse). Off by default (legacy n_ess reweighting).")
+integration_params.add_option("--portfolio-varaha-min-frac",default=None,type=float,help="Portfolio: reserve this combined DRAW fraction for VARAHA/AV members (0/unset = off). never-freeze keeps a VARAHA member UPDATING, but both allocation rules score by per-chunk n_ess, which sits at ~1 during VARAHA's slow cumulative contraction -- so a member that looks instantly good can take nearly the whole budget (measured on S250114ax post-#33: GMM took ~0.84 and the portfolio collapsed to n_eff ~2 vs ~100 for standalone AV). Unbiased for any allocation (q_mix); trades efficiency only.")
 integration_params.add_option("--portfolio-weight-clip",default=None,type=float,help="Portfolio: OPT-IN truncated importance sampling applied to the PROPOSAL-FIT INPUT ONLY. Caps the weights fed to member.update_sampling_prior (the GMM covariance fit) at tau = C*sqrt(n)*mean(w) (0/unset = off; C~1 is the standard Ionides choice), so one enormous weight cannot make that fit degenerate. The estimator (ln Z, n_eff), the n_ess report, and the allocation signal all use the TRUE unclipped weights, so they stay exactly unbiased and undistorted. Do NOT clip the estimator (measured on S250114ax: n_eff=100 2x faster than AV but ln Z biased -11.5 nats) or the n_ess report (clipping inflates the clipped member's n_ess and starves the AV workhorse). The withheld tail mass is tracked and reported as a diagnostic. NOTE: if huge weights come from q_mix UNDERFLOW (watch for the warning) they are a numerical artifact, not tail mass.")
 integration_params.add_option("--portfolio-quality-signal",default=None,type=str,help="Portfolio adaptive allocation: which per-member quality signal to rank members by. 'global' (default) = marginal gain in POOLED n_eff per sample (credits weight mass, debits weight variance); 'ness' = legacy per-member Kish n_ess (scale-invariant, misranks a slow-contracting AV -- see DESIGN_portfolio_freeze_policy.md).")
 integration_params.add_option("--portfolio-alloc-exponent",default=None,type=float,help="Portfolio: adaptive allocation ~ member_quality^exponent. Higher concentrates harder on the winner. Sampler default 1.0.")
@@ -1806,6 +1807,8 @@ if use_portfolio:
       # adaptive-probe draw allocation (OPT-IN; off by default in the sampler)
       if opts.portfolio_adaptive_alloc:
           _freeze_policy_kwargs['portfolio_adaptive_alloc'] = True
+      if opts.portfolio_varaha_min_frac is not None:
+          _freeze_policy_kwargs['portfolio_varaha_min_frac'] = opts.portfolio_varaha_min_frac
       if opts.portfolio_weight_clip is not None:
           _freeze_policy_kwargs['portfolio_weight_clip'] = opts.portfolio_weight_clip
       if opts.portfolio_quality_signal is not None:
