@@ -399,7 +399,9 @@ class MCSampler(object):
         m = len(self.portfolio)
         if m <= 1:
             return np.ones(m)
-        _global = (self.portfolio_quality_signal == 'global')
+        # 'global' (marginal pooled n_eff) and 'credit' (MIS credit) are both ZERO-based
+        # contribution measures; only the legacy Kish n_ess signal is floored at 1.
+        _global = self.portfolio_quality_signal in ('global', 'credit')
         _floor_obs = 0.0 if _global else 1.0   # contribution is zero-based; Kish n_ess is >= 1
         obs = np.asarray(ness_now, dtype=float)
         obs = np.where(np.isfinite(obs), obs, _floor_obs)
@@ -707,6 +709,7 @@ class MCSampler(object):
                 fracs_here = getattr(self, '_chunk_fractions', None)
                 if len(members_here) > 0 and fracs_here is not None:
                     acc = numpy.zeros(X_all.shape[0], dtype=float)
+                    _mix_parts = {}
                     all_ok = True
                     any_active = False
                     for frac_m, member_m in zip(fracs_here, members_here):
@@ -717,7 +720,11 @@ class MCSampler(object):
                         if q_m is None:
                             all_ok = False
                             break
-                        acc = acc + float(frac_m) * numpy.asarray(identity_convert(q_m), dtype=float)
+                        _contrib_m = float(frac_m) * numpy.asarray(identity_convert(q_m), dtype=float)
+                        acc = acc + _contrib_m
+                        # retain frac_m*q_m per member: the balance-heuristic credit
+                        # frac_m q_m / q_mix is the MIS share of each sample owed to member m
+                        _mix_parts[id(member_m)] = _contrib_m
                         any_active = True
                     if all_ok and any_active:
                         # every pooled sample was drawn by some active member, so
@@ -735,6 +742,7 @@ class MCSampler(object):
                                   " (density summed to 0 -> floored 1e-300 -> spurious huge weight;"
                                   " cumulative {})".format(_n_uf, len(acc), self.portfolio_qmix_underflow))
                         q_mix = numpy.maximum(acc, 1e-300)
+                        self._chunk_mix_parts = _mix_parts
             if q_mix is not None:
                 joint_p_s = q_mix   # deterministic-mixture denominator
             else:
@@ -898,6 +906,26 @@ class MCSampler(object):
             _u_all = numpy.where(_finite, numpy.exp(_lw_all - _lw_max), 0.0)
             _S_tot = float(numpy.sum(_u_all)); _Q_tot = float(numpy.sum(_u_all * _u_all))
             contrib_per_sample = numpy.zeros(len(self.portfolio))
+            # MIS CREDIT ASSIGNMENT (q_mix-native, the 'credit' quality signal).  Under the
+            # balance heuristic each sample's contribution is owed to members in proportion to
+            # their share of the mixture density there, so member m's credit is
+            #     credit_m = sum_i [ frac_m q_m(x_i) / q_mix(x_i) ] * w_i .
+            # Unlike Kish n_ess (scale-invariant, hence blind to whether a member carries any
+            # integral mass) this credits a member for COVERING WHERE THE INTEGRAND IS, even if
+            # it drew few samples there -- exactly the signal a slow-contracting VARAHA member
+            # needs.  Normalized per drawn sample so members are comparable at unequal shares.
+            credit_per_sample = numpy.zeros(len(self.portfolio))
+            _parts = getattr(self, '_chunk_mix_parts', None)
+            if _parts and q_mix is not None:
+                _qm = numpy.asarray(self.identity_convert(q_mix), dtype=float)
+                _w_all = numpy.where(numpy.isfinite(_lw_all), numpy.exp(_lw_all - _lw_max), 0.0)
+                for _im, _mem in enumerate(self.portfolio_realizations):
+                    _pc = _parts.get(id(_mem))
+                    if _pc is None:
+                        continue
+                    _share = numpy.where(_qm > 0, _pc / _qm, 0.0)
+                    _n_m = max(1, int(n_samples_per_member[_im]))
+                    credit_per_sample[_im] = float(numpy.sum(_share * _w_all)) / _n_m
 
             portfolio_report = {}
             for indx_member, member in enumerate(self.portfolio):
@@ -915,6 +943,7 @@ class MCSampler(object):
               portfolio_report[indx_member] = [ self.portfolio_weights[indx_member], self.identity_convert(self.xpy.sum(self.xpy.exp(ln_wt_here))**2/self.xpy.sum(self.xpy.exp(ln_wt_here*2))), identity_convert(self.xpy.sum(self.xpy.exp(ln_wt_here)))]
             print("\t",portfolio_report)
             if use_adaptive_alloc and len(self.portfolio) > 1:
+              print("\t credit/sample (MIS credit):", numpy.array2string(credit_per_sample, precision=3))
               print("\t contrib/sample (global-impact signal):", numpy.array2string(contrib_per_sample, precision=3),
                     " quality:", numpy.array2string(np.asarray(self.portfolio_quality, dtype=float), precision=3))
             # Record each member's per-chunk n_ess so freeze policies (and post-hoc analysis)
@@ -929,7 +958,12 @@ class MCSampler(object):
               # derived from self.portfolio_weights just above).  The quality OBSERVABLE is either the
               # global-impact contribution (default) or the legacy per-member Kish n_ess.
               frac_now = np.array(n_samples_per_member, dtype=float) / float(max(1, n_samples))
-              _obs = contrib_per_sample if self.portfolio_quality_signal == 'global' else dat
+              if self.portfolio_quality_signal == 'credit':
+                _obs = credit_per_sample
+              elif self.portfolio_quality_signal == 'global':
+                _obs = contrib_per_sample
+              else:
+                _obs = dat
               self.portfolio_weights = self._adaptive_allocation(_obs, frac_now, self.portfolio_draw_iteration)
             else:
               self.portfolio_weights = portfolio_wt_func(dat, self.portfolio_weights, xpy=self.xpy, identity_convert=self.identity_convert) # call weighting function
