@@ -430,6 +430,27 @@ the starved regime as unvalidated for *shape*, even though n_eff improves.
 Note `adaptive+clip` is identical to `clip` alone on these targets — with clipping active the
 allocation rule made no further difference here.
 
+## Multi-event clip validation, post-#33 (does the S250114ax clip win generalise? — NO)
+
+4 typical O4 events, warm, `--n-eff 30`, in-container real SEOBNRv5PHM, no-clip vs proposal-fit
+`--portfolio-weight-clip 1.0`. Run interactively in the `cuda128` container on idle Blackwell nodes
+(pcdev11/13) — which also confirmed SEOBNRv5PHM+cupy run on CC 12.0, matching the A100 result.
+
+| event | no-clip lnZ (n_eff) | clip lnZ (n_eff) | ΔlnZ | n_eff ratio |
+|-------|:-------------------:|:----------------:|-----:|:-----------:|
+| S231026ab | 17.54 (28.9) | 17.49 (29.8) | −0.05 | ×1.03 |
+| S240426s  | 29.74 (31.2) | 29.56 (30.3) | −0.18 | ×0.97 |
+| S240513ei | 83.76 (3.1)  | 83.83 (1.3)  | +0.07 | ×0.42 |
+| S240703ad | 41.89 (3.3)  | 42.27 (5.0)  | +0.38 | ×1.53 |
+
+**Conclusion.** Clipping's dramatic S250114ax result (n_eff=10 2.3× faster than standalone AV) is
+**specific to that event's extreme heavy-tailed pathology and does NOT generalise.** On typical events
+it is a near-noop (×0.97–1.03); on the two under-converged hard events it is a wash (one up, one down,
+both inside the n_eff≈1–5 scatter). ln Z agrees everywhere (|ΔlnZ| ≤ 0.38, within MC error at these
+n_eff) — the portfolio replicates the AV integral with or without clipping. This is exactly why
+clipping ships **opt-in, default off**: a targeted tool for a specific failure mode, not a general
+speedup to impose on typical runs. It closes the study's last open question.
+
 ## Files
 - `RIFT/integrators/mcsamplerPortfolio.py` — freeze-policy + adaptive-probe allocation, knobs,
   n_ess history, plugin-load guard, NaN guard.
