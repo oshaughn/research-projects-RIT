@@ -451,6 +451,34 @@ n_eff) — the portfolio replicates the AV integral with or without clipping. Th
 clipping ships **opt-in, default off**: a targeted tool for a specific failure mode, not a general
 speedup to impose on typical runs. It closes the study's last open question.
 
+## The portfolio's actual purpose: rescuing a high-SNR BEST-FIT evaluation
+
+Everything above tunes the integrator on a *trial* grid point (`overlap-grid-0.xml.gz --event 0`,
+m1/m2 28.29/26.69, lnLmax≈1212) — fine for A/B-ing policy, but it is not the science target. The
+target that has to work for a loud event is the **best-fit on-source point**
+(`target_params.xml.gz`, m1/m2 37.71/34.03, lnLmax≈3040, ρ≈78): sharply peaked AND
+distance-inclination/sky correlated. Measured on GPU, warm, bias-safe cover 0.5, `bench_onsource.sh`:
+
+| sampler | final n_eff @4M | note |
+|---------|----------------:|------|
+| AV alone | **1.0** | stalls — axis-aligned bins cannot wrap the correlated peak (also confirms the cardassia CPU result on GPU) |
+| GMM alone (adaptive) | **NaN chunk-1** | no coverage floor → weights blow up |
+| **AV+GMM portfolio (adaptive)** | **14.7** (lnZ 3016) | ~15× AV, and works where NEITHER member works alone |
+
+**This is the clearest demonstration of why the portfolio exists.** It is a *GMM-peak + AV-coverage*
+event: the GMM member wraps the correlated peak (which AV cannot), and the "dead" AV member — it
+reports `nan` per-chunk n_ess in 381/400 chunks and sits at the 1% floor — is NOT wasted, because its
+broad warm density still enters `q_mix = frac_AV q_AV + frac_GMM q_GMM`, providing the coverage floor
+that keeps GMM's importance weights bounded. Remove AV (run GMM alone) and GMM NaNs; remove GMM (run
+AV alone) and it stalls at 1.0. The portfolio is exactly the vehicle that combines a peak-finder with
+a coverage member, and the never-freeze/allocation machinery above is what lets it hand the budget to
+whichever one is actually working — here, GMM.
+
+**Open (the real remaining goal):** 14.7 is a rescue, not yet the target. Whether more adaptive GMM
+coverage (higher BIC component cap / inflation) pushes it toward production n_eff is under test
+(`os_pf_cov`). Harness: `test/integrators/bench_onsource.sh` (pins the best-fit point and documents
+that it is deliberately NOT the trial point, so the two problems cannot be conflated again).
+
 ## Files
 - `RIFT/integrators/mcsamplerPortfolio.py` — freeze-policy + adaptive-probe allocation, knobs,
   n_ess history, plugin-load guard, NaN guard.
