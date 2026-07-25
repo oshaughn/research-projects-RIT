@@ -502,3 +502,55 @@ point).
 - `test/integrators/test_portfolio_adaptive_alloc.py` — synthetic correlated/uncorrelated test that
   the portfolio tracks the winning member and beats AV on a correlated target (Benchmark 3).
 - `test/integrators/bench_weight_clip.py` — clipping bias-vs-n_eff sweep against analytic ln Z.
+
+## The high-SNR rescue is FLAKY — a single run is not a posterior (seed ensemble)
+
+The 56.1 sweet-spot number above is a **single lucky draw**, not the typical outcome. Repeating
+cap 16 / inflate 1.3 across seeds (same best-fit on-source point, warm 0.5, n_max 4M):
+
+| copy | n_eff @4M | lnZ |
+|------|----------:|-------:|
+| unseeded | **56.1** | 3016.08 |
+| seed 1 | 1.3 | 3011.20 |
+| seed 2 | 1.5 | 3017.07 |
+| seed 3 | 9.2 | 3015.96 |
+| seed 4 | 1.2 | 3010.65 |
+
+Median n_eff ≈ **1.5**; the distribution is bimodal (mostly collapsed, occasionally lands). lnZ
+swings 3010.6 → 3017.1 (6.4 nats) with **no clean sign** — a single dominating outlier can push
+evidence high (seed 2: n_eff 1.5 but lnZ 3017.1) or low (seed 4). **One low-n_eff portfolio run on a
+high-SNR event is not a usable posterior at any budget.** The operational recipe for such events is
+to run MANY independent copies and pool (below), or find a proposal that reliably lands high n_eff.
+
+**Pooling recovers the answer — but only if pooled by reliability, not naively.** n_eff-weighted mean
+of the five copies' lnZ = **3016.0** (the two high-n_eff copies, 3016.08 & 3015.96, agree and
+dominate); the *unweighted* mean is 3014.2, biased ~1.8 nats low by the collapsed copies. Naive
+concatenation of raw importance samples is WORSE than either: it is dominated by whichever copy owns
+the single largest weight — which may be a *collapsed* copy. So "pool many copies" means pool enough
+that the **pooled cloud's own n_eff** is high; a handful of copies can still be outlier-dominated.
+
+**cap-too-high is the failure mode (confirmed).** Bigger BIC cap / inflation → wider GMM proposal →
+more prone to the single-enormous-weight collapse: cap 24 median n_eff 2.3–2.8 vs cap 16's occasional
+56. The knob buys peak coverage at the cost of tail control; past the sweet spot the tail wins.
+
+### `--save-samples` is unusable for portfolio shape-checks in this regime (four independent layers)
+
+Trying to export the extrinsic cloud for a weighted-shape check surfaced that the export path fails
+for a peaked (low-to-moderate n_eff) portfolio run at *four* layers — every seed above exported
+**0 rows**, even seed 3 at n_eff 9.2:
+
+1. **Fairdraw** (`--fairdraw-extrinsic-output`) resamples ∝ weight → at n_eff≈1 it returns copies of
+   the one dominant point or nothing. Useless at low n_eff (per reviewer guidance).
+2. **`--save-P` defaults to 0.1** — the export prunes the bottom 10% of *probability*; on a peaked
+   cloud that discards nearly everything. Raw weighted export needs `--save-P 0`.
+3. **`mcsamplerPortfolio` `_rvs` cleanup (draft-inherited, ~line 1135) cumulative-sums the LOG-weights**,
+   not the weights, and is poisoned by any `-inf` ln_wt entry → 0 rows survive even at n_eff 9.2.
+   (Pre-existing pattern copied from the ensemble sampler; flagged as a separate fix, not touched here.)
+4. **The XML only carries `loglikelihood = log_integrand` (lnL), not the IS weight**
+   (`log_integrand + log_joint_prior − log_joint_s_prior`). A weighted-posterior check off the XML is
+   therefore wrong-by-construction (weights by likelihood, not posterior). `shape_extrinsic.py` had
+   this bug.
+
+**Correct path for a weight-aware shape/posterior check: `--extrinsic-proposal-output`** — it builds
+the TRUE importance log-weights from the raw `_rvs` cloud (driver ~line 2856) and fits a per-group
+GMM, bypassing all four failure layers. Pool/compare those GMM fits across copies for the posterior.
