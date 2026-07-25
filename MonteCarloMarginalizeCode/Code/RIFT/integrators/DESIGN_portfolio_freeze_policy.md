@@ -599,3 +599,33 @@ expressiveness is the wrong lever; the lever is **more copies**.
 Harness: `test/integrators/bench_onsource_ensemble.sh` + `compare_extrinsic_breadcrumbs.py`. The
 weight-correct extrinsic export needed for the pooled shape check is unblocked by PR #35 (the
 `--save-samples`/`_rvs` cleanup fix: linear-weight cumsum + `-inf` guard), cherry-picked here.
+
+### The failure mode IS an extrinsic-degeneracy collapse — and pooling landed copies is robust
+
+9-copy cap8 pool (seeds 10–18, `--extrinsic-proposal-output`): 4 landed (n_eff 15,36,39,41), 5
+collapsed (n_eff 1–3.2). The weight-correct per-group GMM fits give a clean picture:
+
+- **Mode count is a perfect collapse diagnostic, and the collapse is exactly the reviewer's worry.**
+  Every LANDED copy fits **3–4 modes** in each degeneracy group — (ra,dec) sky **ring**, (distance,ι)
+  arc, (φ,ψ). Every COLLAPSED copy fits **1 mode** in every group: a single degenerate blob that has
+  **lost the sky ring / dL–ι arc / phase-pol structure**. So low n_eff ⟺ extrinsic *mode collapse*;
+  the settings' instability is tied directly to multimodality/degeneracy, and n_eff (or the fitted
+  mode count) detects it.
+- **Landed copies AGREE — when it lands, the posterior is stable and reproducible.** Across the 4
+  landers the (ra,dec) mixture mean agrees to ~0.01 (frame units) and (distance,ι) to ~0.02 in ι —
+  i.e. the recovered extrinsic posterior is *consistent copy-to-copy*, no hidden instability among
+  good runs. The exception is (φ_orb,ψ): scatter ~1.5 even among landers, because the 2-IFO phase–
+  polarization degeneracy is genuinely the least-constrained extrinsic direction (expected, not a bug).
+- **Reliability-weighted pooling ≈ good-only (correct); naive pooling is biased by the collapsed
+  copies.** For the well-constrained sky group all three pooling recipes coincide, but for the looser
+  distance and phase groups naive-unweighted pooling is pulled off the good-only answer (distance:
+  naive vs good differ ~80 units; phase: −0.74 vs −1.88) while the n_eff-weighted pool tracks good-only.
+  Reliability-weighted **effective #copies (Kish over n_eff) = 4.1** — the 9-copy pool really rests on
+  its ~4 landers. **Operational recipe: run ~2–3× as many copies as landers you need, pool weighted by
+  n_eff (or simply drop n_eff<5 copies).**
+
+Caveat (honest): the comparator's *physical* un-normalization of the GMM means is in the wrong frame
+(the RIFT GMM's internal normalization is not the naive [0,1]-on-bounds I assumed — all means flag
+out-of-bounds, so that flag is unreliable). The conclusions above rest only on the frame-INDEPENDENT
+signals — mode counts and copy-to-copy agreement (`good-scatter`) — not on absolute mean values. A
+correct physical read needs the GMM model's normalization; the mode-collapse / pooling story does not.
