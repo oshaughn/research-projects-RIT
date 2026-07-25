@@ -474,19 +474,23 @@ AV alone) and it stalls at 1.0. The portfolio is exactly the vehicle that combin
 a coverage member, and the never-freeze/allocation machinery above is what lets it hand the budget to
 whichever one is actually working — here, GMM.
 
-**Adaptive GMM coverage is the lever — richer coverage nearly quadruples n_eff, unbiased:**
+**Adaptive GMM coverage is the lever — but it is NON-MONOTONIC, with a sweet spot:**
 
 | portfolio config (AV+GMM, warm 0.5) | GMM BIC cap | inflate | n_eff @4M | lnZ |
-|-------------------------------------|-----------:|--------:|----------:|----:|
+|-------------------------------------|-----------:|--------:|----------:|-------:|
 | baseline | 8 | 1.0 | 14.7 | 3016.13 |
-| more coverage | 16 | 1.3 | **56.1** | 3016.08 |
+| **sweet spot** | 16 | 1.3 | **56.1** | 3016.08 |
+| over-cranked | 24 | 1.5 | **2.3** | 3009.5 ⚠ |
 
-**56× standalone AV** on the point where AV stalls, and **ln Z is identical (3016.08 vs 3016.13)** —
-a real efficiency gain, not a coverage-shortcut bias. This confirms the reviewer's "GMM event with
-*adaptive* coverage" framing quantitatively: the rescue lever is GMM adaptive coverage (BIC component
-count + inflation), and the remaining gap to production n_eff looks like coverage/budget tuning rather
-than a fundamental barrier. Pushing coverage further (cap 24 / inflate 1.5) is under test. Harness:
-`test/integrators/bench_onsource.sh` (pins the best-fit point; documents it is NOT the trial point).
+At the sweet spot: **56× standalone AV** (which stalls at 1.0), ln Z unchanged (3016.08 vs 3016.13) —
+real efficiency, not a coverage-shortcut bias. **But more is not better**: cap 24 / inflate 1.5
+collapses to 2.3 AND ln Z drops 6.6 nats (3009.5) — the lnZ shift means over-inflation is biasing,
+not just adding variance (an over-wide GMM proposal + a few enormous weights, the same heavy-tail
+mode weight clipping was aimed at). So the reviewer's "GMM event with adaptive coverage" framing is
+confirmed quantitatively, with the caveat that the coverage knobs need *tuning to a sweet spot*, not
+maximizing. Which of the two knobs (BIC cap vs inflation) drives the collapse is under isolation.
+Harness: `test/integrators/bench_onsource.sh` (pins the best-fit point; documents it is NOT the trial
+point).
 
 ## Files
 - `RIFT/integrators/mcsamplerPortfolio.py` — freeze-policy + adaptive-probe allocation, knobs,
