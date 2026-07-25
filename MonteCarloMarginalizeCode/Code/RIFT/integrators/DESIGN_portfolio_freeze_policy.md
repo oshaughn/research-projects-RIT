@@ -554,3 +554,48 @@ for a peaked (low-to-moderate n_eff) portfolio run at *four* layers — every se
 **Correct path for a weight-aware shape/posterior check: `--extrinsic-proposal-output`** — it builds
 the TRUE importance log-weights from the raw `_rvs` cloud (driver ~line 2856) and fits a per-group
 GMM, bypassing all four failure layers. Pool/compare those GMM fits across copies for the posterior.
+(NB: it still needs `--save-P 0`, or the same buggy `_rvs` cleanup prunes the cloud to 0 rows and the
+fit dies with "zero-size array to reduction cupy_max". Same root bug as layer 3 above.)
+
+## The real answer: n_eff is a LOTTERY for every config — pooling is mandatory
+
+Goal (per reviewer): not max n_eff — *reliable modest* n_eff with a stable, unbiased extrinsic
+posterior and no failure mode tied to extrinsic multimodality/degeneracy. Seed ensemble on the
+best-fit high-SNR point (warm 0.5, n_max 4M), AV+GMM portfolio, GMM-coverage configs.
+
+**FIRST, A CORRECTION / METHOD LESSON.** A 3-seed run of cap8 gave {7.0, 10.1, 13.7} and I wrote
+"cap8 is reliably modest." That was survivorship bias on 3 draws — the exact trap this document warns
+about. Extending cap8 to **10 draws** (GPU runs are non-deterministic even at fixed `--seed`: float
+reduction order) gives:
+
+    cap8 n_eff (10 draws):  1.00, 1.00, 1.06, 1.57, 7.0, 10.1, 13.7, 22.0, 55.3, 70.1
+                            median ~8.5, range 1 -> 70, ~40% collapsed to ~1
+
+cap8 is **just as bimodal as cap16** — it is not a reliability fix. n_eff on this high-SNR best-fit
+point is a **lottery** for the portfolio regardless of the BIC cap: most runs collapse to ~1, a
+minority land 10–70. lnZ tracks the mode (collapsed runs bias lnZ 5–11 nats low). Across configs:
+
+| config | GMM coverage | n_eff draws | reliability |
+|--------|-------------|-------------|-------------|
+| cap8 (factored) | cap 8, inflate 1.0 | 1,1,1.06,1.6,7,10,14,22,55,70 (n=10) | bimodal lottery |
+| cap16 (factored) | cap 16, inflate 1.3 | 1.2,1.3,1.5,3.5,9.2,13.6,56,59 (n=8) | bimodal lottery (~same) |
+| corr (correlate-all) | single 6-D GMM, cap 8 | 1.8,1.9,20.6 (n=3) | strictly WORSE (see below) |
+
+**Consequence (this is the reviewer's original point, now proven on real data): a single run — any
+config — is NOT a posterior on this event. The only robust recipe is to run MANY independent copies
+and pool.** Pool by reliability, not naively (see the pooling note above): the pooled *cloud's own*
+n_eff must be high. The cap knob changes the odds of a good draw only marginally; it does not remove
+the need to pool.
+
+**The "strongly-correlated problem → correlate-all" hypothesis is REFUTED.** A single full-dimension
+(6-D) GMM that *can* represent cross-group (sky–phase, dL–ι) correlation is the WORST here: it
+collapses on 2 of 3 seeds and biases lnZ up to 11 nats low (3004.5). Reason: a 6-D mixture needs
+~(d+2) effective samples per component; at the modest n_eff these runs produce, its covariances go
+near-singular and a few enormous weights dominate. The **factored per-group (2-D) proposal is more
+robust** precisely because each low-dimensional fit is cheap and well-conditioned — the correlation
+it cannot represent costs less than the fitting variance a full-dim GMM incurs. So *more* proposal
+expressiveness is the wrong lever; the lever is **more copies**.
+
+Harness: `test/integrators/bench_onsource_ensemble.sh` + `compare_extrinsic_breadcrumbs.py`. The
+weight-correct extrinsic export needed for the pooled shape check is unblocked by PR #35 (the
+`--save-samples`/`_rvs` cleanup fix: linear-weight cumsum + `-inf` guard), cherry-picked here.
