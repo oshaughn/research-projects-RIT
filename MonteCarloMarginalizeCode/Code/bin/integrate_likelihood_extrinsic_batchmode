@@ -263,7 +263,7 @@ optp.add_option("--freqresponse-arm-length", default=None, help="Arm-length over
 optp.add_option("--force-xpy", action="store_true", help="Use the xpy code path.  Use with --vectorized --gpu to use the fallback CPU-based code path. Useful for debugging.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
-optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
+optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file (sparse sim_inspiral XML). Requires --output-file to be defined. NOTE: the XML carries lnL only, not the importance weight -- it does NOT persist the joint prior / sampling prior, so it must not be reweighted by likelihood for a weighted-posterior/shape check. For that, use the ASCII per-sample outputs --extrinsic-proposal-output (full log-weight) or --calibration-export-posterior.")
 optp.add_option("--save-samples-process-params", action="store_true", help="XML output retains process_params table, Default is not to do this")
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0.1, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
@@ -3256,6 +3256,12 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       else:
             samples["latitude"] = samples["declination"]
             samples["longitude"] = samples["right_ascension"]
+      # NOTE: the sim_inspiral XML schema is deliberately sparse -- it carries lnL only (below, mapped
+      # to alpha1), NOT the importance weight.  It does NOT persist log_joint_prior/log_joint_s_prior,
+      # so a downstream consumer CANNOT reconstruct the true weight (log_integrand + log_joint_prior -
+      # log_joint_s_prior) from this file and must not reweight it by likelihood for a weighted-posterior
+      # or shape check.  For richer, ASCII, per-sample output that carries the full log-weight, use
+      # --extrinsic-proposal-output (writes lnL + ln(prior) - ln(s_prior)) or --calibration-export-posterior.
       if "log_integrand" in samples:
           samples["loglikelihood"] = samples["log_integrand"] +  manual_avoid_overflow_logarithm
       else:

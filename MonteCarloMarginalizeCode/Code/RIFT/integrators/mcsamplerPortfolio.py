@@ -1126,10 +1126,23 @@ class MCSampler(object):
             ln_wt = self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]
             # Convert to CPU as needed
             ln_wt = identity_convert(ln_wt)
-            ln_wt += - np.max(ln_wt)  # remove maximum value, irrelevant
-            wt = np.exp(ln_wt) # exponentiate.  Danger underflow
+            ln_wt = numpy.asarray(ln_wt, dtype=float)
+            # Guard: rejected/underflowed samples (-inf) or bad priors (nan) must not poison the
+            # cumulative sum below.  Map any non-finite log-weight to -inf so it exponentiates to a
+            # zero linear weight instead of corrupting cumsum/normalization (which would drop ALL rows).
+            ln_wt[~numpy.isfinite(ln_wt)] = -numpy.inf
+            ln_wt_max = numpy.max(ln_wt)
+            if numpy.isfinite(ln_wt_max):
+                ln_wt = ln_wt - ln_wt_max  # remove maximum value, irrelevant to the normalized cumulative prob
+                wt = numpy.exp(ln_wt)      # exponentiate to LINEAR weights (max-subtracted).  Underflow -> 0, which is fine
+            else:
+                # degenerate: no finite-weight sample survived Step 1 -- keep everything rather than drop all rows
+                wt = numpy.ones(len(ln_wt))
             idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
-            indx_list = numpy.array( [[k, ln_wt[k]] for k in idx_sorted_index])     # pair up with the weights again. NOTE NOT INTEGER TYPE ANY MORE
+            # Pair the sorted index with the LINEAR weight wt[k] (NOT the log-weight ln_wt[k]): the cumulative
+            # sum below must be a cumulative PROBABILITY, matching mcsampler/mcsamplerEnsemble.  Cumsumming the
+            # log-weights (<=0, and -inf for rejects) is not a probability threshold and kept 0 rows for peaked runs.
+            indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the LINEAR weights again. NOTE NOT INTEGER TYPE ANY MORE
             cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
             cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
             indx_list = [int(indx_list[k, 0]) for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability. RECAST TO INTEGER
