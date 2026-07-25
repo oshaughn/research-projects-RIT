@@ -474,10 +474,19 @@ AV alone) and it stalls at 1.0. The portfolio is exactly the vehicle that combin
 a coverage member, and the never-freeze/allocation machinery above is what lets it hand the budget to
 whichever one is actually working — here, GMM.
 
-**Open (the real remaining goal):** 14.7 is a rescue, not yet the target. Whether more adaptive GMM
-coverage (higher BIC component cap / inflation) pushes it toward production n_eff is under test
-(`os_pf_cov`). Harness: `test/integrators/bench_onsource.sh` (pins the best-fit point and documents
-that it is deliberately NOT the trial point, so the two problems cannot be conflated again).
+**Adaptive GMM coverage is the lever — richer coverage nearly quadruples n_eff, unbiased:**
+
+| portfolio config (AV+GMM, warm 0.5) | GMM BIC cap | inflate | n_eff @4M | lnZ |
+|-------------------------------------|-----------:|--------:|----------:|----:|
+| baseline | 8 | 1.0 | 14.7 | 3016.13 |
+| more coverage | 16 | 1.3 | **56.1** | 3016.08 |
+
+**56× standalone AV** on the point where AV stalls, and **ln Z is identical (3016.08 vs 3016.13)** —
+a real efficiency gain, not a coverage-shortcut bias. This confirms the reviewer's "GMM event with
+*adaptive* coverage" framing quantitatively: the rescue lever is GMM adaptive coverage (BIC component
+count + inflation), and the remaining gap to production n_eff looks like coverage/budget tuning rather
+than a fundamental barrier. Pushing coverage further (cap 24 / inflate 1.5) is under test. Harness:
+`test/integrators/bench_onsource.sh` (pins the best-fit point; documents it is NOT the trial point).
 
 ## Files
 - `RIFT/integrators/mcsamplerPortfolio.py` — freeze-policy + adaptive-probe allocation, knobs,
