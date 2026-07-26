@@ -779,3 +779,35 @@ nats (3012.5-3013.9); s17 dissents while looking, by n_eff, like the best run in
 3. Mode count is a useful but imperfect cross-check here: s14 (4 modes) sits in the consensus, but
    s11/s12/s16 are 1-mode and also in the consensus, so a low mode count alone does not condemn a
    run at this sample size. Cross-copy agreement remains the strongest signal.
+
+### AUTO-COLLECTED raw results: AV-backstop / mode-budget sweep (cold, high-SNR best-fit point)
+
+Config base: portfolio AV+GMM, adaptive components, `--force-adapt-all --internal-rotate-phase`,
+`--interpolate-time True`, `--sampler-warmstart-retry-neff 5`, cold (no warm seed).
+`bk` = `--portfolio-varaha-min-frac 0.25` (cap 8); `md` = `--internal-gmm-max-components 3`
+(no floor); `bkmd` = both.  Judged by lnZ CONSENSUS across seeds, not n_eff.
+
+| config | seed | n_eff | lnZ | AV final frac |
+|--------|------|------:|----:|--------------:|
+| bk | s10 | 1.0 | 3013.17 | 0.25 |
+| bk | s12 | 1.0 | 3009.18 | 0.9900964290627214 |
+| bk | s14 | 6.5 | 3013.41 | 0.25 |
+| bk | s17 | 11.2 | 3014.23 | 0.25 |
+| md | s10 | 12.4 | 3012.42 | 0.009900990099393974 |
+| md | s12 | 5.6 | 3006.52 | 0.009900990099649775 |
+| md | s14 | 123.6 | 3003.09 | 0.00990112295232892 |
+| md | s17 | 22.7 | 3015.00 | 0.009900990099929107 |
+| bkmd | s10 | 9.5 | 3010.88 | 0.25 |
+| bkmd | s12 | 11.8 | 3011.52 | 0.25 |
+| bkmd | s14 | 1.9 | 3011.12 | 0.25 |
+| bkmd | s17 | 26.6 | 3013.15 | 0.25 |
+
+Baseline for the SAME four seeds (no floor, cap 8): s10 3006.16 / s12 3013.87 / s14 3013.61 /
+s17 3001.68  -> 12.2 nat spread, with the highest-n_eff copy (s17, n_eff 58) the most wrong.
+
+lnZ spread per config (max-min over the four seeds):
+- `bk`: lnZ = 3013.17 3009.18 3013.41 3014.23  -> spread 5.05 nats
+- `md`: lnZ = 3012.42 3006.52 3003.09 3015.00  -> spread 11.91 nats
+- `bkmd`: lnZ = 3010.88 3011.52 3011.12 3013.15  -> spread 2.27 nats
+
+Shape-recovery merge gate: 
