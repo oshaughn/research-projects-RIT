@@ -47,6 +47,10 @@ echo "# point: target_params.xml.gz (best-fit, m1/m2 37.71/34.03) -- NOT the tri
   --window-shape 0.1 --time-marginalization --inclination-cosine-sampler --declination-cosine-sampler \
   --n-max $NMAX --n-eff $NEFF --n-chunk $NCHUNK --vectorized --gpu --srate 4096 \
   --adapt-weight-exponent 0.1 --l-max 2 --approx IMRPhenomD --force-xpy \
+  `# CUBIC Q_lm time interpolation instead of nearest-sample-bin. Requires the maintained NoLoop` \
+  `# likelihood, i.e. the --vectorized --gpu --force-xpy combo set above. Removes a superfluous` \
+  `# extrinsic non-smoothness (time quantization), which makes convergence more robust.` \
+  --interpolate-time True \
   --internal-waveform-fd-L-frame --n-events-to-analyze 1 \
   --sim-xml $RUNPE/target_params.xml.gz --event 0 \
   "${WARMFLAGS[@]}" "$@" --output-file $OUTDIR/os_${NAME}.xml >> $LOG 2>&1
