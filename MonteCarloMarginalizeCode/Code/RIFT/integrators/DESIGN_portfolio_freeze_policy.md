@@ -629,3 +629,34 @@ Caveat (honest): the comparator's *physical* un-normalization of the GMM means i
 out-of-bounds, so that flag is unreliable). The conclusions above rest only on the frame-INDEPENDENT
 signals — mode counts and copy-to-copy agreement (`good-scatter`) — not on absolute mean values. A
 correct physical read needs the GMM model's normalization; the mode-collapse / pooling story does not.
+
+### Coordinates/adaptation help the LANDERS, not the collapse rate — the collapse is an AV peak-lock lottery
+
+Testing the reviewer's high-SNR recipe (`--force-adapt-all` + rotations). CONFOUND first: the
+coordinate-transform flags (`--internal-rotate-phase`, `--internal-sky-network-coordinates`) change
+what the sampler's parameter slots MEAN, but `--sampler-warmstart-samples` maps the seed by column
+NAME without transforming values -> a PHYSICAL seed poisons the rotated/network proposal. Naive
+"add the flags" run: 0/9 landed (every copy collapsed). Fix = a frame-matched seed
+(`seed_phi_orb=mod(phi+psi,4pi)`, `seed_psi=mod(phi-psi,4pi)` for rotate-phase; `--force-adapt-all`
+is frame-preserving and needs no transform). Now in the lore repo's gotchas.
+
+With a frame-matched seed (`--force-adapt-all --internal-rotate-phase`, 9 copies):
+
+| metric | baseline (physical) | +force-adapt-all+rotate-phase |
+|--------|--------------------:|------------------------------:|
+| landed fraction (n_eff>=5) | 4/9 | **4/9 (unchanged)** |
+| landed n_eff | 15,36,39,41 | **41,52,52,41** (higher, tighter) |
+| landed sky modes | 3-4 | 3-4 (ring preserved) |
+
+So phase-decorrelation + full adaptation is a real efficiency win FOR THE LANDERS (n_eff ~50 vs ~30)
+but does NOT move the ~55% collapse rate. The lottery is now robust across EVERY config tried (cap8,
+cap16, correlate-all, +rotate-phase): same ~50% collapse, same signature (n_eff~1, single mode). The
+root cause is therefore not the proposal/coordinates but **AV's contracting box locking onto the
+sharp high-SNR peak or contracting around the wrong spot ~50/50** — and the portfolio cannot backstop
+better than AV's own contraction reliability, because AV itself is the coin-flip.
+
+**Targeted fix under test: L0 auto-rescue** (`--sampler-warmstart-retry-neff`). If a pass finishes
+n_eff < threshold, re-seed AV from the run's OWN highest-L samples (the peak it did find) and re-run
+— same-problem reuse, cannot bias, frame-safe by construction. Was gated to standalone AV; relaxed to
+fire for the portfolio too (peak-seed bootstraps into the AV member). This is the in-loop version of
+"pool copies": convert each collapsed draw into a land instead of discarding it. Result pending (prr_).
