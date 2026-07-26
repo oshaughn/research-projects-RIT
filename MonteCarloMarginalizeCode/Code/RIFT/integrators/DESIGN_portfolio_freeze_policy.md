@@ -811,3 +811,38 @@ lnZ spread per config (max-min over the four seeds):
 - `bkmd`: lnZ = 3010.88 3011.52 3011.12 3013.15  -> spread 2.27 nats
 
 Shape-recovery merge gate: 
+
+### Banded VARAHA share: the share constraint and the mode budget only work TOGETHER
+
+Adding `--portfolio-varaha-max-frac` (cap) to the existing floor, and crossing it with the GMM BIC
+cap. Cold, high-SNR best-fit point, 4 seeds each, judged by lnZ consistency (NOT n_eff):
+
+| config | VARAHA share | GMM cap | lnZ (s10,s12,s14,s17) | sd | spread |
+|--------|--------------|--------:|-----------------------|-----:|------:|
+| baseline | unconstrained | 8 | 3006.2 3013.9 3013.6 3001.7 | 5.96 | 12.19 |
+| `md` | unconstrained | 3 | 3012.4 3006.5 3003.1 3015.0 | 5.43 | 11.91 |
+| `band8` | band .25-.75 | 8 | 3015.0 3011.9 3003.3 3014.6 | 5.42 | 11.65 |
+| `bk` | floor .25 | 8 | 3013.2 3009.2 3013.4 3014.2 | 2.26 | 5.05 |
+| `bkmd` | floor .25 | 3 | 3010.9 3011.5 3011.1 3013.2 | 1.02 | 2.27 |
+| **`band3`** | **band .25-.75** | **3** | **3012.9 3011.2 3012.9 3012.6** | **0.85** | **1.79** |
+
+**Neither lever works alone.** A reduced mode budget with an unconstrained share (`md`) is no better
+than baseline (sd 5.43 vs 5.96) -- and it is the arm that produced the worst confidently-wrong case in
+the whole study (n_eff 123.6, lnZ 10 nats low). A share constraint alone helps but inconsistently.
+Only the two configurations combining a VARAHA share constraint WITH the modest mode budget are
+tight (sd 0.85 / 1.02), and they are the ONLY two with no outlier >=5 nats from their own median.
+
+Mechanism consistent with the rest of this section: the share constraint keeps a broad backstop in
+q_mix so no mode is left uncovered, and the modest mode budget stops the peaked member from splitting
+into many narrow components that individually chase structure and collectively lose coverage.
+
+**Statistical caveat, stated plainly:** n=4 per config. `band8` (5.42) vs `bk` (2.26) differ only by a
+cap that bound on one seed, so that gap is almost certainly noise -- an sd on 3 dof swings by ~2x
+routinely. Read this table as "the floor+cap3 FAMILY is tight, the rest is not", NOT as a fine
+ranking. A confirmation run extending `band3` and `bkmd` to 5 further seeds each (n=9) is under way.
+
+**Gate status: NOT YET CLEARED.** Every knob here is opt-in, so the default-path merge gate is
+bitwise-blind to all of it. `probe_portfolio_optin_flags.py` now carries `varaha floor .25`,
+`varaha band .25-.75` and `band + gmm cap3`, scored by the gate's own `evaluate()`. NOTHING here is
+proposed as a recommendation or default until that probe passes AND the base-vs-branch gate compares
+clean.
