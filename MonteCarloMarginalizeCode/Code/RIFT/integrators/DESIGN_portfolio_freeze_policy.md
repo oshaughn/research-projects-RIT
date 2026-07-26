@@ -697,3 +697,40 @@ COLLAPSE RATE.
 **Validated high-SNR recipe:** portfolio AV+GMM (cap8, adaptive components) + `--force-adapt-all`
 + `--internal-rotate-phase` (with a phase-frame-matched warm seed) + `--sampler-warmstart-retry-neff 5`.
 Even so, for a publication-grade posterior at n_eff this modest, still pool a few landed copies.
+
+## EVIDENCE AUDIT: which numbers in this document are single draws
+
+The n_eff lottery (documented above) was discovered LATE, after much of this document was written.
+Because a single run on a lottery-prone point is noise-dominated, several earlier claims here rest on
+n=1 and must be read as suggestive, not established. Explicit audit:
+
+**Downgraded to UNPROVEN (single draw on a bimodal quantity):**
+- The GMM coverage ladder cap8=14.7 / cap16=56.1 / cap24=2.3 -- all n=1. The cap16 "sweet spot" is
+  already retracted above; **the companion claim that cap24 over-cranking BIASES lnZ (3009.5, -6.6
+  nats) is likewise a single draw and is NOT established.** A collapsed copy shifts lnZ in either
+  direction (seed 2 of the cap16 ensemble: n_eff 1.5 but lnZ 3017.1, i.e. HIGH). Distinguishing
+  genuine over-inflation bias from collapse noise needs a seed ensemble per cap, which has not run.
+- `--internal-gmm-correlate-all` is worse: n=3 (2/3 collapsed, lnZ up to 11 nats low). Directionally
+  supported and mechanistically plausible (a 6-D mixture needs ~(d+2) eff-samples/component), but not
+  firm at n=3.
+- Benchmark 1's cold rows (av_cold 3.7, pf_nf_cold 1.1): single draws on the lottery-prone point.
+
+**Robust (large effect, understood mechanism, and/or well sampled):**
+- Never-freeze rescues the workhorse (3.4 -> 53): large, mechanism understood (frozen at chunk 1),
+  and independently corroborated by zero freeze notices across the multi-event suite.
+- Multi-event ln Z replication (Benchmark 2, NON-warm-started): an UNBIASEDNESS claim, structurally
+  guaranteed by the balance-heuristic q_mix (the estimate is unbiased for any member weights). The
+  ΔlnZ agreement stands. (The n_eff-efficiency comparisons in that same table are single draws.)
+- The lottery itself (cap8 n=10, cap16 n=8), the mode-collapse diagnosis (9 copies, clean 1-mode vs
+  3-4-mode split), and the L0 auto-rescue 4/9 -> 8/9 (9 copies + a post-cleanup regression).
+
+**OPEN: is the lottery high-SNR-only?** Every ensemble here is on the ultra-sharp best-fit point of a
+loud event. If typical events are unimodal in n_eff, single-draw comparisons on them (Benchmark 2) are
+fine as-is; if not, that table's efficiency numbers need ensembles too. Cheap to settle: one seed
+ensemble on a typical event.
+
+**Not a factor: the sampler_method clobber.** For an AV+GMM portfolio the clobber changed only whether
+`return_lnI` was passed, and `mcsamplerPortfolio` never reads it (`use_lnL` was set either way, because
+the portfolio branch force-sets `internal_use_lnL=True` before the clobber). Verified by regression:
+identical per-group `gmm_adaptive` forwarding and identical rescue behaviour. No result in this
+document is invalidated by removing it.
