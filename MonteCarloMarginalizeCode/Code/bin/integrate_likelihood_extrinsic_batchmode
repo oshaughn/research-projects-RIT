@@ -2775,7 +2775,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # --sampler-warmstart-retry-neff.  For a portfolio the peak-seed is bootstrapped into its
     # warm-startable members (the AV live volume) and the whole mixture is re-run; the seed comes
     # from the run's OWN _rvs (already in the sampling frame), so it is coordinate-safe by construction.
-    if (opts.sampler_method in ('AV', 'portfolio') and opts.sampler_warmstart_retry_neff
+    # NB: detect a portfolio via opts.sampler_portfolio (the member list), NOT opts.sampler_method --
+    # the latter is clobbered to 'GMM' during portfolio member setup (see the GMM branch above, where
+    # opts.sampler_method='GMM' forces GMM arg-parsing), so an AV+GMM portfolio reports method 'GMM' here.
+    if ((opts.sampler_method == 'AV' or opts.sampler_portfolio) and opts.sampler_warmstart_retry_neff
             and hasattr(sampler, 'bootstrap_from_samples')
             and neff is not None and float(sampler.identity_convert(neff)) < float(opts.sampler_warmstart_retry_neff)):
         try:
