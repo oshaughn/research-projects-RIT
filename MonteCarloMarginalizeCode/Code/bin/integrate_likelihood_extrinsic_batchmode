@@ -2790,9 +2790,17 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # --sampler-warmstart-retry-neff.  For a portfolio the peak-seed is bootstrapped into its
     # warm-startable members (the AV live volume) and the whole mixture is re-run; the seed comes
     # from the run's OWN _rvs (already in the sampling frame), so it is coordinate-safe by construction.
+    # A DEGENERATE EARLY TERMINATION (neff is None) is the strongest possible rescue trigger, not a
+    # reason to skip: mcsamplerPortfolio/AV return (None,None,None,None) from their "terminate early"
+    # branch when the live volume never finds finite in-volume samples -- i.e. exactly the cold, very
+    # sharp peak this rescue exists for.  Such a pass still populates _rvs (it DID sample the peak,
+    # it just could not build a volume around it), so the peak-seed below is available.  Treat
+    # neff=None as "below threshold".
+    _neff_val = None if neff is None else float(sampler.identity_convert(neff))
+    _needs_l0_rescue = (_neff_val is None) or (_neff_val < float(opts.sampler_warmstart_retry_neff or 0))
     if (opts.sampler_method in ('AV', 'portfolio') and opts.sampler_warmstart_retry_neff
             and hasattr(sampler, 'bootstrap_from_samples')
-            and neff is not None and float(sampler.identity_convert(neff)) < float(opts.sampler_warmstart_retry_neff)):
+            and _needs_l0_rescue):
         try:
             _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
             _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel() if _lnkey else np.array([])
@@ -2804,8 +2812,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     _best = _cols[int(np.nanargmax(_lnv))]
                     _wid = (np.array([sampler.rlim[p] for p in sampler.params_ordered]) - np.array([sampler.llim[p] for p in sampler.params_ordered])) / 200.0
                     _seed = np.random.RandomState(0).normal(_best, _wid, size=(2000, len(_best)))
-                print("  [L0 auto-rescue] cold n_eff {:.1f} < {}; re-running warm from this point's peak ({} pts)".format(
-                    float(sampler.identity_convert(neff)), opts.sampler_warmstart_retry_neff, len(_seed)))
+                print("  [L0 auto-rescue] cold n_eff {} < {}; re-running warm from this point's peak ({} pts)".format(
+                    "DEGENERATE (early termination)" if _neff_val is None else "{:.1f}".format(_neff_val),
+                    opts.sampler_warmstart_retry_neff, len(_seed)))
                 sampler.bootstrap_from_samples(_seed, cover_frac=0.0)   # same problem: peak is in the seed
                 res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
                 sampler._warm = None
@@ -3564,6 +3573,11 @@ for indx in numpy.arange(len(P_list)):
  except Exception as exception_failure:
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
+  # The message alone ("boolean index did not match...", "index out of range", ...) is rarely enough
+  # to locate a failure inside the sampler stack, and this handler is often the ONLY record a batch
+  # job leaves behind.  Print the traceback too -- it costs nothing on the success path.
+  import traceback as _tb_mod
+  _tb_mod.print_exc()
   if opts.internal_make_empty_file_on_error:
     fname_output_txt = opts.output_file +"_"+str(indx)+"_" + ".dat"
     open(fname_output_txt,'a').close()  # create empty file

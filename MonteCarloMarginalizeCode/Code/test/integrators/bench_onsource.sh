@@ -15,7 +15,9 @@
 #
 # Usage: NAME=<tag> [COVER=0.5] [GPU=n] bench_onsource.sh <sampler flags...>
 set -u
-WT=/home/richard.oshaughnessy/RIFT_develUWM/src/research-projects-RIT/.claude/worktrees/rift-adaptive-integrator/.claude/worktrees/gifted-herschel-caf99c
+# WT = the checkout whose RIFT code is exercised.  Override via env to A/B this branch against a
+# base worktree (e.g. WT=/path/to/rift_O4d_worktree) with an otherwise identical command line.
+WT=${WT:-/home/richard.oshaughnessy/RIFT_develUWM/src/research-projects-RIT/.claude/worktrees/rift-adaptive-integrator/.claude/worktrees/gifted-herschel-caf99c}
 CODE=$WT/MonteCarloMarginalizeCode/Code
 PIPE=/home/richard.oshaughnessy/RIFT_roboto_paper/analyses/integrator_demos/S250114ax_pipeline
 RUNPE=$PIPE/run_PE

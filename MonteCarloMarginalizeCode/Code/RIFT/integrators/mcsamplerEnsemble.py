@@ -302,10 +302,19 @@ class MCSampler(object):
                 temp_samples[:,index] = sample_array[:,dim]
                 index += 1
 
+            # Drop NaN-weight samples before fitting.  NOTE: filter into LOOP-LOCAL names.  This used
+            # to reassign `ln_weights` itself, which is loop-INVARIANT (built once, before the loop
+            # over dim_groups): the first group with any NaN shrank it (e.g. 10000 -> 8686), and every
+            # LATER group then rebuilt temp_samples at full n_history_to_use but reused the stale,
+            # shorter weights -> "boolean index did not match indexed array" inside GMM.update /
+            # GMM.fit.  Only reachable when weights actually contain NaN, i.e. a degenerate/cold pass,
+            # which is why warm runs never hit it and cold portfolio starts died on chunk ~8.
             if self.xpy.any(self.xpy.isnan(ln_weights)):
                 ok_indx = ~self.xpy.isnan(ln_weights)
-                temp_samples = temp_samples[ok_indx]
-                ln_weights = ln_weights[ok_indx]
+                temp_samples = temp_samples[ok_indx]      # rebuilt each iteration: safe to filter
+                ln_weights_group = ln_weights[ok_indx]    # loop-LOCAL: never touch ln_weights itself
+            else:
+                ln_weights_group = ln_weights
             
             # Data-driven component count (matches integrator._train): scalar or
             # per-group gmm_adaptive picks k by BIC at init, floored at the
@@ -328,7 +337,7 @@ class MCSampler(object):
                         k_floor = self.integrator.n_comp
                     k_floor = int(k_floor) if isinstance(k_floor, int) and k_floor > 0 else 1
                     model = GMM.fit_gmm_adaptive(temp_samples, new_bounds,
-                                                 log_sample_weights=ln_weights,
+                                                 log_sample_weights=ln_weights_group,
                                                  k_max=max(int(adaptive_kmax), k_floor),
                                                  k_min=k_floor,
                                                  epsilon=self.integrator.gmm_epsilon,
@@ -336,10 +345,10 @@ class MCSampler(object):
                                                  inflate=getattr(self.integrator,'gmm_inflate',1.0))
                 elif isinstance(self.integrator.n_comp, int) and self.integrator.n_comp != 0:
                     model = GMM.gmm(self.integrator.n_comp, new_bounds,epsilon=self.integrator.gmm_epsilon)
-                    model.fit(temp_samples, log_sample_weights=ln_weights)
+                    model.fit(temp_samples, log_sample_weights=ln_weights_group)
                 elif isinstance(self.integrator.n_comp, dict) and self.integrator.n_comp[dim_group] != 0:
                     model = GMM.gmm(self.integrator.n_comp[dim_group], new_bounds,epsilon=self.integrator.gmm_epsilon)
-                    model.fit(temp_samples, log_sample_weights=ln_weights)
+                    model.fit(temp_samples, log_sample_weights=ln_weights_group)
                 elif not (self.integrator.n_comp == 0 or
                           (isinstance(self.integrator.n_comp, dict) and self.integrator.n_comp.get(dim_group) == 0)):
                     # invalid n_comp (e.g. None from an integrator built outside
@@ -352,7 +361,7 @@ class MCSampler(object):
                               "invalid n_comp {!r} (use n_comp=0 to disable adaptation intentionally)".format(
                                   dim_group, self.integrator.n_comp))
             else:
-                model.update(temp_samples, log_sample_weights=ln_weights)
+                model.update(temp_samples, log_sample_weights=ln_weights_group)
             self.integrator.gmm_dict[dim_group] = model
 
     def bootstrap_from_samples(self, samples, params=None, n_comp_warm=2, **kwargs):
