@@ -1165,6 +1165,7 @@ for _optv, _k in [(opts.limit_psi, 'psi'), (opts.limit_right_ascension, 'right_a
 
 # Portfolio
 use_portfolio=False
+use_gmm_member=False   # set when a portfolio carries a GMM member (see the portfolio setup loop)
 params = {}
 sampler = mcsampler.MCSampler()
 xpy_asarray_already = functools.partial(xpy_default.asarray,dtype=np.float64)
@@ -1227,8 +1228,14 @@ elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
             sampler = mcsamplerAdaptiveVolume.MCSampler(n_chunk=opts.n_chunk) # enforce now, so provided for setup phase
         elif name =='GMM':
             sampler = mcsamplerEnsemble.MCSampler()
-            # following override means sampler_method is CHANGED, so THIS MUST BE LAST, and can't condition on portfolio
-            opts.sampler_method = 'GMM'  # this will force the creation/parsing of GMM-specific arguments below, so they are properly passed
+            # A GMM member needs the GMM-specific argument blocks below to run so its config is
+            # forwarded.  Historically this was done by CLOBBERING opts.sampler_method='GMM', which
+            # silently broke every downstream `sampler_method == "portfolio"` test (the portfolio
+            # setup block became dead code, and the L0 auto-rescue gate never fired for a portfolio)
+            # and made a portfolio take GMM-only branches (e.g. return_lnI).  Instead flag it
+            # non-destructively: sampler_method stays 'portfolio', and the GMM blocks below key off
+            # `use_gmm_args` = standalone GMM OR a portfolio carrying a GMM member.
+            use_gmm_member = True
         elif name == "adaptive_cartesian_gpu" or name == 'AC':
             sampler = mcsamplerGPU.MCSampler()
             mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
@@ -1624,9 +1631,16 @@ pinned_params.update({
     "igrand_fairdraw_samples_max": np.min([opts.fairdraw_extrinsic_output_n_max,opts.n_eff])
 })
 if opts.sampler_method == "adaptive_cartesian_gpu":
-  pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!  
+  pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!
+# GMM-specific argument blocks must run for a STANDALONE GMM *or* for a portfolio carrying a GMM
+# member (whose config still has to be forwarded).  This used to be achieved by clobbering
+# opts.sampler_method='GMM' during portfolio setup, which broke every downstream 'portfolio' test;
+# key off this explicit flag instead so sampler_method keeps meaning what the user asked for.
+use_gmm_args = (opts.sampler_method == "GMM") or use_gmm_member
 return_lnL=False
-if opts.sampler_method=="GMM"  and opts.internal_use_lnL:
+if (opts.sampler_method=="GMM") and opts.internal_use_lnL:
+  # standalone GMM only: return_lnI is an mcsamplerEnsemble kwarg; the portfolio does not consume it
+  # (the portfolio's own use_lnL wiring is in the portfolio block below).
   return_lnL=True
   pinned_params.update({"use_lnL":True,"return_lnI":True})
 if opts.sampler_method =="adaptive_cartesian_gpu" and opts.internal_use_lnL:
@@ -1641,17 +1655,18 @@ if opts.sampler_method =="AV" and opts.internal_use_lnL:
 if opts.sampler_method =="portfolio":
   return_lnL=True
   pinned_params.update({"use_lnL":True})
-  # FLEXIBLE allocation for the portfolio's GMM member: forward gmm_adaptive as a
-  # SCALAR cap (applies to whichever groups the member uses -- its grouping is not
-  # built here) so it is opt-in and floored at the member's own n_comp.  The
-  # portfolio forwards setup() kwargs to every member; non-GMM members ignore it.
-  # Default OFF -> the portfolio's stress-tested GMM member config is unchanged.
-  if opts.internal_gmm_adaptive_components:
+  # FLEXIBLE allocation for the portfolio's GMM member.  NOTE: when the portfolio HAS a GMM member
+  # (use_gmm_member), the GMM block below already forwards gmm_adaptive as a per-group DICT (keyed by
+  # the member's actual parameter groups) via extra_args -- which is richer than the scalar cap here,
+  # and is the path every portfolio benchmark on this branch actually exercised (it ran because
+  # sampler_method used to be clobbered to 'GMM').  Only fall back to the scalar form for a portfolio
+  # WITHOUT a GMM member, where that block does not run.  Setting both would double-specify it.
+  if opts.internal_gmm_adaptive_components and not use_gmm_member:
     pinned_params.update({'gmm_adaptive': int(opts.internal_gmm_max_components),
                           'gmm_defensive_frac': float(opts.internal_gmm_defensive_frac),
                           'gmm_inflate': float(opts.internal_gmm_inflate)})
     print(" Portfolio: GMM member adaptive components enabled (BIC, cap {})".format(opts.internal_gmm_max_components))
-if opts.sampler_method == "GMM":
+if use_gmm_args:   # standalone GMM, or a portfolio carrying a GMM member (see use_gmm_args above)
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
     # pairing coordinates for adaptive integration: see definition of order below
@@ -2666,7 +2681,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       if 'distance' in sampler.params:
         sampler.reset_sampling('distance')
       sampler.reset_sampling('inclination')
-    elif opts.sampler_method == "GMM":
+    elif use_gmm_args:   # standalone GMM or a portfolio with a GMM member (gmm_dict exists in both)
       if 'distance' in sampler.params:
          pair_d_incl = sampler_param_tuple(sampler, ['distance','inclination'])
          if  pair_d_incl in gmm_dict:
@@ -2775,10 +2790,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # --sampler-warmstart-retry-neff.  For a portfolio the peak-seed is bootstrapped into its
     # warm-startable members (the AV live volume) and the whole mixture is re-run; the seed comes
     # from the run's OWN _rvs (already in the sampling frame), so it is coordinate-safe by construction.
-    # NB: detect a portfolio via opts.sampler_portfolio (the member list), NOT opts.sampler_method --
-    # the latter is clobbered to 'GMM' during portfolio member setup (see the GMM branch above, where
-    # opts.sampler_method='GMM' forces GMM arg-parsing), so an AV+GMM portfolio reports method 'GMM' here.
-    if ((opts.sampler_method == 'AV' or opts.sampler_portfolio) and opts.sampler_warmstart_retry_neff
+    if (opts.sampler_method in ('AV', 'portfolio') and opts.sampler_warmstart_retry_neff
             and hasattr(sampler, 'bootstrap_from_samples')
             and neff is not None and float(sampler.identity_convert(neff)) < float(opts.sampler_warmstart_retry_neff)):
         try:
@@ -3531,7 +3543,7 @@ for indx in numpy.arange(len(P_list)):
     if opts.sampler_method == "adaptive_cartesian_gpu": 
       for name in sampler.params:
         sampler.reset_sampling(name)
-    elif opts.sampler_method == "GMM":
+    elif use_gmm_args:   # standalone GMM or a portfolio with a GMM member
       # reset the GMM dictionary
       for component in gmm_dict:
           gmm_dict[component] = None
