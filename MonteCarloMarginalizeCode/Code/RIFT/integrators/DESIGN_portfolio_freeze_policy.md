@@ -734,3 +734,48 @@ ensemble on a typical event.
 the portfolio branch force-sets `internal_use_lnL=True` before the clobber). Verified by regression:
 identical per-group `gmm_adaptive` forwarding and identical rescue behaviour. No result in this
 document is invalidated by removing it.
+
+## COLD-START ensemble: n_eff does NOT certify correctness (the confidently-wrong failure)
+
+Rerun of the cold (non-warm-started) case after two fixes landed: the pre-existing
+`mcsamplerEnsemble` loop-invariant clobber (which had made EVERY cold portfolio start crash at
+chunk ~8 with no output at all -- 0/9), and the L0 rescue now firing on degenerate early
+termination. Config: portfolio AV+GMM cap8 adaptive, `--force-adapt-all --internal-rotate-phase
+--interpolate-time True --sampler-warmstart-retry-neff 5`, 9 seeds, cold.
+
+| seed | n_eff | lnZ | modes/group | rescue |
+|------|------:|--------:|:-----------:|:------:|
+| s10 | 1.5 | 3006.16 | 1 | fired |
+| s11 | 13.9 | **3012.47** | 1 | fired |
+| s12 | 31.0 | **3013.87** | 1 | fired |
+| s13 | 1.0 | 3001.19 | 1 | fired |
+| s14 | 38.0 | **3013.61** | 4 | fired |
+| s15 | 1.1 | 3002.36 | 1 | fired |
+| s16 | 18.0 | **3012.54** | 1 | fired |
+| s17 | **58.0** | **3001.68** ⚠ | 1 | fired |
+| s18 | 3.8 | 3015.53 | 2 | fired |
+
+(lnZ is only comparable WITHIN this table: `--internal-rotate-phase` doubles the prior, so these
+values are offset from the non-rotated benchmarks earlier in this document.)
+
+**9/9 now produce output (was 0/9 -- the crash), 5/9 land (n_eff>=5).** Cold is materially worse than
+warm+rescue (8/9), so a warm seed still earns its keep; but cold now WORKS, which it did not before.
+
+**The headline result is the lnZ column, not the landed count.** Among the five landed copies lnZ
+spans **3001.7 - 3013.9 (12 nats)**, and the single most wrong copy is the one with the **HIGHEST
+n_eff**: s17, n_eff 58, lnZ 11 nats below the consensus. Four of five landers agree to within 1.4
+nats (3012.5-3013.9); s17 dissents while looking, by n_eff, like the best run in the ensemble.
+
+**Consequences (this changes the recommended practice):**
+1. **n_eff is NECESSARY BUT NOT SUFFICIENT.** It measures weight concentration, not coverage. A pass
+   that locks onto one narrow region has low weight variance (high n_eff) while missing posterior
+   mass (lnZ too low) -- confidently wrong. You CANNOT pick the trustworthy copy by max n_eff, and a
+   single high-n_eff run is not self-certifying.
+2. **Use CONSENSUS across copies, not the best-n_eff copy.** The outlier here is detectable only by
+   disagreeing with the pool. Prefer the median lnZ over landed copies (median 3012.54 correctly
+   rejects s17) to an n_eff-argmax or even an n_eff-weighted mean (which s17's weight would drag
+   down). This is a direct strengthening of the "run MANY copies" recipe: copies are needed not just
+   to find a good draw, but to DETECT a bad one that looks good.
+3. Mode count is a useful but imperfect cross-check here: s14 (4 modes) sits in the consensus, but
+   s11/s12/s16 are 1-mode and also in the consensus, so a low mode count alone does not condemn a
+   run at this sample size. Cross-copy agreement remains the strongest signal.
