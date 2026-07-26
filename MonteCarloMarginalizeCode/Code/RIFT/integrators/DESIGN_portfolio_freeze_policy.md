@@ -660,3 +660,40 @@ n_eff < threshold, re-seed AV from the run's OWN highest-L samples (the peak it 
 — same-problem reuse, cannot bias, frame-safe by construction. Was gated to standalone AV; relaxed to
 fire for the portfolio too (peak-seed bootstraps into the AV member). This is the in-loop version of
 "pool copies": convert each collapsed draw into a land instead of discarding it. Result pending (prr_).
+
+### THE HIGH-SNR FIX: L0 auto-rescue roughly DOUBLES the landed fraction (4/9 -> 8/9)
+
+Since the collapse is AV losing the sharp peak ~50/50 (not a proposal/coordinate defect), the fix is
+to re-seed a collapsed run from the peak IT DID FIND and re-run: `--sampler-warmstart-retry-neff 5`
+(L0 auto-rescue). Bug found + fixed first: the rescue is gated on the sampler being AV or a
+portfolio, but `opts.sampler_method` is CLOBBERED to 'GMM' during portfolio member setup (line ~1231,
+`opts.sampler_method='GMM'` forces GMM arg-parsing), so an AV+GMM portfolio reports method 'GMM'
+everywhere downstream. The gate now detects the portfolio via `opts.sampler_portfolio` (the member
+list, which survives the clobber). [Same clobber makes the portfolio-only block at ~1641 dead code --
+harmless, the GMM branch picks up the gmm_adaptive forwarding as a per-group dict -- but a latent
+footgun; flagged for cleanup.]
+
+9-copy pool, cap8 + `--force-adapt-all --internal-rotate-phase` (frame-matched seed) +
+`--sampler-warmstart-retry-neff 5`:
+
+| seed | prior behavior | prr_ result | rescue |
+|------|---------------|------------:|:------:|
+| s10 | collapse | 4.5 | fired (just under) |
+| s11 | chronic ~1 collapse | **33.4** | fired -> LAND |
+| s12 | collapse | 33.4 | (landed pass 1) |
+| s13 | 35-52 | **47.0** | fired -> LAND |
+| s14 | chronic ~1 collapse | **25.2** | fired -> LAND |
+| s15 | mixed | **19.6** | fired -> LAND |
+| s16 | collapse | **38.1** | fired -> LAND |
+| s17 | 15 | 10.0 | (landed pass 1) |
+| s18 | 39-41 | 21.4 | (landed pass 1) |
+
+**LANDED 8/9** (baseline 4/9, pr_ 4/9); 6 rescues fired, 5 converted to clean lands and the 6th to
+4.5. Chronic collapsers (s11, s14, both stuck at n_eff~1 across every prior config) now land at 25-33.
+Cost: a rescued run does 2 integration passes (~2x). This is the in-loop equivalent of "pool copies",
+and it is the real high-SNR lever -- coordinates/adaptation improve the LANDERS, the rescue fixes the
+COLLAPSE RATE.
+
+**Validated high-SNR recipe:** portfolio AV+GMM (cap8, adaptive components) + `--force-adapt-all`
++ `--internal-rotate-phase` (with a phase-frame-matched warm seed) + `--sampler-warmstart-retry-neff 5`.
+Even so, for a publication-grade posterior at n_eff this modest, still pool a few landed copies.
