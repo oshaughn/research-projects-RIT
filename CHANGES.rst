@@ -1,3 +1,9 @@
+0.0.17.10
+------------
+MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/51 , https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
+so output sampling rate is precisely what is requested
+
+
 0.0.17.9
 ------------
 development tree is rift_O4c_staging -> rift_O4c; draft MR notes at
