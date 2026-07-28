@@ -910,3 +910,41 @@ well-behaved targets -- which is the point: they must not COST anything where th
 So the settings are SAFE (both gates clear) but their benefit is not yet PROVEN. Recommended posture:
 keep them opt-in and documented for high-SNR use, do NOT change any default, and either accept the
 caveat or spend ~20 seeds/config to settle significance.
+
+### RETRACTION at n=20: the share constraint does NOT reduce lnZ scatter
+
+The n=4 result above (`band3` sd 0.85 vs baseline 5.96) does not survive. Extending the same three
+configurations on the same point:
+
+| config | n=4 sd | n=9 sd | **n=20 sd** | n=20 spread |
+|--------|-------:|-------:|------------:|------------:|
+| baseline (unconstrained, cap 8) | 5.96 | - | **4.02** (n=15) | 13.49 |
+| `bkmd` (floor .25, cap 3) | 1.02 | 3.02 | **4.50** | 15.78 |
+| `band3` (band .25-.75, cap 3) | 0.85 | 3.11 | **5.02** | 22.03 |
+
+Variance-ratio F-test vs baseline, one-tailed: `bkmd` F=0.80 p=0.66; `band3` F=0.64 p=0.80. Not
+significant, and the point estimates are in the WRONG direction -- the constrained arms have slightly
+LARGER scatter than the unconstrained baseline.
+
+**This is textbook small-sample selection followed by regression to the mean.** `band3` was CHOSEN
+because it looked best at n=4; its estimate then decayed 0.85 -> 3.11 -> 5.02 as n grew. The n=4
+caveat recorded above ("read this as a family, not a ranking") was correct but not strong enough: the
+honest position is that at n=4 these configurations carried NO usable information about scatter.
+
+**What this retracts:** any claim that `--portfolio-varaha-min-frac` / `--portfolio-varaha-max-frac`
+or a reduced GMM BIC cap improves lnZ consistency on this event. They remain OPT-IN and OFF by
+default, and must be described as unproven rather than recommended.
+
+**What still stands (independent observations, not the remedy):**
+- n_eff does not certify correctness: individual copies with the HIGHEST n_eff in their arm were the
+  most wrong in lnZ (n_eff 58 / 11 nats low; n_eff 123.6 / 10 nats low). Selection must not use n_eff.
+- The mixture degenerates to peaked-member-only (VARAHA share -> 0.0099) unless constrained; q_mix
+  then carries no broad backstop. That is a measured structural fact about the allocation rule.
+- The pre-existing cold-start crash (`mcsamplerEnsemble` loop-invariant clobber) and the L0 rescue
+  gap on degenerate termination were real bugs and are fixed.
+
+**Gate status: CLEARED.** Default-path merge gate base-vs-branch: `COMPARE_EXIT=0`, 0 blocking
+regressions (96/96 rows both arms). Flag-ON probe (`varaha floor .25`, `varaha band .25-.75`,
+`band + gmm cap3`, scored by the gate's own evaluate()): **0 opt-in regressions** -- every row PASSes
+where the base PASSes and is STARVED where the base is STARVED. So the knobs are SAFE; they are just
+not demonstrated to help.
