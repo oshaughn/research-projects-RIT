@@ -846,3 +846,40 @@ bitwise-blind to all of it. `probe_portfolio_optin_flags.py` now carries `varaha
 `varaha band .25-.75` and `band + gmm cap3`, scored by the gate's own `evaluate()`. NOTHING here is
 proposed as a recommendation or default until that probe passes AND the base-vs-branch gate compares
 clean.
+
+### n=9 like-for-like: the constraint helps, but NOT significantly, and does not make one run trustworthy
+
+The n=4 table above was a fluke of seeds {10,12,14,17} (band3 sd 0.85 -> 3.11 when extended). Extending
+all three configs to the SAME nine seeds {10,12,14,17,20..24}:
+
+| config | lnZ sd | spread | worst deviation from own median |
+|--------|-------:|-------:|--------------------------------:|
+| baseline (unconstrained share, cap 8) | 5.04 | 12.71 | 10.4 nats |
+| `bkmd` (floor .25, cap 3) | 3.01 | 10.25 | **6.1 nats** |
+| `band3` (band .25-.75, cap 3) | 3.08 | 7.79 | 7.2 nats |
+
+F-test on the variances (n=9 each):
+- baseline vs `bkmd`  : F=2.81, one-tailed p=0.083 -- **NOT significant at 5%**
+- baseline vs `band3` : F=2.69, one-tailed p=0.092 -- **NOT significant at 5%**
+- `bkmd` vs `band3`   : F=1.05, p=0.48 -- indistinguishable; the CAP adds nothing measurable over the FLOOR
+
+**Honest reading.** The share constraint cuts lnZ scatter ~40% and roughly halves the worst-case
+deviation, which is a real-looking effect with a plausible mechanism (q_mix keeps a broad backstop, so
+no mode goes uncovered) -- but at n=9 it does NOT reach significance. Do not present it as an
+established improvement. Reaching p<0.05 on a variance ratio this size needs ~20+ seeds per config.
+
+**What does NOT depend on the significance test:** every catastrophic confidently-wrong case in this
+study (n_eff 58 with lnZ 11 nats low; n_eff 123.6 with lnZ 10 nats low) occurred in an
+UNCONSTRAINED-share arm, and none occurred in a constrained arm.
+
+**What is settled regardless:** no configuration makes a SINGLE run trustworthy on this point -- the
+best still deviates 6 nats from its own median. Pooling across copies, judged by consensus rather
+than by n_eff, remains mandatory.
+
+### Merge gate: PASSED (PR #34)
+
+`compare_shape_results.py` over all 96 rows, base `rift_O4d` vs this branch, both arms run
+single-process: **0 blocking regressions (strict = AV, GMM), COMPARE_EXIT=0**, no REGRESSION /
+BLOCKS-MERGE / ONLY-IN rows. `PREEXISTING-FAIL` rows fail identically on base.
+NOTE the gate must be run with `--jobs 1`: its multiprocessing pool DEADLOCKS at higher job counts
+(observed on both arms independently) -- see the lore repo's gotchas.
