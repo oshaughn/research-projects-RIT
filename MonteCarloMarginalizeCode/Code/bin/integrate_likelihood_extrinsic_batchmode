@@ -1358,15 +1358,22 @@ def resample_samples(my_samples,
   lnL_out = np.zeros(n_samples)
   # IF UPSAMPLING, PERFORM NOW.  (Currently on
   if opts.srate_resample_time_marginalization and opts.srate_resample_time_marginalization > fSample:
-    deltaT_orig = tvals[1]-tvals[0]
-    # Refinement factor from the REQUESTED rate, measured against the actual grid
-    # spacing (tvals is a closed-interval linspace, so deltaT_orig is slightly
-    # larger than 1/fSample and ceil(requested/fSample) would fall just short).
-    n_upsample = max(2, int(np.ceil(opts.srate_resample_time_marginalization * deltaT_orig)))
-    n_dense = n_upsample*(len(tvals)-1) + 1
-    # Terminate on tvals[-1]: the old grid ran half a sample past the last knot,
-    # forcing the spline to extrapolate.
-    tvals_denser = tvals[0] + (deltaT_orig/n_upsample) * np.arange(n_dense)
+    # Resample the marginalization-time grid to EXACTLY the requested rate, so
+    # the exported geocenter time is quantized at 1/srate_resample seconds.  We
+    # step by exactly 1/srate_resample rather than by an integer subdivision of
+    # the internal grid: that internal grid is a closed-interval linspace whose
+    # spacing is ~1/fSample but NOT exactly (here ~4086.7 Hz vs 4096), so an
+    # integer-factor upsample would land at ~n/deltaT_orig, tens of percent off
+    # the request.  For the usual power-of-two rates 1/srate is exactly
+    # representable in float64, so consecutive output times differ by exactly
+    # that step.
+    dt_target = 1.0/opts.srate_resample_time_marginalization
+    # floor(): stay within [tvals[0], tvals[-1]] so the spline never
+    # extrapolates.  At most one step (<1/srate s, tens of us) is dropped at the
+    # far edge of the +-75 ms window, where the time-marginalized likelihood is
+    # negligible.
+    n_dense = int(np.floor((tvals[-1]-tvals[0])/dt_target)) + 1
+    tvals_denser = tvals[0] + dt_target * np.arange(n_dense)
     from scipy.interpolate import RegularGridInterpolator, CubicSpline
     # cubic spline at first, easiest  - generally not exporting too many events
     lnLt_new = np.zeros( (lnLt.shape[0], n_dense) )
