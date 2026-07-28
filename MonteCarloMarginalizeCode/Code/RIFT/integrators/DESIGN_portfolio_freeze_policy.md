@@ -883,3 +883,30 @@ single-process: **0 blocking regressions (strict = AV, GMM), COMPARE_EXIT=0**, n
 BLOCKS-MERGE / ONLY-IN rows. `PREEXISTING-FAIL` rows fail identically on base.
 NOTE the gate must be run with `--jobs 1`: its multiprocessing pool DEADLOCKS at higher job counts
 (observed on both arms independently) -- see the lore repo's gotchas.
+
+### Flag-ON gate probe: PASSED (0 opt-in regressions)
+
+`probe_portfolio_optin_flags.py`, scored by the gate's own `evaluate()` so a PASS here passes by
+exactly the gate's criteria. Each configuration compared against the SAME target with flags OFF:
+
+| configuration | d2_n1_s303 | d2_n3_s303 | d4_n1_s303 | d4_n3_s303 |
+|---------------|-----------|-----------|-----------|-----------|
+| `varaha floor .25` | PASS | PASS | PASS | STARVED (base STARVED too) |
+| `varaha band .25-.75` | PASS | PASS | PASS | STARVED (base STARVED too) |
+| `band + gmm cap3` | PASS | PASS | PASS | STARVED (base STARVED too) |
+
+**opt-in regressions: 0.** The pre-existing opt-in features (adaptive_alloc, weight_clip, and their
+combination) also remain at 0 regressions. As expected the constraints are ~no-ops on the gate's
+well-behaved targets -- which is the point: they must not COST anything where they are not needed.
+
+## STATUS SUMMARY (all three bars)
+
+| bar | result |
+|-----|--------|
+| merge gate (base vs branch, 96 rows) | **PASS** -- 0 blocking regressions, COMPARE_EXIT=0 |
+| flag-ON probe (proposed settings) | **PASS** -- 0 opt-in regressions |
+| real-event benefit (n=9, matched seeds) | scatter 5.04 -> ~3.0 sd, worst dev 10.4 -> 6.1 nats, but **p~0.08: NOT significant** |
+
+So the settings are SAFE (both gates clear) but their benefit is not yet PROVEN. Recommended posture:
+keep them opt-in and documented for high-SNR use, do NOT change any default, and either accept the
+caveat or spend ~20 seeds/config to settle significance.
