@@ -83,7 +83,7 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  except:
     print(" - No healpy - ")
 
-from ..integrators.statutils import  update,finalize, init_log,update_log,finalize_log
+from ..integrators.statutils import  update,finalize, init_log,update_log,finalize_log, pareto_khat_from_log, ess_from_log_weights, block_scatter_sigma, bootstrap_lnZ_quantiles
 
 #from multiprocessing import Pool
 
@@ -674,6 +674,9 @@ class MCSampler(object):
         maxval=0   # max weight
         outvals=None  # define in top level scope
         self.ntotal = 0
+        # per-chunk lnZ record: each chunk used a (different) adapted proposal, so the
+        # between-chunk scatter is an error floor the pooled variance cannot see
+        lnZ_chunk_list = []; n_chunk_list = []
         if bShowEvaluationLog:
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
 
@@ -770,6 +773,14 @@ class MCSampler(object):
             else:
               current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=xpy_special_default)
             outvals = finalize_log(current_log_aggregate,xpy=xpy)
+            # per-chunk lnZ for the between-chunk error floor (init_log returns
+            # (n, log_mean, log_M2, log_ref) so lnZ_chunk = log_mean + log_ref)
+            try:
+              _chunk_agg = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
+              lnZ_chunk_list.append(float(identity_convert(_chunk_agg[1])) + float(identity_convert(_chunk_agg[3])))
+              n_chunk_list.append(int(_chunk_agg[0]))
+            except Exception:
+              pass
             self.ntotal = current_log_aggregate[0]
             # effective samples
             maxval = max(maxval, identity_convert(self.xpy.max(log_integrand) ))
@@ -874,6 +885,36 @@ class MCSampler(object):
                 else:
                     self._rvs[key] = self._rvs[key][indx_list]
 
+        # MC-error diagnostics (must run BEFORE the fairdraw resampling below rewrites
+        # _rvs).  See statutils: the pooled weight variance is 1/ESS restated and
+        # tail-blind; disclose the tail (k-hat), the between-chunk scatter, and --
+        # when the naive relative error is already large -- bootstrap lnZ quantiles.
+        mc_diag = {}
+        try:
+            _sb = block_scatter_sigma(lnZ_chunk_list, n_chunk_list)
+            if _sb is not None:
+                mc_diag['sigma_lnZ_block'] = _sb
+            if "log_integrand" in self._rvs:
+                _lw_diag = numpy.asarray(identity_convert(self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]), dtype=float)
+                _kh = pareto_khat_from_log(_lw_diag)
+                if _kh is not None:
+                    mc_diag['pareto_khat'] = _kh
+                mc_diag['n_ESS'] = ess_from_log_weights(_lw_diag)
+                _sig_rel_naive = np.inf
+                if outvals is not None:
+                    _sig_rel_naive = float(np.exp(identity_convert(outvals[1])/2 - identity_convert(outvals[0]) - np.log(self.ntotal)/2))
+                if _sig_rel_naive > 0.3 or mc_diag.get('sigma_lnZ_block', 0) > 0.3:
+                    _q = bootstrap_lnZ_quantiles(_lw_diag, n_total=self.ntotal)
+                    if _q is not None:
+                        mc_diag['lnZ_ci90'] = _q
+            print(" [mc diag] khat={} ESS={} sigma_block={} (chunks={})".format(
+                round(mc_diag['pareto_khat'],3) if 'pareto_khat' in mc_diag else None,
+                round(mc_diag['n_ESS'],1) if 'n_ESS' in mc_diag else None,
+                round(mc_diag['sigma_lnZ_block'],4) if 'sigma_lnZ_block' in mc_diag else None,
+                len(lnZ_chunk_list)))
+        except Exception as _e_diag:
+            print(" mcsamplerGPU: MC-error diagnostics failed ({}); continuing.".format(_e_diag))
+
         # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*identity_convert(eff_samp),1.5*neff]))
@@ -896,6 +937,7 @@ class MCSampler(object):
         dict_return ={}
         if convergence_tests is not None:
             dict_return["convergence_test_results"] = last_convergence_test
+        dict_return.update(mc_diag)   # MC-error diagnostics (pareto_khat, n_ESS, sigma_lnZ_block, lnZ_ci90)
 
         # perform type conversion of all stored variables
         if cupy_ok:
