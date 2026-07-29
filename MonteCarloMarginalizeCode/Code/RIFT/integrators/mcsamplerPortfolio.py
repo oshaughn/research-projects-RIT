@@ -266,6 +266,10 @@ class MCSampler(object):
         # so this only trades efficiency.
         self.portfolio_varaha_min_frac = kwargs.get('portfolio_varaha_min_frac', 0.0)
         self.portfolio_varaha_max_frac = kwargs.get('portfolio_varaha_max_frac', 0.0)  # 0 = no cap
+        # Range restriction (see setup(): portfolio_restrict_ranges).  Default OFF, so every code
+        # path guarded by these is inert unless a member is explicitly narrowed.
+        self._has_restricted_member = False
+        self._full_support_members = []
         self.portfolio_quality = np.ones(len(self.portfolio))   # per-member quality (EMA of the signal)
         self.portfolio_quality_nobs = np.zeros(len(self.portfolio), dtype=int)  # #updates per member
         self.portfolio_probe_ptr = 0                            # round-robin probe pointer
@@ -385,6 +389,57 @@ class MCSampler(object):
               portfolio_extra_args = kwargs['portfolio_args']
             else:
               print(" PORTFOLIO - format ERROR ", kwargs['portfolio_args'])
+        # RANGE RESTRICTION (opt-in): narrow ONE OR MORE members to a sub-box, so a member can put
+        # its fixed bin budget where the posterior actually is.  Applied HERE -- after add_parameter
+        # (which forwards identical limits AND the shared prior callables to every member) and
+        # BEFORE member.setup() (which rebuilds my_ranges/dx/dx0/V_s/binunique/ninbin/V from
+        # llim/rlim) -- so no derived state can go stale.
+        #
+        # WHY THIS NEEDS NO NORMALIZATION CORRECTION.  The estimator weights are
+        # lnL + log(joint_p_prior) - log(q_mix).  `joint_p_prior` comes from each member's STORED
+        # prior callables (AV.prior_prod), which are absolute densities over the ORIGINAL physical
+        # ranges and never consult llim/rlim -- so a narrowed member still reports the TRUE global
+        # prior.  A member's range is therefore purely a PROPOSAL choice: proposals need not cover
+        # the prior, only the MIXTURE must cover the support of L*p.  Hence no prior renormalization
+        # and no ln(V_sub/V_full) term.  The invariant that makes this true is enforced below.
+        _restrict = kwargs.get('portfolio_restrict_ranges', None)
+        if _restrict:
+            if len(_restrict) != len(self.portfolio_realizations):
+                raise Exception("portfolio_restrict_ranges must align with the member list "
+                                "({} entries for {} members)".format(len(_restrict),
+                                                                     len(self.portfolio_realizations)))
+            _n_restricted = 0
+            for indx, member in enumerate(self.portfolio_realizations):
+                spec = _restrict[indx]
+                if not spec:
+                    continue
+                for p, (lo, hi) in dict(spec).items():
+                    if p not in member.llim:
+                        raise Exception("portfolio_restrict_ranges: member {} has no parameter {!r}".format(indx, p))
+                    # NARROW ONLY -- clip into the existing range.  Widening a member beyond the
+                    # prior's support would sample where the prior callable is not normalized.
+                    lo_new = max(float(lo), float(member.llim[p]))
+                    hi_new = min(float(hi), float(member.rlim[p]))
+                    if not (hi_new > lo_new):
+                        raise Exception("portfolio_restrict_ranges: empty sub-range for {!r} on member {}".format(p, indx))
+                    member.llim[p] = lo_new
+                    member.rlim[p] = hi_new
+                _n_restricted += 1
+                print("  PORTFOLIO: member {} RESTRICTED to sub-box {}".format(indx, dict(spec)))
+            # COVERAGE INVARIANT: at least one member must keep FULL support, otherwise the mixture
+            # no longer covers L*p outside the union of sub-boxes and the integral is biased low by
+            # the missing mass (silently -- n_eff can even look BETTER).  Refuse rather than bias.
+            if _n_restricted >= len(self.portfolio_realizations):
+                raise Exception(
+                    "portfolio_restrict_ranges: every member is restricted, so no member retains "
+                    "full support.  The mixture would not cover L*p outside the sub-boxes and the "
+                    "integral would be biased low with no diagnostic.  Leave at least one member "
+                    "unrestricted (it is the defensive component).")
+            self._has_restricted_member = bool(_n_restricted)
+            # index of a full-support member: the per-member draw floor below protects it
+            self._full_support_members = [i for i in range(len(self.portfolio_realizations))
+                                          if not _restrict[i]]
+
         # Iterate the INSTANTIATED samplers (portfolio_realizations), NOT self.portfolio: the
         # latter may hold modules/names (see __init__), which lack .setup(), so member setup was
         # silently skipped -> a cold member's internal state (AV my_ranges, GMM integrator) was
@@ -489,6 +544,17 @@ class MCSampler(object):
 
         # if only one method is active, just call the low-level function
         if len(indx_active) == 1:
+           # Single-member fast path: q_mix degenerates to this member's own density.  If that lone
+           # member is a RESTRICTED one, nothing covers L*p outside its sub-box for this chunk and
+           # the estimate is biased low with no diagnostic.  (Reachable when activation breakpoints
+           # delay the full-support member.)  Refuse rather than silently bias.
+           if (getattr(self, '_has_restricted_member', False)
+                   and int(indx_active[0]) not in set(getattr(self, '_full_support_members', []))):
+               raise Exception(
+                   "mcsamplerPortfolio: the only ACTIVE member (realization {}) has a RESTRICTED "
+                   "range, so this chunk has no full-support component and the integral would be "
+                   "biased low.  Give the full-support member an activation breakpoint of 0."
+                   .format(int(indx_active[0])))
            only_member = self.portfolio_realizations[indx_active[0]]
            joint_p_s, joint_p_prior, rv = only_member.draw_simplified(n_samples, *self.params_ordered, **kwargs)
            # The portfolio aggregates on the host (self.xpy is numpy); members
@@ -510,6 +576,30 @@ class MCSampler(object):
           elif np.sum(n_samples_per_member[0:-2]) < n_samples:
             n_samples_per_member[-1] = 0
             n_samples_per_member[-2] = n_samples - np.sum(n_samples_per_member[0:-2])
+
+          # PER-MEMBER DRAW FLOOR for full-support members when some member is RESTRICTED.
+          # A member that draws 0 samples this chunk contributes NOTHING to q_mix (the mixture loop
+          # skips frac_m <= 0), so its coverage vanishes for that chunk.  That is harmless when all
+          # members share a support, but FATAL once a member has been narrowed: the full-support
+          # member is the only thing covering L*p outside the sub-box, and a chunk where it is
+          # rounded to zero draws is a chunk with an uncovered region -- the silent low-bias failure
+          # this whole design exists to avoid.  The VARAHA share band is a GROUP constraint over all
+          # is_varaha members, so it does NOT protect an individual full-box AV against a restricted
+          # sibling absorbing the group's share.  Enforce a per-member minimum of 1 draw here.
+          if getattr(self, '_has_restricted_member', False):
+            # CAREFUL: n_samples_per_member is indexed by POSITION WITHIN portfolio_active (the
+            # breakpoint-filtered subset), while _full_support_members holds REALIZATION indices.
+            # Map one to the other; indexing directly by realization index protects the wrong member
+            # as soon as any member is still behind its activation breakpoint.
+            _full_set = set(getattr(self, '_full_support_members', []))
+            _full = [pos for pos, ridx in enumerate(indx_active) if int(ridx) in _full_set]
+            for i in _full:
+              if n_samples_per_member[i] < 1:
+                # take the deficit from the largest member so the total is preserved exactly
+                j = int(np.argmax(n_samples_per_member))
+                if j != i and n_samples_per_member[j] > 1:
+                  n_samples_per_member[j] -= 1
+                  n_samples_per_member[i] = 1
 
           n_index_start_per_member = np.zeros(len(portfolio_active),dtype=int)
           n_index_start_per_member[1:] = np.cumsum(n_samples_per_member)[:-1]
@@ -761,6 +851,17 @@ class MCSampler(object):
             if q_mix is not None:
                 joint_p_s = q_mix   # deterministic-mixture denominator
             else:
+                # The legacy stratified per-member density is only valid when every member shares the
+                # SAME support.  If any member has been given a RESTRICTED range (see
+                # portfolio_restricted_members) the stratified estimator is silently WRONG -- it does
+                # not form the true mixture denominator -- so refuse rather than return a biased
+                # number.  Unequal supports are exactly the configuration the fallback cannot handle.
+                if getattr(self, '_has_restricted_member', False):
+                    raise Exception(
+                        "mcsamplerPortfolio: a member has a RESTRICTED sampling range, but the "
+                        "balance-heuristic q_mix could not be formed (some active member lacks "
+                        "sampling_density).  The legacy stratified density is invalid for members "
+                        "with unequal support and would bias the integral; refusing to continue.")
                 if use_mixture and getattr(self, '_warned_no_mixture', False) is False:
                     print(" PORTFOLIO: some active member lacks sampling_density; "
                           "falling back to legacy stratified per-member density.")
