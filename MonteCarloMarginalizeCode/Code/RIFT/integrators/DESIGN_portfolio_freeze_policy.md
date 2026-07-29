@@ -430,6 +430,68 @@ the starved regime as unvalidated for *shape*, even though n_eff improves.
 Note `adaptive+clip` is identical to `clip` alone on these targets — with clipping active the
 allocation rule made no further difference here.
 
+## Multi-event clip validation, post-#33 (does the S250114ax clip win generalise? — NO)
+
+4 typical O4 events, warm, `--n-eff 30`, in-container real SEOBNRv5PHM, no-clip vs proposal-fit
+`--portfolio-weight-clip 1.0`. Run interactively in the `cuda128` container on idle Blackwell nodes
+(pcdev11/13) — which also confirmed SEOBNRv5PHM+cupy run on CC 12.0, matching the A100 result.
+
+| event | no-clip lnZ (n_eff) | clip lnZ (n_eff) | ΔlnZ | n_eff ratio |
+|-------|:-------------------:|:----------------:|-----:|:-----------:|
+| S231026ab | 17.54 (28.9) | 17.49 (29.8) | −0.05 | ×1.03 |
+| S240426s  | 29.74 (31.2) | 29.56 (30.3) | −0.18 | ×0.97 |
+| S240513ei | 83.76 (3.1)  | 83.83 (1.3)  | +0.07 | ×0.42 |
+| S240703ad | 41.89 (3.3)  | 42.27 (5.0)  | +0.38 | ×1.53 |
+
+**Conclusion.** Clipping's dramatic S250114ax result (n_eff=10 2.3× faster than standalone AV) is
+**specific to that event's extreme heavy-tailed pathology and does NOT generalise.** On typical events
+it is a near-noop (×0.97–1.03); on the two under-converged hard events it is a wash (one up, one down,
+both inside the n_eff≈1–5 scatter). ln Z agrees everywhere (|ΔlnZ| ≤ 0.38, within MC error at these
+n_eff) — the portfolio replicates the AV integral with or without clipping. This is exactly why
+clipping ships **opt-in, default off**: a targeted tool for a specific failure mode, not a general
+speedup to impose on typical runs. It closes the study's last open question.
+
+## The portfolio's actual purpose: rescuing a high-SNR BEST-FIT evaluation
+
+Everything above tunes the integrator on a *trial* grid point (`overlap-grid-0.xml.gz --event 0`,
+m1/m2 28.29/26.69, lnLmax≈1212) — fine for A/B-ing policy, but it is not the science target. The
+target that has to work for a loud event is the **best-fit on-source point**
+(`target_params.xml.gz`, m1/m2 37.71/34.03, lnLmax≈3040, ρ≈78): sharply peaked AND
+distance-inclination/sky correlated. Measured on GPU, warm, bias-safe cover 0.5, `bench_onsource.sh`:
+
+| sampler | final n_eff @4M | note |
+|---------|----------------:|------|
+| AV alone | **1.0** | stalls — axis-aligned bins cannot wrap the correlated peak (also confirms the cardassia CPU result on GPU) |
+| GMM alone (adaptive) | **NaN chunk-1** | no coverage floor → weights blow up |
+| **AV+GMM portfolio (adaptive)** | **14.7** (lnZ 3016) | ~15× AV, and works where NEITHER member works alone |
+
+**This is the clearest demonstration of why the portfolio exists.** It is a *GMM-peak + AV-coverage*
+event: the GMM member wraps the correlated peak (which AV cannot), and the "dead" AV member — it
+reports `nan` per-chunk n_ess in 381/400 chunks and sits at the 1% floor — is NOT wasted, because its
+broad warm density still enters `q_mix = frac_AV q_AV + frac_GMM q_GMM`, providing the coverage floor
+that keeps GMM's importance weights bounded. Remove AV (run GMM alone) and GMM NaNs; remove GMM (run
+AV alone) and it stalls at 1.0. The portfolio is exactly the vehicle that combines a peak-finder with
+a coverage member, and the never-freeze/allocation machinery above is what lets it hand the budget to
+whichever one is actually working — here, GMM.
+
+**Adaptive GMM coverage is the lever — but it is NON-MONOTONIC, with a sweet spot:**
+
+| portfolio config (AV+GMM, warm 0.5) | GMM BIC cap | inflate | n_eff @4M | lnZ |
+|-------------------------------------|-----------:|--------:|----------:|-------:|
+| baseline | 8 | 1.0 | 14.7 | 3016.13 |
+| **sweet spot** | 16 | 1.3 | **56.1** | 3016.08 |
+| over-cranked | 24 | 1.5 | **2.3** | 3009.5 ⚠ |
+
+At the sweet spot: **56× standalone AV** (which stalls at 1.0), ln Z unchanged (3016.08 vs 3016.13) —
+real efficiency, not a coverage-shortcut bias. **But more is not better**: cap 24 / inflate 1.5
+collapses to 2.3 AND ln Z drops 6.6 nats (3009.5) — the lnZ shift means over-inflation is biasing,
+not just adding variance (an over-wide GMM proposal + a few enormous weights, the same heavy-tail
+mode weight clipping was aimed at). So the reviewer's "GMM event with adaptive coverage" framing is
+confirmed quantitatively, with the caveat that the coverage knobs need *tuning to a sweet spot*, not
+maximizing. Which of the two knobs (BIC cap vs inflation) drives the collapse is under isolation.
+Harness: `test/integrators/bench_onsource.sh` (pins the best-fit point; documents it is NOT the trial
+point).
+
 ## Files
 - `RIFT/integrators/mcsamplerPortfolio.py` — freeze-policy + adaptive-probe allocation, knobs,
   n_ess history, plugin-load guard, NaN guard.
@@ -440,3 +502,411 @@ allocation rule made no further difference here.
 - `test/integrators/test_portfolio_adaptive_alloc.py` — synthetic correlated/uncorrelated test that
   the portfolio tracks the winning member and beats AV on a correlated target (Benchmark 3).
 - `test/integrators/bench_weight_clip.py` — clipping bias-vs-n_eff sweep against analytic ln Z.
+
+## The high-SNR rescue is FLAKY — a single run is not a posterior (seed ensemble)
+
+The 56.1 sweet-spot number above is a **single lucky draw**, not the typical outcome. Repeating
+cap 16 / inflate 1.3 across seeds (same best-fit on-source point, warm 0.5, n_max 4M):
+
+| copy | n_eff @4M | lnZ |
+|------|----------:|-------:|
+| unseeded | **56.1** | 3016.08 |
+| seed 1 | 1.3 | 3011.20 |
+| seed 2 | 1.5 | 3017.07 |
+| seed 3 | 9.2 | 3015.96 |
+| seed 4 | 1.2 | 3010.65 |
+
+Median n_eff ≈ **1.5**; the distribution is bimodal (mostly collapsed, occasionally lands). lnZ
+swings 3010.6 → 3017.1 (6.4 nats) with **no clean sign** — a single dominating outlier can push
+evidence high (seed 2: n_eff 1.5 but lnZ 3017.1) or low (seed 4). **One low-n_eff portfolio run on a
+high-SNR event is not a usable posterior at any budget.** The operational recipe for such events is
+to run MANY independent copies and pool (below), or find a proposal that reliably lands high n_eff.
+
+**Pooling recovers the answer — but only if pooled by reliability, not naively.** n_eff-weighted mean
+of the five copies' lnZ = **3016.0** (the two high-n_eff copies, 3016.08 & 3015.96, agree and
+dominate); the *unweighted* mean is 3014.2, biased ~1.8 nats low by the collapsed copies. Naive
+concatenation of raw importance samples is WORSE than either: it is dominated by whichever copy owns
+the single largest weight — which may be a *collapsed* copy. So "pool many copies" means pool enough
+that the **pooled cloud's own n_eff** is high; a handful of copies can still be outlier-dominated.
+
+**cap-too-high is the failure mode (confirmed).** Bigger BIC cap / inflation → wider GMM proposal →
+more prone to the single-enormous-weight collapse: cap 24 median n_eff 2.3–2.8 vs cap 16's occasional
+56. The knob buys peak coverage at the cost of tail control; past the sweet spot the tail wins.
+
+### `--save-samples` is unusable for portfolio shape-checks in this regime (four independent layers)
+
+Trying to export the extrinsic cloud for a weighted-shape check surfaced that the export path fails
+for a peaked (low-to-moderate n_eff) portfolio run at *four* layers — every seed above exported
+**0 rows**, even seed 3 at n_eff 9.2:
+
+1. **Fairdraw** (`--fairdraw-extrinsic-output`) resamples ∝ weight → at n_eff≈1 it returns copies of
+   the one dominant point or nothing. Useless at low n_eff (per reviewer guidance).
+2. **`--save-P` defaults to 0.1** — the export prunes the bottom 10% of *probability*; on a peaked
+   cloud that discards nearly everything. Raw weighted export needs `--save-P 0`.
+3. **`mcsamplerPortfolio` `_rvs` cleanup (draft-inherited, ~line 1135) cumulative-sums the LOG-weights**,
+   not the weights, and is poisoned by any `-inf` ln_wt entry → 0 rows survive even at n_eff 9.2.
+   (Pre-existing pattern copied from the ensemble sampler; flagged as a separate fix, not touched here.)
+4. **The XML only carries `loglikelihood = log_integrand` (lnL), not the IS weight**
+   (`log_integrand + log_joint_prior − log_joint_s_prior`). A weighted-posterior check off the XML is
+   therefore wrong-by-construction (weights by likelihood, not posterior). `shape_extrinsic.py` had
+   this bug.
+
+**Correct path for a weight-aware shape/posterior check: `--extrinsic-proposal-output`** — it builds
+the TRUE importance log-weights from the raw `_rvs` cloud (driver ~line 2856) and fits a per-group
+GMM, bypassing all four failure layers. Pool/compare those GMM fits across copies for the posterior.
+(NB: it still needs `--save-P 0`, or the same buggy `_rvs` cleanup prunes the cloud to 0 rows and the
+fit dies with "zero-size array to reduction cupy_max". Same root bug as layer 3 above.)
+
+## The real answer: n_eff is a LOTTERY for every config — pooling is mandatory
+
+Goal (per reviewer): not max n_eff — *reliable modest* n_eff with a stable, unbiased extrinsic
+posterior and no failure mode tied to extrinsic multimodality/degeneracy. Seed ensemble on the
+best-fit high-SNR point (warm 0.5, n_max 4M), AV+GMM portfolio, GMM-coverage configs.
+
+**FIRST, A CORRECTION / METHOD LESSON.** A 3-seed run of cap8 gave {7.0, 10.1, 13.7} and I wrote
+"cap8 is reliably modest." That was survivorship bias on 3 draws — the exact trap this document warns
+about. Extending cap8 to **10 draws** (GPU runs are non-deterministic even at fixed `--seed`: float
+reduction order) gives:
+
+    cap8 n_eff (10 draws):  1.00, 1.00, 1.06, 1.57, 7.0, 10.1, 13.7, 22.0, 55.3, 70.1
+                            median ~8.5, range 1 -> 70, ~40% collapsed to ~1
+
+cap8 is **just as bimodal as cap16** — it is not a reliability fix. n_eff on this high-SNR best-fit
+point is a **lottery** for the portfolio regardless of the BIC cap: most runs collapse to ~1, a
+minority land 10–70. lnZ tracks the mode (collapsed runs bias lnZ 5–11 nats low). Across configs:
+
+| config | GMM coverage | n_eff draws | reliability |
+|--------|-------------|-------------|-------------|
+| cap8 (factored) | cap 8, inflate 1.0 | 1,1,1.06,1.6,7,10,14,22,55,70 (n=10) | bimodal lottery |
+| cap16 (factored) | cap 16, inflate 1.3 | 1.2,1.3,1.5,3.5,9.2,13.6,56,59 (n=8) | bimodal lottery (~same) |
+| corr (correlate-all) | single 6-D GMM, cap 8 | 1.8,1.9,20.6 (n=3) | strictly WORSE (see below) |
+
+**Consequence (this is the reviewer's original point, now proven on real data): a single run — any
+config — is NOT a posterior on this event. The only robust recipe is to run MANY independent copies
+and pool.** Pool by reliability, not naively (see the pooling note above): the pooled *cloud's own*
+n_eff must be high. The cap knob changes the odds of a good draw only marginally; it does not remove
+the need to pool.
+
+**The "strongly-correlated problem → correlate-all" hypothesis is REFUTED.** A single full-dimension
+(6-D) GMM that *can* represent cross-group (sky–phase, dL–ι) correlation is the WORST here: it
+collapses on 2 of 3 seeds and biases lnZ up to 11 nats low (3004.5). Reason: a 6-D mixture needs
+~(d+2) effective samples per component; at the modest n_eff these runs produce, its covariances go
+near-singular and a few enormous weights dominate. The **factored per-group (2-D) proposal is more
+robust** precisely because each low-dimensional fit is cheap and well-conditioned — the correlation
+it cannot represent costs less than the fitting variance a full-dim GMM incurs. So *more* proposal
+expressiveness is the wrong lever; the lever is **more copies**.
+
+Harness: `test/integrators/bench_onsource_ensemble.sh` + `compare_extrinsic_breadcrumbs.py`. The
+weight-correct extrinsic export needed for the pooled shape check is unblocked by PR #35 (the
+`--save-samples`/`_rvs` cleanup fix: linear-weight cumsum + `-inf` guard), cherry-picked here.
+
+### The failure mode IS an extrinsic-degeneracy collapse — and pooling landed copies is robust
+
+9-copy cap8 pool (seeds 10–18, `--extrinsic-proposal-output`): 4 landed (n_eff 15,36,39,41), 5
+collapsed (n_eff 1–3.2). The weight-correct per-group GMM fits give a clean picture:
+
+- **Mode count is a perfect collapse diagnostic, and the collapse is exactly the reviewer's worry.**
+  Every LANDED copy fits **3–4 modes** in each degeneracy group — (ra,dec) sky **ring**, (distance,ι)
+  arc, (φ,ψ). Every COLLAPSED copy fits **1 mode** in every group: a single degenerate blob that has
+  **lost the sky ring / dL–ι arc / phase-pol structure**. So low n_eff ⟺ extrinsic *mode collapse*;
+  the settings' instability is tied directly to multimodality/degeneracy, and n_eff (or the fitted
+  mode count) detects it.
+- **Landed copies AGREE — when it lands, the posterior is stable and reproducible.** Across the 4
+  landers the (ra,dec) mixture mean agrees to ~0.01 (frame units) and (distance,ι) to ~0.02 in ι —
+  i.e. the recovered extrinsic posterior is *consistent copy-to-copy*, no hidden instability among
+  good runs. The exception is (φ_orb,ψ): scatter ~1.5 even among landers, because the 2-IFO phase–
+  polarization degeneracy is genuinely the least-constrained extrinsic direction (expected, not a bug).
+- **Reliability-weighted pooling ≈ good-only (correct); naive pooling is biased by the collapsed
+  copies.** For the well-constrained sky group all three pooling recipes coincide, but for the looser
+  distance and phase groups naive-unweighted pooling is pulled off the good-only answer (distance:
+  naive vs good differ ~80 units; phase: −0.74 vs −1.88) while the n_eff-weighted pool tracks good-only.
+  Reliability-weighted **effective #copies (Kish over n_eff) = 4.1** — the 9-copy pool really rests on
+  its ~4 landers. **Operational recipe: run ~2–3× as many copies as landers you need, pool weighted by
+  n_eff (or simply drop n_eff<5 copies).**
+
+Caveat (honest): the comparator's *physical* un-normalization of the GMM means is in the wrong frame
+(the RIFT GMM's internal normalization is not the naive [0,1]-on-bounds I assumed — all means flag
+out-of-bounds, so that flag is unreliable). The conclusions above rest only on the frame-INDEPENDENT
+signals — mode counts and copy-to-copy agreement (`good-scatter`) — not on absolute mean values. A
+correct physical read needs the GMM model's normalization; the mode-collapse / pooling story does not.
+
+### Coordinates/adaptation help the LANDERS, not the collapse rate — the collapse is an AV peak-lock lottery
+
+Testing the reviewer's high-SNR recipe (`--force-adapt-all` + rotations). CONFOUND first: the
+coordinate-transform flags (`--internal-rotate-phase`, `--internal-sky-network-coordinates`) change
+what the sampler's parameter slots MEAN, but `--sampler-warmstart-samples` maps the seed by column
+NAME without transforming values -> a PHYSICAL seed poisons the rotated/network proposal. Naive
+"add the flags" run: 0/9 landed (every copy collapsed). Fix = a frame-matched seed
+(`seed_phi_orb=mod(phi+psi,4pi)`, `seed_psi=mod(phi-psi,4pi)` for rotate-phase; `--force-adapt-all`
+is frame-preserving and needs no transform). Now in the lore repo's gotchas.
+
+With a frame-matched seed (`--force-adapt-all --internal-rotate-phase`, 9 copies):
+
+| metric | baseline (physical) | +force-adapt-all+rotate-phase |
+|--------|--------------------:|------------------------------:|
+| landed fraction (n_eff>=5) | 4/9 | **4/9 (unchanged)** |
+| landed n_eff | 15,36,39,41 | **41,52,52,41** (higher, tighter) |
+| landed sky modes | 3-4 | 3-4 (ring preserved) |
+
+So phase-decorrelation + full adaptation is a real efficiency win FOR THE LANDERS (n_eff ~50 vs ~30)
+but does NOT move the ~55% collapse rate. The lottery is now robust across EVERY config tried (cap8,
+cap16, correlate-all, +rotate-phase): same ~50% collapse, same signature (n_eff~1, single mode). The
+root cause is therefore not the proposal/coordinates but **AV's contracting box locking onto the
+sharp high-SNR peak or contracting around the wrong spot ~50/50** — and the portfolio cannot backstop
+better than AV's own contraction reliability, because AV itself is the coin-flip.
+
+**Targeted fix under test: L0 auto-rescue** (`--sampler-warmstart-retry-neff`). If a pass finishes
+n_eff < threshold, re-seed AV from the run's OWN highest-L samples (the peak it did find) and re-run
+— same-problem reuse, cannot bias, frame-safe by construction. Was gated to standalone AV; relaxed to
+fire for the portfolio too (peak-seed bootstraps into the AV member). This is the in-loop version of
+"pool copies": convert each collapsed draw into a land instead of discarding it. Result pending (prr_).
+
+### THE HIGH-SNR FIX: L0 auto-rescue roughly DOUBLES the landed fraction (4/9 -> 8/9)
+
+Since the collapse is AV losing the sharp peak ~50/50 (not a proposal/coordinate defect), the fix is
+to re-seed a collapsed run from the peak IT DID FIND and re-run: `--sampler-warmstart-retry-neff 5`
+(L0 auto-rescue). Bug found + fixed first: the rescue is gated on the sampler being AV or a
+portfolio, but `opts.sampler_method` is CLOBBERED to 'GMM' during portfolio member setup (line ~1231,
+`opts.sampler_method='GMM'` forces GMM arg-parsing), so an AV+GMM portfolio reports method 'GMM'
+everywhere downstream. The gate now detects the portfolio via `opts.sampler_portfolio` (the member
+list, which survives the clobber). [Same clobber makes the portfolio-only block at ~1641 dead code --
+harmless, the GMM branch picks up the gmm_adaptive forwarding as a per-group dict -- but a latent
+footgun; flagged for cleanup.]
+
+9-copy pool, cap8 + `--force-adapt-all --internal-rotate-phase` (frame-matched seed) +
+`--sampler-warmstart-retry-neff 5`:
+
+| seed | prior behavior | prr_ result | rescue |
+|------|---------------|------------:|:------:|
+| s10 | collapse | 4.5 | fired (just under) |
+| s11 | chronic ~1 collapse | **33.4** | fired -> LAND |
+| s12 | collapse | 33.4 | (landed pass 1) |
+| s13 | 35-52 | **47.0** | fired -> LAND |
+| s14 | chronic ~1 collapse | **25.2** | fired -> LAND |
+| s15 | mixed | **19.6** | fired -> LAND |
+| s16 | collapse | **38.1** | fired -> LAND |
+| s17 | 15 | 10.0 | (landed pass 1) |
+| s18 | 39-41 | 21.4 | (landed pass 1) |
+
+**LANDED 8/9** (baseline 4/9, pr_ 4/9); 6 rescues fired, 5 converted to clean lands and the 6th to
+4.5. Chronic collapsers (s11, s14, both stuck at n_eff~1 across every prior config) now land at 25-33.
+Cost: a rescued run does 2 integration passes (~2x). This is the in-loop equivalent of "pool copies",
+and it is the real high-SNR lever -- coordinates/adaptation improve the LANDERS, the rescue fixes the
+COLLAPSE RATE.
+
+**Validated high-SNR recipe:** portfolio AV+GMM (cap8, adaptive components) + `--force-adapt-all`
++ `--internal-rotate-phase` (with a phase-frame-matched warm seed) + `--sampler-warmstart-retry-neff 5`.
+Even so, for a publication-grade posterior at n_eff this modest, still pool a few landed copies.
+
+## EVIDENCE AUDIT: which numbers in this document are single draws
+
+The n_eff lottery (documented above) was discovered LATE, after much of this document was written.
+Because a single run on a lottery-prone point is noise-dominated, several earlier claims here rest on
+n=1 and must be read as suggestive, not established. Explicit audit:
+
+**Downgraded to UNPROVEN (single draw on a bimodal quantity):**
+- The GMM coverage ladder cap8=14.7 / cap16=56.1 / cap24=2.3 -- all n=1. The cap16 "sweet spot" is
+  already retracted above; **the companion claim that cap24 over-cranking BIASES lnZ (3009.5, -6.6
+  nats) is likewise a single draw and is NOT established.** A collapsed copy shifts lnZ in either
+  direction (seed 2 of the cap16 ensemble: n_eff 1.5 but lnZ 3017.1, i.e. HIGH). Distinguishing
+  genuine over-inflation bias from collapse noise needs a seed ensemble per cap, which has not run.
+- `--internal-gmm-correlate-all` is worse: n=3 (2/3 collapsed, lnZ up to 11 nats low). Directionally
+  supported and mechanistically plausible (a 6-D mixture needs ~(d+2) eff-samples/component), but not
+  firm at n=3.
+- Benchmark 1's cold rows (av_cold 3.7, pf_nf_cold 1.1): single draws on the lottery-prone point.
+
+**Robust (large effect, understood mechanism, and/or well sampled):**
+- Never-freeze rescues the workhorse (3.4 -> 53): large, mechanism understood (frozen at chunk 1),
+  and independently corroborated by zero freeze notices across the multi-event suite.
+- Multi-event ln Z replication (Benchmark 2, NON-warm-started): an UNBIASEDNESS claim, structurally
+  guaranteed by the balance-heuristic q_mix (the estimate is unbiased for any member weights). The
+  ΔlnZ agreement stands. (The n_eff-efficiency comparisons in that same table are single draws.)
+- The lottery itself (cap8 n=10, cap16 n=8), the mode-collapse diagnosis (9 copies, clean 1-mode vs
+  3-4-mode split), and the L0 auto-rescue 4/9 -> 8/9 (9 copies + a post-cleanup regression).
+
+**OPEN: is the lottery high-SNR-only?** Every ensemble here is on the ultra-sharp best-fit point of a
+loud event. If typical events are unimodal in n_eff, single-draw comparisons on them (Benchmark 2) are
+fine as-is; if not, that table's efficiency numbers need ensembles too. Cheap to settle: one seed
+ensemble on a typical event.
+
+**Not a factor: the sampler_method clobber.** For an AV+GMM portfolio the clobber changed only whether
+`return_lnI` was passed, and `mcsamplerPortfolio` never reads it (`use_lnL` was set either way, because
+the portfolio branch force-sets `internal_use_lnL=True` before the clobber). Verified by regression:
+identical per-group `gmm_adaptive` forwarding and identical rescue behaviour. No result in this
+document is invalidated by removing it.
+
+## COLD-START ensemble: n_eff does NOT certify correctness (the confidently-wrong failure)
+
+Rerun of the cold (non-warm-started) case after two fixes landed: the pre-existing
+`mcsamplerEnsemble` loop-invariant clobber (which had made EVERY cold portfolio start crash at
+chunk ~8 with no output at all -- 0/9), and the L0 rescue now firing on degenerate early
+termination. Config: portfolio AV+GMM cap8 adaptive, `--force-adapt-all --internal-rotate-phase
+--interpolate-time True --sampler-warmstart-retry-neff 5`, 9 seeds, cold.
+
+| seed | n_eff | lnZ | modes/group | rescue |
+|------|------:|--------:|:-----------:|:------:|
+| s10 | 1.5 | 3006.16 | 1 | fired |
+| s11 | 13.9 | **3012.47** | 1 | fired |
+| s12 | 31.0 | **3013.87** | 1 | fired |
+| s13 | 1.0 | 3001.19 | 1 | fired |
+| s14 | 38.0 | **3013.61** | 4 | fired |
+| s15 | 1.1 | 3002.36 | 1 | fired |
+| s16 | 18.0 | **3012.54** | 1 | fired |
+| s17 | **58.0** | **3001.68** ⚠ | 1 | fired |
+| s18 | 3.8 | 3015.53 | 2 | fired |
+
+(lnZ is only comparable WITHIN this table: `--internal-rotate-phase` doubles the prior, so these
+values are offset from the non-rotated benchmarks earlier in this document.)
+
+**9/9 now produce output (was 0/9 -- the crash), 5/9 land (n_eff>=5).** Cold is materially worse than
+warm+rescue (8/9), so a warm seed still earns its keep; but cold now WORKS, which it did not before.
+
+**The headline result is the lnZ column, not the landed count.** Among the five landed copies lnZ
+spans **3001.7 - 3013.9 (12 nats)**, and the single most wrong copy is the one with the **HIGHEST
+n_eff**: s17, n_eff 58, lnZ 11 nats below the consensus. Four of five landers agree to within 1.4
+nats (3012.5-3013.9); s17 dissents while looking, by n_eff, like the best run in the ensemble.
+
+**Consequences (this changes the recommended practice):**
+1. **n_eff is NECESSARY BUT NOT SUFFICIENT.** It measures weight concentration, not coverage. A pass
+   that locks onto one narrow region has low weight variance (high n_eff) while missing posterior
+   mass (lnZ too low) -- confidently wrong. You CANNOT pick the trustworthy copy by max n_eff, and a
+   single high-n_eff run is not self-certifying.
+2. **Use CONSENSUS across copies, not the best-n_eff copy.** The outlier here is detectable only by
+   disagreeing with the pool. Prefer the median lnZ over landed copies (median 3012.54 correctly
+   rejects s17) to an n_eff-argmax or even an n_eff-weighted mean (which s17's weight would drag
+   down). This is a direct strengthening of the "run MANY copies" recipe: copies are needed not just
+   to find a good draw, but to DETECT a bad one that looks good.
+3. Mode count is a useful but imperfect cross-check here: s14 (4 modes) sits in the consensus, but
+   s11/s12/s16 are 1-mode and also in the consensus, so a low mode count alone does not condemn a
+   run at this sample size. Cross-copy agreement remains the strongest signal.
+
+### AUTO-COLLECTED raw results: AV-backstop / mode-budget sweep (cold, high-SNR best-fit point)
+
+Config base: portfolio AV+GMM, adaptive components, `--force-adapt-all --internal-rotate-phase`,
+`--interpolate-time True`, `--sampler-warmstart-retry-neff 5`, cold (no warm seed).
+`bk` = `--portfolio-varaha-min-frac 0.25` (cap 8); `md` = `--internal-gmm-max-components 3`
+(no floor); `bkmd` = both.  Judged by lnZ CONSENSUS across seeds, not n_eff.
+
+| config | seed | n_eff | lnZ | AV final frac |
+|--------|------|------:|----:|--------------:|
+| bk | s10 | 1.0 | 3013.17 | 0.25 |
+| bk | s12 | 1.0 | 3009.18 | 0.9900964290627214 |
+| bk | s14 | 6.5 | 3013.41 | 0.25 |
+| bk | s17 | 11.2 | 3014.23 | 0.25 |
+| md | s10 | 12.4 | 3012.42 | 0.009900990099393974 |
+| md | s12 | 5.6 | 3006.52 | 0.009900990099649775 |
+| md | s14 | 123.6 | 3003.09 | 0.00990112295232892 |
+| md | s17 | 22.7 | 3015.00 | 0.009900990099929107 |
+| bkmd | s10 | 9.5 | 3010.88 | 0.25 |
+| bkmd | s12 | 11.8 | 3011.52 | 0.25 |
+| bkmd | s14 | 1.9 | 3011.12 | 0.25 |
+| bkmd | s17 | 26.6 | 3013.15 | 0.25 |
+
+Baseline for the SAME four seeds (no floor, cap 8): s10 3006.16 / s12 3013.87 / s14 3013.61 /
+s17 3001.68  -> 12.2 nat spread, with the highest-n_eff copy (s17, n_eff 58) the most wrong.
+
+lnZ spread per config (max-min over the four seeds):
+- `bk`: lnZ = 3013.17 3009.18 3013.41 3014.23  -> spread 5.05 nats
+- `md`: lnZ = 3012.42 3006.52 3003.09 3015.00  -> spread 11.91 nats
+- `bkmd`: lnZ = 3010.88 3011.52 3011.12 3013.15  -> spread 2.27 nats
+
+Shape-recovery merge gate: 
+
+### Banded VARAHA share: the share constraint and the mode budget only work TOGETHER
+
+Adding `--portfolio-varaha-max-frac` (cap) to the existing floor, and crossing it with the GMM BIC
+cap. Cold, high-SNR best-fit point, 4 seeds each, judged by lnZ consistency (NOT n_eff):
+
+| config | VARAHA share | GMM cap | lnZ (s10,s12,s14,s17) | sd | spread |
+|--------|--------------|--------:|-----------------------|-----:|------:|
+| baseline | unconstrained | 8 | 3006.2 3013.9 3013.6 3001.7 | 5.96 | 12.19 |
+| `md` | unconstrained | 3 | 3012.4 3006.5 3003.1 3015.0 | 5.43 | 11.91 |
+| `band8` | band .25-.75 | 8 | 3015.0 3011.9 3003.3 3014.6 | 5.42 | 11.65 |
+| `bk` | floor .25 | 8 | 3013.2 3009.2 3013.4 3014.2 | 2.26 | 5.05 |
+| `bkmd` | floor .25 | 3 | 3010.9 3011.5 3011.1 3013.2 | 1.02 | 2.27 |
+| **`band3`** | **band .25-.75** | **3** | **3012.9 3011.2 3012.9 3012.6** | **0.85** | **1.79** |
+
+**Neither lever works alone.** A reduced mode budget with an unconstrained share (`md`) is no better
+than baseline (sd 5.43 vs 5.96) -- and it is the arm that produced the worst confidently-wrong case in
+the whole study (n_eff 123.6, lnZ 10 nats low). A share constraint alone helps but inconsistently.
+Only the two configurations combining a VARAHA share constraint WITH the modest mode budget are
+tight (sd 0.85 / 1.02), and they are the ONLY two with no outlier >=5 nats from their own median.
+
+Mechanism consistent with the rest of this section: the share constraint keeps a broad backstop in
+q_mix so no mode is left uncovered, and the modest mode budget stops the peaked member from splitting
+into many narrow components that individually chase structure and collectively lose coverage.
+
+**Statistical caveat, stated plainly:** n=4 per config. `band8` (5.42) vs `bk` (2.26) differ only by a
+cap that bound on one seed, so that gap is almost certainly noise -- an sd on 3 dof swings by ~2x
+routinely. Read this table as "the floor+cap3 FAMILY is tight, the rest is not", NOT as a fine
+ranking. A confirmation run extending `band3` and `bkmd` to 5 further seeds each (n=9) is under way.
+
+**Gate status: NOT YET CLEARED.** Every knob here is opt-in, so the default-path merge gate is
+bitwise-blind to all of it. `probe_portfolio_optin_flags.py` now carries `varaha floor .25`,
+`varaha band .25-.75` and `band + gmm cap3`, scored by the gate's own `evaluate()`. NOTHING here is
+proposed as a recommendation or default until that probe passes AND the base-vs-branch gate compares
+clean.
+
+### n=9 like-for-like: the constraint helps, but NOT significantly, and does not make one run trustworthy
+
+The n=4 table above was a fluke of seeds {10,12,14,17} (band3 sd 0.85 -> 3.11 when extended). Extending
+all three configs to the SAME nine seeds {10,12,14,17,20..24}:
+
+| config | lnZ sd | spread | worst deviation from own median |
+|--------|-------:|-------:|--------------------------------:|
+| baseline (unconstrained share, cap 8) | 5.04 | 12.71 | 10.4 nats |
+| `bkmd` (floor .25, cap 3) | 3.01 | 10.25 | **6.1 nats** |
+| `band3` (band .25-.75, cap 3) | 3.08 | 7.79 | 7.2 nats |
+
+F-test on the variances (n=9 each):
+- baseline vs `bkmd`  : F=2.81, one-tailed p=0.083 -- **NOT significant at 5%**
+- baseline vs `band3` : F=2.69, one-tailed p=0.092 -- **NOT significant at 5%**
+- `bkmd` vs `band3`   : F=1.05, p=0.48 -- indistinguishable; the CAP adds nothing measurable over the FLOOR
+
+**Honest reading.** The share constraint cuts lnZ scatter ~40% and roughly halves the worst-case
+deviation, which is a real-looking effect with a plausible mechanism (q_mix keeps a broad backstop, so
+no mode goes uncovered) -- but at n=9 it does NOT reach significance. Do not present it as an
+established improvement. Reaching p<0.05 on a variance ratio this size needs ~20+ seeds per config.
+
+**What does NOT depend on the significance test:** every catastrophic confidently-wrong case in this
+study (n_eff 58 with lnZ 11 nats low; n_eff 123.6 with lnZ 10 nats low) occurred in an
+UNCONSTRAINED-share arm, and none occurred in a constrained arm.
+
+**What is settled regardless:** no configuration makes a SINGLE run trustworthy on this point -- the
+best still deviates 6 nats from its own median. Pooling across copies, judged by consensus rather
+than by n_eff, remains mandatory.
+
+### Merge gate: PASSED (PR #34)
+
+`compare_shape_results.py` over all 96 rows, base `rift_O4d` vs this branch, both arms run
+single-process: **0 blocking regressions (strict = AV, GMM), COMPARE_EXIT=0**, no REGRESSION /
+BLOCKS-MERGE / ONLY-IN rows. `PREEXISTING-FAIL` rows fail identically on base.
+NOTE the gate must be run with `--jobs 1`: its multiprocessing pool DEADLOCKS at higher job counts
+(observed on both arms independently) -- see the lore repo's gotchas.
+
+### Flag-ON gate probe: PASSED (0 opt-in regressions)
+
+`probe_portfolio_optin_flags.py`, scored by the gate's own `evaluate()` so a PASS here passes by
+exactly the gate's criteria. Each configuration compared against the SAME target with flags OFF:
+
+| configuration | d2_n1_s303 | d2_n3_s303 | d4_n1_s303 | d4_n3_s303 |
+|---------------|-----------|-----------|-----------|-----------|
+| `varaha floor .25` | PASS | PASS | PASS | STARVED (base STARVED too) |
+| `varaha band .25-.75` | PASS | PASS | PASS | STARVED (base STARVED too) |
+| `band + gmm cap3` | PASS | PASS | PASS | STARVED (base STARVED too) |
+
+**opt-in regressions: 0.** The pre-existing opt-in features (adaptive_alloc, weight_clip, and their
+combination) also remain at 0 regressions. As expected the constraints are ~no-ops on the gate's
+well-behaved targets -- which is the point: they must not COST anything where they are not needed.
+
+## STATUS SUMMARY (all three bars)
+
+| bar | result |
+|-----|--------|
+| merge gate (base vs branch, 96 rows) | **PASS** -- 0 blocking regressions, COMPARE_EXIT=0 |
+| flag-ON probe (proposed settings) | **PASS** -- 0 opt-in regressions |
+| real-event benefit (n=9, matched seeds) | scatter 5.04 -> ~3.0 sd, worst dev 10.4 -> 6.1 nats, but **p~0.08: NOT significant** |
+
+So the settings are SAFE (both gates clear) but their benefit is not yet PROVEN. Recommended posture:
+keep them opt-in and documented for high-SNR use, do NOT change any default, and either accept the
+caveat or spend ~20 seeds/config to settle significance.

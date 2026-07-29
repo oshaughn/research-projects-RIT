@@ -70,7 +70,10 @@ def filtered(argv, container=False):
         out.append(tok)
     return out
 
-def run(event, tag, sampler_extra, neff, nmax, gpu, container=False):
+def run(event, tag, sampler_extra, neff, nmax, gpu, container=False, wrap=True):
+    """container=True builds the FULL production args (gwsignal/SEOBNRv5PHM/cosmo prior).
+    wrap=False runs python directly instead of nesting singularity -- use when the job is ALREADY
+    inside the container (e.g. condor supplied it via MY.SingularityImage)."""
     edir, argv = build_args(event, container=container)
     argv = filtered(argv, container=container)
     out = "{}/mev_{}.xml".format(edir, tag)
@@ -78,7 +81,7 @@ def run(event, tag, sampler_extra, neff, nmax, gpu, container=False):
                                                     "--n-events-to-analyze", "1", "--event", "0",
                                                     "--output-file", out]
     log = "{}/mev_{}.log".format(edir, tag)
-    if container:
+    if container and wrap:
         # Run inside the event's production container (real SEOBNRv5PHM + gwsignal + cuda118 cupy)
         # but force MY worktree RIFT onto PYTHONPATH so the CONTAINER supplies the waveform/cupy
         # stack while the INTEGRATOR code under test is this branch's.  Bind ceph frames + the
@@ -92,7 +95,9 @@ def run(event, tag, sampler_extra, neff, nmax, gpu, container=False):
                "--bind", WT, SIF, "bash", "-c", inner]
         env = dict(os.environ)
     else:
-        cmd = [PY, "-u", BIN] + argv
+        # direct exec: either the bare-venv fallback, or we are already inside the container
+        _py = "python" if (container and not wrap) else PY
+        cmd = [_py, "-u", BIN] + argv
         env = dict(os.environ)
         env["PYTHONPATH"] = CODE + ":" + env.get("PYTHONPATH", "")
         env["PATH"] = CODE + "/bin:" + env["PATH"]
@@ -119,12 +124,13 @@ if __name__ == "__main__":
     cmd = sys.argv[1]
     gpu = int(os.environ.get("GPU", 2)); neff = float(os.environ.get("NEFF", 40)); nmax = int(os.environ.get("NMAX", 2000000))
     container = os.environ.get("CONTAINER", "1") == "1"   # default: faithful container path
+    wrap = os.environ.get("NO_SINGULARITY", "0") != "1"  # 0 => nest singularity; 1 => already inside
     if cmd == "smoke":
-        log = run(sys.argv[2], "smoke", ["AV"], neff=999, nmax=60000, gpu=gpu, container=container)
+        log = run(sys.argv[2], "smoke", ["AV"], neff=999, nmax=60000, gpu=gpu, container=container, wrap=wrap)
         print("smoke log:", log); print(read_result(sys.argv[2], "smoke"))
     elif cmd == "run":
         event, tag = sys.argv[2], sys.argv[3]; sampler_extra = sys.argv[4:]
-        log = run(event, tag, sampler_extra, neff, nmax, gpu, container=container)
+        log = run(event, tag, sampler_extra, neff, nmax, gpu, container=container, wrap=wrap)
         print(tag, read_result(event, tag), "log:", log)
     elif cmd == "read":
         print(sys.argv[2], sys.argv[3], read_result(sys.argv[2], sys.argv[3]))

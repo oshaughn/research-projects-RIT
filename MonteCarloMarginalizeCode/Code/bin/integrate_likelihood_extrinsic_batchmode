@@ -263,7 +263,7 @@ optp.add_option("--freqresponse-arm-length", default=None, help="Arm-length over
 optp.add_option("--force-xpy", action="store_true", help="Use the xpy code path.  Use with --vectorized --gpu to use the fallback CPU-based code path. Useful for debugging.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
-optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
+optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file (sparse sim_inspiral XML). Requires --output-file to be defined. NOTE: the XML carries lnL only, not the importance weight -- it does NOT persist the joint prior / sampling prior, so it must not be reweighted by likelihood for a weighted-posterior/shape check. For that, use the ASCII per-sample outputs --extrinsic-proposal-output (full log-weight) or --calibration-export-posterior.")
 optp.add_option("--save-samples-process-params", action="store_true", help="XML output retains process_params table, Default is not to do this")
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0.1, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
@@ -342,6 +342,7 @@ integration_params.add_option("--portfolio-varaha-can-freeze",action='store_true
 # is not the default -- see DESIGN_portfolio_freeze_policy.md.
 integration_params.add_option("--portfolio-adaptive-alloc",action='store_true',default=False,help="Portfolio: ENABLE (opt-in) adaptive-probe draw allocation -- concentrate draws on the best per-chunk-n_ess member. Good on strongly-correlated targets; NOT recommended for AV-favorable high-SNR events (it starves the slow-contracting AV workhorse). Off by default (legacy n_ess reweighting).")
 integration_params.add_option("--portfolio-varaha-min-frac",default=None,type=float,help="Portfolio: reserve this combined DRAW fraction for VARAHA/AV members (0/unset = off). never-freeze keeps a VARAHA member UPDATING, but both allocation rules score by per-chunk n_ess, which sits at ~1 during VARAHA's slow cumulative contraction -- so a member that looks instantly good can take nearly the whole budget (measured on S250114ax post-#33: GMM took ~0.84 and the portfolio collapsed to n_eff ~2 vs ~100 for standalone AV). Unbiased for any allocation (q_mix); trades efficiency only.")
+integration_params.add_option("--portfolio-varaha-max-frac",default=None,type=float,help="Portfolio: CAP the combined DRAW fraction of VARAHA/AV members (0/unset = no cap).  Use WITH --portfolio-varaha-min-frac to constrain the VARAHA share to a BAND.  Rationale: a floor alone stops the mixture degenerating to peaked-member-only (which strips q_mix of its broad backstop, so a missed mode goes uncovered and lnZ is silently low while n_eff looks GOOD), but the share can then run away the OTHER way to ~1 and the mixture degenerates to VARAHA-only instead.  A band (e.g. 0.25/0.75) keeps q_mix genuinely mixed by construction.  Unbiased either way (balance heuristic), so it costs at most draws, never correctness.")
 integration_params.add_option("--portfolio-weight-clip",default=None,type=float,help="Portfolio: OPT-IN truncated importance sampling applied to the PROPOSAL-FIT INPUT ONLY. Caps the weights fed to member.update_sampling_prior (the GMM covariance fit) at tau = C*sqrt(n)*mean(w) (0/unset = off; C~1 is the standard Ionides choice), so one enormous weight cannot make that fit degenerate. The estimator (ln Z, n_eff), the n_ess report, and the allocation signal all use the TRUE unclipped weights, so they stay exactly unbiased and undistorted. Do NOT clip the estimator (measured on S250114ax: n_eff=100 2x faster than AV but ln Z biased -11.5 nats) or the n_ess report (clipping inflates the clipped member's n_ess and starves the AV workhorse). The withheld tail mass is tracked and reported as a diagnostic. NOTE: if huge weights come from q_mix UNDERFLOW (watch for the warning) they are a numerical artifact, not tail mass.")
 integration_params.add_option("--portfolio-quality-signal",default=None,type=str,help="Portfolio adaptive allocation: which per-member quality signal to rank members by. 'global' (default) = marginal gain in POOLED n_eff per sample (credits weight mass, debits weight variance); 'credit' = q_mix-native MIS credit assignment, sum_i [frac_m q_m/q_mix]_i * w_i per drawn sample (credits a member for COVERING where the integrand is, even if it drew few samples there); 'ness' = legacy per-member Kish n_ess (scale-invariant, misranks a slow-contracting AV -- see DESIGN_portfolio_freeze_policy.md).")
 integration_params.add_option("--portfolio-alloc-exponent",default=None,type=float,help="Portfolio: adaptive allocation ~ member_quality^exponent. Higher concentrates harder on the winner. Sampler default 1.0.")
@@ -359,7 +360,7 @@ integration_params.add_option("--nf-flow-save",default=None,help="NF only: after
 integration_params.add_option("--sampler-sequential-warmstart",action='store_true',help="AV only: when a worker analyzes several intrinsic points (--n-events-to-analyze>1), warm-start each point's extrinsic integral from the previous point's converged high-likelihood samples.  Points are processed in their given order (NOT reordered), so a truncated/failed worker still drops a spatially-unbiased subset.  A coverage floor (see --sampler-sequential-warmstart-cover-frac) keeps a poorly-matched transfer from ever biasing the result.")
 integration_params.add_option("--sampler-sequential-warmstart-cover-frac",type=float,default=0.5,help="Coverage floor for --sampler-sequential-warmstart: fraction of full-prior coverage mixed into the seed so the warm live volume always contains a cold start (a mis-matched proposal then only costs efficiency, never bias).  Default 0.5, the measured-safe floor (see --sampler-warmstart-cover-frac); 0.1 is under-covered.")
 integration_params.add_option("--sampler-sequential-warmstart-deltalnL",type=float,default=15.0,help="Keep previous-point samples within this lnL of the max as the warm seed for the next point.  Default 15.")
-integration_params.add_option("--sampler-warmstart-retry-neff",type=float,default=None,help="AV only (L0 auto-rescue): if a cold pass finishes below this n_eff (i.e. it stalled on a very sharp / high-amplitude peak), automatically re-run a second pass warm-started from THIS point's own highest-likelihood samples.  Same-problem reuse, so it cannot bias the result.  Recommended for high-SNR events; e.g. 5.")
+integration_params.add_option("--sampler-warmstart-retry-neff",type=float,default=None,help="AV or portfolio (L0 auto-rescue): if a pass finishes below this n_eff (i.e. it stalled on a very sharp / high-amplitude peak), automatically re-run a second pass warm-started from THIS point's own highest-likelihood samples.  Same-problem reuse, so it cannot bias the result.  Directly targets the high-SNR n_eff LOTTERY (a large fraction of independent runs collapse to n_eff~1 by contracting onto the wrong spot); the rescue re-seeds a collapsed run from the peak it did find.  Recommended for high-SNR events; e.g. 5.")
 integration_params.add_option("--sampler-anisotropic-bins",action="store_true",help="AV only: give each extrinsic axis a DIFFERENT number of bins during contraction -- fine where the live points cluster tightly (phase/polarization/sky), coarse where they are broad (distance/inclination) -- instead of the default equal split.  Keeps the same total bin budget, so the estimator is unchanged; helps AV wrap a correlated/degenerate posterior more tightly.")
 integration_params.add_option("--internal-reparam-dl-incl",action="store_true",help="Sample the DISTANCE axis as an effective distance D_eff = d_L / A(iota), with A(iota)=sqrt(((1+cos^2 i)/2)^2 + cos^2 i) the leading (l=|m|=2) inclination amplitude.  This axis-aligns the distance<->inclination degeneracy (L depends mostly on A(iota)/d_L), decorrelating the two broad directions so the sampler wraps them efficiently.  The likelihood reconstructs physical d_L=D_eff*A(iota); the measure correction is PRIOR-AGNOSTIC -- ln p(d_L) - ln p(D_eff) + ln A(iota), using the ACTUAL --d-prior (dist_prior_pdf), so it is correct for Euclidean, cosmo, cosmo_sourceframe, pseudo_cosmo alike (normalization cancels in the ratio; reduces to +3 ln A only for Euclidean).  The physical d_L bound is enforced.  NOT compatible with --d-prior-redshift (errors out).  Estimator stays unbiased (validate vs baseline posterior).")
 integration_params.add_option("--extrinsic-proposal-field",default=None,help="AV only (L3): path to a ProposalField (.npz built by util_BuildProposalField.py from a previous ILE iteration).  Each intrinsic point warm-starts its extrinsic integral from the field's nearest entry.  Cross-problem reuse, so a coverage floor + an inflation margin are applied (see the two options below); a stale/mismatched field can only cost efficiency, never bias.")
@@ -1165,6 +1166,7 @@ for _optv, _k in [(opts.limit_psi, 'psi'), (opts.limit_right_ascension, 'right_a
 
 # Portfolio
 use_portfolio=False
+use_gmm_member=False   # set when a portfolio carries a GMM member (see the portfolio setup loop)
 params = {}
 sampler = mcsampler.MCSampler()
 xpy_asarray_already = functools.partial(xpy_default.asarray,dtype=np.float64)
@@ -1227,8 +1229,14 @@ elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
             sampler = mcsamplerAdaptiveVolume.MCSampler(n_chunk=opts.n_chunk) # enforce now, so provided for setup phase
         elif name =='GMM':
             sampler = mcsamplerEnsemble.MCSampler()
-            # following override means sampler_method is CHANGED, so THIS MUST BE LAST, and can't condition on portfolio
-            opts.sampler_method = 'GMM'  # this will force the creation/parsing of GMM-specific arguments below, so they are properly passed
+            # A GMM member needs the GMM-specific argument blocks below to run so its config is
+            # forwarded.  Historically this was done by CLOBBERING opts.sampler_method='GMM', which
+            # silently broke every downstream `sampler_method == "portfolio"` test (the portfolio
+            # setup block became dead code, and the L0 auto-rescue gate never fired for a portfolio)
+            # and made a portfolio take GMM-only branches (e.g. return_lnI).  Instead flag it
+            # non-destructively: sampler_method stays 'portfolio', and the GMM blocks below key off
+            # `use_gmm_args` = standalone GMM OR a portfolio carrying a GMM member.
+            use_gmm_member = True
         elif name == "adaptive_cartesian_gpu" or name == 'AC':
             sampler = mcsamplerGPU.MCSampler()
             mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
@@ -1624,9 +1632,16 @@ pinned_params.update({
     "igrand_fairdraw_samples_max": np.min([opts.fairdraw_extrinsic_output_n_max,opts.n_eff])
 })
 if opts.sampler_method == "adaptive_cartesian_gpu":
-  pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!  
+  pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!
+# GMM-specific argument blocks must run for a STANDALONE GMM *or* for a portfolio carrying a GMM
+# member (whose config still has to be forwarded).  This used to be achieved by clobbering
+# opts.sampler_method='GMM' during portfolio setup, which broke every downstream 'portfolio' test;
+# key off this explicit flag instead so sampler_method keeps meaning what the user asked for.
+use_gmm_args = (opts.sampler_method == "GMM") or use_gmm_member
 return_lnL=False
-if opts.sampler_method=="GMM"  and opts.internal_use_lnL:
+if (opts.sampler_method=="GMM") and opts.internal_use_lnL:
+  # standalone GMM only: return_lnI is an mcsamplerEnsemble kwarg; the portfolio does not consume it
+  # (the portfolio's own use_lnL wiring is in the portfolio block below).
   return_lnL=True
   pinned_params.update({"use_lnL":True,"return_lnI":True})
 if opts.sampler_method =="adaptive_cartesian_gpu" and opts.internal_use_lnL:
@@ -1641,17 +1656,18 @@ if opts.sampler_method =="AV" and opts.internal_use_lnL:
 if opts.sampler_method =="portfolio":
   return_lnL=True
   pinned_params.update({"use_lnL":True})
-  # FLEXIBLE allocation for the portfolio's GMM member: forward gmm_adaptive as a
-  # SCALAR cap (applies to whichever groups the member uses -- its grouping is not
-  # built here) so it is opt-in and floored at the member's own n_comp.  The
-  # portfolio forwards setup() kwargs to every member; non-GMM members ignore it.
-  # Default OFF -> the portfolio's stress-tested GMM member config is unchanged.
-  if opts.internal_gmm_adaptive_components:
+  # FLEXIBLE allocation for the portfolio's GMM member.  NOTE: when the portfolio HAS a GMM member
+  # (use_gmm_member), the GMM block below already forwards gmm_adaptive as a per-group DICT (keyed by
+  # the member's actual parameter groups) via extra_args -- which is richer than the scalar cap here,
+  # and is the path every portfolio benchmark on this branch actually exercised (it ran because
+  # sampler_method used to be clobbered to 'GMM').  Only fall back to the scalar form for a portfolio
+  # WITHOUT a GMM member, where that block does not run.  Setting both would double-specify it.
+  if opts.internal_gmm_adaptive_components and not use_gmm_member:
     pinned_params.update({'gmm_adaptive': int(opts.internal_gmm_max_components),
                           'gmm_defensive_frac': float(opts.internal_gmm_defensive_frac),
                           'gmm_inflate': float(opts.internal_gmm_inflate)})
     print(" Portfolio: GMM member adaptive components enabled (BIC, cap {})".format(opts.internal_gmm_max_components))
-if opts.sampler_method == "GMM":
+if use_gmm_args:   # standalone GMM, or a portfolio carrying a GMM member (see use_gmm_args above)
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
     # pairing coordinates for adaptive integration: see definition of order below
@@ -1809,6 +1825,8 @@ if use_portfolio:
           _freeze_policy_kwargs['portfolio_adaptive_alloc'] = True
       if opts.portfolio_varaha_min_frac is not None:
           _freeze_policy_kwargs['portfolio_varaha_min_frac'] = opts.portfolio_varaha_min_frac
+      if opts.portfolio_varaha_max_frac is not None:
+          _freeze_policy_kwargs['portfolio_varaha_max_frac'] = opts.portfolio_varaha_max_frac
       if opts.portfolio_weight_clip is not None:
           _freeze_policy_kwargs['portfolio_weight_clip'] = opts.portfolio_weight_clip
       if opts.portfolio_quality_signal is not None:
@@ -2666,7 +2684,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       if 'distance' in sampler.params:
         sampler.reset_sampling('distance')
       sampler.reset_sampling('inclination')
-    elif opts.sampler_method == "GMM":
+    elif use_gmm_args:   # standalone GMM or a portfolio with a GMM member (gmm_dict exists in both)
       if 'distance' in sampler.params:
          pair_d_incl = sampler_param_tuple(sampler, ['distance','inclination'])
          if  pair_d_incl in gmm_dict:
@@ -2771,10 +2789,21 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # SECOND pass from this same point's own highest-likelihood samples and re-run.
     # This is SAME-problem reuse (the peak provably lies in the seed, since the cold
     # pass found it), so no coverage floor is needed (cover_frac=0) and it cannot
-    # bias the result.  AV only; opt-in via --sampler-warmstart-retry-neff.
-    if (opts.sampler_method == 'AV' and opts.sampler_warmstart_retry_neff
+    # bias the result.  AV or a portfolio carrying an AV member; opt-in via
+    # --sampler-warmstart-retry-neff.  For a portfolio the peak-seed is bootstrapped into its
+    # warm-startable members (the AV live volume) and the whole mixture is re-run; the seed comes
+    # from the run's OWN _rvs (already in the sampling frame), so it is coordinate-safe by construction.
+    # A DEGENERATE EARLY TERMINATION (neff is None) is the strongest possible rescue trigger, not a
+    # reason to skip: mcsamplerPortfolio/AV return (None,None,None,None) from their "terminate early"
+    # branch when the live volume never finds finite in-volume samples -- i.e. exactly the cold, very
+    # sharp peak this rescue exists for.  Such a pass still populates _rvs (it DID sample the peak,
+    # it just could not build a volume around it), so the peak-seed below is available.  Treat
+    # neff=None as "below threshold".
+    _neff_val = None if neff is None else float(sampler.identity_convert(neff))
+    _needs_l0_rescue = (_neff_val is None) or (_neff_val < float(opts.sampler_warmstart_retry_neff or 0))
+    if (opts.sampler_method in ('AV', 'portfolio') and opts.sampler_warmstart_retry_neff
             and hasattr(sampler, 'bootstrap_from_samples')
-            and neff is not None and float(sampler.identity_convert(neff)) < float(opts.sampler_warmstart_retry_neff)):
+            and _needs_l0_rescue):
         try:
             _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
             _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel() if _lnkey else np.array([])
@@ -2786,8 +2815,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     _best = _cols[int(np.nanargmax(_lnv))]
                     _wid = (np.array([sampler.rlim[p] for p in sampler.params_ordered]) - np.array([sampler.llim[p] for p in sampler.params_ordered])) / 200.0
                     _seed = np.random.RandomState(0).normal(_best, _wid, size=(2000, len(_best)))
-                print("  [L0 auto-rescue] cold n_eff {:.1f} < {}; re-running warm from this point's peak ({} pts)".format(
-                    float(sampler.identity_convert(neff)), opts.sampler_warmstart_retry_neff, len(_seed)))
+                print("  [L0 auto-rescue] cold n_eff {} < {}; re-running warm from this point's peak ({} pts)".format(
+                    "DEGENERATE (early termination)" if _neff_val is None else "{:.1f}".format(_neff_val),
+                    opts.sampler_warmstart_retry_neff, len(_seed)))
                 sampler.bootstrap_from_samples(_seed, cover_frac=0.0)   # same problem: peak is in the seed
                 res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
                 sampler._warm = None
@@ -3256,6 +3286,12 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       else:
             samples["latitude"] = samples["declination"]
             samples["longitude"] = samples["right_ascension"]
+      # NOTE: the sim_inspiral XML schema is deliberately sparse -- it carries lnL only (below, mapped
+      # to alpha1), NOT the importance weight.  It does NOT persist log_joint_prior/log_joint_s_prior,
+      # so a downstream consumer CANNOT reconstruct the true weight (log_integrand + log_joint_prior -
+      # log_joint_s_prior) from this file and must not reweight it by likelihood for a weighted-posterior
+      # or shape check.  For richer, ASCII, per-sample output that carries the full log-weight, use
+      # --extrinsic-proposal-output (writes lnL + ln(prior) - ln(s_prior)) or --calibration-export-posterior.
       if "log_integrand" in samples:
           samples["loglikelihood"] = samples["log_integrand"] +  manual_avoid_overflow_logarithm
       else:
@@ -3519,7 +3555,7 @@ for indx in numpy.arange(len(P_list)):
     if opts.sampler_method == "adaptive_cartesian_gpu": 
       for name in sampler.params:
         sampler.reset_sampling(name)
-    elif opts.sampler_method == "GMM":
+    elif use_gmm_args:   # standalone GMM or a portfolio with a GMM member
       # reset the GMM dictionary
       for component in gmm_dict:
           gmm_dict[component] = None
@@ -3540,6 +3576,11 @@ for indx in numpy.arange(len(P_list)):
  except Exception as exception_failure:
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
+  # The message alone ("boolean index did not match...", "index out of range", ...) is rarely enough
+  # to locate a failure inside the sampler stack, and this handler is often the ONLY record a batch
+  # job leaves behind.  Print the traceback too -- it costs nothing on the success path.
+  import traceback as _tb_mod
+  _tb_mod.print_exc()
   if opts.internal_make_empty_file_on_error:
     fname_output_txt = opts.output_file +"_"+str(indx)+"_" + ".dat"
     open(fname_output_txt,'a').close()  # create empty file

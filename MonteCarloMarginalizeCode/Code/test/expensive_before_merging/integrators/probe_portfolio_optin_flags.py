@@ -41,13 +41,27 @@ import shape_recovery as SR
 
 
 def patched_build(flags):
-    """Return a build_sampler that switches the opt-in flags on for portfolio samplers."""
+    """Return a build_sampler that switches the opt-in flags on for portfolio samplers.
+
+    Most knobs are plain attributes on the portfolio object, so setattr suffices.  The GMM
+    component cap is NOT: it lives on the GMM MEMBER's integrator (`gmm_adaptive`), which the
+    portfolio forwards through setup().  Since the probe patches AFTER build, reach into the
+    realized members for that one.  Use the reserved key '_gmm_adaptive_cap'.
+    """
     orig = SR.build_sampler
 
     def build(kind, target, n_chunk):
         s = orig(kind, target, n_chunk)
         if kind == "portfolio":
             for k, v in flags.items():
+                if k == "_gmm_adaptive_cap":
+                    # per-group BIC cap on the portfolio's GMM member(s)
+                    for m in list(getattr(s, "portfolio_realizations", [])):
+                        integ = getattr(m, "integrator", None)
+                        if integ is not None and hasattr(integ, "gmm_dict"):
+                            setattr(integ, "gmm_adaptive",
+                                    {g: int(v) for g in integ.gmm_dict})
+                    continue
                 setattr(s, k, v)
         return s
     return build
@@ -94,6 +108,19 @@ def main():
         ("adaptive_alloc ON", {"portfolio_adaptive_alloc": True}),
         ("weight_clip ON", {"portfolio_weight_clip": 1.0}),
         ("adaptive+clip ON", {"portfolio_adaptive_alloc": True, "portfolio_weight_clip": 1.0}),
+        # VARAHA draw-share constraints (see DESIGN_portfolio_freeze_policy.md).  Motivation: on a
+        # sharp high-SNR target the mixture degenerates to peaked-member-only (VARAHA share -> ~0.01),
+        # q_mix loses its broad backstop, and a missed mode goes uncovered -> lnZ silently low while
+        # n_eff looks GOOD.  A floor blocks that; a floor WITHOUT a cap lets the share run away to ~1
+        # (VARAHA-only), which is the same degeneracy mirrored.  These rows check the constraints do
+        # not damage shape recovery on the gate's own targets, which are NOT pathological -- the
+        # constraint should be close to a no-op there, and must not regress it.
+        ("varaha floor .25", {"portfolio_varaha_min_frac": 0.25}),
+        ("varaha band .25-.75", {"portfolio_varaha_min_frac": 0.25,
+                                 "portfolio_varaha_max_frac": 0.75}),
+        ("band + gmm cap3", {"portfolio_varaha_min_frac": 0.25,
+                             "portfolio_varaha_max_frac": 0.75,
+                             "_gmm_adaptive_cap": 3}),
     ]
     print("# portfolio opt-in flag probe: {} targets x {} configs "
           "(nmax_per_dim={}, neff={})".format(len(jobs_spec), len(configs), nmax_per_dim, neff))

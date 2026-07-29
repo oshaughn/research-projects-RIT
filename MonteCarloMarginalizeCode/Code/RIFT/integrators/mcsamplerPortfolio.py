@@ -265,6 +265,7 @@ class MCSampler(object):
         # so it protects the legacy and adaptive paths alike).  q_mix keeps any allocation unbiased,
         # so this only trades efficiency.
         self.portfolio_varaha_min_frac = kwargs.get('portfolio_varaha_min_frac', 0.0)
+        self.portfolio_varaha_max_frac = kwargs.get('portfolio_varaha_max_frac', 0.0)  # 0 = no cap
         self.portfolio_quality = np.ones(len(self.portfolio))   # per-member quality (EMA of the signal)
         self.portfolio_quality_nobs = np.zeros(len(self.portfolio), dtype=int)  # #updates per member
         self.portfolio_probe_ptr = 0                            # round-robin probe pointer
@@ -365,6 +366,7 @@ class MCSampler(object):
         _kw_keep('portfolio_probe_frac')
         _kw_keep('portfolio_weight_clip')
         _kw_keep('portfolio_varaha_min_frac')
+        _kw_keep('portfolio_varaha_max_frac')
         if 'oracle_realizations' in kwargs:
           if kwargs['oracle_realizations']: 
             self.oracle_realizations = kwargs['oracle_realizations']  # might not have been initialized earlier
@@ -990,19 +992,42 @@ class MCSampler(object):
             # VARAHA DRAW FLOOR (see __init__): reserve a combined fraction for VARAHA members, so a
             # slow-contracting workhorse cannot be starved of DRAWS by a member that merely looks
             # good per-chunk.  Applied after either allocation rule; unbiased (q_mix).
+            # BANDED: a floor alone is not enough.  Measured on a loud-event best-fit point: with no
+            # floor the mixture degenerates to GMM-alone (VARAHA share -> 0.0099), q_mix loses its
+            # broad backstop, and a mode the peaked member misses is uncovered -> lnZ silently low
+            # while n_eff looks GOOD (the confidently-wrong failure).  With a floor but no cap, one
+            # seed ran away the OTHER way (VARAHA -> 0.99) and was the outlier of its arm.  Both are
+            # mixture degeneration.  Constraining the VARAHA share to a BAND keeps q_mix genuinely
+            # mixed -- a broad backstop AND a peaked component -- by construction.  Unbiased either
+            # way (q_mix balance heuristic), so this costs at most draws, never correctness.
             _vmin = float(self.portfolio_varaha_min_frac)
-            if _vmin > 0 and len(self.portfolio) > 1:
+            _vmax = float(self.portfolio_varaha_max_frac)   # <=0 or >=1 => no cap (back-compatible)
+            _cap_on = (0.0 < _vmax < 1.0)
+            if (_vmin > 0 or _cap_on) and len(self.portfolio) > 1:
               _is_v = np.array([hasattr(m, 'is_varaha') for m in self.portfolio_realizations])
               if _is_v.any() and not _is_v.all():
                 _w = np.asarray(self.portfolio_weights, dtype=float)
                 _w = np.where(np.isfinite(_w) & (_w > 0), _w, 0.0)
                 _sv = _w[_is_v].sum(); _so = _w[~_is_v].sum()
-                if _sv < _vmin and _so > 0:
-                  # scale VARAHA members up to _vmin (preserving their relative split) and the rest
-                  # down to (1-_vmin); if VARAHA weights are all zero, split _vmin evenly among them
-                  _w[~_is_v] *= (1.0 - _vmin) / _so
-                  _w[_is_v] = (_w[_is_v] * (_vmin / _sv)) if _sv > 0 else (_vmin / _is_v.sum())
-                  self.portfolio_weights = _w / _w.sum()
+                _target = None
+                if _vmin > 0 and _sv < _vmin:
+                  _target = _vmin
+                elif _cap_on and _sv > _vmax:
+                  _target = _vmax
+                if _target is not None and (_sv > 0 or _so > 0):
+                  # put the VARAHA group at _target and the rest at (1-_target), each preserving its
+                  # own internal split; if a group is all-zero, spread its share evenly within it.
+                  if _sv > 0:
+                    _w[_is_v] *= _target / _sv
+                  else:
+                    _w[_is_v] = _target / max(int(_is_v.sum()), 1)
+                  if _so > 0:
+                    _w[~_is_v] *= (1.0 - _target) / _so
+                  else:
+                    _w[~_is_v] = (1.0 - _target) / max(int((~_is_v).sum()), 1)
+                  _tot = _w.sum()
+                  if _tot > 0:
+                    self.portfolio_weights = _w / _tot
 
               
             ###
@@ -1126,10 +1151,23 @@ class MCSampler(object):
             ln_wt = self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]
             # Convert to CPU as needed
             ln_wt = identity_convert(ln_wt)
-            ln_wt += - np.max(ln_wt)  # remove maximum value, irrelevant
-            wt = np.exp(ln_wt) # exponentiate.  Danger underflow
+            ln_wt = numpy.asarray(ln_wt, dtype=float)
+            # Guard: rejected/underflowed samples (-inf) or bad priors (nan) must not poison the
+            # cumulative sum below.  Map any non-finite log-weight to -inf so it exponentiates to a
+            # zero linear weight instead of corrupting cumsum/normalization (which would drop ALL rows).
+            ln_wt[~numpy.isfinite(ln_wt)] = -numpy.inf
+            ln_wt_max = numpy.max(ln_wt)
+            if numpy.isfinite(ln_wt_max):
+                ln_wt = ln_wt - ln_wt_max  # remove maximum value, irrelevant to the normalized cumulative prob
+                wt = numpy.exp(ln_wt)      # exponentiate to LINEAR weights (max-subtracted).  Underflow -> 0, which is fine
+            else:
+                # degenerate: no finite-weight sample survived Step 1 -- keep everything rather than drop all rows
+                wt = numpy.ones(len(ln_wt))
             idx_sorted_index = numpy.lexsort((numpy.arange(len(wt)), wt))  # Sort the array of weights, recovering index values
-            indx_list = numpy.array( [[k, ln_wt[k]] for k in idx_sorted_index])     # pair up with the weights again. NOTE NOT INTEGER TYPE ANY MORE
+            # Pair the sorted index with the LINEAR weight wt[k] (NOT the log-weight ln_wt[k]): the cumulative
+            # sum below must be a cumulative PROBABILITY, matching mcsampler/mcsamplerEnsemble.  Cumsumming the
+            # log-weights (<=0, and -inf for rejects) is not a probability threshold and kept 0 rows for peaked runs.
+            indx_list = numpy.array( [[k, wt[k]] for k in idx_sorted_index])     # pair up with the LINEAR weights again. NOTE NOT INTEGER TYPE ANY MORE
             cum_sum = numpy.cumsum(indx_list[:,1])  # find the cumulative sum
             cum_sum = cum_sum/cum_sum[-1]          # normalize the cumulative sum
             indx_list = [int(indx_list[k, 0]) for k, value in enumerate(cum_sum > deltaP) if value]  # find the indices that preserve > 1e-7 of total probability. RECAST TO INTEGER
