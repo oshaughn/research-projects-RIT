@@ -243,6 +243,10 @@ optp.add_option("--calibration-proposal-breadcrumb",default=None, help="Opt-in (
 optp.add_option("--calibration-dump-responsibilities",default=None, help="Opt-in (Option C / adaptive pilot): path to write per-cal-realization log-responsibilities (length n_cal), accumulated over the evaluated grid, plus the cal node draws. This is the pilot's output, fitted into a proposal by util_CalPilotFit.py. No effect on the returned likelihood.")
 optp.add_option("--calibration-pilot-extrinsic",default=256,type=int, help="Pilot only: number of uniform-prior extrinsic samples used to extrinsic-marginalize the per-realization cal responsibility at each intrinsic point. Cal is ~extrinsic-independent, so a modest batch suffices.")
 optp.add_option("--calibration-mc-error-extrinsic",default=8192,type=int, help="Calmarg error budget: CAP on the number of extrinsic-prior samples used to estimate the calibration Monte-Carlo contribution to the lnL error (per-realization responsibilities a_c -> Var(lnZ) ~= n_cal*Var_c(a_c)), added IN QUADRATURE to the reported sigma column.  The batch is ADAPTIVE: it starts small and doubles until the estimate stabilizes or this cap is reached.  Distance is drawn from the RUN'S distance prior (sampler prior / --d-prior; with a PINNED distance the probe runs at that fixed value and warns that the estimate is conservative).  The extrinsic sampler's variance cannot see the spread over the (fixed) cal draw set, so without this term the reported error badly understates the truth whenever the cal n_eff is small.  Set 0 to disable (restores the old, extrinsic-only sigma).")
+optp.add_option("--mc-error-replicas",default=0,type=int, help="MC-error stabilization: when the reported lnL error is untrustworthy (see the trigger options below), re-run the extrinsic integration this many EXTRA times as cold replicas (adaptation reset, sample cache dropped, fresh RNG draws) and report lnL from the LINEAR mean of the replica integrals with sigma from the max of the propagated error and the between-replica scatter (t-distributed, K-1 dof).  The naive per-run sigma is computed from the SAME weights as the integral, so it is small exactly when the run silently missed the peak; only independent replicas can see that.  NEVER combine replicas by inverse-variance weighting -- that overweights the worst replica.  The posterior/fairdraw export uses the best-converged (highest-neff) replica.  Default 0 = off (production behavior unchanged).")
+optp.add_option("--mc-error-sigma-trigger",default=0.4,type=float, help="Replicate (see --mc-error-replicas) when the reported sigma_lnZ exceeds this value.")
+optp.add_option("--mc-error-khat-trigger",default=0.7,type=float, help="Replicate when the Pareto k-hat weight-tail diagnostic exceeds this value (0.7 = the PSIS reliability threshold: above it the weight variance is effectively unresolved and the naive sigma is a lower bound).")
+optp.add_option("--mc-error-ess-trigger",default=30.,type=float, help="Replicate when the Kish effective sample size (sum w)^2/sum w^2 of the run's weights falls below this value.")
 optp.add_option("--calibration-neff-cal-target",default=10,type=float, help="Calmarg ADAPTIVE draw count: after the cal-block precompute, probe the effective number of contributing cal draws (neff_cal) at this intrinsic point; while it is below this target, DOUBLE the cal draw set (drawing fresh independent realizations and appending their precomputed blocks) up to --calibration-n-realizations-max.  Set 0 to disable (fixed --calibration-n-realizations).")
 optp.add_option("--calibration-n-realizations-max",default=0,type=int, help="Cap for the adaptive cal draw count (see --calibration-neff-cal-target).  Default 0 = 8x --calibration-n-realizations.")
 optp.add_option("--calibration-burn-in-neff",default=None,type=float, help="Opt-in: before the production cal-marginalized integration, BURN IN the extrinsic sampler on the cheap ZERO-CAL (n_cal=1) likelihood until this effective sample count, then switch to the full cal-marginalized likelihood. The extrinsic posterior is ~cal-independent. CAVEAT: the AV sampler RESETS between integrate() calls (no seedable AV yet), so this gives AV no speedup (correctness-safe only). It can warm-start GMM/portfolio (model reuse). Awaiting a seedable / boundary-shifting AV; see DESIGN_adaptive_driver.md. No effect unless calmarg is active.")
@@ -2855,6 +2859,97 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     else:
       log_res = res
       sqrt_var_over_res =  numpy.exp(var/2 - log_res)
+
+    # ------------------------------------------------------------------
+    # MC-error stabilization (see RIFT/integrators/statutils.py helpers).
+    # The sampler's naive sigma is (1/ESS_hat - 1/n)^{1/2} computed from the SAME
+    # weights as the integral: tail-blind, and small exactly when the run silently
+    # missed the peak.  Three disclosed defenses:
+    #  (1) floor sigma at the between-chunk lnZ scatter (adaptation nonstationarity);
+    #  (2) print the Pareto k-hat tail diagnostic (k>0.7: sigma is a LOWER BOUND);
+    #  (3) if triggered and --mc-error-replicas>0, re-run cold replicas and combine
+    #      by the LINEAR mean with scatter-based error (never inverse-variance).
+    # ------------------------------------------------------------------
+    def _extract_mc_diag(dd):
+        dd = dd if isinstance(dd, dict) else {}
+        return dd.get('pareto_khat', None), dd.get('sigma_lnZ_block', None), dd.get('n_ESS', None), dd.get('lnZ_ci90', None)
+    _khat, _sig_block, _n_ess, _ci90 = _extract_mc_diag(dict_return)
+    if _sig_block is not None and numpy.isfinite(_sig_block) and _sig_block > sqrt_var_over_res:
+        print(" [mc error] sigma_lnZ raised to the between-chunk scatter: {:.4f} -> {:.4f}".format(float(sqrt_var_over_res), float(_sig_block)))
+        sqrt_var_over_res = float(_sig_block)
+    if _khat is not None:
+        print(" [mc error] Pareto k-hat = {:.3f}{}".format(float(_khat), "  (> {:.2f}: weight tail unresolved; the reported sigma is a LOWER BOUND)".format(opts.mc_error_khat_trigger) if _khat > opts.mc_error_khat_trigger else ""))
+    if _ci90 is not None:
+        print(" [mc error] bootstrap lnZ 5/50/95 quantiles: {}".format(numpy.array2string(numpy.asarray(_ci90) + manual_avoid_overflow_logarithm, precision=4)))
+
+    _trigger_reasons = []
+    if opts.mc_error_replicas > 0:
+        _neff_target = pinned_params.get('neff', None)
+        if sqrt_var_over_res > opts.mc_error_sigma_trigger:
+            _trigger_reasons.append('sigma={:.3f}>{:.2f}'.format(float(sqrt_var_over_res), opts.mc_error_sigma_trigger))
+        if _khat is not None and _khat > opts.mc_error_khat_trigger:
+            _trigger_reasons.append('khat={:.2f}>{:.2f}'.format(float(_khat), opts.mc_error_khat_trigger))
+        if _n_ess is not None and _n_ess < opts.mc_error_ess_trigger:
+            _trigger_reasons.append('ESS={:.1f}<{:g}'.format(float(_n_ess), opts.mc_error_ess_trigger))
+        if _neff_target is not None and float(neff) < float(_neff_target):
+            _trigger_reasons.append('neff={:.1f}<target {:g} (ran out of nmax)'.format(float(neff), float(_neff_target)))
+    if _trigger_reasons:
+        print(" [mc error] REPLICATING ({} extra cold runs): ".format(int(opts.mc_error_replicas)) + ", ".join(_trigger_reasons))
+        _rep_lnZ = [float(log_res)]; _rep_sig = [float(sqrt_var_over_res)]; _rep_neff = [float(neff)]
+        _best_rvs = sampler._rvs; _best_neff = float(neff)
+        for _irep in range(int(opts.mc_error_replicas)):
+            # cold restart: drop the sample cache and reset per-parameter adaptation so
+            # this replica is independent of the runs before it (AV cold-starts by
+            # construction; the AC/GPU sampler needs the explicit reset; samplers
+            # without reset_sampling rerun warm -- still an independent realization of
+            # the draws, just not of the adaptation).
+            sampler._rvs = {}
+            if hasattr(sampler, 'reset_sampling'):
+                for _p in list(getattr(sampler, 'params_ordered', [])):
+                    try:
+                        sampler.reset_sampling(_p)
+                    except Exception:
+                        pass
+            try:
+                _r2 = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
+            except Exception as _e_rep:
+                print(" [mc error] replica {} failed ({}); continuing with {} results".format(_irep + 1, _e_rep, len(_rep_lnZ)))
+                continue
+            if (_r2 is None) or (_r2[0] is None):
+                continue
+            _res2, _var2, _neff2, _dd2 = _r2
+            if not(opts.internal_use_lnL):
+                _lr2 = numpy.log(_res2); _sig2 = numpy.sqrt(_var2)/_res2
+            else:
+                _lr2 = _res2; _sig2 = numpy.exp(_var2/2 - _lr2)
+            _kh2, _sb2, _ne2, _unused = _extract_mc_diag(_dd2)
+            if _sb2 is not None and numpy.isfinite(_sb2):
+                _sig2 = max(float(_sig2), float(_sb2))
+            _rep_lnZ.append(float(_lr2)); _rep_sig.append(float(_sig2)); _rep_neff.append(float(_neff2))
+            if float(_neff2) > _best_neff:
+                _best_neff = float(_neff2); _best_rvs = sampler._rvs
+        sampler._rvs = _best_rvs   # posterior / fairdraw / extrinsic export from the best-converged replica
+        if len(_rep_lnZ) > 1:
+            _K = len(_rep_lnZ)
+            _l = numpy.array(_rep_lnZ); _s = numpy.array(_rep_sig)
+            _lref = numpy.max(_l)
+            _Z = numpy.exp(_l - _lref)
+            _Zbar = numpy.mean(_Z)
+            _lnZ_comb = numpy.log(_Zbar) + _lref          # linear mean over replicas: unbiased in Z
+            _sig_prop = float(numpy.sqrt(numpy.sum((_s*_Z)**2))/(_K*_Zbar))
+            _sig_scatter = float(numpy.std(_l, ddof=1)/numpy.sqrt(_K))   # t_{K-1}: small-K quantiles are wider than Gaussian, hence the max() below
+            _sig_comb = max(_sig_prop, _sig_scatter)
+            print(" [mc error] combined {} replicas: lnZ {} -> {:.4f} (shift {:+.3f} vs first); sigma propagated {:.3f} / scatter {:.3f} -> {:.3f}; neff {} -> {:.1f}".format(
+                _K, numpy.array2string(_l + manual_avoid_overflow_logarithm, precision=3), float(_lnZ_comb + manual_avoid_overflow_logarithm), float(_lnZ_comb - _rep_lnZ[0]),
+                _sig_prop, _sig_scatter, _sig_comb, numpy.array2string(numpy.asarray(_rep_neff), precision=1), float(numpy.sum(_rep_neff))))
+            log_res = float(_lnZ_comb)
+            sqrt_var_over_res = _sig_comb
+            neff = float(numpy.sum(_rep_neff))
+            # keep the (res, var) pair consistent for any downstream reader
+            if not(opts.internal_use_lnL):
+                res = numpy.exp(log_res); var = (sqrt_var_over_res*res)**2
+            else:
+                res = log_res; var = 2*numpy.log(sqrt_var_over_res) + 2*log_res
 
     # Calibration MC error budget.  The sampler's `var` is the EXTRINSIC sampling
     # variance with the cal draw set held FIXED -- it is structurally blind to the

@@ -91,7 +91,7 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  except:
     print(" - No healpy - ")
 
-from RIFT.integrators.statutils import  update,finalize, init_log,update_log,finalize_log
+from RIFT.integrators.statutils import  update,finalize, init_log,update_log,finalize_log, pareto_khat_from_log, ess_from_log_weights, bootstrap_lnZ_quantiles
 
 #from multiprocessing import Pool
 
@@ -1003,6 +1003,9 @@ class MCSampler(object):
                 print("  [AV warm-start] live bins={} V={:.3e} loglkl_thr={:.3g}".format(
                     self.binunique.shape[0], V, loglkl_thr))
 
+        var_lnV = 0.0  # accumulated variance of ln(V): V is a stochastic product of per-cycle
+                       # binomial survival fractions, and Z ~ V*mean(w), so Var(lnV) is a
+                       # component of the lnZ error the weight variance is structurally blind to
         if cupy_ok:
           allx = identity_convert_togpu(allx)
           allloglkl = identity_convert_togpu(allloglkl)
@@ -1104,6 +1107,12 @@ class MCSampler(object):
             self.binunique = np.unique(binidx, axis = 0)
             self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1) * np.ones(self.binunique.shape[0])).astype(int)
             self.ntotal = current_log_aggregate[0]
+            # accumulate the binomial variance of this cycle's ln(V) update:
+            # Var(ln p_hat) ~= (1-p_hat)/(n p_hat) = (1-nrec/ninj)/nrec.  Cycles reuse
+            # surviving samples, so this is an approximate (disclosed) budget rather
+            # than a rigorous iid propagation; it vanishes as the volume stabilizes.
+            if nrec > 0 and ninj > 0:
+                var_lnV += (1.0 - nrec/ninj)/nrec
 
             if super_verbose:
               print(ntotal_true,eff_samp, np.round(neff_varaha), np.round(np.max(allloglkl), 1), len(allloglkl), np.mean(self.nbins), V,  len(self.binunique),  np.round(loglkl_thr, 1), trunc_p)
@@ -1132,7 +1141,13 @@ class MCSampler(object):
         log_wt = self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]
         log_wt = identity_convert(log_wt)  # convert to CPU
         log_int = special.logsumexp( log_wt) - np.log(len(log_wt))  # mean value
-        rel_var = np.var( np.exp(log_wt - log_int))/len(log_wt)   # error in integral, estimated: just taking int = <w> , so error is V(w_k)/N (sample mean/variance)
+        rel_var_mc = np.var( np.exp(log_wt - log_int))/len(log_wt)   # error in integral, estimated: just taking int = <w> , so error is V(w_k)/N (sample mean/variance)
+        # Total DISCLOSED relative variance: the naive weight-variance term above is
+        # structurally blind to (a) the stochasticity of the live volume V itself
+        # (Z ~ V*mean(w); var_lnV accumulated per cycle) and (b) the probability
+        # deliberately truncated by the likelihood threshold (trunc_p, a one-sided
+        # systematic entered here as a variance in quadrature).  Add them.
+        rel_var = rel_var_mc + var_lnV + trunc_p**2
         eff_samp = np.sum(np.exp(log_wt - np.max(log_wt)))
         maxval = np.max(allloglkl)  # max of log
 
@@ -1169,6 +1184,29 @@ class MCSampler(object):
               self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise
 
         dict_return = {}
+        # MC-error diagnostics: disclose the components and the weight-tail state.
+        # NOTE the AV estimator assigns the surviving (threshold-selected) samples a
+        # pretend-uniform density on the final live volume, so the naive term is if
+        # anything MORE optimistic than for the other samplers -- k-hat matters here.
+        try:
+            mc_diag = {'sigma_lnZ_mc': float(np.sqrt(rel_var_mc)),
+                       'sigma_lnV': float(np.sqrt(var_lnV)),
+                       'trunc_p': float(trunc_p)}
+            _kh = pareto_khat_from_log(log_wt)
+            if _kh is not None:
+                mc_diag['pareto_khat'] = _kh
+            mc_diag['n_ESS'] = ess_from_log_weights(log_wt)
+            if np.sqrt(rel_var) > 0.3:
+                _q = bootstrap_lnZ_quantiles(log_wt, n_total=len(log_wt))
+                if _q is not None:
+                    mc_diag['lnZ_ci90'] = _q
+            dict_return.update(mc_diag)
+            print(" [AV mc diag] sigma_mc={:.4f} sigma_lnV={:.4f} trunc_p={:.2e} khat={} ESS={}".format(
+                mc_diag['sigma_lnZ_mc'], mc_diag['sigma_lnV'], mc_diag['trunc_p'],
+                round(mc_diag['pareto_khat'],3) if 'pareto_khat' in mc_diag else None,
+                round(mc_diag['n_ESS'],1) if 'n_ESS' in mc_diag else None))
+        except Exception as _e_diag:
+            print(" mcsamplerAdaptiveVolume: MC-error diagnostics failed ({}); continuing.".format(_e_diag))
         return log_int, np.log(rel_var)  +2*log_int, eff_samp, dict_return
 
         # if outvals:

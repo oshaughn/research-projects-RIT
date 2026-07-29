@@ -8,7 +8,7 @@ from collections import defaultdict
 import numpy
 from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
 from scipy import integrate, interpolate
-from ..integrators.statutils import cumvar, welford, update, finalize
+from ..integrators.statutils import cumvar, welford, update, finalize, pareto_khat_from_log, ess_from_log_weights, block_scatter_sigma, bootstrap_lnZ_quantiles
 import itertools
 import functools
 
@@ -470,6 +470,9 @@ class MCSampler(object):
         maxlnL = -float("Inf")
         eff_samp = 0
         mean, var = None, RiftFloat(0)    # to prevent infinite variance due to overflow
+        # per-chunk lnZ record for the between-chunk error floor (each chunk used a
+        # different adapted proposal; the pooled variance cannot see their scatter)
+        lnZ_chunk_list = []; n_chunk_list = []
 
         if bShowEvaluationLog:
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
@@ -565,7 +568,7 @@ class MCSampler(object):
                     self._rvs["integrand"] = numpy.hstack( (self._rvs["integrand"], fval) )
                     self._rvs["joint_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_prior) )
                     self._rvs["joint_s_prior"] = numpy.hstack( (self._rvs["joint_s_prior"], joint_p_s) )
-                    self._rvs["weights"] = numpy.hstack( (self._rvs["joint_s_prior"], fval*joint_p_prior/joint_p_s) )
+                    self._rvs["weights"] = numpy.hstack( (self._rvs["weights"], fval*joint_p_prior/joint_p_s) )   # BUGFIX: was appending onto joint_s_prior, corrupting the weights record
                 else:
                     self._rvs["integrand"] = fval
                     self._rvs["joint_prior"] = joint_p_prior
@@ -607,6 +610,11 @@ class MCSampler(object):
             var = outvals[-1]
             # running integral (note also in current_aggregate)
             int_val1 += int_val.sum()
+            # per-chunk lnZ for the between-chunk error floor (log first: RiftFloat-safe)
+            try:
+                lnZ_chunk_list.append(float(numpy.log(int_val.sum())) - numpy.log(n)); n_chunk_list.append(n)
+            except Exception:
+                pass
             # running number of evaluations
             self.ntotal += n
             # FIXME: Likely redundant with int_val1
@@ -743,6 +751,32 @@ class MCSampler(object):
                 else:
                     self._rvs[key] = self._rvs[key][indx_list]
 
+        # MC-error diagnostics (before the fairdraw resampling rewrites _rvs).
+        # The pooled weight variance is 1/ESS restated and tail-blind; disclose the
+        # tail (Pareto k-hat), the between-chunk scatter, and -- when the naive
+        # relative error is already large -- bootstrap lnZ quantiles.
+        mc_diag = {}
+        try:
+            _sb = block_scatter_sigma(lnZ_chunk_list, n_chunk_list)
+            if _sb is not None:
+                mc_diag['sigma_lnZ_block'] = _sb
+            if "integrand" in self._rvs and len(self._rvs["integrand"]) > 0:
+                # log first (RiftFloat-safe), cast after
+                _lw_diag = numpy.asarray(numpy.log(self._rvs["integrand"]) + numpy.log(self._rvs["joint_prior"]) - numpy.log(self._rvs["joint_s_prior"]), dtype=float)
+                _kh = pareto_khat_from_log(_lw_diag)
+                if _kh is not None:
+                    mc_diag['pareto_khat'] = _kh
+                mc_diag['n_ESS'] = ess_from_log_weights(_lw_diag)
+                _sig_rel_naive = numpy.inf
+                if int_val1 > 0 and self.ntotal > 1:
+                    _sig_rel_naive = float(numpy.sqrt(var*self.ntotal)/int_val1)
+                if _sig_rel_naive > 0.3 or mc_diag.get('sigma_lnZ_block', 0) > 0.3:
+                    _q = bootstrap_lnZ_quantiles(_lw_diag, n_total=self.ntotal)
+                    if _q is not None:
+                        mc_diag['lnZ_ci90'] = _q
+        except Exception as _e_diag:
+            print(" mcsampler: MC-error diagnostics failed ({}); continuing.".format(_e_diag), file=sys.stderr)
+
         # Do a fair draw of points, if option is set
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*eff_samp,1.5*neff]))
@@ -762,6 +796,7 @@ class MCSampler(object):
         dict_return ={}
         if convergence_tests is not None:
             dict_return["convergence_test_results"] = last_convergence_test
+        dict_return.update(mc_diag)   # MC-error diagnostics (pareto_khat, n_ESS, sigma_lnZ_block, lnZ_ci90)
 
         return int_val1/self.ntotal, var/self.ntotal, eff_samp, dict_return
 
