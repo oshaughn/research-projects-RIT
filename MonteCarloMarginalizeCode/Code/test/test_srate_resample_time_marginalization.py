@@ -45,18 +45,24 @@ def upsample(tvals, lnLt, requested, fsample=SRATE):
 
     if not (requested and requested > fsample):
         return tvals, lnLt
-    deltaT_orig = tvals[1] - tvals[0]
-    n_upsample = max(2, int(np.ceil(requested * deltaT_orig)))
-    n_dense = n_upsample * (len(tvals) - 1) + 1
-    tvals_denser = tvals[0] + (deltaT_orig / n_upsample) * np.arange(n_dense)
+    dt_target = 1.0 / requested
+    n_dense = int(np.floor((tvals[-1] - tvals[0]) / dt_target)) + 1
+    tvals_denser = tvals[0] + dt_target * np.arange(n_dense)
     lnLt_new = np.zeros((lnLt.shape[0], n_dense))
     for index in range(lnLt.shape[0]):
         lnLt_new[index] = CubicSpline(tvals, lnLt[index])(tvals_denser)
     return tvals_denser, lnLt_new
 
 
+def output_spacing(tvals):
+    """The one spacing of the (uniform) output grid."""
+    diffs = np.diff(tvals)
+    assert np.allclose(diffs, diffs[0], rtol=0, atol=1e-15), "grid is not uniform"
+    return diffs[0]
+
+
 def effective_rate(tvals):
-    return 1.0 / np.diff(tvals).min()
+    return 1.0 / output_spacing(tvals)
 
 
 @pytest.fixture
@@ -80,40 +86,52 @@ def test_internal_grid_is_slightly_coarser_than_srate():
     assert effective_rate(tvals) == pytest.approx(4086.67, rel=1e-4)
 
 
-def test_reaches_the_requested_rate(toy_lnl):
+@pytest.mark.parametrize("requested", [8192, 16384, 32768, 65536])
+def test_recovers_the_exact_requested_rate(toy_lnl, requested):
+    """
+    The whole point of the fix: the output rate must equal the requested rate,
+    not merely reach or exceed it.  The requested rates are powers of two, so
+    1/requested is exactly representable in float64 and consecutive output
+    times differ by exactly that step, to the bit.
+    """
     tvals, lnl = toy_lnl
-    dense, _ = upsample(tvals, lnl, REQUESTED)
-    assert effective_rate(dense) >= REQUESTED
+    dense, _ = upsample(tvals, lnl, requested)
+    spacing = output_spacing(dense)
+    assert spacing == 1.0 / requested            # bit-exact, not approx
+    assert effective_rate(dense) == float(requested)
+
+
+@pytest.mark.parametrize("requested", [16384, 32768])
+def test_output_times_lie_on_the_requested_grid(toy_lnl, requested):
+    """
+    Every output time is tvals[0] + k/requested for integer k, i.e. the
+    exported geocenter time is quantized at exactly 1/requested seconds.
+    """
+    tvals, lnl = toy_lnl
+    dense, _ = upsample(tvals, lnl, requested)
+    k = (dense - dense[0]) * requested
+    np.testing.assert_allclose(k, np.round(k), rtol=0, atol=1e-9)
 
 
 def test_scales_with_the_request(toy_lnl):
-    """Regression guard for the old behaviour, which ignored the value."""
+    """Doubling the request exactly halves the output spacing."""
     tvals, lnl = toy_lnl
-    rate_16k = effective_rate(upsample(tvals, lnl, 16384)[0])
-    rate_32k = effective_rate(upsample(tvals, lnl, 32768)[0])
-    assert rate_16k >= 16384
-    assert rate_32k >= 32768
-    assert rate_32k > 1.5 * rate_16k
+    s16 = output_spacing(upsample(tvals, lnl, 16384)[0])
+    s32 = output_spacing(upsample(tvals, lnl, 32768)[0])
+    assert s16 == 2.0 * s32
 
 
 def test_does_not_extrapolate_outside_the_original_grid(toy_lnl):
     """
-    The previous grid, tvals[0] + (dt/2)*arange(2N), ended half a sample past
-    tvals[-1], where CubicSpline extrapolates.
+    The dense grid must stay within [tvals[0], tvals[-1]] so the cubic spline
+    never extrapolates (the old grid ran half a sample past tvals[-1]).  We
+    floor the point count, so the far edge is left short by < 1/requested s.
     """
     tvals, lnl = toy_lnl
     dense, _ = upsample(tvals, lnl, REQUESTED)
-    assert dense[0] == pytest.approx(tvals[0])
-    assert dense[-1] == pytest.approx(tvals[-1])
-
-
-def test_preserves_the_original_nodes(toy_lnl):
-    """Refinement, not re-derivation: lnL at the original times is unchanged."""
-    tvals, lnl = toy_lnl
-    dense, lnl_dense = upsample(tvals, lnl, REQUESTED)
-    factor = max(2, int(np.ceil(REQUESTED * (tvals[1] - tvals[0]))))
-    np.testing.assert_allclose(dense[::factor], tvals, rtol=1e-12, atol=1e-12)
-    np.testing.assert_allclose(lnl_dense[:, ::factor], lnl, rtol=1e-9, atol=1e-9)
+    assert dense[0] == tvals[0]
+    assert dense[-1] <= tvals[-1]
+    assert (tvals[-1] - dense[-1]) < 1.0 / REQUESTED
 
 
 def test_recovers_the_peak_to_the_requested_resolution(toy_lnl):
@@ -155,11 +173,14 @@ def test_source_matches_reference_implementation():
     assert block, "could not locate the upsampling block"
     text = block.group(0)
 
-    # The requested rate must actually be used, not just tested for truthiness.
-    assert "np.ceil(opts.srate_resample_time_marginalization" in text
-    # ...and the old hardcoded doubling must be gone.
+    # The output step must be exactly 1/requested, so the requested rate is
+    # recovered exactly rather than snapped to a multiple of the grid.
+    assert "dt_target = 1.0/opts.srate_resample_time_marginalization" in text
+    assert "dt_target * np.arange(n_dense)" in text
+    # ...and the old hardcoded doubling and the integer-factor upsample are gone.
     assert "np.arange(2*len(tvals))" not in text
     assert "lnLt.shape[1]*2" not in text
+    assert "n_upsample" not in text
 
 
 if __name__ == "__main__":
