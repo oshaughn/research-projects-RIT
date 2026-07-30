@@ -46,9 +46,9 @@ Validate an output grid
 
 After ILE jobs complete, locate a producer output under the completed run
 results.  Each ILE evaluation writes
-``<ILE-output>_<event-index>_.dgrid`` (for example,
-``EXTR_out-0.xml_0_.dgrid``).  From the generated run directory, discover
-those files with:
+``<ILE-output>_<event-index>_.dgrid``.  The exact ILE-output prefix and
+result-directory nesting are assigned by the DAG, so from the generated run
+directory discover completed outputs with:
 
 .. code-block:: console
 
@@ -65,7 +65,7 @@ For example:
        reconstruct_marginal_lnL,
    )
 
-   grid = load_distance_grid("rundir/EXTR_out-0.xml_0_.dgrid")
+   grid = load_distance_grid("<path printed by find>")
    reconstructed = reconstruct_marginal_lnL(grid)
 
 With the default argument, reconstruction uses the stored sampling-distance
