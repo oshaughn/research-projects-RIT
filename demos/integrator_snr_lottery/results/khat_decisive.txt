@@ -1,0 +1,1762 @@
+# SNR=160.0 sigma=0.0875 d=4 trials=20 nmax=400000 chunk=10000
+ no cupy (mcsamplerPortfolio)
+ Portfolio discovery: loading  AC
+ no cupy (mcsamplerGPU)
+ Portfolio discovery: loading  AV
+ no cupy (mcsamplerAV)
+ Portfolio discovery: loading  GMM
+ - No vegas - 
+no multiprocess
+ Portfolio discovery: loading  NF
+ Portfolio discovery: SKIPPING NF (unavailable: No module named 'nflows')
+RIFT portfolio plugins: ['AC', 'AV', 'GMM']
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 0 A_full       bias=+0.088 n_eff=803  (15s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 0 A_sub        bias=+0.103 n_eff=1727  (4s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+/home/richard.oshaughnessy/RIFT_develUWM/src/research-projects-RIT/.claude/worktrees/rift-adaptive-integrator/.claude/worktrees/gifted-herschel-caf99c/MonteCarloMarginalizeCode/Code/RIFT/integrators/mcsamplerAdaptiveVolume.py:1120: RuntimeWarning: invalid value encountered in sqrt
+  print(ntotal_true,eff_samp, np.sqrt(2*xpy_here.max(allloglkl - allp)), '-', np.log(V), np.sqrt(xpy_here.var(w/xpy_here.mean(w))/len(w) ))
+  trial 0 A_sub_wrong  bias=-145520.065 n_eff=165  (4s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13c27db50> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f717050> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 0 P_full       bias=-1.802 n_eff=2  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa164323110> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa163ed2290> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 0 P_mix        bias=-0.984 n_eff=39  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa164323110> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bba1a90> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 0 P_mix_wrong  bias=-1.559 n_eff=1  (9s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 1 A_full       bias=+0.199 n_eff=585  (1s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 1 A_sub        bias=-0.050 n_eff=1047  (2s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 1 A_sub_wrong  bias=-2073.165 n_eff=361  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f728290> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f72b950> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 1 P_full       bias=-4.474 n_eff=26  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa155ef0590> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bc62010> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 1 P_mix        bias=-2.136 n_eff=57  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa155ef0590> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bae5410> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 1 P_mix_wrong  bias=-3.079 n_eff=38  (8s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 2 A_full       bias=+0.159 n_eff=1500  (2s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 2 A_sub        bias=-0.069 n_eff=2321  (4s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 2 A_sub_wrong  bias=-7884.602 n_eff=85  (3s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13c3112d0> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f739150> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 2 P_full       bias=-0.940 n_eff=115  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bcba850> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb12290> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 2 P_mix        bias=-0.525 n_eff=234  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f7176d0> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f717b50> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 2 P_mix_wrong  bias=-1.478 n_eff=69  (5s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 3 A_full       bias=+0.210 n_eff=2054  (3s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 3 A_sub        bias=-0.058 n_eff=2791  (4s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 3 A_sub_wrong  bias=-154.860 n_eff=768  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13d44e7d0> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13d524110> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 3 P_full       bias=-0.598 n_eff=51  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f7f3310> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13a72c1d0> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 3 P_mix        bias=-0.353 n_eff=257  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13a53d050> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13a53cfd0> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 3 P_mix_wrong  bias=-1.019 n_eff=52  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 4 A_full       bias=+0.072 n_eff=1358  (1s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 4 A_sub        bias=-0.035 n_eff=2139  (3s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 4 A_sub_wrong  bias=-42633.054 n_eff=175  (3s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bbeca10> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bba2a10> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 4 P_full       bias=-0.874 n_eff=41  (8s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f728d50> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f72a610> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 4 P_mix        bias=-0.555 n_eff=71  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13aa426d0> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13aa42810> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 4 P_mix_wrong  bias=-2.334 n_eff=165  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 5 A_full       bias=+0.052 n_eff=2368  (5s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 5 A_sub        bias=+0.020 n_eff=3042  (5s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 5 A_sub_wrong  bias=-2479.552 n_eff=252  (4s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13c2b9290> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13c45ad10> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 5 P_full       bias=-0.401 n_eff=91  (8s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13832b6d0> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13832bc90> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 5 P_mix        bias=-0.264 n_eff=234  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13a630810> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13a631450> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 5 P_mix_wrong  bias=-0.675 n_eff=10  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 6 A_full       bias=+0.383 n_eff=786  (2s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 6 A_sub        bias=-0.016 n_eff=1382  (3s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 6 A_sub_wrong  bias=-3240.783 n_eff=251  (5s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f717ed0> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb12bd0> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 6 P_full       bias=-2.258 n_eff=10  (9s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ad4c890> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ad4c710> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 6 P_mix        bias=-1.483 n_eff=57  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb34890> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb37110> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 6 P_mix_wrong  bias=-2.869 n_eff=29  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 7 A_full       bias=-0.037 n_eff=1965  (2s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 7 A_sub        bias=-0.040 n_eff=3035  (4s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 7 A_sub_wrong  bias=-1825.399 n_eff=249  (5s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13d527590> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13a93eb90> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 7 P_full       bias=-0.491 n_eff=32  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ac40910> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ac43c90> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 7 P_mix        bias=-0.296 n_eff=218  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f72a710> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f728850> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 7 P_mix_wrong  bias=-1.116 n_eff=27  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 8 A_full       bias=+0.088 n_eff=2587  (5s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 8 A_sub        bias=-0.027 n_eff=3018  (7s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 8 A_sub_wrong  bias=-994.731 n_eff=278  (9s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13a632850> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13a6328d0> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 8 P_full       bias=-0.148 n_eff=7  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bcdbf90> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bcd9e10> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 8 P_mix        bias=-0.242 n_eff=432  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb36e10> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb34550> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 8 P_mix_wrong  bias=-0.754 n_eff=127  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 9 A_full       bias=+0.269 n_eff=2324  (3s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 9 A_sub        bias=+0.086 n_eff=3001  (7s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 9 A_sub_wrong  bias=-6221.768 n_eff=161  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ae54cd0> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ae57390> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 9 P_full       bias=-0.422 n_eff=39  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13a53ded0> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13a53c310> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 9 P_mix        bias=-0.268 n_eff=293  (7s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f73b850> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ac41950> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 9 P_mix_wrong  bias=-0.792 n_eff=199  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 10 A_full       bias=+0.067 n_eff=2313  (3s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 10 A_sub        bias=-0.005 n_eff=2877  (4s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 10 A_sub_wrong  bias=-441.011 n_eff=512  (5s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa16dbc94d0> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa1385293d0> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 10 P_full       bias=-0.472 n_eff=87  (9s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ac42850> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ac423d0> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 10 P_mix        bias=-0.319 n_eff=318  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb10950> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb10ed0> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 10 P_mix_wrong  bias=-0.367 n_eff=5  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 11 A_full       bias=+0.115 n_eff=1743  (3s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 11 A_sub        bias=-0.029 n_eff=2661  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 11 A_sub_wrong  bias=-10765.436 n_eff=190  (7s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb49110> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb4a390> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 11 P_full       bias=-0.360 n_eff=5  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ac43ad0> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ac42450> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 11 P_mix        bias=-0.385 n_eff=183  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb4a690> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb4a890> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 11 P_mix_wrong  bias=-0.904 n_eff=7  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 12 A_full       bias=+0.055 n_eff=1883  (4s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 12 A_sub        bias=-0.053 n_eff=3014  (7s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 12 A_sub_wrong  bias=-237.233 n_eff=2126  (7s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13b06eb50> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13a630690> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 12 P_full       bias=-0.543 n_eff=29  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ac41f10> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ac40350> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 12 P_mix        bias=-0.313 n_eff=179  (8s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa138422c10> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa138421310> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 12 P_mix_wrong  bias=-0.895 n_eff=34  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 13 A_full       bias=-0.004 n_eff=1293  (3s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 13 A_sub        bias=-0.014 n_eff=1864  (4s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 13 A_sub_wrong  bias=-936.836 n_eff=71  (9s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bae6d50> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bae4750> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 13 P_full       bias=-1.028 n_eff=5  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb10c50> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb11610> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 13 P_mix        bias=-0.785 n_eff=94  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bae6e90> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bae6b50> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 13 P_mix_wrong  bias=-1.494 n_eff=51  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 14 A_full       bias=+0.167 n_eff=2968  (3s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 14 A_sub        bias=-0.011 n_eff=3083  (3s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 14 A_sub_wrong  bias=-544.492 n_eff=254  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bcdbc90> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb4f1d0> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 14 P_full       bias=-0.236 n_eff=8  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bba1e90> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bba3a90> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 14 P_mix        bias=-0.176 n_eff=189  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa1383299d0> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa138328890> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 14 P_mix_wrong  bias=-0.576 n_eff=23  (5s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 15 A_full       bias=-0.077 n_eff=1515  (2s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 15 A_sub        bias=-0.032 n_eff=2328  (3s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 15 A_sub_wrong  bias=-1173.971 n_eff=90  (4s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa138421490> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa138420a10> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 15 P_full       bias=-0.757 n_eff=50  (7s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb36bd0> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb36210> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 15 P_mix        bias=-0.526 n_eff=234  (10s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb4e490> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bb4e890> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 15 P_mix_wrong  bias=-1.250 n_eff=36  (9s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 16 A_full       bias=+0.773 n_eff=62  (1s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 16 A_sub        bias=-0.028 n_eff=513  (1s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 16 A_sub_wrong  bias=-353209.542 n_eff=143  (2s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ab53cd0> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13ab52b50> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 16 P_full       bias=-15.530 n_eff=5  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13a633950> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13a6336d0> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 16 P_mix        bias=-2.837 n_eff=7  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa138529650> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13852b1d0> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 16 P_mix_wrong  bias=-5.230 n_eff=8  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 17 A_full       bias=+0.048 n_eff=758  (1s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 17 A_sub        bias=-0.054 n_eff=1969  (3s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 17 A_sub_wrong  bias=-1441.176 n_eff=20  (4s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13aa41f90> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13aa42750> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 17 P_full       bias=-2.014 n_eff=39  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13b487150> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13b484a50> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 17 P_mix        bias=-0.921 n_eff=44  (7s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13b690690> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13b690850> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 17 P_mix_wrong  bias=-3.144 n_eff=63  (8s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 18 A_full       bias=+0.171 n_eff=2550  (5s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 18 A_sub        bias=+0.022 n_eff=3059  (5s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 18 A_sub_wrong  bias=-804.088 n_eff=286  (4s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13c27d910> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13b06db10> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 18 P_full       bias=-0.369 n_eff=37  (5s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f72ac90> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa14f728c10> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 18 P_mix        bias=-0.242 n_eff=232  (5s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bae6f90> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13bae4bd0> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 18 P_mix_wrong  bias=-0.656 n_eff=128  (5s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 19 A_full       bias=+0.157 n_eff=598  (1s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 19 A_sub        bias=-0.103 n_eff=1402  (2s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+  trial 19 A_sub_wrong  bias=-21169.258 n_eff=191  (2s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13a53c110> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13852bfd0> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 19 P_full       bias=-3.831 n_eff=10  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13b487c90> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa13b486890> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 19 P_mix        bias=-0.606 n_eff=2  (6s)
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ Adding parameter  x0  with limits  [-5.0, 5.0]
+   Adapting  x0
+ Adding parameter  x1  with limits  [-5.0, 5.0]
+   Adapting  x1
+ Adding parameter  x2  with limits  [-5.0, 5.0]
+   Adapting  x2
+ Adding parameter  x3  with limits  [-5.0, 5.0]
+   Adapting  x3
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa1383296d0> {}
+ PORTFOLIO setup  <RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler object at 0x7fa138329f50> {}
+WARNING: User requested maximum number of samples reached... bailing.
+  trial 19 P_mix_wrong  bias=-2.951 n_eff=4  (6s)
+
+# case         bias_med  bias_sd   neff_med  collapse%     n_ok  khat_med  khat>0.7%
+  A_full         +0.102    0.177       1629         0%       20    -0.268         0%
+  A_sub          -0.029    0.047       2495         0%       20    -0.302         0%
+  A_sub_wrong  -1949.282 80690.958        220         0%       20     0.435        10%
+  P_full         -0.678    3.338         30        30%       20     0.706        50%
+  P_mix          -0.455    0.679        186        10%       20     0.766        80%
+  P_mix_wrong    -1.183    1.205         35        25%       20     0.691        45%
