@@ -2,18 +2,18 @@
 ``add_distance_grids`` demo
 ===========================
 
-The ``add_distance_grids`` demo builds a small zero-spin RIFT workflow that
-exports a luminosity-distance likelihood grid for each completed ILE
-evaluation. Use it to verify the distance-grid export path before adapting the
-same options to another RIFT workflow.
+The ``add_distance_grids`` demo provides a small zero-spin RIFT workflow to
+configure for luminosity-distance likelihood-grid export. Use it to verify the
+distance-grid export path before adapting the same options to another RIFT
+workflow.
 
 The runnable sources are in
 ``MonteCarloMarginalizeCode/Code/demo/rift/add_distance_grids``. The demo uses
 the fake-data inputs in ``.travis/ILE-GPU-Paper/demos`` and its
 ``add_distance_grids.ini`` records the corresponding configuration.
 
-Build the DAG
-=============
+Generate and configure the DAG
+==============================
 
 From the demo directory, first check that the CI-style inputs are present:
 
@@ -21,7 +21,7 @@ From the demo directory, first check that the CI-style inputs are present:
 
    $ make inputs
 
-Then create the DAG:
+Then generate the baseline DAG:
 
 .. code-block:: console
 
@@ -32,20 +32,27 @@ Then create the DAG:
    ``make dag`` removes and recreates ``rundir/`` before generating the DAG.
    Copy any results you need from that directory before rerunning it.
 
-The target writes the generated run directory and checks that
-``rundir/args_ile.txt`` contains both ``--export-marginal-distance-grid`` and
-``--internal-use-lnL``. Inspect the DAG and arguments before submitting. The
-demo never submits automatically; submission is an explicit separate action:
+The current ``make dag`` recipe is a baseline generator, not a completed
+distance-grid run: its ``validate-args`` check expects an export flag that the
+recipe does not put in ``rundir/args_ile.txt``. Consequently, stock ``make
+dag`` can stop at that check and does not by itself create a dgrid-producing
+``ILE_extr`` stage.
 
-.. code-block:: console
-
-   $ make submit
+Before submitting, configure the pipeline's final extrinsic ILE stage and its
+distance-grid export option. For ``create_event_parameter_pipeline_BasicIteration``,
+this means enabling ``--last-iteration-extrinsic`` together with
+``--last-iteration-export-marginal-distance-grid`` (and supplying the required
+pipeline configuration, including compatible conversion arguments). Inspect
+the resulting ``ILE_extr`` submit arguments to confirm both
+``--export-marginal-distance-grid`` and ``--internal-use-lnL`` are present.
+Submit only that correctly configured DAG; the demo never submits
+automatically.
 
 Validate an output grid
 =======================
 
-After ILE jobs complete, locate a producer output under the completed run
-results.  Each ILE evaluation writes
+After a correctly configured ILE-extrinsic run completes, locate a producer
+output under the completed run results. Each ILE evaluation writes
 ``<ILE-output>_<event-index>_.dgrid``.  The exact ILE-output prefix and
 result-directory nesting are assigned by the DAG, so from the generated run
 directory discover completed outputs with:
