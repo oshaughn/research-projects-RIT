@@ -44,9 +44,19 @@ demo never submits automatically; submission is an explicit separate action:
 Validate an output grid
 =======================
 
-After ILE jobs complete, use the loader before reconstruction: the
+After ILE jobs complete, locate a producer output under the completed run
+results.  Each ILE evaluation writes
+``<ILE-output>_<event-index>_.dgrid`` (for example,
+``EXTR_out-0.xml_0_.dgrid``).  From the generated run directory, discover
+those files with:
+
+.. code-block:: console
+
+   $ find rundir -type f -name '*_*.dgrid' -print
+
+Use one returned path with the loader before reconstruction: the
 ``reconstruct_marginal_lnL`` API accepts the parsed grid table, not a filename.
-For one generated ``*.dgrid`` file:
+For example:
 
 .. code-block:: python
 
@@ -55,15 +65,17 @@ For one generated ``*.dgrid`` file:
        reconstruct_marginal_lnL,
    )
 
-   grid = load_distance_grid("path/to/point.dgrid")
+   grid = load_distance_grid("rundir/EXTR_out-0.xml_0_.dgrid")
    reconstructed = reconstruct_marginal_lnL(grid)
 
 With the default argument, reconstruction uses the stored sampling-distance
 prior when it is present. Compare the result to the ordinary marginalized
 likelihood for the same intrinsic point, allowing for that run's Monte Carlo
-uncertainty. For controlled synthetic checks, run
-``validate_distance_grid.py`` and ``validate_distance_slices.py`` from the
-demo directory; they exercise the table-level reconstruction paths directly.
+uncertainty. For a controlled synthetic check, run
+``validate_distance_grid.py`` from the demo directory; it exercises the
+Plan-A ``.dgrid`` table-level reconstruction path directly.  The neighboring
+``validate_distance_slices.py`` script covers the separate Plan-B ``.dslice``
+behavior and is out of scope for this demo.
 
 Environment note
 ================
