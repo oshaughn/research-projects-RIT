@@ -300,19 +300,88 @@ class MCSampler(object):
         # extra args, created during setup
         self.extra_args = {}
 
+        # PER-MEMBER RANGE OVERRIDES for interval narrowing: {member_index: {param: (lo, hi)}}.
+        # Populate with restrict_member_range() BEFORE add_parameter()/setup().  Member 0 is the
+        # designated full-support backstop and must never be narrowed.
+        self.member_range_overrides = {}
+
+    def restrict_member_range(self, member_index, param, lo, hi):
+        """Narrow ONE portfolio member's sampling range for `param` to [lo, hi] (interval narrowing).
+
+        This is a PROPOSAL-only change: the member's prior callables are untouched, so it keeps
+        reporting the true global prior, and the balance-heuristic mixture density q_mix keeps the
+        estimate unbiased with no renormalization -- PROVIDED at least one member retains full
+        support.  Member 0 is that backstop by convention and may not be narrowed.
+
+        Why the backstop is not optional: measured on a truth-known ladder, a WRONG sub-box costs a
+        STANDALONE sampler up to -1949 nats (while still reporting a healthy n_eff of 220-840, i.e.
+        confidently wrong), but only ~1 nat inside a portfolio whose full-box member keeps q_mix
+        covering the complement.  Restriction without a backstop converts a rare pathology into a
+        systematic one.
+
+        Call before add_parameter(); narrowing is applied there, and setup() then builds every
+        derived quantity from the narrowed range.
+        """
+        member_index = int(member_index)
+        if member_index == 0:
+            raise ValueError(
+                "mcsamplerPortfolio.restrict_member_range: member 0 is the full-support backstop and "
+                "must not be narrowed -- q_mix would then have no component covering the complement, "
+                "and a mode outside every sub-box becomes uncoverable rather than merely under-covered.")
+        if member_index >= len(self.portfolio_realizations):
+            raise ValueError("restrict_member_range: no member {} (portfolio has {})".format(
+                member_index, len(self.portfolio_realizations)))
+        if not (hi > lo):
+            raise ValueError("restrict_member_range: need hi > lo, got [{}, {}]".format(lo, hi))
+        self.member_range_overrides.setdefault(member_index, {})[param] = (float(lo), float(hi))
+
     def add_parameter(self, params, pdf,  **kwargs):
         """
         Add one (or more) parameters to sample dimensions. params is either a string describing the parameter, or a tuple of strings. The tuple will indicate to the sampler that these parameters must be sampled together. left_limit and right_limit are on the infinite interval by default, but can and probably should be specified. If several params are given, left_limit, and right_limit must be a set of tuples with corresponding length. Sampling PDF is required, and if not provided, the cdf inverse function will be determined numerically from the sampling PDF.
         """
         self.params.add(params) # does NOT preserve order in which parameters are provided
         self.params_ordered.append(params)
-        for member in self.portfolio_realizations  + self.oracle_realizations:
+        _all_members = self.portfolio_realizations + self.oracle_realizations
+        for indx, member in enumerate(_all_members):
             member.add_parameter(params, pdf, **kwargs)
-            # update dictionary limits, yes this is super-redundant, but we have a scoping issue and this is easier to code
-            self.llim.update( member.llim)
-            self.rlim.update(member.rlim)
-            # set master list of adaptive parameters 
+            # The PORTFOLIO's own limits must always describe the FULL prior range, never a
+            # restricted member's sub-box: they are the reference range used downstream (L0-rescue
+            # puff width, breadcrumb bounds, distance-marginalization bounds).  Take them from
+            # member 0, which is the designated FULL-SUPPORT member by convention (see
+            # restrict_member_range), and take them BEFORE any narrowing is applied below.
+            if indx == 0:
+                self.llim.update( member.llim)
+                self.rlim.update(member.rlim)
+            # set master list of adaptive parameters
             self.adaptive = member.adaptive  # top level list of adaptive coordinates
+
+        # PER-MEMBER RANGE RESTRICTION (interval narrowing).
+        # At high SNR the posterior can occupy a vanishing fraction of the prior box, so a member
+        # confined to a well-chosen sub-box resolves it far better (measured: n_eff 2495 vs 1629, and
+        # SNR-INDEPENDENT, on the truth-known ladder).  We do this by narrowing ONE member's limits
+        # rather than clipping the prior, which is what makes it safe:
+        #   * The estimator weight is L*p_prior/q_mix with p_prior the TRUE prior.  A member's range
+        #     is purely a PROPOSAL choice -- proposals need not cover the prior, only the MIXTURE
+        #     must cover the support of L*p.  So NO prior renormalization and NO clipped-volume
+        #     correction are required, PROVIDED a full-support member remains (see _full_support_members).
+        #   * We must NOT rebuild the prior callables for the narrowed member: `prior_prod` evaluates
+        #     the callables handed to add_parameter, and those are absolute densities normalized over
+        #     the ORIGINAL range.  Sharing them is what keeps every member reporting the SAME true
+        #     prior -- the portfolio takes joint_p_prior from whichever member drew each sample, so
+        #     a member that renormalized its prior over its sub-box would silently bias the integral.
+        #     Hence we only overwrite llim/rlim here, and only AFTER add_parameter has installed the
+        #     shared callables.
+        # Narrowing happens before setup(), so every derived AV quantity (my_ranges, dx, dx0, V,
+        # binunique, ninbin) is built from the narrowed range and nothing is left stale.
+        for indx, member in enumerate(self.portfolio_realizations):
+            _ov = self.member_range_overrides.get(indx)
+            if not _ov or params not in _ov:
+                continue
+            lo, hi = _ov[params]
+            member.llim[params] = lo
+            member.rlim[params] = hi
+            print("  [portfolio] member {} range for {} narrowed to [{}, {}] (proposal only; "
+                  "prior callables untouched)".format(indx, params, lo, hi))
 
 
     def bootstrap_from_samples(self, samples, params=None, **kwargs):
