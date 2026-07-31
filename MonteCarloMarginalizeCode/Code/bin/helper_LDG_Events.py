@@ -218,6 +218,7 @@ parser.add_argument("--internal-ile-rotate-phase", action='store_true')
 parser.add_argument("--internal-ile-auto-logarithm-offset",action='store_true',help="Passthrough to ILE")
 parser.add_argument("--internal-ile-use-lnL",action='store_true',help="Passthrough to ILE.  Will DISABLE auto-logarithm-offset and manual-logarithm-offset")
 parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE. Default: 40000, scaled linearly with SNR above 40 and capped at 160000. Rationale: at high SNR the posterior is a vanishing fraction of the prior volume, so a small chunk gives few informative samples per adaptation step; measured collapse on a truth-known SNR ladder falls 88%%->50%% (SNR160) and 69%%->25%% (SNR80) going 1e4->1.6e5, and the gain survives at fixed budget. Larger chunks cost GPU memory, so raise the ILE memory request if you raise this a lot.")
+parser.add_argument("--internal-ile-interpolate-time",action='store_true',help="Evaluate Q_lm at FRACTIONAL detector times by cubic interpolation instead of snapping to the nearest sample bin (passes --interpolate-time True). Requires the maintained NoLoop likelihood, i.e. the --vectorized --gpu --force-xpy combination. Nearest-bin evaluation injects a time-quantization non-smoothness into the extrinsic likelihood surface that is a discretization artifact, not physics; removing it makes convergence more robust. Default off for backward compatibility.")
 parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
@@ -1106,6 +1107,9 @@ else:
         n_chunk_ile = int(40000 * np.max([1.0, event_dict["SNR"] / 40.0]))
         n_chunk_ile = int(np.min([n_chunk_ile, 160000]))
 helper_ile_args += " --n-chunk " + str(n_chunk_ile) + " "
+if opts.internal_ile_interpolate_time:
+    # cubic Q_lm time interpolation; needs the NoLoop path (--vectorized --gpu --force-xpy)
+    helper_ile_args += " --interpolate-time True "
 
 if opts.internal_ile_auto_logarithm_offset and not opts.internal_ile_use_lnL:
     helper_ile_args += " --auto-logarithm-offset "
