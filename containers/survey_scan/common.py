@@ -145,4 +145,3 @@ def rel_or_abs(path: Path) -> str:
         return os.path.relpath(path, Path.cwd())
     except ValueError:
         return str(path)
-

@@ -251,5 +251,4 @@ repeatable probes:
 3. Run on `cc60-90` and `cc90-120`; record cold/warm timings and cache sizes.
 4. Add the JAX warmup only for the JAX image after the CuPy path is stable.
 5. Decide whether the next image build should bake caches in `%post`, publish a
-   sidecar cache tarball, or simply rely on per-slot first-use warming.
-
+  sidecar cache tarball, or simply rely on per-slot first-use warming.
