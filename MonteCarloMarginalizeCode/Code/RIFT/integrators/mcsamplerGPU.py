@@ -93,6 +93,12 @@ __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>, Dan Wysocki, R. O'Shau
 
 rosDebugMessages = True
 
+# Minimum uniform-mixture fraction applied to every adapted histogram (see
+# compute_hist): guarantees no bin has exactly zero sampling probability, since a
+# zero bin can never be re-drawn (absorbing state) and silently truncates the
+# integration domain.  Override at module level for controlled experiments.
+HIST_FLOOR_LEVEL_MIN = 1e-2
+
 class NanOrInf(Exception):
     def __init__(self, value):
         self.value = value
@@ -297,7 +303,12 @@ class MCSampler(object):
         # Smooth the histogram
 #        kernel_size =3
 #        histogram_values = self.xpy.convolve( histogram_values, self.xpy.ones(kernel_size)/kernel_size,mode='same')
-        # Mix with a uniform sampling
+        # Mix with a uniform sampling.  A bin with exactly zero probability is an
+        # absorbing state: it can never be drawn again, so the sampled support is
+        # permanently truncated and the integral is systematically biased LOW by the
+        # mass outside the support -- a bias no within-run error estimate can see.
+        # Enforce a minimal floor so every bin stays reachable.
+        floor_level = max(floor_level, HIST_FLOOR_LEVEL_MIN)
         histogram_values =    histogram_values*(1-floor_level)+floor_level*self.xpy.ones(len(histogram_values))/len(histogram_values)
 
         # Evaluate the CDF by taking a cumulative sum of the histogram.
@@ -344,7 +355,7 @@ class MCSampler(object):
         y = (x - self.x_min[param]) / self.x_max_minus_min[param]
         # Compute the indices of the histogram bins that `x` falls into.
         indices = self.xpy.trunc(y / self.dx[param], out=y).astype(np.int32)
-        indices = self.xpy.minimum(indices,self.n_bins[param])  # prevent being out of range due to rounding !
+        indices = self.xpy.minimum(indices,self.n_bins[param]-1)  # prevent being out of range due to rounding (x == right edge maps to last bin)
         # Return the value of the histogram.
         return self.histogram_values[param][indices]
 
@@ -645,7 +656,7 @@ class MCSampler(object):
             print("  Note: cannot adapt, no history ")
 
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
-        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000  # default to adapt to 1000 chunks, then freeze
+        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000*n  # default to adapt to 1000 chunks, then freeze.  NOTE: scaled by n, matching integrate()
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
         temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
         tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
@@ -815,8 +826,7 @@ class MCSampler(object):
             # The total number of adaptive steps is reached
             #
             # FIXME: We need a better stopping condition here
-            if self.ntotal > n_adapt*n:
-                print(n_adapt,self.ntotal)
+            if self.ntotal > n_adapt:   # n_adapt already scaled by n above; the old test (n_adapt*n) double-counted n and never froze
                 continue
 
             #
@@ -828,8 +838,14 @@ class MCSampler(object):
                     return f(arg, p)
                 return inner
 
-            weights_alt = self._rvs["log_integrand"][-n_history:]+np.max([maxlnL, 200])  # try to make sure we have some dynamic range here
-            weights_alt = self.xpy.maximum(weights_alt, 1e-5)  # prevent negative weights. NOTE THIS IS IMPORTANT: if you are integrating a function with lnL<0, use an offset!
+            # Tempered importance weights exp(tempering_exp*lnL + ln p - ln p_s), so the
+            # weighted histogram of draws estimates the FIXED target L^tempering_exp * prior.
+            # (The old  lnL + max(maxlnL,200)  weights ignored tempering_exp and the 1/p_s
+            # correction: near-flat weights made each histogram replay the previous
+            # proposal's sampling noise, a multiplicative random walk that collapses the
+            # proposal onto a comb of surviving bins.)
+            weights_alt = self._rvs["log_weights"][-n_history:]
+            weights_alt = self.xpy.exp(weights_alt - self.xpy.max(weights_alt))
             weights_alt = weights_alt/(weights_alt.sum())
             if weights_alt.dtype == RiftFloat:
               weights_alt = weights_alt.astype(numpy.float64,copy=False)
