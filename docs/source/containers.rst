@@ -15,6 +15,9 @@ That still works exactly as before.  This page documents two additions:
   capabilities, and let HTCondor pick the right one per matched machine; and
 * a **multi-target build** that produces such a family from one template.
 
+For an operator workflow that inventories a target GPU pool and creates
+container-cache warmup jobs, see :doc:`executables/survey_scan`.
+
 .. note::
 
    If ``SINGULARITY_RIFT_IMAGE`` is a plain ``.sif`` path or a single
