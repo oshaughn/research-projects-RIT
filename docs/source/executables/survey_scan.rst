@@ -1,6 +1,6 @@
-##############
+###############
 ``survey_scan``
-##############
+###############
 
 ``containers/survey_scan.sh`` is an operator-facing companion for RIFT
 container families.  It surveys a target HTCondor GPU pool, generates one
