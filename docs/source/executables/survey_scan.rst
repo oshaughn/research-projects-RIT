@@ -67,8 +67,12 @@ The exact interface is::
 ``--survey`` and ``--manifest`` are required.  ``--out`` defaults to
 ``DIR/jobs``; ``--profiles`` is a comma-separated list and defaults to
 ``cupy``; and ``--request-disk`` defaults to ``16000M``.  Supported profile
-names are ``cupy`` and ``jax``.  For example, request both only for a
-JAX-enabled image::
+names are ``cupy`` and ``jax``.  The command uses ``--survey`` only to choose
+that default output location: it emits every manifest entry times every
+selected profile, rather than selecting jobs from the survey inventory.
+Consequently, a manifest band absent from the surveyed pool can still yield a
+submit file that remains unmatched.  For example, request both profiles only
+for a JAX-enabled image::
 
    containers/survey_scan.sh emit-jobs \
      --survey survey/cit-YYYYMMDD \
@@ -106,8 +110,10 @@ The exact interface is::
 ``warmup_summary.json`` and its Markdown counterpart
 ``warmup_summary.md`` in the survey directory.  ``--out`` selects a different
 JSON summary path; the Markdown report uses the same basename with a ``.md``
-suffix.  Invalid result JSON is retained as an error entry so the summary can
-show incomplete or malformed job output.
+suffix.  The collector globs only JSON files already present under
+``jobs/*.json``; it cannot identify jobs that never produced a result.  Invalid
+present JSON is retained as an error entry so the summary can report malformed
+output.
 
 See also
 ========
