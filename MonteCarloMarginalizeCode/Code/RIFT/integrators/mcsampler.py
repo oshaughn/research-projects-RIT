@@ -912,6 +912,131 @@ def dec_samp_cdf_inv_vector(p):
     return numpy.arccos(2*p-1) - numpy.pi/2  # target from -pi/2 to pi/2
 
 
+###
+### Truncated isotropic angle samplers ("zoom box" support)
+###
+# RIFT can sample sky location / orientation either in the ANGLE itself (dec,
+# iota) or -- with --declination-cosine-sampler / --inclination-cosine-sampler --
+# in the cosine variable that makes the isotropic prior flat.  The two
+# conventions, read off the conversions applied in
+# bin/integrate_likelihood_extrinsic_batchmode, are
+#
+#   declination:  dec  = pi/2 - arccos(z)  <=>  z = sin(dec),   z in [-1,1]
+#                 sin() is INCREASING on [-pi/2, pi/2], so a box [lo,hi] maps to
+#                 [sin(lo), sin(hi)]: the order of the limits is PRESERVED.
+#   inclination:  iota = arccos(z)         <=>  z = cos(iota),  z in [-1,1]
+#                 cos() is DECREASING on [0, pi], so a box [lo,hi] maps to
+#                 [cos(hi), cos(lo)]: the order of the limits SWAPS.
+#
+# In both cases the physical isotropic prior is p(z) dz = dz/2, i.e. a CONSTANT
+# density 1/2 in the cosine coordinate.  That constant is deliberately NOT
+# renormalized over a restricted box, so that restricting the box reduces the
+# prior mass (and hence lnZ) by exactly the same factor as in the angle
+# coordinate, where the prior density is 0.5*cos(dec) resp. 0.5*sin(iota).
+
+_COSINE_SAMPLER_CONVENTIONS = {
+    # name: (angle_min, angle_max, angle->cosine-coordinate map, reverses_order)
+    'declination': (-numpy.pi/2, numpy.pi/2, numpy.sin, False),
+    'inclination': (0.0,         numpy.pi,   numpy.cos, True),
+}
+
+
+def clip_angle_limits(lo, hi, kind):
+    """Clip an angular range [lo,hi] (radians) to the physical domain of `kind`
+    ('declination' -> [-pi/2,pi/2], 'inclination' -> [0,pi]).
+
+    Raises ValueError if the requested range is empty/inverted, or if it does
+    not overlap the physical domain.  Returns (lo, hi) as floats with lo < hi.
+    """
+    if kind not in _COSINE_SAMPLER_CONVENTIONS:
+        raise ValueError("clip_angle_limits: unknown angle '{}' (expected one of {})".format(kind, sorted(_COSINE_SAMPLER_CONVENTIONS)))
+    angle_min, angle_max, _, _ = _COSINE_SAMPLER_CONVENTIONS[kind]
+    lo = float(lo)
+    hi = float(hi)
+    if not numpy.isfinite(lo) or not numpy.isfinite(hi):
+        raise ValueError("clip_angle_limits: non-finite {} range [{}, {}]".format(kind, lo, hi))
+    if not (hi > lo):
+        raise ValueError("clip_angle_limits: empty or inverted {} range [{}, {}] (need LO < HI, in radians)".format(kind, lo, hi))
+    lo_c = min(max(lo, angle_min), angle_max)
+    hi_c = min(max(hi, angle_min), angle_max)
+    if not (hi_c > lo_c):
+        raise ValueError("clip_angle_limits: {} range [{}, {}] does not overlap the physical domain [{}, {}]".format(kind, lo, hi, angle_min, angle_max))
+    return lo_c, hi_c
+
+
+def cosine_sampler_limits(lo, hi, kind):
+    """Map an angular range [lo,hi] (radians) into the coordinate actually sampled
+    by RIFT's 'cosine' sky/orientation samplers.
+
+    kind='declination': sampled variable is z = sin(dec); sin is increasing, so
+        the limit order is preserved:  [lo,hi] -> [sin(lo), sin(hi)].
+    kind='inclination': sampled variable is z = cos(iota); cos is DECREASING, so
+        the limit order SWAPS:         [lo,hi] -> [cos(hi), cos(lo)].
+
+    The range is clipped to the physical angular domain first, and the result is
+    clipped to the sampler domain [-1,1].  Raises ValueError on an empty or
+    inverted request.  Returns (z_lo, z_hi) with z_lo < z_hi.
+    """
+    lo_c, hi_c = clip_angle_limits(lo, hi, kind)
+    _, _, fn, reverses = _COSINE_SAMPLER_CONVENTIONS[kind]
+    z_a = float(fn(lo_c))
+    z_b = float(fn(hi_c))
+    z_lo, z_hi = (z_b, z_a) if reverses else (z_a, z_b)
+    z_lo = max(z_lo, -1.0)
+    z_hi = min(z_hi,  1.0)
+    if not (z_hi > z_lo):
+        raise ValueError("cosine_sampler_limits: {} range [{}, {}] maps to an empty sampling interval [{}, {}]".format(kind, lo, hi, z_lo, z_hi))
+    return z_lo, z_hi
+
+
+def ret_dec_samp_vector(dec_lo, dec_hi):
+    """Sampling pdf in DECLINATION for a uniform-in-sin(dec) draw truncated to
+    [dec_lo, dec_hi].  Normalized to unity over that box (the samplers that use
+    an explicit cdf_inv do not renormalize the pdf themselves).  Reduces to
+    dec_samp_vector for the full range."""
+    z_lo, z_hi = cosine_sampler_limits(dec_lo, dec_hi, 'declination')
+    lo_c, hi_c = clip_angle_limits(dec_lo, dec_hi, 'declination')
+    norm = z_hi - z_lo
+    def _pdf(x, xpy=numpy):
+        x = xpy.asarray(x, dtype=numpy.float64)
+        return xpy.where((x >= lo_c) & (x <= hi_c), xpy.cos(x)/norm, 0.0)
+    return _pdf
+
+
+def ret_dec_samp_cdf_inv_vector(dec_lo, dec_hi):
+    """Inverse CDF (p in [0,1] -> declination) for uniform-in-sin(dec) truncated
+    to [dec_lo, dec_hi].  Monotonically increasing in p."""
+    z_lo, z_hi = cosine_sampler_limits(dec_lo, dec_hi, 'declination')
+    def _cdf_inv(p, xpy=numpy):
+        p = xpy.asarray(p, dtype=numpy.float64)
+        return xpy.arcsin(xpy.clip(z_lo + p*(z_hi - z_lo), -1.0, 1.0))
+    return _cdf_inv
+
+
+def ret_cos_samp_vector(incl_lo, incl_hi):
+    """Sampling pdf in INCLINATION for a uniform-in-cos(iota) draw truncated to
+    [incl_lo, incl_hi].  Normalized to unity over that box.  Reduces to
+    cos_samp_vector for the full range."""
+    z_lo, z_hi = cosine_sampler_limits(incl_lo, incl_hi, 'inclination')
+    lo_c, hi_c = clip_angle_limits(incl_lo, incl_hi, 'inclination')
+    norm = z_hi - z_lo
+    def _pdf(x, xpy=numpy):
+        x = xpy.asarray(x, dtype=numpy.float64)
+        return xpy.where((x >= lo_c) & (x <= hi_c), xpy.sin(x)/norm, 0.0)
+    return _pdf
+
+
+def ret_cos_samp_cdf_inv_vector(incl_lo, incl_hi):
+    """Inverse CDF (p in [0,1] -> inclination) for uniform-in-cos(iota)
+    truncated to [incl_lo, incl_hi].  Monotonically increasing in p: p=0 gives
+    incl_lo (which is arccos of the UPPER cosine limit -- note the swap)."""
+    z_lo, z_hi = cosine_sampler_limits(incl_lo, incl_hi, 'inclination')
+    def _cdf_inv(p, xpy=numpy):
+        p = xpy.asarray(p, dtype=numpy.float64)
+        return xpy.arccos(xpy.clip(z_hi - p*(z_hi - z_lo), -1.0, 1.0))
+    return _cdf_inv
+
+
 def pseudo_dist_samp(r0,r):
         return r*r*numpy.exp( - (r0/r)*(r0/r)/2. + r0/r)+0.01  # put a floor on probability, so we converge. Note this floor only cuts out NEARBY distances
 
