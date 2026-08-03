@@ -1,8 +1,11 @@
+0.0.17.11
+---------
+MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/53  , so user can specify the bootstrap file in asimov yaml
+
 0.0.17.10
 ------------
 MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/51 , https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
 so output sampling rate is precisely what is requested
-
 
 0.0.17.9
 ------------
