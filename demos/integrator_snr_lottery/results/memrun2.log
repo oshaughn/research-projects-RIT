@@ -1,0 +1,9 @@
+# chunk-size resource cost, REAL ILE likelihood, on-source point
+# GPU=2 nmax=400000 warm=1  Thu Jul 30 18:08:16 PDT 2026
+# host_MiB = peak VmHWM over the job's process tree (what RequestMemory governs)
+# gpu_MiB  = peak nvidia-smi used_memory for THIS job's pids only
+chunk       host_MiB    gpu_MiB    wall_s     n_eff
+10000           2409          0       109       7.3
+40000           2369          0        51       5.5
+160000          2506          0        33       4.8
+# wrote /home/richard.oshaughnessy/RIFT_develUWM/src/research-projects-RIT/.claude/worktrees/rift-adaptive-integrator/.claude/worktrees/gifted-herschel-caf99c/demos/integrator_snr_lottery/tools/../results/chunk_memory.txt

@@ -66,3 +66,30 @@ high-SNR failure in this study. For that class the working detector remains CROS
 (replicas / bootstrap quantiles): independent copies that localize differently disagree, and that is
 observable, whereas a single run's own weights are not. Note this is one generator, d=4, n=20 --
 the mechanism is principled but the numbers are one configuration.
+
+## results/chunk_memory.txt -- the resource price of a larger chunk
+
+Real ILE likelihood, on-source point, warm start, nmax 4e5, one run per chunk size:
+
+| n_chunk | host peak (MiB) | wall (s) |
+|--------:|----------------:|---------:|
+|  10,000 | 2409 | 109 |
+|  40,000 | 2369 |  51 |
+| 160,000 | 2506 |  33 |
+
+**HOST memory is FLAT across a 16x chunk range** (2369-2506 MiB, ~3% spread = noise). Since condor's
+`RequestMemory` governs the HOST, the well-motivated action is **change nothing**: raising the chunk
+does not require a memory-request bump, and therefore does not restrict which slots a job can match.
+This is consistent with the prior observation that RIFT extrinsic jobs already request 35-105x the
+host RAM they actually use.
+
+**Wall time falls 3.3x** (109 -> 33 s) as the chunk grows -- fewer, larger GPU kernel launches. So the
+SNR-scaled chunk is not merely free on host memory, it is faster.
+
+HONEST GAPS:
+* **GPU memory was NOT successfully measured** (column read 0): the per-PID `nvidia-smi` filter did
+  not match the process that owns the CUDA context. The GPU-side cost of a larger chunk therefore
+  remains UNQUANTIFIED. It is the surface that plausibly does scale with chunk, so this gap matters
+  if a site is GPU-memory constrained -- it just is not the surface `RequestMemory` controls.
+* n_eff in this table (7.3 / 5.5 / 4.8) is ONE cold run per chunk on the pathological point; that is
+  lottery noise, not a trend. The collapse-rate evidence is the multi-copy study above, not this.
