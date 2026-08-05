@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-compare_shape_results.py BASE.json CANDIDATE.json [--strict-samplers AV,GMM]
+compare_shape_results.py BASE.json CANDIDATE.json [--strict-samplers ...]
 
 Compare two shape_recovery.py --json outputs (same preset/seeds!) run on a
 base branch and a candidate branch.  Exit 1 iff a strict-sampler run
@@ -42,7 +42,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("base")
     ap.add_argument("candidate")
-    ap.add_argument("--strict-samplers", default="AV,GMM")
+    # The warm/sequential kinds are STRICT: they exist to catch silent wrong answers, so a
+    # regression there must block.  Note the intended asymmetry on first merge -- portfolio_seq
+    # FAILs on a base without clear_warm_state and PASSes here, i.e. IMPROVED (non-blocking).
+    # Its value is forward-looking: once this is the base, re-breaking the reset blocks.
+    ap.add_argument("--strict-samplers",
+                    default="AV,GMM,portfolio_warm,portfolio_seq,portfolio_seq_nobs")
     opts = ap.parse_args()
     strict = set(x.strip() for x in opts.strict_samplers.split(","))
 

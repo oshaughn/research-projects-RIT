@@ -3643,6 +3643,15 @@ _seq_ws_proposal = None   # L1 sequential hot-feed: previous point's extrinsic s
 _SEQ_WS_PENDING = None    # seed captured INSIDE analyze_event, before it wipes sampler._rvs
 for indx in numpy.arange(len(P_list)):
  try:
+  # UNCONDITIONAL per-point reset.  mcsamplerPortfolio.integrate_log does NOT call self.setup()
+  # (it is commented out at mcsamplerPortfolio.py:874), so member state -- including the AV live
+  # volume contracted around the PREVIOUS point -- survives into the next integral.  With
+  # --n-events-to-analyze > 1 the second point then draws from a box shaped by the first, and if
+  # its support falls outside, lnZ is biased low with a healthy-looking n_eff and no error.  This
+  # is independent of any warm-start feature: it bites users who never enable one.  Reset FIRST,
+  # so an intentional seed installed just below survives.
+  if indx > 0:
+    _clear_warm_state(sampler)
   # Warm-start this point's extrinsic integral.  Order is preserved (no grid
   # reordering), so a truncated worker still drops a spatially-unbiased subset; a
   # coverage floor + inflation margin make a poorly-matched transfer degrade to
