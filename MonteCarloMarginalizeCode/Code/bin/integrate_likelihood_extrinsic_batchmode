@@ -1940,6 +1940,25 @@ def resample_samples(my_samples,
 
   
 
+def _clear_warm_state(sampler):
+    """Clear a warm-start seed AND any grid it installed, reaching PORTFOLIO MEMBERS too.
+
+    `sampler._warm = None` alone is not enough for mcsamplerPortfolio: `_warm` and the contracted
+    AV grid live on each MEMBER, and portfolio.integrate_log() does not rerun each member's setup(),
+    so the next point would silently draw from the PREVIOUS point's contracted live volume.  If the
+    new point's support falls outside it, lnZ is biased low with a healthy-looking n_eff and no
+    error.  Portfolio exposes clear_warm_state(); everything else keeps the old behaviour.
+    """
+    try:
+        if hasattr(sampler, 'clear_warm_state'):
+            sampler.clear_warm_state()
+        else:
+            sampler._warm = None
+            sampler._warm_applied = False
+    except Exception as _e_cw:
+        print("  [warm-state] clear failed (", _e_cw, ")")
+
+
 def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
     nEvals=0
     P = P_list[indx_event]
@@ -2831,10 +2850,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     opts.sampler_warmstart_retry_neff, len(_seed)))
                 sampler.bootstrap_from_samples(_seed, cover_frac=0.0)   # same problem: peak is in the seed
                 res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
-                sampler._warm = None
+                _clear_warm_state(sampler)
         except Exception as _e_l0:
             print("  [L0 auto-rescue] skipped (", _e_l0, ")")
-            sampler._warm = None
+            _clear_warm_state(sampler)
 
     # Persist adapted state / trained flow for reuse by later instances.
     if opts.sampler_method == 'AV' and opts.sampler_save_state and hasattr(sampler, 'save_state'):
@@ -3642,7 +3661,7 @@ for indx in numpy.arange(len(P_list)):
             indx, len(_seed), opts.extrinsic_proposal_field_cover_frac, opts.extrinsic_proposal_field_inflate))
     except Exception as _e_pfq:
       print("  [proposal-field] seed skipped for point {} ({})".format(indx, _e_pfq))
-      sampler._warm = None
+      _clear_warm_state(sampler)
   elif opts.sampler_sequential_warmstart and (_seq_ws_proposal is not None) and hasattr(sampler, 'bootstrap_from_samples'):
     try:
       sampler.bootstrap_from_samples(_seq_ws_proposal,
@@ -3651,7 +3670,7 @@ for indx in numpy.arange(len(P_list)):
           indx, len(_seq_ws_proposal), opts.sampler_sequential_warmstart_cover_frac))
     except Exception as _e_sw:
       print("  [seq warm-start] skipped for point {} ({})".format(indx, _e_sw))
-      sampler._warm = None
+      _clear_warm_state(sampler)
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   # capture this point's converged high-likelihood extrinsic samples as the seed
   # for the next point (in-memory; no files leave the job)
@@ -3662,7 +3681,7 @@ for indx in numpy.arange(len(P_list)):
     _seq_ws_proposal = _SEQ_WS_PENDING
     if _seq_ws_proposal is None:
       print("  [seq warm-start] no seed captured from point {}".format(indx))
-    sampler._warm = None   # clear before the next point (re-seeded above if enabled)
+    _clear_warm_state(sampler)   # clear before the next point (re-seeded above if enabled)
   # abort if horrible (nan event) - done with 'raise'
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.force_reset_all:  # depends on integrator!  May not always be availble

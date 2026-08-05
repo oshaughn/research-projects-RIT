@@ -270,6 +270,7 @@ class MCSampler(object):
         # path guarded by these is inert unless a member is explicitly narrowed.
         self._has_restricted_member = False
         self._full_support_members = []
+        self._pending_range_overrides = set()  # (member, param) awaiting add_parameter; see setup()
         self.portfolio_quality = np.ones(len(self.portfolio))   # per-member quality (EMA of the signal)
         self.portfolio_quality_nobs = np.zeros(len(self.portfolio), dtype=int)  # #updates per member
         self.portfolio_probe_ptr = 0                            # round-robin probe pointer
@@ -322,18 +323,42 @@ class MCSampler(object):
         Call before add_parameter(); narrowing is applied there, and setup() then builds every
         derived quantity from the narrowed range.
         """
+        n_members = len(self.portfolio_realizations)
         member_index = int(member_index)
+        # Validate STRICTLY: a negative index or a misspelled parameter used to be accepted here and
+        # then silently fail to match the positive enumerate()/params checks in add_parameter, so the
+        # call "succeeded" while applying no restriction at all.
         if member_index == 0:
             raise ValueError(
                 "mcsamplerPortfolio.restrict_member_range: member 0 is the full-support backstop and "
                 "must not be narrowed -- q_mix would then have no component covering the complement, "
                 "and a mode outside every sub-box becomes uncoverable rather than merely under-covered.")
-        if member_index >= len(self.portfolio_realizations):
-            raise ValueError("restrict_member_range: no member {} (portfolio has {})".format(
-                member_index, len(self.portfolio_realizations)))
+        if not (1 <= member_index < n_members):
+            raise ValueError("restrict_member_range: member_index must satisfy 1 <= i < {} (got {}); "
+                             "negative indices are NOT accepted -- they never match the positive "
+                             "enumerate() in add_parameter and would silently be a no-op.".format(
+                                 n_members, member_index))
         if not (hi > lo):
             raise ValueError("restrict_member_range: need hi > lo, got [{}, {}]".format(lo, hi))
         self.member_range_overrides.setdefault(member_index, {})[param] = (float(lo), float(hi))
+        # Track for the consumed-check in setup(): a parameter name that never arrives via
+        # add_parameter must be an ERROR, not a silent no-op.
+        self._pending_range_overrides = getattr(self, '_pending_range_overrides', set())
+        self._pending_range_overrides.add((member_index, param))
+
+        # CENTRALISE the coverage invariants: these are the SAME flags the
+        # setup(portfolio_restrict_ranges=...) path establishes.  Setting them only there meant this
+        # public API disabled the full-support draw floor, the restricted-only active-member guard and
+        # the q_mix fallback guard -- so member 0 could be allocated zero draws and the mixture could
+        # silently lose full support, which is precisely the failure restriction is supposed to avoid.
+        restricted = set(self.member_range_overrides)
+        if len(restricted) >= n_members:
+            raise ValueError(
+                "restrict_member_range: that would restrict EVERY member, leaving no component with "
+                "full support.  The mixture would not cover L*p outside the sub-boxes and the integral "
+                "would be biased low with no diagnostic.  Leave at least one member unrestricted.")
+        self._has_restricted_member = True
+        self._full_support_members = [i for i in range(n_members) if i not in restricted]
 
     def add_parameter(self, params, pdf,  **kwargs):
         """
@@ -380,9 +405,35 @@ class MCSampler(object):
             lo, hi = _ov[params]
             member.llim[params] = lo
             member.rlim[params] = hi
+            getattr(self, '_pending_range_overrides', set()).discard((indx, params))
             print("  [portfolio] member {} range for {} narrowed to [{}, {}] (proposal only; "
                   "prior callables untouched)".format(indx, params, lo, hi))
 
+
+    def clear_warm_state(self):
+        """Clear any warm-start seed AND the installed active grid on every member.
+
+        Setting `portfolio._warm = None` does NOT do this: `_warm` and the contracted AV grid live on
+        the MEMBERS, not on the portfolio object.  Now that a seed is actually installed on the draw
+        path (AV._apply_warm_state), failing to clear it between points would let the next point reuse
+        the PREVIOUS point's contracted live volume -- which can exclude the new point's support and
+        bias it low with no diagnostic.  Called by the driver wherever it used to do
+        `sampler._warm = None`, including the seed-capture failure and exception paths.
+        """
+        self._warm = None
+        for member in list(getattr(self, 'portfolio_realizations', [])) + list(getattr(self, 'oracle_realizations', [])):
+            try:
+                member._warm = None
+                member._warm_applied = False
+                # restore the COLD active state: setup() rebuilds my_ranges/dx/binunique/ninbin from
+                # the member's own limits, undoing any contraction inherited from the previous point.
+                # AV.setup() takes **kwargs and ignores them; it rebuilds my_ranges/dx/binunique/
+                # ninbin/V from the member's OWN llim/rlim, so any per-member range restriction
+                # applied in add_parameter survives this reset.
+                if hasattr(member, 'setup'):
+                    member.setup()
+            except Exception as e:
+                print("  [portfolio] clear_warm_state: member reset skipped ({})".format(e))
 
     def bootstrap_from_samples(self, samples, params=None, **kwargs):
         """Warm-start: forward a seed cloud to every member that supports it (e.g. the
@@ -498,16 +549,35 @@ class MCSampler(object):
             # COVERAGE INVARIANT: at least one member must keep FULL support, otherwise the mixture
             # no longer covers L*p outside the union of sub-boxes and the integral is biased low by
             # the missing mass (silently -- n_eff can even look BETTER).  Refuse rather than bias.
-            if _n_restricted >= len(self.portfolio_realizations):
+            # UNION with any restrictions registered through the public restrict_member_range() API.
+            # Both entry points must feed the SAME bookkeeping: computing _full_support_members from
+            # _restrict alone would declare an API-restricted member "full support" and hand it the
+            # draw floor that is meant to protect a genuinely unrestricted component.
+            _restricted_set = set(i for i in range(len(self.portfolio_realizations)) if _restrict[i])
+            _restricted_set |= set(getattr(self, 'member_range_overrides', {}))
+            if len(_restricted_set) >= len(self.portfolio_realizations):
                 raise Exception(
                     "portfolio_restrict_ranges: every member is restricted, so no member retains "
                     "full support.  The mixture would not cover L*p outside the sub-boxes and the "
                     "integral would be biased low with no diagnostic.  Leave at least one member "
                     "unrestricted (it is the defensive component).")
-            self._has_restricted_member = bool(_n_restricted)
+            self._has_restricted_member = bool(_restricted_set)
             # index of a full-support member: the per-member draw floor below protects it
             self._full_support_members = [i for i in range(len(self.portfolio_realizations))
-                                          if not _restrict[i]]
+                                          if i not in _restricted_set]
+
+        # CONSUMED CHECK.  restrict_member_range() only takes effect if it was called BEFORE
+        # add_parameter forwarded that parameter to the members.  A restriction naming a parameter
+        # that never arrives (typo, or the call came too late) used to be a SILENT no-op: the caller
+        # believes a member is focused on the posterior while it still samples the full box.  Fail
+        # loudly instead -- a narrowing that quietly did nothing is a wasted member, not a safe one.
+        _pending = getattr(self, '_pending_range_overrides', set())
+        if _pending:
+            raise Exception(
+                "restrict_member_range: {} restriction(s) were never applied: {}.  Either the "
+                "parameter name does not exist on that member, or restrict_member_range() was "
+                "called AFTER add_parameter() -- it must be called before.".format(
+                    len(_pending), sorted(_pending)))
 
         # Iterate the INSTANTIATED samplers (portfolio_realizations), NOT self.portfolio: the
         # latter may hold modules/names (see __init__), which lack .setup(), so member setup was
