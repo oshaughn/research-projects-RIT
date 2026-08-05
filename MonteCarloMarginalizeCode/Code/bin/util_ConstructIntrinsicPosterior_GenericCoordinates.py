@@ -285,6 +285,7 @@ parser.add_argument("--mirror-points",action='store_true',help="Use if you have 
 parser.add_argument("--cap-points",default=-1,type=int,help="Maximum number of points in the sample, if positive. Useful to cap the number of points ued for GP. See also lnLoffset. Note points are selected AT RANDOM")
 parser.add_argument("--chi-max", default=1,type=float,help="Maximum range of 'a' allowed.  Use when comparing to models that aren't calibrated to go to the Kerr limit.")
 parser.add_argument("--chi-small-max", default=None,type=float,help="Maximum range of 'a' allowed on the smaller body.  If not specified, defaults to chi_max")
+parser.add_argument("--eccentricity-prior", default="uniform",help="Options are 'uniform' and 'log_uniform')"
 parser.add_argument("--ecc-max", default=0.9,type=float,help="Maximum range of 'eccentricity' allowed.")
 parser.add_argument("--ecc-min", default=0.0,type=float,help="Minimum range of 'eccentricity' allowed.")
 parser.add_argument("--meanPerAno-max", default=2*np.pi,type=float,help="Maximum range of 'meanPerAno' allowed.")
@@ -860,6 +861,9 @@ def tapered_magnitude_prior_alt(x,loc=0.8,kappa=20.):   #
 def eccentricity_prior(x):
     return np.ones(x.shape) / (ECC_MAX-ECC_MIN) # uniform over the interval [0.0, ECC_MAX]
 
+def log_eccentricity_prior(x):
+    return np.ones(x.shape) / (x*np.ln(ECC_MAX-ECC_MIN)) # log uniform over the interval [0.0, ECC_MAX]
+
 def eccentricity_squared_prior(x):  # note this is INCONSISTENT with the prior above -- we are designed to give a CDF = (e/emax)^2 for example here, or more generally (e^2 - emin^2)/(emax^2-emin^2)
     return np.ones(x.shape) / (ECC_MAX**2-ECC_MIN**2) # uniform over the interval [ECC_MIN, ECC_MAX]
 
@@ -995,7 +999,7 @@ elif  opts.aligned_prior == 'alignedspin-zprior-positive':
     # prior on s1z constructed to produce the standard distribution
     prior_map["s1z"] = s_component_zprior_positive
     prior_map["s2z"] = functools.partial(s_component_zprior_positive,R=chi_small_max)
-    prior_map["s1z_bar"] = s_component_zprior_positive
+    prior_map["s1z_bar"] = s_compone+nt_zprior_positive
     prior_map["s2z_bar"] = functools.partial(s_component_zprior_positive,R=chi_small_max)
     prior_range_map['s1z'] = [0,chi_max]
     prior_range_map['s2z'] = [0,chi_small_max]
@@ -1094,7 +1098,13 @@ if opts.prior_lambda_linear:
         prior_map['lambda1'] = functools.partial(mcsampler.power_down_samp,xmin=0,xmax=lambda_max,alpha=opts.prior_lambda_power+1)
         prior_map['lambda2'] = functools.partial(mcsampler.power_down_samp,xmin=0,xmax=lambda_small_max,alpha=opts.prior_lambda_power+1)
 
-
+if opts.eccentricity_prior == 'log_uniform':
+    prior_map['eccentricity'] = log_eccentricity_prior
+    if ECC_MIN == 0.0:
+        print("Warning: You passed 0.0 as a ecc-in with a log-uniform prior. Changing ecc-min to 0.001")
+        ECC_MIN = 0.001
+        prior_map_range['eccentricity'] = [ECC_MIN,ECC_MAX]
+        print("New range: ",prior_map_range['eccentricity'])
 # tex_dictionary  = {
 #  "mtot": '$M$',
 #  "mc": '${\cal M}_c$',
