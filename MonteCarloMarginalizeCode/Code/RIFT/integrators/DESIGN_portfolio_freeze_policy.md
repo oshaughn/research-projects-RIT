@@ -948,3 +948,31 @@ regressions (96/96 rows both arms). Flag-ON probe (`varaha floor .25`, `varaha b
 `band + gmm cap3`, scored by the gate's own evaluate()): **0 opt-in regressions** -- every row PASSes
 where the base PASSes and is STARVED where the base is STARVED. So the knobs are SAFE; they are just
 not demonstrated to help.
+
+## L0 rescue REASSESSED after the warm-start fix: most of the 4/9 -> 8/9 was the BROKEN warm start
+
+The 4/9 -> 8/9 result above was measured while `AV.bootstrap_from_samples` stored the seeded grid in
+`self._warm` but nothing installed it on the portfolio draw path (fixed here; see
+`_apply_warm_state`). So BOTH arms of that comparison were effectively cold, and the rescue's apparent
+benefit was inflated. Re-measured on the same point with the seed now actually applied, 9 seeds each:
+
+| arm | n_eff by seed | landed (>=5) |
+|-----|---------------|-------------:|
+| warm, NO rescue | 1, 26, 16, 2, 12, 29, 1, 24, 13 | **6/9** |
+| warm + L0 rescue | 14, 41, 15, 2, 14, 7, 15, 13, 15 | **8/9** |
+
+Fisher two-sided **p = 0.576** -- NOT significant at n=9.
+
+Reading:
+1. **Fixing the warm start is worth more than the rescue.** A single warm-started run now lands 6/9,
+   versus the 4/9 baseline measured when the seed was silently discarded. That gain is attributable
+   to the seed actually reaching the sampler, not to any policy.
+2. **The rescue's remaining effect is small and unproven** (6/9 -> 8/9, p=0.58). It is cheap (a second
+   pass only on runs that collapsed) and never hurt in these data, so it stays recommended as
+   insurance -- but the earlier "roughly doubles the landed fraction" claim is RETRACTED. With a
+   working warm start there is simply less left for it to rescue.
+3. The retry-vs-reseed mechanism question is now moot at this sample size: both arms here are
+   warm-started, so this measures the rescue as an ADD-ON to a working seed, which is the
+   configuration anyone would actually run.
+
+Unchanged by this: the chunk-size and cubic-interpolation results, which do not involve warm start.
