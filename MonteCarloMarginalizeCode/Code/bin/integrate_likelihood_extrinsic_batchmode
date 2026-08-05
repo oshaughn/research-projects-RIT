@@ -3582,6 +3582,25 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # integrate_log() fairdraw does self._rvs[key][indx_list] and raises
     # "list indices must be integers or slices, not ndarray". This silently dropped
     # every binary after the first in each ILE batch whenever fairdraw export was on.
+    # SEQUENTIAL WARM-START SEED must be captured BEFORE the _rvs wipe below.  The caller's capture
+    # block runs after this function returns, by which point _rvs is empty -- so
+    # --sampler-sequential-warmstart was silently inert (it always saw no samples and never seeded
+    # the next point).  Stash the seed here instead; the caller consumes _SEQ_WS_PENDING.
+    global _SEQ_WS_PENDING
+    _SEQ_WS_PENDING = None
+    if getattr(opts, 'sampler_sequential_warmstart', False) and hasattr(sampler, 'bootstrap_from_samples'):
+        try:
+            _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
+            if _lnkey is not None and all(p in sampler._rvs for p in sampler.params_ordered):
+                _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel()
+                if _lnv.size >= 2 and np.any(np.isfinite(_lnv)):
+                    _cols = np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel()
+                                       for p in sampler.params_ordered]).T
+                    _keep = _lnv > (np.nanmax(_lnv) - opts.sampler_sequential_warmstart_deltalnL)
+                    _SEQ_WS_PENDING = _cols[_keep] if np.sum(_keep) >= 2 else (_cols if _cols.shape[0] >= 2 else None)
+        except Exception as _e_cap:
+            print("  [seq warm-start] could not capture seed ({})".format(_e_cap))
+
     sampler._rvs = {}
 
     return res
@@ -3602,6 +3621,7 @@ if opts.extrinsic_proposal_field and hasattr(sampler, 'bootstrap_from_samples'):
         _proposal_field = None
 
 _seq_ws_proposal = None   # L1 sequential hot-feed: previous point's extrinsic seed (in-memory)
+_SEQ_WS_PENDING = None    # seed captured INSIDE analyze_event, before it wipes sampler._rvs
 for indx in numpy.arange(len(P_list)):
  try:
   # Warm-start this point's extrinsic integral.  Order is preserved (no grid
@@ -3636,20 +3656,12 @@ for indx in numpy.arange(len(P_list)):
   # capture this point's converged high-likelihood extrinsic samples as the seed
   # for the next point (in-memory; no files leave the job)
   if opts.sampler_sequential_warmstart and hasattr(sampler, 'bootstrap_from_samples'):
-    _seq_ws_proposal = None
-    try:
-      _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
-      if _lnkey is not None and all(p in sampler._rvs for p in sampler.params_ordered):
-        _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel()
-        if _lnv.size >= 2 and np.any(np.isfinite(_lnv)):
-          _cols = np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel() for p in sampler.params_ordered]).T
-          _keep = _lnv > (np.nanmax(_lnv) - opts.sampler_sequential_warmstart_deltalnL)
-          if np.sum(_keep) >= 2:
-            _seq_ws_proposal = _cols[_keep]
-          elif _cols.shape[0] >= 2:
-            _seq_ws_proposal = _cols   # fall back to all retained samples (still peak-weighted region)
-    except Exception as _e_cap:
-      print("  [seq warm-start] could not capture seed from point {} ({})".format(indx, _e_cap))
+    # Consume the seed captured inside analyze_event BEFORE it wiped sampler._rvs.  Reading
+    # sampler._rvs here would always find it empty (that wipe is required: it fixes a fairdraw
+    # export bug that silently dropped every binary after the first).
+    _seq_ws_proposal = _SEQ_WS_PENDING
+    if _seq_ws_proposal is None:
+      print("  [seq warm-start] no seed captured from point {}".format(indx))
     sampler._warm = None   # clear before the next point (re-seeded above if enabled)
   # abort if horrible (nan event) - done with 'raise'
   lnL_sofar = np.max([lnL_sofar,res])

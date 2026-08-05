@@ -233,6 +233,7 @@ class MCSampler(object):
         self.V=None  # fractional volume
         self.delta_V=None  # fractional volume
         self._warm=None  # bootstrap/warm-start live-volume state (see bootstrap_from_*)
+        self._warm_applied=False  # has _warm been installed into the ACTIVE grid? (see _apply_warm_state)
         # Opt-in ANISOTROPIC bin allocation: give each axis a different number of bins
         # (fine where the live points cluster tightly -- phase/pol/sky; coarse where they are
         # broad -- distance/inclination), instead of the default equal split.  Keeps the same
@@ -332,14 +333,49 @@ class MCSampler(object):
         return p_out
 
 
+    def _apply_warm_state(self):
+        """Install a seeded live-volume grid (self._warm) into the ACTIVE sampling state.
+
+        `bootstrap_from_samples` / `bootstrap_from_oracle` / `load_state` only STORE the seeded grid
+        in `self._warm`; historically it was installed only inside `integrate_log`.  Anything that
+        drives this sampler WITHOUT calling its own integrate_log -- above all a PORTFOLIO, which
+        calls draw_simplified()/update_sampling_prior() directly, and the driver's L0 auto-rescue,
+        which re-seeds a portfolio then re-runs -- therefore kept drawing from the COLD grid while
+        reporting that it had been warm-started.  Idempotent; safe to call on every draw.
+        """
+        warm = getattr(self, '_warm', None)
+        if warm is None or getattr(self, '_warm_applied', False):
+            return
+        try:
+            self.binunique = np.array(warm['binunique'])
+            self.dx = np.array(warm['dx'])
+            self.nbins = np.array(warm['nbins'])
+            self.ninbin = ((self.n_chunk // self.binunique.shape[0] + 1)
+                           * np.ones(self.binunique.shape[0])).astype(int)
+            if 'V' in warm:
+                self.V = float(warm['V'])
+            if 'loglkl_thr' in warm:
+                self.lnL_thresh = float(warm['loglkl_thr'])
+            self._warm_applied = True
+            print("  [AV warm-start] seeded grid APPLIED to the active draw path: "
+                  "live bins={}".format(self.binunique.shape[0]))
+        except Exception as e:
+            # never let a malformed seed break sampling: fall back to the cold grid
+            print("  [AV warm-start] could not apply seeded grid ({}); continuing cold".format(e))
+            self._warm_applied = True
+
     def draw_simplified(self,n_to_get, *args, **kwargs):
         # Self-contained cold start.  A PORTFOLIO (mcsamplerPortfolio) drives draw_simplified on
         # its members directly, WITHOUT running each member's own integrate()/setup(), so a cold
         # AV member may not have its live-volume grid (my_ranges/dx/binunique/ninbin) built yet
-        # -> AttributeError on self.my_ranges.  (A WARM member is fine: bootstrap_from_* builds it.)
+        # -> AttributeError on self.my_ranges.
         # Build the cold full-box grid on first use so AV works as a portfolio member cold or warm.
         if getattr(self, 'my_ranges', None) is None:
             self.setup()
+        # ... and if a seed was supplied, INSTALL it: setup() above (and the driver, which calls
+        # setup BEFORE bootstrap_from_samples) leaves the active grid cold, so without this a
+        # warm-started portfolio member draws from the cold grid.
+        self._apply_warm_state()
         rv, log_p = self.draw_simple()
         # Subsample RANDOMLY, never a head slice: sample_from_bins emits points
         # grouped in lexicographic bin order (binunique from np.unique), so
@@ -750,6 +786,7 @@ class MCSampler(object):
         # would otherwise collapse the grid to one bin per dim, V->1)
         self._warm = self._build_grid_from_points(X, loglkl=loglkl, enc_prob=enc_prob,
                                                   dilate=dilate, resolution_pts=_core)
+        self._warm_applied = False   # a NEW seed must be re-installed (L0 rescue re-seeds mid-run)
         return self._warm
 
     def bootstrap_from_gaussian(self, mean, cov, n=None, params=None, enc_prob=0.999,
@@ -788,6 +825,7 @@ class MCSampler(object):
                              size=(n_cover, len(self.params_ordered)))
             X = np.vstack([X, Xc])
         self._warm = self._build_grid_from_points(X, enc_prob=enc_prob, dilate=dilate)
+        self._warm_applied = False   # a NEW seed must be re-installed (L0 rescue re-seeds mid-run)
         return self._warm
 
     def bootstrap_from_fisher(self, mean, fisher, **kwargs):
@@ -826,6 +864,7 @@ class MCSampler(object):
         X = np.vstack(chunks)
         X = np.clip(X, self.my_ranges.T[0], self.my_ranges.T[1])
         self._warm = self._build_grid_from_points(X, enc_prob=enc_prob, dilate=dilate)
+        self._warm_applied = False   # a NEW seed must be re-installed (L0 rescue re-seeds mid-run)
         return self._warm
 
     def save_state(self, path):
@@ -859,6 +898,7 @@ class MCSampler(object):
         if not (np.allclose(d['llim'], self.my_ranges.T[0]) and
                 np.allclose(d['rlim'], self.my_ranges.T[1])):
             raise ValueError("saved state box does not match sampler box")
+        self._warm_applied = False   # new seed -> must be re-installed
         self._warm = dict(binunique=np.array(d['binunique']), dx=np.array(d['dx']),
                           nbins=np.array(d['nbins']), V=float(d['V']),
                           loglkl_thr=float(d['loglkl_thr']), trunc_p=float(d['trunc_p']))
