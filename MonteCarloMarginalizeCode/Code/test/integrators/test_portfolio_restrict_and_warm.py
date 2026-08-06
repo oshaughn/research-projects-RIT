@@ -273,16 +273,16 @@ def test_adaptive_seeded_model_does_not_drift_across_reset():
     assert restored.tempering_coeff == 1.0, "point 2 inherited point 1's tempering state"
 
 
-def test_warm_start_keeps_the_backstop_at_full_support():
-    """A warm start must not narrow every member.
+def test_warm_start_keeps_a_backstop_when_every_member_is_compact():
+    """With no full-support member, a warm start must not narrow ALL of them.
 
     `cover_frac` is not a coverage guarantee: a FINITE set of uniform points occupies only the
     bins it lands in, so a seeded grid is not a superset of a cold start (measured at d=6, even
-    cover_frac=0.9 covers 2.9% of the box).  Seeding every member therefore removes the mixture's
-    coverage of the prior box.  Member 0 -- the backstop restrict_member_range also refuses to
-    narrow -- stays cold."""
+    cover_frac=0.9 covers 2.9% of the box).  In an ALL-AV portfolio every component is a
+    hard-edged box, so seeding all of them removes the mixture's coverage of the prior box.
+    Member 0 -- the backstop restrict_member_range also refuses to narrow -- stays cold."""
     d = 4
-    s = mcsP.MCSampler(portfolio=[mcsAV, mcsAV, mcsGMM])
+    s = mcsP.MCSampler(portfolio=[mcsAV, mcsAV])
     for i in range(d):
         p = "x%d" % i
         s.add_parameter(p, _flat(p), prior_pdf=_flat(p), left_limit=-5., right_limit=5.,
@@ -316,6 +316,28 @@ def test_warm_start_backstop_opt_out_still_works():
         s.portfolio_realizations[i].draw_simplified(500)
     assert float(s.portfolio_realizations[0].V) < 0.5, "opt-out did not seed member 0"
 
+
+def test_warm_start_does_not_sacrifice_av_when_a_gmm_is_present():
+    """The rule is "SOME member has support everywhere", not "member 0 is cold".
+
+    A GMM member carries an explicit uniform defensive component (gmm_defensive_frac, default
+    0.05) plus Gaussian tails, so q_mix never vanishes however it is seeded -- measured, a
+    displaced seed in [AV, GMM] left |lnZ bias| <= 0.05 either way.  Holding member 0 cold there
+    would disable the AV warm start entirely (member 0 IS the AV member) to buy a guarantee that
+    already exists.  The merge gate caught exactly that regression, so it is pinned here."""
+    d = 4
+    s = mcsP.MCSampler(portfolio=[mcsAV, mcsGMM])
+    for i in range(d):
+        p = "x%d" % i
+        s.add_parameter(p, _flat(p), prior_pdf=_flat(p), left_limit=-5., right_limit=5.,
+                        adaptive_sampling=True)
+    s.setup()
+    rng = np.random.RandomState(1)
+    s.bootstrap_from_samples(rng.normal(0, 0.2, size=(1500, d)), cover_frac=0.5)
+    s.portfolio_realizations[0].draw_simplified(500)
+    v0 = float(s.portfolio_realizations[0].V)
+    assert v0 < 0.5, ("the AV member was left cold even though a full-support GMM member is "
+                      "present: the warm start is disabled for no benefit (V={})".format(v0))
 
 def test_clear_warm_state_propagates_failures():
     """A reset that quietly did not happen leaves the next point on the previous point's grid.

@@ -167,6 +167,11 @@ def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
 
 
 class MCSampler(object):
+    # COMPACT SUPPORT: this sampler's density is EXACTLY ZERO outside its contracted live volume,
+    # so once seeded or contracted it cannot serve as the mixture's coverage guarantee.
+    # mcsamplerPortfolio reads this to decide whether it must hold one member cold.
+    has_unbounded_support = False
+
     """
     Class to define a set of parameter names, limits, and probability densities.
     """

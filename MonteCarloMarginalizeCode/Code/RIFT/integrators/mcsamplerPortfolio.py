@@ -599,6 +599,21 @@ class MCSampler(object):
             keep_backstop_cold = bool(getattr(self, 'portfolio_warmstart_backstop_cold', True))
         # Which members must retain full support?  If range restriction is in play it already
         # computed them; otherwise it is member 0 by the same convention.
+        # The invariant is NOT "member 0 must be cold" -- it is "SOME member must have support
+        # everywhere".  A GMM/ensemble member satisfies that inherently: it carries an explicit
+        # uniform defensive component (gmm_defensive_frac, default 0.05) plus Gaussian tails, so
+        # q_mix never vanishes however it is seeded.  Measured: in the default [AV, GMM] portfolio
+        # a deliberately displaced seed left |lnZ bias| <= 0.05 whether or not a member was held
+        # cold, while an ALL-AV portfolio gave -1.0 to -6.8 nats.
+        # So hold a member cold ONLY when EVERY member has compact support.  Doing it
+        # unconditionally disables the AV warm start in [AV, GMM] -- member 0 IS the AV member --
+        # to buy a guarantee the GMM member already provides.  The merge gate caught exactly that.
+        _has_broad = any(getattr(m, 'has_unbounded_support', True)
+                         for m in self.portfolio_realizations)
+        if keep_backstop_cold and _has_broad:
+            keep_backstop_cold = False
+            print("  [portfolio] warm-starting all members: a full-support member is present "
+                  "(defensive mixture), so no cold backstop is needed")
         _backstop = set(getattr(self, '_full_support_members', None) or [0]) if keep_backstop_cold else set()
         if len(_backstop) >= len(self.portfolio_realizations):
             _backstop = set([0])   # never refuse to warm-start EVERY member
