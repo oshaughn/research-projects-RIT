@@ -454,6 +454,46 @@ def test_reset_adaptation_restores_all_portfolio_state():
         {a: (before[a], after[a]) for a in diffs})
 
 
+
+
+def test_every_fit_path_installs_the_defensive_component():
+    """The portfolio's coverage guarantee rests on this, so it must hold on EVERY fit path.
+
+    `gmm_defensive_frac > 0` is only a request: add_defensive_component() was called by
+    fit_gmm_adaptive but NOT by the fixed-component paths, and gmm_adaptive defaults to off -- so
+    the default configuration asked for a defensive component and never installed one.  Worse,
+    gmm.score() floors at 1e-300, so the member still LOOKED like it had support everywhere; a
+    sample landing there would carry weight ~1e300.  Measured: a fixed-component fit to a tight
+    cloud returned exactly that floor at the far corner for every d >= 4.
+
+    has_unbounded_support trusts the config while untrained, which is only sound while this holds.
+    """
+    import RIFT.integrators.gaussian_mixture_model as _GMM
+    rng = np.random.RandomState(0)
+    for d in (2, 6):
+        bounds = np.repeat([[-5., 5.]], d, axis=0)
+        X = rng.normal(0, 0.2, size=(1500, d))
+        far = np.full((1, d), 4.9)
+
+        m = _GMM.gmm(2, bounds)
+        m.fit(X, log_sample_weights=np.zeros(len(X)))
+        floored = float(np.asarray(m.score(far)).flatten()[0])
+        _GMM.add_defensive_component(m, defensive_frac=0.05)
+        real = float(np.asarray(m.score(far)).flatten()[0])
+        assert getattr(m, 'defensive_frac', 0.0) > 0, "marker not set at d={}".format(d)
+        assert real > 1e6 * max(floored, 1e-300), (
+            "defensive component gave no real far-field density at d={}: {:.3g} -> {:.3g}".format(
+                d, floored, real))
+
+    # and a member trained through the DEFAULT portfolio path must report the capability honestly
+    s = _mk_dim_portfolio([mcsAV, mcsGMM], d=2)
+    gmm = s.portfolio_realizations[1]
+    assert gmm.has_unbounded_support is True, "untrained default member should trust the config"
+    s2 = _mk_dim_portfolio([mcsAV, mcsGMM], d=2, gmm_defensive_frac=0.0)
+    assert s2.portfolio_realizations[1].has_unbounded_support is False, \
+        "defensive_frac=0 must never report coverage"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith('test_'):

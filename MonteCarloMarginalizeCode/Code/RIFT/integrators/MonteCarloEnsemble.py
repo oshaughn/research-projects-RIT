@@ -393,9 +393,21 @@ class integrator:
                 elif isinstance(self.n_comp, int) and self.n_comp != 0:
                     model = GMM.gmm(self.n_comp, new_bounds,epsilon=self.gmm_epsilon)
                     model.fit(temp_samples, log_sample_weights=log_weights)
+                    # The defensive component is the ONLY thing that actually guarantees this member
+                    # has support across the box -- gmm.score() merely FLOORS at 1e-300, which is a
+                    # numerical guard, not coverage (a sample there would carry weight ~1e300).
+                    # fit_gmm_adaptive adds it; the fixed-component path did not, so a portfolio
+                    # reading gmm_defensive_frac>0 as a guarantee was wrong by default.
+                    GMM.add_defensive_component(model, defensive_frac=getattr(self,'gmm_defensive_frac',0.0))
                 elif isinstance(self.n_comp, dict) and self.n_comp[dim_group] != 0:
                     model = GMM.gmm(self.n_comp[dim_group], new_bounds,epsilon=self.gmm_epsilon)
                     model.fit(temp_samples, log_sample_weights=log_weights)
+                    # The defensive component is the ONLY thing that actually guarantees this member
+                    # has support across the box -- gmm.score() merely FLOORS at 1e-300, which is a
+                    # numerical guard, not coverage (a sample there would carry weight ~1e300).
+                    # fit_gmm_adaptive adds it; the fixed-component path did not, so a portfolio
+                    # reading gmm_defensive_frac>0 as a guarantee was wrong by default.
+                    GMM.add_defensive_component(model, defensive_frac=getattr(self,'gmm_defensive_frac',0.0))
             else:
                 model.update(temp_samples, log_sample_weights=log_weights)
             try:

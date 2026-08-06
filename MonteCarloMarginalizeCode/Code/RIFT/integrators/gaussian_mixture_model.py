@@ -732,6 +732,7 @@ def add_defensive_component(model, defensive_frac=0.05, width_norm=1.0):
     covers the whole [-1,1] box; truncated to the box it is near-uniform).
     '''
     if not defensive_frac or defensive_frac <= 0:
+        model.defensive_frac = 0.0
         return model
     xpy = model.xpy
     d = model.d
@@ -746,6 +747,10 @@ def add_defensive_component(model, defensive_frac=0.05, width_norm=1.0):
     model.weights = model.identity_convert_togpu(w / w.sum())
     model.adapt = list(model.adapt) + [False] if isinstance(model.adapt, list) else model.adapt
     model.k = len(means)
+    # MARKER: the portfolio must be able to VERIFY this component is installed rather than
+    # infer it from a config value -- gmm_defensive_frac>0 was being read as a guarantee
+    # while the fixed-component fit paths never called this function.
+    model.defensive_frac = float(defensive_frac)
     return model
 
 
