@@ -746,13 +746,39 @@ class MCSampler(object):
         an earlier MAP point, or fair-draw samples from a prior ILE instance).
         `loglkl` (optional) is L*prior at those points, used to seed the threshold.
 
-        `cover_frac` (0..1) is the SAFETY FLOOR for reuse across DIFFERENT problems
-        (a neighbouring intrinsic point, a stale breadcrumb): it mixes this fraction
-        of uniform full-box points into the seed cloud, so the seeded live volume is
-        a superset of a cold (uniform) start.  Then a mis-placed proposal can only
-        cost efficiency -- warm coverage always contains cold coverage, so the
-        warm-started integral can never be MORE biased than a cold one.  Leave 0
-        when reusing a proposal for the SAME problem (e.g. an in-run second pass).
+        `cover_frac` (0..1) mixes this fraction of uniform full-box points into the
+        seed cloud, widening the seeded live volume.  Leave 0 when reusing a proposal
+        for the SAME problem (e.g. an in-run second pass).
+
+        IT IS NOT A COVERAGE GUARANTEE, despite what this docstring claimed until
+        2026-08.  A FINITE set of uniform points occupies only the bins it lands in,
+        so the seeded grid is NOT a superset of a cold (uniform) start -- and the
+        shortfall grows fast with dimension.  Measured, fraction of the [-5,5]^d prior
+        box covered by the seeded grid (a cold start is 1.0 by construction):
+
+            cover_frac:      0.0        0.2       0.5      0.9
+            d=2           0.027      0.634     0.982     1.000
+            d=4          0.0015      0.028     0.104     0.620
+            d=6         6.3e-05    0.00087    0.0033    0.0287
+
+        At d=6 even cover_frac=0.9 leaves 97% of the box unsampled.  So the claim that
+        "a warm-started integral can never be MORE biased than a cold one" was false;
+        do not rely on it.
+
+        WHAT ACTUALLY PROTECTS YOU is having a component with support everywhere.  In
+        the default AV+GMM portfolio that is the GMM member: a Gaussian mixture has
+        nonzero density over the whole box, so q_mix never vanishes and a badly-seeded
+        AV member costs efficiency rather than bias (measured with a deliberately
+        displaced seed at d=4 and d=6: |lnZ bias| <= 0.05 in every run).  An ALL-AV
+        portfolio has no such member -- every component is a hard-edged box -- and the
+        same displaced seed gave lnZ bias -1.0 to -6.8 nats.
+
+        And note the limit of any coverage fix: in that all-AV test, keeping one member
+        fully cold (V=1) still gave -1.1 to -4.2 nats, because a uniform member at d=6
+        finds a sharp peak too rarely to carry the integral within the budget (n_eff
+        3-9).  Coverage in principle is necessary, not sufficient.  A badly mismatched
+        seed is an efficiency catastrophe no knob repairs -- detect it (the L0 rescue)
+        or do not warm-start across dissimilar points.
 
         `inflate` (>=1) is the HANDOFF SAFETY MARGIN: widen the seed cloud by this
         factor about its own mean before building the grid.  When importing a proposal

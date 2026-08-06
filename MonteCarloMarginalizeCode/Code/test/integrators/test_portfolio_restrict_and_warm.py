@@ -273,6 +273,50 @@ def test_adaptive_seeded_model_does_not_drift_across_reset():
     assert restored.tempering_coeff == 1.0, "point 2 inherited point 1's tempering state"
 
 
+def test_warm_start_keeps_the_backstop_at_full_support():
+    """A warm start must not narrow every member.
+
+    `cover_frac` is not a coverage guarantee: a FINITE set of uniform points occupies only the
+    bins it lands in, so a seeded grid is not a superset of a cold start (measured at d=6, even
+    cover_frac=0.9 covers 2.9% of the box).  Seeding every member therefore removes the mixture's
+    coverage of the prior box.  Member 0 -- the backstop restrict_member_range also refuses to
+    narrow -- stays cold."""
+    d = 4
+    s = mcsP.MCSampler(portfolio=[mcsAV, mcsAV, mcsGMM])
+    for i in range(d):
+        p = "x%d" % i
+        s.add_parameter(p, _flat(p), prior_pdf=_flat(p), left_limit=-5., right_limit=5.,
+                        adaptive_sampling=True)
+    s.setup()
+    rng = np.random.RandomState(1)
+    cloud = rng.normal(0, 0.2, size=(1500, d))     # a tight seed, as at high SNR
+    s.bootstrap_from_samples(cloud, cover_frac=0.5)
+    for i in (0, 1):
+        s.portfolio_realizations[i].draw_simplified(500)   # forces the seed onto the draw path
+    v0 = float(s.portfolio_realizations[0].V)
+    v1 = float(s.portfolio_realizations[1].V)
+    assert v0 >= 1.0, "the full-support backstop was narrowed by the warm start (V={})".format(v0)
+    assert v1 < 0.5, "member 1 was not actually warm-started (V={}); the test proves nothing".format(v1)
+
+
+def test_warm_start_backstop_opt_out_still_works():
+    """The old seed-everything behaviour must remain reachable, for A/B and for callers who
+    know their seed is right."""
+    d = 4
+    s = mcsP.MCSampler(portfolio=[mcsAV, mcsAV])
+    for i in range(d):
+        p = "x%d" % i
+        s.add_parameter(p, _flat(p), prior_pdf=_flat(p), left_limit=-5., right_limit=5.,
+                        adaptive_sampling=True)
+    s.setup()
+    rng = np.random.RandomState(1)
+    s.bootstrap_from_samples(rng.normal(0, 0.2, size=(1500, d)), cover_frac=0.5,
+                             keep_backstop_cold=False)
+    for i in (0, 1):
+        s.portfolio_realizations[i].draw_simplified(500)
+    assert float(s.portfolio_realizations[0].V) < 0.5, "opt-out did not seed member 0"
+
+
 def test_clear_warm_state_propagates_failures():
     """A reset that quietly did not happen leaves the next point on the previous point's grid.
     That must abort, not become a log line."""
