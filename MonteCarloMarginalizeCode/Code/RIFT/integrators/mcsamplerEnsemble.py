@@ -52,6 +52,29 @@ class NanOrInf(Exception):
         return repr(self.value)
 
 class MCSampler(object):
+
+    @property
+    def has_unbounded_support(self):
+        """Does this member's proposal have nonzero density over the WHOLE prior box?
+
+        mcsamplerPortfolio uses this to decide whether it must hold a member cold on a warm start
+        (see bootstrap_from_samples).  The guarantee comes from the UNIFORM DEFENSIVE COMPONENT
+        (gmm_defensive_frac), not from Gaussian tails -- tails underflow to exactly zero far from
+        the mode, so they cannot be relied on.  With gmm_defensive_frac=0 this member is NOT a
+        coverage guarantee and must not be counted as one.
+
+        Reports False until the integrator exists: before setup() we cannot know the configured
+        value, and the safe answer is "do not rely on me".
+        """
+        integ = getattr(self, 'integrator', None)
+        if integ is None:
+            return False
+        frac = getattr(integ, 'gmm_defensive_frac', 0.0)
+        try:
+            return bool(frac > 0)
+        except Exception:
+            return False
+
     """
     Class to define a set of parameter names, limits, and probability densities.
     """

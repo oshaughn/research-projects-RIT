@@ -539,6 +539,38 @@ class MCSampler(object):
                     # replay a polluted spec and the leak would return one point later.
                     member.setup(**self._snapshot_setup_args(args_here))
 
+    def reset_adaptation(self):
+        """FULL reset: member proposals AND the portfolio's own adaptive bookkeeping.
+
+        clear_warm_state() rebuilds the MEMBERS, but the portfolio itself also learns during a run
+        -- draw allocation, per-member quality EMAs and their observation counts, the round-robin
+        probe pointer, the iteration counter, breakpoint progression and the per-member n_ess
+        histories.  MC-error replicas that inherit those start with scheduling learned from the
+        earlier replicas, so they are not adaptation-independent and the between-replica scatter
+        still understates the true error -- which is the entire quantity the replicas exist to
+        measure.  Restores every field to its post-setup value.
+        """
+        self.clear_warm_state()
+        n = len(self.portfolio)
+        # draw allocation: back to uniform (or the caller's explicit initial weights)
+        w0 = getattr(self, '_portfolio_weights_initial', None)
+        self.portfolio_weights = np.array(w0) if w0 is not None else np.ones(n) / (1.0 * n)
+        self.portfolio_quality = np.ones(n)
+        self.portfolio_quality_nobs = np.zeros(n, dtype=int)
+        self.portfolio_probe_ptr = 0
+        self.portfolio_draw_iteration = 0
+        self.portfolio_member_ness_history = [[] for _ in range(n)]
+        # breakpoints are a SCHEDULE (set at setup), not learned state: restore the schedule that
+        # setup() installed rather than zeroing it, or a replica would activate members on a
+        # different iteration than the first run did.
+        bp0 = getattr(self, '_portfolio_breakpoints_initial', None)
+        if bp0 is not None:
+            self.portfolio_breakpoints = np.array(bp0)
+        for _attr in ('portfolio_frozen', 'portfolio_grace_left', 'portfolio_last_revive'):
+            _v0 = getattr(self, '_' + _attr + '_initial', None)
+            if _v0 is not None:
+                setattr(self, _attr, np.array(_v0) if hasattr(_v0, '__len__') else _v0)
+
     def bootstrap_from_samples(self, samples, params=None, keep_backstop_cold=None, **kwargs):
         """Warm-start: forward a seed cloud to every member that supports it (e.g. the
         AV/VARAHA member's live volume), EXCEPT the full-support backstop (see below).
@@ -608,8 +640,20 @@ class MCSampler(object):
         # So hold a member cold ONLY when EVERY member has compact support.  Doing it
         # unconditionally disables the AV warm start in [AV, GMM] -- member 0 IS the AV member --
         # to buy a guarantee the GMM member already provides.  The merge gate caught exactly that.
-        _has_broad = any(getattr(m, 'has_unbounded_support', True)
-                         for m in self.portfolio_realizations)
+        # Default FALSE: a sampler must DECLARE full support to be counted.  Defaulting to True
+        # meant any member that simply had not been annotated was treated as the coverage
+        # guarantee -- the safe default is to assume compact and keep a cold backstop.
+        # And a nominally broad member does NOT count if it has been RANGE-RESTRICTED: its
+        # proposal is confined to a sub-box, so it no longer covers the prior.  Without this,
+        # [unrestricted AV, restricted GMM] reported _full_support_members == [0] and then
+        # warm-started and contracted member 0 anyway, leaving nothing covering the prior box --
+        # the silent low bias this whole mechanism exists to prevent.
+        if getattr(self, '_has_restricted_member', False):
+            _unrestricted = set(getattr(self, '_full_support_members', []) or [])
+        else:
+            _unrestricted = set(range(len(self.portfolio_realizations)))
+        _has_broad = any(getattr(m, 'has_unbounded_support', False) and (i in _unrestricted)
+                         for i, m in enumerate(self.portfolio_realizations))
         if keep_backstop_cold and _has_broad:
             keep_backstop_cold = False
             print("  [portfolio] warm-starting all members: a full-support member is present "
@@ -734,6 +778,16 @@ class MCSampler(object):
             # index of a full-support member: the per-member draw floor below protects it
             self._full_support_members = [i for i in range(len(self.portfolio_realizations))
                                           if i not in _restricted_set]
+
+        # Snapshot the post-setup values of everything reset_adaptation() restores, so a replica
+        # returns to THIS state rather than to a hard-coded guess.
+        self._portfolio_weights_initial = np.array(self.portfolio_weights)
+        self._portfolio_breakpoints_initial = np.array(self.portfolio_breakpoints)
+        for _attr in ('portfolio_frozen', 'portfolio_grace_left', 'portfolio_last_revive'):
+            if hasattr(self, _attr):
+                _v = getattr(self, _attr)
+                setattr(self, '_' + _attr + '_initial',
+                        np.array(_v) if hasattr(_v, '__len__') else _v)
 
         # CONSUMED CHECK.  restrict_member_range() only takes effect if it was called BEFORE
         # add_parameter forwarded that parameter to the members.  A restriction naming a parameter

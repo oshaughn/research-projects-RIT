@@ -356,6 +356,104 @@ def test_clear_warm_state_propagates_failures():
     raise AssertionError("clear_warm_state swallowed a failed member reset")
 
 
+
+
+def _mk_dim_portfolio(members, d=4, restrict_member=None, **setup_kw):
+    s = mcsP.MCSampler(portfolio=list(members))
+    if restrict_member is not None:
+        for i in range(d):
+            s.restrict_member_range(restrict_member, "x%d" % i, -1., 1.)
+    for i in range(d):
+        p = "x%d" % i
+        s.add_parameter(p, _flat(p), prior_pdf=_flat(p), left_limit=-5., right_limit=5.,
+                        adaptive_sampling=True)
+    s.setup(**setup_kw)
+    return s
+
+
+def _warm_and_measure_member0(s, d=4):
+    rng = np.random.RandomState(1)
+    s.bootstrap_from_samples(rng.normal(0, 0.2, size=(1500, d)), cover_frac=0.5)
+    s.portfolio_realizations[0].draw_simplified(500)
+    return float(s.portfolio_realizations[0].V)
+
+
+def test_restricted_broad_member_does_not_count_as_the_backstop():
+    """A nominally full-support member that has been RANGE-RESTRICTED is confined to a sub-box,
+    so it no longer covers the prior and must not license contracting everyone else.
+
+    Without this, [unrestricted AV, restricted GMM] reported _full_support_members == [0] and then
+    warm-started member 0 anyway (measured V=0.095), leaving nothing covering the prior box."""
+    s = _mk_dim_portfolio([mcsAV, mcsGMM], restrict_member=1)
+    assert s._full_support_members == [0], s._full_support_members
+    v0 = _warm_and_measure_member0(s)
+    assert v0 >= 1.0, ("member 0 was contracted even though the only other member is "
+                       "range-restricted: nothing covers the prior box (V={})".format(v0))
+
+
+def test_full_support_capability_must_be_declared():
+    """Default FALSE.  Treating un-annotated samplers as full-support made any member that simply
+    had not been marked act as the coverage guarantee."""
+    class _Unannotated(object):
+        pass
+    assert getattr(_Unannotated(), 'has_unbounded_support', False) is False
+    assert mcsAV.MCSampler.has_unbounded_support is False
+
+
+def test_defensive_frac_zero_is_not_full_support():
+    """The GMM's guarantee is the UNIFORM DEFENSIVE COMPONENT, not Gaussian tails (which underflow
+    to exactly zero far from the mode).  With gmm_defensive_frac=0 it must not be counted."""
+    s = _mk_dim_portfolio([mcsAV, mcsGMM], gmm_defensive_frac=0.0)
+    assert s.portfolio_realizations[1].has_unbounded_support is False
+    v0 = _warm_and_measure_member0(s)
+    assert v0 >= 1.0, "member 0 contracted although no member guarantees coverage (V={})".format(v0)
+    # and the normal case still warm-starts everything
+    s2 = _mk_dim_portfolio([mcsAV, mcsGMM])
+    assert s2.portfolio_realizations[1].has_unbounded_support is True
+    assert _warm_and_measure_member0(s2) < 0.5
+
+
+_PORTFOLIO_ADAPTIVE_STATE = ('portfolio_weights', 'portfolio_quality', 'portfolio_quality_nobs',
+                             'portfolio_probe_ptr', 'portfolio_draw_iteration',
+                             'portfolio_breakpoints', 'portfolio_member_ness_history')
+
+
+def _adaptive_snapshot(s):
+    out = {}
+    for a in _PORTFOLIO_ADAPTIVE_STATE:
+        v = getattr(s, a, None)
+        # repr(), not np.array(): the n_ess histories are RAGGED (one list per member, different
+        # lengths), and np.array on a ragged nested list raises rather than comparing.
+        out[a] = repr(np.asarray(v).tolist()) if isinstance(v, np.ndarray) else repr(v)
+    return out
+
+
+def test_reset_adaptation_restores_all_portfolio_state():
+    """MC-error replicas must be adaptation-independent at the PORTFOLIO level too.
+
+    clear_warm_state() rebuilds the members, but the portfolio itself learns draw allocation,
+    per-member quality EMAs and their counts, the probe pointer, the iteration counter and the
+    n_ess histories.  A replica inheriting those starts with scheduling learned from earlier
+    replicas, so the between-replica scatter -- the very quantity the replicas exist to measure --
+    still understates the error."""
+    s = _mk_dim_portfolio([mcsAV, mcsGMM])
+    before = _adaptive_snapshot(s)
+
+    # simulate a run having adapted the portfolio-level bookkeeping
+    s.portfolio_weights = np.array([0.9, 0.1])
+    s.portfolio_quality = np.array([3.0, 0.2])
+    s.portfolio_quality_nobs = np.array([7, 4])
+    s.portfolio_probe_ptr = 5
+    s.portfolio_draw_iteration = 42
+    s.portfolio_member_ness_history = [[1.0, 2.0], [3.0]]
+
+    s.reset_adaptation()
+    after = _adaptive_snapshot(s)
+    diffs = [a for a in _PORTFOLIO_ADAPTIVE_STATE if before[a] != after[a]]
+    assert not diffs, "reset_adaptation left portfolio state carried over: {}".format(
+        {a: (before[a], after[a]) for a in diffs})
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith('test_'):
