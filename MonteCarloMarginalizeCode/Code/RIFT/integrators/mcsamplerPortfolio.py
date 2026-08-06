@@ -821,6 +821,10 @@ class MCSampler(object):
               args_here.update(kwargs)
               args_here.update(portfolio_extra_args[indx])
               # snapshot BEFORE setup: the member (or its integrator) may mutate these in place
+              # A portfolio member may be the mixture's ONLY full-support component, so ask for
+              # the defensive component on every fit path for OUR members.  Standalone users of
+              # the same sampler are unaffected -- measured, it costs real n_eff at d>=6.
+              args_here.setdefault('gmm_defensive_all_paths', True)
               self._member_setup_args[indx] = self._snapshot_setup_args(args_here)
               member.setup(**args_here)
         for indx, member in enumerate(self.oracle_realizations):

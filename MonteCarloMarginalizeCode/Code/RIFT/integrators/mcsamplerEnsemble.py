@@ -82,6 +82,11 @@ class MCSampler(object):
             return False
         models = [m for m in getattr(integ, 'gmm_dict', {}).values() if m is not None]
         if not models:
+            if not getattr(integ, 'gmm_defensive_all_paths', False) and not getattr(
+                    integ, 'gmm_adaptive', None):
+                # Neither path that installs the component is active: the request in
+                # gmm_defensive_frac will not be honoured, so do not promise coverage.
+                return False
             # UNTRAINED.  The portfolio has to decide about warm-starting before any group is
             # fitted, so there is nothing to inspect yet.  Trusting the config is justified only
             # because EVERY fit path now installs the component (fit_gmm_adaptive did already;
@@ -238,6 +243,7 @@ class MCSampler(object):
       gmm_adapt = kwargs['gmm_adapt'] if "gmm_adapt" in kwargs else None
       gmm_adaptive = kwargs['gmm_adaptive'] if "gmm_adaptive" in kwargs else None
       gmm_defensive_frac = kwargs['gmm_defensive_frac'] if "gmm_defensive_frac" in kwargs else 0.05
+      _defensive_all = kwargs['gmm_defensive_all_paths'] if "gmm_defensive_all_paths" in kwargs else False
       gmm_inflate = kwargs['gmm_inflate'] if "gmm_inflate" in kwargs else 1.0
       gmm_epsilon = kwargs['gmm_epsilon'] if "gmm_epsilon" in kwargs else None
       L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
@@ -290,6 +296,7 @@ class MCSampler(object):
                          user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_adapt=gmm_adapt,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp,
                          tempering_adapt=tempering_adapt, ess_target=ess_target, ess_floor=ess_floor, gmm_adaptive=gmm_adaptive,
                          gmm_defensive_frac=gmm_defensive_frac, gmm_inflate=gmm_inflate)
+      self.integrator.gmm_defensive_all_paths = bool(_defensive_all)
 
     def update_sampling_prior(self,ln_weights, n_history,tempering_exp=1,log_scale_weights=True,floor_integrated_probability=0,external_rvs=None,**kwargs):
       rvs_here = self._rvs
@@ -389,18 +396,32 @@ class MCSampler(object):
                     # The defensive component is the ONLY thing that actually guarantees this member
                     # has support across the box -- gmm.score() merely FLOORS at 1e-300, which is a
                     # numerical guard, not coverage (a sample there would carry weight ~1e300).
-                    # fit_gmm_adaptive adds it; the fixed-component path did not, so a portfolio
-                    # reading gmm_defensive_frac>0 as a guarantee was wrong by default.
-                    GMM.add_defensive_component(model, defensive_frac=getattr(self.integrator,'gmm_defensive_frac',0.0))
+                    # fit_gmm_adaptive adds it; the fixed-component path did not.  OPT-IN, because
+                    # measured on the shape gate a 5% broad component costs real n_eff in
+                    # higher dimensions (d6_n3_s303 119->75, d8_n1_s303 448->210): it spends
+                    # 5% of draws where the likelihood is negligible.  Only a consumer that
+                    # NEEDS this member as its coverage guarantee should pay -- so a
+                    # portfolio sets gmm_defensive_all_paths on its members, and a standalone
+                    # GMM user is unaffected.
+                    GMM.add_defensive_component(model, defensive_frac=(
+                        getattr(self.integrator,'gmm_defensive_frac',0.0)
+                        if getattr(self.integrator,'gmm_defensive_all_paths',False) else 0.0))
                 elif isinstance(self.integrator.n_comp, dict) and self.integrator.n_comp[dim_group] != 0:
                     model = GMM.gmm(self.integrator.n_comp[dim_group], new_bounds,epsilon=self.integrator.gmm_epsilon)
                     model.fit(temp_samples, log_sample_weights=ln_weights_group)
                     # The defensive component is the ONLY thing that actually guarantees this member
                     # has support across the box -- gmm.score() merely FLOORS at 1e-300, which is a
                     # numerical guard, not coverage (a sample there would carry weight ~1e300).
-                    # fit_gmm_adaptive adds it; the fixed-component path did not, so a portfolio
-                    # reading gmm_defensive_frac>0 as a guarantee was wrong by default.
-                    GMM.add_defensive_component(model, defensive_frac=getattr(self.integrator,'gmm_defensive_frac',0.0))
+                    # fit_gmm_adaptive adds it; the fixed-component path did not.  OPT-IN, because
+                    # measured on the shape gate a 5% broad component costs real n_eff in
+                    # higher dimensions (d6_n3_s303 119->75, d8_n1_s303 448->210): it spends
+                    # 5% of draws where the likelihood is negligible.  Only a consumer that
+                    # NEEDS this member as its coverage guarantee should pay -- so a
+                    # portfolio sets gmm_defensive_all_paths on its members, and a standalone
+                    # GMM user is unaffected.
+                    GMM.add_defensive_component(model, defensive_frac=(
+                        getattr(self.integrator,'gmm_defensive_frac',0.0)
+                        if getattr(self.integrator,'gmm_defensive_all_paths',False) else 0.0))
                 elif not (self.integrator.n_comp == 0 or
                           (isinstance(self.integrator.n_comp, dict) and self.integrator.n_comp.get(dim_group) == 0)):
                     # invalid n_comp (e.g. None from an integrator built outside
