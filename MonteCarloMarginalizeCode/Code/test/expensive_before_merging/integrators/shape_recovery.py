@@ -590,16 +590,33 @@ def run_seq_case(kind, target_b, target_a, nmax, neff, n_chunk=10000, seed=98765
     try:
         np.random.seed(seed)
         s = build_sampler("AV" if kind == "AV_seq" else "portfolio", target_a, n_chunk)
+        # PRODUCTION SHAPE: supply gmm_dict.  Production always does, and it is not an inert spec --
+        # monte_carlo.integrator stores the caller's dict without copying and writes trained models
+        # into it, so this is the configuration in which stale-proposal aliasing can occur.  A gate
+        # that only ever ran the gmm_dict=None branch could not see that class of defect at all.
+        _setup_kw = {}
+        if kind != "AV_seq":
+            _dims = tuple(range(len(target_a.params)))
+            _setup_kw = dict(n_comp={_dims: 2}, gmm_dict={_dims: None}, correlate_all_dims=True)
         try:
-            s.setup()
+            s.setup(**_setup_kw)
         except TypeError:
-            pass
+            s.setup()
         extra = dict(n=n_chunk, n_adapt=100, floor_level=0.0, tempering_exp=0.1,
                      neff=neff, nmax=int(nmax), save_intg=True, verbose=verbose)
         if kind != "portfolio_seq_nobs":
             s.bootstrap_from_samples(_warm_seed_cloud(target_a), cover_frac=0.0)
         s.integrate_log(target_a.as_lnfunc(), *target_a.params,
                         no_protect_names=True, **extra)
+        # record that point A ACTUALLY trained something -- otherwise "cleared" could pass
+        # vacuously on a run where the GMM never fitted at all
+        _trained_before_reset = False
+        if kind != "AV_seq":
+            try:
+                _trained_before_reset = any(
+                    v is not None for v in s.portfolio_realizations[1].integrator.gmm_dict.values())
+            except Exception:
+                pass
 
         # ---- the transition the driver performs between two points ----
         s._rvs = {}
@@ -608,6 +625,18 @@ def run_seq_case(kind, target_b, target_a, nmax, neff, n_chunk=10000, seed=98765
         else:
             s._warm = None
         out["used_clear_api"] = bool(hasattr(s, "clear_warm_state"))
+        # WHITE-BOX: did the reset actually clear the GMM member's TRAINED PROPOSAL?  Measured, the
+        # statistical rows cannot answer this: with the trained proposal leaking, n_eff is 196-1700
+        # and |lnZ bias| <= 0.010 -- degraded but passing, because a stale GMM proposal is merely a
+        # bad proposal (the AV member still covers the support), unlike the AV grid leak which
+        # removes support and does bias.  So the leak must be observed directly.
+        if kind != "AV_seq":
+            try:
+                _gd = s.portfolio_realizations[1].integrator.gmm_dict
+                out["seq_gmm_trained_before_reset"] = bool(_trained_before_reset)
+                out["seq_gmm_cleared"] = all(v is None for v in _gd.values())
+            except Exception as _e_gd:
+                out["seq_gmm_cleared"] = None
 
         if kind != "portfolio_seq_nobs":
             s.bootstrap_from_samples(_warm_seed_cloud(target_b), cover_frac=0.0)
@@ -661,6 +690,10 @@ def evaluate(r):
         # member only) would miss.
         if r["n_eff"] < WARM_NEFF_FLOOR:
             reasons.append("warm n_eff {:.0f} < {:.0f}".format(r["n_eff"], WARM_NEFF_FLOOR))
+    if r["kind"] in ("portfolio_seq", "portfolio_seq_nobs"):
+        if r.get("seq_gmm_trained_before_reset") and r.get("seq_gmm_cleared") is False:
+            reasons.append("reset did NOT clear the GMM member's trained proposal: point B "
+                           "inherits point A's fitted components (setup-arg aliasing)")
     ness = max(r["n_ess"], 1.0)
     for d, (js, floor) in enumerate(zip(r["js"], r["js_floor"])):
         thresh = JS_MULT * floor + JS_ABS_MIN
