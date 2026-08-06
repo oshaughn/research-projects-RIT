@@ -1949,14 +1949,15 @@ def _clear_warm_state(sampler):
     new point's support falls outside it, lnZ is biased low with a healthy-looking n_eff and no
     error.  Portfolio exposes clear_warm_state(); everything else keeps the old behaviour.
     """
-    try:
-        if hasattr(sampler, 'clear_warm_state'):
-            sampler.clear_warm_state()
-        else:
-            sampler._warm = None
-            sampler._warm_applied = False
-    except Exception as _e_cw:
-        print("  [warm-state] clear failed (", _e_cw, ")")
+    # Deliberately NOT wrapped in try/except.  A reset that quietly did not happen leaves the next
+    # point drawing from the previous point's contracted grid -- the exact silent bias this guards
+    # against -- so a failure must abort the point (the per-point handler below reports it) rather
+    # than degrade to a log line nobody reads.
+    if hasattr(sampler, 'clear_warm_state'):
+        sampler.clear_warm_state()
+    else:
+        sampler._warm = None
+        sampler._warm_applied = False
 
 
 def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):

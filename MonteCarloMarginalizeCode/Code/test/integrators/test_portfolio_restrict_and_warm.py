@@ -23,10 +23,18 @@ import numpy as np
 
 import RIFT.integrators.mcsamplerPortfolio as mcsP
 import RIFT.integrators.mcsamplerAdaptiveVolume as mcsAV
+import RIFT.integrators.mcsamplerEnsemble as mcsGMM
 
 
 def _mk(n=3):
     return mcsP.MCSampler(portfolio=[mcsAV] * n)
+
+
+def _mk_av_gmm():
+    """AV + GMM, the production portfolio.  An AV-only portfolio cannot detect configuration loss
+    across a reset -- AV.setup() ignores kwargs, so a bare setup() looks identical to a replayed
+    one.  Only a member that CONSUMES its setup arguments can show the difference."""
+    return mcsP.MCSampler(portfolio=[mcsAV, mcsGMM])
 
 
 def _flat(x):
@@ -106,6 +114,68 @@ def test_clear_warm_state_reaches_members():
     assert m._warm_applied is False
     assert m.V == 1, "clear_warm_state left the contracted grid installed (V={})".format(m.V)
     assert np.allclose(m.dx, [10.]), m.dx
+
+
+def test_restrict_refuses_to_widen():
+    """`restrict` must not silently WIDEN.  The prior callables are absolute densities normalized
+    over the ORIGINAL range, so a member sampling outside it reports a wrong prior and biases the
+    integral -- exactly the failure the API is supposed to prevent."""
+    for lo, hi, what in [(-9., 9., "two-sided"), (-1., 7., "upper-only"), (-7., 1., "lower-only")]:
+        s = _mk()
+        s.restrict_member_range(1, 'x', lo, hi)   # not contained in the [-5,5] added below
+        try:
+            s.add_parameter('x', _flat('x'), left_limit=-5., right_limit=5.)
+        except ValueError:
+            continue
+        lims = (s.portfolio_realizations[1].llim['x'], s.portfolio_realizations[1].rlim['x'])
+        raise AssertionError("{} widening to [{}, {}] was accepted: member range is now {}".format(
+            what, lo, hi, lims))
+
+
+def test_clear_warm_state_preserves_member_configuration():
+    """The reset must REPLAY each member's setup arguments.
+
+    A bare setup() restores the cold grid but discards configuration: mcsamplerEnsemble.setup()
+    rebuilds its dimension grouping and re-reads n_comp/gmm_adapt from kwargs, so a configured
+    (0,1) GMM would come back as separate (0,), (1,) groups with n_comp defaulted -- a quietly
+    different sampler for every point after the first.  An AV-only portfolio cannot see this."""
+    s = _mk_av_gmm()
+    for p in ('x', 'y'):
+        s.add_parameter(p, _flat(p), left_limit=-5., right_limit=5.)
+    cfg = dict(n_comp={(0, 1): 3}, gmm_adapt={(0, 1): False}, correlate_all_dims=True)
+    s.setup(**cfg)
+    gmm = s.portfolio_realizations[1]
+
+    def _snapshot():
+        # repr(), not dict(): a bare setup() collapses n_comp from {(0,1): 3} to the scalar
+        # default, and dict() on an int raises TypeError instead of reporting the defect.
+        i = gmm.integrator
+        return (sorted(i.gmm_dict), repr(i.n_comp), repr(i.gmm_adapt))
+
+    before = _snapshot()
+    s.clear_warm_state()
+    after = _snapshot()
+    assert before[0] == after[0], \
+        "reset changed the GMM dimension grouping: {} -> {}".format(before[0], after[0])
+    assert before[1] == after[1], "reset lost n_comp: {} -> {}".format(before[1], after[1])
+    assert before[2] == after[2], "reset lost gmm_adapt: {} -> {}".format(before[2], after[2])
+
+
+def test_clear_warm_state_propagates_failures():
+    """A reset that quietly did not happen leaves the next point on the previous point's grid.
+    That must abort, not become a log line."""
+    s = _mk()
+    s.add_parameter('x', _flat('x'), left_limit=-5., right_limit=5.)
+    s.setup()
+
+    def _boom(**kwargs):
+        raise RuntimeError("member reset failed")
+    s.portfolio_realizations[1].setup = _boom
+    try:
+        s.clear_warm_state()
+    except RuntimeError:
+        return
+    raise AssertionError("clear_warm_state swallowed a failed member reset")
 
 
 if __name__ == "__main__":

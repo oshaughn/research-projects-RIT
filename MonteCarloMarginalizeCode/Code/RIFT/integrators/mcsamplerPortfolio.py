@@ -403,6 +403,18 @@ class MCSampler(object):
             if not _ov or params not in _ov:
                 continue
             lo, hi = _ov[params]
+            # NARROW ONLY.  Widening past the member's own limits would sample where the SHARED
+            # prior callables (normalized over the ORIGINAL range) are not normalized, so the
+            # member would report a prior density that is wrong outside the original box -- a
+            # biased integral, silently.  The name says "restrict"; refuse rather than quietly
+            # clip, so a caller who meant to widen finds out instead of getting a no-op.
+            if lo < member.llim[params] or hi > member.rlim[params]:
+                raise ValueError(
+                    "restrict_member_range: requested [{}, {}] for {!r} on member {} is NOT contained "
+                    "in that member's range [{}, {}].  This API can only narrow: the prior callables "
+                    "are absolute densities normalized over the original range, so sampling outside "
+                    "it would bias the integral.".format(lo, hi, params, indx,
+                                                         member.llim[params], member.rlim[params]))
             member.llim[params] = lo
             member.rlim[params] = hi
             getattr(self, '_pending_range_overrides', set()).discard((indx, params))
@@ -419,21 +431,38 @@ class MCSampler(object):
         the PREVIOUS point's contracted live volume -- which can exclude the new point's support and
         bias it low with no diagnostic.  Called by the driver wherever it used to do
         `sampler._warm = None`, including the seed-capture failure and exception paths.
+
+        Failures PROPAGATE.  A reset that quietly did not happen leaves the next point drawing from
+        the previous point's grid, which is the exact silent-wrong-answer this method exists to
+        prevent -- so it must not be reducible to a log line.
         """
         self._warm = None
-        for member in list(getattr(self, 'portfolio_realizations', [])) + list(getattr(self, 'oracle_realizations', [])):
-            try:
+        _groups = [(list(getattr(self, 'portfolio_realizations', [])),
+                    getattr(self, '_member_setup_args', None)),
+                   (list(getattr(self, 'oracle_realizations', [])),
+                    getattr(self, '_oracle_setup_args', None))]
+        for members, saved_args in _groups:
+            for indx, member in enumerate(members):
                 member._warm = None
                 member._warm_applied = False
-                # restore the COLD active state: setup() rebuilds my_ranges/dx/binunique/ninbin from
-                # the member's own limits, undoing any contraction inherited from the previous point.
-                # AV.setup() takes **kwargs and ignores them; it rebuilds my_ranges/dx/binunique/
-                # ninbin/V from the member's OWN llim/rlim, so any per-member range restriction
-                # applied in add_parameter survives this reset.
-                if hasattr(member, 'setup'):
+                if not hasattr(member, 'setup'):
+                    continue
+                # REPLAY the member's original setup arguments.  A bare setup() restores the cold
+                # grid but DISCARDS the configuration: mcsamplerEnsemble.setup() rebuilds its
+                # dimension grouping and re-reads n_comp / gmm_adapt / correlate_all_dims from
+                # kwargs, so a configured (0,1) GMM with n_comp=3 and adaptation off comes back as
+                # separate (0,), (1,) groups with n_comp defaulted and gmm_adapt=None -- a quietly
+                # different sampler for every point after the first.
+                args_here = None
+                if saved_args is not None and indx < len(saved_args):
+                    args_here = saved_args[indx]
+                if args_here is None:
+                    # setup() was never run through the portfolio: nothing to replay, nothing to
+                    # lose.  AV.setup() ignores kwargs and rebuilds from the member's own llim/rlim
+                    # (so a narrowed member stays narrowed across the reset).
                     member.setup()
-            except Exception as e:
-                print("  [portfolio] clear_warm_state: member reset skipped ({})".format(e))
+                else:
+                    member.setup(**args_here)
 
     def bootstrap_from_samples(self, samples, params=None, **kwargs):
         """Warm-start: forward a seed cloud to every member that supports it (e.g. the
@@ -583,12 +612,21 @@ class MCSampler(object):
         # latter may hold modules/names (see __init__), which lack .setup(), so member setup was
         # silently skipped -> a cold member's internal state (AV my_ranges, GMM integrator) was
         # never built and draw_simplified failed.  Setting up the realizations fixes AV+GMM cold.
+        # REMEMBER each member's setup arguments.  clear_warm_state() has to re-run setup() to
+        # restore a member's cold grid, and calling it bare would silently DISCARD the member's
+        # configuration: mcsamplerEnsemble.setup() rebuilds its dimension grouping and re-reads
+        # n_comp / gmm_adapt / correlate_all_dims etc from kwargs, so a configured (0,1) GMM with
+        # n_comp=3 and adaptation off comes back as separate (0,), (1,) groups with n_comp
+        # defaulted and gmm_adapt=None.  Store the exact args and replay them.
+        self._member_setup_args = [None] * len(self.portfolio_realizations)
+        self._oracle_setup_args = [None] * len(self.oracle_realizations)
         for indx, member in enumerate(self.portfolio_realizations):
             if hasattr(member, 'setup'):
               print(" PORTFOLIO setup ", member, portfolio_extra_args[indx])
               args_here = {}
               args_here.update(kwargs)
               args_here.update(portfolio_extra_args[indx])
+              self._member_setup_args[indx] = args_here
               member.setup(**args_here)
         for indx, member in enumerate(self.oracle_realizations):
             if hasattr(member, 'setup'):
@@ -596,6 +634,7 @@ class MCSampler(object):
               args_here = {}
               args_here.update(kwargs)
               args_here.update(portfolio_extra_args[indx])
+              self._oracle_setup_args[indx] = args_here
               member.setup(**args_here)
               member.params_ordered = list(self.params_ordered)  # enforce parameters for oracle being sane
 
