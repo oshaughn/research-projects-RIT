@@ -1940,6 +1940,26 @@ def resample_samples(my_samples,
 
   
 
+def _clear_warm_state(sampler):
+    """Clear a warm-start seed AND any grid it installed, reaching PORTFOLIO MEMBERS too.
+
+    `sampler._warm = None` alone is not enough for mcsamplerPortfolio: `_warm` and the contracted
+    AV grid live on each MEMBER, and portfolio.integrate_log() does not rerun each member's setup(),
+    so the next point would silently draw from the PREVIOUS point's contracted live volume.  If the
+    new point's support falls outside it, lnZ is biased low with a healthy-looking n_eff and no
+    error.  Portfolio exposes clear_warm_state(); everything else keeps the old behaviour.
+    """
+    # Deliberately NOT wrapped in try/except.  A reset that quietly did not happen leaves the next
+    # point drawing from the previous point's contracted grid -- the exact silent bias this guards
+    # against -- so a failure must abort the point (the per-point handler below reports it) rather
+    # than degrade to a log line nobody reads.
+    if hasattr(sampler, 'clear_warm_state'):
+        sampler.clear_warm_state()
+    else:
+        sampler._warm = None
+        sampler._warm_applied = False
+
+
 def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
     nEvals=0
     P = P_list[indx_event]
@@ -2831,10 +2851,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     opts.sampler_warmstart_retry_neff, len(_seed)))
                 sampler.bootstrap_from_samples(_seed, cover_frac=0.0)   # same problem: peak is in the seed
                 res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
-                sampler._warm = None
+                _clear_warm_state(sampler)
         except Exception as _e_l0:
             print("  [L0 auto-rescue] skipped (", _e_l0, ")")
-            sampler._warm = None
+            _clear_warm_state(sampler)
 
     # Persist adapted state / trained flow for reuse by later instances.
     if opts.sampler_method == 'AV' and opts.sampler_save_state and hasattr(sampler, 'save_state'):
@@ -3582,6 +3602,25 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # integrate_log() fairdraw does self._rvs[key][indx_list] and raises
     # "list indices must be integers or slices, not ndarray". This silently dropped
     # every binary after the first in each ILE batch whenever fairdraw export was on.
+    # SEQUENTIAL WARM-START SEED must be captured BEFORE the _rvs wipe below.  The caller's capture
+    # block runs after this function returns, by which point _rvs is empty -- so
+    # --sampler-sequential-warmstart was silently inert (it always saw no samples and never seeded
+    # the next point).  Stash the seed here instead; the caller consumes _SEQ_WS_PENDING.
+    global _SEQ_WS_PENDING
+    _SEQ_WS_PENDING = None
+    if getattr(opts, 'sampler_sequential_warmstart', False) and hasattr(sampler, 'bootstrap_from_samples'):
+        try:
+            _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
+            if _lnkey is not None and all(p in sampler._rvs for p in sampler.params_ordered):
+                _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel()
+                if _lnv.size >= 2 and np.any(np.isfinite(_lnv)):
+                    _cols = np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel()
+                                       for p in sampler.params_ordered]).T
+                    _keep = _lnv > (np.nanmax(_lnv) - opts.sampler_sequential_warmstart_deltalnL)
+                    _SEQ_WS_PENDING = _cols[_keep] if np.sum(_keep) >= 2 else (_cols if _cols.shape[0] >= 2 else None)
+        except Exception as _e_cap:
+            print("  [seq warm-start] could not capture seed ({})".format(_e_cap))
+
     sampler._rvs = {}
 
     return res
@@ -3602,8 +3641,18 @@ if opts.extrinsic_proposal_field and hasattr(sampler, 'bootstrap_from_samples'):
         _proposal_field = None
 
 _seq_ws_proposal = None   # L1 sequential hot-feed: previous point's extrinsic seed (in-memory)
+_SEQ_WS_PENDING = None    # seed captured INSIDE analyze_event, before it wipes sampler._rvs
 for indx in numpy.arange(len(P_list)):
  try:
+  # UNCONDITIONAL per-point reset.  mcsamplerPortfolio.integrate_log does NOT call self.setup()
+  # (it is commented out at mcsamplerPortfolio.py:874), so member state -- including the AV live
+  # volume contracted around the PREVIOUS point -- survives into the next integral.  With
+  # --n-events-to-analyze > 1 the second point then draws from a box shaped by the first, and if
+  # its support falls outside, lnZ is biased low with a healthy-looking n_eff and no error.  This
+  # is independent of any warm-start feature: it bites users who never enable one.  Reset FIRST,
+  # so an intentional seed installed just below survives.
+  if indx > 0:
+    _clear_warm_state(sampler)
   # Warm-start this point's extrinsic integral.  Order is preserved (no grid
   # reordering), so a truncated worker still drops a spatially-unbiased subset; a
   # coverage floor + inflation margin make a poorly-matched transfer degrade to
@@ -3622,7 +3671,7 @@ for indx in numpy.arange(len(P_list)):
             indx, len(_seed), opts.extrinsic_proposal_field_cover_frac, opts.extrinsic_proposal_field_inflate))
     except Exception as _e_pfq:
       print("  [proposal-field] seed skipped for point {} ({})".format(indx, _e_pfq))
-      sampler._warm = None
+      _clear_warm_state(sampler)
   elif opts.sampler_sequential_warmstart and (_seq_ws_proposal is not None) and hasattr(sampler, 'bootstrap_from_samples'):
     try:
       sampler.bootstrap_from_samples(_seq_ws_proposal,
@@ -3631,26 +3680,18 @@ for indx in numpy.arange(len(P_list)):
           indx, len(_seq_ws_proposal), opts.sampler_sequential_warmstart_cover_frac))
     except Exception as _e_sw:
       print("  [seq warm-start] skipped for point {} ({})".format(indx, _e_sw))
-      sampler._warm = None
+      _clear_warm_state(sampler)
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
   # capture this point's converged high-likelihood extrinsic samples as the seed
   # for the next point (in-memory; no files leave the job)
   if opts.sampler_sequential_warmstart and hasattr(sampler, 'bootstrap_from_samples'):
-    _seq_ws_proposal = None
-    try:
-      _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
-      if _lnkey is not None and all(p in sampler._rvs for p in sampler.params_ordered):
-        _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel()
-        if _lnv.size >= 2 and np.any(np.isfinite(_lnv)):
-          _cols = np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel() for p in sampler.params_ordered]).T
-          _keep = _lnv > (np.nanmax(_lnv) - opts.sampler_sequential_warmstart_deltalnL)
-          if np.sum(_keep) >= 2:
-            _seq_ws_proposal = _cols[_keep]
-          elif _cols.shape[0] >= 2:
-            _seq_ws_proposal = _cols   # fall back to all retained samples (still peak-weighted region)
-    except Exception as _e_cap:
-      print("  [seq warm-start] could not capture seed from point {} ({})".format(indx, _e_cap))
-    sampler._warm = None   # clear before the next point (re-seeded above if enabled)
+    # Consume the seed captured inside analyze_event BEFORE it wiped sampler._rvs.  Reading
+    # sampler._rvs here would always find it empty (that wipe is required: it fixes a fairdraw
+    # export bug that silently dropped every binary after the first).
+    _seq_ws_proposal = _SEQ_WS_PENDING
+    if _seq_ws_proposal is None:
+      print("  [seq warm-start] no seed captured from point {}".format(indx))
+    _clear_warm_state(sampler)   # clear before the next point (re-seeded above if enabled)
   # abort if horrible (nan event) - done with 'raise'
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.force_reset_all:  # depends on integrator!  May not always be availble

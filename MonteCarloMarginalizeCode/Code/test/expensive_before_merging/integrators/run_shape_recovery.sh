@@ -18,5 +18,7 @@ export OMP_NUM_THREADS=${OMP_NUM_THREADS:-4}
 export MKL_NUM_THREADS=${OMP_NUM_THREADS}
 export OPENBLAS_NUM_THREADS=${OMP_NUM_THREADS}
 
-exec python "${HERE}/shape_recovery.py" --preset standard --jobs "${SHAPE_JOBS:-8}" \
-    --json "${OUT}" "$@"
+# NOT `python`: several IGWN/conda environments (and this submit host) provide only python3,
+# where a bare `python` makes the whole gate exit 127 before it starts.
+exec "${PYTHON:-python3}" "${HERE}/shape_recovery.py" --preset standard \
+    --jobs "${SHAPE_JOBS:-8}" --warm-cases auto --json "${OUT}" "$@"

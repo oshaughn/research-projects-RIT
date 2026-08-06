@@ -468,6 +468,7 @@ parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="
 parser.add_argument("--internal-ile-srate-time-resampling",default=None, help=" Adds --srate-resample-time-marginalization to ILE for  output, to provide higher-resolution time output ")
 parser.add_argument("--internal-ile-srate-internal",default=None, help=" Adds --srate-internal to ILE, modifying how calculations are performed internally to use a higher sampling rate ")
 parser.add_argument("--internal-ile-interpolate-time",action='store_true',help="Pass --interpolate-time True to ILE, enabling cubic interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood.")
+parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE, via the helper. Default behaviour (helper): 40000, scaled linearly with SNR above 40 and capped at 160000, because at high SNR the posterior is a vanishing fraction of the prior volume and a small chunk gives few informative samples per adaptation step. Larger chunks cost GPU memory but measured HOST memory (what RequestMemory governs) is flat, so no memory-request change is normally needed. EXPERTS ONLY.")
 parser.add_argument("--batch-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
 parser.add_argument("--fmin-template",default=None,type=float,help="Mininum frequency for template. If provided, then overrides automated settings for fmin-template = fmin/Lmax")  # should be 23 for the BNS
@@ -1160,6 +1161,13 @@ if opts.internal_ile_auto_logarithm_offset:
     cmd += " --internal-ile-auto-logarithm-offset "
 if opts.internal_ile_rotate_phase:
     cmd += " --internal-ile-rotate-phase "
+if opts.internal_ile_interpolate_time:
+    # HELPER passthrough (not a raw ILE arg): the helper owns ILE argument construction, and it
+    # also knows whether the NoLoop path (--vectorized --gpu --force-xpy) that --interpolate-time
+    # requires is actually in use.
+    cmd += " --internal-ile-interpolate-time "
+if not(opts.internal_ile_n_chunk is None):
+    cmd += " --internal-ile-n-chunk {} ".format(int(opts.internal_ile_n_chunk))
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
 if opts.use_ini:
 #    config = ConfigParser.ConfigParser()
@@ -1274,8 +1282,6 @@ if opts.internal_ile_reset_adapt or ((opts.ile_sampler_method =='adaptive_cartes
     #   - requested or
     #   - AC + not freezeadapt
     line += " --force-reset-all "
-if opts.internal_ile_interpolate_time:
-    line += " --interpolate-time True "
 if not(opts.manual_extra_ile_args is None):
     line += " {} ".format(opts.manual_extra_ile_args)  # embed with space on each side, avoid collisions
     if '--declination ' in opts.manual_extra_ile_args:   # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.

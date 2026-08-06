@@ -2,7 +2,7 @@ import sys
 import math
 #import bisect
 from collections import defaultdict
-from types import ModuleType
+from types import ModuleType, FunctionType, BuiltinFunctionType
 
 import numpy
 np=numpy #import numpy as np
@@ -11,7 +11,7 @@ from scipy import integrate, interpolate, special
 import itertools
 import functools
 
-from copy import deepcopy
+from copy import deepcopy, copy as shallow_copy
 
 
 import os
@@ -266,6 +266,11 @@ class MCSampler(object):
         # so this only trades efficiency.
         self.portfolio_varaha_min_frac = kwargs.get('portfolio_varaha_min_frac', 0.0)
         self.portfolio_varaha_max_frac = kwargs.get('portfolio_varaha_max_frac', 0.0)  # 0 = no cap
+        # Range restriction (see setup(): portfolio_restrict_ranges).  Default OFF, so every code
+        # path guarded by these is inert unless a member is explicitly narrowed.
+        self._has_restricted_member = False
+        self._full_support_members = []
+        self._pending_range_overrides = set()  # (member, param) awaiting add_parameter; see setup()
         self.portfolio_quality = np.ones(len(self.portfolio))   # per-member quality (EMA of the signal)
         self.portfolio_quality_nobs = np.zeros(len(self.portfolio), dtype=int)  # #updates per member
         self.portfolio_probe_ptr = 0                            # round-robin probe pointer
@@ -296,20 +301,238 @@ class MCSampler(object):
         # extra args, created during setup
         self.extra_args = {}
 
+        # PER-MEMBER RANGE OVERRIDES for interval narrowing: {member_index: {param: (lo, hi)}}.
+        # Populate with restrict_member_range() BEFORE add_parameter()/setup().  Member 0 is the
+        # designated full-support backstop and must never be narrowed.
+        self.member_range_overrides = {}
+
+    def restrict_member_range(self, member_index, param, lo, hi):
+        """Narrow ONE portfolio member's sampling range for `param` to [lo, hi] (interval narrowing).
+
+        This is a PROPOSAL-only change: the member's prior callables are untouched, so it keeps
+        reporting the true global prior, and the balance-heuristic mixture density q_mix keeps the
+        estimate unbiased with no renormalization -- PROVIDED at least one member retains full
+        support.  Member 0 is that backstop by convention and may not be narrowed.
+
+        Why the backstop is not optional: measured on a truth-known ladder, a WRONG sub-box costs a
+        STANDALONE sampler up to -1949 nats (while still reporting a healthy n_eff of 220-840, i.e.
+        confidently wrong), but only ~1 nat inside a portfolio whose full-box member keeps q_mix
+        covering the complement.  Restriction without a backstop converts a rare pathology into a
+        systematic one.
+
+        Call before add_parameter(); narrowing is applied there, and setup() then builds every
+        derived quantity from the narrowed range.
+        """
+        n_members = len(self.portfolio_realizations)
+        member_index = int(member_index)
+        # Validate STRICTLY: a negative index or a misspelled parameter used to be accepted here and
+        # then silently fail to match the positive enumerate()/params checks in add_parameter, so the
+        # call "succeeded" while applying no restriction at all.
+        if member_index == 0:
+            raise ValueError(
+                "mcsamplerPortfolio.restrict_member_range: member 0 is the full-support backstop and "
+                "must not be narrowed -- q_mix would then have no component covering the complement, "
+                "and a mode outside every sub-box becomes uncoverable rather than merely under-covered.")
+        if not (1 <= member_index < n_members):
+            raise ValueError("restrict_member_range: member_index must satisfy 1 <= i < {} (got {}); "
+                             "negative indices are NOT accepted -- they never match the positive "
+                             "enumerate() in add_parameter and would silently be a no-op.".format(
+                                 n_members, member_index))
+        if not (hi > lo):
+            raise ValueError("restrict_member_range: need hi > lo, got [{}, {}]".format(lo, hi))
+        self.member_range_overrides.setdefault(member_index, {})[param] = (float(lo), float(hi))
+        # Track for the consumed-check in setup(): a parameter name that never arrives via
+        # add_parameter must be an ERROR, not a silent no-op.
+        self._pending_range_overrides = getattr(self, '_pending_range_overrides', set())
+        self._pending_range_overrides.add((member_index, param))
+
+        # CENTRALISE the coverage invariants: these are the SAME flags the
+        # setup(portfolio_restrict_ranges=...) path establishes.  Setting them only there meant this
+        # public API disabled the full-support draw floor, the restricted-only active-member guard and
+        # the q_mix fallback guard -- so member 0 could be allocated zero draws and the mixture could
+        # silently lose full support, which is precisely the failure restriction is supposed to avoid.
+        restricted = set(self.member_range_overrides)
+        if len(restricted) >= n_members:
+            raise ValueError(
+                "restrict_member_range: that would restrict EVERY member, leaving no component with "
+                "full support.  The mixture would not cover L*p outside the sub-boxes and the integral "
+                "would be biased low with no diagnostic.  Leave at least one member unrestricted.")
+        self._has_restricted_member = True
+        self._full_support_members = [i for i in range(n_members) if i not in restricted]
+
     def add_parameter(self, params, pdf,  **kwargs):
         """
         Add one (or more) parameters to sample dimensions. params is either a string describing the parameter, or a tuple of strings. The tuple will indicate to the sampler that these parameters must be sampled together. left_limit and right_limit are on the infinite interval by default, but can and probably should be specified. If several params are given, left_limit, and right_limit must be a set of tuples with corresponding length. Sampling PDF is required, and if not provided, the cdf inverse function will be determined numerically from the sampling PDF.
         """
         self.params.add(params) # does NOT preserve order in which parameters are provided
         self.params_ordered.append(params)
-        for member in self.portfolio_realizations  + self.oracle_realizations:
+        _all_members = self.portfolio_realizations + self.oracle_realizations
+        for indx, member in enumerate(_all_members):
             member.add_parameter(params, pdf, **kwargs)
-            # update dictionary limits, yes this is super-redundant, but we have a scoping issue and this is easier to code
-            self.llim.update( member.llim)
-            self.rlim.update(member.rlim)
-            # set master list of adaptive parameters 
+            # The PORTFOLIO's own limits must always describe the FULL prior range, never a
+            # restricted member's sub-box: they are the reference range used downstream (L0-rescue
+            # puff width, breadcrumb bounds, distance-marginalization bounds).  Take them from
+            # member 0, which is the designated FULL-SUPPORT member by convention (see
+            # restrict_member_range), and take them BEFORE any narrowing is applied below.
+            if indx == 0:
+                self.llim.update( member.llim)
+                self.rlim.update(member.rlim)
+            # set master list of adaptive parameters
             self.adaptive = member.adaptive  # top level list of adaptive coordinates
 
+        # PER-MEMBER RANGE RESTRICTION (interval narrowing).
+        # At high SNR the posterior can occupy a vanishing fraction of the prior box, so a member
+        # confined to a well-chosen sub-box resolves it far better (measured: n_eff 2495 vs 1629, and
+        # SNR-INDEPENDENT, on the truth-known ladder).  We do this by narrowing ONE member's limits
+        # rather than clipping the prior, which is what makes it safe:
+        #   * The estimator weight is L*p_prior/q_mix with p_prior the TRUE prior.  A member's range
+        #     is purely a PROPOSAL choice -- proposals need not cover the prior, only the MIXTURE
+        #     must cover the support of L*p.  So NO prior renormalization and NO clipped-volume
+        #     correction are required, PROVIDED a full-support member remains (see _full_support_members).
+        #   * We must NOT rebuild the prior callables for the narrowed member: `prior_prod` evaluates
+        #     the callables handed to add_parameter, and those are absolute densities normalized over
+        #     the ORIGINAL range.  Sharing them is what keeps every member reporting the SAME true
+        #     prior -- the portfolio takes joint_p_prior from whichever member drew each sample, so
+        #     a member that renormalized its prior over its sub-box would silently bias the integral.
+        #     Hence we only overwrite llim/rlim here, and only AFTER add_parameter has installed the
+        #     shared callables.
+        # Narrowing happens before setup(), so every derived AV quantity (my_ranges, dx, dx0, V,
+        # binunique, ninbin) is built from the narrowed range and nothing is left stale.
+        for indx, member in enumerate(self.portfolio_realizations):
+            _ov = self.member_range_overrides.get(indx)
+            if not _ov or params not in _ov:
+                continue
+            lo, hi = _ov[params]
+            # NARROW ONLY.  Widening past the member's own limits would sample where the SHARED
+            # prior callables (normalized over the ORIGINAL range) are not normalized, so the
+            # member would report a prior density that is wrong outside the original box -- a
+            # biased integral, silently.  The name says "restrict"; refuse rather than quietly
+            # clip, so a caller who meant to widen finds out instead of getting a no-op.
+            if lo < member.llim[params] or hi > member.rlim[params]:
+                raise ValueError(
+                    "restrict_member_range: requested [{}, {}] for {!r} on member {} is NOT contained "
+                    "in that member's range [{}, {}].  This API can only narrow: the prior callables "
+                    "are absolute densities normalized over the original range, so sampling outside "
+                    "it would bias the integral.".format(lo, hi, params, indx,
+                                                         member.llim[params], member.rlim[params]))
+            member.llim[params] = lo
+            member.rlim[params] = hi
+            getattr(self, '_pending_range_overrides', set()).discard((indx, params))
+            print("  [portfolio] member {} range for {} narrowed to [{}, {}] (proposal only; "
+                  "prior callables untouched)".format(indx, params, lo, hi))
+
+
+    @staticmethod
+    def _snapshot_setup_args(args):
+        """Copy the mutable containers in a setup-argument dict; pass everything else by reference.
+
+        REQUIRED for correctness, not tidiness.  Setup arguments are not inert: production supplies
+        `gmm_dict` as a grouping spec ({(0,1,2): None, ...}), mcsamplerEnsemble hands that very
+        object to monte_carlo.integrator, which stores it WITHOUT copying (MonteCarloEnsemble.py:110)
+        and then writes trained models into it (`self.gmm_dict[dim_group] = model`, :403).  Keeping a
+        reference and replaying it would hand the next point the PREVIOUS point's trained proposal --
+        reintroducing, through the reset itself, exactly the state leak the reset exists to remove.
+
+        Objects NESTED INSIDE a spec container are cloned too, not just the container.  A seeded
+        GMM model supplied via `--extrinsic-proposal-breadcrumb` lives as a VALUE in gmm_dict, and
+        with `--extrinsic-proposal-adapt` it keeps adapting: `model.update()` mutates it in place
+        (gaussian_mixture_model.py:548).  Copying only the dict would leave the stored "baseline"
+        pointing at the live model, so it would drift during point 1 and be replayed into point 2 --
+        the same leak one level down.  (With adapt OFF, the default, `_train` skips seeded groups
+        and nothing mutates, so this path was previously harmless.)
+
+        TOP-LEVEL non-container arguments are still passed by reference: those are callables,
+        modules and sampler objects, which a deepcopy would try to clone and can fail on or spend
+        real time duplicating.  If a nested clone fails, the original is kept and the failure is
+        REPORTED -- a silently shared object is how this class of bug survives.
+        """
+        _unclonable = []
+
+        def _cp(v, depth=0):
+            if depth > 6:      # runaway guard; setup specs are shallow
+                return v
+            if isinstance(v, dict):
+                return dict((k, _cp(x, depth + 1)) for k, x in v.items())
+            if isinstance(v, list):
+                return [_cp(x, depth + 1) for x in v]
+            if isinstance(v, tuple):
+                return tuple(_cp(x, depth + 1) for x in v)
+            if isinstance(v, set):
+                return set(v)
+            if isinstance(v, np.ndarray):
+                return v.copy()
+            if depth == 0 or v is None or isinstance(v, (bool, int, float, complex, str, bytes)):
+                return v
+            if isinstance(v, (ModuleType, FunctionType, BuiltinFunctionType, type)):
+                return v      # stateless: sharing these is safe and cloning them is not
+            # A nested object with mutable state -- e.g. a seeded GMM `estimator`.  deepcopy is
+            # NOT usable: a real estimator holds a module reference (`xpy`) and deepcopy raises
+            # "cannot pickle 'module' object", which would send us down the fallback and leave the
+            # model SHARED -- i.e. not fixed at all.  Shallow-copy the object (which never
+            # pickles) and then clone its mutable attributes, leaving module/function refs shared.
+            try:
+                new_obj = shallow_copy(v)
+                d = getattr(new_obj, '__dict__', None)
+                if d is None:
+                    raise TypeError("no __dict__ (__slots__?), cannot clone attribute state")
+                for k, val in list(d.items()):
+                    d[k] = _cp(val, depth + 1)
+                return new_obj
+            except Exception as e:
+                _unclonable.append("{} ({})".format(type(v).__name__, e))
+                return v
+
+        out = dict((k, _cp(v)) for k, v in args.items())
+        if _unclonable:
+            print("  [portfolio] WARNING: could not clone {} nested setup object(s): {}.  These are "
+                  "SHARED with the live sampler, so if anything mutates them in place their state "
+                  "will persist across a reset.".format(len(_unclonable), "; ".join(_unclonable)))
+        return out
+
+    def clear_warm_state(self):
+        """Clear any warm-start seed AND the installed active grid on every member.
+
+        Setting `portfolio._warm = None` does NOT do this: `_warm` and the contracted AV grid live on
+        the MEMBERS, not on the portfolio object.  Now that a seed is actually installed on the draw
+        path (AV._apply_warm_state), failing to clear it between points would let the next point reuse
+        the PREVIOUS point's contracted live volume -- which can exclude the new point's support and
+        bias it low with no diagnostic.  Called by the driver wherever it used to do
+        `sampler._warm = None`, including the seed-capture failure and exception paths.
+
+        Failures PROPAGATE.  A reset that quietly did not happen leaves the next point drawing from
+        the previous point's grid, which is the exact silent-wrong-answer this method exists to
+        prevent -- so it must not be reducible to a log line.
+        """
+        self._warm = None
+        _groups = [(list(getattr(self, 'portfolio_realizations', [])),
+                    getattr(self, '_member_setup_args', None)),
+                   (list(getattr(self, 'oracle_realizations', [])),
+                    getattr(self, '_oracle_setup_args', None))]
+        for members, saved_args in _groups:
+            for indx, member in enumerate(members):
+                member._warm = None
+                member._warm_applied = False
+                if not hasattr(member, 'setup'):
+                    continue
+                # REPLAY the member's original setup arguments.  A bare setup() restores the cold
+                # grid but DISCARDS the configuration: mcsamplerEnsemble.setup() rebuilds its
+                # dimension grouping and re-reads n_comp / gmm_adapt / correlate_all_dims from
+                # kwargs, so a configured (0,1) GMM with n_comp=3 and adaptation off comes back as
+                # separate (0,), (1,) groups with n_comp defaulted and gmm_adapt=None -- a quietly
+                # different sampler for every point after the first.
+                args_here = None
+                if saved_args is not None and indx < len(saved_args):
+                    args_here = saved_args[indx]
+                if args_here is None:
+                    # setup() was never run through the portfolio: nothing to replay, nothing to
+                    # lose.  AV.setup() ignores kwargs and rebuilds from the member's own llim/rlim
+                    # (so a narrowed member stays narrowed across the reset).
+                    member.setup()
+                else:
+                    # a FRESH copy per replay: passing the stored dict itself would let the
+                    # rebuilt integrator train into our snapshot, so the reset after next would
+                    # replay a polluted spec and the leak would return one point later.
+                    member.setup(**self._snapshot_setup_args(args_here))
 
     def bootstrap_from_samples(self, samples, params=None, **kwargs):
         """Warm-start: forward a seed cloud to every member that supports it (e.g. the
@@ -385,16 +608,96 @@ class MCSampler(object):
               portfolio_extra_args = kwargs['portfolio_args']
             else:
               print(" PORTFOLIO - format ERROR ", kwargs['portfolio_args'])
+        # RANGE RESTRICTION (opt-in): narrow ONE OR MORE members to a sub-box, so a member can put
+        # its fixed bin budget where the posterior actually is.  Applied HERE -- after add_parameter
+        # (which forwards identical limits AND the shared prior callables to every member) and
+        # BEFORE member.setup() (which rebuilds my_ranges/dx/dx0/V_s/binunique/ninbin/V from
+        # llim/rlim) -- so no derived state can go stale.
+        #
+        # WHY THIS NEEDS NO NORMALIZATION CORRECTION.  The estimator weights are
+        # lnL + log(joint_p_prior) - log(q_mix).  `joint_p_prior` comes from each member's STORED
+        # prior callables (AV.prior_prod), which are absolute densities over the ORIGINAL physical
+        # ranges and never consult llim/rlim -- so a narrowed member still reports the TRUE global
+        # prior.  A member's range is therefore purely a PROPOSAL choice: proposals need not cover
+        # the prior, only the MIXTURE must cover the support of L*p.  Hence no prior renormalization
+        # and no ln(V_sub/V_full) term.  The invariant that makes this true is enforced below.
+        _restrict = kwargs.get('portfolio_restrict_ranges', None)
+        if _restrict:
+            if len(_restrict) != len(self.portfolio_realizations):
+                raise Exception("portfolio_restrict_ranges must align with the member list "
+                                "({} entries for {} members)".format(len(_restrict),
+                                                                     len(self.portfolio_realizations)))
+            _n_restricted = 0
+            for indx, member in enumerate(self.portfolio_realizations):
+                spec = _restrict[indx]
+                if not spec:
+                    continue
+                for p, (lo, hi) in dict(spec).items():
+                    if p not in member.llim:
+                        raise Exception("portfolio_restrict_ranges: member {} has no parameter {!r}".format(indx, p))
+                    # NARROW ONLY -- clip into the existing range.  Widening a member beyond the
+                    # prior's support would sample where the prior callable is not normalized.
+                    lo_new = max(float(lo), float(member.llim[p]))
+                    hi_new = min(float(hi), float(member.rlim[p]))
+                    if not (hi_new > lo_new):
+                        raise Exception("portfolio_restrict_ranges: empty sub-range for {!r} on member {}".format(p, indx))
+                    member.llim[p] = lo_new
+                    member.rlim[p] = hi_new
+                _n_restricted += 1
+                print("  PORTFOLIO: member {} RESTRICTED to sub-box {}".format(indx, dict(spec)))
+            # COVERAGE INVARIANT: at least one member must keep FULL support, otherwise the mixture
+            # no longer covers L*p outside the union of sub-boxes and the integral is biased low by
+            # the missing mass (silently -- n_eff can even look BETTER).  Refuse rather than bias.
+            # UNION with any restrictions registered through the public restrict_member_range() API.
+            # Both entry points must feed the SAME bookkeeping: computing _full_support_members from
+            # _restrict alone would declare an API-restricted member "full support" and hand it the
+            # draw floor that is meant to protect a genuinely unrestricted component.
+            _restricted_set = set(i for i in range(len(self.portfolio_realizations)) if _restrict[i])
+            _restricted_set |= set(getattr(self, 'member_range_overrides', {}))
+            if len(_restricted_set) >= len(self.portfolio_realizations):
+                raise Exception(
+                    "portfolio_restrict_ranges: every member is restricted, so no member retains "
+                    "full support.  The mixture would not cover L*p outside the sub-boxes and the "
+                    "integral would be biased low with no diagnostic.  Leave at least one member "
+                    "unrestricted (it is the defensive component).")
+            self._has_restricted_member = bool(_restricted_set)
+            # index of a full-support member: the per-member draw floor below protects it
+            self._full_support_members = [i for i in range(len(self.portfolio_realizations))
+                                          if i not in _restricted_set]
+
+        # CONSUMED CHECK.  restrict_member_range() only takes effect if it was called BEFORE
+        # add_parameter forwarded that parameter to the members.  A restriction naming a parameter
+        # that never arrives (typo, or the call came too late) used to be a SILENT no-op: the caller
+        # believes a member is focused on the posterior while it still samples the full box.  Fail
+        # loudly instead -- a narrowing that quietly did nothing is a wasted member, not a safe one.
+        _pending = getattr(self, '_pending_range_overrides', set())
+        if _pending:
+            raise Exception(
+                "restrict_member_range: {} restriction(s) were never applied: {}.  Either the "
+                "parameter name does not exist on that member, or restrict_member_range() was "
+                "called AFTER add_parameter() -- it must be called before.".format(
+                    len(_pending), sorted(_pending)))
+
         # Iterate the INSTANTIATED samplers (portfolio_realizations), NOT self.portfolio: the
         # latter may hold modules/names (see __init__), which lack .setup(), so member setup was
         # silently skipped -> a cold member's internal state (AV my_ranges, GMM integrator) was
         # never built and draw_simplified failed.  Setting up the realizations fixes AV+GMM cold.
+        # REMEMBER each member's setup arguments.  clear_warm_state() has to re-run setup() to
+        # restore a member's cold grid, and calling it bare would silently DISCARD the member's
+        # configuration: mcsamplerEnsemble.setup() rebuilds its dimension grouping and re-reads
+        # n_comp / gmm_adapt / correlate_all_dims etc from kwargs, so a configured (0,1) GMM with
+        # n_comp=3 and adaptation off comes back as separate (0,), (1,) groups with n_comp
+        # defaulted and gmm_adapt=None.  Store the exact args and replay them.
+        self._member_setup_args = [None] * len(self.portfolio_realizations)
+        self._oracle_setup_args = [None] * len(self.oracle_realizations)
         for indx, member in enumerate(self.portfolio_realizations):
             if hasattr(member, 'setup'):
               print(" PORTFOLIO setup ", member, portfolio_extra_args[indx])
               args_here = {}
               args_here.update(kwargs)
               args_here.update(portfolio_extra_args[indx])
+              # snapshot BEFORE setup: the member (or its integrator) may mutate these in place
+              self._member_setup_args[indx] = self._snapshot_setup_args(args_here)
               member.setup(**args_here)
         for indx, member in enumerate(self.oracle_realizations):
             if hasattr(member, 'setup'):
@@ -402,6 +705,7 @@ class MCSampler(object):
               args_here = {}
               args_here.update(kwargs)
               args_here.update(portfolio_extra_args[indx])
+              self._oracle_setup_args[indx] = self._snapshot_setup_args(args_here)
               member.setup(**args_here)
               member.params_ordered = list(self.params_ordered)  # enforce parameters for oracle being sane
 
@@ -489,6 +793,17 @@ class MCSampler(object):
 
         # if only one method is active, just call the low-level function
         if len(indx_active) == 1:
+           # Single-member fast path: q_mix degenerates to this member's own density.  If that lone
+           # member is a RESTRICTED one, nothing covers L*p outside its sub-box for this chunk and
+           # the estimate is biased low with no diagnostic.  (Reachable when activation breakpoints
+           # delay the full-support member.)  Refuse rather than silently bias.
+           if (getattr(self, '_has_restricted_member', False)
+                   and int(indx_active[0]) not in set(getattr(self, '_full_support_members', []))):
+               raise Exception(
+                   "mcsamplerPortfolio: the only ACTIVE member (realization {}) has a RESTRICTED "
+                   "range, so this chunk has no full-support component and the integral would be "
+                   "biased low.  Give the full-support member an activation breakpoint of 0."
+                   .format(int(indx_active[0])))
            only_member = self.portfolio_realizations[indx_active[0]]
            joint_p_s, joint_p_prior, rv = only_member.draw_simplified(n_samples, *self.params_ordered, **kwargs)
            # The portfolio aggregates on the host (self.xpy is numpy); members
@@ -510,6 +825,30 @@ class MCSampler(object):
           elif np.sum(n_samples_per_member[0:-2]) < n_samples:
             n_samples_per_member[-1] = 0
             n_samples_per_member[-2] = n_samples - np.sum(n_samples_per_member[0:-2])
+
+          # PER-MEMBER DRAW FLOOR for full-support members when some member is RESTRICTED.
+          # A member that draws 0 samples this chunk contributes NOTHING to q_mix (the mixture loop
+          # skips frac_m <= 0), so its coverage vanishes for that chunk.  That is harmless when all
+          # members share a support, but FATAL once a member has been narrowed: the full-support
+          # member is the only thing covering L*p outside the sub-box, and a chunk where it is
+          # rounded to zero draws is a chunk with an uncovered region -- the silent low-bias failure
+          # this whole design exists to avoid.  The VARAHA share band is a GROUP constraint over all
+          # is_varaha members, so it does NOT protect an individual full-box AV against a restricted
+          # sibling absorbing the group's share.  Enforce a per-member minimum of 1 draw here.
+          if getattr(self, '_has_restricted_member', False):
+            # CAREFUL: n_samples_per_member is indexed by POSITION WITHIN portfolio_active (the
+            # breakpoint-filtered subset), while _full_support_members holds REALIZATION indices.
+            # Map one to the other; indexing directly by realization index protects the wrong member
+            # as soon as any member is still behind its activation breakpoint.
+            _full_set = set(getattr(self, '_full_support_members', []))
+            _full = [pos for pos, ridx in enumerate(indx_active) if int(ridx) in _full_set]
+            for i in _full:
+              if n_samples_per_member[i] < 1:
+                # take the deficit from the largest member so the total is preserved exactly
+                j = int(np.argmax(n_samples_per_member))
+                if j != i and n_samples_per_member[j] > 1:
+                  n_samples_per_member[j] -= 1
+                  n_samples_per_member[i] = 1
 
           n_index_start_per_member = np.zeros(len(portfolio_active),dtype=int)
           n_index_start_per_member[1:] = np.cumsum(n_samples_per_member)[:-1]
@@ -761,6 +1100,17 @@ class MCSampler(object):
             if q_mix is not None:
                 joint_p_s = q_mix   # deterministic-mixture denominator
             else:
+                # The legacy stratified per-member density is only valid when every member shares the
+                # SAME support.  If any member has been given a RESTRICTED range (see
+                # portfolio_restricted_members) the stratified estimator is silently WRONG -- it does
+                # not form the true mixture denominator -- so refuse rather than return a biased
+                # number.  Unequal supports are exactly the configuration the fallback cannot handle.
+                if getattr(self, '_has_restricted_member', False):
+                    raise Exception(
+                        "mcsamplerPortfolio: a member has a RESTRICTED sampling range, but the "
+                        "balance-heuristic q_mix could not be formed (some active member lacks "
+                        "sampling_density).  The legacy stratified density is invalid for members "
+                        "with unequal support and would bias the integral; refusing to continue.")
                 if use_mixture and getattr(self, '_warned_no_mixture', False) is False:
                     print(" PORTFOLIO: some active member lacks sampling_density; "
                           "falling back to legacy stratified per-member density.")

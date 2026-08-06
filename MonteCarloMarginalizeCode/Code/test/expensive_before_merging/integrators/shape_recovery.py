@@ -87,11 +87,19 @@ class MixtureTarget(object):
     """Random `ncomp`-component Gaussian mixture in `ndim` dimensions on the
     box [-BOX_HALF_WIDTH, BOX_HALF_WIDTH]^ndim, FinerNet multigauss recipe."""
 
-    def __init__(self, ndim, ncomp, seed, sigma_1d=0.7, scale_x0=3.0):
+    def __init__(self, ndim, ncomp, seed, sigma_1d=0.7, scale_x0=3.0, offset=0.0):
         self.ndim = int(ndim)
         self.ncomp = int(ncomp)
         self.seed = int(seed)
         self.name = "mix_d{}_n{}_s{}".format(ndim, ncomp, seed)
+        # `offset` TRANSLATES the whole mixture.  Two targets built with the same seed and
+        # offset=-a / +a are the SAME shape displaced -- which is what the sequential cases need
+        # and what different seeds cannot guarantee (random means typically overlap).  It is
+        # applied AFTER the rng.uniform draw below, so the RNG stream and every existing target
+        # are bit-identical at the default offset=0.
+        self.offset = np.zeros(int(ndim)) + np.asarray(offset, dtype=float)
+        if np.any(self.offset):
+            self.name += "_o{:+.2f}".format(float(np.mean(self.offset)))
         self.params = ["x{}".format(i) for i in range(ndim)]
         self.llim = -BOX_HALF_WIDTH * np.ones(ndim)
         self.rlim = BOX_HALF_WIDTH * np.ones(ndim)
@@ -101,7 +109,7 @@ class MixtureTarget(object):
         import scipy.stats as ss
         self.means, self.covs, self._mvns = [], [], []
         for k in range(ncomp):
-            x0 = rng.uniform(-scale_x0 / np.sqrt(ndim), scale_x0 / np.sqrt(ndim), ndim)
+            x0 = rng.uniform(-scale_x0 / np.sqrt(ndim), scale_x0 / np.sqrt(ndim), ndim) + self.offset
             Sig = (sigma_1d ** 2) * np.diag(rng.uniform(1.0, 2.0, ndim))
             Sig = ss.wishart.rvs(df=ndim, scale=Sig / ndim, random_state=rng) / 1.25
             Sig = np.atleast_2d(Sig)
@@ -447,6 +455,204 @@ def run_one(kind, target, nmax, neff, n_chunk=10000, seed=987654, verbose=False)
 
 
 # ----------------------------------------------------------------------------
+# Warm-start / sequential-reuse cases
+# ----------------------------------------------------------------------------
+# These guard two portfolio defects that are INVISIBLE to the ordinary matrix, because both
+# produce a wrong answer with no exception and (for the first) no statistical signature at all:
+#
+#   (a) a warm-start seed that is accepted but never installed on the draw path.  Measured: with
+#       the AV install disabled, 12/12 runs still PASS and n_eff is 4692-5972 versus 3240-5941
+#       for the correct code -- the broken config often scores BETTER, because the portfolio's
+#       GMM member supplies nearly the whole warm-start win.  No black-box assertion can see
+#       this; only a direct check that the AV member's live volume actually contracted.
+#
+#   (b) state leaking between sequential points.  mcsamplerPortfolio.integrate_log does not call
+#       self.setup(), so a member's contracted live volume survives into the next integral.  If
+#       the next point's support lies outside it, lnZ is biased low with a healthy-looking n_eff.
+#       This needs no warm-start feature at all -- it bites any --n-events-to-analyze > 1 run.
+WARM_KINDS = ("portfolio_warm", "portfolio_seq", "portfolio_seq_nobs", "AV_seq")
+# For these kinds a starved run is a FAILURE, not "untestable": the whole point of the case is
+# that correct code comfortably clears the floor (measured margins >= 8x).
+STARVE_IS_FAIL = ("portfolio_warm", "portfolio_seq", "portfolio_seq_nobs")
+WARM_NEFF_FLOOR = 1000.0   # case W A3; measured warm 2426-5941, cold 3.8-91.7
+WARM_V_MAX = 0.9           # case W A1; measured installed 0.031-0.129, inert exactly 1.000
+WARM_BOX_MULT = 3.0        # case W A2; measured on AV-member draws only -- see run_warm_case
+SEQ_OFFSET = 2.0           # +-2 with sigma_1d=0.7 -> mean separation 4.0, both inside [-5,5]
+
+# CASE-LIST NOTE, from directly reintroducing each bug and re-running (not from reasoning):
+#   * portfolio_seq_nobs is the DISCRIMINANT for the leak.  With clear_warm_state() no-op'd it
+#     gives n_eff 1.0 / 1.0 / 9.9 and lnZ bias -22.8 / -59.7 / -0.56 at ts 101/202/303, versus
+#     n_eff ~2094 and bias +0.019 when the reset works.
+#   * portfolio_seq (which re-bootstraps on point B) does NOT catch it: measured PASS with
+#     n_eff 5979 while the bug was active, because the fresh B seed overwrites the stale grid.
+#     It is kept as ONE row only, and only because it covers the reseed-after-reset path.
+WARM_CASES = [   # (kind, ndim, ncomp, target_seed, nmax, neff, extra)
+    ("portfolio_warm",     6, 1, 101, 600000, 3000, {}),
+    ("portfolio_warm",     6, 1, 202, 600000, 3000, {}),
+    ("portfolio_warm",     6, 1, 303, 600000, 3000, {}),
+    ("portfolio_seq_nobs", 2, 1, 101, 100000, 2000, dict(scale_x0=1.0)),
+    ("portfolio_seq_nobs", 2, 1, 202, 100000, 2000, dict(scale_x0=1.0)),
+    ("portfolio_seq_nobs", 2, 1, 303, 100000, 2000, dict(scale_x0=1.0)),
+    # covers reseed-after-reset; NOT a leak discriminant (see note above)
+    ("portfolio_seq",      2, 1, 101, 100000, 2000, dict(scale_x0=1.0)),
+    # negative control: standalone AV must be unaffected (it reruns its own setup).  Warn-only.
+    ("AV_seq",             2, 1, 101, 100000, 2000, dict(scale_x0=1.0)),
+]
+
+
+def _warm_seed_cloud(target, n=3000):
+    """Fair draws from the target's own truth pool -- a PERFECT seed, so any shortfall is the
+    warm-start machinery, not a bad proposal."""
+    pool = target.pool
+    rng = np.random.RandomState(target.seed + 13)
+    idx = rng.choice(len(pool), size=min(int(n), len(pool)), replace=False)
+    return np.asarray(pool[idx], dtype=float)
+
+
+def _finish_record(out, target, s, lnI, logvar, eff, nmax, seed, t0):
+    """Shared tail of run_one: shape metrics + lnZ bookkeeping from a finished sampler."""
+    eff = float(_asnumpy(eff))
+    ln_wt = log_weights_from_rvs(s._rvs)
+    X = np.column_stack([_asnumpy(s._rvs[p]).astype(float).flatten() for p in target.params])
+    rng = np.random.RandomState(seed + 1)
+    out.update(shape_metrics(target, X, ln_wt, rng))
+    lnI = float(_asnumpy(lnI))
+    logvar = float(_asnumpy(logvar))
+    relerr = float(np.exp(0.5 * logvar - lnI)) if np.isfinite(logvar) else float("nan")
+    out.update(lnI=lnI, true_lnZ=float(target.true_lnZ), bias_ln=lnI - float(target.true_lnZ),
+               rel_err=relerr, n_eff=eff, n_eval=int(getattr(s, "ntotal", 0)) or int(nmax),
+               wallclock=time.time() - t0, error=None)
+    return out
+
+
+def run_warm_case(target, nmax, neff, n_chunk=10000, seed=987654, verbose=False):
+    """Case W: does a warm-start seed reach the AV member's ACTIVE draw state?
+
+    Two samplers: a cheap PROBE that is seeded and drawn once (white-box: reads the AV member's
+    live volume and bin count), then a fresh one that is seeded and integrated (black-box).
+    The probe is what catches the inert-seed bug; the integral catches "all warm channels died"."""
+    t0 = time.time()
+    out = dict(kind="portfolio_warm", target=target.name, ndim=target.ndim,
+               ncomp=target.ncomp, target_seed=target.seed, nmax=int(nmax))
+    try:
+        np.random.seed(seed)
+        cloud = _warm_seed_cloud(target)
+        lo, hi = cloud.min(axis=0), cloud.max(axis=0)
+
+        probe = build_sampler("portfolio", target, n_chunk)
+        try:
+            probe.setup()
+        except TypeError:
+            pass
+        probe.bootstrap_from_samples(cloud, cover_frac=0.0)
+        probe.draw(n_chunk)
+        av = probe.portfolio_realizations[0]
+        out["warm_V"] = float(_asnumpy(getattr(av, "V", 1.0)))
+        out["warm_bins"] = int(len(getattr(av, "binunique", [0])))
+        # Measure concentration on the AV MEMBER'S OWN draws, not the portfolio mixture.  Measured:
+        # with the AV install disabled the MIXTURE still concentrates 28x in the seed box, because
+        # the GMM member is separately warm-started -- so a mixture-level ratio is not a
+        # discriminant for this bug at all.  Drawing from the member isolates the path under test.
+        _ps, _p, rv_av = av.draw_simplified(n_chunk)   # rv_av is (ndim, n)
+        Xp = np.asarray(_asnumpy(rv_av), dtype=float).T
+        out["warm_box_frac"] = float(np.mean(np.all((Xp >= lo) & (Xp <= hi), axis=1)))
+        # what a UNIFORM (cold) proposal would put in the same box -- the null this must beat
+        out["warm_box_frac_uniform"] = float(np.prod((hi - lo) / (target.rlim - target.llim)))
+
+        s = build_sampler("portfolio", target, n_chunk)
+        try:
+            s.setup()
+        except TypeError:
+            pass
+        s.bootstrap_from_samples(cloud, cover_frac=0.0)
+        extra = dict(n=n_chunk, n_adapt=100, floor_level=0.0, tempering_exp=0.1,
+                     neff=neff, nmax=int(nmax), save_intg=True, verbose=verbose)
+        lnI, logvar, eff, _ = s.integrate_log(target.as_lnfunc(), *target.params,
+                                              no_protect_names=True, **extra)
+        _finish_record(out, target, s, lnI, logvar, eff, nmax, seed, t0)
+    except Exception as e:
+        import traceback
+        out.update(error="{}: {}".format(type(e).__name__, e),
+                   traceback=traceback.format_exc(), wallclock=time.time() - t0)
+    return out
+
+
+def run_seq_case(kind, target_b, target_a, nmax, neff, n_chunk=10000, seed=987654, verbose=False):
+    """Cases S / S-nobs / AV_seq: integrate DISPLACED target A then target B on ONE sampler.
+
+    Scores point B only.  If the sampler carries A's contracted live volume into B, B's mass sits
+    outside it and lnZ collapses.  Uses clear_warm_state() when present and falls back to the old
+    `_warm = None` otherwise, so the case RUNS on a base branch without the API -- and fails there,
+    which is the point."""
+    t0 = time.time()
+    out = dict(kind=kind, target=target_b.name, ndim=target_b.ndim, ncomp=target_b.ncomp,
+               target_seed=target_b.seed, nmax=int(nmax))
+    try:
+        np.random.seed(seed)
+        s = build_sampler("AV" if kind == "AV_seq" else "portfolio", target_a, n_chunk)
+        # PRODUCTION SHAPE: supply gmm_dict.  Production always does, and it is not an inert spec --
+        # monte_carlo.integrator stores the caller's dict without copying and writes trained models
+        # into it, so this is the configuration in which stale-proposal aliasing can occur.  A gate
+        # that only ever ran the gmm_dict=None branch could not see that class of defect at all.
+        _setup_kw = {}
+        if kind != "AV_seq":
+            _dims = tuple(range(len(target_a.params)))
+            _setup_kw = dict(n_comp={_dims: 2}, gmm_dict={_dims: None}, correlate_all_dims=True)
+        try:
+            s.setup(**_setup_kw)
+        except TypeError:
+            s.setup()
+        extra = dict(n=n_chunk, n_adapt=100, floor_level=0.0, tempering_exp=0.1,
+                     neff=neff, nmax=int(nmax), save_intg=True, verbose=verbose)
+        if kind != "portfolio_seq_nobs":
+            s.bootstrap_from_samples(_warm_seed_cloud(target_a), cover_frac=0.0)
+        s.integrate_log(target_a.as_lnfunc(), *target_a.params,
+                        no_protect_names=True, **extra)
+        # record that point A ACTUALLY trained something -- otherwise "cleared" could pass
+        # vacuously on a run where the GMM never fitted at all
+        _trained_before_reset = False
+        if kind != "AV_seq":
+            try:
+                _trained_before_reset = any(
+                    v is not None for v in s.portfolio_realizations[1].integrator.gmm_dict.values())
+            except Exception as _e_tr:
+                out["seq_gmm_error"] = "pre-reset inspection failed: {}: {}".format(
+                    type(_e_tr).__name__, _e_tr)
+
+        # ---- the transition the driver performs between two points ----
+        s._rvs = {}
+        if hasattr(s, "clear_warm_state"):
+            s.clear_warm_state()
+        else:
+            s._warm = None
+        out["used_clear_api"] = bool(hasattr(s, "clear_warm_state"))
+        # WHITE-BOX: did the reset actually clear the GMM member's TRAINED PROPOSAL?  Measured, the
+        # statistical rows cannot answer this: with the trained proposal leaking, n_eff is 196-1700
+        # and |lnZ bias| <= 0.010 -- degraded but passing, because a stale GMM proposal is merely a
+        # bad proposal (the AV member still covers the support), unlike the AV grid leak which
+        # removes support and does bias.  So the leak must be observed directly.
+        if kind != "AV_seq":
+            try:
+                _gd = s.portfolio_realizations[1].integrator.gmm_dict
+                out["seq_gmm_trained_before_reset"] = bool(_trained_before_reset)
+                out["seq_gmm_cleared"] = all(v is None for v in _gd.values())
+            except Exception as _e_gd:
+                out["seq_gmm_cleared"] = None
+                out["seq_gmm_error"] = "{}: {}".format(type(_e_gd).__name__, _e_gd)
+
+        if kind != "portfolio_seq_nobs":
+            s.bootstrap_from_samples(_warm_seed_cloud(target_b), cover_frac=0.0)
+        lnI, logvar, eff, _ = s.integrate_log(target_b.as_lnfunc(), *target_b.params,
+                                              no_protect_names=True, **extra)
+        _finish_record(out, target_b, s, lnI, logvar, eff, nmax, seed, t0)
+    except Exception as e:
+        import traceback
+        out.update(error="{}: {}".format(type(e).__name__, e),
+                   traceback=traceback.format_exc(), wallclock=time.time() - t0)
+    return out
+
+
+# ----------------------------------------------------------------------------
 # Pass/fail policy
 # ----------------------------------------------------------------------------
 def evaluate(r):
@@ -460,10 +666,49 @@ def evaluate(r):
     a regression (see compare_shape_results.py)."""
     if r.get("error"):
         return "ERROR", ["ERROR " + r["error"]]
+    if r["kind"] in STARVE_IS_FAIL and r["n_eff"] < MIN_NEFF_FOR_SHAPE:
+        # NOT "untestable": correct code clears this floor by >= 8x on these cases (measured
+        # 799-2103 vs 0.0-12.8 when state leaks), so starvation here IS the defect.
+        return "FAIL", ["n_eff={:.0f} < {:.0f}: warm/sequential case must not starve".format(
+            r["n_eff"], MIN_NEFF_FOR_SHAPE)]
     if r["n_eff"] < MIN_NEFF_FOR_SHAPE:
         return "STARVED", ["n_eff={:.0f} < {:.0f}: shape untestable at this budget".format(
             r["n_eff"], MIN_NEFF_FOR_SHAPE)]
     reasons = []
+    if r["kind"] == "portfolio_warm":
+        # A1: white-box, and deliberately so.  An inert seed leaves V at exactly 1.000 with a
+        # single live bin; a working one contracted to 0.031-0.129 with 489-656 bins in every
+        # measured run.  No RNG enters either quantity, so the margin is categorical.
+        if not (r.get("warm_V", 1.0) < WARM_V_MAX and r.get("warm_bins", 1) > 1):
+            reasons.append("warm seed NOT installed on the draw path: AV member V={:.3f}, "
+                           "live bins={} (cold state)".format(r.get("warm_V", float("nan")),
+                                                              r.get("warm_bins", -1)))
+        # A2: behavioural confirmation -- draws must actually concentrate in the seed box.
+        if r.get("warm_box_frac", 0.0) < WARM_BOX_MULT * r.get("warm_box_frac_uniform", 1.0):
+            reasons.append("warm draws not concentrated in the seed box: {:.3f} < {:.1f}x{:.4f}"
+                           .format(r.get("warm_box_frac", float("nan")), WARM_BOX_MULT,
+                                   r.get("warm_box_frac_uniform", float("nan"))))
+        # A3: feature level -- catches "every warm-start channel went inert", which A1/A2 (AV
+        # member only) would miss.
+        if r["n_eff"] < WARM_NEFF_FLOOR:
+            reasons.append("warm n_eff {:.0f} < {:.0f}".format(r["n_eff"], WARM_NEFF_FLOOR))
+    if r["kind"] in ("portfolio_seq", "portfolio_seq_nobs"):
+        # Require BOTH observations to be affirmatively True.  Testing only for `cleared is False`
+        # let three distinct failures read as success: training never happened (so "cleared" is
+        # trivially true and proves nothing), the inspection raised (cleared is None), or the
+        # fields were absent entirely.  A check that cannot run is a failed check, not a pass.
+        _trained = r.get("seq_gmm_trained_before_reset")
+        _cleared = r.get("seq_gmm_cleared")
+        if _trained is not True:
+            reasons.append("GMM clearing check could not run: trained_before_reset={!r} -- the "
+                           "member never trained, so a 'cleared' verdict would be vacuous{}".format(
+                               _trained,
+                               " [" + r["seq_gmm_error"] + "]" if r.get("seq_gmm_error") else ""))
+        elif _cleared is not True:
+            reasons.append("reset did NOT clear the GMM member's trained proposal (cleared={!r}): "
+                           "point B inherits point A's fitted components (setup-arg aliasing){}".format(
+                               _cleared,
+                               " [" + r["seq_gmm_error"] + "]" if r.get("seq_gmm_error") else ""))
     ness = max(r["n_ess"], 1.0)
     for d, (js, floor) in enumerate(zip(r["js"], r["js_floor"])):
         thresh = JS_MULT * floor + JS_ABS_MIN
@@ -501,9 +746,17 @@ PRESETS = {
 
 
 def _worker(job):
-    kind, tgt_args, nmax, neff, seed = job
-    target = MixtureTarget(*tgt_args)
-    return run_one(kind, target, nmax, neff, seed=seed)
+    kind, tgt_args, nmax, neff, seed = job[:5]
+    extra = job[5] if len(job) > 5 else {}
+    if kind == "portfolio_warm":
+        return run_warm_case(MixtureTarget(*tgt_args, **extra), nmax, neff, seed=seed)
+    if kind in ("portfolio_seq", "portfolio_seq_nobs", "AV_seq"):
+        # SAME mixture, translated: A at -SEQ_OFFSET, B at +SEQ_OFFSET.  Different seeds would
+        # give random, typically overlapping means and would not test displacement at all.
+        a = MixtureTarget(*tgt_args, offset=-SEQ_OFFSET, **extra)
+        b = MixtureTarget(*tgt_args, offset=+SEQ_OFFSET, **extra)
+        return run_seq_case(kind, b, a, nmax, neff, seed=seed)
+    return run_one(kind, MixtureTarget(*tgt_args, **extra), nmax, neff, seed=seed)
 
 
 def main(argv=None):
@@ -511,6 +764,9 @@ def main(argv=None):
     ap.add_argument("--preset", default="standard", choices=sorted(PRESETS))
     ap.add_argument("--samplers", default="AV,GMM,NF,portfolio",
                     help="comma list from: " + ",".join(KNOWN_SAMPLERS))
+    ap.add_argument("--warm-cases", default="auto", choices=("auto", "on", "off"),
+                    help="run the warm-start/sequential-reuse cases "
+                         "(auto = on for --preset standard, off for quick)")
     ap.add_argument("--strict-samplers", default="AV,GMM",
                     help="samplers whose failures set exit code 1 (others warn)")
     ap.add_argument("--dims", default=None, help="override preset, e.g. 2,4,8")
@@ -547,8 +803,16 @@ def main(argv=None):
                 for kind in samplers:
                     jobs.append((kind, (d, nc, ts),
                                  cfg["nmax_per_dim"] * d, cfg["neff"], opts.run_seed))
-    print("# shape_recovery: {} runs ({} targets x {} samplers), preset={}".format(
-        len(jobs), len(jobs) // len(samplers), len(samplers), opts.preset))
+    n_matrix = len(jobs)
+    want_warm = (opts.warm_cases == "on" or
+                 (opts.warm_cases == "auto" and opts.preset == "standard"))
+    if want_warm:
+        for kind, d, nc, ts, nmax, neff, extra in WARM_CASES:
+            jobs.append((kind, (d, nc, ts), nmax, neff, opts.run_seed, dict(extra)))
+    print("# shape_recovery: {} runs ({} targets x {} samplers){}, preset={}".format(
+        len(jobs), n_matrix // len(samplers), len(samplers),
+        " + {} warm/sequential cases".format(len(jobs) - n_matrix) if want_warm else "",
+        opts.preset))
     sys.stdout.flush()
 
     if opts.jobs > 1:
