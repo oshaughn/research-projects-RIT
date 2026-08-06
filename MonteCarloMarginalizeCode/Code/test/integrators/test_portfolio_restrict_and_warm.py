@@ -208,6 +208,71 @@ def test_clear_warm_state_clears_trained_proposal_not_just_config():
         "second reset leaked: the stored snapshot was polluted by the first replay"
 
 
+class _AdaptiveSeed(object):
+    """A seeded GMM whose update() mutates in place, as gaussian_mixture_model.gmm.update does."""
+    def __init__(self):
+        self.tempering_coeff = 1.0
+        self.n_updates = 0
+        self.means = np.zeros(2)
+
+    def update(self, *a, **kw):
+        self.tempering_coeff /= 2.0
+        self.n_updates += 1
+        self.means += 1.0
+
+
+def test_snapshot_clones_a_real_gmm_model():
+    """The clone path must work on the ACTUAL model class, not just a stand-in.
+
+    A real `gmm` holds a module reference (`xpy`) and bound functions, so copy.deepcopy raises
+    "cannot pickle 'module' object".  If the snapshot fell back to sharing on that failure, seeded
+    models would not be isolated at all -- the fix would be inert on exactly the configuration it
+    exists for.  Hence the shallow-copy-then-clone-attributes path."""
+    from RIFT.integrators.gaussian_mixture_model import gmm
+    rng = np.random.RandomState(0)
+    m = gmm(2, np.array([[-5., 5.], [-5., 5.]]))
+    m.fit(rng.normal(size=(400, 2)), log_sample_weights=np.zeros(400))
+    clone = mcsP.MCSampler._snapshot_setup_args({'gmm_dict': {(0, 1): m}})['gmm_dict'][(0, 1)]
+    assert clone is not m, "the real gmm model was SHARED, not cloned"
+    t0 = m.tempering_coeff
+    mu0 = None if m.means is None else np.array(m.means)
+    clone.update(rng.normal(size=(200, 2)), log_sample_weights=np.zeros(200))
+    assert m.tempering_coeff == t0 and (mu0 is None or np.array_equal(m.means, mu0)), \
+        "mutating the clone changed the original: attribute state is still shared"
+
+
+def test_adaptive_seeded_model_does_not_drift_across_reset():
+    """A seeded-and-ADAPTING GMM must not carry point 1's adaptation into point 2.
+
+    Production seeds per-group GMMs from a breadcrumb; with --extrinsic-proposal-adapt those
+    seeded groups keep re-fitting, and update() mutates the model object in place.  Snapshotting
+    only the containing dict would leave the stored baseline pointing at the live model, so the
+    baseline drifts during point 1 and is replayed into point 2 -- the same leak one level down.
+    (With adapt OFF, the default, _train skips seeded groups, so nothing mutates.)"""
+    s = _mk_av_gmm()
+    for p in ('x', 'y'):
+        s.add_parameter(p, _flat(p), left_limit=-5., right_limit=5.)
+    seed = _AdaptiveSeed()
+    s.setup(n_comp={(0, 1): 3}, gmm_adapt={(0, 1): True}, correlate_all_dims=True,
+            gmm_dict={(0, 1): seed})
+    gmm_member = s.portfolio_realizations[1]
+    stored = s._member_setup_args[1]['gmm_dict'][(0, 1)]
+    assert stored is not seed, "stored baseline aliases the live seeded model"
+
+    # point 1 adapts the live model in place
+    gmm_member.integrator.gmm_dict[(0, 1)].update(None)
+    gmm_member.integrator.gmm_dict[(0, 1)].update(None)
+    assert s._member_setup_args[1]['gmm_dict'][(0, 1)].n_updates == 0, \
+        "the stored baseline drifted while point 1 adapted"
+
+    s.clear_warm_state()
+    restored = s.portfolio_realizations[1].integrator.gmm_dict[(0, 1)]
+    assert restored is not None, "reset cleared the seeded model entirely"
+    assert restored.n_updates == 0, \
+        "point 2 inherited point 1's adaptation (n_updates={})".format(restored.n_updates)
+    assert restored.tempering_coeff == 1.0, "point 2 inherited point 1's tempering state"
+
+
 def test_clear_warm_state_propagates_failures():
     """A reset that quietly did not happen leaves the next point on the previous point's grid.
     That must abort, not become a log line."""

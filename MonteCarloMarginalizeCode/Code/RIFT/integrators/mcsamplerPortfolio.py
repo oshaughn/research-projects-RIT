@@ -2,7 +2,7 @@ import sys
 import math
 #import bisect
 from collections import defaultdict
-from types import ModuleType
+from types import ModuleType, FunctionType, BuiltinFunctionType
 
 import numpy
 np=numpy #import numpy as np
@@ -11,7 +11,7 @@ from scipy import integrate, interpolate, special
 import itertools
 import functools
 
-from copy import deepcopy
+from copy import deepcopy, copy as shallow_copy
 
 
 import os
@@ -433,10 +433,21 @@ class MCSampler(object):
         reference and replaying it would hand the next point the PREVIOUS point's trained proposal --
         reintroducing, through the reset itself, exactly the state leak the reset exists to remove.
 
-        Deliberately conservative: dict/list/tuple/set/ndarray are copied, everything else (callables,
-        modules, sampler objects, pre-trained models a caller deliberately supplied) is passed
-        through.  A blanket deepcopy would try to clone those and can fail or be very expensive.
+        Objects NESTED INSIDE a spec container are cloned too, not just the container.  A seeded
+        GMM model supplied via `--extrinsic-proposal-breadcrumb` lives as a VALUE in gmm_dict, and
+        with `--extrinsic-proposal-adapt` it keeps adapting: `model.update()` mutates it in place
+        (gaussian_mixture_model.py:548).  Copying only the dict would leave the stored "baseline"
+        pointing at the live model, so it would drift during point 1 and be replayed into point 2 --
+        the same leak one level down.  (With adapt OFF, the default, `_train` skips seeded groups
+        and nothing mutates, so this path was previously harmless.)
+
+        TOP-LEVEL non-container arguments are still passed by reference: those are callables,
+        modules and sampler objects, which a deepcopy would try to clone and can fail on or spend
+        real time duplicating.  If a nested clone fails, the original is kept and the failure is
+        REPORTED -- a silently shared object is how this class of bug survives.
         """
+        _unclonable = []
+
         def _cp(v, depth=0):
             if depth > 6:      # runaway guard; setup specs are shallow
                 return v
@@ -450,8 +461,33 @@ class MCSampler(object):
                 return set(v)
             if isinstance(v, np.ndarray):
                 return v.copy()
-            return v
-        return dict((k, _cp(v)) for k, v in args.items())
+            if depth == 0 or v is None or isinstance(v, (bool, int, float, complex, str, bytes)):
+                return v
+            if isinstance(v, (ModuleType, FunctionType, BuiltinFunctionType, type)):
+                return v      # stateless: sharing these is safe and cloning them is not
+            # A nested object with mutable state -- e.g. a seeded GMM `estimator`.  deepcopy is
+            # NOT usable: a real estimator holds a module reference (`xpy`) and deepcopy raises
+            # "cannot pickle 'module' object", which would send us down the fallback and leave the
+            # model SHARED -- i.e. not fixed at all.  Shallow-copy the object (which never
+            # pickles) and then clone its mutable attributes, leaving module/function refs shared.
+            try:
+                new_obj = shallow_copy(v)
+                d = getattr(new_obj, '__dict__', None)
+                if d is None:
+                    raise TypeError("no __dict__ (__slots__?), cannot clone attribute state")
+                for k, val in list(d.items()):
+                    d[k] = _cp(val, depth + 1)
+                return new_obj
+            except Exception as e:
+                _unclonable.append("{} ({})".format(type(v).__name__, e))
+                return v
+
+        out = dict((k, _cp(v)) for k, v in args.items())
+        if _unclonable:
+            print("  [portfolio] WARNING: could not clone {} nested setup object(s): {}.  These are "
+                  "SHARED with the live sampler, so if anything mutates them in place their state "
+                  "will persist across a reset.".format(len(_unclonable), "; ".join(_unclonable)))
+        return out
 
     def clear_warm_state(self):
         """Clear any warm-start seed AND the installed active grid on every member.

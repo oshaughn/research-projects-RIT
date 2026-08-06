@@ -615,8 +615,9 @@ def run_seq_case(kind, target_b, target_a, nmax, neff, n_chunk=10000, seed=98765
             try:
                 _trained_before_reset = any(
                     v is not None for v in s.portfolio_realizations[1].integrator.gmm_dict.values())
-            except Exception:
-                pass
+            except Exception as _e_tr:
+                out["seq_gmm_error"] = "pre-reset inspection failed: {}: {}".format(
+                    type(_e_tr).__name__, _e_tr)
 
         # ---- the transition the driver performs between two points ----
         s._rvs = {}
@@ -637,6 +638,7 @@ def run_seq_case(kind, target_b, target_a, nmax, neff, n_chunk=10000, seed=98765
                 out["seq_gmm_cleared"] = all(v is None for v in _gd.values())
             except Exception as _e_gd:
                 out["seq_gmm_cleared"] = None
+                out["seq_gmm_error"] = "{}: {}".format(type(_e_gd).__name__, _e_gd)
 
         if kind != "portfolio_seq_nobs":
             s.bootstrap_from_samples(_warm_seed_cloud(target_b), cover_frac=0.0)
@@ -691,9 +693,22 @@ def evaluate(r):
         if r["n_eff"] < WARM_NEFF_FLOOR:
             reasons.append("warm n_eff {:.0f} < {:.0f}".format(r["n_eff"], WARM_NEFF_FLOOR))
     if r["kind"] in ("portfolio_seq", "portfolio_seq_nobs"):
-        if r.get("seq_gmm_trained_before_reset") and r.get("seq_gmm_cleared") is False:
-            reasons.append("reset did NOT clear the GMM member's trained proposal: point B "
-                           "inherits point A's fitted components (setup-arg aliasing)")
+        # Require BOTH observations to be affirmatively True.  Testing only for `cleared is False`
+        # let three distinct failures read as success: training never happened (so "cleared" is
+        # trivially true and proves nothing), the inspection raised (cleared is None), or the
+        # fields were absent entirely.  A check that cannot run is a failed check, not a pass.
+        _trained = r.get("seq_gmm_trained_before_reset")
+        _cleared = r.get("seq_gmm_cleared")
+        if _trained is not True:
+            reasons.append("GMM clearing check could not run: trained_before_reset={!r} -- the "
+                           "member never trained, so a 'cleared' verdict would be vacuous{}".format(
+                               _trained,
+                               " [" + r["seq_gmm_error"] + "]" if r.get("seq_gmm_error") else ""))
+        elif _cleared is not True:
+            reasons.append("reset did NOT clear the GMM member's trained proposal (cleared={!r}): "
+                           "point B inherits point A's fitted components (setup-arg aliasing){}".format(
+                               _cleared,
+                               " [" + r["seq_gmm_error"] + "]" if r.get("seq_gmm_error") else ""))
     ness = max(r["n_ess"], 1.0)
     for d, (js, floor) in enumerate(zip(r["js"], r["js_floor"])):
         thresh = JS_MULT * floor + JS_ABS_MIN
