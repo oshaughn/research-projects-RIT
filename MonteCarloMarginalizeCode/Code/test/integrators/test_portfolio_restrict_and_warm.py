@@ -142,7 +142,10 @@ def test_clear_warm_state_preserves_member_configuration():
     s = _mk_av_gmm()
     for p in ('x', 'y'):
         s.add_parameter(p, _flat(p), left_limit=-5., right_limit=5.)
-    cfg = dict(n_comp={(0, 1): 3}, gmm_adapt={(0, 1): False}, correlate_all_dims=True)
+    # supply gmm_dict, as production does -- the no-gmm_dict path takes a different branch in
+    # mcsamplerEnsemble.setup() and would not exercise what production actually runs
+    cfg = dict(n_comp={(0, 1): 3}, gmm_adapt={(0, 1): False}, correlate_all_dims=True,
+               gmm_dict={(0, 1): None})
     s.setup(**cfg)
     gmm = s.portfolio_realizations[1]
 
@@ -159,6 +162,50 @@ def test_clear_warm_state_preserves_member_configuration():
         "reset changed the GMM dimension grouping: {} -> {}".format(before[0], after[0])
     assert before[1] == after[1], "reset lost n_comp: {} -> {}".format(before[1], after[1])
     assert before[2] == after[2], "reset lost gmm_adapt: {} -> {}".format(before[2], after[2])
+
+
+class _FakeModel(object):
+    """Stand-in for a trained GMM component; identity is all this test needs."""
+    def __repr__(self):
+        return "<trained model>"
+
+
+def test_clear_warm_state_clears_trained_proposal_not_just_config():
+    """The reset must clear the TRAINED PROPOSAL, not merely restore the grouping.
+
+    `gmm_dict` is not an inert spec.  mcsamplerEnsemble hands the caller's dict straight to
+    monte_carlo.integrator, which stores it WITHOUT copying (MonteCarloEnsemble.py:110) and then
+    writes trained models into it (`self.gmm_dict[dim_group] = model`, :403).  So a reset that
+    replays a *reference* to those setup arguments hands the next point the previous point's
+    trained proposal -- reintroducing, through the reset itself, the leak the reset exists to
+    remove.  Checking grouping / n_comp / gmm_adapt alone cannot see this: all three survive."""
+    s = _mk_av_gmm()
+    for p in ('x', 'y'):
+        s.add_parameter(p, _flat(p), left_limit=-5., right_limit=5.)
+    caller_spec = {(0, 1): None}
+    s.setup(n_comp={(0, 1): 3}, gmm_adapt={(0, 1): False}, correlate_all_dims=True,
+            gmm_dict=caller_spec)
+    gmm = s.portfolio_realizations[1]
+
+    # the stored args must not alias the caller's dict, or training pollutes them
+    assert s._member_setup_args[1]['gmm_dict'] is not caller_spec, \
+        "stored setup args alias the caller's gmm_dict"
+
+    # point 1 trains: the integrator writes a model into its gmm_dict
+    gmm.integrator.gmm_dict[(0, 1)] = _FakeModel()
+    s.clear_warm_state()
+    assert gmm.integrator.gmm_dict.get((0, 1)) is None, \
+        "reset left point 1's trained proposal installed: {}".format(gmm.integrator.gmm_dict)
+    assert sorted(gmm.integrator.gmm_dict) == [(0, 1)], "reset lost the grouping"
+
+    # point 2 trains, and resets again: the stored snapshot must not have been polluted by the
+    # first replay (passing the stored dict itself would let the rebuilt integrator train into it,
+    # so the leak would simply return one point later)
+    gmm2 = s.portfolio_realizations[1]
+    gmm2.integrator.gmm_dict[(0, 1)] = _FakeModel()
+    s.clear_warm_state()
+    assert gmm2.integrator.gmm_dict.get((0, 1)) is None, \
+        "second reset leaked: the stored snapshot was polluted by the first replay"
 
 
 def test_clear_warm_state_propagates_failures():

@@ -422,6 +422,37 @@ class MCSampler(object):
                   "prior callables untouched)".format(indx, params, lo, hi))
 
 
+    @staticmethod
+    def _snapshot_setup_args(args):
+        """Copy the mutable containers in a setup-argument dict; pass everything else by reference.
+
+        REQUIRED for correctness, not tidiness.  Setup arguments are not inert: production supplies
+        `gmm_dict` as a grouping spec ({(0,1,2): None, ...}), mcsamplerEnsemble hands that very
+        object to monte_carlo.integrator, which stores it WITHOUT copying (MonteCarloEnsemble.py:110)
+        and then writes trained models into it (`self.gmm_dict[dim_group] = model`, :403).  Keeping a
+        reference and replaying it would hand the next point the PREVIOUS point's trained proposal --
+        reintroducing, through the reset itself, exactly the state leak the reset exists to remove.
+
+        Deliberately conservative: dict/list/tuple/set/ndarray are copied, everything else (callables,
+        modules, sampler objects, pre-trained models a caller deliberately supplied) is passed
+        through.  A blanket deepcopy would try to clone those and can fail or be very expensive.
+        """
+        def _cp(v, depth=0):
+            if depth > 6:      # runaway guard; setup specs are shallow
+                return v
+            if isinstance(v, dict):
+                return dict((k, _cp(x, depth + 1)) for k, x in v.items())
+            if isinstance(v, list):
+                return [_cp(x, depth + 1) for x in v]
+            if isinstance(v, tuple):
+                return tuple(_cp(x, depth + 1) for x in v)
+            if isinstance(v, set):
+                return set(v)
+            if isinstance(v, np.ndarray):
+                return v.copy()
+            return v
+        return dict((k, _cp(v)) for k, v in args.items())
+
     def clear_warm_state(self):
         """Clear any warm-start seed AND the installed active grid on every member.
 
@@ -462,7 +493,10 @@ class MCSampler(object):
                     # (so a narrowed member stays narrowed across the reset).
                     member.setup()
                 else:
-                    member.setup(**args_here)
+                    # a FRESH copy per replay: passing the stored dict itself would let the
+                    # rebuilt integrator train into our snapshot, so the reset after next would
+                    # replay a polluted spec and the leak would return one point later.
+                    member.setup(**self._snapshot_setup_args(args_here))
 
     def bootstrap_from_samples(self, samples, params=None, **kwargs):
         """Warm-start: forward a seed cloud to every member that supports it (e.g. the
@@ -626,7 +660,8 @@ class MCSampler(object):
               args_here = {}
               args_here.update(kwargs)
               args_here.update(portfolio_extra_args[indx])
-              self._member_setup_args[indx] = args_here
+              # snapshot BEFORE setup: the member (or its integrator) may mutate these in place
+              self._member_setup_args[indx] = self._snapshot_setup_args(args_here)
               member.setup(**args_here)
         for indx, member in enumerate(self.oracle_realizations):
             if hasattr(member, 'setup'):
@@ -634,7 +669,7 @@ class MCSampler(object):
               args_here = {}
               args_here.update(kwargs)
               args_here.update(portfolio_extra_args[indx])
-              self._oracle_setup_args[indx] = args_here
+              self._oracle_setup_args[indx] = self._snapshot_setup_args(args_here)
               member.setup(**args_here)
               member.params_ordered = list(self.params_ordered)  # enforce parameters for oracle being sane
 
