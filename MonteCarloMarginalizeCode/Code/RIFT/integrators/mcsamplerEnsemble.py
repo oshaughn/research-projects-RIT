@@ -499,7 +499,12 @@ class MCSampler(object):
         # strength of that flag, that it was safe to contract its AV member.  The guarantee has
         # to survive the sampler's own lifecycle, not just its initial setup.
         _prev = getattr(self, 'integrator', None)
-        self.setup(n_comp=int(n_comp), correlate_all_dims=True,
+        # gmm_dict=None EXPLICITLY.  setup() now remembers its kwargs, so a remembered explicit
+        # grouping would survive this call and correlate_all_dims=True would have no effect --
+        # defeating the single full-dimensional group this path exists to build (the whole point
+        # is to capture sky<->phase<->distance correlations at high SNR).  Passing None overrides
+        # the remembered value; the coverage settings below are still carried forward.
+        self.setup(n_comp=int(n_comp), correlate_all_dims=True, gmm_dict=None,
                    gmm_defensive_frac=getattr(_prev, 'gmm_defensive_frac', 0.05),
                    gmm_defensive_all_paths=getattr(_prev, 'gmm_defensive_all_paths', False))
         rvs = {p: samples[:, j] for j, p in enumerate(self.params_ordered)}

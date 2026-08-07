@@ -104,6 +104,39 @@ def test_missing_columns_degrade_to_the_first_replica():
     assert DRV._kish_neff_of_rvs(a) is None
 
 
+
+
+def test_pooling_uses_reported_lnZ_when_records_are_not_raw():
+    """Production _rvs may already be thresholded or fairdraw-resampled.
+
+    Then sum_i w_ki over the RETAINED rows is no longer Z_k * n_k, so a 1/n_k rescale mis-weights
+    the replica -- a fairdraw record is already posterior-resampled and would be weighted twice.
+    Given the reported per-replica lnZ, each block is renormalized to contribute exactly Z_k/K,
+    which is correct whether the rows are raw, pruned or resampled.
+    """
+    rng = numpy.random.RandomState(7)
+    raw_a = _replica(rng, 4000, 0.0, 1.0)
+    raw_b = _replica(rng, 4000, 0.3, 1.0)
+    lnZ = [0.0, 0.3]
+    # simulate pruning: keep only the top-weight half of replica b
+    lw_b = raw_b['log_integrand']
+    keep = numpy.argsort(lw_b)[len(lw_b) // 2:]
+    pruned_b = {k: numpy.asarray(v)[keep] for k, v in raw_b.items()}
+
+    target = numpy.log(numpy.mean(numpy.exp(numpy.array(lnZ))))
+    pooled = DRV._pool_replica_rvs([raw_a, pruned_b], _S(), rep_lnZ=lnZ)
+    got = DRV._lnZ_of_rvs(pooled)
+    assert abs(got - target) < 1e-9, (
+        "pooled lnZ {} != reported combination {} for a pruned replica".format(got, target))
+
+    # without the reported lnZ the naive 1/n_k rescale gets the pruned replica wrong -- which is
+    # exactly the failure mode this guards against
+    naive = DRV._lnZ_of_rvs(DRV._pool_replica_rvs([raw_a, pruned_b], _S()))
+    assert abs(naive - target) > 0.05, (
+        "expected the naive rescale to mis-weight a pruned replica; it did not, so this test "
+        "no longer demonstrates the hazard")
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

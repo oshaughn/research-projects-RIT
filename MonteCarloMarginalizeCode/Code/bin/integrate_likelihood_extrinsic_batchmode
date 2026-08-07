@@ -364,7 +364,9 @@ integration_params.add_option("--nf-flow-save",default=None,help="NF only: after
 integration_params.add_option("--sampler-sequential-warmstart",action='store_true',help="AV only: when a worker analyzes several intrinsic points (--n-events-to-analyze>1), warm-start each point's extrinsic integral from the previous point's converged high-likelihood samples.  Points are processed in their given order (NOT reordered), so a truncated/failed worker still drops a spatially-unbiased subset.  A coverage floor (see --sampler-sequential-warmstart-cover-frac) keeps a poorly-matched transfer from ever biasing the result.")
 integration_params.add_option("--sampler-sequential-warmstart-cover-frac",type=float,default=0.5,help="Coverage floor for --sampler-sequential-warmstart: fraction of full-prior coverage mixed into the seed so the warm live volume always contains a cold start (a mis-matched proposal then only costs efficiency, never bias).  Default 0.5, the measured-safe floor (see --sampler-warmstart-cover-frac); 0.1 is under-covered.")
 integration_params.add_option("--sampler-sequential-warmstart-deltalnL",type=float,default=15.0,help="Keep previous-point samples within this lnL of the max as the warm seed for the next point.  Default 15.")
-integration_params.add_option("--sampler-warmstart-retry-neff",type=float,default=None,help="AV or portfolio (L0 auto-rescue): if a pass finishes below this n_eff (i.e. it stalled on a very sharp / high-amplitude peak), automatically re-run a second pass warm-started from THIS point's own highest-likelihood samples.  Same-problem reuse, so it cannot bias the result.  Directly targets the high-SNR n_eff LOTTERY (a large fraction of independent runs collapse to n_eff~1 by contracting onto the wrong spot); the rescue re-seeds a collapsed run from the peak it did find.  Recommended for high-SNR events; e.g. 5.")
+integration_params.add_option("--sampler-l0-rescue-accept-truncated", action='store_true', default=False, help="Report the L0 rescue's warm pass even when it lands well below the full-support cold pass (see --sampler-l0-rescue-reject-dlnZ).  Default OFF: on that evidence the cold result is kept instead, since the warm pass is confined to the seeded peak and may be missing a mode.  The rescue itself still runs either way.")
+integration_params.add_option("--sampler-l0-rescue-reject-dlnZ", type=float, default=0.5, help="Evidence threshold (nats) for rejecting the L0 rescue's warm pass: reject when the full-support cold pass reports lnZ this much HIGHER, which indicates the seed missed mass.  Larger = more permissive.")
+integration_params.add_option("--sampler-warmstart-retry-neff",type=float,default=None,help="AV or portfolio (L0 auto-rescue): if a pass finishes below this n_eff (i.e. it stalled on a very sharp / high-amplitude peak), automatically re-run a second pass warm-started from THIS point's own highest-likelihood samples.  Same-problem reuse in the sense that the seed provably contains the peak the cold pass found -- but NOT that every mode is represented, so the warm pass can be biased low if the seed missed one.  The rescue still runs as before; its result is rejected in favour of the cold pass only on positive evidence of lost mass (see --sampler-l0-rescue-reject-dlnZ).  A portfolio is unaffected: its GMM member carries a defensive component.  Directly targets the high-SNR n_eff LOTTERY (a large fraction of independent runs collapse to n_eff~1 by contracting onto the wrong spot); the rescue re-seeds a collapsed run from the peak it did find.  Recommended for high-SNR events; e.g. 5.")
 integration_params.add_option("--sampler-anisotropic-bins",action="store_true",help="AV only: give each extrinsic axis a DIFFERENT number of bins during contraction -- fine where the live points cluster tightly (phase/polarization/sky), coarse where they are broad (distance/inclination) -- instead of the default equal split.  Keeps the same total bin budget, so the estimator is unchanged; helps AV wrap a correlated/degenerate posterior more tightly.")
 integration_params.add_option("--internal-reparam-dl-incl",action="store_true",help="Sample the DISTANCE axis as an effective distance D_eff = d_L / A(iota), with A(iota)=sqrt(((1+cos^2 i)/2)^2 + cos^2 i) the leading (l=|m|=2) inclination amplitude.  This axis-aligns the distance<->inclination degeneracy (L depends mostly on A(iota)/d_L), decorrelating the two broad directions so the sampler wraps them efficiently.  The likelihood reconstructs physical d_L=D_eff*A(iota); the measure correction is PRIOR-AGNOSTIC -- ln p(d_L) - ln p(D_eff) + ln A(iota), using the ACTUAL --d-prior (dist_prior_pdf), so it is correct for Euclidean, cosmo, cosmo_sourceframe, pseudo_cosmo alike (normalization cancels in the ratio; reduces to +3 ln A only for Euclidean).  The physical d_L bound is enforced.  NOT compatible with --d-prior-redshift (errors out).  Estimator stays unbiased (validate vs baseline posterior).")
 integration_params.add_option("--extrinsic-proposal-field",default=None,help="AV only (L3): path to a ProposalField (.npz built by util_BuildProposalField.py from a previous ILE iteration).  Each intrinsic point warm-starts its extrinsic integral from the field's nearest entry.  Cross-problem reuse, so a coverage floor + an inflation margin are applied (see the two options below); a stale/mismatched field can only cost efficiency, never bias.")
@@ -1949,7 +1951,7 @@ def _rvs_len(rvs):
     return 0
 
 
-def _pool_replica_rvs(rep_rvs, sampler):
+def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None):
     """Concatenate the replicas' samples into one correctly-weighted set.
 
     Each replica k is an independent importance-sampling estimate with weights w_ki and its own
@@ -1965,6 +1967,13 @@ def _pool_replica_rvs(rep_rvs, sampler):
     rep_rvs = [r for r in rep_rvs if r]
     if len(rep_rvs) <= 1:
         return rep_rvs[0] if rep_rvs else {}
+    # DO NOT assume the records are raw importance samples.  integrate() may have thresholded or
+    # fairdraw-resampled _rvs before we see it, in which case sum_i w_ki over the RETAINED rows is
+    # no longer Z_k * n_k and a 1/n_k rescale would mis-weight the replica (a fairdraw record is
+    # already posterior-resampled, so scaling it by its retained length weights it twice).  When
+    # the reported per-replica lnZ is available, renormalize each block so it contributes exactly
+    # Z_k/K -- correct whether the rows are raw, pruned or resampled, since only their RELATIVE
+    # weights need be right.
     keys = set(rep_rvs[0])
     for r in rep_rvs[1:]:
         keys &= set(r)
@@ -1978,11 +1987,19 @@ def _pool_replica_rvs(rep_rvs, sampler):
     out = {}
     try:
         cols = {k: [] for k in keys}
-        for r in rep_rvs:
+        for _i, r in enumerate(rep_rvs):
             n_k = _rvs_len(r)
             if n_k <= 0:
                 continue
-            scale = numpy.log(float(K) * float(n_k))
+            if rep_lnZ is not None and _i < len(rep_lnZ) and numpy.isfinite(rep_lnZ[_i]):
+                # target: this block's weights sum to Z_k/K
+                _cur = _lnZ_of_rvs(r, already_pooled=True)
+                if _cur is None or not numpy.isfinite(_cur):
+                    scale = numpy.log(float(K) * float(n_k))
+                else:
+                    scale = _cur - (float(rep_lnZ[_i]) - numpy.log(float(K)))
+            else:
+                scale = numpy.log(float(K) * float(n_k))
             for k in keys:
                 v = numpy.atleast_1d(numpy.asarray(sampler.identity_convert(r[k]))).ravel()
                 if k == log_key:
@@ -2959,44 +2976,65 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 print("  [L0 auto-rescue] cold n_eff {} < {}; re-running warm from this point's peak ({} pts)".format(
                     "DEGENERATE (early termination)" if _neff_val is None else "{:.1f}".format(_neff_val),
                     opts.sampler_warmstart_retry_neff, len(_seed)))
-                # COVERAGE WARNING, not a repair.  The seeded box provably contains the peak the
-                # cold pass found, but that proves ONE mode is represented, not all of them, and
-                # cover_frac cannot fix it (a finite uniform sprinkle covers 2.9% of the box at
-                # d=6).  The warm pass is therefore an estimate over TRUNCATED support: precise,
-                # and biased low by any mode outside its seed.
+                # The warm pass is an estimate over TRUNCATED support: the seeded box provably
+                # contains the peak the cold pass found, and says nothing about what that pass did
+                # not reach, so it is biased low by any missed mode.  Three things that look like
+                # fixes are not:
+                #   * cover_frac is a finite sprinkle of points into the grid (2.9% of the box at
+                #     d=6), not a mixture, so it gives no coverage guarantee;
+                #   * pooling cold+warm propagates the bias in diluted form, because averaging Z is
+                #     unbiased only when EVERY term is.  Measured on a bimodal target whose seed
+                #     caught one mode: true -4.6052, cold -4.6265, warm -5.3009 (-log 2, the missed
+                #     mode), pooled -4.9079 (log 0.75).  Pinned in test_replica_pooling.py;
+                #   * a warning alone does not correct the number that gets reported.
+                # AND THE OBVIOUS "REAL FIX" IS A TRAP.  Giving AV a defensive component with
+                # support everywhere requires per-sample sampling densities (integrate_log applies
+                # ONE scalar log_joint_s_prior to every sample), i.e. a proposal that is a weighted
+                # mixture of components whose densities are evaluated per sample and combined.
+                # That is mcsamplerPortfolio: q_mix, defensive members, and the coverage
+                # bookkeeping around them already exist there, tested.  Rebuilding it inside AV
+                # would leave two implementations of the same mathematics to keep in step, and the
+                # bugs found in this review -- a capability flag that lied, a defensive component
+                # absorbed by an update, config silently dropped on re-setup -- are precisely the
+                # kind that appear when one of two parallel paths is updated and the other is not.
+                # So this is NOT scoped as future work on AV.  The architectural answer is that a
+                # run needing a coverage guarantee uses the portfolio; standalone AV stays a fast
+                # single-proposal sampler with this limitation documented at its call site.
                 #
-                # Pooling the two passes does NOT repair this, and it is worth recording why,
-                # because it looks like it should.  Averaging Z is only unbiased when every term
-                # is unbiased -- which holds for the MC-error replicas (all full support) but NOT
-                # here.  Measured on a bimodal target whose seed caught one mode: true lnZ
-                # -4.6052, cold -4.6265, warm -5.3009 (bias -0.696 = -log 2, the missed mode),
-                # pooled -4.9079 (bias -0.303 = log 0.75, exactly (Z + Z/2)/2).  The pooled answer
-                # is better than warm-only and still wrong.
-                #
-                # A proper combination needs the balance heuristic -- q_mix evaluated at EVERY
-                # sample -- and the cold pass's proposal is not recoverable after it adapted, so
-                # that is not available here.  What IS available is the disagreement itself: the
-                # cold pass had full support, so if the warm estimate sits well below it, mass
-                # outside the seed is the explanation.  Say so loudly rather than silently
-                # reporting the precise-but-truncated number.
+                # WHAT THIS DOES, DELIBERATELY NARROWLY.  The rescue still runs, because it exists
+                # to fix the high-SNR n_eff lottery and removing it by default would be a certain
+                # production regression traded against a possible bias.  What changes is only the
+                # case where we have POSITIVE EVIDENCE of lost mass: the cold pass had full
+                # support, so if the warm evidence lands well below it, the seed missed something
+                # the cold pass reached.  There we keep the cold result rather than report the
+                # precise-but-truncated one.  Detection is imperfect -- a missed mode need not
+                # produce this ordering -- so this narrows the failure, it does not close it.
                 _cold_rvs = sampler._rvs
                 _cold_lnZ = _lnZ_of_rvs(_cold_rvs, already_pooled=False)
+                _cold_res, _cold_var, _cold_neff = res, var, neff
                 sampler.bootstrap_from_samples(_seed, cover_frac=0.0)
                 res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
                 _warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False)
-                if (_cold_lnZ is not None) and (_warm_lnZ is not None) and numpy.isfinite(_cold_lnZ) \
-                        and numpy.isfinite(_warm_lnZ) and (_cold_lnZ - _warm_lnZ) > 0.5:
-                    print("  [L0 auto-rescue] *** COVERAGE WARNING *** warm lnZ {:.3f} is {:.3f} nats"
-                          " BELOW the full-support cold pass ({:.3f}).  The seed likely missed mass"
-                          " the cold pass reached -- a second mode, or a broad tail.  The reported"
-                          " value comes from the warm pass and is biased LOW if so."
-                          .format(_warm_lnZ + manual_avoid_overflow_logarithm,
-                                  _cold_lnZ - _warm_lnZ,
-                                  _cold_lnZ + manual_avoid_overflow_logarithm))
-                    if opts.sampler_method == 'AV':
-                        print("  [L0 auto-rescue] standalone AV has no full-support component to"
-                              " cover the complement; --sampler-method portfolio carries a"
-                              " defensive GMM member for exactly this case.")
+                _evidence_of_loss = (
+                    (_cold_lnZ is not None) and (_warm_lnZ is not None)
+                    and numpy.isfinite(_cold_lnZ) and numpy.isfinite(_warm_lnZ)
+                    and (_cold_lnZ - _warm_lnZ) > float(opts.sampler_l0_rescue_reject_dlnZ))
+                if _evidence_of_loss:
+                    print("  [L0 auto-rescue] *** REJECTING the warm pass *** its lnZ {:.3f} is"
+                          " {:.3f} nats BELOW the full-support cold pass ({:.3f}), which is evidence"
+                          " the seed missed mass the cold pass reached.".format(
+                              _warm_lnZ + manual_avoid_overflow_logarithm,
+                              _cold_lnZ - _warm_lnZ,
+                              _cold_lnZ + manual_avoid_overflow_logarithm))
+                    if opts.sampler_l0_rescue_accept_truncated:
+                        print("  [L0 auto-rescue] --sampler-l0-rescue-accept-truncated set:"
+                              " reporting the warm pass anyway (may be biased LOW).")
+                    else:
+                        print("  [L0 auto-rescue] keeping the COLD (full-support) result; its n_eff"
+                              " is lower but it is not missing mass.  A portfolio avoids this"
+                              " trade entirely -- its GMM member carries a defensive component.")
+                        sampler._rvs = _cold_rvs
+                        res, var, neff = _cold_res, _cold_var, _cold_neff
                 _clear_warm_state(sampler)
         except Exception as _e_l0:
             print("  [L0 auto-rescue] skipped (", _e_l0, ")")
@@ -3125,7 +3163,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # Folding the factor into log_joint_s_prior is therefore a statement of the real pooled
         # sampling density, not a fudge -- and it leaves every downstream weight computation
         # (which all form log_integrand + log_joint_prior - log_joint_s_prior) correct untouched.
-        sampler._rvs = _pool_replica_rvs(_rep_rvs, sampler)
+        sampler._rvs = _pool_replica_rvs(_rep_rvs, sampler, rep_lnZ=_rep_lnZ)
         if len(_rep_lnZ) > 1:
             _K = len(_rep_lnZ)
             _l = numpy.array(_rep_lnZ); _s = numpy.array(_rep_sig)
