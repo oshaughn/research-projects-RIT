@@ -58,6 +58,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../../containers.html">Containers and multi-architecture deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../injections.html">Signal Injections</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../demos.html">Demos</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../hyperpipe.html">HyperPipe</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../troubleshooting.html">General Troubleshooting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../api_samples_utils.html">Samples Utilities</a></li>
@@ -518,11 +519,94 @@ Remember:   pdf, cdf_inv refer to the <em>sampling</em> prior, so I need to mult
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">MCSampler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_chunk</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">400000</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler" title="Link to this definition"></a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
-<p>Class to define a set of parameter names, limits, and probability densities.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.add_parameter">
 <span class="sig-name descname"><span class="pre">add_parameter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pdf</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cdf_inv</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">left_limit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">right_limit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_pdf</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">adaptive_sampling</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.add_parameter" title="Link to this definition"></a></dt>
 <dd><p>Add one (or more) parameters to sample dimensions. params is either a string describing the parameter, or a tuple of strings. The tuple will indicate to the sampler that these parameters must be sampled together. left_limit and right_limit are on the infinite interval by default, but can and probably should be specified. If several params are given, left_limit, and right_limit must be a set of tuples with corresponding length. Sampling PDF is required, and if not provided, the cdf inverse function will be determined numerically from the sampling PDF.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.bootstrap_from_fisher">
+<span class="sig-name descname"><span class="pre">bootstrap_from_fisher</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mean</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fisher</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.bootstrap_from_fisher" title="Link to this definition"></a></dt>
+<dd><p>Warm-start from a Fisher matrix (mean, Gamma): cov = Gamma^{-1}.
+This is the ‘Fisher-matrix oracle’ – an essentially free substitute for
+an expensively-trained flow, giving the integrator a correct-to-2nd-order
+starting proposal.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.bootstrap_from_gaussian">
+<span class="sig-name descname"><span class="pre">bootstrap_from_gaussian</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mean</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cov</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enc_prob</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.999</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cover_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dilate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.bootstrap_from_gaussian" title="Link to this definition"></a></dt>
+<dd><p>Warm-start from a single Gaussian proposal N(mean, cov) – the
+Fisher-oracle entry point.  Draws <cite>n</cite> points from the (box-clipped)
+Gaussian and builds the live-volume grid from them.</p>
+<p>IMPORTANT – this is a UNIMODAL seed.  A single Gaussian covers only one
+mode, and because VARAHA’s live volume only ever contracts, any mode the
+seed misses is lost forever and biases the integral low.  Use this only
+when the target is (locally) unimodal – e.g. a Fisher matrix at the MAP.
+For known multimodal structure use bootstrap_from_gaussian_mixture(); for
+an empirical proposal use bootstrap_from_samples() (both cover the full
+support and stay unbiased).</p>
+<p><cite>cover_frac</cite> (0..1): optional safety valve – fraction of the seed cloud
+drawn uniformly from the full box, trading efficiency for coverage on a
+possibly-misspecified seed.  Default 0.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.bootstrap_from_gaussian_mixture">
+<span class="sig-name descname"><span class="pre">bootstrap_from_gaussian_mixture</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">means</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">covs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">weights</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enc_prob</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.999</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dilate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.bootstrap_from_gaussian_mixture" title="Link to this definition"></a></dt>
+<dd><p>Warm-start from a MIXTURE of Gaussians – the general oracle seed for
+multimodal targets.  This is what a flow oracle, a GMM fit of a previous
+posterior, or a set of known degenerate modes (e.g. sky reflections)
+provides.  Because the seed cloud covers every component, the resulting
+live volume is a superset of the support and the integral stays
+unbiased.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.bootstrap_from_samples">
+<span class="sig-name descname"><span class="pre">bootstrap_from_samples</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">samples</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">loglkl</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enc_prob</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.999</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cover_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dilate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inflate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.bootstrap_from_samples" title="Link to this definition"></a></dt>
+<dd><p>Warm-start from an explicit set of reference points populating the
+high-likelihood region (e.g. a previous run’s posterior draws, a puff of
+an earlier MAP point, or fair-draw samples from a prior ILE instance).
+<cite>loglkl</cite> (optional) is L*prior at those points, used to seed the threshold.</p>
+<p><cite>cover_frac</cite> (0..1) mixes this fraction of uniform full-box points into the
+seed cloud, widening the seeded live volume.  Leave 0 when reusing a proposal
+for the SAME problem (e.g. an in-run second pass).</p>
+<p>IT IS NOT A COVERAGE GUARANTEE, despite what this docstring claimed until
+2026-08.  A FINITE set of uniform points occupies only the bins it lands in,
+so the seeded grid is NOT a superset of a cold (uniform) start – and the
+shortfall grows fast with dimension.  Measured, fraction of the [-5,5]^d prior
+box covered by the seeded grid (a cold start is 1.0 by construction):</p>
+<blockquote>
+<div><p>cover_frac:      0.0        0.2       0.5      0.9
+d=2           0.027      0.634     0.982     1.000
+d=4          0.0015      0.028     0.104     0.620
+d=6         6.3e-05    0.00087    0.0033    0.0287</p>
+</div></blockquote>
+<p>At d=6 even cover_frac=0.9 leaves 97% of the box unsampled.  So the claim that
+“a warm-started integral can never be MORE biased than a cold one” was false;
+do not rely on it.</p>
+<p>WHAT ACTUALLY PROTECTS YOU is having a component with support everywhere.  In
+the default AV+GMM portfolio that is the GMM member: a Gaussian mixture has
+nonzero density over the whole box, so q_mix never vanishes and a badly-seeded
+AV member costs efficiency rather than bias (measured with a deliberately
+displaced seed at d=4 and d=6: <a href="#id36"><span class="problematic" id="id37">|lnZ bias|</span></a> &lt;= 0.05 in every run).  An ALL-AV
+portfolio has no such member – every component is a hard-edged box – and the
+same displaced seed gave lnZ bias -1.0 to -6.8 nats.</p>
+<p>And note the limit of any coverage fix: in that all-AV test, keeping one member
+fully cold (V=1) still gave -1.1 to -4.2 nats, because a uniform member at d=6
+finds a sharp peak too rarely to carry the integral within the budget (n_eff
+3-9).  Coverage in principle is necessary, not sufficient.  A badly mismatched
+seed is an efficiency catastrophe no knob repairs – detect it (the L0 rescue)
+or do not warm-start across dissimilar points.</p>
+<p><cite>inflate</cite> (&gt;=1) is the HANDOFF SAFETY MARGIN: widen the seed cloud by this
+factor about its own mean before building the grid.  When importing a proposal
+that came from a <em>neighbouring</em> intrinsic point, the true peak is shifted (and
+often slightly broader) at this point, so an un-inflated seed may sit just off
+it; inflate&gt;1 (e.g. 1.5-2) gives margin for that shift while staying far tighter
+than a cold start.  cover_frac is the coarse safety net for gross mismatch;
+inflate is the fine margin for a modest shift.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -540,6 +624,12 @@ Remember:   pdf, cdf_inv refer to the <em>sampling</em> prior, so I need to mult
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.draw_simplified">
 <span class="sig-name descname"><span class="pre">draw_simplified</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_to_get</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.draw_simplified" title="Link to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.has_unbounded_support">
+<span class="sig-name descname"><span class="pre">has_unbounded_support</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></em><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.has_unbounded_support" title="Link to this definition"></a></dt>
+<dd><p>Class to define a set of parameter names, limits, and probability densities.</p>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.integrate">
@@ -583,6 +673,13 @@ Pinning a value: By specifying a kwarg with the same of an existing parameter, i
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.load_state">
+<span class="sig-name descname"><span class="pre">load_state</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.load_state" title="Link to this definition"></a></dt>
+<dd><p>Restore a live-volume state saved by save_state().  Verifies the
+parameter names and box match this sampler before warm-starting.</p>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.match_params_from_args">
 <em class="property"><span class="k"><span class="pre">static</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">match_params_from_args</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.match_params_from_args" title="Link to this definition"></a></dt>
 <dd><p>Given two unordered sets of parameters, one a set of all “basic” elements (strings) possible, and one a set of elements both “basic” strings and “combined” (basic strings in tuples), determine whether the sets are equivalent if no basic element is repeated.
@@ -601,6 +698,43 @@ e.g. set A ?= set B
 CPU copy of the samples and convert the product back to the active
 backend. identity_convert / identity_convert_togpu are no-ops when cupy
 is not in use.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.sampling_density">
+<span class="sig-name descname"><span class="pre">sampling_density</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.sampling_density" title="Link to this definition"></a></dt>
+<dd><p>Pointwise sampling density q(theta) of THIS member, evaluated at
+ARBITRARY points X (shape (N, ndim), columns in self.params_ordered
+order).  Returns a host (numpy) array of length N, or None if the
+live-volume state has not been set up yet.</p>
+<p>VARAHA draws uniformly over its live volume – the union of the
+currently-occupied hypercubes (self.binunique), each of width self.dx.
+The density is therefore the SAME constant this sampler reports in
+integrate_log’s log_joint_s_prior,</p>
+<blockquote>
+<div><dl class="simple">
+<dt>q_live = 1 / (n_occupied_bins * prod(dx))   (== 1/(V*prod(dx0))</dt><dd><p>for VARAHA’s geometric V),</p>
+</dd>
+</dl>
+</div></blockquote>
+<p>inside the live volume and 0 outside it.  We use the geometric form
+1/(n_bins*prod(dx)) directly: it is <em>exactly</em> the density of the points
+draw_simple() produces (equal draws per occupied bin, uniform within a
+bin), so a multiple-importance-sampling denominator built from it is
+unbiased regardless of any drift between the tracked scalar V and the
+actual bin grid.</p>
+<p>This method is READ-ONLY – it does not touch any sampler state and does
+not affect this sampler’s own integrate_log.  It exists so the portfolio
+can form the balance-heuristic mixture density q_mix = sum_m w_m q_m.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.save_state">
+<span class="sig-name descname"><span class="pre">save_state</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.save_state" title="Link to this definition"></a></dt>
+<dd><p>Serialize the compact live-volume state (occupied bins + widths +
+volume + threshold) to a lightweight .npz.  This is RIFT’s cheap
+alternative to persisting a trained flow: the entire adapted proposal is
+just an integer bin-index array plus a few scalars.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -707,11 +841,25 @@ discard_prob: threshold on CDF to throw away an entire bin.  Should be very smal
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.MCSampler">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerEnsemble.</span></span><span class="sig-name descname"><span class="pre">MCSampler</span></span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.MCSampler" title="Link to this definition"></a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
-<p>Class to define a set of parameter names, limits, and probability densities.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.MCSampler.add_parameter">
 <span class="sig-name descname"><span class="pre">add_parameter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pdf</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cdf_inv</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">left_limit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">right_limit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior_pdf</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">adaptive_sampling</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.MCSampler.add_parameter" title="Link to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.MCSampler.bootstrap_from_samples">
+<span class="sig-name descname"><span class="pre">bootstrap_from_samples</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">samples</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_comp_warm</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.MCSampler.bootstrap_from_samples" title="Link to this definition"></a></dt>
+<dd><p>Warm-start: fit this GMM’s proposal to a seed cloud so it samples AT the peak from
+the first draw, instead of having to discover the peak location from scratch.  For a
+needle-in-a-haystack extrinsic posterior (peak ~ 10^-11 of the prior box) this is the
+difference between converging and never finding the peak by cold draws.</p>
+<p>Builds the integrator if setup() has not run yet, then (re)fits one GMM per dim-group
+from the seed with EQUAL weights – this only shapes the proposal, carries no lnL
+information, so it cannot bias the estimate (the importance weights still use the true
+likelihood).  AV-only kwargs (cover_frac / inflate) are accepted and ignored, so a
+portfolio can forward a single seed to every member uniformly.</p>
+<p><cite>samples</cite>: (N, ndim) array, columns in self.params_ordered order.</p>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.MCSampler.calc_pdf">
@@ -733,6 +881,31 @@ discard_prob: threshold on CDF to throw away an entire bin.  Should be very smal
 <span class="sig-name descname"><span class="pre">evaluate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">samples</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.MCSampler.evaluate" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
+<dl class="py property">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.MCSampler.has_unbounded_support">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">has_unbounded_support</span></span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.MCSampler.has_unbounded_support" title="Link to this definition"></a></dt>
+<dd><p>Does this member’s proposal genuinely have support across the WHOLE prior box?</p>
+<p>mcsamplerPortfolio uses this to decide whether it must hold a member cold on a warm start.
+Getting it wrong costs coverage silently, so it is answered from the INSTALLED MODELS, not
+from a configuration value.</p>
+<dl class="simple">
+<dt>Two traps this avoids:</dt><dd><ul class="simple">
+<li><p><cite>gmm_defensive_frac &gt; 0</cite> is only a REQUEST.  add_defensive_component() is called by
+fit_gmm_adaptive, but the fixed-component fit paths did not call it, and gmm_adaptive
+defaults to None (off) – so the default configuration asked for a defensive component
+and never installed one.</p></li>
+<li><p>gmm.score() FLOORS its return at 1e-300, so a member always looks like it has nonzero
+density everywhere.  That is a numerical guard against log(0), not coverage: a sample
+landing there carries weight L*p/q ~ 1e300 and would wreck the estimate rather than
+support it.  Measured, a fixed-component fit to a tight cloud returns exactly that
+floor at the far corner for every d &gt;= 4.</p></li>
+</ul>
+</dd>
+</dl>
+<p>Reports False whenever it cannot be verified – before the integrator exists, before any
+group has been trained, or if ANY trained group lacks the component.</p>
+</dd></dl>
+
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.MCSampler.integrate">
 <span class="sig-name descname"><span class="pre">integrate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">func</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.MCSampler.integrate" title="Link to this definition"></a></dt>
@@ -749,9 +922,36 @@ discard_prob: threshold on CDF to throw away an entire bin.  Should be very smal
 <dd></dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.MCSampler.sampling_density">
+<span class="sig-name descname"><span class="pre">sampling_density</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.MCSampler.sampling_density" title="Link to this definition"></a></dt>
+<dd><p>Pointwise sampling density q(theta) of THIS GMM member, evaluated at
+ARBITRARY points X (shape (N, ndim), columns in self.params_ordered
+order).  Returns a host (numpy) array of length N, or None if the
+integrator/GMM has not been built yet.</p>
+<p>This is exactly the per-sample product MonteCarloEnsemble._sample stores
+as sampling_prior_array, but evaluated at supplied points rather than at
+the member’s own draws: for each grouped set of dimensions it is the
+fitted mixture density gmm.score(…) (already normalized to integrate to
+1 over the box, in ORIGINAL coordinates), or the uniform density 1/vol
+for a not-yet-fitted (None) group.  READ-ONLY; does not affect this
+sampler’s own integrate().  Used by the portfolio balance heuristic.</p>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.MCSampler.setup">
 <span class="sig-name descname"><span class="pre">setup</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_comp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerEnsemble.MCSampler.setup" title="Link to this definition"></a></dt>
-<dd></dd></dl>
+<dd><p>Build the integrator.  REMEMBERS its arguments and re-applies them on later calls.</p>
+<p>setup() is not called once: bootstrap_from_samples() re-runs it to rebuild the proposal as
+a single full-dim group, and mcsamplerPortfolio replays it to reset a member between
+points.  Each of those rebuilt the integrator from ONLY the kwargs of that call, so every
+option the caller set originally was silently dropped.  That has now bitten three separate
+settings – gmm_dict (the dimension grouping and any seeded models), gmm_defensive_frac,
+and gmm_defensive_all_paths – each found as its own P1, each patched individually, and a
+fourth would have followed.</p>
+<p>So: merge this call’s kwargs OVER the remembered ones, and remember the result.  An
+explicit argument still wins; an omitted one keeps whatever it was configured to be
+instead of reverting to a library default.  Pass <cite>setup_forget=True</cite> to start clean.</p>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerEnsemble.MCSampler.update_sampling_prior">
@@ -1176,8 +1376,185 @@ Much faster and lighter weight. We never use the cutoffs anyways, because the li
 <dd></dd></dl>
 
 </section>
-<section id="portfolio-mc-sampler">
-<h2>Portfolio MC Sampler<a class="headerlink" href="#portfolio-mc-sampler" title="Link to this heading"></a></h2>
+<section id="module-RIFT.integrators.mcsamplerPortfolio">
+<span id="portfolio-mc-sampler"></span><h2>Portfolio MC Sampler<a class="headerlink" href="#module-RIFT.integrators.mcsamplerPortfolio" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.MCSampler">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerPortfolio.</span></span><span class="sig-name descname"><span class="pre">MCSampler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">portfolio</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">portfolio_weights</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">oracle_realizations</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_chunk</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">400000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">portfolio_freeze_wt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.05</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class to define a set of parameter names, limits, and probability densities.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.MCSampler.add_parameter">
+<span class="sig-name descname"><span class="pre">add_parameter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pdf</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler.add_parameter" title="Link to this definition"></a></dt>
+<dd><p>Add one (or more) parameters to sample dimensions. params is either a string describing the parameter, or a tuple of strings. The tuple will indicate to the sampler that these parameters must be sampled together. left_limit and right_limit are on the infinite interval by default, but can and probably should be specified. If several params are given, left_limit, and right_limit must be a set of tuples with corresponding length. Sampling PDF is required, and if not provided, the cdf inverse function will be determined numerically from the sampling PDF.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.MCSampler.bootstrap_from_samples">
+<span class="sig-name descname"><span class="pre">bootstrap_from_samples</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">samples</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">keep_backstop_cold</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler.bootstrap_from_samples" title="Link to this definition"></a></dt>
+<dd><p>Warm-start: forward a seed cloud to every member that supports it (e.g. the
+AV/VARAHA member’s live volume), EXCEPT the full-support backstop (see below).
+Members without bootstrap_from_samples are left cold.  A warm start only shapes a
+member’s proposal, and the portfolio combines members with the balance-heuristic
+mixture density (q_mix), so a mis-seeded member costs efficiency rather than bias –
+BUT ONLY WHILE SOME MEMBER STILL COVERS THE SUPPORT.  Column
+order matches self.params_ordered, which every member shares (add_parameter forwards
+to all members in the same order), so no per-member remapping is needed.</p>
+<p>Only VARAHA/AV-style members (those exposing bootstrap_from_samples) are seeded
+directly here.  GMM / adaptive-Gaussian members cannot be seeded pre-integration
+(their internal integrator, hence gmm_dict, does not exist until the first
+integrate() call), but they still warm up STRUCTURALLY during the run: the portfolio
+lets the cold GMM member adapt its proposal from the warm AV member’s high-likelihood
+draws, which is what gives the mixture a faster early n_eff than warm-AV alone.  An
+explicit GMM pre-seed (build an initial gmm_dict from the sample cloud) is a future
+enhancement.  q_mix keeps any cold/mis-seeded member from biasing the estimate.</p>
+<p>THE BACKSTOP MUST STAY COLD.  Seeding EVERY member destroys the coverage invariant the
+whole design rests on.  <cite>cover_frac</cite> does not save it: it mixes a FINITE number of uniform
+points into the seed, and a finite point set occupies only the bins it lands in, so the
+seeded live volume is NOT a superset of a cold start.  Measured on a tight seed in the
+[-5,5]^d box – fraction of the prior box covered, against 1.0 cold:</p>
+<blockquote>
+<div><p>d=2:  cover_frac 0.0 / 0.2 / 0.5 / 0.9  -&gt;  0.027 / 0.634 / 0.982 / 1.000
+d=4:                                    -&gt;  0.0015 / 0.028 / 0.104 / 0.620
+d=6:                                    -&gt;  6.3e-05 / 0.00087 / 0.0033 / 0.0287</p>
+</div></blockquote>
+<p>so at d=6 even cover_frac=0.9 leaves 97% of the box unsampled.  Before this change a
+portfolio warm start narrowed member 0 to V=0.0033 along with everyone else.  Keeping
+member 0 (the designated backstop, which restrict_member_range also refuses to narrow)
+cold makes the mixture-level guarantee TRUE instead of merely asserted.</p>
+<p>BE PRECISE ABOUT WHAT THIS BUYS, because the measurements are not what one expects:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>With a CORRECT seed it is nearly free – n_eff 3630/3466/5695 cold-backstop vs
+3876/3461/5621 seeded at d=4, and 5078/5689/5163 vs 5857/5387/5266 at d=6.  Within
+run-to-run scatter, so it is cheap insurance.  That is the case for the default.</p></li>
+<li><p>It is NOT what protects the DEFAULT AV+GMM portfolio.  The GMM member is a Gaussian
+mixture with nonzero density over the whole box, so q_mix never vanishes there
+regardless of this setting.  With a deliberately displaced seed, <a href="#id38"><span class="problematic" id="id39">|lnZ bias|</span></a> stayed
+&lt;= 0.05 in every d=4 and d=6 run in BOTH arms.  That unbounded support is the real
+(previously undocumented) reason production has not been biased by warm starts.</p></li>
+<li><p>It does NOT rescue a badly mismatched seed.  In an ALL-AV portfolio (every component
+a hard-edged box) with a displaced seed at d=6, the cold backstop still gave lnZ bias
+-1.1 to -4.2 nats with n_eff 3-9, versus -1.0 to -6.8 seeded.  A uniform member finds
+a sharp 6-D peak too rarely to carry the integral within budget.  Coverage in
+principle is necessary, not sufficient – for a mismatched seed the mitigations are
+detection (L0 rescue) and not warm-starting across dissimilar points.</p></li>
+</ul>
+</div></blockquote>
+<p><cite>keep_backstop_cold</cite>: None (default) uses self.portfolio_warmstart_backstop_cold, itself
+True by default; pass False to restore the old seed-everything behaviour.</p>
+<p>Returns the number of members warm-started (0 is fine; the portfolio still runs).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.MCSampler.clear_warm_state">
+<span class="sig-name descname"><span class="pre">clear_warm_state</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler.clear_warm_state" title="Link to this definition"></a></dt>
+<dd><p>Clear any warm-start seed AND the installed active grid on every member.</p>
+<p>Setting <cite>portfolio._warm = None</cite> does NOT do this: <cite>_warm</cite> and the contracted AV grid live on
+the MEMBERS, not on the portfolio object.  Now that a seed is actually installed on the draw
+path (AV._apply_warm_state), failing to clear it between points would let the next point reuse
+the PREVIOUS point’s contracted live volume – which can exclude the new point’s support and
+bias it low with no diagnostic.  Called by the driver wherever it used to do
+<cite>sampler._warm = None</cite>, including the seed-capture failure and exception paths.</p>
+<p>Failures PROPAGATE.  A reset that quietly did not happen leaves the next point drawing from
+the previous point’s grid, which is the exact silent-wrong-answer this method exists to
+prevent – so it must not be reducible to a log line.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.MCSampler.draw">
+<span class="sig-name descname"><span class="pre">draw</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_samples</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler.draw" title="Link to this definition"></a></dt>
+<dd><p>draw n_samples</p>
+<p>Draw from portfolio.
+Uses portfolio weights to calculate desired outcomes.
+Restricts to ACTIVE members.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.MCSampler.integrate">
+<span class="sig-name descname"><span class="pre">integrate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler.integrate" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.MCSampler.integrate_log">
+<span class="sig-name descname"><span class="pre">integrate_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnF</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*args</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler.integrate_log" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.MCSampler.reset_adaptation">
+<span class="sig-name descname"><span class="pre">reset_adaptation</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler.reset_adaptation" title="Link to this definition"></a></dt>
+<dd><p>FULL reset: member proposals AND the portfolio’s own adaptive bookkeeping.</p>
+<p>clear_warm_state() rebuilds the MEMBERS, but the portfolio itself also learns during a run
+– draw allocation, per-member quality EMAs and their observation counts, the round-robin
+probe pointer, the iteration counter, breakpoint progression and the per-member n_ess
+histories.  MC-error replicas that inherit those start with scheduling learned from the
+earlier replicas, so they are not adaptation-independent and the between-replica scatter
+still understates the true error – which is the entire quantity the replicas exist to
+measure.  Restores every field to its post-setup value.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.MCSampler.restrict_member_range">
+<span class="sig-name descname"><span class="pre">restrict_member_range</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">member_index</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">param</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lo</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hi</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler.restrict_member_range" title="Link to this definition"></a></dt>
+<dd><p>Narrow ONE portfolio member’s sampling range for <cite>param</cite> to [lo, hi] (interval narrowing).</p>
+<p>This is a PROPOSAL-only change: the member’s prior callables are untouched, so it keeps
+reporting the true global prior, and the balance-heuristic mixture density q_mix keeps the
+estimate unbiased with no renormalization – PROVIDED at least one member retains full
+support.  Member 0 is that backstop by convention and may not be narrowed.</p>
+<p>Why the backstop is not optional: measured on a truth-known ladder, a WRONG sub-box costs a
+STANDALONE sampler up to -1949 nats (while still reporting a healthy n_eff of 220-840, i.e.
+confidently wrong), but only ~1 nat inside a portfolio whose full-box member keeps q_mix
+covering the complement.  Restriction without a backstop converts a rare pathology into a
+systematic one.</p>
+<p>Call before add_parameter(); narrowing is applied there, and setup() then builds every
+derived quantity from the narrowed range.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.MCSampler.setup">
+<span class="sig-name descname"><span class="pre">setup</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler.setup" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.MCSampler.support_diagnostics">
+<span class="sig-name descname"><span class="pre">support_diagnostics</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.MCSampler.support_diagnostics" title="Link to this definition"></a></dt>
+<dd><p>Finalize the support-mismatch statistics.  Returns a dict; see
+_update_support_diagnostics for definitions and limits.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.NanOrInf">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerPortfolio.</span></span><span class="sig-name descname"><span class="pre">NanOrInf</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.NanOrInf" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Exception</span></code></p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.identity_convert">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerPortfolio.</span></span><span class="sig-name descname"><span class="pre">identity_convert</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.identity_convert" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.identity_convert_togpu">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerPortfolio.</span></span><span class="sig-name descname"><span class="pre">identity_convert_togpu</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.identity_convert_togpu" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.portfolio_default_weights">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerPortfolio.</span></span><span class="sig-name descname"><span class="pre">portfolio_default_weights</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_ess_list</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wt_previous</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">portfolio_probability_floor=0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">history_factor=0.5</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy=&lt;module</span> <span class="pre">'numpy'</span> <span class="pre">from</span> <span class="pre">'/opt/hostedtoolcache/Python/3.11.15/x64/lib/python3.11/site-packages/numpy/__init__.py'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">identity_convert=&lt;function</span> <span class="pre">&lt;lambda&gt;&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.portfolio_default_weights" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.profile">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerPortfolio.</span></span><span class="sig-name descname"><span class="pre">profile</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.profile" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerPortfolio.set_xpy_to_numpy">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerPortfolio.</span></span><span class="sig-name descname"><span class="pre">set_xpy_to_numpy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerPortfolio.set_xpy_to_numpy" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
 </section>
 <section id="normalizing-flows-mc-sampler">
 <h2>Normalizing Flows MC Sampler<a class="headerlink" href="#normalizing-flows-mc-sampler" title="Link to this heading"></a></h2>
@@ -1200,7 +1577,7 @@ Much faster and lighter weight. We never use the cutoffs anyways, because the li
 
 <dl class="py class">
 <dt class="sig sig-object py" id="RIFT.integrators.MonteCarloEnsemble.integrator">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.MonteCarloEnsemble.</span></span><span class="sig-name descname"><span class="pre">integrator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">d</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bounds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_comp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_func</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">proc_count</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">L_cutoff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_lnL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_lnI</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_adapt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_epsilon</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_exp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">temper_log</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnw_failure_cut</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_adapt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ess_target</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ess_floor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.MonteCarloEnsemble.integrator" title="Link to this definition"></a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.MonteCarloEnsemble.</span></span><span class="sig-name descname"><span class="pre">integrator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">d</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bounds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_comp</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prior</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">user_func</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">proc_count</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">L_cutoff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">use_lnL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_lnI</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_adapt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_epsilon</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_exp</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">temper_log</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnw_failure_cut</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_adapt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ess_target</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ess_floor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_adaptive</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_defensive_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gmm_inflate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.MonteCarloEnsemble.integrator" title="Link to this definition"></a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>Class to iteratively perform an adaptive Monte Carlo integral where the integrand
 is a combination of one or more Gaussian curves, in one or more dimensions.</p>
@@ -1296,11 +1673,11 @@ it prints additionally the change and time needed for each step.</p>
 <section id="attributes">
 <h3>Attributes<a class="headerlink" href="#attributes" title="Link to this heading"></a></h3>
 <dl>
-<dt><a href="#id35"><span class="problematic" id="id36">weights_</span></a><span class="classifier">array, shape (<cite>n_components</cite>,)</span></dt><dd><p>This attribute stores the mixing weights for each mixture component.</p>
+<dt><a href="#id40"><span class="problematic" id="id41">weights_</span></a><span class="classifier">array, shape (<cite>n_components</cite>,)</span></dt><dd><p>This attribute stores the mixing weights for each mixture component.</p>
 </dd>
-<dt><a href="#id37"><span class="problematic" id="id38">means_</span></a><span class="classifier">array, shape (<cite>n_components</cite>, <cite>n_features</cite>)</span></dt><dd><p>Mean parameters for each mixture component.</p>
+<dt><a href="#id42"><span class="problematic" id="id43">means_</span></a><span class="classifier">array, shape (<cite>n_components</cite>, <cite>n_features</cite>)</span></dt><dd><p>Mean parameters for each mixture component.</p>
 </dd>
-<dt><a href="#id39"><span class="problematic" id="id40">covars_</span></a><span class="classifier">array</span></dt><dd><p>Covariance parameters for each mixture component.  The shape
+<dt><a href="#id44"><span class="problematic" id="id45">covars_</span></a><span class="classifier">array</span></dt><dd><p>Covariance parameters for each mixture component.  The shape
 depends on <cite>covariance_type</cite>:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="p">(</span><span class="n">n_components</span><span class="p">,</span> <span class="n">n_features</span><span class="p">)</span>             <span class="k">if</span> <span class="s1">&#39;spherical&#39;</span><span class="p">,</span>
 <span class="p">(</span><span class="n">n_features</span><span class="p">,</span> <span class="n">n_features</span><span class="p">)</span>               <span class="k">if</span> <span class="s1">&#39;tied&#39;</span><span class="p">,</span>
@@ -1309,7 +1686,7 @@ depends on <cite>covariance_type</cite>:</p>
 </pre></div>
 </div>
 </dd>
-<dt><a href="#id41"><span class="problematic" id="id42">converged_</span></a><span class="classifier">bool</span></dt><dd><p>True when convergence was reached in fit(), False otherwise.</p>
+<dt><a href="#id46"><span class="problematic" id="id47">converged_</span></a><span class="classifier">bool</span></dt><dd><p>True when convergence was reached in fit(), False otherwise.</p>
 </dd>
 </dl>
 </section>
@@ -1741,6 +2118,30 @@ X under each of the n_components multivariate Gaussian distributions.</p>
 <section id="module-RIFT.integrators.statutils">
 <span id="statistical-utilities"></span><h2>Statistical Utilities<a class="headerlink" href="#module-RIFT.integrators.statutils" title="Link to this heading"></a></h2>
 <dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.statutils.block_scatter_sigma">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">block_scatter_sigma</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnZ_blocks</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_blocks</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.block_scatter_sigma" title="Link to this definition"></a></dt>
+<dd><p>sigma(lnZ) from the between-chunk scatter of per-chunk mean estimates,
+via a delete-one jackknife of the n-weighted pooled mean.  Each chunk of an
+adaptive run used a different proposal, so this sees the nonstationarity the
+pooled within-run variance averages away.  (It still cannot see modes that
+EVERY chunk missed – only independent replicas can.)  Returns float sigma
+or None if fewer than 2 usable chunks.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.statutils.bootstrap_lnZ_quantiles">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">bootstrap_lnZ_quantiles</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">log_wt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_total</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_boot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">200</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">quantiles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">(0.05,</span> <span class="pre">0.5,</span> <span class="pre">0.95)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rng_seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.bootstrap_lnZ_quantiles" title="Link to this definition"></a></dt>
+<dd><p>Bootstrap quantiles of lnZ_hat = ln( sum_i w_i / n_total ) by resampling
+the stored LOG weights with replacement.  When the relative error is O(1)
+the delta-method +-sigma interval on lnZ is meaningless (the distribution is
+strongly skewed); these quantiles are an honest same-sample interval.  They
+remain blind to tail mass never sampled – pair with pareto_khat_from_log.
+n_total: divisor if the stored weights are a pruned subset of a larger run
+(the pruned-away weights contribute negligibly to the sum).  Returns a
+numpy array of lnZ quantiles, or None if too few weights.</p>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.statutils.cumvar">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">cumvar</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">arr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mean</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">var</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.cumvar" title="Link to this definition"></a></dt>
 <dd><blockquote>
@@ -1748,6 +2149,12 @@ X under each of the n_components multivariate Gaussian distributions.</p>
 </div></blockquote>
 <p><a class="reference external" href="http://www.johndcook.com/standard_deviation.html">http://www.johndcook.com/standard_deviation.html</a></p>
 <p>for algorithm details.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.statutils.ess_from_log_weights">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">ess_from_log_weights</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">log_wt</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.ess_from_log_weights" title="Link to this definition"></a></dt>
+<dd><p>Kish effective sample size (sum w)^2 / sum w^2 from LOG weights.</p>
 </dd></dl>
 
 <dl class="py function">
@@ -1771,6 +2178,22 @@ X under each of the n_components multivariate Gaussian distributions.</p>
 <dt class="sig sig-object py" id="RIFT.integrators.statutils.int_var">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">int_var</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">samples</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.int_var" title="Link to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.statutils.pareto_khat_from_log">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.statutils.</span></span><span class="sig-name descname"><span class="pre">pareto_khat_from_log</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">log_wt</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tail_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_tail</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.statutils.pareto_khat_from_log" title="Link to this definition"></a></dt>
+<dd><p>Generalized-Pareto tail index k of the importance-weight distribution,
+fit to the largest weights (Zhang &amp; Stephens 2009 posterior-mean estimator,
+as used by Pareto-smoothed importance sampling).  Input is LOG weights on
+any scale (k is invariant under overall rescaling).  Interpretation:
+k &lt; 0.5 : weight variance finite, the naive error estimate is meaningful;
+0.5-0.7 : variance marginal, treat the naive sigma as optimistic;
+k &gt; 0.7 : the weight tail is unresolved – the naive sigma is a lower bound</p>
+<blockquote>
+<div><p>and the integral itself may be dominated by unseen tail mass.</p>
+</div></blockquote>
+<p>Returns float k, or None if there are too few finite weights to fit.</p>
+</dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.statutils.update">
@@ -1800,6 +2223,24 @@ see also <a class="reference external" href="https://brenocon.com/blog/2008/11/c
 Expectation-Maximization algorithm.</p>
 <p>Weighted data GMM formulae: different from framework in eg. <a class="reference external" href="https://arxiv.org/pdf/1509.01509.pdf">https://arxiv.org/pdf/1509.01509.pdf</a></p>
 </section>
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.gaussian_mixture_model.add_defensive_component">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.gaussian_mixture_model.</span></span><span class="sig-name descname"><span class="pre">add_defensive_component</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">model</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">defensive_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">width_norm</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.gaussian_mixture_model.add_defensive_component" title="Link to this definition"></a></dt>
+<dd><p>Append a broad, box-covering “defensive” component to a fitted mixture so
+the proposal has heavy enough tails for importance sampling.</p>
+<p>This is the single most important fix for the SNR~82 extrinsic posterior: a
+mixture fit to the (tight) elite cloud UNDER-COVERS the broad, degenerate
+directions (distance-inclination), so the importance weight L*p/q blows up on
+the rare draw that lands in a poorly-covered high-likelihood pocket and the
+effective sample size collapses to ~1.  A defensive component (Hesterberg
+1995) with weight <cite>defensive_frac</cite>, wide in the model’s normalized [-1,1]
+frame, bounds the weights: q &gt;= defensive_frac * q_broad everywhere, so no
+single sample can dominate.  The AV sampler gets the same guarantee from its
+cover-fraction floor; the fitted GMM had none.</p>
+<p>width_norm is the std of the defensive Gaussian in normalized coords (1.0 ~
+covers the whole [-1,1] box; truncated to the box it is near-uniform).</p>
+</dd></dl>
+
 <dl class="py class">
 <dt class="sig sig-object py" id="RIFT.integrators.gaussian_mixture_model.estimator">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.gaussian_mixture_model.</span></span><span class="sig-name descname"><span class="pre">estimator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">k</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_iters</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_coeff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-08</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">adapt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.gaussian_mixture_model.estimator" title="Link to this definition"></a></dt>
@@ -1828,6 +2269,54 @@ Expectation-Maximization algorithm.</p>
 </section>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.gaussian_mixture_model.fit_gmm_adaptive">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.gaussian_mixture_model.</span></span><span class="sig-name descname"><span class="pre">fit_gmm_adaptive</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sample_array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bounds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_sample_weights</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">8</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k_candidates</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">epsilon</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_coeff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-08</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prune_weight_floor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.001</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">defensive_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inflate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.gaussian_mixture_model.fit_gmm_adaptive" title="Link to this definition"></a></dt>
+<dd><p>Fit a GMM whose COMPONENT COUNT is chosen from the data by BIC, then
+prune near-zero-weight components.  Data-driven replacement for a hard-coded
+per-group component count.</p>
+<dl class="simple">
+<dt>Rationale (measured on the S250114ax extrinsic posterior, SNR~82):</dt><dd><ul class="simple">
+<li><p>A fixed SMALL k (e.g. the correlate-all default of 2) cannot wrap a
+curved distance-inclination degeneracy arc: the elite fit is one broad
+Gaussian over the ridge, the proposal never locks onto the peak, and
+the honest effective sample size stays ~1.</p></li>
+<li><p>A fixed LARGE k is both statistically fragile (a spurious sharp
+component collapses onto ~1 elite sample and dominates the importance
+weights) and computationally costly (score() does an O(k) per-component
+mvnun box normalization on the CPU).</p></li>
+</ul>
+</dd>
+</dl>
+<p>BIC threads between the two: fit k over a ladder, penalize free parameters
+by ln(N_eff), keep the best, and drop dead components.  It allocates more
+components only where the (importance-weighted) cloud is genuinely
+non-Gaussian and stays at k=1 for a single blob.</p>
+<p>SAFETY FLOOR: k is chosen in [k_min, k_max], and pruning never drops below
+k_min.  Pass k_min = the stress-tested hard-coded per-group count so opting
+into adaptive can only ADD components where the data earns them, never fewer
+than the layout that was validated for the primary ILE use case (e.g. a broad
+multi-modal sky keeps its default components even if the INITIAL elite cloud
+– fit before the proposal has explored every mode – looks single-peaked).</p>
+<section id="id33">
+<h3>Parameters<a class="headerlink" href="#id33" title="Link to this heading"></a></h3>
+<p>sample_array : (N, d) array in ORIGINAL coordinates.
+bounds       : (d, 2) array of [llim, rlim] per dimension (as gmm expects).
+log_sample_weights : (N,) importance/elite log-weights (default: equal).
+k_max        : cap on the number of components.
+k_min        : floor on the number of components (default 1); the stress-</p>
+<blockquote>
+<div><p>tested hard-coded count when used as a refinement layer.</p>
+</div></blockquote>
+<p>k_candidates : explicit ladder (overrides k_max/k_min-derived ladder).
+prune_weight_floor : components below this mixture weight are removed (but</p>
+<blockquote>
+<div><p>never below k_min).</p>
+</div></blockquote>
+<p>Returns a fitted <cite>gmm</cite>.</p>
+</section>
+</dd></dl>
+
 <dl class="py class">
 <dt class="sig sig-object py" id="RIFT.integrators.gaussian_mixture_model.gmm">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.gaussian_mixture_model.</span></span><span class="sig-name descname"><span class="pre">gmm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">k</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bounds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_iters</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">epsilon</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tempering_coeff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-08</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">memory_factor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">3.0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.gaussian_mixture_model.gmm" title="Link to this definition"></a></dt>
@@ -1840,9 +2329,28 @@ Expectation-Maximization algorithm.</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.gaussian_mixture_model.gmm.num_free_params">
+<span class="sig-name descname"><span class="pre">num_free_params</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.gaussian_mixture_model.gmm.num_free_params" title="Link to this definition"></a></dt>
+<dd><p>Number of free parameters of this k-component d-dim mixture:
+k means (k*d) + k covariances (k*d*(d+1)/2) + (k-1) mixture weights.</p>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="RIFT.integrators.gaussian_mixture_model.gmm.print_params">
 <span class="sig-name descname"><span class="pre">print_params</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.gaussian_mixture_model.gmm.print_params" title="Link to this definition"></a></dt>
 <dd><p>Prints the model’s parameters in an easily-readable format</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.gaussian_mixture_model.gmm.prune_components">
+<span class="sig-name descname"><span class="pre">prune_components</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">weight_floor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.001</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_keep</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.gaussian_mixture_model.gmm.prune_components" title="Link to this definition"></a></dt>
+<dd><p>Drop mixture components whose weight falls below weight_floor and
+renormalize.  Over-allocated components collapse to ~zero weight under
+EM; removing them (a) prevents a spurious sharp component from dominating
+the importance weights and (b) cuts score() cost, which is O(k) in the
+per-component mvnun box normalization.  Keeps at least max(1, min_keep)
+components (the highest-weight ones) – pass min_keep to preserve a safety
+floor.  No-op if nothing is below the floor.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -1924,8 +2432,8 @@ g : optional additional function used to specify priors, if not uniform</p>
 <dt class="sig sig-object py" id="RIFT.integrators.multivariate_truncnorm.sample">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.multivariate_truncnorm.</span></span><span class="sig-name descname"><span class="pre">sample</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mean</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cov</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bounds</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.multivariate_truncnorm.sample" title="Link to this definition"></a></dt>
 <dd><p>Generate samples</p>
-<section id="id33">
-<h3>Parameters<a class="headerlink" href="#id33" title="Link to this heading"></a></h3>
+<section id="id34">
+<h3>Parameters<a class="headerlink" href="#id34" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>mean<span class="classifier">np.ndarray</span></dt><dd><p>Mean of the distribution</p>
 </dd>
@@ -1937,8 +2445,8 @@ g : optional additional function used to specify priors, if not uniform</p>
 </dd>
 </dl>
 </section>
-<section id="id34">
-<h3>Returns<a class="headerlink" href="#id34" title="Link to this heading"></a></h3>
+<section id="id35">
+<h3>Returns<a class="headerlink" href="#id35" title="Link to this heading"></a></h3>
 <dl class="simple">
 <dt>np.ndarray</dt><dd><p>Array of samples</p>
 </dd>
@@ -1949,6 +2457,149 @@ g : optional additional function used to specify priors, if not uniform</p>
 </section>
 <section id="module-RIFT.integrators.unreliable_oracle">
 <span id="unreliable-oracle"></span><h2>Unreliable Oracle<a class="headerlink" href="#module-RIFT.integrators.unreliable_oracle" title="Link to this heading"></a></h2>
+<p>unreliable_oracle – proposal ‘oracles’ for the RIFT portfolio integrator.</p>
+<p>An oracle only PROPOSES candidate points; the portfolio evaluates the true
+likelihood there and folds them into the training data used to adapt the other
+integrators.  Because oracles never contribute to the integral estimate
+directly, an inaccurate oracle cannot bias the result – it can only waste a few
+likelihood evaluations.  That makes them a safe channel for injecting cheap,
+approximate posterior knowledge (a Fisher matrix, a hill-climbed hotspot, or a
+previous run’s posterior samples).</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.ClimbingOracle">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.unreliable_oracle.</span></span><span class="sig-name descname"><span class="pre">ClimbingOracle</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.ClimbingOracle" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.integrators.mcsampler_generic.MCSamplerGeneric" title="RIFT.integrators.mcsampler_generic.MCSamplerGeneric"><code class="xref py py-class docutils literal notranslate"><span class="pre">MCSamplerGeneric</span></code></a></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.ClimbingOracle.add_parameter">
+<span class="sig-name descname"><span class="pre">add_parameter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pdf</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.ClimbingOracle.add_parameter" title="Link to this definition"></a></dt>
+<dd><p>Add one (or more) parameters to sample dimensions. params is either a string describing the parameter, or a tuple of strings. The tuple will indicate to the sampler that these parameters must be sampled together. left_limit and right_limit are on the infinite interval by default, but can and probably should be specified. If several params are given, left_limit, and right_limit must be a set of tuples with corresponding length. Sampling PDF is required, and if not provided, the cdf inverse function will be determined numerically from the sampling PDF.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.ClimbingOracle.draw_simplified">
+<span class="sig-name descname"><span class="pre">draw_simplified</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_samples</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.ClimbingOracle.draw_simplified" title="Link to this definition"></a></dt>
+<dd><p>draw n_samples</p>
+<p>Should not be implemented in generic class</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.ClimbingOracle.setup">
+<span class="sig-name descname"><span class="pre">setup</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lnL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_climbers</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.ClimbingOracle.setup" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.ClimbingOracle.update_sampling_prior">
+<span class="sig-name descname"><span class="pre">update_sampling_prior</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ln_weights</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_history</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnw_cut</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">external_rvs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.ClimbingOracle.update_sampling_prior" title="Link to this definition"></a></dt>
+<dd><p>Default setting is for lnL. The choices adopted are fairly arbitrary. For simplicity, we are using ‘log scale weights’ (derived from lnL, not L)
+which lets us sample well away from the posterior at the expense of not being as strongly sampling near the peak.</p>
+<p>NOTE: Currently deployed for mcsamplerPortfolio, NOT yet part of core code here</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.FisherGaussianOracle">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.unreliable_oracle.</span></span><span class="sig-name descname"><span class="pre">FisherGaussianOracle</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.FisherGaussianOracle" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.integrators.mcsampler_generic.MCSamplerGeneric" title="RIFT.integrators.mcsampler_generic.MCSamplerGeneric"><code class="xref py py-class docutils literal notranslate"><span class="pre">MCSamplerGeneric</span></code></a></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.FisherGaussianOracle.add_parameter">
+<span class="sig-name descname"><span class="pre">add_parameter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pdf</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.FisherGaussianOracle.add_parameter" title="Link to this definition"></a></dt>
+<dd><p>Add one (or more) parameters to sample dimensions. params is either a string describing the parameter, or a tuple of strings. The tuple will indicate to the sampler that these parameters must be sampled together. left_limit and right_limit are on the infinite interval by default, but can and probably should be specified. If several params are given, left_limit, and right_limit must be a set of tuples with corresponding length. Sampling PDF is required, and if not provided, the cdf inverse function will be determined numerically from the sampling PDF.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.FisherGaussianOracle.draw_simplified">
+<span class="sig-name descname"><span class="pre">draw_simplified</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_samples</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.FisherGaussianOracle.draw_simplified" title="Link to this definition"></a></dt>
+<dd><p>Draw n_samples from the box-truncated Gaussian.  Returns
+(p_s, p_prior, rv) with rv shape (n_samples, ndim); p_s is the Gaussian
+proposal density (so the draws can be used with correct importance
+weights if desired), p_prior is left None (the portfolio supplies it).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.FisherGaussianOracle.setup">
+<span class="sig-name descname"><span class="pre">setup</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mean</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cov</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fisher</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">adapt</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cov_inflate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.FisherGaussianOracle.setup" title="Link to this definition"></a></dt>
+<dd><p>mean/cov describe the proposal; alternatively pass a Fisher matrix
+(cov = fisher^{-1}).  <cite>params</cite> names the columns of mean/cov if they are
+not already in this oracle’s params_ordered order.  adapt=True refreshes
+(mean,cov) from weighted history on each update_sampling_prior call.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.FisherGaussianOracle.update_sampling_prior">
+<span class="sig-name descname"><span class="pre">update_sampling_prior</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ln_weights</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_history</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnw_cut</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">external_rvs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.FisherGaussianOracle.update_sampling_prior" title="Link to this definition"></a></dt>
+<dd><p>Optionally refit (mean, cov) from the recent weighted history.  If
+adapt is False (default), the oracle keeps the supplied Fisher/Gaussian
+and this is a no-op – the robust behaviour when a trustworthy Fisher is
+available.  With adapt=True it becomes a self-refining Gaussian proposal.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.PuffballOracle">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.unreliable_oracle.</span></span><span class="sig-name descname"><span class="pre">PuffballOracle</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.PuffballOracle" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.integrators.mcsampler_generic.MCSamplerGeneric" title="RIFT.integrators.mcsampler_generic.MCSamplerGeneric"><code class="xref py py-class docutils literal notranslate"><span class="pre">MCSamplerGeneric</span></code></a></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.PuffballOracle.add_parameter">
+<span class="sig-name descname"><span class="pre">add_parameter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pdf</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.PuffballOracle.add_parameter" title="Link to this definition"></a></dt>
+<dd><p>Add one (or more) parameters to sample dimensions. params is either a string describing the parameter, or a tuple of strings. The tuple will indicate to the sampler that these parameters must be sampled together. left_limit and right_limit are on the infinite interval by default, but can and probably should be specified. If several params are given, left_limit, and right_limit must be a set of tuples with corresponding length. Sampling PDF is required, and if not provided, the cdf inverse function will be determined numerically from the sampling PDF.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.PuffballOracle.draw_simplified">
+<span class="sig-name descname"><span class="pre">draw_simplified</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_samples</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.PuffballOracle.draw_simplified" title="Link to this definition"></a></dt>
+<dd><p>draw n_samples</p>
+<p>Should not be implemented in generic class</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.PuffballOracle.setup">
+<span class="sig-name descname"><span class="pre">setup</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">reference_mean</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reference_cov</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.PuffballOracle.setup" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.PuffballOracle.update_sampling_prior">
+<span class="sig-name descname"><span class="pre">update_sampling_prior</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ln_weights</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_history</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnw_cut</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">-10</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">external_rvs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.PuffballOracle.update_sampling_prior" title="Link to this definition"></a></dt>
+<dd><p>Default setting is for lnL. The choices adopted are fairly arbitrary. For simplicity, we are using ‘log scale weights’ (derived from lnL, not L)
+which lets us sample well away from the posterior at the expense of not being as strongly sampling near the peak.</p>
+<p>NOTE: Currently deployed for mcsamplerPortfolio, NOT yet part of core code here</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.ResamplingOracle">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.unreliable_oracle.</span></span><span class="sig-name descname"><span class="pre">ResamplingOracle</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.ResamplingOracle" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#RIFT.integrators.mcsampler_generic.MCSamplerGeneric" title="RIFT.integrators.mcsampler_generic.MCSamplerGeneric"><code class="xref py py-class docutils literal notranslate"><span class="pre">MCSamplerGeneric</span></code></a></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.ResamplingOracle.add_parameter">
+<span class="sig-name descname"><span class="pre">add_parameter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pdf</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.ResamplingOracle.add_parameter" title="Link to this definition"></a></dt>
+<dd><p>Add one (or more) parameters to sample dimensions. params is either a string describing the parameter, or a tuple of strings. The tuple will indicate to the sampler that these parameters must be sampled together. left_limit and right_limit are on the infinite interval by default, but can and probably should be specified. If several params are given, left_limit, and right_limit must be a set of tuples with corresponding length. Sampling PDF is required, and if not provided, the cdf inverse function will be determined numerically from the sampling PDF.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.ResamplingOracle.draw_simplified">
+<span class="sig-name descname"><span class="pre">draw_simplified</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_samples</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.ResamplingOracle.draw_simplified" title="Link to this definition"></a></dt>
+<dd><p>draw n_samples</p>
+<p>Should not be implemented in generic class</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.ResamplingOracle.setup">
+<span class="sig-name descname"><span class="pre">setup</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">reference_samples</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reference_params</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.ResamplingOracle.setup" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.unreliable_oracle.ResamplingOracle.update_sampling_prior">
+<span class="sig-name descname"><span class="pre">update_sampling_prior</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.unreliable_oracle.ResamplingOracle.update_sampling_prior" title="Link to this definition"></a></dt>
+<dd><p>Default setting is for lnL. The choices adopted are fairly arbitrary. For simplicity, we are using ‘log scale weights’ (derived from lnL, not L)
+which lets us sample well away from the posterior at the expense of not being as strongly sampling near the peak.</p>
+<p>NOTE: Currently deployed for mcsamplerPortfolio, NOT yet part of core code here</p>
+</dd></dl>
+
+</dd></dl>
+
 </section>
 </section>
 

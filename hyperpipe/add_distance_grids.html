@@ -1,0 +1,224 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>add_distance_grids demo &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="General Troubleshooting" href="../troubleshooting.html" />
+    <link rel="prev" title="Troubleshooting" href="troubleshooting.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../containers.html">Containers and multi-architecture deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../demos.html">Demos</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="getting_started.html">Getting Started</a></li>
+<li class="toctree-l2"><a class="reference internal" href="advanced_tuning.html">Advanced Tuning</a></li>
+<li class="toctree-l2"><a class="reference internal" href="driver_dev.html">Marg Driver Development</a></li>
+<li class="toctree-l2"><a class="reference internal" href="reference.html">Reference</a></li>
+<li class="toctree-l2"><a class="reference internal" href="troubleshooting.html">Troubleshooting</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#"><code class="docutils literal notranslate"><span class="pre">add_distance_grids</span></code> demo</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../hyperpipe.html">HyperPipe</a></li>
+      <li class="breadcrumb-item active"><code class="docutils literal notranslate"><span class="pre">add_distance_grids</span></code> demo</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/hyperpipe/add_distance_grids.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="add-distance-grids-demo">
+<h1><code class="docutils literal notranslate"><span class="pre">add_distance_grids</span></code> demo<a class="headerlink" href="#add-distance-grids-demo" title="Link to this heading"></a></h1>
+<p>The <code class="docutils literal notranslate"><span class="pre">add_distance_grids</span></code> demo provides a small zero-spin RIFT workflow to
+configure for luminosity-distance likelihood-grid export. Use it to verify the
+distance-grid export path before adapting the same options to another RIFT
+workflow.</p>
+<p>The runnable sources are in
+<code class="docutils literal notranslate"><span class="pre">MonteCarloMarginalizeCode/Code/demo/rift/add_distance_grids</span></code>. The demo uses
+the fake-data inputs in <code class="docutils literal notranslate"><span class="pre">.travis/ILE-GPU-Paper/demos</span></code> and its
+<code class="docutils literal notranslate"><span class="pre">add_distance_grids.ini</span></code> records the corresponding configuration.</p>
+<section id="generate-and-configure-the-dag">
+<h2>Generate and configure the DAG<a class="headerlink" href="#generate-and-configure-the-dag" title="Link to this heading"></a></h2>
+<p>From the demo directory, first check that the CI-style inputs are present:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>make<span class="w"> </span>inputs
+</pre></div>
+</div>
+<p>Then generate the baseline DAG:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>make<span class="w"> </span>dag
+</pre></div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">dag</span></code> removes and recreates <code class="docutils literal notranslate"><span class="pre">rundir/</span></code> before generating the DAG.
+Copy any results you need from that directory before rerunning it.</p>
+</div>
+<p>The current <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">dag</span></code> recipe is a baseline generator, not a completed
+distance-grid run: its <code class="docutils literal notranslate"><span class="pre">validate-args</span></code> check expects an export flag that the
+recipe does not put in <code class="docutils literal notranslate"><span class="pre">rundir/args_ile.txt</span></code>. Consequently, stock <code class="docutils literal notranslate"><span class="pre">make</span>
+<span class="pre">dag</span></code> can stop at that check and does not by itself create a dgrid-producing
+<code class="docutils literal notranslate"><span class="pre">ILE_extr</span></code> stage.</p>
+<p>Before submitting, configure the pipeline’s final extrinsic ILE stage and its
+distance-grid export option. For <code class="docutils literal notranslate"><span class="pre">create_event_parameter_pipeline_BasicIteration</span></code>,
+this means enabling <code class="docutils literal notranslate"><span class="pre">--last-iteration-extrinsic</span></code> together with
+<code class="docutils literal notranslate"><span class="pre">--last-iteration-export-marginal-distance-grid</span></code> (and supplying the required
+pipeline configuration, including compatible conversion arguments). Inspect
+the resulting <code class="docutils literal notranslate"><span class="pre">ILE_extr</span></code> submit arguments to confirm both
+<code class="docutils literal notranslate"><span class="pre">--export-marginal-distance-grid</span></code> and <code class="docutils literal notranslate"><span class="pre">--internal-use-lnL</span></code> are present.
+Submit only that correctly configured DAG; the demo never submits
+automatically.</p>
+</section>
+<section id="validate-an-output-grid">
+<h2>Validate an output grid<a class="headerlink" href="#validate-an-output-grid" title="Link to this heading"></a></h2>
+<p>After a correctly configured ILE-extrinsic run completes, locate a producer
+output under the completed run results. Each ILE evaluation writes
+<code class="docutils literal notranslate"><span class="pre">&lt;ILE-output&gt;_&lt;event-index&gt;_.dgrid</span></code>.  The exact ILE-output prefix and
+result-directory nesting are assigned by the DAG, so from the generated run
+directory discover completed outputs with:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>find<span class="w"> </span>rundir<span class="w"> </span>-type<span class="w"> </span>f<span class="w"> </span>-name<span class="w"> </span><span class="s1">&#39;*_*.dgrid&#39;</span><span class="w"> </span>-print
+</pre></div>
+</div>
+<p>Use one returned path with the loader before reconstruction: the
+<code class="docutils literal notranslate"><span class="pre">reconstruct_marginal_lnL</span></code> API accepts the parsed grid table, not a filename.
+For example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">RIFT.misc.distance_grid</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">load_distance_grid</span><span class="p">,</span>
+    <span class="n">reconstruct_marginal_lnL</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">grid</span> <span class="o">=</span> <span class="n">load_distance_grid</span><span class="p">(</span><span class="s2">&quot;&lt;path printed by find&gt;&quot;</span><span class="p">)</span>
+<span class="n">reconstructed</span> <span class="o">=</span> <span class="n">reconstruct_marginal_lnL</span><span class="p">(</span><span class="n">grid</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>With the default argument, reconstruction uses the stored sampling-distance
+prior when it is present. Compare the result to the ordinary marginalized
+likelihood for the same intrinsic point, allowing for that run’s Monte Carlo
+uncertainty. For a controlled synthetic check, run
+<code class="docutils literal notranslate"><span class="pre">validate_distance_grid.py</span></code> from the demo directory; it exercises the
+Plan-A <code class="docutils literal notranslate"><span class="pre">.dgrid</span></code> table-level reconstruction path directly.  The neighboring
+<code class="docutils literal notranslate"><span class="pre">validate_distance_slices.py</span></code> script covers the separate Plan-B <code class="docutils literal notranslate"><span class="pre">.dslice</span></code>
+behavior and is out of scope for this demo.</p>
+</section>
+<section id="environment-note">
+<h2>Environment note<a class="headerlink" href="#environment-note" title="Link to this heading"></a></h2>
+<p>LALSuite SWIG/Python memory-leak messages can indicate an incompatible local
+binding build rather than a distance-grid failure. The demo README describes a
+known-good environment constraint: changing the local SWIG executable does not
+alter already-built LAL Python bindings.</p>
+</section>
+<section id="review-checklist">
+<h2>Review checklist<a class="headerlink" href="#review-checklist" title="Link to this heading"></a></h2>
+<p>Before requesting human review, verify that this page is reachable from the
+HyperPipe landing-page toctree, retain the Sphinx error-delta result, and have
+an independent reviewer check the rendered guide against the demo sources.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="troubleshooting.html" class="btn btn-neutral float-left" title="Troubleshooting" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../troubleshooting.html" class="btn btn-neutral float-right" title="General Troubleshooting" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

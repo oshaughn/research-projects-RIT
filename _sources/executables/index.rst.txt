@@ -16,6 +16,7 @@ This section documents the core user-facing command-line executables in RIFT.
    util_ManualOverlapGrid
    convergence_test_samples
    util_ParameterPuffball
+   survey_scan
 
 Core Executables Overview
 =========================

@@ -1,0 +1,444 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Demos &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="_static/custom.css?v=82021441" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=911654a9"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="HyperPipe" href="hyperpipe.html" />
+    <link rel="prev" title="Plotting with RIFT" href="plotting.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="containers.html">Containers and multi-architecture deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Demos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="executables/index.html">Executables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Demos</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/demos.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="demos">
+<h1>Demos<a class="headerlink" href="#demos" title="Link to this heading"></a></h1>
+<p>RIFT ships several demonstration directories under
+<code class="docutils literal notranslate"><span class="pre">MonteCarloMarginalizeCode/Code/demo</span></code>.  Use this page as a map from the
+problem you want to understand to the smallest existing example that exercises
+that workflow.</p>
+<p>The demos are not all the same kind of artifact.  Some are fast local smoke
+tests, some build Condor DAGs without submitting them, and some are advanced
+operator tutorials that assume LIGO cluster credentials or external software.
+Each entry below states what it is useful for before pointing you at the source
+files.</p>
+<nav class="contents local" id="demo-catalog">
+<p class="topic-title">Demo catalog</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#pipeline-builder-smoke-tests" id="id2">Pipeline-builder smoke tests</a></p></li>
+<li><p><a class="reference internal" href="#zero-spin-imrphenomd-distance-grid-validation" id="id3">Zero-spin IMRPhenomD distance-grid validation</a></p></li>
+<li><p><a class="reference internal" href="#hyperpipe-demos" id="id4">HyperPipe demos</a></p></li>
+<li><p><a class="reference internal" href="#population-study-demo" id="id5">Population-study demo</a></p></li>
+<li><p><a class="reference internal" href="#distance-grid-export-demo" id="id6">Distance-grid export demo</a></p></li>
+<li><p><a class="reference internal" href="#numerical-relativity-with-rift" id="id7">Numerical relativity with RIFT</a></p></li>
+<li><p><a class="reference internal" href="#internal-and-test-oriented-demos" id="id8">Internal and test-oriented demos</a></p></li>
+<li><p><a class="reference internal" href="#choosing-a-starting-point" id="id9">Choosing a starting point</a></p></li>
+<li><p><a class="reference internal" href="#related-pages" id="id10">Related pages</a></p></li>
+</ul>
+</nav>
+<section id="pipeline-builder-smoke-tests">
+<h2><a class="toc-backref" href="#id2" role="doc-backlink">Pipeline-builder smoke tests</a><a class="headerlink" href="#pipeline-builder-smoke-tests" title="Link to this heading"></a></h2>
+<dl>
+<dt>Path</dt><dd><p><code class="docutils literal notranslate"><span class="pre">MonteCarloMarginalizeCode/Code/demo/pipeline</span></code></p>
+</dd>
+<dt>Use this when</dt><dd><p>You want a fast, submission-free check that <code class="docutils literal notranslate"><span class="pre">util_RIFT_pseudo_pipe.py</span></code> can
+build a complete RIFT run directory and thread command-line options through
+CEPP into the generated Condor submit files.</p>
+</dd>
+<dt>What it demonstrates</dt><dd><p>The demo uses fake data and reference <code class="docutils literal notranslate"><span class="pre">.ini</span></code> / <code class="docutils literal notranslate"><span class="pre">coinc.xml</span></code> inputs to
+create run directories without submitting jobs or requiring real frames,
+PSDs, GPUs, or a Condor pool.  It is especially useful for regression tests
+of argument plumbing: a flag supplied to <code class="docutils literal notranslate"><span class="pre">util_RIFT_pseudo_pipe.py</span></code> should
+survive into the correct <code class="docutils literal notranslate"><span class="pre">args_*.txt</span></code> file and <code class="docutils literal notranslate"><span class="pre">*.sub</span></code> file.</p>
+</dd>
+<dt>Primary files</dt><dd><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">README.md</span></code> — target descriptions and expected assertions.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Makefile</span></code> — <code class="docutils literal notranslate"><span class="pre">baseline</span></code>, <code class="docutils literal notranslate"><span class="pre">grid</span></code>, <code class="docutils literal notranslate"><span class="pre">slices</span></code>, <code class="docutils literal notranslate"><span class="pre">all</span></code>, and <code class="docutils literal notranslate"><span class="pre">clean</span></code>
+targets.</p></li>
+</ul>
+</dd>
+<dt>Typical command</dt><dd><p>From the demo directory, in a configured RIFT environment:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">make</span> <span class="nb">all</span>
+</pre></div>
+</div>
+<p>or, using the repository Pixi environment from the README:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pixi</span> <span class="n">run</span> <span class="o">--</span><span class="n">manifest</span><span class="o">-</span><span class="n">path</span> <span class="o">../../../../../</span><span class="n">pixi</span><span class="o">.</span><span class="n">toml</span> <span class="n">make</span> <span class="nb">all</span>
+</pre></div>
+</div>
+</dd>
+<dt>Notes</dt><dd><p>The <code class="docutils literal notranslate"><span class="pre">grid</span></code> and <code class="docutils literal notranslate"><span class="pre">slices</span></code> targets exercise last-iteration extrinsic export
+behavior.  They check that distance-grid or distance-slice flags land on the
+final extrinsic ILE stage without leaking into the intrinsic ILE jobs.</p>
+</dd>
+</dl>
+</section>
+<section id="zero-spin-imrphenomd-distance-grid-validation">
+<h2><a class="toc-backref" href="#id3" role="doc-backlink">Zero-spin IMRPhenomD distance-grid validation</a><a class="headerlink" href="#zero-spin-imrphenomd-distance-grid-validation" title="Link to this heading"></a></h2>
+<dl>
+<dt>Path</dt><dd><p><code class="docutils literal notranslate"><span class="pre">MonteCarloMarginalizeCode/Code/demo/pipeline/zero_spin_phenomD</span></code></p>
+</dd>
+<dt>Use this when</dt><dd><p>You need a compact end-to-end validation of per-distance likelihood export,
+consolidation, and posterior reconstruction on a laptop-scale example.</p>
+</dd>
+<dt>What it demonstrates</dt><dd><p>This demo uses zero-spin IMRPhenomD, the AV sampler, fake zero-noise BBH
+inputs, and a small mass grid.  It bypasses Condor for the local execution
+step but uses the same production code paths for building the pipeline,
+running <code class="docutils literal notranslate"><span class="pre">integrate_likelihood_extrinsic_batchmode</span></code>, consolidating
+<code class="docutils literal notranslate"><span class="pre">.dgrid</span></code> files, and reconstructing a joint intrinsic-plus-distance
+posterior.</p>
+</dd>
+<dt>Primary files</dt><dd><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">README.md</span></code> — full four-stage validation walkthrough.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Makefile</span></code> — <code class="docutils literal notranslate"><span class="pre">build</span></code>, <code class="docutils literal notranslate"><span class="pre">run-extr</span></code>, <code class="docutils literal notranslate"><span class="pre">consolidate</span></code>, <code class="docutils literal notranslate"><span class="pre">posterior</span></code>,
+<code class="docutils literal notranslate"><span class="pre">all</span></code>, and <code class="docutils literal notranslate"><span class="pre">clean</span></code> targets.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">zero_spin_phenomD.ini</span></code> — minimal pseudo-pipe configuration.</p></li>
+</ul>
+</dd>
+<dt>Typical command</dt><dd><p>From the demo directory:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">make</span> <span class="nb">all</span>
+</pre></div>
+</div>
+</dd>
+<dt>Notes</dt><dd><p>The default settings intentionally evaluate only a few events so the test is
+fast.  This is a code-path validation, not a scientific accuracy benchmark.
+Increase <code class="docutils literal notranslate"><span class="pre">N_EVENTS</span></code> if you want a more meaningful posterior check.</p>
+</dd>
+</dl>
+</section>
+<section id="hyperpipe-demos">
+<h2><a class="toc-backref" href="#id4" role="doc-backlink">HyperPipe demos</a><a class="headerlink" href="#hyperpipe-demos" title="Link to this heading"></a></h2>
+<dl>
+<dt>Path</dt><dd><p><code class="docutils literal notranslate"><span class="pre">MonteCarloMarginalizeCode/Code/demo/hyperpipe</span></code></p>
+</dd>
+<dt>Use this when</dt><dd><p>You want to learn HyperPipe, test generalized likelihood drivers, compare
+baseline posterior resampling to tracer placement, or adapt a toy
+coordinate-free workflow into a real one.</p>
+</dd>
+<dt>What it demonstrates</dt><dd><p>The directory contains runnable YAML configurations for the same 3-D
+Gaussian toy likelihood.  The variants exercise the iterative
+<code class="docutils literal notranslate"><span class="pre">MARG</span> <span class="pre">-&gt;</span> <span class="pre">CON</span> <span class="pre">-&gt;</span> <span class="pre">UNIFY</span> <span class="pre">-&gt;</span> <span class="pre">EOS_POST</span> <span class="pre">-&gt;</span> <span class="pre">PUFF/placement</span> <span class="pre">-&gt;</span> <span class="pre">TEST</span></code> loop, OSG
+submit-host settings, coordinate transformation, and parsimonious/tracer
+placement.</p>
+</dd>
+<dt>Primary files</dt><dd><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">README.md</span></code> — detailed description of every configuration.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">technical_doc.txt</span></code> — pedagogical implementation notes.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hyperpipe_conf.yaml</span></code> — baseline posterior-resampling workflow.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hyperpipe_conf_tracer.yaml</span></code> — tracer/parsimonious-placement workflow.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hyperpipe_conf_osg.yaml</span></code> — OSG/IGWN-oriented submit configuration.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">hyperpipe_conf_linear_uvw.yaml</span></code> — fit in transformed coordinates while
+sampling in the original coordinates.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">example_gaussian*.py</span></code> — toy likelihood drivers.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Makefile</span></code> — convenience targets such as <code class="docutils literal notranslate"><span class="pre">rundir</span></code> and
+<code class="docutils literal notranslate"><span class="pre">rundir_tracer</span></code>.</p></li>
+</ul>
+</dd>
+<dt>Typical commands</dt><dd><p>Baseline demo:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">util_RIFT_hyperpipe</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">config</span> <span class="o">./</span><span class="n">hyperpipe_conf</span><span class="o">.</span><span class="n">yaml</span>
+</pre></div>
+</div>
+<p>Tracer-placement demo:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">util_RIFT_hyperpipe</span><span class="o">.</span><span class="n">py</span> <span class="o">--</span><span class="n">config</span> <span class="o">./</span><span class="n">hyperpipe_conf_tracer</span><span class="o">.</span><span class="n">yaml</span>
+</pre></div>
+</div>
+</dd>
+<dt>Notes</dt><dd><p>Start here before writing a new HyperPipe configuration from scratch.  The
+YAML files show the expected schema and the generated run directories expose
+the exact executable arguments in <code class="docutils literal notranslate"><span class="pre">args_*.txt</span></code> and Condor <code class="docutils literal notranslate"><span class="pre">*.sub</span></code> files.</p>
+</dd>
+</dl>
+</section>
+<section id="population-study-demo">
+<h2><a class="toc-backref" href="#id5" role="doc-backlink">Population-study demo</a><a class="headerlink" href="#population-study-demo" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>Path</dt><dd><p><code class="docutils literal notranslate"><span class="pre">MonteCarloMarginalizeCode/Code/demo/populations</span></code></p>
+</dd>
+<dt>Use this when</dt><dd><p>You want a worked outline for generating mock compact-binary populations
+with GWKokab and producing RIFT parameter estimates for those injections.</p>
+</dd>
+<dt>What it demonstrates</dt><dd><p>The README describes a multi-environment workflow: generate injections with
+GWKokab, validate the population inference setup, switch to a separate RIFT
+environment, prepare injections, generate MDC files, create RIFT run
+directories, submit PE jobs, and produce diagnostics.</p>
+</dd>
+<dt>Primary files</dt><dd><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">README.md</span></code> — full tutorial and environment notes.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Makefile</span></code> — workflow automation points.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pop-example.ini</span></code> — example RIFT configuration for the population run.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">injections.dat</span></code> — example injection table.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">write_mdc.py</span></code> and <code class="docutils literal notranslate"><span class="pre">gwk_pop_conversion.py</span></code> — conversion/setup helpers.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">plot_all.sh</span></code> and <code class="docutils literal notranslate"><span class="pre">collect_all.sh</span></code> — post-processing helpers.</p></li>
+</ul>
+</dd>
+<dt>Typical command</dt><dd><p>This is an advanced, environment-dependent workflow.  Read and edit the
+Makefile variables and <code class="docutils literal notranslate"><span class="pre">pop-example.ini</span></code> before running targets.  The
+README starts with GWKokab setup and then moves into RIFT setup.</p>
+</dd>
+<dt>Notes</dt><dd><p>Keep GWKokab and RIFT in separate environments.  The prior ranges in
+<code class="docutils literal notranslate"><span class="pre">pop-example.ini</span></code> must match the population used to generate
+<code class="docutils literal notranslate"><span class="pre">injections.dat</span></code>; otherwise the resulting PE runs are not meaningful.</p>
+</dd>
+</dl>
+</section>
+<section id="distance-grid-export-demo">
+<h2><a class="toc-backref" href="#id6" role="doc-backlink">Distance-grid export demo</a><a class="headerlink" href="#distance-grid-export-demo" title="Link to this heading"></a></h2>
+<dl>
+<dt>Path</dt><dd><p><code class="docutils literal notranslate"><span class="pre">MonteCarloMarginalizeCode/Code/demo/rift/add_distance_grids</span></code></p>
+</dd>
+<dt>Use this when</dt><dd><p>You need to understand or validate the <code class="docutils literal notranslate"><span class="pre">--export-marginal-distance-grid</span></code>
+path and the generated <code class="docutils literal notranslate"><span class="pre">.dgrid</span></code> likelihood-density files.</p>
+</dd>
+<dt>What it demonstrates</dt><dd><p>The demo builds a small zero-spin RIFT workflow with distance-grid export
+enabled for ILE jobs.  It reuses fake zero-noise CI assets and verifies that
+the generated ILE arguments include <code class="docutils literal notranslate"><span class="pre">--export-marginal-distance-grid</span></code> and
+<code class="docutils literal notranslate"><span class="pre">--internal-use-lnL</span></code>.</p>
+</dd>
+<dt>Primary files</dt><dd><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">README.md</span></code> — build/submit instructions and environment warning notes.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PLAN_B_DESIGN.md</span></code> — design notes for fixed-distance slice export and
+re-marginalization.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Makefile</span></code> — <code class="docutils literal notranslate"><span class="pre">dag</span></code> and <code class="docutils literal notranslate"><span class="pre">submit</span></code> targets.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">add_distance_grids.ini</span></code> — zero-spin/fake-data configuration.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">validate_distance_grid.py</span></code> and <code class="docutils literal notranslate"><span class="pre">validate_distance_slices.py</span></code> — helper
+validation scripts.</p></li>
+</ul>
+</dd>
+<dt>Typical commands</dt><dd><p>Build the DAG without submitting:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">make</span> <span class="n">dag</span>
+</pre></div>
+</div>
+<p>Submit the generated workflow after inspection:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">make</span> <span class="n">submit</span>
+</pre></div>
+</div>
+</dd>
+<dt>Notes</dt><dd><p>LALSuite/SWIG compatibility warnings may appear in some environments.  The
+README explains how to distinguish those warnings from distance-grid
+failures.</p>
+</dd>
+</dl>
+</section>
+<section id="numerical-relativity-with-rift">
+<h2><a class="toc-backref" href="#id7" role="doc-backlink">Numerical relativity with RIFT</a><a class="headerlink" href="#numerical-relativity-with-rift" title="Link to this heading"></a></h2>
+<dl class="simple">
+<dt>Path</dt><dd><p><code class="docutils literal notranslate"><span class="pre">MonteCarloMarginalizeCode/Code/demo/nr_w_rift</span></code></p>
+</dd>
+<dt>Use this when</dt><dd><p>You want an advanced tutorial for comparing gravitational-wave data to
+numerical-relativity simulations rather than analytic waveform models.</p>
+</dd>
+<dt>What it demonstrates</dt><dd><p>The workflow obtains event data, constructs an NR simulation grid, builds a
+RIFT run directory through NR-specific pipeline tools, and runs a refine
+stage before the final CIP posterior construction.</p>
+</dd>
+<dt>Primary files</dt><dd><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">README.md</span></code> — cluster-oriented tutorial and required manual settings.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Makefile</span></code> — data, grid, and run-directory construction targets.</p></li>
+</ul>
+</dd>
+<dt>Typical commands</dt><dd><p>This tutorial assumes LIGO computing access and event-specific manual edits.
+Read the README first, then configure the event identifiers, channels, NR
+group, mass range, and event time in the Makefile before running targets such
+as <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">data</span></code>, <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">grid</span></code>, and <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">rundir</span></code>.</p>
+</dd>
+<dt>Notes</dt><dd><p>This is not a quickstart.  It assumes a working RIFT environment, LIGO data
+access, NR catalog access, and familiarity with production RIFT runs.</p>
+</dd>
+</dl>
+</section>
+<section id="internal-and-test-oriented-demos">
+<h2><a class="toc-backref" href="#id8" role="doc-backlink">Internal and test-oriented demos</a><a class="headerlink" href="#internal-and-test-oriented-demos" title="Link to this heading"></a></h2>
+<p>Some demo-like directories are primarily regression or development harnesses.
+They are useful for developers, but should not be presented as first-stop user
+quickstarts until their assumptions are documented.</p>
+<p>Known examples include:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">MonteCarloMarginalizeCode/Code/demo/rift/test_frameworks/zero_likelihood</span></code>
+— zero-likelihood HyperPipe/Condor smoke-test material.</p></li>
+</ul>
+<p>When promoting one of these into a user-facing tutorial, first document:</p>
+<ul class="simple">
+<li><p>whether it requires Condor, GPUs, GraceDB, LIGO credentials, or external data;</p></li>
+<li><p>whether it submits jobs or only builds run directories;</p></li>
+<li><p>expected runtime and expected outputs;</p></li>
+<li><p>cleanup commands; and</p></li>
+<li><p>which scientific result, if any, should be trusted.</p></li>
+</ul>
+</section>
+<section id="choosing-a-starting-point">
+<h2><a class="toc-backref" href="#id9" role="doc-backlink">Choosing a starting point</a><a class="headerlink" href="#choosing-a-starting-point" title="Link to this heading"></a></h2>
+<table class="docutils align-default" id="id1">
+<caption><span class="caption-text">Demo selection guide</span><a class="headerlink" href="#id1" title="Link to this table"></a></caption>
+<colgroup>
+<col style="width: 24.0%" />
+<col style="width: 34.0%" />
+<col style="width: 42.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>If you want to…</p></th>
+<th class="head"><p>Start with…</p></th>
+<th class="head"><p>Why</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Check pseudo-pipe argument plumbing quickly</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">demo/pipeline</span></code></p></td>
+<td><p>Fast fake-data DAG construction without submission.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Validate distance-grid export end to end</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">demo/pipeline/zero_spin_phenomD</span></code></p></td>
+<td><p>Exercises build, extrinsic likelihood, consolidation, and posterior
+reconstruction.</p></td>
+</tr>
+<tr class="row-even"><td><p>Learn HyperPipe</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">demo/hyperpipe</span></code></p></td>
+<td><p>Small Gaussian likelihood with baseline, tracer, OSG, and coordinate
+transform variants.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Try tracer placement</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">demo/hyperpipe/hyperpipe_conf_tracer.yaml</span></code></p></td>
+<td><p>Existing parsimonious-placement example with generated DAG output.</p></td>
+</tr>
+<tr class="row-even"><td><p>Explore population-study workflows</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">demo/populations</span></code></p></td>
+<td><p>End-to-end GWKokab-to-RIFT outline, with environment caveats.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Inspect distance-grid export internals</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">demo/rift/add_distance_grids</span></code></p></td>
+<td><p>Focused DAG build and validation helpers for <code class="docutils literal notranslate"><span class="pre">.dgrid</span></code> output.</p></td>
+</tr>
+<tr class="row-even"><td><p>Work with numerical-relativity simulations</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">demo/nr_w_rift</span></code></p></td>
+<td><p>Advanced cluster-oriented NR workflow.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="related-pages">
+<h2><a class="toc-backref" href="#id10" role="doc-backlink">Related pages</a><a class="headerlink" href="#related-pages" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="hyperpipe.html"><span class="doc">HyperPipe</span></a></p></li>
+<li><p><a class="reference internal" href="using-pipeline.html"><span class="doc">Using the pipeline</span></a></p></li>
+<li><p><a class="reference internal" href="examples-ini.html"><span class="doc">RIFT pipeline examples: the ini file</span></a></p></li>
+<li><p><a class="reference internal" href="osg.html"><span class="doc">Using the OSG</span></a></p></li>
+<li><p><a class="reference internal" href="plotting.html"><span class="doc">Plotting with RIFT</span></a></p></li>
+<li><p><a class="reference internal" href="troubleshooting.html"><span class="doc">General Troubleshooting</span></a></p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="plotting.html" class="btn btn-neutral float-left" title="Plotting with RIFT" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="hyperpipe.html" class="btn btn-neutral float-right" title="HyperPipe" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

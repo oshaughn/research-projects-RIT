@@ -1,0 +1,260 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>survey_scan &mdash; RIFT &#34;2022, Richard O&#39;Shaughnessy et al&#34; documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=9edc463e" />
+      <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=82021441" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=911654a9"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Waveform Generation" href="../physics/index.html" />
+    <link rel="prev" title="util_ParameterPuffball" href="util_ParameterPuffball.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            RIFT
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../architecture.html">RIFT Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../overview.html">RIFT Overview</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting-data.html">Getting data for RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../data_formats.html">Data Formats</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../using-pipeline.html">Using the pipeline</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-ini.html">RIFT pipeline examples: the ini file</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../examples-noini.html">RIFT pipeline examples: command-line</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../osg.html">Using the OSG</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../containers.html">Containers and multi-architecture deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../injections.html">Signal Injections</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../plotting.html">Plotting with RIFT</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../demos.html">Demos</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../hyperpipe.html">HyperPipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../troubleshooting.html">General Troubleshooting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_samples_utils.html">Samples Utilities</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../gp_likelihood_export.html">Differentiable GP likelihood export and validation</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="index.html">Executables</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="util_RIFT_pseudo_pipe.html">util_RIFT_pseudo_pipe.py</a></li>
+<li class="toctree-l2"><a class="reference internal" href="create_event_parameter_pipeline_BasicIteration.html">create_event_parameter_pipeline_BasicIteration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic.html">integrate_likelihood_extrinsic</a></li>
+<li class="toctree-l2"><a class="reference internal" href="integrate_likelihood_extrinsic_batchmode.html">integrate_likelihood_extrinsic_batchmode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ConstructIntrinsicPosterior_GenericCoordinates.html">util_ConstructIntrinsicPosterior_GenericCoordinates</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot_posterior_corner.html">plot_posterior_corner</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ManualOverlapGrid.html">util_ManualOverlapGrid</a></li>
+<li class="toctree-l2"><a class="reference internal" href="convergence_test_samples.html">convergence_test_samples</a></li>
+<li class="toctree-l2"><a class="reference internal" href="util_ParameterPuffball.html">util_ParameterPuffball</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#"><code class="docutils literal notranslate"><span class="pre">survey_scan</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../physics/index.html">Waveform Generation</a></li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">RIFT API Reference:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html">API Reference</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api_reference/index.html#indices-and-tables">Indices and tables</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">RIFT</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="index.html">Executables</a></li>
+      <li class="breadcrumb-item active"><code class="docutils literal notranslate"><span class="pre">survey_scan</span></code></li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/executables/survey_scan.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="survey-scan">
+<h1><code class="docutils literal notranslate"><span class="pre">survey_scan</span></code><a class="headerlink" href="#survey-scan" title="Link to this heading"></a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">containers/survey_scan.sh</span></code> is an operator-facing companion for RIFT
+container families.  It surveys a target HTCondor GPU pool, generates one
+warmup job for each selected container/profile combination, and summarizes the
+JSON reports returned by completed jobs.  It does not run an analysis or submit
+the generated jobs itself.</p>
+<p>For the container-family manifest and deployment model, see <a class="reference internal" href="../containers.html"><span class="doc">Containers and multi-architecture deployment</span></a>.</p>
+<section id="prerequisites-and-boundaries">
+<h2>Prerequisites and boundaries<a class="headerlink" href="#prerequisites-and-boundaries" title="Link to this heading"></a></h2>
+<p>The submit-side commands use Python’s standard library.  Manifest parsing uses
+PyYAML when it is installed and otherwise supports the simple RIFT
+container-family YAML schema.  <code class="docutils literal notranslate"><span class="pre">survey</span></code> needs <code class="docutils literal notranslate"><span class="pre">condor_status</span></code> on the host.
+To execute the jobs, the target environment needs HTCondor, a compatible GPU,
+Apptainer, and an image containing the requested CuPy or JAX dependencies.</p>
+<p>This command is an operator-run pool inventory and cache-warmup workflow.  The
+reference documents the generated workflow; it is not evidence that a given
+pool, container runtime, or image has been exercised successfully.</p>
+</section>
+<section id="survey-a-pool">
+<h2>Survey a pool<a class="headerlink" href="#survey-a-pool" title="Link to this heading"></a></h2>
+<p>Run <code class="docutils literal notranslate"><span class="pre">survey</span></code> before selecting image bands or generating jobs:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">containers</span><span class="o">/</span><span class="n">survey_scan</span><span class="o">.</span><span class="n">sh</span> <span class="n">survey</span> \
+  <span class="o">--</span><span class="n">out</span> <span class="n">survey</span><span class="o">/</span><span class="n">cit</span><span class="o">-</span><span class="n">YYYYMMDD</span> \
+  <span class="o">--</span><span class="n">manifest</span> <span class="n">container_family</span><span class="o">/</span><span class="n">rift_container_family</span><span class="o">.</span><span class="n">generated</span><span class="o">.</span><span class="n">yaml</span>
+</pre></div>
+</div>
+<p>The exact interface is:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">containers</span><span class="o">/</span><span class="n">survey_scan</span><span class="o">.</span><span class="n">sh</span> <span class="n">survey</span> <span class="p">[</span><span class="o">--</span><span class="n">out</span> <span class="n">DIR</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">constraint</span> <span class="n">EXPR</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">manifest</span> <span class="n">FILE</span><span class="p">]</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--constraint</span></code> is passed to <code class="docutils literal notranslate"><span class="pre">condor_status</span></code> and defaults to
+<code class="docutils literal notranslate"><span class="pre">TotalGPUs</span> <span class="pre">&gt;</span> <span class="pre">0</span></code>.  <code class="docutils literal notranslate"><span class="pre">--manifest</span></code> is optional; when supplied, the inventory
+also records which manifest labels cover each observed capability.  If <code class="docutils literal notranslate"><span class="pre">--out</span></code>
+is omitted, the command creates a timestamped directory under <code class="docutils literal notranslate"><span class="pre">survey/</span></code>.</p>
+<p>The survey directory contains:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">gpu_inventory.json</span></code> — raw ClassAd fields, normalized summary, and optional
+manifest coverage;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpu_inventory.tsv</span></code> — the summarized slot/device/capability/memory table;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">recommended_matrix.json</span></code> — suggested capability bands; and</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">coverage.md</span></code> — a readable inventory, suggested bands, and manifest
+coverage when a manifest was supplied.</p></li>
+</ul>
+</section>
+<section id="generate-warmup-jobs">
+<h2>Generate warmup jobs<a class="headerlink" href="#generate-warmup-jobs" title="Link to this heading"></a></h2>
+<p>Generate Condor submit files from a survey directory and a container-family
+manifest:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">containers</span><span class="o">/</span><span class="n">survey_scan</span><span class="o">.</span><span class="n">sh</span> <span class="n">emit</span><span class="o">-</span><span class="n">jobs</span> \
+  <span class="o">--</span><span class="n">survey</span> <span class="n">survey</span><span class="o">/</span><span class="n">cit</span><span class="o">-</span><span class="n">YYYYMMDD</span> \
+  <span class="o">--</span><span class="n">manifest</span> <span class="n">container_family</span><span class="o">/</span><span class="n">rift_container_family</span><span class="o">.</span><span class="n">generated</span><span class="o">.</span><span class="n">yaml</span>
+</pre></div>
+</div>
+<p>The exact interface is:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">containers</span><span class="o">/</span><span class="n">survey_scan</span><span class="o">.</span><span class="n">sh</span> <span class="n">emit</span><span class="o">-</span><span class="n">jobs</span> <span class="o">--</span><span class="n">survey</span> <span class="n">DIR</span> <span class="o">--</span><span class="n">manifest</span> <span class="n">FILE</span> <span class="p">[</span><span class="o">--</span><span class="n">out</span> <span class="n">DIR</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">profiles</span> <span class="n">LIST</span><span class="p">]</span> <span class="p">[</span><span class="o">--</span><span class="n">request</span><span class="o">-</span><span class="n">disk</span> <span class="n">REQUEST_DISK</span><span class="p">]</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--survey</span></code> and <code class="docutils literal notranslate"><span class="pre">--manifest</span></code> are required.  <code class="docutils literal notranslate"><span class="pre">--out</span></code> defaults to
+<code class="docutils literal notranslate"><span class="pre">DIR/jobs</span></code>; <code class="docutils literal notranslate"><span class="pre">--profiles</span></code> is a comma-separated list and defaults to
+<code class="docutils literal notranslate"><span class="pre">cupy</span></code>; and <code class="docutils literal notranslate"><span class="pre">--request-disk</span></code> defaults to <code class="docutils literal notranslate"><span class="pre">16000M</span></code>.  Supported profile
+names are <code class="docutils literal notranslate"><span class="pre">cupy</span></code> and <code class="docutils literal notranslate"><span class="pre">jax</span></code>.  The command uses <code class="docutils literal notranslate"><span class="pre">--survey</span></code> only to choose
+that default output location: it emits every manifest entry times every
+selected profile, rather than selecting jobs from the survey inventory.
+Consequently, a manifest band absent from the surveyed pool can still yield a
+submit file that remains unmatched.  For example, request both profiles only
+for a JAX-enabled image:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">containers</span><span class="o">/</span><span class="n">survey_scan</span><span class="o">.</span><span class="n">sh</span> <span class="n">emit</span><span class="o">-</span><span class="n">jobs</span> \
+  <span class="o">--</span><span class="n">survey</span> <span class="n">survey</span><span class="o">/</span><span class="n">cit</span><span class="o">-</span><span class="n">YYYYMMDD</span> \
+  <span class="o">--</span><span class="n">manifest</span> <span class="n">container_family</span><span class="o">/</span><span class="n">rift_container_family</span><span class="o">.</span><span class="n">generated</span><span class="o">.</span><span class="n">yaml</span> \
+  <span class="o">--</span><span class="n">profiles</span> <span class="n">cupy</span><span class="p">,</span><span class="n">jax</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">cupy</span></code> profile warms common NoLoop and fused-calmarg kernels.  The
+<code class="docutils literal notranslate"><span class="pre">jax</span></code> profile warms synthetic JAX ILE-wrapper shapes.  The generated directory
+has a <code class="docutils literal notranslate"><span class="pre">.sub</span></code> and executable <code class="docutils literal notranslate"><span class="pre">run_*.sh</span></code> wrapper for each selected
+container/profile pair, copied profile scripts, and <code class="docutils literal notranslate"><span class="pre">submit_all.sh</span></code>.  Submit
+them deliberately from that directory:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">cd</span> <span class="n">survey</span><span class="o">/</span><span class="n">cit</span><span class="o">-</span><span class="n">YYYYMMDD</span><span class="o">/</span><span class="n">jobs</span>
+<span class="o">./</span><span class="n">submit_all</span><span class="o">.</span><span class="n">sh</span>
+</pre></div>
+</div>
+<p>Each wrapper sets cache locations such as <code class="docutils literal notranslate"><span class="pre">CUPY_CACHE_DIR</span></code> and
+<code class="docutils literal notranslate"><span class="pre">JAX_COMPILATION_CACHE_DIR</span></code> before running <code class="docutils literal notranslate"><span class="pre">apptainer</span> <span class="pre">exec</span> <span class="pre">--nv</span></code>.  For an
+<code class="docutils literal notranslate"><span class="pre">osdf://</span></code> image URL, it fetches only that selected image, using <code class="docutils literal notranslate"><span class="pre">stashcp</span></code> or
+<code class="docutils literal notranslate"><span class="pre">pelican</span></code>; one of those tools must therefore be available on the execute
+node.  Size <code class="docutils literal notranslate"><span class="pre">--request-disk</span></code> for the selected image and its work area.</p>
+</section>
+<section id="collect-results">
+<h2>Collect results<a class="headerlink" href="#collect-results" title="Link to this heading"></a></h2>
+<p>After jobs have returned their JSON outputs to the jobs directory, collect a
+single summary:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">containers</span><span class="o">/</span><span class="n">survey_scan</span><span class="o">.</span><span class="n">sh</span> <span class="n">collect</span> <span class="o">--</span><span class="n">survey</span> <span class="n">survey</span><span class="o">/</span><span class="n">cit</span><span class="o">-</span><span class="n">YYYYMMDD</span>
+</pre></div>
+</div>
+<p>The exact interface is:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">containers</span><span class="o">/</span><span class="n">survey_scan</span><span class="o">.</span><span class="n">sh</span> <span class="n">collect</span> <span class="o">--</span><span class="n">survey</span> <span class="n">DIR</span> <span class="p">[</span><span class="o">--</span><span class="n">out</span> <span class="n">FILE</span><span class="p">]</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">--survey</span></code> is required.  By default, the command writes
+<code class="docutils literal notranslate"><span class="pre">warmup_summary.json</span></code> and its Markdown counterpart
+<code class="docutils literal notranslate"><span class="pre">warmup_summary.md</span></code> in the survey directory.  <code class="docutils literal notranslate"><span class="pre">--out</span></code> selects a different
+JSON summary path; the Markdown report uses the same basename with a <code class="docutils literal notranslate"><span class="pre">.md</span></code>
+suffix.  The collector globs only JSON files already present under
+<code class="docutils literal notranslate"><span class="pre">jobs/*.json</span></code>; it cannot identify jobs that never produced a result.  Invalid
+present JSON is retained as an error entry so the summary can report malformed
+output.</p>
+</section>
+<section id="see-also">
+<h2>See also<a class="headerlink" href="#see-also" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="../containers.html"><span class="doc">Containers and multi-architecture deployment</span></a> for building and deploying a container family.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">containers/survey_scan/README.md</span></code> in the source tree for a concise
+operator-oriented overview of the warmup profiles.</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="util_ParameterPuffball.html" class="btn btn-neutral float-left" title="util_ParameterPuffball" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../physics/index.html" class="btn btn-neutral float-right" title="Waveform Generation" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, K Wagner.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
