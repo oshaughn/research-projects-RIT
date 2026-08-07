@@ -90,10 +90,19 @@ def hlmoff_for_LISA(
         )
         hlmsdict = lalsimutils.SphHarmFrequencySeries_to_dict(hlms_struct, Lmax)
         hlmsdict = _filter_modes(hlmsdict, modes)
-        return {
-            mode: lal.ResizeCOMPLEX16FrequencySeries(hlm, 0, TDlen)
-            for mode, hlm in hlmsdict.items()
-        }
+        # SimInspiralChooseFDModes returns an ascending two-sided grid
+        # [-fNyq, ..., 0, ..., +fNyq] of odd length TDlen+1.  The resize below
+        # truncates the +fNyq bin but keeps its -fNyq partner (index 0); zero it
+        # so the truncation commutes with the conjugate-pair (f -> -f) reflection
+        # h_{l,-m}(f) = (-1)^l conj(h_{lm}(-f)) for models with support at Nyquist.
+        out = {}
+        for mode, hlm in hlmsdict.items():
+            truncated = hlm.data.length > TDlen
+            hlm = lal.ResizeCOMPLEX16FrequencySeries(hlm, 0, TDlen)
+            if truncated:
+                hlm.data.data[0] = 0
+            out[mode] = hlm
+        return out
 
     if P.approx in {lalsimutils.lalNRHybSur3dq8, lalsimutils.lalIMRPhenomD}:
         hlms_struct = lalsimutils.hlmoff(P, Lmax=Lmax)
