@@ -465,7 +465,15 @@ class MCSampler(object):
         if (self.integrator is not None and isinstance(self.integrator.n_comp, int)
                 and self.integrator.n_comp > 0):
             n_comp = self.integrator.n_comp
-        self.setup(n_comp=int(n_comp), correlate_all_dims=True)
+        # CARRY THE COVERAGE CONFIG THROUGH.  setup() rebuilds the integrator from its kwargs,
+        # so calling it bare here reset gmm_defensive_all_paths to False and refitted the warm
+        # GMM with NO defensive component -- after the portfolio had already decided, on the
+        # strength of that flag, that it was safe to contract its AV member.  The guarantee has
+        # to survive the sampler's own lifecycle, not just its initial setup.
+        _prev = getattr(self, 'integrator', None)
+        self.setup(n_comp=int(n_comp), correlate_all_dims=True,
+                   gmm_defensive_frac=getattr(_prev, 'gmm_defensive_frac', 0.05),
+                   gmm_defensive_all_paths=getattr(_prev, 'gmm_defensive_all_paths', False))
         rvs = {p: samples[:, j] for j, p in enumerate(self.params_ordered)}
         # equal weights == "put proposal mass at these seed locations" (no lnL info)
         self.update_sampling_prior(self.xpy.zeros(len(samples)), len(samples),

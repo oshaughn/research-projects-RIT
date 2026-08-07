@@ -494,6 +494,68 @@ def test_every_fit_path_installs_the_defensive_component():
         "defensive_frac=0 must never report coverage"
 
 
+def _far_density(model, d):
+    return float(np.asarray(model.score(np.full((1, d), 4.9))).flatten()[0])
+
+
+def test_defensive_component_survives_repeated_updates():
+    """Coverage must hold through the LIFECYCLE, not just at installation.
+
+    gmm._merge() blends component i with the freshly fitted component order[i] for every i and
+    never consults self.adapt -- so the broad component, marked adapt=False precisely so it would
+    be left alone, was dragged toward the fitted cloud on every update.  Its mean, covariance and
+    weight drifted while `defensive_frac` stayed set, so has_unbounded_support kept reporting
+    coverage that no longer existed.  Assert on the actual far-field density and on the
+    component's own parameters, not on the marker."""
+    import RIFT.integrators.gaussian_mixture_model as _GMM
+    rng = np.random.RandomState(0)
+    d = 4
+    bounds = np.repeat([[-5., 5.]], d, axis=0)
+    m = _GMM.gmm(2, bounds)
+    m.fit(rng.normal(0, 0.2, size=(1500, d)), log_sample_weights=np.zeros(1500))
+    _GMM.add_defensive_component(m, defensive_frac=0.05)
+
+    def _defensive():
+        w = np.asarray(m.identity_convert(m.weights)).flatten()[-1]
+        mu = np.asarray(m.identity_convert(m.means[-1])).flatten()
+        cov = np.asarray(m.identity_convert(m.covariances[-1]))
+        return float(w), mu, cov
+
+    d0 = _far_density(m, d)
+    w0, mu0, cov0 = _defensive()
+    for _ in range(4):
+        m.update(rng.normal(0, 0.2, size=(800, d)), log_sample_weights=np.zeros(800))
+        assert _far_density(m, d) > 0.2 * d0, (
+            "far-field density collapsed after an update: {:.3g} -> {:.3g}".format(
+                d0, _far_density(m, d)))
+    w1, mu1, cov1 = _defensive()
+    assert abs(w1 - w0) < 1e-9, "defensive weight drifted {:.4f} -> {:.4f}".format(w0, w1)
+    assert np.allclose(mu1, mu0), "defensive mean drifted toward the fitted cloud"
+    assert np.allclose(cov1, cov0), "defensive covariance drifted toward the fitted cloud"
+
+
+def test_warm_bootstrap_preserves_the_defensive_opt_in():
+    """bootstrap_from_samples() re-runs setup(), which rebuilds the integrator from its kwargs.
+    Calling it bare reset gmm_defensive_all_paths to False and refitted the warm GMM with no
+    defensive component -- AFTER the portfolio had already decided, on the strength of that flag,
+    that it was safe to contract its AV member."""
+    d = 4
+    s = mcsP.MCSampler(portfolio=[mcsAV, mcsGMM])
+    for i in range(d):
+        p = "x%d" % i
+        s.add_parameter(p, _flat(p), prior_pdf=_flat(p), left_limit=-5., right_limit=5.,
+                        adaptive_sampling=True)
+    s.setup()
+    gmm = s.portfolio_realizations[1]
+    assert gmm.integrator.gmm_defensive_all_paths is True, "portfolio did not opt its member in"
+    rng = np.random.RandomState(1)
+    s.bootstrap_from_samples(rng.normal(0, 0.2, size=(1200, d)), cover_frac=0.5)
+    assert gmm.integrator.gmm_defensive_all_paths is True, \
+        "warm bootstrap reset the defensive opt-in"
+    assert gmm.has_unbounded_support is True, \
+        "member stopped guaranteeing coverage after a warm bootstrap, while AV stays contracted"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith('test_'):
