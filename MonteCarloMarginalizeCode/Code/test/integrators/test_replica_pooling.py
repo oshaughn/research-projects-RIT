@@ -184,6 +184,45 @@ def test_fairdraw_blocks_are_not_weighted_twice():
     assert DRV._kish_neff_of_rvs(naive) < 0.5 * DRV._kish_neff_of_rvs(pooled)
 
 
+
+
+def test_cached_log_weights_follow_the_pooled_components():
+    """The .dgrid and calibration-posterior exporters PREFER a cached `log_weights` column and only
+    fall back to the components.  mcsamplerPortfolio writes that column, so concatenating the
+    per-replica caches unchanged would hand those scientific outputs the ORIGINAL weights while the
+    evidence used the corrected ones -- replica rebalancing ignored, fairdraw blocks double-weighted
+    again, in exactly the products this pooling exists to make consistent."""
+    rng = numpy.random.RandomState(21)
+    a = _replica(rng, 3000, 0.0, 1.1)
+    b = _replica(rng, 3000, 0.4, 1.1)
+    for r in (a, b):        # a stale cache, as the portfolio would leave behind
+        r['log_weights'] = (numpy.asarray(r['log_integrand']) + numpy.asarray(r['log_joint_prior'])
+                            - numpy.asarray(r['log_joint_s_prior']))
+    stale_a = numpy.array(a['log_weights'])
+
+    pooled = DRV._pool_replica_rvs([a, b], _S(), rep_lnZ=[0.0, 0.4])
+    comp = (numpy.asarray(pooled['log_integrand']) + numpy.asarray(pooled['log_joint_prior'])
+            - numpy.asarray(pooled['log_joint_s_prior']))
+    assert numpy.allclose(pooled['log_weights'], comp), \
+        "cached log_weights disagree with the pooled components the estimate used"
+    # and it must actually have CHANGED -- otherwise the test would pass on the buggy code
+    assert not numpy.allclose(pooled['log_weights'][:len(stale_a)], stale_a), \
+        "pooled log_weights are the stale per-replica values; the cache was not rebuilt"
+
+
+def test_cached_weights_follow_a_flat_fairdraw_block():
+    """The case that matters most: a fairdraw block's cache must become constant too, or the
+    exporters reapply the weights the resampling already used."""
+    rng = numpy.random.RandomState(22)
+    raw = _replica(rng, 4000, 0.0, 1.3)
+    fd = _fairdraw(rng, raw)
+    fd['log_weights'] = (numpy.asarray(fd['log_integrand']) + numpy.asarray(fd['log_joint_prior'])
+                         - numpy.asarray(fd['log_joint_s_prior']))
+    pooled = DRV._pool_replica_rvs([fd, fd], _S(), rep_lnZ=[0.0, 0.0], already_resampled=True)
+    assert numpy.ptp(pooled['log_weights']) < 1e-9, \
+        "fairdraw block's cached log_weights are not constant: exporters would double-weight it"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

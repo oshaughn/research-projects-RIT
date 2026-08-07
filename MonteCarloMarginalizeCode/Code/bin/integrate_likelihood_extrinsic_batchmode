@@ -2038,6 +2038,37 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False):
                 cols[k].append(v)
         for k in keys:
             out[k] = numpy.concatenate(cols[k]) if cols[k] else numpy.array([])
+        # CACHED WEIGHTS MUST FOLLOW THE COMPONENTS.  _rvs may carry a precomputed 'log_weights'
+        # (mcsamplerPortfolio writes one), and the .dgrid and calibration-posterior exporters
+        # PREFER it -- they only fall back to log_integrand + log_joint_prior - log_joint_s_prior
+        # when it is absent.  Concatenating the per-replica caches unchanged would hand those
+        # scientific outputs the ORIGINAL weights while the estimate used the corrected ones:
+        # replica rebalancing ignored, and fairdraw blocks double-weighted again in exactly the
+        # products this pooling exists to make consistent.  Recompute from the canonical columns.
+        _lw_pooled = None
+        if all(k in out for k in ('log_integrand', 'log_joint_prior', 'log_joint_s_prior')):
+            _lw_pooled = (numpy.asarray(out['log_integrand'], dtype=float)
+                          + numpy.asarray(out['log_joint_prior'], dtype=float)
+                          - numpy.asarray(out['log_joint_s_prior'], dtype=float))
+        elif all(k in out for k in ('integrand', 'joint_prior', 'joint_s_prior')):
+            _ig = numpy.asarray(out['integrand'], dtype=float)
+            _jp = numpy.asarray(out['joint_prior'], dtype=float)
+            _js = numpy.asarray(out['joint_s_prior'], dtype=float)
+            _ok = (_ig > 0) & (_jp > 0) & (_js > 0)
+            _lw_pooled = numpy.full(len(_ig), -numpy.inf)
+            _lw_pooled[_ok] = numpy.log(_ig[_ok]) + numpy.log(_jp[_ok]) - numpy.log(_js[_ok])
+        if _lw_pooled is not None:
+            if 'log_weights' in out:
+                out['log_weights'] = _lw_pooled
+            if 'weights' in out:
+                out['weights'] = numpy.exp(_lw_pooled - numpy.max(_lw_pooled[numpy.isfinite(_lw_pooled)]))
+        elif 'log_weights' in out or 'weights' in out:
+            # cannot rebuild them -> DROP, so consumers fall through to whatever components exist
+            # rather than silently trusting a stale cache.
+            out.pop('log_weights', None)
+            out.pop('weights', None)
+            print(" [mc error] pooled record: dropped stale cached weights (components unavailable"
+                  " to rebuild them); consumers will reconstruct from what remains")
     except Exception as e:
         print(" [mc error] pooling failed ({}); exporting the FIRST replica".format(e))
         return rep_rvs[0]
