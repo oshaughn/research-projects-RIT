@@ -119,8 +119,13 @@ def main(argv=None):
         worse = same = 0
         detail = []
         for s in seeds:
-            rb = _rerun(opts.base_checkout, brec, s, opts.jobs, "base") if brec else None
-            rc = _rerun(opts.cand_checkout, crec, s, opts.jobs, "cand") if crec else None
+            # The cell to re-run is defined by whichever record exists -- for a
+            # REGRESSION(missing-in-candidate) row the candidate has no record, but the base
+            # record still tells us which (kind, dim, ncomp, seed) to run, so the candidate CAN
+            # and must be re-tested rather than written off.
+            spec = brec if brec is not None else crec
+            rb = _rerun(opts.base_checkout, spec, s, opts.jobs, "base")
+            rc = _rerun(opts.cand_checkout, spec, s, opts.jobs, "cand")
             if rc is None and rb is None:
                 detail.append("seed {}: BOTH reruns produced no record (no evidence either way)"
                               .format(s))

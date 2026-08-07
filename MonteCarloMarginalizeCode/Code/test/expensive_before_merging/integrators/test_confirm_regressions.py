@@ -88,6 +88,30 @@ def test_real_regression_is_confirmed():
     assert rc == 1, "a reproducible 20x n_eff drop was not confirmed (rc={})".format(rc)
 
 
+
+
+def test_missing_candidate_record_is_a_blocking_regression():
+    """A candidate that emits no record for a strict row must BLOCK.
+
+    Classified as ONLY-IN-BASE it was not a regression, so it never reached confirmation and the
+    gate exited 0 -- a candidate crashing before its first result would bypass the fail-closed
+    rerun logic entirely."""
+    b = _rec()
+    verdict, note = classify(b, None)
+    assert verdict.startswith("REGRESSION"), verdict
+    assert is_blocking(verdict, "GMM", STRICT), "missing candidate record did not block"
+    # and it must be picked up as a row to confirm
+    from compare_shape_results import blocking_keys
+    keys = blocking_keys({("GMM", "t"): b}, {}, STRICT)
+    assert keys == [("GMM", "t")], keys
+
+
+def test_extra_candidate_record_is_not_a_regression():
+    """The reverse direction is not a defect: a NEW row in the candidate must not block."""
+    verdict, _ = classify(None, _rec())
+    assert not verdict.startswith("REGRESSION"), verdict
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

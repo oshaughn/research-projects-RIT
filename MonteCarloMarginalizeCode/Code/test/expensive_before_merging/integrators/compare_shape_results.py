@@ -47,8 +47,14 @@ def classify(b, c):
     "no blocking regressions to confirm" and exited 0.  Two copies of this logic will always
     drift; there is now one.
     """
-    if b is None or c is None:
-        return "ONLY-IN-" + ("CANDIDATE" if b is None else "BASE"), ""
+    if c is None and b is not None:
+        # The candidate produced NO record for a row the base did.  That is a regression, not a
+        # bookkeeping curiosity: a candidate that crashes before emitting a result would otherwise
+        # be classified ONLY-IN-BASE, never reach confirmation, and exit the gate successfully --
+        # bypassing the fail-closed rerun logic entirely.
+        return "REGRESSION(missing-in-candidate)", "candidate produced no record for this row"
+    if b is None:
+        return "ONLY-IN-CANDIDATE", ""
     st_b, _ = evaluate(b)
     st_c, why_c = evaluate(c)
     sb, sc = _summ(b), _summ(c)
