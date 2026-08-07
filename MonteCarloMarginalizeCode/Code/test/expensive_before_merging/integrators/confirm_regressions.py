@@ -30,7 +30,11 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from shape_recovery import evaluate            # noqa: E402
+# The comparator OWNS the definition of "blocking".  Importing it -- rather than reimplementing
+# the PASS->non-PASS case, as this script first did -- is what keeps the two in step: the local
+# copy was blind to REGRESSION(metrics), so a real metric regression (measured: n_eff 448->210)
+# reported "no blocking regressions to confirm" and exited 0.
+from compare_shape_results import classify, is_blocking, blocking_keys   # noqa: E402
 
 
 def _key(r):
@@ -42,15 +46,7 @@ def _blocking(base_path, cand_path, strict):
         base = {_key(r): r for r in json.load(fh)}
     with open(cand_path) as fh:
         cand = {_key(r): r for r in json.load(fh)}
-    out = []
-    for k in sorted(set(base) & set(cand)):
-        if k[0] not in strict:
-            continue
-        st_b, _ = evaluate(base[k])
-        st_c, _ = evaluate(cand[k])
-        if st_b == "PASS" and st_c != "PASS":
-            out.append((k, base[k], cand[k]))
-    return out
+    return [(k, base.get(k), cand.get(k)) for k in blocking_keys(base, cand, strict)]
 
 
 def _rerun(checkout, rec, seed, jobs, tag):
@@ -97,6 +93,9 @@ def main(argv=None):
                     help="fresh run seeds per arm (default 3; use more for a near-threshold cell)")
     ap.add_argument("--seeds", default=None, help="explicit comma list, overrides --repeats")
     ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--min-valid", type=int, default=None,
+                    help="usable base/candidate pairs required for a verdict (default: all "
+                         "seeds). Fewer -> INCONCLUSIVE and exit 1, never a silent clear.")
     ap.add_argument("--strict-samplers",
                     default="AV,GMM,portfolio_warm,portfolio_seq,portfolio_seq_nobs")
     opts = ap.parse_args(argv)
@@ -104,6 +103,8 @@ def main(argv=None):
     strict = set(x.strip() for x in opts.strict_samplers.split(",") if x.strip())
     seeds = ([int(x) for x in opts.seeds.split(",")] if opts.seeds
              else [987654 + 1000 * (i + 1) for i in range(opts.repeats)])
+    if opts.min_valid is None:
+        opts.min_valid = len(seeds)
 
     disputed = _blocking(opts.base, opts.candidate, strict)
     if not disputed:
@@ -113,34 +114,62 @@ def main(argv=None):
         len(disputed), len(seeds), seeds))
 
     n_confirmed = 0
+    n_inconclusive = 0
     for k, brec, crec in disputed:
         worse = same = 0
         detail = []
         for s in seeds:
-            rb = _rerun(opts.base_checkout, brec, s, opts.jobs, "base")
-            rc = _rerun(opts.cand_checkout, crec, s, opts.jobs, "cand")
-            if rb is None or rc is None:
-                detail.append("seed {}: RERUN FAILED".format(s))
+            rb = _rerun(opts.base_checkout, brec, s, opts.jobs, "base") if brec else None
+            rc = _rerun(opts.cand_checkout, crec, s, opts.jobs, "cand") if crec else None
+            if rc is None and rb is None:
+                detail.append("seed {}: BOTH reruns produced no record (no evidence either way)"
+                              .format(s))
                 continue
-            sb = evaluate(rb)[0]
-            sc = evaluate(rc)[0]
-            if sb == "PASS" and sc != "PASS":
+            if rc is None:
+                # The CANDIDATE failed where the base did not.  That is not missing evidence, it
+                # IS the regression: crashing or emitting no record is worse than passing.
+                # Discarding it -- as this script first did -- let a candidate that failed on
+                # every seed be declared "not confirmed".
+                worse += 1
+                detail.append("seed {}: CANDIDATE PRODUCED NO RECORD (counts against candidate)"
+                              .format(s))
+                continue
+            if rb is None:
+                detail.append("seed {}: base rerun produced no record; pair unusable".format(s))
+                continue
+            # the SAME classifier the gate uses, so a metrics-only regression is judged here
+            # exactly as it was there
+            verdict, note = classify(rb, rc)
+            if is_blocking(verdict, k[0], strict):
                 worse += 1
             else:
                 same += 1
-            detail.append("seed {}: base={} cand={} (n_eff {:.0f} vs {:.0f})".format(
-                s, sb, sc, rb.get("n_eff", float("nan")), rc.get("n_eff", float("nan"))))
-        confirmed = worse > same
-        n_confirmed += int(confirmed)
+            detail.append("seed {}: {} (n_eff {:.0f} vs {:.0f}){}".format(
+                s, verdict, rb.get("n_eff", float("nan")), rc.get("n_eff", float("nan")),
+                "  [" + note + "]" if note else ""))
+
+        valid = worse + same
+        if valid < opts.min_valid:
+            status = ("INCONCLUSIVE -- {}/{} valid pairs, need {}: NOT cleared"
+                      .format(valid, len(seeds), opts.min_valid))
+            n_inconclusive += 1
+        elif worse > same:
+            status = "CONFIRMED REGRESSION -- BLOCKS ({} worse / {} not-worse)".format(worse, same)
+            n_confirmed += 1
+        else:
+            status = ("NOT CONFIRMED (realization noise; does not block) ({} worse / {} not-worse)"
+                      .format(worse, same))
         print("\n{} {}".format(k[0], k[1]))
         for d in detail:
             print("   " + d)
-        print("   -> {} ({} worse / {} not-worse across fresh seeds)".format(
-            "CONFIRMED REGRESSION -- BLOCKS" if confirmed
-            else "NOT CONFIRMED (realization noise; does not block)", worse, same))
+        print("   -> " + status)
 
     print("\n# confirmed blocking regressions: {}".format(n_confirmed))
-    return 1 if n_confirmed else 0
+    if n_inconclusive:
+        print("# INCONCLUSIVE rows (too few valid reruns): {}".format(n_inconclusive))
+    # Inconclusive must NOT read as success: we failed to obtain the evidence that would clear
+    # the row, so the gate stays red until a human looks.
+    return 1 if (n_confirmed or n_inconclusive) else 0
 
 
 if __name__ == "__main__":

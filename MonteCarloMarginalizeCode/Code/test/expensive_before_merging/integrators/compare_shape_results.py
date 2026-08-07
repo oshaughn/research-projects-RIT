@@ -38,6 +38,65 @@ def _summ(r):
                 neff=r["n_eff"])
 
 
+def classify(b, c):
+    """Return (verdict, note) for one base/candidate record pair.
+
+    SINGLE SOURCE OF TRUTH for what counts as a regression.  confirm_regressions.py
+    imports this: it previously reimplemented only the PASS->non-PASS case and was blind to
+    REGRESSION(metrics), so a real metric regression (measured: n_eff 448->210) produced
+    "no blocking regressions to confirm" and exited 0.  Two copies of this logic will always
+    drift; there is now one.
+    """
+    if b is None or c is None:
+        return "ONLY-IN-" + ("CANDIDATE" if b is None else "BASE"), ""
+    st_b, _ = evaluate(b)
+    st_c, why_c = evaluate(c)
+    sb, sc = _summ(b), _summ(c)
+    verdict, note = "OK", ""
+    if st_b == "PASS" and st_c != "PASS":
+        # includes healthy->STARVED: candidate lost the efficiency the
+        # base had on this target -> regression
+        verdict = "REGRESSION(pass->{})".format(st_c.lower())
+        note = "; ".join(why_c)
+    elif st_b != "PASS" and st_c == "PASS":
+        verdict = "IMPROVED({}->pass)".format(st_b.lower())
+    elif st_b == "STARVED" and st_c == "STARVED":
+        verdict = "BOTH-STARVED"
+    elif st_b == "STARVED" and st_c in ("FAIL", "ERROR"):
+        # base gave no shape information here; candidate at least reaches
+        # testability (or crashes) -- flag, don't block
+        verdict = "NEWLY-TESTABLE-" + st_c
+        note = "; ".join(why_c)
+    elif st_b in ("FAIL", "ERROR") and st_c != "PASS":
+        verdict = "PREEXISTING-FAIL"
+    elif sb and sc:
+        worse = []
+        for m, tol in TOL_WORSE.items():
+            if m == "neff_frac":
+                if sc["neff"] < TOL_WORSE["neff_frac"] * sb["neff"]:
+                    worse.append("n_eff {:.0f}->{:.0f}".format(sb["neff"], sc["neff"]))
+            elif sc[m] - sb[m] > tol:
+                worse.append("{} {:.3f}->{:.3f}".format(m, sb[m], sc[m]))
+        if worse:
+            verdict = "REGRESSION(metrics)"
+            note = "; ".join(worse)
+    return verdict, note
+
+
+def is_blocking(verdict, kind, strict):
+    return verdict.startswith("REGRESSION") and kind in strict
+
+
+def blocking_keys(base, cand, strict):
+    """Every (kind, target) the gate would BLOCK on -- both regression flavours."""
+    out = []
+    for k in sorted(set(base) | set(cand)):
+        v, _ = classify(base.get(k), cand.get(k))
+        if is_blocking(v, k[0], strict):
+            out.append(k)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("base")
@@ -46,6 +105,15 @@ def main():
     # regression there must block.  Note the intended asymmetry on first merge -- portfolio_seq
     # FAILs on a base without clear_warm_state and PASSes here, i.e. IMPROVED (non-blocking).
     # Its value is forward-looking: once this is the base, re-breaking the reset blocks.
+    # ENFORCEMENT.  Given both checkouts, a blocking regression is re-tested at fresh seeds
+    # before it is allowed to fail the gate, and THIS script's exit code reflects the confirmed
+    # verdict.  Without these the script only reports, and confirmation is advisory -- which is
+    # how the first version shipped: documented in the runner but never actually invoked.
+    ap.add_argument("--confirm-base-checkout", default=None,
+                    help="with --confirm-cand-checkout: re-test blocking rows at fresh seeds")
+    ap.add_argument("--confirm-cand-checkout", default=None)
+    ap.add_argument("--confirm-repeats", type=int, default=5)
+    ap.add_argument("--confirm-jobs", type=int, default=4)
     ap.add_argument("--strict-samplers",
                     default="AV,GMM,portfolio_warm,portfolio_seq,portfolio_seq_nobs")
     opts = ap.parse_args()
@@ -59,42 +127,8 @@ def main():
     n_block = 0
     rows = []
     for k in sorted(set(base) | set(cand)):
-        b, c = base.get(k), cand.get(k)
-        if b is None or c is None:
-            rows.append((k, "ONLY-IN-" + ("CANDIDATE" if b is None else "BASE"), ""))
-            continue
-        st_b, _ = evaluate(b)
-        st_c, why_c = evaluate(c)
-        sb, sc = _summ(b), _summ(c)
-        verdict, note = "OK", ""
-        if st_b == "PASS" and st_c != "PASS":
-            # includes healthy->STARVED: candidate lost the efficiency the
-            # base had on this target -> regression
-            verdict = "REGRESSION(pass->{})".format(st_c.lower())
-            note = "; ".join(why_c)
-        elif st_b != "PASS" and st_c == "PASS":
-            verdict = "IMPROVED({}->pass)".format(st_b.lower())
-        elif st_b == "STARVED" and st_c == "STARVED":
-            verdict = "BOTH-STARVED"
-        elif st_b == "STARVED" and st_c in ("FAIL", "ERROR"):
-            # base gave no shape information here; candidate at least reaches
-            # testability (or crashes) -- flag, don't block
-            verdict = "NEWLY-TESTABLE-" + st_c
-            note = "; ".join(why_c)
-        elif st_b in ("FAIL", "ERROR") and st_c != "PASS":
-            verdict = "PREEXISTING-FAIL"
-        elif sb and sc:
-            worse = []
-            for m, tol in TOL_WORSE.items():
-                if m == "neff_frac":
-                    if sc["neff"] < TOL_WORSE["neff_frac"] * sb["neff"]:
-                        worse.append("n_eff {:.0f}->{:.0f}".format(sb["neff"], sc["neff"]))
-                elif sc[m] - sb[m] > tol:
-                    worse.append("{} {:.3f}->{:.3f}".format(m, sb[m], sc[m]))
-            if worse:
-                verdict = "REGRESSION(metrics)"
-                note = "; ".join(worse)
-        blocking = verdict.startswith("REGRESSION") and k[0] in strict
+        verdict, note = classify(base.get(k), cand.get(k))
+        blocking = is_blocking(verdict, k[0], strict)
         if blocking:
             n_block += 1
         rows.append((k, verdict + ("  <-- BLOCKS MERGE" if blocking else ""), note))
@@ -103,7 +137,23 @@ def main():
         print("{:<10s} {:<16s} {} {}".format(kind, tgt, verdict,
                                              ("[" + note + "]") if note else ""))
     print("# blocking regressions (strict={}): {}".format(sorted(strict), n_block))
-    return 1 if n_block else 0
+    if not n_block:
+        return 0
+    if not (opts.confirm_base_checkout and opts.confirm_cand_checkout):
+        print("# NOT CONFIRMED AT FRESH SEEDS: pass --confirm-base-checkout/--confirm-cand-checkout\n"
+              "#   to re-test these rows before treating them as real.  Every threshold here is a\n"
+              "#   hard cut on a stochastic quantity, so a single blocking row is a hypothesis.")
+        return 1
+    import confirm_regressions
+    print("\n# re-testing {} blocking row(s) at {} fresh seeds per arm".format(
+        n_block, opts.confirm_repeats))
+    return confirm_regressions.main([
+        opts.base, opts.candidate,
+        "--base-checkout", opts.confirm_base_checkout,
+        "--cand-checkout", opts.confirm_cand_checkout,
+        "--repeats", str(opts.confirm_repeats),
+        "--jobs", str(opts.confirm_jobs),
+        "--strict-samplers", opts.strict_samplers])
 
 
 if __name__ == "__main__":
