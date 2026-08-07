@@ -85,8 +85,101 @@ def run_config(label, flags, jobs_spec, nmax_per_dim, neff, run_seed):
     return out
 
 
+def _verdict_of(v):
+    """The probe stores either a bare status or an (status, reasons) pair."""
+    return v if isinstance(v, str) else v[0]
+
+
+def is_probe_regression(base_verdict, flag_verdict):
+    """THE definition of an opt-in regression, used by both the summary and the confirmation.
+
+    Note it differs from compare_shape_results.is_blocking: this probe tolerates flag=STARVED,
+    because an opt-in path is allowed to trade efficiency on a target the default already
+    resolves.  Keeping one function rather than two copies is deliberate -- every silent-failure
+    bug in this review series came from two representations of one rule drifting apart.
+    """
+    bs, vs = _verdict_of(base_verdict), _verdict_of(flag_verdict)
+    return bs == "PASS" and vs not in ("PASS", "STARVED")
+
+
+def _run_one_cell(flags, job, nmax_per_dim, neff, run_seed):
+    """One (config, target) cell at one run seed.  Returns the record, or None if it did not run."""
+    d, nc, ts = job
+    try:
+        SR.build_sampler = patched_build(flags)
+        return SR.run_one("portfolio", SR.MixtureTarget(d, nc, ts),
+                          nmax_per_dim * d, neff, seed=run_seed)
+    except Exception as e:
+        print("     cell {} failed at seed {}: {}".format(job, run_seed, e))
+        return None
+
+
+def confirm_flagged(flagged, nmax_per_dim, neff, seeds, min_valid):
+    """Re-test flagged rows at FRESH seeds before letting them fail the run.
+
+    WHY.  This probe reuses the gate's thresholds and evaluate(), so it inherits the same
+    near-threshold realization sensitivity -- but it had no confirmation step, so one noisy row
+    failed a PR.  Measured: `adaptive_alloc ON / d4_n1_s303` reported base=PASS flag=FAIL on four
+    consecutive runs, reproduced identically against an unrelated base, and the same cell has read
+    n_eff 422 (PASS) and 46 (STARVED) on IDENTICAL code.  Re-running the same seed would reproduce
+    the same false verdict; only fresh seeds separate "the flag broke this" from "this cell
+    responds to its realization".
+
+    Fails closed, like confirm_regressions.py: a flag arm that produces no record counts AGAINST
+    the flag, and too few usable pairs is INCONCLUSIVE rather than a pass.
+    """
+    n_conf, n_inconc = 0, 0
+    for label, flags, job in flagged:
+        worse = same = 0
+        detail = []
+        for s in seeds:
+            r_off = _run_one_cell({}, job, nmax_per_dim, neff, s)
+            r_on = _run_one_cell(flags, job, nmax_per_dim, neff, s)
+            if r_off is None and r_on is None:
+                detail.append("seed {}: neither arm produced a record".format(s))
+                continue
+            if r_on is None:
+                worse += 1
+                detail.append("seed {}: FLAG ARM produced no record (counts against the flag)".format(s))
+                continue
+            if r_off is None:
+                detail.append("seed {}: default arm produced no record; pair unusable".format(s))
+                continue
+            v_off, v_on = SR.evaluate(r_off), SR.evaluate(r_on)
+            if is_probe_regression(v_off, v_on):
+                worse += 1
+            else:
+                same += 1
+            detail.append("seed {}: base={} flag={} (n_eff {:.0f} vs {:.0f})".format(
+                s, _verdict_of(v_off), _verdict_of(v_on),
+                float(r_off.get("n_eff", float("nan"))), float(r_on.get("n_eff", float("nan")))))
+        valid = worse + same
+        if valid < min_valid:
+            status = "INCONCLUSIVE -- {}/{} valid pairs, need {}: NOT cleared".format(
+                valid, len(seeds), min_valid)
+            n_inconc += 1
+        elif worse > same:
+            status = "CONFIRMED ({} worse / {} not-worse)".format(worse, same)
+            n_conf += 1
+        else:
+            status = "NOT CONFIRMED (realization noise) ({} worse / {} not-worse)".format(worse, same)
+        print("\n  {} d{}_n{}_s{}".format(label, job[0], job[1], job[2]))
+        for line in detail:
+            print("     " + line)
+        print("     -> " + status)
+    return n_conf, n_inconc
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--confirm-repeats", type=int, default=5,
+                    help="fresh run seeds per arm used to re-test a flagged row (default 5)")
+    ap.add_argument("--confirm-seeds", default=None, help="explicit comma list; overrides --confirm-repeats")
+    ap.add_argument("--confirm-min-valid", type=int, default=None,
+                    help="usable default/flag pairs required for a verdict (default: all seeds). "
+                         "Fewer -> INCONCLUSIVE and exit 1, never a silent clear.")
+    ap.add_argument("--no-confirm", action="store_true",
+                    help="skip confirmation; a flagged row fails immediately (old behaviour)")
     ap.add_argument("--dims", default="2,4")
     ap.add_argument("--ncomps", default="1,3")
     ap.add_argument("--seeds", default="303")
@@ -134,18 +227,36 @@ def main():
     print("\n# SUMMARY (verdict per target; opt-in must not regress vs flags OFF)")
     base = {k: (v, d) for k, v, d in results["flags OFF (default)"]}
     bad = 0
+    flagged = []
     for label, _ in configs[1:]:
         for key, rec, verdict in results[label]:
             b_rec, b_verdict = base[key]
             vs = verdict if isinstance(verdict, str) else verdict[0]
             bs = b_verdict if isinstance(b_verdict, str) else b_verdict[0]
             flag = ""
-            if bs == "PASS" and vs not in ("PASS", "STARVED"):
-                flag = "  <-- REGRESSION (base PASS -> {})".format(vs); bad += 1
+            if is_probe_regression(b_verdict, verdict):
+                flag = "  <-- FLAGGED (base PASS -> {})".format(vs); bad += 1
+                flagged.append((label, dict(configs)[label], key))
             print("  {:22s} d{}_n{}_s{}  base={:8s} flag={:8s}{}".format(
                 label, key[0], key[1], key[2], bs, vs, flag))
-    print("\n# opt-in regressions: {}".format(bad))
-    return 1 if bad else 0
+    print("\n# flagged rows: {}".format(bad))
+    if not bad:
+        return 0
+    if args.no_confirm:
+        print("# NOT CONFIRMED AT FRESH SEEDS (--no-confirm): treating flagged rows as regressions.\n"
+              "#   Every threshold here is a hard cut on a stochastic quantity, so a single flagged\n"
+              "#   row is a hypothesis; re-run without --no-confirm to test it.")
+        return 1
+    seeds = ([int(x) for x in args.confirm_seeds.split(",")] if args.confirm_seeds
+             else [args.run_seed + 1000 * (i + 1) for i in range(args.confirm_repeats)])
+    min_valid = args.confirm_min_valid if args.confirm_min_valid is not None else len(seeds)
+    print("\n# re-testing {} flagged row(s) at {} fresh seed(s) per arm: {}".format(
+        bad, len(seeds), seeds))
+    n_conf, n_inconc = confirm_flagged(flagged, nmax_per_dim, neff, seeds, min_valid)
+    print("\n# confirmed opt-in regressions: {}".format(n_conf))
+    if n_inconc:
+        print("# INCONCLUSIVE rows (too few valid reruns): {}".format(n_inconc))
+    return 1 if (n_conf or n_inconc) else 0
 
 
 if __name__ == "__main__":
