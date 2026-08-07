@@ -273,6 +273,72 @@ def test_adaptive_seeded_model_does_not_drift_across_reset():
     assert restored.tempering_coeff == 1.0, "point 2 inherited point 1's tempering state"
 
 
+def test_warm_start_keeps_a_backstop_when_every_member_is_compact():
+    """With no full-support member, a warm start must not narrow ALL of them.
+
+    `cover_frac` is not a coverage guarantee: a FINITE set of uniform points occupies only the
+    bins it lands in, so a seeded grid is not a superset of a cold start (measured at d=6, even
+    cover_frac=0.9 covers 2.9% of the box).  In an ALL-AV portfolio every component is a
+    hard-edged box, so seeding all of them removes the mixture's coverage of the prior box.
+    Member 0 -- the backstop restrict_member_range also refuses to narrow -- stays cold."""
+    d = 4
+    s = mcsP.MCSampler(portfolio=[mcsAV, mcsAV])
+    for i in range(d):
+        p = "x%d" % i
+        s.add_parameter(p, _flat(p), prior_pdf=_flat(p), left_limit=-5., right_limit=5.,
+                        adaptive_sampling=True)
+    s.setup()
+    rng = np.random.RandomState(1)
+    cloud = rng.normal(0, 0.2, size=(1500, d))     # a tight seed, as at high SNR
+    s.bootstrap_from_samples(cloud, cover_frac=0.5)
+    for i in (0, 1):
+        s.portfolio_realizations[i].draw_simplified(500)   # forces the seed onto the draw path
+    v0 = float(s.portfolio_realizations[0].V)
+    v1 = float(s.portfolio_realizations[1].V)
+    assert v0 >= 1.0, "the full-support backstop was narrowed by the warm start (V={})".format(v0)
+    assert v1 < 0.5, "member 1 was not actually warm-started (V={}); the test proves nothing".format(v1)
+
+
+def test_warm_start_backstop_opt_out_still_works():
+    """The old seed-everything behaviour must remain reachable, for A/B and for callers who
+    know their seed is right."""
+    d = 4
+    s = mcsP.MCSampler(portfolio=[mcsAV, mcsAV])
+    for i in range(d):
+        p = "x%d" % i
+        s.add_parameter(p, _flat(p), prior_pdf=_flat(p), left_limit=-5., right_limit=5.,
+                        adaptive_sampling=True)
+    s.setup()
+    rng = np.random.RandomState(1)
+    s.bootstrap_from_samples(rng.normal(0, 0.2, size=(1500, d)), cover_frac=0.5,
+                             keep_backstop_cold=False)
+    for i in (0, 1):
+        s.portfolio_realizations[i].draw_simplified(500)
+    assert float(s.portfolio_realizations[0].V) < 0.5, "opt-out did not seed member 0"
+
+
+def test_warm_start_does_not_sacrifice_av_when_a_gmm_is_present():
+    """The rule is "SOME member has support everywhere", not "member 0 is cold".
+
+    A GMM member carries an explicit uniform defensive component (gmm_defensive_frac, default
+    0.05) plus Gaussian tails, so q_mix never vanishes however it is seeded -- measured, a
+    displaced seed in [AV, GMM] left |lnZ bias| <= 0.05 either way.  Holding member 0 cold there
+    would disable the AV warm start entirely (member 0 IS the AV member) to buy a guarantee that
+    already exists.  The merge gate caught exactly that regression, so it is pinned here."""
+    d = 4
+    s = mcsP.MCSampler(portfolio=[mcsAV, mcsGMM])
+    for i in range(d):
+        p = "x%d" % i
+        s.add_parameter(p, _flat(p), prior_pdf=_flat(p), left_limit=-5., right_limit=5.,
+                        adaptive_sampling=True)
+    s.setup()
+    rng = np.random.RandomState(1)
+    s.bootstrap_from_samples(rng.normal(0, 0.2, size=(1500, d)), cover_frac=0.5)
+    s.portfolio_realizations[0].draw_simplified(500)
+    v0 = float(s.portfolio_realizations[0].V)
+    assert v0 < 0.5, ("the AV member was left cold even though a full-support GMM member is "
+                      "present: the warm start is disabled for no benefit (V={})".format(v0))
+
 def test_clear_warm_state_propagates_failures():
     """A reset that quietly did not happen leaves the next point on the previous point's grid.
     That must abort, not become a log line."""
@@ -288,6 +354,206 @@ def test_clear_warm_state_propagates_failures():
     except RuntimeError:
         return
     raise AssertionError("clear_warm_state swallowed a failed member reset")
+
+
+
+
+def _mk_dim_portfolio(members, d=4, restrict_member=None, **setup_kw):
+    s = mcsP.MCSampler(portfolio=list(members))
+    if restrict_member is not None:
+        for i in range(d):
+            s.restrict_member_range(restrict_member, "x%d" % i, -1., 1.)
+    for i in range(d):
+        p = "x%d" % i
+        s.add_parameter(p, _flat(p), prior_pdf=_flat(p), left_limit=-5., right_limit=5.,
+                        adaptive_sampling=True)
+    s.setup(**setup_kw)
+    return s
+
+
+def _warm_and_measure_member0(s, d=4):
+    rng = np.random.RandomState(1)
+    s.bootstrap_from_samples(rng.normal(0, 0.2, size=(1500, d)), cover_frac=0.5)
+    s.portfolio_realizations[0].draw_simplified(500)
+    return float(s.portfolio_realizations[0].V)
+
+
+def test_restricted_broad_member_does_not_count_as_the_backstop():
+    """A nominally full-support member that has been RANGE-RESTRICTED is confined to a sub-box,
+    so it no longer covers the prior and must not license contracting everyone else.
+
+    Without this, [unrestricted AV, restricted GMM] reported _full_support_members == [0] and then
+    warm-started member 0 anyway (measured V=0.095), leaving nothing covering the prior box."""
+    s = _mk_dim_portfolio([mcsAV, mcsGMM], restrict_member=1)
+    assert s._full_support_members == [0], s._full_support_members
+    v0 = _warm_and_measure_member0(s)
+    assert v0 >= 1.0, ("member 0 was contracted even though the only other member is "
+                       "range-restricted: nothing covers the prior box (V={})".format(v0))
+
+
+def test_full_support_capability_must_be_declared():
+    """Default FALSE.  Treating un-annotated samplers as full-support made any member that simply
+    had not been marked act as the coverage guarantee."""
+    class _Unannotated(object):
+        pass
+    assert getattr(_Unannotated(), 'has_unbounded_support', False) is False
+    assert mcsAV.MCSampler.has_unbounded_support is False
+
+
+def test_defensive_frac_zero_is_not_full_support():
+    """The GMM's guarantee is the UNIFORM DEFENSIVE COMPONENT, not Gaussian tails (which underflow
+    to exactly zero far from the mode).  With gmm_defensive_frac=0 it must not be counted."""
+    s = _mk_dim_portfolio([mcsAV, mcsGMM], gmm_defensive_frac=0.0)
+    assert s.portfolio_realizations[1].has_unbounded_support is False
+    v0 = _warm_and_measure_member0(s)
+    assert v0 >= 1.0, "member 0 contracted although no member guarantees coverage (V={})".format(v0)
+    # and the normal case still warm-starts everything
+    s2 = _mk_dim_portfolio([mcsAV, mcsGMM])
+    assert s2.portfolio_realizations[1].has_unbounded_support is True
+    assert _warm_and_measure_member0(s2) < 0.5
+
+
+_PORTFOLIO_ADAPTIVE_STATE = ('portfolio_weights', 'portfolio_quality', 'portfolio_quality_nobs',
+                             'portfolio_probe_ptr', 'portfolio_draw_iteration',
+                             'portfolio_breakpoints', 'portfolio_member_ness_history')
+
+
+def _adaptive_snapshot(s):
+    out = {}
+    for a in _PORTFOLIO_ADAPTIVE_STATE:
+        v = getattr(s, a, None)
+        # repr(), not np.array(): the n_ess histories are RAGGED (one list per member, different
+        # lengths), and np.array on a ragged nested list raises rather than comparing.
+        out[a] = repr(np.asarray(v).tolist()) if isinstance(v, np.ndarray) else repr(v)
+    return out
+
+
+def test_reset_adaptation_restores_all_portfolio_state():
+    """MC-error replicas must be adaptation-independent at the PORTFOLIO level too.
+
+    clear_warm_state() rebuilds the members, but the portfolio itself learns draw allocation,
+    per-member quality EMAs and their counts, the probe pointer, the iteration counter and the
+    n_ess histories.  A replica inheriting those starts with scheduling learned from earlier
+    replicas, so the between-replica scatter -- the very quantity the replicas exist to measure --
+    still understates the error."""
+    s = _mk_dim_portfolio([mcsAV, mcsGMM])
+    before = _adaptive_snapshot(s)
+
+    # simulate a run having adapted the portfolio-level bookkeeping
+    s.portfolio_weights = np.array([0.9, 0.1])
+    s.portfolio_quality = np.array([3.0, 0.2])
+    s.portfolio_quality_nobs = np.array([7, 4])
+    s.portfolio_probe_ptr = 5
+    s.portfolio_draw_iteration = 42
+    s.portfolio_member_ness_history = [[1.0, 2.0], [3.0]]
+
+    s.reset_adaptation()
+    after = _adaptive_snapshot(s)
+    diffs = [a for a in _PORTFOLIO_ADAPTIVE_STATE if before[a] != after[a]]
+    assert not diffs, "reset_adaptation left portfolio state carried over: {}".format(
+        {a: (before[a], after[a]) for a in diffs})
+
+
+
+
+def test_every_fit_path_installs_the_defensive_component():
+    """The portfolio's coverage guarantee rests on this, so it must hold on EVERY fit path.
+
+    `gmm_defensive_frac > 0` is only a request: add_defensive_component() was called by
+    fit_gmm_adaptive but NOT by the fixed-component paths, and gmm_adaptive defaults to off -- so
+    the default configuration asked for a defensive component and never installed one.  Worse,
+    gmm.score() floors at 1e-300, so the member still LOOKED like it had support everywhere; a
+    sample landing there would carry weight ~1e300.  Measured: a fixed-component fit to a tight
+    cloud returned exactly that floor at the far corner for every d >= 4.
+
+    has_unbounded_support trusts the config while untrained, which is only sound while this holds.
+    """
+    import RIFT.integrators.gaussian_mixture_model as _GMM
+    rng = np.random.RandomState(0)
+    for d in (2, 6):
+        bounds = np.repeat([[-5., 5.]], d, axis=0)
+        X = rng.normal(0, 0.2, size=(1500, d))
+        far = np.full((1, d), 4.9)
+
+        m = _GMM.gmm(2, bounds)
+        m.fit(X, log_sample_weights=np.zeros(len(X)))
+        floored = float(np.asarray(m.score(far)).flatten()[0])
+        _GMM.add_defensive_component(m, defensive_frac=0.05)
+        real = float(np.asarray(m.score(far)).flatten()[0])
+        assert getattr(m, 'defensive_frac', 0.0) > 0, "marker not set at d={}".format(d)
+        assert real > 1e6 * max(floored, 1e-300), (
+            "defensive component gave no real far-field density at d={}: {:.3g} -> {:.3g}".format(
+                d, floored, real))
+
+    # and a member trained through the DEFAULT portfolio path must report the capability honestly
+    s = _mk_dim_portfolio([mcsAV, mcsGMM], d=2)
+    gmm = s.portfolio_realizations[1]
+    assert gmm.has_unbounded_support is True, "untrained default member should trust the config"
+    s2 = _mk_dim_portfolio([mcsAV, mcsGMM], d=2, gmm_defensive_frac=0.0)
+    assert s2.portfolio_realizations[1].has_unbounded_support is False, \
+        "defensive_frac=0 must never report coverage"
+
+
+def _far_density(model, d):
+    return float(np.asarray(model.score(np.full((1, d), 4.9))).flatten()[0])
+
+
+def test_defensive_component_survives_repeated_updates():
+    """Coverage must hold through the LIFECYCLE, not just at installation.
+
+    gmm._merge() blends component i with the freshly fitted component order[i] for every i and
+    never consults self.adapt -- so the broad component, marked adapt=False precisely so it would
+    be left alone, was dragged toward the fitted cloud on every update.  Its mean, covariance and
+    weight drifted while `defensive_frac` stayed set, so has_unbounded_support kept reporting
+    coverage that no longer existed.  Assert on the actual far-field density and on the
+    component's own parameters, not on the marker."""
+    import RIFT.integrators.gaussian_mixture_model as _GMM
+    rng = np.random.RandomState(0)
+    d = 4
+    bounds = np.repeat([[-5., 5.]], d, axis=0)
+    m = _GMM.gmm(2, bounds)
+    m.fit(rng.normal(0, 0.2, size=(1500, d)), log_sample_weights=np.zeros(1500))
+    _GMM.add_defensive_component(m, defensive_frac=0.05)
+
+    def _defensive():
+        w = np.asarray(m.identity_convert(m.weights)).flatten()[-1]
+        mu = np.asarray(m.identity_convert(m.means[-1])).flatten()
+        cov = np.asarray(m.identity_convert(m.covariances[-1]))
+        return float(w), mu, cov
+
+    d0 = _far_density(m, d)
+    w0, mu0, cov0 = _defensive()
+    for _ in range(4):
+        m.update(rng.normal(0, 0.2, size=(800, d)), log_sample_weights=np.zeros(800))
+        assert _far_density(m, d) > 0.2 * d0, (
+            "far-field density collapsed after an update: {:.3g} -> {:.3g}".format(
+                d0, _far_density(m, d)))
+    w1, mu1, cov1 = _defensive()
+    assert abs(w1 - w0) < 1e-9, "defensive weight drifted {:.4f} -> {:.4f}".format(w0, w1)
+    assert np.allclose(mu1, mu0), "defensive mean drifted toward the fitted cloud"
+    assert np.allclose(cov1, cov0), "defensive covariance drifted toward the fitted cloud"
+
+
+def test_warm_bootstrap_preserves_the_defensive_opt_in():
+    """bootstrap_from_samples() re-runs setup(), which rebuilds the integrator from its kwargs.
+    Calling it bare reset gmm_defensive_all_paths to False and refitted the warm GMM with no
+    defensive component -- AFTER the portfolio had already decided, on the strength of that flag,
+    that it was safe to contract its AV member."""
+    d = 4
+    s = mcsP.MCSampler(portfolio=[mcsAV, mcsGMM])
+    for i in range(d):
+        p = "x%d" % i
+        s.add_parameter(p, _flat(p), prior_pdf=_flat(p), left_limit=-5., right_limit=5.,
+                        adaptive_sampling=True)
+    s.setup()
+    gmm = s.portfolio_realizations[1]
+    assert gmm.integrator.gmm_defensive_all_paths is True, "portfolio did not opt its member in"
+    rng = np.random.RandomState(1)
+    s.bootstrap_from_samples(rng.normal(0, 0.2, size=(1200, d)), cover_frac=0.5)
+    assert gmm.integrator.gmm_defensive_all_paths is True, \
+        "warm bootstrap reset the defensive opt-in"
+    assert gmm.has_unbounded_support is True, \
+        "member stopped guaranteeing coverage after a warm bootstrap, while AV stays contracted"
 
 
 if __name__ == "__main__":

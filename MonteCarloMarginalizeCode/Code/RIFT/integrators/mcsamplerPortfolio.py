@@ -271,6 +271,11 @@ class MCSampler(object):
         self._has_restricted_member = False
         self._full_support_members = []
         self._pending_range_overrides = set()  # (member, param) awaiting add_parameter; see setup()
+        # Keep the full-support backstop COLD when warm-starting.  Seeding every member removes
+        # the mixture's coverage of the prior box (cover_frac cannot restore it -- see
+        # bootstrap_from_samples), which turns a mis-placed seed from an efficiency cost into a
+        # silent low bias.  Set False to restore the old seed-everything behaviour.
+        self.portfolio_warmstart_backstop_cold = True
         self.portfolio_quality = np.ones(len(self.portfolio))   # per-member quality (EMA of the signal)
         self.portfolio_quality_nobs = np.zeros(len(self.portfolio), dtype=int)  # #updates per member
         self.portfolio_probe_ptr = 0                            # round-robin probe pointer
@@ -737,12 +742,46 @@ class MCSampler(object):
                     escape_n_eval=np.asarray(getattr(self, 'portfolio_escape_nsamp',
                                                      np.zeros(n_mem))))
 
-    def bootstrap_from_samples(self, samples, params=None, **kwargs):
+
+    def reset_adaptation(self):
+        """FULL reset: member proposals AND the portfolio's own adaptive bookkeeping.
+
+        clear_warm_state() rebuilds the MEMBERS, but the portfolio itself also learns during a run
+        -- draw allocation, per-member quality EMAs and their observation counts, the round-robin
+        probe pointer, the iteration counter, breakpoint progression and the per-member n_ess
+        histories.  MC-error replicas that inherit those start with scheduling learned from the
+        earlier replicas, so they are not adaptation-independent and the between-replica scatter
+        still understates the true error -- which is the entire quantity the replicas exist to
+        measure.  Restores every field to its post-setup value.
+        """
+        self.clear_warm_state()
+        n = len(self.portfolio)
+        # draw allocation: back to uniform (or the caller's explicit initial weights)
+        w0 = getattr(self, '_portfolio_weights_initial', None)
+        self.portfolio_weights = np.array(w0) if w0 is not None else np.ones(n) / (1.0 * n)
+        self.portfolio_quality = np.ones(n)
+        self.portfolio_quality_nobs = np.zeros(n, dtype=int)
+        self.portfolio_probe_ptr = 0
+        self.portfolio_draw_iteration = 0
+        self.portfolio_member_ness_history = [[] for _ in range(n)]
+        # breakpoints are a SCHEDULE (set at setup), not learned state: restore the schedule that
+        # setup() installed rather than zeroing it, or a replica would activate members on a
+        # different iteration than the first run did.
+        bp0 = getattr(self, '_portfolio_breakpoints_initial', None)
+        if bp0 is not None:
+            self.portfolio_breakpoints = np.array(bp0)
+        for _attr in ('portfolio_frozen', 'portfolio_grace_left', 'portfolio_last_revive'):
+            _v0 = getattr(self, '_' + _attr + '_initial', None)
+            if _v0 is not None:
+                setattr(self, _attr, np.array(_v0) if hasattr(_v0, '__len__') else _v0)
+
+    def bootstrap_from_samples(self, samples, params=None, keep_backstop_cold=None, **kwargs):
         """Warm-start: forward a seed cloud to every member that supports it (e.g. the
-        AV/VARAHA member's live volume).  Members without bootstrap_from_samples are left
-        cold.  This is safe: a warm start only ever shapes a member's proposal, and the
-        portfolio combines members with the balance-heuristic mixture density (q_mix), so a
-        cold or mis-seeded member can only cost efficiency, never bias the estimate.  Column
+        AV/VARAHA member's live volume), EXCEPT the full-support backstop (see below).
+        Members without bootstrap_from_samples are left cold.  A warm start only shapes a
+        member's proposal, and the portfolio combines members with the balance-heuristic
+        mixture density (q_mix), so a mis-seeded member costs efficiency rather than bias --
+        BUT ONLY WHILE SOME MEMBER STILL COVERS THE SUPPORT.  Column
         order matches self.params_ordered, which every member shares (add_parameter forwards
         to all members in the same order), so no per-member remapping is needed.
 
@@ -755,10 +794,85 @@ class MCSampler(object):
         explicit GMM pre-seed (build an initial gmm_dict from the sample cloud) is a future
         enhancement.  q_mix keeps any cold/mis-seeded member from biasing the estimate.
 
+        THE BACKSTOP MUST STAY COLD.  Seeding EVERY member destroys the coverage invariant the
+        whole design rests on.  `cover_frac` does not save it: it mixes a FINITE number of uniform
+        points into the seed, and a finite point set occupies only the bins it lands in, so the
+        seeded live volume is NOT a superset of a cold start.  Measured on a tight seed in the
+        [-5,5]^d box -- fraction of the prior box covered, against 1.0 cold:
+
+            d=2:  cover_frac 0.0 / 0.2 / 0.5 / 0.9  ->  0.027 / 0.634 / 0.982 / 1.000
+            d=4:                                    ->  0.0015 / 0.028 / 0.104 / 0.620
+            d=6:                                    ->  6.3e-05 / 0.00087 / 0.0033 / 0.0287
+
+        so at d=6 even cover_frac=0.9 leaves 97% of the box unsampled.  Before this change a
+        portfolio warm start narrowed member 0 to V=0.0033 along with everyone else.  Keeping
+        member 0 (the designated backstop, which restrict_member_range also refuses to narrow)
+        cold makes the mixture-level guarantee TRUE instead of merely asserted.
+
+        BE PRECISE ABOUT WHAT THIS BUYS, because the measurements are not what one expects:
+
+          * With a CORRECT seed it is nearly free -- n_eff 3630/3466/5695 cold-backstop vs
+            3876/3461/5621 seeded at d=4, and 5078/5689/5163 vs 5857/5387/5266 at d=6.  Within
+            run-to-run scatter, so it is cheap insurance.  That is the case for the default.
+          * It is NOT what protects the DEFAULT AV+GMM portfolio.  The GMM member is a Gaussian
+            mixture with nonzero density over the whole box, so q_mix never vanishes there
+            regardless of this setting.  With a deliberately displaced seed, |lnZ bias| stayed
+            <= 0.05 in every d=4 and d=6 run in BOTH arms.  That unbounded support is the real
+            (previously undocumented) reason production has not been biased by warm starts.
+          * It does NOT rescue a badly mismatched seed.  In an ALL-AV portfolio (every component
+            a hard-edged box) with a displaced seed at d=6, the cold backstop still gave lnZ bias
+            -1.1 to -4.2 nats with n_eff 3-9, versus -1.0 to -6.8 seeded.  A uniform member finds
+            a sharp 6-D peak too rarely to carry the integral within budget.  Coverage in
+            principle is necessary, not sufficient -- for a mismatched seed the mitigations are
+            detection (L0 rescue) and not warm-starting across dissimilar points.
+
+        `keep_backstop_cold`: None (default) uses self.portfolio_warmstart_backstop_cold, itself
+        True by default; pass False to restore the old seed-everything behaviour.
+
         Returns the number of members warm-started (0 is fine; the portfolio still runs)."""
         samples = np.asarray(samples)
+        if keep_backstop_cold is None:
+            keep_backstop_cold = bool(getattr(self, 'portfolio_warmstart_backstop_cold', True))
+        # Which members must retain full support?  If range restriction is in play it already
+        # computed them; otherwise it is member 0 by the same convention.
+        # The invariant is NOT "member 0 must be cold" -- it is "SOME member must have support
+        # everywhere".  A GMM/ensemble member satisfies that inherently: it carries an explicit
+        # uniform defensive component (gmm_defensive_frac, default 0.05) plus Gaussian tails, so
+        # q_mix never vanishes however it is seeded.  Measured: in the default [AV, GMM] portfolio
+        # a deliberately displaced seed left |lnZ bias| <= 0.05 whether or not a member was held
+        # cold, while an ALL-AV portfolio gave -1.0 to -6.8 nats.
+        # So hold a member cold ONLY when EVERY member has compact support.  Doing it
+        # unconditionally disables the AV warm start in [AV, GMM] -- member 0 IS the AV member --
+        # to buy a guarantee the GMM member already provides.  The merge gate caught exactly that.
+        # Default FALSE: a sampler must DECLARE full support to be counted.  Defaulting to True
+        # meant any member that simply had not been annotated was treated as the coverage
+        # guarantee -- the safe default is to assume compact and keep a cold backstop.
+        # And a nominally broad member does NOT count if it has been RANGE-RESTRICTED: its
+        # proposal is confined to a sub-box, so it no longer covers the prior.  Without this,
+        # [unrestricted AV, restricted GMM] reported _full_support_members == [0] and then
+        # warm-started and contracted member 0 anyway, leaving nothing covering the prior box --
+        # the silent low bias this whole mechanism exists to prevent.
+        if getattr(self, '_has_restricted_member', False):
+            _unrestricted = set(getattr(self, '_full_support_members', []) or [])
+        else:
+            _unrestricted = set(range(len(self.portfolio_realizations)))
+        _has_broad = any(getattr(m, 'has_unbounded_support', False) and (i in _unrestricted)
+                         for i, m in enumerate(self.portfolio_realizations))
+        if keep_backstop_cold and _has_broad:
+            keep_backstop_cold = False
+            print("  [portfolio] warm-starting all members: a full-support member is present "
+                  "(defensive mixture), so no cold backstop is needed")
+        _backstop = set(getattr(self, '_full_support_members', None) or [0]) if keep_backstop_cold else set()
+        if len(_backstop) >= len(self.portfolio_realizations):
+            _backstop = set([0])   # never refuse to warm-start EVERY member
+        self._warmstart_backstop_cold = sorted(_backstop)
         n_warmed = 0
         for indx, member in enumerate(self.portfolio_realizations):
+            if indx in _backstop:
+                print("  [portfolio] member {} kept COLD as the full-support backstop "
+                      "(cover_frac cannot make a seeded grid cover the prior box; see "
+                      "bootstrap_from_samples docstring)".format(indx))
+                continue
             if not hasattr(member, 'bootstrap_from_samples'):
                 continue
             try:
@@ -793,6 +907,7 @@ class MCSampler(object):
         _kw_keep('portfolio_weight_clip')
         _kw_keep('portfolio_varaha_min_frac')
         _kw_keep('portfolio_varaha_max_frac')
+        _kw_keep('portfolio_warmstart_backstop_cold')
         if 'oracle_realizations' in kwargs:
           if kwargs['oracle_realizations']: 
             self.oracle_realizations = kwargs['oracle_realizations']  # might not have been initialized earlier
@@ -868,6 +983,16 @@ class MCSampler(object):
             self._full_support_members = [i for i in range(len(self.portfolio_realizations))
                                           if i not in _restricted_set]
 
+        # Snapshot the post-setup values of everything reset_adaptation() restores, so a replica
+        # returns to THIS state rather than to a hard-coded guess.
+        self._portfolio_weights_initial = np.array(self.portfolio_weights)
+        self._portfolio_breakpoints_initial = np.array(self.portfolio_breakpoints)
+        for _attr in ('portfolio_frozen', 'portfolio_grace_left', 'portfolio_last_revive'):
+            if hasattr(self, _attr):
+                _v = getattr(self, _attr)
+                setattr(self, '_' + _attr + '_initial',
+                        np.array(_v) if hasattr(_v, '__len__') else _v)
+
         # CONSUMED CHECK.  restrict_member_range() only takes effect if it was called BEFORE
         # add_parameter forwarded that parameter to the members.  A restriction naming a parameter
         # that never arrives (typo, or the call came too late) used to be a SILENT no-op: the caller
@@ -900,6 +1025,10 @@ class MCSampler(object):
               args_here.update(kwargs)
               args_here.update(portfolio_extra_args[indx])
               # snapshot BEFORE setup: the member (or its integrator) may mutate these in place
+              # A portfolio member may be the mixture's ONLY full-support component, so ask for
+              # the defensive component on every fit path for OUR members.  Standalone users of
+              # the same sampler are unaffected -- measured, it costs real n_eff at d>=6.
+              args_here.setdefault('gmm_defensive_all_paths', True)
               self._member_setup_args[indx] = self._snapshot_setup_args(args_here)
               member.setup(**args_here)
         for indx, member in enumerate(self.oracle_realizations):

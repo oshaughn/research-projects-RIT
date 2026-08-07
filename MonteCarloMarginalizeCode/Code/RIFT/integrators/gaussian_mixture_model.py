@@ -545,10 +545,38 @@ class gmm:
         '''
         return _near_psd_impl(x, self.epsilon, self.xpy)
 
+    def _strip_defensive_component(self):
+        """Detach the defensive component (always appended last) and renormalize the rest."""
+        if self.k <= 1:
+            return 0.0
+        dfrac = float(getattr(self, 'defensive_frac', 0.0) or 0.0)
+        w = np.asarray(self.identity_convert(self.weights), dtype=float)[:-1]
+        means = [self.identity_convert(m) for m in self.means][:-1]
+        covs = [self.identity_convert(c) for c in self.covariances][:-1]
+        s = w.sum()
+        w = w / s if s > 0 else np.ones(len(w)) / max(len(w), 1)
+        self.means = [self.identity_convert_togpu(m) for m in means]
+        self.covariances = [self.identity_convert_togpu(c) for c in covs]
+        self.weights = self.identity_convert_togpu(w)
+        if isinstance(self.adapt, list):
+            self.adapt = list(self.adapt)[:-1]
+        self.k = len(means)
+        self.defensive_frac = 0.0
+        return dfrac
+
     def update(self, sample_array, log_sample_weights=None):
         '''
         Updates the model with new data without doing a full retraining.
         '''
+        # PROTECT THE DEFENSIVE COMPONENT.  _merge() blends component i of this model with
+        # component order[i] of the freshly fitted one for every i in range(self.k); it does NOT
+        # consult self.adapt.  So the broad box-covering component -- marked adapt=False by
+        # add_defensive_component precisely so it would be left alone -- was dragged toward the
+        # fitted cloud on every update: its mean, covariance and weight drifted while
+        # defensive_frac stayed set, so has_unbounded_support kept reporting coverage that no
+        # longer existed.  Detach it, update the real components, then reinstate it.
+        _dfrac = self._strip_defensive_component() if (
+            getattr(self, 'defensive_frac', 0.0) or 0.0) > 0 else 0.0
         # halve the covariance regularizer but FLOOR it: an unbounded decay
         # (the legacy behavior) eventually leaves sharp refits unregularized
         self.tempering_coeff = max(self.tempering_coeff / 2, 1e-12)
@@ -567,6 +595,8 @@ class gmm:
         M, _ = sample_array.shape
         self._merge(new_model, M)
         self.N += M
+        if _dfrac > 0:
+            add_defensive_component(self, defensive_frac=_dfrac)
 
     def score(self, sample_array,assume_normalized=True):
         '''
@@ -732,6 +762,7 @@ def add_defensive_component(model, defensive_frac=0.05, width_norm=1.0):
     covers the whole [-1,1] box; truncated to the box it is near-uniform).
     '''
     if not defensive_frac or defensive_frac <= 0:
+        model.defensive_frac = 0.0
         return model
     xpy = model.xpy
     d = model.d
@@ -746,6 +777,10 @@ def add_defensive_component(model, defensive_frac=0.05, width_norm=1.0):
     model.weights = model.identity_convert_togpu(w / w.sum())
     model.adapt = list(model.adapt) + [False] if isinstance(model.adapt, list) else model.adapt
     model.k = len(means)
+    # MARKER: the portfolio must be able to VERIFY this component is installed rather than
+    # infer it from a config value -- gmm_defensive_frac>0 was being read as a guarantee
+    # while the fixed-component fit paths never called this function.
+    model.defensive_frac = float(defensive_frac)
     return model
 
 

@@ -2924,6 +2924,24 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # without reset_sampling rerun warm -- still an independent realization of
             # the draws, just not of the adaptation).
             sampler._rvs = {}
+            # PORTFOLIO first.  Neither mcsamplerPortfolio, mcsamplerAdaptiveVolume nor
+            # mcsamplerEnsemble defines reset_sampling (only the AC/GPU sampler does), so the
+            # loop below was a no-op for them -- and because portfolio.integrate_log does NOT
+            # call self.setup(), a portfolio replica reran with the PREVIOUS replica's adapted
+            # grid and fitted GMM.  Such replicas share the very adaptation whose failure they
+            # exist to detect, so their scatter understates the true MC error.  clear_warm_state
+            # rebuilds every member from its original setup arguments.  (Standalone AV is
+            # already cold: its integrate_log calls setup() itself.)
+            # reset_adaptation() is the FULL reset: member proposals via clear_warm_state PLUS the
+            # portfolio's own learned state (draw allocation, quality EMAs and their counts, probe
+            # pointer, iteration counter, n_ess histories).  Clearing only the members leaves each
+            # replica scheduling itself from what the previous replicas learned, so they are not
+            # adaptation-independent and the between-replica scatter -- the whole quantity being
+            # measured -- still understates the error.
+            if hasattr(sampler, 'reset_adaptation'):
+                sampler.reset_adaptation()
+            elif hasattr(sampler, 'clear_warm_state'):
+                sampler.clear_warm_state()
             if hasattr(sampler, 'reset_sampling'):
                 for _p in list(getattr(sampler, 'params_ordered', [])):
                     try:

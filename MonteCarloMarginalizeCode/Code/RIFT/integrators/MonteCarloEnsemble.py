@@ -116,6 +116,10 @@ class integrator:
         self.gmm_adaptive = gmm_adaptive
         # defensive tail coverage + covariance inflation for adaptive groups
         self.gmm_defensive_frac = gmm_defensive_frac
+        # Opt-in: install the defensive component on the FIXED-COMPONENT fit paths too.
+        # Off by default because it costs n_eff at d>=6; a portfolio that relies on this
+        # member for coverage turns it on (mcsamplerPortfolio.setup).
+        self.gmm_defensive_all_paths = False
         self.gmm_inflate = gmm_inflate
         self.gmm_epsilon= gmm_epsilon
         self.n_comp = n_comp
@@ -393,9 +397,35 @@ class integrator:
                 elif isinstance(self.n_comp, int) and self.n_comp != 0:
                     model = GMM.gmm(self.n_comp, new_bounds,epsilon=self.gmm_epsilon)
                     model.fit(temp_samples, log_sample_weights=log_weights)
+                    # The defensive component is the ONLY thing that actually guarantees this member
+                    # has support across the box -- gmm.score() merely FLOORS at 1e-300, which is a
+                    # numerical guard, not coverage (a sample there would carry weight ~1e300).
+                    # fit_gmm_adaptive adds it; the fixed-component path did not.  OPT-IN, because
+                    # measured on the shape gate a 5% broad component costs real n_eff in
+                    # higher dimensions (d6_n3_s303 119->75, d8_n1_s303 448->210): it spends
+                    # 5% of draws where the likelihood is negligible.  Only a consumer that
+                    # NEEDS this member as its coverage guarantee should pay -- so a
+                    # portfolio sets gmm_defensive_all_paths on its members, and a standalone
+                    # GMM user is unaffected.
+                    GMM.add_defensive_component(model, defensive_frac=(
+                        getattr(self,'gmm_defensive_frac',0.0)
+                        if getattr(self,'gmm_defensive_all_paths',False) else 0.0))
                 elif isinstance(self.n_comp, dict) and self.n_comp[dim_group] != 0:
                     model = GMM.gmm(self.n_comp[dim_group], new_bounds,epsilon=self.gmm_epsilon)
                     model.fit(temp_samples, log_sample_weights=log_weights)
+                    # The defensive component is the ONLY thing that actually guarantees this member
+                    # has support across the box -- gmm.score() merely FLOORS at 1e-300, which is a
+                    # numerical guard, not coverage (a sample there would carry weight ~1e300).
+                    # fit_gmm_adaptive adds it; the fixed-component path did not.  OPT-IN, because
+                    # measured on the shape gate a 5% broad component costs real n_eff in
+                    # higher dimensions (d6_n3_s303 119->75, d8_n1_s303 448->210): it spends
+                    # 5% of draws where the likelihood is negligible.  Only a consumer that
+                    # NEEDS this member as its coverage guarantee should pay -- so a
+                    # portfolio sets gmm_defensive_all_paths on its members, and a standalone
+                    # GMM user is unaffected.
+                    GMM.add_defensive_component(model, defensive_frac=(
+                        getattr(self,'gmm_defensive_frac',0.0)
+                        if getattr(self,'gmm_defensive_all_paths',False) else 0.0))
             else:
                 model.update(temp_samples, log_sample_weights=log_weights)
             try:
