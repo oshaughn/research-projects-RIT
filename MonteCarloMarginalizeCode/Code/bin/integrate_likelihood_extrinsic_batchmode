@@ -243,7 +243,7 @@ optp.add_option("--calibration-proposal-breadcrumb",default=None, help="Opt-in (
 optp.add_option("--calibration-dump-responsibilities",default=None, help="Opt-in (Option C / adaptive pilot): path to write per-cal-realization log-responsibilities (length n_cal), accumulated over the evaluated grid, plus the cal node draws. This is the pilot's output, fitted into a proposal by util_CalPilotFit.py. No effect on the returned likelihood.")
 optp.add_option("--calibration-pilot-extrinsic",default=256,type=int, help="Pilot only: number of uniform-prior extrinsic samples used to extrinsic-marginalize the per-realization cal responsibility at each intrinsic point. Cal is ~extrinsic-independent, so a modest batch suffices.")
 optp.add_option("--calibration-mc-error-extrinsic",default=8192,type=int, help="Calmarg error budget: CAP on the number of extrinsic-prior samples used to estimate the calibration Monte-Carlo contribution to the lnL error (per-realization responsibilities a_c -> Var(lnZ) ~= n_cal*Var_c(a_c)), added IN QUADRATURE to the reported sigma column.  The batch is ADAPTIVE: it starts small and doubles until the estimate stabilizes or this cap is reached.  Distance is drawn from the RUN'S distance prior (sampler prior / --d-prior; with a PINNED distance the probe runs at that fixed value and warns that the estimate is conservative).  The extrinsic sampler's variance cannot see the spread over the (fixed) cal draw set, so without this term the reported error badly understates the truth whenever the cal n_eff is small.  Set 0 to disable (restores the old, extrinsic-only sigma).")
-optp.add_option("--mc-error-replicas",default=0,type=int, help="MC-error stabilization: when the reported lnL error is untrustworthy (see the trigger options below), re-run the extrinsic integration this many EXTRA times as cold replicas (adaptation reset, sample cache dropped, fresh RNG draws) and report lnL from the LINEAR mean of the replica integrals with sigma from the max of the propagated error and the between-replica scatter (t-distributed, K-1 dof).  The naive per-run sigma is computed from the SAME weights as the integral, so it is small exactly when the run silently missed the peak; only independent replicas can see that.  NEVER combine replicas by inverse-variance weighting -- that overweights the worst replica.  The posterior/fairdraw export uses the best-converged (highest-neff) replica.  Default 0 = off (production behavior unchanged).")
+optp.add_option("--mc-error-replicas",default=0,type=int, help="MC-error stabilization: when the reported lnL error is untrustworthy (see the trigger options below), re-run the extrinsic integration this many EXTRA times as cold replicas (adaptation reset, sample cache dropped, fresh RNG draws) and report lnL from the LINEAR mean of the replica integrals with sigma from the max of the propagated error and the between-replica scatter (t-distributed, K-1 dof).  The naive per-run sigma is computed from the SAME weights as the integral, so it is small exactly when the run silently missed the peak; only independent replicas can see that.  NEVER combine replicas by inverse-variance weighting -- that overweights the worst replica.  The posterior/fairdraw export POOLS the replicas (weights renormalized so each contributes Z_k/K; fairdraw blocks contribute equal within-block weights, since those samples already carry their weights once), so the exported samples represent the same mixture as the reported evidence.  Default 0 = off (production behavior unchanged).")
 optp.add_option("--mc-error-sigma-trigger",default=0.4,type=float, help="Replicate (see --mc-error-replicas) when the reported sigma_lnZ exceeds this value.")
 optp.add_option("--mc-error-khat-trigger",default=0.7,type=float, help="Replicate when the Pareto k-hat weight-tail diagnostic exceeds this value (0.7 = the PSIS reliability threshold: above it the weight variance is effectively unresolved and the naive sigma is a lower bound).")
 optp.add_option("--mc-error-ess-trigger",default=30.,type=float, help="Replicate when the Kish effective sample size (sum w)^2/sum w^2 of the run's weights falls below this value.")
@@ -1951,7 +1951,7 @@ def _rvs_len(rvs):
     return 0
 
 
-def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None):
+def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False):
     """Concatenate the replicas' samples into one correctly-weighted set.
 
     Each replica k is an independent importance-sampling estimate with weights w_ki and its own
@@ -1967,6 +1967,13 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None):
     rep_rvs = [r for r in rep_rvs if r]
     if len(rep_rvs) <= 1:
         return rep_rvs[0] if rep_rvs else {}
+    # `already_resampled` -- the records are FAIRDRAW output.  Those samples were already drawn in
+    # proportion to their own importance weights, so reusing those weights applies them a second
+    # time and the pooled block follows w^2 instead of w.  Renormalizing to Z_k/K fixes the block's
+    # SCALE but not its SHAPE, so it does not help here.  A fairdraw block is an equal-weight draw
+    # from its own posterior, so that is what it must contribute: constant weights within the
+    # block, summing to Z_k/K.
+    #
     # DO NOT assume the records are raw importance samples.  integrate() may have thresholded or
     # fairdraw-resampled _rvs before we see it, in which case sum_i w_ki over the RETAINED rows is
     # no longer Z_k * n_k and a 1/n_k rescale would mis-weight the replica (a fairdraw record is
@@ -1991,7 +1998,14 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None):
             n_k = _rvs_len(r)
             if n_k <= 0:
                 continue
-            if rep_lnZ is not None and _i < len(rep_lnZ) and numpy.isfinite(rep_lnZ[_i]):
+            _flat_block = False
+            if already_resampled and rep_lnZ is not None and _i < len(rep_lnZ) \
+                    and numpy.isfinite(rep_lnZ[_i]):
+                # equal weights within the block, summing to Z_k/K
+                _flat_block = True
+                _target_lw = float(rep_lnZ[_i]) - numpy.log(float(K)) - numpy.log(float(n_k))
+                scale = 0.0
+            elif rep_lnZ is not None and _i < len(rep_lnZ) and numpy.isfinite(rep_lnZ[_i]):
                 # target: this block's weights sum to Z_k/K
                 _cur = _lnZ_of_rvs(r, already_pooled=True)
                 if _cur is None or not numpy.isfinite(_cur):
@@ -2000,9 +2014,24 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None):
                     scale = _cur - (float(rep_lnZ[_i]) - numpy.log(float(K)))
             else:
                 scale = numpy.log(float(K) * float(n_k))
+            if _flat_block and log_key is not None:
+                # force lw_i = log_integrand + log_joint_prior - log_joint_s_prior == _target_lw
+                _li = numpy.atleast_1d(numpy.asarray(
+                    sampler.identity_convert(r['log_integrand']), dtype=float)).ravel()
+                _lp = numpy.atleast_1d(numpy.asarray(
+                    sampler.identity_convert(r['log_joint_prior']), dtype=float)).ravel()
+                _forced = _li + _lp - _target_lw
             for k in keys:
                 v = numpy.atleast_1d(numpy.asarray(sampler.identity_convert(r[k]))).ravel()
-                if k == log_key:
+                if _flat_block and log_key is not None and k == log_key:
+                    v = _forced
+                elif _flat_block and lin_key is not None and k == lin_key:
+                    _ig = numpy.atleast_1d(numpy.asarray(
+                        sampler.identity_convert(r['integrand']), dtype=float)).ravel()
+                    _jp = numpy.atleast_1d(numpy.asarray(
+                        sampler.identity_convert(r['joint_prior']), dtype=float)).ravel()
+                    v = _ig * _jp / numpy.exp(_target_lw)
+                elif k == log_key:
                     v = v + scale
                 elif k == lin_key:
                     v = v * (float(K) * float(n_k))
@@ -3011,7 +3040,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 # produce this ordering -- so this narrows the failure, it does not close it.
                 _cold_rvs = sampler._rvs
                 _cold_lnZ = _lnZ_of_rvs(_cold_rvs, already_pooled=False)
-                _cold_res, _cold_var, _cold_neff = res, var, neff
+                # dict_return too: khat, block scatter, ESS, the confidence interval and the
+                # replica trigger downstream all read it, so keeping the warm pass's diagnostics
+                # beside a restored cold result would describe a run we did not report.
+                _cold_res, _cold_var, _cold_neff, _cold_dict = res, var, neff, dict_return
                 sampler.bootstrap_from_samples(_seed, cover_frac=0.0)
                 res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
                 _warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False)
@@ -3034,7 +3066,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                               " is lower but it is not missing mass.  A portfolio avoids this"
                               " trade entirely -- its GMM member carries a defensive component.")
                         sampler._rvs = _cold_rvs
-                        res, var, neff = _cold_res, _cold_var, _cold_neff
+                        res, var, neff, dict_return = _cold_res, _cold_var, _cold_neff, _cold_dict
                 _clear_warm_state(sampler)
         except Exception as _e_l0:
             print("  [L0 auto-rescue] skipped (", _e_l0, ")")
@@ -3163,7 +3195,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # Folding the factor into log_joint_s_prior is therefore a statement of the real pooled
         # sampling density, not a fudge -- and it leaves every downstream weight computation
         # (which all form log_integrand + log_joint_prior - log_joint_s_prior) correct untouched.
-        sampler._rvs = _pool_replica_rvs(_rep_rvs, sampler, rep_lnZ=_rep_lnZ)
+        sampler._rvs = _pool_replica_rvs(_rep_rvs, sampler, rep_lnZ=_rep_lnZ,
+                                         already_resampled=bool(opts.fairdraw_extrinsic_output))
         if len(_rep_lnZ) > 1:
             _K = len(_rep_lnZ)
             _l = numpy.array(_rep_lnZ); _s = numpy.array(_rep_sig)

@@ -137,6 +137,53 @@ def test_pooling_uses_reported_lnZ_when_records_are_not_raw():
         "no longer demonstrates the hazard")
 
 
+
+
+def _fairdraw(rng, rec):
+    """Resample a record in proportion to its own weights, as the samplers do for fairdraw output.
+
+    The returned rows keep their ORIGINAL weight columns -- which is exactly the trap.
+    """
+    lw = (numpy.asarray(rec['log_integrand']) + numpy.asarray(rec['log_joint_prior'])
+          - numpy.asarray(rec['log_joint_s_prior']))
+    w = numpy.exp(lw - numpy.max(lw))
+    w = w / w.sum()
+    idx = rng.choice(len(w), size=len(w), replace=True, p=w)
+    return {k: numpy.asarray(v)[idx] for k, v in rec.items()}
+
+
+def test_fairdraw_blocks_are_not_weighted_twice():
+    """Fairdraw samples were already drawn in proportion to their weights.
+
+    Reusing those weights applies them a second time, so the block follows w^2 rather than w.
+    Renormalizing to Z_k/K fixes the block's SCALE but not its SHAPE, which is why
+    already_resampled needs its own handling: a fairdraw block is an equal-weight draw from its own
+    posterior and must contribute constant weights within the block.
+    """
+    rng = numpy.random.RandomState(11)
+    raw = _replica(rng, 6000, 0.0, 1.3)
+    fd = _fairdraw(rng, raw)
+    lnZ = [0.0, 0.0]
+
+    pooled = DRV._pool_replica_rvs([fd, fd], _S(), rep_lnZ=lnZ, already_resampled=True)
+    lw = (numpy.asarray(pooled['log_integrand']) + numpy.asarray(pooled['log_joint_prior'])
+          - numpy.asarray(pooled['log_joint_s_prior']))
+    # within-block weights must be CONSTANT -- that is what "already carries its weights" means
+    assert numpy.ptp(lw) < 1e-9, "fairdraw block did not get equal within-block weights"
+    # and the pooled evidence must still be the reported combination
+    assert abs(DRV._lnZ_of_rvs(pooled) - 0.0) < 1e-9
+
+    # the un-handled path leaves a w^2 spread: strictly wider than the w spread it came from
+    naive = DRV._pool_replica_rvs([fd, fd], _S(), rep_lnZ=lnZ)
+    lw_naive = (numpy.asarray(naive['log_integrand']) + numpy.asarray(naive['log_joint_prior'])
+                - numpy.asarray(naive['log_joint_s_prior']))
+    assert numpy.ptp(lw_naive) > 1.0, (
+        "expected the naive path to retain a spread of weights on an already-resampled block; "
+        "this test no longer demonstrates the hazard")
+    # concretely: n_eff of the naive pooling is much worse, because w^2 concentrates
+    assert DRV._kish_neff_of_rvs(naive) < 0.5 * DRV._kish_neff_of_rvs(pooled)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
