@@ -58,6 +58,8 @@ def get_modes(approx_str, P, Lmax=LMAX):
         hlmT = rgws.hlmoft(P, Lmax=Lmax, approx_string=approx_str)
     else:
         P.approx = lalsim.GetApproximantFromString(approx_str)
+        if approx_str.startswith("IMRPhenomX"):
+            P.deltaF = 1./16   # ChooseFDModes path needs an explicit segment length
         hlmT = lalsimutils.hlmoft(P, Lmax=Lmax)
     if not isinstance(hlmT, dict):
         hlmT = lalsimutils.SphHarmTimeSeries_to_dict(hlmT, Lmax)
@@ -132,7 +134,8 @@ CONFIGS = {
 }
 
 MODELS = sys.argv[1:] if len(sys.argv) > 1 else \
-    ["IMRPhenomTPHM", "SEOBNRv4PHM", "NRSur7dq4", "SEOBNRv5PHM"]
+    ["IMRPhenomTPHM", "SEOBNRv4PHM", "NRSur7dq4", "SEOBNRv5PHM",
+     "IMRPhenomXPHM", "IMRPhenomXPNR"]
 
 only = os.environ.get("PARITY_CONFIGS")
 if only:

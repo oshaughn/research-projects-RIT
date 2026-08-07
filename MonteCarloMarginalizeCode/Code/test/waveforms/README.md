@@ -85,3 +85,21 @@ NRSur7dq4 needs `LAL_DATA_PATH` pointing at a directory containing
 `NRSur7dq4_v1.0.h5`.  A marginal-likelihood impact demonstration (at what SNR
 a failed check biases PE) lives in the RIFT_roboto_paper repository under
 `demos/waveform_symmetry/`.
+
+### X-family (ChooseFDModes) models: two caveats
+
+1. **Frame convention**: raw `ChooseFDModes` output for IMRPhenomXPHM /
+   IMRPhenomXPNR satisfies the parity identity only after a global rotation
+   by exactly pi about z (their mode frame rotates under reflection of the
+   in-plane spins).  Degenerate with phi_ref — cancels in marginalized PE —
+   but naive complex mode-level residuals report O(1) "violations".  The
+   amplitude residual is the convention-robust column.  After removing this
+   rotation: XPNR raw modes are parity-clean to 1e-5 (amplitudes 1e-14);
+   XPHM likewise, apart from a small genuine 2e-3 (2,+-1) equatorial
+   asymmetry in its aligned-spin limit.
+2. **RIFT interface artifact**: raw IMRPhenomXHM satisfies the equatorial
+   identity exactly (residual 0.0), but through `RIFT.lalsimutils.hlmoft`'s
+   ChooseFDModes->TD conditioning acquires ~1% (2,+-2) spurious amplitude
+   asymmetry.  This affects every ChooseFDModes-consumed model and dominates
+   the through-RIFT parity residuals for the X family (D2 for XHM sits at
+   ~1e-2 instead of <=1e-10 until the conditioning is fixed).

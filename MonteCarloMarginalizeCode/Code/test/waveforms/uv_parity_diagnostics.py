@@ -96,7 +96,8 @@ CONFIGS = {
 }
 
 import sys
-MODELS = sys.argv[1:] if len(sys.argv) > 1 else ["IMRPhenomTPHM", "NRSur7dq4"]
+MODELS = sys.argv[1:] if len(sys.argv) > 1 else \
+    ["IMRPhenomTPHM", "NRSur7dq4", "IMRPhenomXPHM", "IMRPhenomXPNR"]
 
 for model in MODELS:
     for cname, c in CONFIGS.items():
