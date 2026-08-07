@@ -5,11 +5,17 @@
 # is a hard cut on a stochastic quantity, so any cell sitting near a threshold flips on
 # realization alone.  Before treating a blocking regression as real, re-test it at fresh seeds:
 #
-#     confirm_regressions.py base.json cand.json \
-#         --base-checkout DIR --cand-checkout DIR --repeats 5
+#     compare_shape_results.py base.json cand.json \
+#         --confirm-base-checkout DIR --confirm-cand-checkout DIR --confirm-repeats 5
+#
+# With those flags the comparison ENFORCES confirmation: blocking rows are re-tested and the exit
+# code is the confirmed verdict.  Without them it still exits 1 on a blocking row, but says so
+# explicitly rather than implying the row was confirmed.  (confirm_regressions.py also runs
+# standalone against an existing pair of JSONs.)
 #
 # It re-runs only the disputed cells, in BOTH arms, at several new run seeds, and blocks only if
-# the candidate is worse in a majority.  Worked example: `GMM mix_d6_n3_s303` was reported as a
+# the candidate is worse in a majority.  A candidate that produces NO record where the base did
+# counts against the candidate, and too few usable pairs is INCONCLUSIVE (exit 1), never a clear.  Worked example: `GMM mix_d6_n3_s303` was reported as a
 # blocking REGRESSION in two consecutive full runs (base 119, candidate 66) and looked
 # reproducible -- but at 5 fresh seeds the two arms were BIT-IDENTICAL (93/93, 80/80, 119/119,
 # 95/95, 96/96) and 4 of the 5 starved.  The cell simply sits on the n_eff=100 floor; its PASS at
