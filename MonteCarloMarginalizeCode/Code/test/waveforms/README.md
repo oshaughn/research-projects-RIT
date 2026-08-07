@@ -45,3 +45,43 @@ reddening the suite; if the algebra is ever implemented and it starts passing,
 strict xfail turns the `XPASS` into a failure so the placeholder gets removed.
 Deselect with `-k 'not left_as_exercise'`, or run the script with
 `--skip-ludicrous`.
+
+## Parity (orbital-plane reflection) diagnostics — NOT collected by pytest
+
+Two script-only diagnostics implement the physics the placeholder above points
+at: the exact parity identity of GR,
+
+```
+h_lm[(s_x,s_y,s_z) -> (-s_x,-s_y,s_z)](t) = (-1)^l conj( h_{l,-m}(t) ),
+```
+
+with no time- or phase-shift freedom.  They are deliberately named so pytest
+does NOT collect them: run against currently released precessing models they
+FAIL, correctly (NRSur7dq4 at the percent level generically and tens of
+percent in superkick subdominant-mode amplitudes; SEOBNRv5PHM with
+antisymmetric modes at few x 1e-4; SEOBNRv4PHM at 0.3-1% with a frame origin).
+Their role is rapid assessment of upstream "developer leakage" when adopting a
+model version or interface — not CI gating.
+
+- `parity_check_hlm.py [models...]` — mode-level check of the identity above
+  over superkick-like / generic-precessing / nonprecessing configurations.
+  Use *perturbed* superkicks: the exact degenerate point is a convention
+  branch point for several models.
+- `uv_parity_diagnostics.py [models...]` — the same physics on the U/V
+  cross-term matrices ILE builds:
+  D1 (any waveform; failure = code bug): U = U^dagger, V = V^T;
+  D2 (single generation, nonprecessing points, including nonprecessing limits
+  of precessing models): V_{(l,m),B} = (-1)^l U_{(l,-m),B};
+  D3 (two generations, any configuration): reflected-pair relations
+  U'_{(lm),(l'm')} = (-1)^{l+l'} U_{(l',-m'),(l,-m)},
+  V'_{(lm),(l'm')} = (-1)^{l+l'} conj(V_{(l,-m),(l',-m')}).
+  Clean models: <= 1e-10 relative Frobenius residual; violating models:
+  >= 1e-4.  Suggested tolerance: 1e-8.  (This extends check (4) of
+  `test_uv_symmetry.py` to precessing models, where the known violations
+  live; note that check (4)'s 3e-2 tolerance would pass NRSur7dq4's 4e-4
+  aligned-spin violation.)
+
+NRSur7dq4 needs `LAL_DATA_PATH` pointing at a directory containing
+`NRSur7dq4_v1.0.h5`.  A marginal-likelihood impact demonstration (at what SNR
+a failed check biases PE) lives in the RIFT_roboto_paper repository under
+`demos/waveform_symmetry/`.
