@@ -1,7 +1,7 @@
 # RIFT containers
 
 This directory holds the multi-architecture container build and the "container
-family" deployment mechanism. It has two related but independent pieces:
+family" deployment mechanism. It has three related pieces:
 
 1. **Multi-target build** — build a *family* of RIFT containers (different base
    image + cupy/CUDA variant, targeting different GPU compute capabilities) from
@@ -9,6 +9,9 @@ family" deployment mechanism. It has two related but independent pieces:
 2. **Family deployment** — let `SINGULARITY_RIFT_IMAGE` point at a YAML
    *manifest* describing that family, so each Condor job picks the right image
    for the machine it lands on.
+3. **Survey + warmup scans** — survey a target Condor GPU pool and emit
+   representative CuPy/JAX warmup jobs for the image bands that pool actually
+   uses.
 
 The top-level [`rift_container.def`](../rift_container.def) is unchanged and
 remains the default single-image build.
@@ -188,7 +191,44 @@ wrapper to exercise it): that the pilot evaluates the expression-valued
 
 ---
 
-## 3. CI dependency-resolution canary
+## 3. Survey + Warmup Scans
+
+`survey_scan.sh` records the target pool's GPU classes, emits one Condor warmup
+job per container/profile combination, and collects JSON timing/cache reports.
+The submit-side tools use only the Python standard library; the CuPy/JAX imports
+happen inside the container on the execute node.
+
+```console
+containers/survey_scan.sh survey \
+  --out survey/cit-YYYYMMDD \
+  --manifest container_family/rift_container_family.generated.yaml
+containers/survey_scan.sh emit-jobs \
+  --survey survey/cit-YYYYMMDD \
+  --manifest container_family/rift_container_family.generated.yaml
+cd survey/cit-YYYYMMDD/jobs
+./submit_all.sh
+containers/survey_scan.sh collect --survey survey/cit-YYYYMMDD
+```
+
+Profiles:
+
+- `cupy` warms common NoLoop/fused-calmarg CuPy kernels:
+  `Q_inner_product_cupy`, `Q_fused_calmarg_cupy`,
+  `Q_fused_calmarg_distmarg_cupy`, and `interp_gpu.interp`.
+- `jax` warms synthetic JAX ILE wrapper shapes. Use this only for JAX-enabled
+  images, for example `--profiles cupy,jax` on a JAX image manifest.
+
+Generated job wrappers set `CUPY_CACHE_DIR`, `JAX_COMPILATION_CACHE_DIR`, and
+conservative thread defaults before `apptainer exec --nv`. If an image is listed
+as `osdf://...`, the wrapper fetches only that selected image with `stashcp` or
+`pelican`.
+
+See [`survey_scan/README.md`](survey_scan/README.md) and
+[`SURVEY_SCAN_PROPOSAL.md`](SURVEY_SCAN_PROPOSAL.md) for details.
+
+---
+
+## 4. CI dependency-resolution canary
 
 The default container build uses *unpinned* deps, so a fresh upstream release
 (e.g. `swig>=4.4.0`, see issue #136) can silently break RIFT and we only find out

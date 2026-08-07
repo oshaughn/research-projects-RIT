@@ -36,6 +36,102 @@ from .core import (build_likelihood_data, fused_log_likelihood,
 EXTRINSIC_PARAM_ORDER = ("ra", "dec", "psi", "incl", "phiref", "distMpc")
 
 
+def build_rotation_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
+                                        integration_window_half, Lmax, fMax,
+                                        t_window=0.1, harmonics=(-2, -1, 0, 1, 2),
+                                        p_max=0, analyticPSD_Q=False,
+                                        inv_spec_trunc_Q=False, T_spec=0.0,
+                                        tvals=None, verbose=False,
+                                        **precompute_kwargs):
+    """One-call builder for the slow-rotation (Path A/B) banded JAX likelihood.
+
+    Runs the production ``PrecomputeLikelihoodTermsWithRotation`` +
+    ``pack_rotation_arrays`` (heavy, data-touching -- reused verbatim) and wraps
+    the packed banks into a banded :class:`JAXLikelihoodData`.  The returned
+    object flows through every ``fused_log_likelihood*`` / marginalization
+    variant and the samplers exactly like the baseline data.
+
+    ``t_window`` is the rholm-buffer half width for the rotation precompute (it
+    builds its own buffer, unlike the baseline two-window driver); ``tvals`` is
+    the marginalization grid (defaults to ``linspace(-iwh, iwh, 2*iwh/deltaT)``).
+    """
+    import RIFT.likelihood.factored_likelihood_with_rotation as flwr
+    from .banded import build_rotation_data
+
+    ri, ct, ctV, rho, meta = flwr.PrecomputeLikelihoodTermsWithRotation(
+        fiducial_epoch, t_window, P, data_dict, psd_dict, Lmax, fMax,
+        harmonics=harmonics, p_max=p_max, f_sidereal=flwr.F_SIDEREAL,
+        analyticPSD_Q=analyticPSD_Q, inv_spec_trunc_Q=inv_spec_trunc_Q,
+        T_spec=T_spec, verbose=verbose, quiet=not verbose,
+        skip_interpolation=True, **precompute_kwargs)
+    lk, rbn, ubn, vbn, ep = flwr.pack_rotation_arrays(meta, rho, ct, ctV)
+
+    deltaT = float(P.deltaT)
+    if tvals is None:
+        # tvals spaced EXACTLY by deltaT (arange, not linspace) so the grid matches
+        # the pos<->sample mapping and Simpson weights the likelihood assumes; the
+        # maintained NoLoop path uses this same arange(-Nw,Nw)*deltaT convention.
+        # (A linspace grid is spaced deltaT*npts/(npts-1) and shifts the time
+        # reference by a fraction of a sample -> a sky bias that only shows up at
+        # high SNR, where cubic interpolation resolves the razor-sharp peak.)
+        Nw = int(integration_window_half / deltaT)
+        tvals = np.arange(-Nw, Nw) * deltaT
+    data = build_rotation_data(meta, lk, rbn, ubn, vbn, ep, deltaT, tvals)
+    extras = dict(meta=meta, rho_by_a=rbn, U_by_aa=ubn, V_by_aa=vbn,
+                  epochDict=ep, lookupNKDict=lk)
+    return data, extras
+
+
+def build_freqresponse_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
+                                            integration_window_half, Lmax, fMax,
+                                            t_window=0.1, Qmax=4, L_arm=None,
+                                            analyticPSD_Q=False,
+                                            inv_spec_trunc_Q=False, T_spec=0.0,
+                                            tvals=None, verbose=False,
+                                            **precompute_kwargs):
+    """One-call builder for the finite-size (Path D) banded JAX likelihood.
+
+    Runs ``PrecomputeLikelihoodTermsFreqResponse`` + ``pack_freqresponse_arrays``
+    (reused verbatim) and wraps the packed banks into a banded
+    :class:`JAXLikelihoodData`.  ``L_arm`` overrides the arm length (e.g. 40000.
+    for a 40-km CE arm; ``None`` = native LAL arm lengths).  The finite-size
+    coefficients need the arm *unit vectors*, so the detector geometry is
+    recomputed via ``slowrot_freqresponse.detector_geometry`` and attached.
+    """
+    import RIFT.likelihood.factored_likelihood_freqresponse as flfr
+    import RIFT.likelihood.slowrot_freqresponse as sfr
+    from .banded import build_freqresponse_data
+
+    bk = flfr.PrecomputeLikelihoodTermsFreqResponse(
+        fiducial_epoch, t_window, P, data_dict, psd_dict, Lmax, fMax,
+        Qmax=Qmax, L_arm=L_arm, analyticPSD_Q=analyticPSD_Q,
+        inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec, verbose=verbose,
+        quiet=not verbose, skip_interpolation=True, **precompute_kwargs)
+    meta = bk[4]
+    lk, rbp, ubp, vbp, ep = flfr.pack_freqresponse_arrays(bk[4], bk[3], bk[1], bk[2])
+
+    def _L_of(det):
+        return L_arm.get(det, None) if isinstance(L_arm, dict) else L_arm
+    det_geom = {det: sfr.detector_geometry(det, L_arm=_L_of(det))
+                for det in data_dict.keys()}
+
+    deltaT = float(P.deltaT)
+    if tvals is None:
+        # tvals spaced EXACTLY by deltaT (arange, not linspace) so the grid matches
+        # the pos<->sample mapping and Simpson weights the likelihood assumes; the
+        # maintained NoLoop path uses this same arange(-Nw,Nw)*deltaT convention.
+        # (A linspace grid is spaced deltaT*npts/(npts-1) and shifts the time
+        # reference by a fraction of a sample -> a sky bias that only shows up at
+        # high SNR, where cubic interpolation resolves the razor-sharp peak.)
+        Nw = int(integration_window_half / deltaT)
+        tvals = np.arange(-Nw, Nw) * deltaT
+    data = build_freqresponse_data(meta, lk, rbp, ubp, vbp, ep, deltaT, tvals,
+                                   det_geom)
+    extras = dict(meta=meta, rho_by_p=rbp, U_by_pp=ubp, V_by_pp=vbp,
+                  epochDict=ep, lookupNKDict=lk, det_geom=det_geom)
+    return data, extras
+
+
 def build_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
                                storage_window_half, integration_window_half,
                                Lmax, fMax,
@@ -83,9 +179,10 @@ def build_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
 
     deltaT = float(P.deltaT)
     if tvals is None:
-        npts = int(2 * integration_window_half / deltaT)
-        tvals = np.linspace(-integration_window_half,
-                            integration_window_half, npts)
+        # arange(-Nw,Nw)*deltaT: spacing exactly deltaT (see the freqresponse
+        # builder) -- matches the maintained NoLoop tvals convention.
+        Nw = int(integration_window_half / deltaT)
+        tvals = np.arange(-Nw, Nw) * deltaT
 
     data = build_likelihood_data(packed, deltaT, float(fiducial_epoch), tvals)
     extras = dict(rholms=rholms, cross_terms=cross_terms,

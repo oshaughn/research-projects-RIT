@@ -9,12 +9,17 @@ from RIFT.precision import RiftFloat  # platform-portable replacement for np.flo
 try:
     import cupy
     import cupyx.scipy.special
+    # Probe for an actual device: cupy imports cleanly on GPU-less nodes but
+    # every kernel launch then dies with cudaErrorNoDevice.  getDeviceCount
+    # raises CUDARuntimeError (not ImportError), hence the broad except.
+    if cupy.cuda.runtime.getDeviceCount() == 0:
+        raise ImportError("cupy installed but no CUDA device available")
     xpy_default = cupy
     xpy_special_default = cupyx.scipy.special
     identity_convert = cupy.asnumpy
     identity_convert_togpu = cupy.asarray
     cupy_ok = True
-except ImportError:
+except Exception:
     xpy_default = np
     xpy_special_default = None
     identity_convert = lambda x: x
@@ -47,6 +52,51 @@ class NanOrInf(Exception):
         return repr(self.value)
 
 class MCSampler(object):
+
+    @property
+    def has_unbounded_support(self):
+        """Does this member's proposal genuinely have support across the WHOLE prior box?
+
+        mcsamplerPortfolio uses this to decide whether it must hold a member cold on a warm start.
+        Getting it wrong costs coverage silently, so it is answered from the INSTALLED MODELS, not
+        from a configuration value.
+
+        Two traps this avoids:
+          * `gmm_defensive_frac > 0` is only a REQUEST.  add_defensive_component() is called by
+            fit_gmm_adaptive, but the fixed-component fit paths did not call it, and gmm_adaptive
+            defaults to None (off) -- so the default configuration asked for a defensive component
+            and never installed one.
+          * gmm.score() FLOORS its return at 1e-300, so a member always looks like it has nonzero
+            density everywhere.  That is a numerical guard against log(0), not coverage: a sample
+            landing there carries weight L*p/q ~ 1e300 and would wreck the estimate rather than
+            support it.  Measured, a fixed-component fit to a tight cloud returns exactly that
+            floor at the far corner for every d >= 4.
+
+        Reports False whenever it cannot be verified -- before the integrator exists, before any
+        group has been trained, or if ANY trained group lacks the component.
+        """
+        integ = getattr(self, 'integrator', None)
+        if integ is None:
+            return False
+        if not (getattr(integ, 'gmm_defensive_frac', 0.0) or 0.0) > 0:
+            return False
+        models = [m for m in getattr(integ, 'gmm_dict', {}).values() if m is not None]
+        if not models:
+            if not getattr(integ, 'gmm_defensive_all_paths', False) and not getattr(
+                    integ, 'gmm_adaptive', None):
+                # Neither path that installs the component is active: the request in
+                # gmm_defensive_frac will not be honoured, so do not promise coverage.
+                return False
+            # UNTRAINED.  The portfolio has to decide about warm-starting before any group is
+            # fitted, so there is nothing to inspect yet.  Trusting the config is justified only
+            # because EVERY fit path now installs the component (fit_gmm_adaptive did already;
+            # the fixed-component paths in this file and in MonteCarloEnsemble were fixed at the
+            # same time as this check).  test_every_fit_path_installs_the_defensive_component
+            # pins that invariant -- if a new fit path is added without it, that test fails rather
+            # than this property silently over-promising again.
+            return True
+        return all((getattr(m, 'defensive_frac', 0.0) or 0.0) > 0 for m in models)
+
     """
     Class to define a set of parameter names, limits, and probability densities.
     """
@@ -169,7 +219,46 @@ class MCSampler(object):
                 temp_ret *= pdf_vals.reshape( temp_ret.shape)
         return temp_ret
 
-    def setup(self,n_comp=None,**kwargs):
+    def setup(self, n_comp=None, **kwargs):
+        """Build the integrator.  REMEMBERS its arguments and re-applies them on later calls.
+
+        setup() is not called once: bootstrap_from_samples() re-runs it to rebuild the proposal as
+        a single full-dim group, and mcsamplerPortfolio replays it to reset a member between
+        points.  Each of those rebuilt the integrator from ONLY the kwargs of that call, so every
+        option the caller set originally was silently dropped.  That has now bitten three separate
+        settings -- gmm_dict (the dimension grouping and any seeded models), gmm_defensive_frac,
+        and gmm_defensive_all_paths -- each found as its own P1, each patched individually, and a
+        fourth would have followed.
+
+        So: merge this call's kwargs OVER the remembered ones, and remember the result.  An
+        explicit argument still wins; an omitted one keeps whatever it was configured to be
+        instead of reverting to a library default.  Pass `setup_forget=True` to start clean.
+        """
+        _prev = dict(getattr(self, '_setup_kwargs_seen', {}) or {})
+        if kwargs.pop('setup_forget', False):
+            _prev = {}
+        if n_comp is None:
+            n_comp = _prev.get('n_comp', None)
+        merged = dict(_prev)
+        merged.update(kwargs)
+        merged['n_comp'] = n_comp
+        self._setup_kwargs_seen = dict(merged)
+        kwargs = dict(merged)
+        kwargs.pop('n_comp', None)
+        return self._setup_impl(n_comp=n_comp, **kwargs)
+
+    def _setup_impl(self, n_comp=None, **kwargs):
+      # n_comp=None silently disabled ALL training downstream: the integrator
+      # stores it verbatim and update_sampling_prior only builds a model for
+      # int!=0 or dict n_comp, so every gmm_dict entry stayed None forever.  In
+      # default portfolio wiring (setup() forwarded without GMM args) the GMM
+      # member therefore never trained and "portfolio" ran as AV-only, with no
+      # error (2026-07-22 shape-gate probe).  Default to a single component and
+      # say so; n_comp=0 remains the explicit off-switch.
+      if n_comp is None:
+          print(" mcsamplerEnsemble: setup() called without n_comp; defaulting n_comp=1 "
+                "(n_comp=None previously disabled GMM training silently; pass n_comp=0 to disable adaptation)")
+          n_comp = 1
       integrator_func  = kwargs['integrator_func'] if "integrator_func" in kwargs  else None
       mcsamp_func  = kwargs['mcsamp_func'] if "mcsamp_func" in kwargs  else None
       proc_count = kwargs['proc_count'] if "proc_count" in kwargs else None
@@ -180,6 +269,10 @@ class MCSampler(object):
       write_to_file = kwargs['write_to_file'] if "write_to_file" in kwargs else False
       correlate_all_dims = kwargs['correlate_all_dims'] if  "correlate_all_dims" in kwargs else False
       gmm_adapt = kwargs['gmm_adapt'] if "gmm_adapt" in kwargs else None
+      gmm_adaptive = kwargs['gmm_adaptive'] if "gmm_adaptive" in kwargs else None
+      gmm_defensive_frac = kwargs['gmm_defensive_frac'] if "gmm_defensive_frac" in kwargs else 0.05
+      _defensive_all = kwargs['gmm_defensive_all_paths'] if "gmm_defensive_all_paths" in kwargs else False
+      gmm_inflate = kwargs['gmm_inflate'] if "gmm_inflate" in kwargs else 1.0
       gmm_epsilon = kwargs['gmm_epsilon'] if "gmm_epsilon" in kwargs else None
       L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
       tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 1.0
@@ -229,7 +322,9 @@ class MCSampler(object):
 
       self.integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp, n=self.n, prior=self.calc_pdf,
                          user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_adapt=gmm_adapt,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp,
-                         tempering_adapt=tempering_adapt, ess_target=ess_target, ess_floor=ess_floor)
+                         tempering_adapt=tempering_adapt, ess_target=ess_target, ess_floor=ess_floor, gmm_adaptive=gmm_adaptive,
+                         gmm_defensive_frac=gmm_defensive_frac, gmm_inflate=gmm_inflate)
+      self.integrator.gmm_defensive_all_paths = bool(_defensive_all)
 
     def update_sampling_prior(self,ln_weights, n_history,tempering_exp=1,log_scale_weights=True,floor_integrated_probability=0,external_rvs=None,**kwargs):
       rvs_here = self._rvs
@@ -241,11 +336,20 @@ class MCSampler(object):
 
       gmm_dict = self.integrator.gmm_dict
 
-      n_history_to_use = self.xpy.min([n_history, len(ln_weights), len(rvs_here[self.params_ordered[0]])] )
+      # These are all host ints; use the Python builtin min (self.xpy.min([list])
+      # crashes on cupy -- "'list' object has no attribute 'min'" -- the same
+      # backend-min-of-a-list bug fixed in integrate()'s fairdraw block).  A host
+      # int is also required for the [-n_history_to_use:] slices just below.
+      n_history_to_use = int(min(n_history, len(ln_weights), len(rvs_here[self.params_ordered[0]])))
 
+      # external_rvs (e.g. the portfolio's host history) may be host numpy while
+      # sample_array lives on the active backend (cupy on GPU); assigning a host
+      # slice into a cupy row raises "non-scalar numpy.ndarray cannot be used for
+      # fill".  Convert each slice to the backend first so this method is
+      # backend-consistent (previously it only worked on CPU).
       sample_array = self.xpy.empty( (len(self.params_ordered), n_history_to_use))
       for indx, p in enumerate(self.params_ordered):
-          sample_array[indx] = rvs_here[p][-n_history_to_use:]
+          sample_array[indx] = self.identity_convert_togpu(rvs_here[p][-n_history_to_use:])
       sample_array = sample_array.T
 
       for dim_group in gmm_dict:
@@ -255,29 +359,161 @@ class MCSampler(object):
                         continue
             new_bounds = self.xpy.empty((len(dim_group), 2))
             new_bounds = self.integrator.bounds[dim_group]
+            # per-dimension (uncorrelated) groups: setup() hands the integrator raw
+            # (dim,2) array bounds, so bounds[(i,)] is a bare (2,) row; GMM.fit
+            # needs (n_dims,2).  Same up-shape guard as _sample()/q-scoring.
+            # (Latent until now: the n_comp=None bug meant this line was never
+            # reached in the default portfolio configuration.)
+            if len(new_bounds.shape) < 2:
+                new_bounds = self.xpy.array([new_bounds])
             model = self.integrator.gmm_dict[dim_group]
             temp_samples = self.xpy.empty((n_history_to_use, len(dim_group)))
             index = 0
             for dim in dim_group:
-                temp_samples[:,index] = self.identity_convert(sample_array[:,dim])
+                # keep on the active backend: temp_samples and sample_array are
+                # both self.xpy arrays, and the GMM model.fit/update below runs on
+                # self.xpy.  (The old identity_convert here forced a host array
+                # into a cupy column -> the same fill error as above on GPU.)
+                temp_samples[:,index] = sample_array[:,dim]
                 index += 1
 
+            # Drop NaN-weight samples before fitting.  NOTE: filter into LOOP-LOCAL names.  This used
+            # to reassign `ln_weights` itself, which is loop-INVARIANT (built once, before the loop
+            # over dim_groups): the first group with any NaN shrank it (e.g. 10000 -> 8686), and every
+            # LATER group then rebuilt temp_samples at full n_history_to_use but reused the stale,
+            # shorter weights -> "boolean index did not match indexed array" inside GMM.update /
+            # GMM.fit.  Only reachable when weights actually contain NaN, i.e. a degenerate/cold pass,
+            # which is why warm runs never hit it and cold portfolio starts died on chunk ~8.
             if self.xpy.any(self.xpy.isnan(ln_weights)):
                 ok_indx = ~self.xpy.isnan(ln_weights)
-                temp_samples = temp_samples[ok_indx]
-                ln_weights = ln_weights[ok_indx]
+                temp_samples = temp_samples[ok_indx]      # rebuilt each iteration: safe to filter
+                ln_weights_group = ln_weights[ok_indx]    # loop-LOCAL: never touch ln_weights itself
+            else:
+                ln_weights_group = ln_weights
             
+            # Data-driven component count (matches integrator._train): scalar or
+            # per-group gmm_adaptive picks k by BIC at init, floored at the
+            # stress-tested n_comp, then the merge path below adapts.  This is the
+            # path the PORTFOLIO drives its GMM member through (update_sampling_prior).
+            adaptive_kmax = None
+            _ga = getattr(self.integrator, 'gmm_adaptive', None)
+            if _ga:
+                if isinstance(_ga, dict):
+                    adaptive_kmax = _ga.get(dim_group)
+                elif isinstance(_ga, bool):
+                    adaptive_kmax = 8
+                else:
+                    adaptive_kmax = int(_ga)
             if model is None:
-                if isinstance(self.integrator.n_comp, int) and self.integrator.n_comp != 0:
+                if adaptive_kmax:
+                    if isinstance(self.integrator.n_comp, dict):
+                        k_floor = self.integrator.n_comp.get(dim_group, 1)
+                    else:
+                        k_floor = self.integrator.n_comp
+                    k_floor = int(k_floor) if isinstance(k_floor, int) and k_floor > 0 else 1
+                    model = GMM.fit_gmm_adaptive(temp_samples, new_bounds,
+                                                 log_sample_weights=ln_weights_group,
+                                                 k_max=max(int(adaptive_kmax), k_floor),
+                                                 k_min=k_floor,
+                                                 epsilon=self.integrator.gmm_epsilon,
+                                                 defensive_frac=getattr(self.integrator,'gmm_defensive_frac',0.0),
+                                                 inflate=getattr(self.integrator,'gmm_inflate',1.0))
+                elif isinstance(self.integrator.n_comp, int) and self.integrator.n_comp != 0:
                     model = GMM.gmm(self.integrator.n_comp, new_bounds,epsilon=self.integrator.gmm_epsilon)
-                    model.fit(temp_samples, log_sample_weights=ln_weights)
+                    model.fit(temp_samples, log_sample_weights=ln_weights_group)
+                    # The defensive component is the ONLY thing that actually guarantees this member
+                    # has support across the box -- gmm.score() merely FLOORS at 1e-300, which is a
+                    # numerical guard, not coverage (a sample there would carry weight ~1e300).
+                    # fit_gmm_adaptive adds it; the fixed-component path did not.  OPT-IN, because
+                    # measured on the shape gate a 5% broad component costs real n_eff in
+                    # higher dimensions (d6_n3_s303 119->75, d8_n1_s303 448->210): it spends
+                    # 5% of draws where the likelihood is negligible.  Only a consumer that
+                    # NEEDS this member as its coverage guarantee should pay -- so a
+                    # portfolio sets gmm_defensive_all_paths on its members, and a standalone
+                    # GMM user is unaffected.
+                    GMM.add_defensive_component(model, defensive_frac=(
+                        getattr(self.integrator,'gmm_defensive_frac',0.0)
+                        if getattr(self.integrator,'gmm_defensive_all_paths',False) else 0.0))
                 elif isinstance(self.integrator.n_comp, dict) and self.integrator.n_comp[dim_group] != 0:
                     model = GMM.gmm(self.integrator.n_comp[dim_group], new_bounds,epsilon=self.integrator.gmm_epsilon)
-                    model.fit(temp_samples, log_sample_weights=ln_weights)
+                    model.fit(temp_samples, log_sample_weights=ln_weights_group)
+                    # The defensive component is the ONLY thing that actually guarantees this member
+                    # has support across the box -- gmm.score() merely FLOORS at 1e-300, which is a
+                    # numerical guard, not coverage (a sample there would carry weight ~1e300).
+                    # fit_gmm_adaptive adds it; the fixed-component path did not.  OPT-IN, because
+                    # measured on the shape gate a 5% broad component costs real n_eff in
+                    # higher dimensions (d6_n3_s303 119->75, d8_n1_s303 448->210): it spends
+                    # 5% of draws where the likelihood is negligible.  Only a consumer that
+                    # NEEDS this member as its coverage guarantee should pay -- so a
+                    # portfolio sets gmm_defensive_all_paths on its members, and a standalone
+                    # GMM user is unaffected.
+                    GMM.add_defensive_component(model, defensive_frac=(
+                        getattr(self.integrator,'gmm_defensive_frac',0.0)
+                        if getattr(self.integrator,'gmm_defensive_all_paths',False) else 0.0))
+                elif not (self.integrator.n_comp == 0 or
+                          (isinstance(self.integrator.n_comp, dict) and self.integrator.n_comp.get(dim_group) == 0)):
+                    # invalid n_comp (e.g. None from an integrator built outside
+                    # setup()): never no-op silently -- that hid a dead GMM
+                    # portfolio member in production.  n_comp==0 is the only
+                    # sanctioned way to skip training.
+                    if not getattr(self, '_warned_invalid_n_comp', False):
+                        self._warned_invalid_n_comp = True
+                        print(" mcsamplerEnsemble: update_sampling_prior SKIPPING training for dim_group {}: "
+                              "invalid n_comp {!r} (use n_comp=0 to disable adaptation intentionally)".format(
+                                  dim_group, self.integrator.n_comp))
             else:
-                model.update(temp_samples, log_sample_weights=ln_weights)
+                model.update(temp_samples, log_sample_weights=ln_weights_group)
             self.integrator.gmm_dict[dim_group] = model
 
+    def bootstrap_from_samples(self, samples, params=None, n_comp_warm=2, **kwargs):
+        """Warm-start: fit this GMM's proposal to a seed cloud so it samples AT the peak from
+        the first draw, instead of having to discover the peak location from scratch.  For a
+        needle-in-a-haystack extrinsic posterior (peak ~ 10^-11 of the prior box) this is the
+        difference between converging and never finding the peak by cold draws.
+
+        Builds the integrator if setup() has not run yet, then (re)fits one GMM per dim-group
+        from the seed with EQUAL weights -- this only shapes the proposal, carries no lnL
+        information, so it cannot bias the estimate (the importance weights still use the true
+        likelihood).  AV-only kwargs (cover_frac / inflate) are accepted and ignored, so a
+        portfolio can forward a single seed to every member uniformly.
+
+        `samples`: (N, ndim) array, columns in self.params_ordered order."""
+        samples = np.asarray(self.identity_convert(samples))
+        ndim = len(self.params_ordered)
+        if samples.ndim != 2 or samples.shape[1] != ndim:
+            raise ValueError("GMM warm-start expects (N,{}) samples in params_ordered order".format(ndim))
+        # (Re)build the integrator as a SINGLE full-dimensional Gaussian group.  Two reasons:
+        #  * modeling -- a localized high-SNR peak has strong cross-parameter correlations
+        #    (sky<->phase<->distance); one full-dim mixture captures them, whereas the default
+        #    per-dimension factored proposal cannot and "can stall at the prior".
+        #  * robustness -- the default gmm_dict=None path leaves integrator.bounds as a raw
+        #    array (not a per-group dict), which breaks the per-group fit; the correlate-all
+        #    path builds proper dict bounds.
+        n_comp = n_comp_warm
+        if (self.integrator is not None and isinstance(self.integrator.n_comp, int)
+                and self.integrator.n_comp > 0):
+            n_comp = self.integrator.n_comp
+        # CARRY THE COVERAGE CONFIG THROUGH.  setup() rebuilds the integrator from its kwargs,
+        # so calling it bare here reset gmm_defensive_all_paths to False and refitted the warm
+        # GMM with NO defensive component -- after the portfolio had already decided, on the
+        # strength of that flag, that it was safe to contract its AV member.  The guarantee has
+        # to survive the sampler's own lifecycle, not just its initial setup.
+        _prev = getattr(self, 'integrator', None)
+        # gmm_dict=None EXPLICITLY.  setup() now remembers its kwargs, so a remembered explicit
+        # grouping would survive this call and correlate_all_dims=True would have no effect --
+        # defeating the single full-dimensional group this path exists to build (the whole point
+        # is to capture sky<->phase<->distance correlations at high SNR).  Passing None overrides
+        # the remembered value; the coverage settings below are still carried forward.
+        self.setup(n_comp=int(n_comp), correlate_all_dims=True, gmm_dict=None,
+                   gmm_defensive_frac=getattr(_prev, 'gmm_defensive_frac', 0.05),
+                   gmm_defensive_all_paths=getattr(_prev, 'gmm_defensive_all_paths', False))
+        rvs = {p: samples[:, j] for j, p in enumerate(self.params_ordered)}
+        # equal weights == "put proposal mass at these seed locations" (no lnL info)
+        self.update_sampling_prior(self.xpy.zeros(len(samples)), len(samples),
+                                   external_rvs=rvs, log_scale_weights=True)
+        print("  [GMM warm-start] fitted full-dim proposal to {} seed samples (n_comp={})".format(
+            len(samples), n_comp))
+        return True
 
     def draw_simplified(self,n,*args,**kwargs):
         n_samples = int(n)
@@ -305,6 +541,46 @@ class MCSampler(object):
         joint_p_prior = self.calc_pdf(rv.T).flatten()
 
         return joint_p_s, joint_p_prior, rv
+
+    def sampling_density(self, X):
+        """Pointwise sampling density q(theta) of THIS GMM member, evaluated at
+        ARBITRARY points X (shape (N, ndim), columns in self.params_ordered
+        order).  Returns a host (numpy) array of length N, or None if the
+        integrator/GMM has not been built yet.
+
+        This is exactly the per-sample product MonteCarloEnsemble._sample stores
+        as sampling_prior_array, but evaluated at supplied points rather than at
+        the member's own draws: for each grouped set of dimensions it is the
+        fitted mixture density gmm.score(...) (already normalized to integrate to
+        1 over the box, in ORIGINAL coordinates), or the uniform density 1/vol
+        for a not-yet-fitted (None) group.  READ-ONLY; does not affect this
+        sampler's own integrate().  Used by the portfolio balance heuristic.
+        """
+        integrator = getattr(self, 'integrator', None)
+        if integrator is None:
+            return None
+        Xc = np.atleast_2d(np.asarray(self.identity_convert(X), dtype=float))
+        ndim = len(self.params_ordered)
+        if Xc.shape[1] != ndim and Xc.shape[0] == ndim:
+            Xc = Xc.T  # tolerate (ndim, N)
+        Xg = self.identity_convert_togpu(Xc)
+        q = self.xpy.ones(Xg.shape[0])
+        for dim_group in integrator.gmm_dict:
+            new_bounds = integrator.bounds[dim_group]
+            if len(new_bounds.shape) < 2:
+                new_bounds = self.xpy.array([new_bounds])
+            model = integrator.gmm_dict[dim_group]
+            cols = self.xpy.empty((Xg.shape[0], len(dim_group)))
+            for index, dim in enumerate(dim_group):
+                cols[:, index] = Xg[:, dim]
+            if model is None:
+                llim = new_bounds[:, 0]
+                rlim = new_bounds[:, 1]
+                vol = self.xpy.prod(rlim - llim)
+                q *= 1.0 / vol
+            else:
+                q *= model.score(cols)
+        return self.identity_convert(q)
 
 
     def integrate_log(self, func, *args,**kwargs):
@@ -334,6 +610,9 @@ class MCSampler(object):
         write_to_file = kwargs['write_to_file'] if "write_to_file" in kwargs else False
         correlate_all_dims = kwargs['correlate_all_dims'] if  "correlate_all_dims" in kwargs else False
         gmm_adapt = kwargs['gmm_adapt'] if "gmm_adapt" in kwargs else None
+        gmm_adaptive = kwargs['gmm_adaptive'] if "gmm_adaptive" in kwargs else None
+        gmm_defensive_frac = kwargs['gmm_defensive_frac'] if "gmm_defensive_frac" in kwargs else 0.05
+        gmm_inflate = kwargs['gmm_inflate'] if "gmm_inflate" in kwargs else 1.0
         gmm_epsilon = kwargs['gmm_epsilon'] if "gmm_epsilon" in kwargs else None
         L_cutoff = kwargs["L_cutoff"] if "L_cutoff" in kwargs else None
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 1.0
@@ -397,14 +676,33 @@ class MCSampler(object):
 
         integrator = monte_carlo.integrator(dim, bounds, gmm_dict, n_comp, n=n, prior=self.calc_pdf,
                          user_func=integrator_func, proc_count=proc_count,L_cutoff=L_cutoff,gmm_adapt=gmm_adapt,gmm_epsilon=gmm_epsilon,tempering_exp=tempering_exp,
-                         tempering_adapt=tempering_adapt, ess_target=ess_target, ess_floor=ess_floor)
+                         tempering_adapt=tempering_adapt, ess_target=ess_target, ess_floor=ess_floor, gmm_adaptive=gmm_adaptive,
+                         gmm_defensive_frac=gmm_defensive_frac, gmm_inflate=gmm_inflate)
+        # Warm-start survival: a prior setup()/bootstrap_from_samples fits proposal
+        # models and stores them on self.integrator, but integrate() rebuilds a fresh
+        # integrator from the passed gmm_dict (values None) -- so without this the
+        # bootstrapped fit is SILENTLY DISCARDED and a "warm" run starts cold
+        # (measured: warm correlate-all began at n_eff=1.0, climbed to only ~7 @4M).
+        # Transfer any fitted model whose dim-group key matches; a key mismatch
+        # (e.g. bootstrap built correlate-all but the run uses the factored pairing)
+        # simply falls back to cold, so this can never bias or crash.
+        prev = getattr(self, 'integrator', None)
+        if prev is not None and prev is not integrator and getattr(prev, 'gmm_dict', None):
+            n_xfer = 0
+            for key, model in prev.gmm_dict.items():
+                if model is not None and key in integrator.gmm_dict and integrator.gmm_dict[key] is None:
+                    integrator.gmm_dict[key] = model
+                    n_xfer += 1
+            if n_xfer:
+                print("  [GMM warm-start] transferred {} fitted proposal group(s) into the integrator".format(n_xfer))
+        self.integrator = integrator
         if not direct_eval:
             func = self.evaluate
         if use_lnL:
             print(" ==> input assumed as lnL ")
         if return_lnI:
             print(" ==> internal calculations and return values are lnI ")
-        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,verbose=verbose,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsion=tripwire_epsilon,use_lnL=use_lnL,return_lnI=return_lnI,lnw_failure_cut=lnw_failure_cut)
+        integrator.integrate(func, min_iter=min_iter, max_iter=max_iter, var_thresh=var_thresh, neff=neff, nmax=nmax,max_err=max_err,verbose=verbose,progress=super_verbose,tripwire_fraction=tripwire_fraction,tripwire_epsilon=tripwire_epsilon,use_lnL=use_lnL,return_lnI=return_lnI,lnw_failure_cut=lnw_failure_cut)
 
         self.n = int(integrator.n)
         self.ntotal = int(integrator.ntotal)

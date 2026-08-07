@@ -187,9 +187,145 @@ def finalize_log(existingAggregate,xpy=numpy):
     """
     
     (count, log_mean_orig, log_M2, log_ref) = existingAggregate
-    (log_mean,  log_sampleVariance) = (log_mean_orig+log_ref, log_M2 + 2*log_ref - xpy.log((count - 1))) 
+    (log_mean,  log_sampleVariance) = (log_mean_orig+log_ref, log_M2 + 2*log_ref - xpy.log((count - 1)))
 #     print( log_mean, log_sampleVariance)
     if count < 2:
          return float('nan')
     else:
          return (log_mean,  log_sampleVariance)
+
+
+#
+# MC-error stabilization helpers (host-side, numpy only).
+#
+# Motivation: the sample variance of the importance weights, computed from the
+# SAME draws as the integral, is algebraically 1/ESS_hat - 1/n restated.  It is
+# tail-blind: a run that has not sampled the dominant weight region reports BOTH
+# a low integral AND a small error bar, so the naive estimate fails conditionally
+# on the run being wrong.  These helpers provide (a) a generalized-Pareto tail
+# diagnostic (PSIS k-hat, Vehtari et al. JMLR 2024), (b) an ESS statistic,
+# (c) a between-chunk jackknife scatter that sees adaptation nonstationarity,
+# and (d) bootstrap quantiles of lnZ for honest (asymmetric) intervals when the
+# relative error is large.  All are cheap relative to likelihood evaluations and
+# must be called on CPU (numpy) arrays.
+#
+
+def pareto_khat_from_log(log_wt, tail_frac=0.2, min_tail=20):
+    """Generalized-Pareto tail index k of the importance-weight distribution,
+    fit to the largest weights (Zhang & Stephens 2009 posterior-mean estimator,
+    as used by Pareto-smoothed importance sampling).  Input is LOG weights on
+    any scale (k is invariant under overall rescaling).  Interpretation:
+    k < 0.5 : weight variance finite, the naive error estimate is meaningful;
+    0.5-0.7 : variance marginal, treat the naive sigma as optimistic;
+    k > 0.7 : the weight tail is unresolved -- the naive sigma is a lower bound
+              and the integral itself may be dominated by unseen tail mass.
+    Returns float k, or None if there are too few finite weights to fit."""
+    lw = numpy.asarray(log_wt, dtype=float)
+    lw = lw[numpy.isfinite(lw)]
+    n = len(lw)
+    if n < 5 * min_tail:
+        return None
+    lw = numpy.sort(lw)
+    w = numpy.exp(lw - lw[-1])   # rescale by max: tail values are O(1), rest may underflow harmlessly
+    M = int(min(tail_frac * n, numpy.ceil(3 * numpy.sqrt(n))))
+    M = max(M, min_tail)
+    if M >= n:
+        M = n - 1
+    tail = w[-M:]
+    mu = w[-M - 1]               # threshold = largest non-tail weight
+    x = tail - mu
+    if x[-1] <= 0:
+        return 0.0               # massive ties at the top: no resolvable tail
+    x = x[x > 0]
+    nt = len(x)
+    if nt < min_tail:
+        return 0.0
+    xstar = x[int(nt / 4 + 0.5) - 1]
+    if xstar <= 0:
+        return 0.0
+    m = 30 + int(numpy.sqrt(nt))
+    jj = numpy.arange(1, m + 1)
+    theta = 1.0 / x[-1] + (1 - numpy.sqrt(m / (jj - 0.5))) / (3.0 * xstar)
+    theta[theta == 0] = 1e-12    # avoid the (measure-zero) singular point
+    # profile log-likelihood of the GPD for each candidate theta
+    k_of = -numpy.mean(numpy.log1p(-numpy.outer(theta, x)), axis=1)
+    k_of[numpy.abs(k_of) < 1e-12] = 1e-12
+    with numpy.errstate(divide='ignore', invalid='ignore'):
+        lp = nt * (numpy.log(theta / k_of) + k_of - 1)
+    lp[~numpy.isfinite(lp)] = -numpy.inf
+    lp -= lp.max()
+    wts = numpy.exp(lp)
+    s = wts.sum()
+    if not numpy.isfinite(s) or s <= 0:
+        return None
+    theta_hat = numpy.sum(theta * wts) / s
+    if theta_hat == 0:
+        return 0.0
+    # Zhang & Stephens parameterize the GPD with k_ZS = -xi (their k>0 is a
+    # BOUNDED tail); return the PSIS/Vehtari tail index xi = -k_ZS, so that
+    # heavy tails give POSITIVE k-hat and the 0.5/0.7 thresholds apply.
+    return float(numpy.mean(numpy.log1p(-theta_hat * x)))
+
+
+def ess_from_log_weights(log_wt):
+    """Kish effective sample size (sum w)^2 / sum w^2 from LOG weights."""
+    lw = numpy.asarray(log_wt, dtype=float)
+    lw = lw[numpy.isfinite(lw)]
+    if len(lw) == 0:
+        return 0.0
+    lse = scipy.special.logsumexp
+    return float(numpy.exp(2 * lse(lw) - lse(2 * lw)))
+
+
+def block_scatter_sigma(lnZ_blocks, n_blocks):
+    """sigma(lnZ) from the between-chunk scatter of per-chunk mean estimates,
+    via a delete-one jackknife of the n-weighted pooled mean.  Each chunk of an
+    adaptive run used a different proposal, so this sees the nonstationarity the
+    pooled within-run variance averages away.  (It still cannot see modes that
+    EVERY chunk missed -- only independent replicas can.)  Returns float sigma
+    or None if fewer than 2 usable chunks."""
+    lnZ = numpy.asarray(lnZ_blocks, dtype=float)
+    nb = numpy.asarray(n_blocks, dtype=float)
+    good = numpy.isfinite(lnZ) & (nb > 0)
+    lnZ = lnZ[good]
+    nb = nb[good]
+    K = len(lnZ)
+    if K < 2:
+        return None
+    ref = lnZ.max()
+    Z = numpy.exp(lnZ - ref)
+    tot = numpy.sum(nb * Z)
+    N = nb.sum()
+    loo = (tot - nb * Z) / (N - nb)      # leave-one-out pooled means (relative to ref)
+    if tot <= 0 or numpy.any(loo <= 0):
+        return None
+    ln_loo = numpy.log(loo)
+    var_jk = (K - 1) / K * numpy.sum((ln_loo - ln_loo.mean()) ** 2)
+    return float(numpy.sqrt(var_jk))
+
+
+def bootstrap_lnZ_quantiles(log_wt, n_total=None, n_boot=200, quantiles=(0.05, 0.5, 0.95), rng_seed=None):
+    """Bootstrap quantiles of lnZ_hat = ln( sum_i w_i / n_total ) by resampling
+    the stored LOG weights with replacement.  When the relative error is O(1)
+    the delta-method +-sigma interval on lnZ is meaningless (the distribution is
+    strongly skewed); these quantiles are an honest same-sample interval.  They
+    remain blind to tail mass never sampled -- pair with pareto_khat_from_log.
+    n_total: divisor if the stored weights are a pruned subset of a larger run
+    (the pruned-away weights contribute negligibly to the sum).  Returns a
+    numpy array of lnZ quantiles, or None if too few weights."""
+    lw = numpy.asarray(log_wt, dtype=float)
+    lw = lw[numpy.isfinite(lw)]
+    n = len(lw)
+    if n < 10:
+        return None
+    if n_total is None:
+        n_total = n
+    rng = numpy.random.default_rng(rng_seed)
+    ref = lw.max()
+    w = numpy.exp(lw - ref)
+    out = numpy.empty(n_boot)
+    for b in range(n_boot):
+        idx = rng.integers(0, n, n)
+        out[b] = numpy.log(numpy.sum(w[idx]))
+    out += ref - numpy.log(n_total)
+    return numpy.quantile(out, quantiles)

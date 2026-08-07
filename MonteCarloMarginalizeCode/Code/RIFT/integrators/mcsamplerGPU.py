@@ -83,7 +83,7 @@ if not( 'RIFT_LOWLATENCY'  in os.environ):
  except:
     print(" - No healpy - ")
 
-from ..integrators.statutils import  update,finalize, init_log,update_log,finalize_log
+from ..integrators.statutils import  update,finalize, init_log,update_log,finalize_log, pareto_khat_from_log, ess_from_log_weights, block_scatter_sigma, bootstrap_lnZ_quantiles
 
 #from multiprocessing import Pool
 
@@ -92,6 +92,12 @@ from RIFT.likelihood import vectorized_general_tools
 __author__ = "Chris Pankow <pankow@gravity.phys.uwm.edu>, Dan Wysocki, R. O'Shaughnessy"
 
 rosDebugMessages = True
+
+# Minimum uniform-mixture fraction applied to every adapted histogram (see
+# compute_hist): guarantees no bin has exactly zero sampling probability, since a
+# zero bin can never be re-drawn (absorbing state) and silently truncates the
+# integration domain.  Override at module level for controlled experiments.
+HIST_FLOOR_LEVEL_MIN = 1e-2
 
 class NanOrInf(Exception):
     def __init__(self, value):
@@ -297,7 +303,12 @@ class MCSampler(object):
         # Smooth the histogram
 #        kernel_size =3
 #        histogram_values = self.xpy.convolve( histogram_values, self.xpy.ones(kernel_size)/kernel_size,mode='same')
-        # Mix with a uniform sampling
+        # Mix with a uniform sampling.  A bin with exactly zero probability is an
+        # absorbing state: it can never be drawn again, so the sampled support is
+        # permanently truncated and the integral is systematically biased LOW by the
+        # mass outside the support -- a bias no within-run error estimate can see.
+        # Enforce a minimal floor so every bin stays reachable.
+        floor_level = max(floor_level, HIST_FLOOR_LEVEL_MIN)
         histogram_values =    histogram_values*(1-floor_level)+floor_level*self.xpy.ones(len(histogram_values))/len(histogram_values)
 
         # Evaluate the CDF by taking a cumulative sum of the histogram.
@@ -344,7 +355,7 @@ class MCSampler(object):
         y = (x - self.x_min[param]) / self.x_max_minus_min[param]
         # Compute the indices of the histogram bins that `x` falls into.
         indices = self.xpy.trunc(y / self.dx[param], out=y).astype(np.int32)
-        indices = self.xpy.minimum(indices,self.n_bins[param])  # prevent being out of range due to rounding !
+        indices = self.xpy.minimum(indices,self.n_bins[param]-1)  # prevent being out of range due to rounding (x == right edge maps to last bin)
         # Return the value of the histogram.
         return self.histogram_values[param][indices]
 
@@ -645,7 +656,7 @@ class MCSampler(object):
             print("  Note: cannot adapt, no history ")
 
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
-        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000  # default to adapt to 1000 chunks, then freeze
+        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000*n  # default to adapt to 1000 chunks, then freeze.  NOTE: scaled by n, matching integrate()
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
         temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
         tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
@@ -674,6 +685,9 @@ class MCSampler(object):
         maxval=0   # max weight
         outvals=None  # define in top level scope
         self.ntotal = 0
+        # per-chunk lnZ record: each chunk used a (different) adapted proposal, so the
+        # between-chunk scatter is an error floor the pooled variance cannot see
+        lnZ_chunk_list = []; n_chunk_list = []
         if bShowEvaluationLog:
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
 
@@ -770,6 +784,14 @@ class MCSampler(object):
             else:
               current_log_aggregate = update_log(current_log_aggregate, log_integrand,xpy=xpy,special=xpy_special_default)
             outvals = finalize_log(current_log_aggregate,xpy=xpy)
+            # per-chunk lnZ for the between-chunk error floor (init_log returns
+            # (n, log_mean, log_M2, log_ref) so lnZ_chunk = log_mean + log_ref)
+            try:
+              _chunk_agg = init_log(log_integrand,xpy=xpy,special=xpy_special_default)
+              lnZ_chunk_list.append(float(identity_convert(_chunk_agg[1])) + float(identity_convert(_chunk_agg[3])))
+              n_chunk_list.append(int(_chunk_agg[0]))
+            except Exception:
+              pass
             self.ntotal = current_log_aggregate[0]
             # effective samples
             maxval = max(maxval, identity_convert(self.xpy.max(log_integrand) ))
@@ -804,8 +826,7 @@ class MCSampler(object):
             # The total number of adaptive steps is reached
             #
             # FIXME: We need a better stopping condition here
-            if self.ntotal > n_adapt*n:
-                print(n_adapt,self.ntotal)
+            if self.ntotal > n_adapt:   # n_adapt already scaled by n above; the old test (n_adapt*n) double-counted n and never froze
                 continue
 
             #
@@ -817,8 +838,14 @@ class MCSampler(object):
                     return f(arg, p)
                 return inner
 
-            weights_alt = self._rvs["log_integrand"][-n_history:]+np.max([maxlnL, 200])  # try to make sure we have some dynamic range here
-            weights_alt = self.xpy.maximum(weights_alt, 1e-5)  # prevent negative weights. NOTE THIS IS IMPORTANT: if you are integrating a function with lnL<0, use an offset!
+            # Tempered importance weights exp(tempering_exp*lnL + ln p - ln p_s), so the
+            # weighted histogram of draws estimates the FIXED target L^tempering_exp * prior.
+            # (The old  lnL + max(maxlnL,200)  weights ignored tempering_exp and the 1/p_s
+            # correction: near-flat weights made each histogram replay the previous
+            # proposal's sampling noise, a multiplicative random walk that collapses the
+            # proposal onto a comb of surviving bins.)
+            weights_alt = self._rvs["log_weights"][-n_history:]
+            weights_alt = self.xpy.exp(weights_alt - self.xpy.max(weights_alt))
             weights_alt = weights_alt/(weights_alt.sum())
             if weights_alt.dtype == RiftFloat:
               weights_alt = weights_alt.astype(numpy.float64,copy=False)
@@ -874,6 +901,36 @@ class MCSampler(object):
                 else:
                     self._rvs[key] = self._rvs[key][indx_list]
 
+        # MC-error diagnostics (must run BEFORE the fairdraw resampling below rewrites
+        # _rvs).  See statutils: the pooled weight variance is 1/ESS restated and
+        # tail-blind; disclose the tail (k-hat), the between-chunk scatter, and --
+        # when the naive relative error is already large -- bootstrap lnZ quantiles.
+        mc_diag = {}
+        try:
+            _sb = block_scatter_sigma(lnZ_chunk_list, n_chunk_list)
+            if _sb is not None:
+                mc_diag['sigma_lnZ_block'] = _sb
+            if "log_integrand" in self._rvs:
+                _lw_diag = numpy.asarray(identity_convert(self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]), dtype=float)
+                _kh = pareto_khat_from_log(_lw_diag)
+                if _kh is not None:
+                    mc_diag['pareto_khat'] = _kh
+                mc_diag['n_ESS'] = ess_from_log_weights(_lw_diag)
+                _sig_rel_naive = np.inf
+                if outvals is not None:
+                    _sig_rel_naive = float(np.exp(identity_convert(outvals[1])/2 - identity_convert(outvals[0]) - np.log(self.ntotal)/2))
+                if _sig_rel_naive > 0.3 or mc_diag.get('sigma_lnZ_block', 0) > 0.3:
+                    _q = bootstrap_lnZ_quantiles(_lw_diag, n_total=self.ntotal)
+                    if _q is not None:
+                        mc_diag['lnZ_ci90'] = _q
+            print(" [mc diag] khat={} ESS={} sigma_block={} (chunks={})".format(
+                round(mc_diag['pareto_khat'],3) if 'pareto_khat' in mc_diag else None,
+                round(mc_diag['n_ESS'],1) if 'n_ESS' in mc_diag else None,
+                round(mc_diag['sigma_lnZ_block'],4) if 'sigma_lnZ_block' in mc_diag else None,
+                len(lnZ_chunk_list)))
+        except Exception as _e_diag:
+            print(" mcsamplerGPU: MC-error diagnostics failed ({}); continuing.".format(_e_diag))
+
         # Do a fair draw of points, if option is set. CAST POINTS BACK TO NUMPY, IDEALLY
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*identity_convert(eff_samp),1.5*neff]))
@@ -896,6 +953,7 @@ class MCSampler(object):
         dict_return ={}
         if convergence_tests is not None:
             dict_return["convergence_test_results"] = last_convergence_test
+        dict_return.update(mc_diag)   # MC-error diagnostics (pareto_khat, n_ESS, sigma_lnZ_block, lnZ_ci90)
 
         # perform type conversion of all stored variables
         if cupy_ok:

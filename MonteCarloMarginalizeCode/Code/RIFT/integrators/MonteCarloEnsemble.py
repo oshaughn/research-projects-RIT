@@ -14,12 +14,17 @@ from scipy.special import logsumexp
 try:
     import cupy
     import cupyx.scipy.special
+    # Probe for an actual device: cupy imports cleanly on GPU-less nodes but
+    # every kernel launch then dies with cudaErrorNoDevice.  getDeviceCount
+    # raises CUDARuntimeError (not ImportError), hence the broad except.
+    if cupy.cuda.runtime.getDeviceCount() == 0:
+        raise ImportError("cupy installed but no CUDA device available")
     xpy_default = cupy
     xpy_special_default = cupyx.scipy.special
     identity_convert = cupy.asnumpy
     identity_convert_togpu = cupy.asarray
     cupy_ok = True
-except ImportError:
+except Exception:
     xpy_default = np
     xpy_special_default = None
     identity_convert = lambda x: x
@@ -96,13 +101,26 @@ class integrator:
 
     def __init__(self, d, bounds, gmm_dict, n_comp, n=None, prior=None,
                 user_func=None, proc_count=None, L_cutoff=None, use_lnL=False,return_lnI=False,gmm_adapt=None,gmm_epsilon=None,tempering_exp=1,temper_log=False,lnw_failure_cut=None,
-                tempering_adapt=False, ess_target=None, ess_floor=None):
+                tempering_adapt=False, ess_target=None, ess_floor=None, gmm_adaptive=None,
+                gmm_defensive_frac=0.05, gmm_inflate=1.0):
         # if 'return_lnI' is active, 'integral' holds the *logarithm* of the integral.
         # user-specified parameters
         self.d = d
         self.bounds = bounds
         self.gmm_dict = gmm_dict
         self.gmm_adapt = gmm_adapt
+        # gmm_adaptive: {dim_group: k_max}.  Groups listed here choose their
+        # component count from the data by BIC (GMM.fit_gmm_adaptive) at
+        # initialization, then adapt via the stable merge path, instead of using
+        # a fixed n_comp -- see _train.
+        self.gmm_adaptive = gmm_adaptive
+        # defensive tail coverage + covariance inflation for adaptive groups
+        self.gmm_defensive_frac = gmm_defensive_frac
+        # Opt-in: install the defensive component on the FIXED-COMPONENT fit paths too.
+        # Off by default because it costs n_eff at d>=6; a portfolio that relies on this
+        # member for coverage turns it on (mcsamplerPortfolio.setup).
+        self.gmm_defensive_all_paths = False
+        self.gmm_inflate = gmm_inflate
         self.gmm_epsilon= gmm_epsilon
         self.n_comp = n_comp
         self.user_func=user_func
@@ -146,6 +164,10 @@ class integrator:
         if self.return_lnI:
             self.total_value = None
         self.n_max = float('inf')
+        # set to a descriptive string when integrate() exits abnormally (error
+        # budget exhausted); None means a clean run.  Callers that cannot catch
+        # the consecutive-refit-failure RuntimeError can inspect this instead.
+        self.integration_error = None
         # saved values
         self.cumulative_samples = self.xpy.empty((0, d))
         self.cumulative_values = self.xpy.empty(0)
@@ -336,13 +358,74 @@ class integrator:
             for dim in dim_group:
                 temp_samples[:,index] = sample_array[:,dim]
                 index += 1
+            # gmm_adaptive may be a dict {group:k_max} (per-group opt-in) or a
+            # scalar/bool (apply to every adapting group -- used by the portfolio,
+            # whose GMM member's grouping is not known here).
+            adaptive_kmax = None
+            if self.gmm_adaptive:
+                if isinstance(self.gmm_adaptive, dict):
+                    adaptive_kmax = self.gmm_adaptive.get(dim_group)
+                elif isinstance(self.gmm_adaptive, bool):
+                    adaptive_kmax = 8   # default cap when enabled globally
+                else:
+                    adaptive_kmax = int(self.gmm_adaptive)
             if model is None:
-                if isinstance(self.n_comp, int) and self.n_comp != 0:
+                if adaptive_kmax:
+                    # FLEXIBLE allocation: choose this group's component count
+                    # from the data by BIC at INITIALIZATION, then hand off to the
+                    # proven-stable merge adaptation below (model.update()).  We
+                    # deliberately do NOT re-fit fresh every chunk: a per-chunk
+                    # BIC refit makes the proposal wander (measured: n_eff peaks
+                    # then collapses) because each fit sees a different elite
+                    # cloud; the incremental merge smooths that out.
+                    # SAFETY FLOOR: never fewer components than the stress-tested
+                    # hard-coded count for this group (self.n_comp) -- adaptive is
+                    # a REFINEMENT that only adds capacity, e.g. a broad multi-modal
+                    # sky keeps its default components.
+                    if isinstance(self.n_comp, dict):
+                        k_floor = self.n_comp.get(dim_group, 1)
+                    else:
+                        k_floor = self.n_comp
+                    k_floor = int(k_floor) if isinstance(k_floor, int) and k_floor > 0 else 1
+                    model = GMM.fit_gmm_adaptive(temp_samples, new_bounds,
+                                                 log_sample_weights=log_weights,
+                                                 k_max=max(int(adaptive_kmax), k_floor),
+                                                 k_min=k_floor,
+                                                 epsilon=self.gmm_epsilon,
+                                                 defensive_frac=self.gmm_defensive_frac,
+                                                 inflate=self.gmm_inflate)
+                elif isinstance(self.n_comp, int) and self.n_comp != 0:
                     model = GMM.gmm(self.n_comp, new_bounds,epsilon=self.gmm_epsilon)
                     model.fit(temp_samples, log_sample_weights=log_weights)
+                    # The defensive component is the ONLY thing that actually guarantees this member
+                    # has support across the box -- gmm.score() merely FLOORS at 1e-300, which is a
+                    # numerical guard, not coverage (a sample there would carry weight ~1e300).
+                    # fit_gmm_adaptive adds it; the fixed-component path did not.  OPT-IN, because
+                    # measured on the shape gate a 5% broad component costs real n_eff in
+                    # higher dimensions (d6_n3_s303 119->75, d8_n1_s303 448->210): it spends
+                    # 5% of draws where the likelihood is negligible.  Only a consumer that
+                    # NEEDS this member as its coverage guarantee should pay -- so a
+                    # portfolio sets gmm_defensive_all_paths on its members, and a standalone
+                    # GMM user is unaffected.
+                    GMM.add_defensive_component(model, defensive_frac=(
+                        getattr(self,'gmm_defensive_frac',0.0)
+                        if getattr(self,'gmm_defensive_all_paths',False) else 0.0))
                 elif isinstance(self.n_comp, dict) and self.n_comp[dim_group] != 0:
                     model = GMM.gmm(self.n_comp[dim_group], new_bounds,epsilon=self.gmm_epsilon)
                     model.fit(temp_samples, log_sample_weights=log_weights)
+                    # The defensive component is the ONLY thing that actually guarantees this member
+                    # has support across the box -- gmm.score() merely FLOORS at 1e-300, which is a
+                    # numerical guard, not coverage (a sample there would carry weight ~1e300).
+                    # fit_gmm_adaptive adds it; the fixed-component path did not.  OPT-IN, because
+                    # measured on the shape gate a 5% broad component costs real n_eff in
+                    # higher dimensions (d6_n3_s303 119->75, d8_n1_s303 448->210): it spends
+                    # 5% of draws where the likelihood is negligible.  Only a consumer that
+                    # NEEDS this member as its coverage guarantee should pay -- so a
+                    # portfolio sets gmm_defensive_all_paths on its members, and a standalone
+                    # GMM user is unaffected.
+                    GMM.add_defensive_component(model, defensive_frac=(
+                        getattr(self,'gmm_defensive_frac',0.0)
+                        if getattr(self,'gmm_defensive_all_paths',False) else 0.0))
             else:
                 model.update(temp_samples, log_sample_weights=log_weights)
             try:
@@ -432,6 +515,14 @@ class integrator:
         self._verbose_diag = verbose   # per-chunk adaptation diagnostics in _train
 
         err_count = 0
+        # Consecutive-refit-failure budget: if the proposal refit fails this
+        # many chunks IN A ROW the proposal has never adapted and the returned
+        # integral/eff_samp are meaningless (the cupy-without-GPU regression
+        # produced exactly this: every refit raised, 'Error training,
+        # resetting...' each chunk, and integrate() returned eff_samp~1 with no
+        # error signal).  Fail loudly instead.
+        max_train_fail = int(kwargs["max_consecutive_train_failures"]) if "max_consecutive_train_failures" in kwargs else 5
+        consec_train_fail = 0
         cumulative_eval_time = 0
         adapting=True
         if nmax is None:
@@ -445,6 +536,7 @@ class integrator:
                 adapting=False
             if err_count >= max_err:
                 print('Exiting due to errors...')
+                self.integration_error = 'exited after {} sampling/results/training errors'.format(err_count)
                 break
             try:
                 self._sample()
@@ -490,6 +582,7 @@ class integrator:
             try:
                 if adapting:
                     self._train()
+                    consec_train_fail = 0
             except KeyboardInterrupt:
                 print('KeyboardInterrupt, exiting...')
                 break
@@ -497,7 +590,11 @@ class integrator:
                 print(traceback.format_exc())
                 print('Error training, resetting...')
                 err_count += 1
+                consec_train_fail += 1
                 self._reset()
+                if consec_train_fail >= max_train_fail:
+                    self.integration_error = 'proposal refit failed {} consecutive times; proposal never adapted'.format(consec_train_fail)
+                    raise RuntimeError('GMM ' + self.integration_error) from e
             if self.user_func is not None:
                 self.user_func(self)
             if progress:

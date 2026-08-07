@@ -3313,7 +3313,17 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        # but that is very difficult to do because modes of different 'm' and thus typical frequency generally mix
        # Note also that unless the segment length is large, this is often surprisingly few frequency bins for tapering
        if not(no_condition):
-           our_fvals = evaluate_fvals(hlmsdict[(2,2)])
+           # SimInspiralChooseFDModes returns modes on an ascending two-sided grid
+           # [-fNyq, ..., 0, ..., +fNyq] with DC at index npts//2 (odd length TDlen+1).
+           # Do NOT use evaluate_fvals here: it assumes RIFT's reversed packing and, for
+           # odd length, assigns f_assumed = -f_true + deltaF/2.  Since (l,m) and (l,-m)
+           # modes occupy opposite signs of f, that offset shifts the high-pass window by
+           # one bin between the members of a pair, violating
+           # h_{l,-m}(f) = (-1)^l conj(h_{lm}(-f)) — and hence the TD conjugate-pair
+           # identity — at the percent level.  The window must be exactly even in the
+           # true frequency to commute with complex conjugation.
+           npts_fd = hlmsdict[(2,2)].data.length
+           our_fvals = P.deltaF*(np.arange(npts_fd) - npts_fd//2)
            vectaper_symmetric  = np.ones(len(our_fvals))
            indx_below = np.logical_and(np.abs(our_fvals)<P.fmin, np.abs(our_fvals)>=P.fmin*fd_standoff_factor)
            vectaper_symmetric[indx_below] = 0.5 + 0.5*np.cos(np.pi* (np.abs(our_fvals[indx_below])/P.fmin - 1)/(1-fd_standoff_factor))
@@ -3339,6 +3349,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
 
        for mode in hlmsdict:
           hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
+          if not(no_condition):
+              # The resize above truncated the +fNyq bin from the two-sided grid but kept
+              # its -fNyq partner (index 0).  Zero it so the truncation commutes with the
+              # conjugate-pair (f -> -f) reflection for models with support at Nyquist.
+              hlmsdict[mode].data.data[0] = 0
           hlmsT[mode] = DataInverseFourier(hlmsdict[mode])
           # Phase factors: see crazy conventions in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
           if True: #P.approx == lalIMRPhenomXHM or P.approx == lalIMRPhenomHM:
@@ -4634,6 +4649,16 @@ def frame_data_to_hoft(fname, channel, start=None, stop=None, window_shape=0.,
     with open(fname) as cfile:
         cachef = Cache.fromfile(cfile)
     cachef=cachef.sieve(ifos=channel[:1])
+    # ET's three detectors (E1,E2,E3) share the site letter, so the channel[:1] sieve above is
+    # ambiguous and would read the wrong frame (e.g. E2:... served from the E1 frame -> "channel
+    # not found").  When the cache carries full-IFO observatories (E1/E2/E3/C1 from <IFO>-*.gwf
+    # frames), narrow to the exact IFO.  Standard single-letter observatories ('H','L','V') never
+    # equal the 2-char IFO, so this leaves ordinary H1/L1/V1 caches untouched.
+    ifo_full = channel.split(':')[0]
+    if len(ifo_full) > 1:
+        exact = [e for e in cachef if getattr(e, 'observatory', None) == ifo_full]
+        if exact:
+            cachef = cachef.__class__(exact)
     for name in cachef:
         print(name)
         

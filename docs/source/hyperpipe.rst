@@ -19,6 +19,8 @@ Depending on your goal, choose the appropriate guide below:
   and legacy support.
 * **Troubleshooting**: See :doc:`hyperpipe/troubleshooting` for diagnostic 
   commands and RIFT-specific caveats.
+* **Distance grids**: See :doc:`hyperpipe/add_distance_grids` to export and
+  validate per-point luminosity-distance likelihood grids.
 
 .. toctree::
    :maxdepth: 2
@@ -29,3 +31,4 @@ Depending on your goal, choose the appropriate guide below:
    hyperpipe/driver_dev
    hyperpipe/reference
    hyperpipe/troubleshooting
+   hyperpipe/add_distance_grids

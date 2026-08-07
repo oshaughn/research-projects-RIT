@@ -89,12 +89,33 @@ for fname in opts.fname[0]: #sys.argv[1:]:
 
 for key in data_at_intrinsic:
     lnL, sigmaOverL, ntot,neff =   np.transpose(data_at_intrinsic[key])
+    lnL = np.atleast_1d(lnL); sigmaOverL = np.atleast_1d(sigmaOverL); ntot = np.atleast_1d(ntot); neff = np.atleast_1d(neff)
     sigmaOverL = np.maximum(sigmaOverL, 1e-7*np.ones(len(lnL)))   # prevent accidental underflow during debugging/using synthetic data with no error
     lnLmax = np.max(lnL)
-    sigma = sigmaOverL*np.exp(lnL-lnLmax)  # remove overall Lmax factor, which factors out from the weights constructed from \sigma
-    wts = weight_simulations.AverageSimulationWeights(None, None,sigma)   
-    lnLmeanMinusLmax = np.log(np.sum(np.exp(lnL - lnLmax)*wts))
-    sigmaNetOverL = (np.sqrt(1./np.sum(1./sigma/sigma)))/np.exp(lnLmeanMinusLmax)
+    L = np.exp(lnL - lnLmax)  # remove overall Lmax factor, which factors out of the combination
+    K = len(lnL)
+    # Combine repeated evaluations by their SAMPLE-COUNT-weighted LINEAR mean.
+    # DO NOT inverse-variance weight with the reported sigmas: each sigma is
+    # computed from the same importance weights as its lnL, so a replica that
+    # silently missed the likelihood peak reports BOTH a low lnL AND a small
+    # sigma -- 1/sigma^2 weighting then overweights the worst replica, giving a
+    # systematically low combined lnL with an overconfident combined error.
+    # The pooled (ntot-weighted) linear mean is unbiased in L regardless.
+    wts = np.asarray(ntot, dtype=float)
+    if np.any(wts <= 0) or not np.all(np.isfinite(wts)):
+        wts = np.ones(K)
+    wts = wts/np.sum(wts)
+    Lbar = np.sum(wts*L)
+    lnLmeanMinusLmax = np.log(Lbar)
+    # Error: max(propagated per-run sigmas, between-replica scatter).  Only the
+    # scatter term can see the replica lottery (correlated underreporting); with
+    # K replicas it has K-1 dof, so treat the result as a t-interval downstream.
+    sigma_prop = np.sqrt(np.sum((wts*sigmaOverL*L)**2))/Lbar
+    if K > 1:
+        sigma_scatter = np.sqrt( np.sum(wts**2 * (L - Lbar)**2) * K/(K-1.) )/Lbar
+    else:
+        sigma_scatter = 0.
+    sigmaNetOverL = max(sigma_prop, sigma_scatter)
 
 
     if opts.eccentricity:
