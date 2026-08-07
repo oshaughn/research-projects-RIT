@@ -219,7 +219,35 @@ class MCSampler(object):
                 temp_ret *= pdf_vals.reshape( temp_ret.shape)
         return temp_ret
 
-    def setup(self,n_comp=None,**kwargs):
+    def setup(self, n_comp=None, **kwargs):
+        """Build the integrator.  REMEMBERS its arguments and re-applies them on later calls.
+
+        setup() is not called once: bootstrap_from_samples() re-runs it to rebuild the proposal as
+        a single full-dim group, and mcsamplerPortfolio replays it to reset a member between
+        points.  Each of those rebuilt the integrator from ONLY the kwargs of that call, so every
+        option the caller set originally was silently dropped.  That has now bitten three separate
+        settings -- gmm_dict (the dimension grouping and any seeded models), gmm_defensive_frac,
+        and gmm_defensive_all_paths -- each found as its own P1, each patched individually, and a
+        fourth would have followed.
+
+        So: merge this call's kwargs OVER the remembered ones, and remember the result.  An
+        explicit argument still wins; an omitted one keeps whatever it was configured to be
+        instead of reverting to a library default.  Pass `setup_forget=True` to start clean.
+        """
+        _prev = dict(getattr(self, '_setup_kwargs_seen', {}) or {})
+        if kwargs.pop('setup_forget', False):
+            _prev = {}
+        if n_comp is None:
+            n_comp = _prev.get('n_comp', None)
+        merged = dict(_prev)
+        merged.update(kwargs)
+        merged['n_comp'] = n_comp
+        self._setup_kwargs_seen = dict(merged)
+        kwargs = dict(merged)
+        kwargs.pop('n_comp', None)
+        return self._setup_impl(n_comp=n_comp, **kwargs)
+
+    def _setup_impl(self, n_comp=None, **kwargs):
       # n_comp=None silently disabled ALL training downstream: the integrator
       # stores it verbatim and update_sampling_prior only builds a model for
       # int!=0 or dict n_comp, so every gmm_dict entry stayed None forever.  In

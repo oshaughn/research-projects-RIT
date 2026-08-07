@@ -1,0 +1,112 @@
+#!/usr/bin/env python
+"""Tests for MC-error replica pooling and the L0 coverage warning.
+
+Both concern the same trap: an estimate that is PRECISE but computed over truncated support looks
+better by every efficiency metric than a noisy estimate over full support.
+
+Run:  python test_replica_pooling.py
+"""
+import os
+import re
+import types
+
+import numpy
+
+
+def _load_driver_helpers():
+    """Import the helpers out of the driver script without executing it."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(here, "..", "..", "bin", "integrate_likelihood_extrinsic_batchmode")
+    src = open(os.path.normpath(path)).read()
+    mod = types.ModuleType("drv")
+    mod.numpy = numpy
+    for fn in ("_rvs_len", "_pool_replica_rvs", "_lnZ_of_rvs", "_kish_neff_of_rvs"):
+        m = re.search(r"^def %s\(.*?(?=\n\ndef |\n\nclass )" % fn, src, re.S | re.M)
+        assert m, "helper %s not found in the driver" % fn
+        exec(compile(m.group(0), "<drv>", "exec"), mod.__dict__)
+    return mod
+
+
+DRV = _load_driver_helpers()
+
+
+class _S(object):
+    identity_convert = staticmethod(lambda x: x)
+
+
+def _replica(rng, n, lnZ, spread):
+    """A record whose importance weights average to exp(lnZ)."""
+    lw = rng.normal(0, spread, size=n)
+    lw = lw - numpy.log(numpy.mean(numpy.exp(lw))) + lnZ
+    return dict(log_integrand=lw, log_joint_prior=numpy.zeros(n),
+                log_joint_s_prior=numpy.zeros(n), x=rng.normal(size=n))
+
+
+def test_pooling_reproduces_the_combined_evidence():
+    """The exported posterior must be a draw from the SAME mixture the reported lnZ describes."""
+    rng = numpy.random.RandomState(0)
+    reps = [_replica(rng, 4000, 0.0, 1.2), _replica(rng, 3000, 0.05, 1.2),
+            _replica(rng, 5000, -0.03, 1.0)]
+    Zk = [numpy.mean(numpy.exp(r['log_integrand'])) for r in reps]
+    lnZ_comb = numpy.log(numpy.mean(Zk))                      # the reported combination
+    pooled = DRV._pool_replica_rvs(reps, _S())
+    assert abs(DRV._lnZ_of_rvs(pooled) - lnZ_comb) < 1e-9, (
+        "pooled samples imply lnZ {} but the reported combination is {}".format(
+            DRV._lnZ_of_rvs(pooled), lnZ_comb))
+    # unequal replica sizes must still be handled: pooling is 1/(K n_k), not a plain concatenation
+    assert len(pooled['x']) == 12000
+
+
+def test_max_neff_selection_would_export_the_collapsed_replica():
+    """Why selection by n_eff is the wrong rule: n_eff measures CONCENTRATION, not coverage, so a
+    mode-collapsed replica scores highest and would be the one exported alongside a combined
+    evidence it does not represent."""
+    rng = numpy.random.RandomState(1)
+    broad_a = _replica(rng, 4000, 0.0, 1.2)
+    broad_b = _replica(rng, 4000, 0.05, 1.2)
+    narrow = _replica(rng, 4000, -0.9, 0.05)          # collapsed: low Z, tiny weight spread
+    neffs = [DRV._kish_neff_of_rvs(r) for r in (broad_a, broad_b, narrow)]
+    assert int(numpy.argmax(neffs)) == 2, neffs
+    pooled = DRV._pool_replica_rvs([broad_a, broad_b, narrow], _S())
+    # the pooled n_eff must be honest: smaller than the naive sum over replicas
+    assert DRV._kish_neff_of_rvs(pooled) < sum(neffs)
+
+
+def test_pooling_does_not_repair_a_truncated_support_estimate():
+    """The reason the L0 rescue WARNS rather than pooling.
+
+    Averaging Z is unbiased only when every term is unbiased.  A warm pass over truncated support
+    is biased low, and pooling it with a full-support pass yields (Z + Z/2)/2 = 0.75 Z -- better
+    than warm-only, still wrong.  Pinned here so nobody 'improves' the rescue by pooling it."""
+    rng = numpy.random.RandomState(2)
+    full = _replica(rng, 4000, 0.0, 1.0)                       # unbiased
+    truncated = _replica(rng, 4000, numpy.log(0.5), 0.2)       # missed half the mass
+    pooled = DRV._pool_replica_rvs([full, truncated], _S())
+    bias = DRV._lnZ_of_rvs(pooled) - 0.0
+    assert abs(bias - numpy.log(0.75)) < 0.05, (
+        "expected pooling to inherit log(0.75) of bias, got {:+.3f}".format(bias))
+
+
+def test_lnZ_of_rvs_handles_a_single_run_and_a_pooled_record():
+    rng = numpy.random.RandomState(3)
+    r = _replica(rng, 2000, 0.25, 0.8)
+    assert abs(DRV._lnZ_of_rvs(r, already_pooled=False) - 0.25) < 1e-9
+    pooled = DRV._pool_replica_rvs([r, r], _S())
+    assert abs(DRV._lnZ_of_rvs(pooled) - 0.25) < 1e-9
+
+
+def test_missing_columns_degrade_to_the_first_replica():
+    """A degraded export is recoverable; a silently mis-weighted one is not."""
+    rng = numpy.random.RandomState(4)
+    a = dict(x=rng.normal(size=10)); b = dict(x=rng.normal(size=10))
+    out = DRV._pool_replica_rvs([a, b], _S())
+    assert out is a
+    assert DRV._kish_neff_of_rvs(a) is None
+
+
+if __name__ == "__main__":
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_"):
+            fn()
+            print("PASS", name)
+    print("replica pooling / coverage-warning invariants hold")
