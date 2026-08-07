@@ -36,9 +36,12 @@ python  test_uv_symmetry.py --approximant IMRPhenomXHM --Lmax 3 --seed 42
 python  test_uv_symmetry.py --list
 ```
 
-### Intentional failure
+### Placeholder (expected-fail) check
 
-`test_full_nonlinear_reflection_symmetry_left_as_exercise` fails on purpose
-(`assert False, "this failure is left as a test"`) — a placeholder for the
-full non-linear reflection algebra that is not yet implemented. Deselect with
-`-k 'not left_as_exercise'`, or run the script with `--skip-ludicrous`.
+`test_full_nonlinear_reflection_symmetry_left_as_exercise` is a placeholder for
+the full non-linear reflection algebra that is not yet implemented. It is marked
+`@pytest.mark.xfail(strict=True)` so it stays visible (reported `XFAIL`) without
+reddening the suite; if the algebra is ever implemented and it starts passing,
+strict xfail turns the `XPASS` into a failure so the placeholder gets removed.
+Deselect with `-k 'not left_as_exercise'`, or run the script with
+`--skip-ludicrous`.
