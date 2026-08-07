@@ -280,6 +280,11 @@ class MCSampler(object):
         self.portfolio_quality_nobs = np.zeros(len(self.portfolio), dtype=int)  # #updates per member
         self.portfolio_probe_ptr = 0                            # round-robin probe pointer
 
+        # ---- SUPPORT-MISMATCH (warm-start) DIAGNOSTIC state.  OFF-PATH: read-only reduction over
+        # densities integrate_log already evaluates to build q_mix; nothing here feeds the estimate.
+        # See _update_support_diagnostics() for the definitions and the measured caveats.
+        self._reset_support_diagnostics()
+
         # Total number of samples drawn
         self.ntotal = 0
         # Parameter names
@@ -538,6 +543,205 @@ class MCSampler(object):
                     # rebuilt integrator train into our snapshot, so the reset after next would
                     # replay a polluted spec and the leak would return one point later.
                     member.setup(**self._snapshot_setup_args(args_here))
+
+    ###
+    ### SUPPORT-MISMATCH (WARM-START) DIAGNOSTIC -- strictly OFF-PATH
+    ###
+    # WHAT IT IS.  A warm-started AV/VARAHA member draws UNIFORMLY over its contracted live volume,
+    # so its density is EXACTLY ZERO outside that volume (a hard-edged union of boxes).  If the seed
+    # was built at a different point -- a neighbouring intrinsic grid point, a stale breadcrumb, a
+    # displaced posterior -- the true peak can lie outside the seeded box entirely.  Define, for
+    # member m, over ALL samples of the run:
+    #
+    #     escaped_mass[m] = sum_{i : q_m(x_i) == 0} w_i  /  sum_i w_i          (w = L p_prior / q_mix)
+    #
+    # i.e. the fraction of the total posterior weight carried by samples member m COULD NOT HAVE
+    # DRAWN.  Matched seed -> small; a seed displaced off the peak -> ->1.  Its power is meant to
+    # come from lnL AMPLITUDE, not sample count: one draw at a peak the warm member misses carries
+    # weight ~e^{Delta lnL} times everything inside it, so the statistic can fire while n_eff is
+    # still 3-9 and estimation is hopeless.  This is exactly what n_eff and the Pareto k-hat cannot
+    # do -- both are functions only of the weights actually drawn.
+    #
+    # COMPANION (soft) STATISTIC.  weight_share[m] = sum of w over samples DRAWN BY m / sum of all w.
+    # Far less invasive (no density comparison at all), so it is reported alongside; see the study
+    # notes for whether it is actually weaker.
+    #
+    # WHY IT IS FREE.  integrate_log already evaluates EVERY member's density at EVERY pooled sample
+    # to build q_mix = sum_m frac_m q_m, and keeps frac_m*q_m per member in self._chunk_mix_parts.
+    # This reduction is one comparison and one masked sum per member per chunk -- the same order as
+    # forming q_mix, and it touches neither log_integrand nor the weights.
+    #
+    # LIMITS, MEASURED, NOT ASSUMED (do not read the number without these):
+    #  * A member that drew ZERO samples in a chunk has no entry in _chunk_mix_parts, so that chunk
+    #    is excluded from BOTH its numerator and its denominator.  The per-member denominator is
+    #    therefore the total weight of the chunks that member participated in, not of the run.
+    #  * "q_m == 0" is a FLOATING-POINT test.  A genuinely soft member (a GMM) evaluated far into
+    #    its tail can UNDERFLOW to 0 in double precision and be scored as hard-edged.  The
+    #    hard_edged flag below records only that a zero was ever seen; it does not distinguish
+    #    "bounded support" from "underflowed tail", and for the detector's purpose it need not --
+    #    a density that underflows to zero cannot be sampled from either.
+    #  * It measures where the WEIGHT the portfolio FOUND is, so it is blind to a peak NO member
+    #    ever sampled.  A cold uniform member in high dimension may land on a narrow true peak so
+    #    rarely that a genuinely mismatched seed still reads escaped_mass ~ 0 (starvation false
+    #    negative).  The statistic is a lower bound on mismatch, never an upper bound.
+    #
+    # MEASURED VERDICT -- IT IS A WARM-START QUALITY MONITOR, NOT A lnZ-BIAS ALARM.  Full ROC in
+    # test/expensive_before_merging/integrators/escaped_mass_study.py (1440 truth-known runs,
+    # 20 independent target seeds per cell, d=4 and d=6).  In brief:
+    #  * Use escaped_mass_EARLY (the first chunk), NOT the cumulative number.  A correctly-placed
+    #    seed's converged live volume legitimately excludes median 0.51 (d=4) / 0.80 (d=6) of the
+    #    posterior WEIGHT, so the cumulative statistic has no usable floor.  The first-chunk floor
+    #    is 6e-6 / 2.5e-7 (max over 20 seeds 2.3e-4 / 6.8e-3).
+    #  * It only works when SOME member is left COLD/broad.  If every member is warm-started from
+    #    the same cloud -- which is what bootstrap_from_samples does by default, mcsamplerEnsemble
+    #    having its own bootstrap_from_samples -- the first chunk draws nothing outside the seeded
+    #    volume and the statistic reads exactly 0.000 no matter how wrong the seed is (320/320
+    #    runs).  A monitor that wants this signal must keep an unseeded probe member.
+    #  * RECOMMENDED THRESHOLD, valid ONLY under those two conditions (first-chunk statistic, at
+    #    least one cold/broad member): escaped_mass_early > 1e-2.  Measured 0/40 false positives
+    #    on matched seeds at d=4 and d=6 (Wilson/rule-of-three 95% upper bound ~0.07), with
+    #    true-positive rate 0.20/0.75/1.00/1.00 at d=4 and 0.10/0.50/0.80/1.00 at d=6 for seed
+    #    displacements of 1/1.5/2/3 prior-box units.
+    #  * And in exactly that configuration lnZ is already protected by the balance heuristic
+    #    (|bias| <= 0.31 nat at d=4 over every displacement tested).  Where displacement DOES bias
+    #    lnZ -- an all-AV portfolio, no soft backstop -- nothing can be seen escaping, because the
+    #    mixture never samples outside the union of the AV volumes.  Do not build a lnZ-bias gate
+    #    on this number.
+    def _reset_support_diagnostics(self):
+        """(Re)initialize the support-mismatch accumulators.  Log-space, because the per-chunk
+        weight totals of a peaked target span many orders of magnitude and a linear running sum
+        would be dominated by whichever chunk found the peak (or underflow to 0 before it does)."""
+        m = len(getattr(self, 'portfolio_realizations', []) or getattr(self, 'portfolio', []) or [])
+        self.portfolio_escape_log_num = np.full(m, -np.inf)   # log sum w over q_m == 0 samples
+        self.portfolio_escape_log_den = np.full(m, -np.inf)   # log sum w over chunks m took part in
+        self.portfolio_share_log_num = np.full(m, -np.inf)    # log sum w over samples m DREW
+        self.portfolio_weight_log_total = -np.inf             # log sum w over the whole run
+        self.portfolio_escape_n = np.zeros(m, dtype=np.int64)     # count of zero-density samples
+        self.portfolio_escape_nsamp = np.zeros(m, dtype=np.int64) # samples m was evaluated at
+        self.portfolio_escape_hard = np.zeros(m, dtype=bool)      # ever saw an exact zero
+        # PER-CHUNK history (list of length-m arrays).  The cumulative fraction mixes regimes: a
+        # VARAHA member's live volume CONTRACTS as the run proceeds, so escaped mass grows even for
+        # a perfectly-placed seed, while a MISPLACED seed is already fully escaped in chunk 1.
+        # Keeping the history lets a caller read the early (seed-state) signal, which is the one
+        # that is actually about the warm start.  m floats per chunk: free.
+        self.portfolio_escape_history = []
+        self._member_index = {}
+
+    def _update_support_diagnostics(self, log_weights, q_mix):
+        """Accumulate escaped_mass / weight_share for THIS chunk.  Pure reduction; no state used
+        by the estimator is read or written.  Any failure is swallowed: a diagnostic must never be
+        able to take down an integral."""
+        try:
+            parts = getattr(self, '_chunk_mix_parts', None)
+            if not parts or q_mix is None:
+                return
+            n_mem = len(self.portfolio_realizations)
+            if len(self.portfolio_escape_log_num) != n_mem:
+                self._reset_support_diagnostics()
+            if not self._member_index:
+                self._member_index = dict((id(mem), i)
+                                          for i, mem in enumerate(self.portfolio_realizations))
+            lw = numpy.asarray(self.identity_convert(log_weights), dtype=float)
+            fin = numpy.isfinite(lw)
+            if not bool(numpy.any(fin)):
+                return
+            mx = float(numpy.max(lw[fin]))
+            # max-subtracted linear weights; the offset mx is carried back in log space so chunks
+            # with wildly different scales combine exactly.
+            u = numpy.where(fin, numpy.exp(lw - mx), 0.0)
+            tot = float(numpy.sum(u))
+            if not (tot > 0):
+                return
+            n_here = len(u)
+            ln_tot = float(numpy.log(tot) + mx)
+            self.portfolio_weight_log_total = numpy.logaddexp(self.portfolio_weight_log_total, ln_tot)
+
+            # --- soft comparator: weight share by DRAWING member.  draw() lays the pooled chunk out
+            # as contiguous per-member blocks in _chunk_members order, with the counts recorded in
+            # _chunk_fractions, so the blocks are recoverable exactly (do NOT re-derive them from
+            # self.portfolio_weights -- those have already been updated for the NEXT chunk).
+            fracs = getattr(self, '_chunk_fractions', None)
+            members = getattr(self, '_chunk_members', [])
+            if fracs is not None and len(members) == len(fracs):
+                counts = numpy.rint(numpy.asarray(fracs, dtype=float) * n_here).astype(int)
+                start = 0
+                for cnt, mem in zip(counts, members):
+                    if cnt <= 0:
+                        continue
+                    end = min(start + int(cnt), n_here)
+                    idx = self._member_index.get(id(mem))
+                    if idx is not None and end > start:
+                        s_here = float(numpy.sum(u[start:end]))
+                        if s_here > 0:
+                            self.portfolio_share_log_num[idx] = numpy.logaddexp(
+                                self.portfolio_share_log_num[idx], numpy.log(s_here) + mx)
+                    start = end
+
+            # --- escaped mass, per member that HAS a density this chunk.  parts[id(m)] is
+            # frac_m*q_m with frac_m > 0 by construction, so it vanishes exactly where q_m does.
+            _this_chunk = np.full(n_mem, np.nan)
+            for idx, mem in enumerate(self.portfolio_realizations):
+                pc = parts.get(id(mem))
+                if pc is None:
+                    continue    # member drew nothing this chunk: no density evaluated, no evidence
+                self.portfolio_escape_log_den[idx] = numpy.logaddexp(
+                    self.portfolio_escape_log_den[idx], ln_tot)
+                self.portfolio_escape_nsamp[idx] += n_here
+                zero = numpy.asarray(pc, dtype=float) <= 0.0
+                n_zero = int(numpy.count_nonzero(zero))
+                _this_chunk[idx] = 0.0
+                if n_zero:
+                    self.portfolio_escape_n[idx] += n_zero
+                    self.portfolio_escape_hard[idx] = True
+                    s_esc = float(numpy.sum(u[zero]))
+                    _this_chunk[idx] = min(1.0, s_esc / tot)
+                    if s_esc > 0:
+                        self.portfolio_escape_log_num[idx] = numpy.logaddexp(
+                            self.portfolio_escape_log_num[idx], numpy.log(s_esc) + mx)
+            self.portfolio_escape_history.append(_this_chunk)
+        except Exception as e:
+            print("  [portfolio] support diagnostic skipped this chunk ({}: {})".format(
+                type(e).__name__, e))
+
+    def support_diagnostics(self):
+        """Finalize the support-mismatch statistics.  Returns a dict; see
+        _update_support_diagnostics for definitions and limits."""
+        n_mem = len(getattr(self, 'portfolio_escape_log_num', []))
+        esc = np.full(n_mem, np.nan)
+        shr = np.full(n_mem, np.nan)
+        for m in range(n_mem):
+            if np.isfinite(self.portfolio_escape_log_den[m]):
+                esc[m] = float(np.exp(min(0.0, self.portfolio_escape_log_num[m]
+                                          - self.portfolio_escape_log_den[m])))
+            if np.isfinite(self.portfolio_weight_log_total):
+                shr[m] = float(np.exp(min(0.0, self.portfolio_share_log_num[m]
+                                          - self.portfolio_weight_log_total)))
+        hard = np.asarray(getattr(self, 'portfolio_escape_hard', np.zeros(n_mem, dtype=bool)))
+        # HEADLINE: the worst hard-edged member.  A member whose density is nowhere exactly zero
+        # (a live GMM) trivially scores 0 and must not dilute the maximum -- reporting a mean over
+        # all members would let a soft member hide a fully-escaped warm AV.
+        esc_max = float(np.nanmax(esc[hard])) if bool(np.any(hard)) else 0.0
+        hist = np.asarray(getattr(self, 'portfolio_escape_history', []) or
+                          np.zeros((0, n_mem)), dtype=float)
+        # EARLY signal: the first chunk in which the member had a density.  This is the state the
+        # WARM SEED put it in, before any contraction, so it isolates seed misplacement from the
+        # ordinary contraction that inflates the cumulative number.
+        early = np.full(n_mem, np.nan)
+        if hist.size:
+            for m in range(n_mem):
+                col = hist[:, m]
+                ok = np.flatnonzero(np.isfinite(col))
+                if len(ok):
+                    early[m] = float(col[ok[0]])
+        early_max = float(np.nanmax(early[hard])) if bool(np.any(hard)) and np.any(
+            np.isfinite(early[hard])) else 0.0
+        return dict(escaped_mass=esc, weight_share=shr, hard_edged=hard,
+                    escaped_mass_max=esc_max, escaped_mass_history=hist,
+                    escaped_mass_early=early, escaped_mass_early_max=early_max,
+                    escape_n_zero=np.asarray(getattr(self, 'portfolio_escape_n', np.zeros(n_mem))),
+                    escape_n_eval=np.asarray(getattr(self, 'portfolio_escape_nsamp',
+                                                     np.zeros(n_mem))))
+
 
     def reset_adaptation(self):
         """FULL reset: member proposals AND the portfolio's own adaptive bookkeeping.
@@ -1115,6 +1319,9 @@ class MCSampler(object):
         n_zero_prior =0
         it_max_oracle = 7
         it_now  =0
+        # the support-mismatch diagnostic describes THIS integral: a second point reusing the same
+        # sampler object must not inherit the previous point's escaped mass.
+        self._reset_support_diagnostics()
         if 'integrand' in self._rvs:
           # remove conflict
           del self._rvs['integrand']
@@ -1183,6 +1390,9 @@ class MCSampler(object):
             # joint_p_s so those portfolios keep running unchanged.
             use_mixture = kwargs['portfolio_use_mixture_density'] if 'portfolio_use_mixture_density' in kwargs else True
             q_mix = None
+            # drop last chunk's per-member densities: keeping them would let a chunk in which the
+            # mixture could not be formed be scored against the PREVIOUS chunk's supports.
+            self._chunk_mix_parts = None
             if use_mixture:
                 X_all = numpy.asarray(identity_convert(rv), dtype=float)
                 if X_all.shape[0] == len(self.params_ordered):
@@ -1256,6 +1466,11 @@ class MCSampler(object):
             if bool(self.identity_convert(self.xpy.any(_bad))):
                 log_integrand = self.xpy.where(_bad, -self.xpy.inf, log_integrand)
                 log_weights   = self.xpy.where(_bad, -self.xpy.inf, log_weights)
+
+            # SUPPORT-MISMATCH DIAGNOSTIC (off-path; see _update_support_diagnostics).  Placed on
+            # the TRUE, unclipped weights and before any adaptation, so it describes the estimator's
+            # own weights.  Reads only self._chunk_mix_parts, which q_mix construction already built.
+            self._update_support_diagnostics(log_weights, q_mix)
 
             # WEIGHT CLIPPING (truncated IS; OPT-IN) -- PROPOSAL-TRAINING INPUT ONLY.
             # Clipping is BIASED and also distorts n_ess, so its scope is deliberately narrow: it
@@ -1678,6 +1893,30 @@ class MCSampler(object):
         dict_return ={}
         # if convergence_tests is not None:
         #     dict_return["convergence_test_results"] = None # last_convergence_test
+
+        # SUPPORT-MISMATCH (warm-start) DIAGNOSTIC -- reported, never acted on.  Nothing above this
+        # line consumes it, so the estimate returned below is bit-identical with and without it.
+        try:
+            _sd = self.support_diagnostics()
+            dict_return['portfolio_escaped_mass'] = _sd['escaped_mass']
+            dict_return['portfolio_member_weight_share'] = _sd['weight_share']
+            dict_return['portfolio_member_hard_edged'] = _sd['hard_edged']
+            dict_return['portfolio_escaped_mass_max'] = _sd['escaped_mass_max']
+            dict_return['portfolio_escaped_mass_early'] = _sd['escaped_mass_early']
+            dict_return['portfolio_escaped_mass_early_max'] = _sd['escaped_mass_early_max']
+            dict_return['portfolio_escaped_mass_history'] = _sd['escaped_mass_history']
+            dict_return['portfolio_escape_n_zero'] = _sd['escape_n_zero']
+            dict_return['portfolio_escape_n_eval'] = _sd['escape_n_eval']
+            print("  PORTFOLIO support: escaped_mass={} early={} (hard-edged members {}; "
+                  "max {:.3e}, early max {:.3e})  weight_share={}".format(
+                      numpy.array2string(np.asarray(_sd['escaped_mass'], dtype=float), precision=3),
+                      numpy.array2string(np.asarray(_sd['escaped_mass_early'], dtype=float), precision=3),
+                      list(numpy.flatnonzero(_sd['hard_edged'])), _sd['escaped_mass_max'],
+                      _sd['escaped_mass_early_max'],
+                      numpy.array2string(np.asarray(_sd['weight_share'], dtype=float), precision=3)))
+        except Exception as _e_sd:
+            print("  PORTFOLIO support diagnostic unavailable ({}: {})".format(
+                type(_e_sd).__name__, _e_sd))
 
         # perform type conversion of all stored variables
         if cupy_ok:
