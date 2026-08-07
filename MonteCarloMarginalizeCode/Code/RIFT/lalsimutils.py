@@ -3348,11 +3348,14 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
            indx_crit = TDlen - ntaper
 
        for mode in hlmsdict:
+          npts_fd_pre_resize = hlmsdict[mode].data.length
           hlmsdict[mode] = lal.ResizeCOMPLEX16FrequencySeries(hlmsdict[mode],0, TDlen)
-          if not(no_condition):
+          if npts_fd_pre_resize > TDlen:
               # The resize above truncated the +fNyq bin from the two-sided grid but kept
               # its -fNyq partner (index 0).  Zero it so the truncation commutes with the
               # conjugate-pair (f -> -f) reflection for models with support at Nyquist.
+              # Tied to the truncation itself, NOT to no_condition: an asymmetric
+              # truncation would reintroduce (l,±m) asymmetry even on the raw path.
               hlmsdict[mode].data.data[0] = 0
           hlmsT[mode] = DataInverseFourier(hlmsdict[mode])
           # Phase factors: see crazy conventions in https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c
