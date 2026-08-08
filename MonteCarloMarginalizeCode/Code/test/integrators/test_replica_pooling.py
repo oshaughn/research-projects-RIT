@@ -20,7 +20,10 @@ def _load_driver_helpers():
     src = open(os.path.normpath(path)).read()
     mod = types.ModuleType("drv")
     mod.numpy = numpy
-    for fn in ("_rvs_len", "_pool_replica_rvs", "_lnZ_of_rvs", "_kish_neff_of_rvs"):
+    # ln_weights_from_rvs first: the others now delegate to it (one canonical definition of the
+    # importance weight, see the driver docstring).
+    for fn in ("ln_weights_from_rvs", "_rvs_len", "_pool_replica_rvs", "_lnZ_of_rvs",
+               "_kish_neff_of_rvs"):
         m = re.search(r"^def %s\(.*?(?=\n\ndef |\n\nclass )" % fn, src, re.S | re.M)
         assert m, "helper %s not found in the driver" % fn
         exec(compile(m.group(0), "<drv>", "exec"), mod.__dict__)

@@ -1942,6 +1942,38 @@ def resample_samples(my_samples,
 
   
 
+def ln_weights_from_rvs(rvs, convert=None):
+    """THE importance log-weight of an _rvs record: lnL + ln(prior) - ln(sampling_prior).
+
+    ONE definition, because the alternative has already cost us.  A stored 'log_weights' column
+    does not mean the same thing in every sampler: mcsamplerPortfolio stores the true importance
+    weight, but mcsamplerGPU stores tempering_exp*lnL + ln p - ln p_s -- the ADAPTATION weight,
+    with the adapt-weight-exponent baked in.  That exponent is NOT 1 in production
+    (helper_LDG_Events.py:1472/1477 sets it from the SNR) and --no-adapt drives it to 0, which
+    removes the likelihood from the column entirely.  A consumer preferring that cache silently
+    reweights its output by L^(e-1) whenever the GPU/AC sampler is in use.
+
+    So the cache is never read here: the weight is always DERIVED from the canonical components --
+    log form first, then the linear (mcsamplerEnsemble) form, with out-of-support rows set to
+    -inf.  Raises when neither set is present: an explicit failure beats a plausible wrong number.
+    """
+    conv = convert if convert is not None else (lambda x: x)
+    if all(k in rvs for k in ('log_integrand', 'log_joint_prior', 'log_joint_s_prior')):
+        return (numpy.asarray(conv(rvs['log_integrand']), dtype=float)
+                + numpy.asarray(conv(rvs['log_joint_prior']), dtype=float)
+                - numpy.asarray(conv(rvs['log_joint_s_prior']), dtype=float))
+    if all(k in rvs for k in ('integrand', 'joint_prior', 'joint_s_prior')):
+        ig = numpy.asarray(conv(rvs['integrand']), dtype=float)
+        jp = numpy.asarray(conv(rvs['joint_prior']), dtype=float)
+        js = numpy.asarray(conv(rvs['joint_s_prior']), dtype=float)
+        keep = (ig > 0) & (jp > 0) & (js > 0)
+        out = numpy.full(len(ig), -numpy.inf)
+        out[keep] = numpy.log(ig[keep]) + numpy.log(jp[keep]) - numpy.log(js[keep])
+        return out
+    raise Exception("cannot build importance weights from sampler._rvs (keys={})".format(
+        sorted(rvs.keys())))
+
+
 def _rvs_len(rvs):
     for v in rvs.values():
         try:
@@ -2082,16 +2114,9 @@ def _lnZ_of_rvs(rvs, already_pooled=True):
     plain sum; for a single run it is the mean.  Returns None when the weights cannot be rebuilt.
     """
     try:
-        if 'log_integrand' in rvs and 'log_joint_prior' in rvs and 'log_joint_s_prior' in rvs:
-            lw = numpy.asarray(rvs['log_integrand'], dtype=float) \
-                + numpy.asarray(rvs['log_joint_prior'], dtype=float) \
-                - numpy.asarray(rvs['log_joint_s_prior'], dtype=float)
-        elif 'integrand' in rvs and 'joint_prior' in rvs and 'joint_s_prior' in rvs:
-            w = (numpy.asarray(rvs['integrand'], dtype=float)
-                 * numpy.asarray(rvs['joint_prior'], dtype=float)
-                 / numpy.asarray(rvs['joint_s_prior'], dtype=float))
-            lw = numpy.log(numpy.where(w > 0, w, numpy.nan))
-        else:
+        try:
+            lw = ln_weights_from_rvs(rvs)
+        except Exception:
             return None
         lw = lw[numpy.isfinite(lw)]
         if lw.size == 0:
@@ -2106,16 +2131,9 @@ def _lnZ_of_rvs(rvs, already_pooled=True):
 def _kish_neff_of_rvs(rvs):
     """Kish effective sample size of an _rvs record, or None if the weights are not reconstructible."""
     try:
-        if 'log_integrand' in rvs and 'log_joint_prior' in rvs and 'log_joint_s_prior' in rvs:
-            lw = numpy.asarray(rvs['log_integrand'], dtype=float) \
-                + numpy.asarray(rvs['log_joint_prior'], dtype=float) \
-                - numpy.asarray(rvs['log_joint_s_prior'], dtype=float)
-        elif 'integrand' in rvs and 'joint_prior' in rvs and 'joint_s_prior' in rvs:
-            w = (numpy.asarray(rvs['integrand'], dtype=float)
-                 * numpy.asarray(rvs['joint_prior'], dtype=float)
-                 / numpy.asarray(rvs['joint_s_prior'], dtype=float))
-            lw = numpy.log(numpy.where(w > 0, w, numpy.nan))
-        else:
+        try:
+            lw = ln_weights_from_rvs(rvs)
+        except Exception:
             return None
         lw = lw[numpy.isfinite(lw)]
         if lw.size == 0:
@@ -3415,22 +3433,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           fname_output_dgrid = opts.output_file +"_"+str(indx_event)+"_" + ".dgrid"
           dL = np.array(sampler._rvs["distance"])
           rvs = sampler._rvs
-          if 'log_weights' in rvs:
-            ln_wts = np.array(rvs['log_weights'])
-          elif 'log_integrand' in rvs:
-            ln_wts = np.array(rvs['log_integrand'] + rvs['log_joint_prior'] - rvs['log_joint_s_prior'])
-          elif 'integrand' in rvs and 'joint_prior' in rvs and 'joint_s_prior' in rvs:
-            # mcsamplerEnsemble / GMM stores raw (non-log) integrand and priors.
-            # Drop rejected/out-of-support samples (zero integrand or zero prior
-            # contribution) by setting log weight to -inf.
-            integrand = np.asarray(rvs['integrand'])
-            jp = np.asarray(rvs['joint_prior'])
-            jsp = np.asarray(rvs['joint_s_prior'])
-            keep = (integrand > 0) & (jp > 0) & (jsp > 0)
-            ln_wts = np.full(len(integrand), -np.inf)
-            ln_wts[keep] = np.log(integrand[keep]) + np.log(jp[keep]) - np.log(jsp[keep])
-          else:
-            raise Exception("distance grid export: cannot find weights in sampler._rvs (keys={})".format(list(rvs.keys())))
+          ln_wts = ln_weights_from_rvs(rvs)
           # Distance prior at each sample. Use the sampler's stored prior_pdf
           # callable; this matches whatever ILE actually integrated against
           # (volumetric, pseudo_cosmo, redshift, ...).
@@ -3512,16 +3515,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # .dgrid.
           rvs = sampler._rvs
           _rvs = lambda k: np.asarray(identity_convert(rvs[k]), float)  # cupy-safe column read
-          if 'log_weights' in rvs:
-            ln_w_full = _rvs('log_weights')
-          elif 'log_integrand' in rvs:
-            ln_w_full = _rvs('log_integrand') + _rvs('log_joint_prior') - _rvs('log_joint_s_prior')
-          else:
-            integrand = _rvs('integrand')
-            jp = _rvs('joint_prior'); jsp = _rvs('joint_s_prior')
-            keep = (integrand > 0) & (jp > 0) & (jsp > 0)
-            ln_w_full = np.full(len(integrand), -np.inf)
-            ln_w_full[keep] = np.log(integrand[keep]) + np.log(jp[keep]) - np.log(jsp[keep])
+          ln_w_full = ln_weights_from_rvs(rvs, convert=identity_convert)
           # Split K into core (reweight) and wing (fresh) slices.  --distance-slice-all-fresh
           # forces zero reweight core: EVERY slice is a fresh fixed-d integration.  Use it
           # when the main-loop n_eff is small -- the reweight core is then starved (the same
