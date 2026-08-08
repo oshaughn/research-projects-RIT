@@ -110,6 +110,7 @@ def test_extended_precision_weights_beyond_float64_range():
     w = np.full(10, big, dtype=np.longdouble)
     w[0] *= 10.0  # sum/max = 19/10 -> bound 1
     assert unique_draw_bound(w) == 1
+    assert unique_draw_bound(np.full(93, big)) == 93  # exact bound, beyond-DBL_MAX case
     np.random.seed(8)
     n = 100000
     counts = np.bincount(systematic_resample(w, n), minlength=len(w))
@@ -129,7 +130,6 @@ def test_unique_draw_bound_is_exact_for_equal_weights():
     # roundoff); the bound must be computed from the scaled sum instead.
     for n in (93, 3, 1000):
         assert unique_draw_bound(np.ones(n)) == n
-    assert unique_draw_bound(np.full(93, np.longdouble(10.0) ** 400)) == 93
 
 
 def test_pseudo_pipe_writer_flags_final_group(tmp_path, monkeypatch):
