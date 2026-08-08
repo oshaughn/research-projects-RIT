@@ -1556,7 +1556,23 @@ def convergence_test_MostSignificantPoint(pcut, rvs, params):
 #    - this test assumes *unsorted* past history: the 'ncopies' segments are assumed independent.
 import scipy.stats as stats
 def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativeErrorThreshold, rvs, params):
-    weights = rvs["integrand"]* rvs["joint_prior"]/rvs["joint_s_prior"]  # rvs["weights"] # rvs["weights"] is *sorted* (side effect?), breaking test. Recalculated weights are not.  Use explicitly calculated weights until sorting effect identified
+    # RESTORE DRAW ORDER.  The sorting effect the old comment here suspected is real and now
+    # identified: the save-P thresholding block reindexes EVERY _rvs column by cumulative-weight
+    # order (mcsampler.py:739-752), so the surviving rows come out sorted by weight ascending.
+    # This test then splits them into `ncopies` CONTIGUOUS segments and assumes those segments are
+    # independent -- but sorted rows put the smallest weights in the first segment and the largest
+    # in the last, so the sub-integrals differ by construction and the normality check is
+    # meaningless.
+    #
+    # The previous workaround -- recomputing the weights from the components instead of reading
+    # rvs["weights"] -- does NOT help, and measured it changes nothing: the components were
+    # permuted by the same reindexing, so both orderings are 100% ascending.  What actually fixes
+    # it is `sample_n`, written just before that block precisely as an iteration number, so it
+    # carries the original draw order through the permutation.
+    weights = rvs["integrand"] * rvs["joint_prior"] / rvs["joint_s_prior"]
+    if "sample_n" in rvs:
+        _order = numpy.argsort(numpy.asarray(rvs["sample_n"]))
+        weights = numpy.asarray(weights)[_order]
 #    weights = weights /numpy.sum(weights)    # Keep original normalization, so the integral values printed to stdout have meaning relative to the overall integral value.  No change in code logic : this factor scales out (from the log, below)
     igrandValues = numpy.zeros(ncopies)
     len_part = int(len(weights)/ncopies)  # deprecated: np.floor->np.int
