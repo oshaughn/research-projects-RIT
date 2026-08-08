@@ -1454,6 +1454,12 @@ if opts.propose_ile_convergence_options:
     if not(opts.internal_use_gracedb_bayestar):
         helper_ile_args += " --declination-cosine-sampler  "  # skymap coordinates all fixed
     else:
+        # DEPRECATED PATH (bayestar skymap input): unused in production for ~a decade.
+        # It is also the only place n-chunk drops to 500, which makes it the least-tested
+        # regime for anything whose scale depends on the chunk size -- notably the opt-in
+        # --portfolio-weight-clip, whose threshold is tau = C*sqrt(n_chunk)*mean(w), i.e.
+        # ~4.5x more aggressive here than at the n_chunk=1e4 used for every clip test.
+        # Do not treat clip validation as covering this branch; prefer retiring the branch.
         helper_ile_args += " --n-chunk 500 " # much smaller chunk size for integration for ILE if we are using an input skymap! Slow, but does the hard dimension
     # Modify someday to use the SNR to adjust some settings
     # Proposed option will use GPUs

@@ -72,6 +72,67 @@ def test_segments_are_comparable_only_after_reordering():
         .format(sorted_ratio, restored_ratio))
 
 
+
+
+def _threshold_block(rvs):
+    """Faithful replica of mcsampler.py:727-752, including the sample_n (re)creation."""
+    if "integrand" in rvs:
+        rvs["sample_n"] = numpy.arange(len(rvs["integrand"]))
+        wt = rvs["integrand"] * rvs["joint_prior"] / rvs["joint_s_prior"]
+        idx = numpy.lexsort((numpy.arange(len(wt)), wt))
+        pairs = numpy.array([[k, wt[k]] for k in idx])
+        cum = numpy.cumsum(pairs[:, 1]); cum = cum / cum[-1]
+        keep = [int(pairs[k, 0]) for k, v in enumerate(cum > 1e-7) if v]
+        for k in list(rvs.keys()):
+            rvs[k] = rvs[k][keep]
+    return rvs
+
+
+def _fresh(n, seed):
+    r = numpy.random.RandomState(seed)
+    return dict(integrand=numpy.exp(r.normal(5.0, 2.0, size=n)),
+                joint_prior=numpy.ones(n), joint_s_prior=numpy.ones(n))
+
+
+def test_sample_n_is_stale_and_short_on_a_reused_sampler():
+    """Why reordering by sample_n is NOT a valid fix, part 1.
+
+    A reused sampler appends new rows to the weight columns.  Until the threshold block re-runs,
+    `sample_n` still has the PREVIOUS length, so indexing the weights by it silently drops every
+    new sample -- numpy fancy-indexing just returns the shorter array."""
+    rvs = _threshold_block(_fresh(1500, 1))
+    new = _fresh(1500, 2)
+    for k in ("integrand", "joint_prior", "joint_s_prior"):
+        rvs[k] = numpy.hstack([rvs[k], new[k]])
+    assert len(rvs["sample_n"]) < len(rvs["integrand"]), "expected a stale, short sample_n"
+    w = rvs["integrand"] * rvs["joint_prior"] / rvs["joint_s_prior"]
+    reordered = numpy.asarray(w)[numpy.argsort(numpy.asarray(rvs["sample_n"]))]
+    assert len(reordered) < len(w), (
+        "indexing by a short sample_n should silently drop samples; got {} of {}".format(
+            len(reordered), len(w)))
+
+
+def test_sample_n_does_not_encode_draw_order_after_reuse():
+    """Why reordering by sample_n is NOT a valid fix, part 2.
+
+    Even once the block re-runs and the lengths agree, `sample_n = arange(len(...))` was assigned to
+    an ALREADY-permuted array, so it encodes the order at the start of that call rather than the
+    draw order.  The segment imbalance the test cares about is only partly repaired."""
+    rvs = _threshold_block(_fresh(1500, 1))
+    new = _fresh(1500, 2)
+    for k in ("integrand", "joint_prior", "joint_s_prior"):
+        rvs[k] = numpy.hstack([rvs[k], new[k]])
+    rvs = _threshold_block(rvs)
+    assert len(rvs["sample_n"]) == len(rvs["integrand"])          # lengths agree again
+    w = numpy.asarray(rvs["integrand"] * rvs["joint_prior"] / rvs["joint_s_prior"])
+    restored = w[numpy.argsort(numpy.asarray(rvs["sample_n"]))]
+    frac = _ascending_fraction(restored)
+    assert frac > 0.65, (
+        "after reuse, sample_n should NOT restore draw order (~0.5); got {:.3f} -- if this now "
+        "passes at ~0.5 the samplers grew stable append-time ids and the caveat can be revisited"
+        .format(frac))
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

@@ -1135,23 +1135,31 @@ def convergence_test_MostSignificantPoint(pcut, rvs, params):
 #    - this test assumes *unsorted* past history: the 'ncopies' segments are assumed independent.
 import scipy.stats as stats
 def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativeErrorThreshold, rvs, params):
-    # RESTORE DRAW ORDER.  The sorting effect the old comment here suspected is real and now
-    # identified: the save-P thresholding block reindexes EVERY _rvs column by cumulative-weight
-    # order (mcsampler.py:739-752), so the surviving rows come out sorted by weight ascending.
-    # This test then splits them into `ncopies` CONTIGUOUS segments and assumes those segments are
-    # independent -- but sorted rows put the smallest weights in the first segment and the largest
-    # in the last, so the sub-integrals differ by construction and the normality check is
-    # meaningless.
+    # ORDERING CAVEAT (documented, deliberately NOT worked around here -- see
+    # test_convergence_sample_order.py, which carries the measurements).
     #
-    # The previous workaround -- recomputing the weights from the components instead of reading
-    # rvs["weights"] -- does NOT help, and measured it changes nothing: the components were
-    # permuted by the same reindexing, so both orderings are 100% ascending.  What actually fixes
-    # it is `sample_n`, written just before that block precisely as an iteration number, so it
-    # carries the original draw order through the permutation.
+    # The save-P thresholding block (mcsampler.py:739-752) reindexes EVERY _rvs column by
+    # cumulative-weight order, so after it runs the rows are sorted by weight ascending.  This test
+    # splits them into `ncopies` CONTIGUOUS segments and assumes those are independent, which sorted
+    # rows are not: measured, max/min segment mass is 1.15e3 sorted versus 1.83 in draw order.
+    #
+    # The previous note here claimed recomputing the weights from the components avoided this.  It
+    # does not: the components were permuted by the same reindexing, and measured, cached and
+    # recomputed weights are BOTH 100% ascending.  That claim is simply false and is removed.
+    #
+    # `sample_n` does not rescue it either.  It is (re)created as arange(len(...)) at the START of
+    # the threshold block, so on a REUSED sampler it is assigned to an already-permuted array and
+    # encodes the order at the start of that call, not the draw order -- measured, reordering by it
+    # after two integrate() calls leaves 0.752 ascending and a segment ratio of 373.  Worse, between
+    # appending new samples and the block re-running, sample_n is STALE and SHORT (3000 weights vs
+    # 1500 ids), so indexing by it would silently drop half the samples.
+    #
+    # A real fix needs stable ids assigned where samples are APPENDED, in every sampler.  Since this
+    # test has no live callers (all production call sites are commented out; only
+    # test/test_like_and_samp.py uses it), that plumbing is not justified -- but anyone re-enabling
+    # this test must do it first, or the sub-integrals are not independent and the normality check
+    # is meaningless.
     weights = rvs["integrand"] * rvs["joint_prior"] / rvs["joint_s_prior"]
-    if "sample_n" in rvs:
-        _order = numpy.argsort(numpy.asarray(rvs["sample_n"]))
-        weights = numpy.asarray(weights)[_order]
 #    weights = weights /numpy.sum(weights)    # Keep original normalization, so the integral values printed to stdout have meaning relative to the overall integral value.  No change in code logic : this factor scales out (from the log, below)
     igrandValues = numpy.zeros(ncopies)
     len_part = int(len(weights)/ncopies)  # deprecated: np.floor->np.int
