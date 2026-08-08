@@ -16,14 +16,13 @@ import numpy as np
 POSTERIOR_UNIQUE_FLAG = "--posterior-unique-draw"
 
 
-def _normalized_probabilities(weights):
-    """Validate weights and return them as float64 probabilities.
+def _validated_scaled_weights(weights):
+    """Validate weights and return them scaled by their maximum, in the input dtype.
 
-    Normalization happens in the INPUT dtype, scaling by the maximum weight
-    first: RIFT builds export weights in extended precision (longdouble on
-    x86_64), where finite values can exceed float64's range, so casting to
-    float64 before normalizing would overflow them to inf.  After max-scaling,
-    every value lies in [0, 1] and the cast is safe.
+    Scaling by the maximum first matters: RIFT builds export weights in
+    extended precision (longdouble on x86_64), where finite values can exceed
+    float64's range, so casting to float64 before normalizing would overflow
+    them to inf.  After max-scaling, every value lies in [0, 1].
     """
     w = np.asarray(weights)
     if w.ndim != 1 or len(w) == 0:
@@ -33,13 +32,24 @@ def _normalized_probabilities(weights):
     w_max = np.max(w)
     if not (w_max > 0):
         raise ValueError("weights must have a positive sum")
-    w = w / w_max
+    return w / w_max
+
+
+def _normalized_probabilities(weights):
+    """Validate weights and return them as float64 probabilities."""
+    w = _validated_scaled_weights(weights)
     return np.asarray(w / np.sum(w), dtype=float)
 
 
 def unique_draw_bound(weights):
-    """Largest fair draw size that can be duplicate-free: floor(sum(w)/max(w))."""
-    return int(np.floor(1.0 / np.max(_normalized_probabilities(weights))))
+    """Largest fair draw size that can be duplicate-free: floor(sum(w)/max(w)).
+
+    Computed as floor(sum(w/max(w))) directly in the input dtype: taking a
+    float64 reciprocal of the normalized maximum instead would round the exact
+    bound down by one whenever roundoff lands just below an integer (93 equal
+    weights -> 92).
+    """
+    return int(np.floor(np.sum(_validated_scaled_weights(weights))))
 
 
 def systematic_resample(weights, n_out, rng=None):

@@ -122,3 +122,11 @@ def test_invalid_weights_are_rejected():
     for bad in ([], [0.0, 0.0], [1.0, -1.0], [1.0, np.inf], [1.0, np.nan]):
         with pytest.raises(ValueError):
             unique_draw_bound(np.array(bad, dtype=float))
+
+
+def test_unique_draw_bound_is_exact_for_equal_weights():
+    # floor(1/max(p)) in float64 gives 92 for 93 equal weights (reciprocal
+    # roundoff); the bound must be computed from the scaled sum instead.
+    for n in (93, 3, 1000):
+        assert unique_draw_bound(np.ones(n)) == n
+    assert unique_draw_bound(np.full(93, np.longdouble(10.0) ** 400)) == 93
