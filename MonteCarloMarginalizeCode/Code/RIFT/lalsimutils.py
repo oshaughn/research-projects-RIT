@@ -3313,17 +3313,11 @@ def hlmoft(P, Lmax=2,nr_polarization_convention=False, fixed_tapering=False, sil
        # but that is very difficult to do because modes of different 'm' and thus typical frequency generally mix
        # Note also that unless the segment length is large, this is often surprisingly few frequency bins for tapering
        if not(no_condition):
-           # SimInspiralChooseFDModes returns modes on an ascending two-sided grid
-           # [-fNyq, ..., 0, ..., +fNyq] with DC at index npts//2 (odd length TDlen+1).
-           # Do NOT use evaluate_fvals here: it assumes RIFT's reversed packing and, for
-           # odd length, assigns f_assumed = -f_true + deltaF/2.  Since (l,m) and (l,-m)
-           # modes occupy opposite signs of f, that offset shifts the high-pass window by
-           # one bin between the members of a pair, violating
-           # h_{l,-m}(f) = (-1)^l conj(h_{lm}(-f)) — and hence the TD conjugate-pair
-           # identity — at the percent level.  The window must be exactly even in the
-           # true frequency to commute with complex conjugation.
-           npts_fd = hlmsdict[(2,2)].data.length
-           our_fvals = P.deltaF*(np.arange(npts_fd) - npts_fd//2)
+           # lal_convention=True is REQUIRED here: ChooseFDModes returns the ascending
+           # center-DC grid, and the default (RIFT reversed) convention would shift the
+           # high-pass window by one bin between (l,m) and (l,-m), breaking the
+           # conjugate-pair identity at the percent level.  See evaluate_fvals docs.
+           our_fvals = evaluate_fvals(hlmsdict[(2,2)], lal_convention=True)
            vectaper_symmetric  = np.ones(len(our_fvals))
            indx_below = np.logical_and(np.abs(our_fvals)<P.fmin, np.abs(our_fvals)>=P.fmin*fd_standoff_factor)
            vectaper_symmetric[indx_below] = 0.5 + 0.5*np.cos(np.pi* (np.abs(our_fvals[indx_below])/P.fmin - 1)/(1-fd_standoff_factor))
@@ -4989,12 +4983,25 @@ def psd_windowing_factor(window_shape, TDlen):
 def evaluate_tvals(lal_tseries):
     return float(lal_tseries.epoch) +lal_tseries.deltaT*np.arange(lal_tseries.data.length)
 
-def evaluate_fvals(lal_2sided_fseries):
+def evaluate_fvals(lal_2sided_fseries, lal_convention=False):
     r"""
-    evaluate_fvals(lal_2sided_fseries)
+    evaluate_fvals(lal_2sided_fseries, lal_convention=False)
     Associates frequencies with a 2sided lal complex array.  Compare with 'self.longweights' code
     Done by HAND in PrecessingOrbitModesOfFrequency
     Manually *reverses* convention re sign of \omega used in lal!
+
+    lal_convention=False (default): RIFT's own two-sided packing (arrays produced by
+       DataFourier/complex_hoff): even length, REVERSED, f[k] = deltaF*(npts/2 - k).
+       WARNING: for odd-length arrays this assigns f on a grid offset by deltaF/2 --
+       it is only correct for the even-length RIFT packing.
+    lal_convention=True: the packing of two-sided series returned directly by LAL
+       generators (e.g. SimInspiralChooseFDModes): ASCENDING [-fNyq, ..., 0, ..., +fNyq]
+       with DC at index npts//2 (odd length TDlen+1; even length after truncation keeps
+       DC at npts//2).  f[k] = deltaF*(k - npts//2), exact for both parities of npts.
+       Use this - not the default - on ChooseFDModes output: the default's reversal +
+       half-bin offset shifts any |f|-symmetric window by one bin between (l,m) and
+       (l,-m) modes (which live at opposite signs of f), breaking the conjugate-pair
+       identity h_{l,-m}(f) = (-1)^l conj(h_{lm}(-f)) at the percent level.
 
     Notes:
        a) XXXFrequencySeries  have an f0 and a deltaF, and *logically* they should run from f0....f0+N*df
@@ -5027,6 +5034,8 @@ def evaluate_fvals(lal_2sided_fseries):
     """
     npts = lal_2sided_fseries.data.length
     df = lal_2sided_fseries.deltaF
+    if lal_convention:
+        return df*(np.arange(npts) - npts//2)
     fvals = np.zeros(npts)
     # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/group___time_freq_f_f_t__h.html
     # https://www.lsc-group.phys.uwm.edu/daswg/projects/lal/nightly/docs/html/_time_freq_f_f_t_8h.html
