@@ -1191,7 +1191,7 @@ class MCSampler(object):
                     self._rvs["integrand"] = xpy_here.hstack( (self._rvs["integrand"], fval) )
                     self._rvs["joint_prior"] = xpy_here.hstack( (self._rvs["joint_prior"], joint_p_prior) )
                     self._rvs["joint_s_prior"] = xpy_here.hstack( (self._rvs["joint_s_prior"], joint_p_s) )
-                    self._rvs["weights"] = xpy_here.hstack( (self._rvs["joint_s_prior"], fval*joint_p_prior/joint_p_s) )
+                    self._rvs["weights"] = xpy_here.hstack( (self._rvs["weights"], fval*joint_p_prior/joint_p_s) )   # BUGFIX: was appending onto joint_s_prior, corrupting the weights record -- the same fix mcsampler.py:571 already carries
                 else:
                     self._rvs["integrand"] = fval
                     self._rvs["joint_prior"] = joint_p_prior
