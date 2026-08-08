@@ -16,10 +16,30 @@ import numpy as np
 POSTERIOR_UNIQUE_FLAG = "--posterior-unique-draw"
 
 
+def _normalized_probabilities(weights):
+    """Validate weights and return them as float64 probabilities.
+
+    Normalization happens in the INPUT dtype, scaling by the maximum weight
+    first: RIFT builds export weights in extended precision (longdouble on
+    x86_64), where finite values can exceed float64's range, so casting to
+    float64 before normalizing would overflow them to inf.  After max-scaling,
+    every value lies in [0, 1] and the cast is safe.
+    """
+    w = np.asarray(weights)
+    if w.ndim != 1 or len(w) == 0:
+        raise ValueError("weights must be a nonempty 1-d array")
+    if not np.all(np.isfinite(w)) or np.any(w < 0):
+        raise ValueError("weights must be finite and nonnegative")
+    w_max = np.max(w)
+    if not (w_max > 0):
+        raise ValueError("weights must have a positive sum")
+    w = w / w_max
+    return np.asarray(w / np.sum(w), dtype=float)
+
+
 def unique_draw_bound(weights):
     """Largest fair draw size that can be duplicate-free: floor(sum(w)/max(w))."""
-    w = np.asarray(weights, dtype=float)
-    return int(np.floor(np.sum(w) / np.max(w)))
+    return int(np.floor(1.0 / np.max(_normalized_probabilities(weights))))
 
 
 def systematic_resample(weights, n_out, rng=None):
@@ -36,8 +56,7 @@ def systematic_resample(weights, n_out, rng=None):
     """
     if rng is None:
         rng = np.random
-    w = np.asarray(weights, dtype=float)
-    cdf = np.cumsum(w / np.sum(w))
+    cdf = np.cumsum(_normalized_probabilities(weights))
     cdf[-1] = 1.0  # guard against roundoff excluding the final bin
     positions = (rng.uniform() + np.arange(n_out)) / n_out
     indx = np.searchsorted(cdf, positions, side='left')

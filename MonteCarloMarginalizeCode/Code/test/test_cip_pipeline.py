@@ -98,3 +98,27 @@ def test_blank_lines_dropped_and_empty_input_ok():
     assert flag_final_group_unique([]) == []
     assert flag_final_group_unique(["\n", "1 --fit-method rf\n", "   \n"]) == [
         "1 --fit-method rf {}".format(FLAG)]
+
+
+def test_extended_precision_weights_beyond_float64_range():
+    # RIFT builds export weights as longdouble on x86_64; finite values above
+    # float64's range must not overflow to inf inside the helpers.
+    import pytest
+    if np.finfo(np.longdouble).max <= np.finfo(np.float64).max:
+        pytest.skip("platform longdouble has no extra range")
+    big = np.longdouble(10.0) ** 400
+    w = np.full(10, big, dtype=np.longdouble)
+    w[0] *= 10.0  # sum/max = 19/10 -> bound 1
+    assert unique_draw_bound(w) == 1
+    np.random.seed(8)
+    n = 100000
+    counts = np.bincount(systematic_resample(w, n), minlength=len(w))
+    assert counts.sum() == n
+    assert abs(counts[0] - n * 10.0 / 19.0) < n * 0.01
+
+
+def test_invalid_weights_are_rejected():
+    import pytest
+    for bad in ([], [0.0, 0.0], [1.0, -1.0], [1.0, np.inf], [1.0, np.nan]):
+        with pytest.raises(ValueError):
+            unique_draw_bound(np.array(bad, dtype=float))
