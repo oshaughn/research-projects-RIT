@@ -24,6 +24,7 @@ Usage (CPU, like the gate):
 """
 from __future__ import print_function
 import argparse
+import contextlib
 import os
 import sys
 
@@ -39,6 +40,13 @@ if _CODE not in sys.path:
 
 import shape_recovery as SR
 
+# The PRISTINE factory, captured once at import, before any patch can be installed.  Everything
+# below wraps THIS, never `SR.build_sampler` as it happens to stand: wrapping the current value
+# meant the second configuration wrapped the first one's wrapper, so the arms accumulated and the
+# "flags OFF" baseline still ran the PREVIOUS arm's flags -- a comparison of a flag against itself,
+# which cannot show a regression.
+_ORIG_BUILD_SAMPLER = SR.build_sampler
+
 
 def patched_build(flags):
     """Return a build_sampler that switches the opt-in flags on for portfolio samplers.
@@ -48,7 +56,7 @@ def patched_build(flags):
     portfolio forwards through setup().  Since the probe patches AFTER build, reach into the
     realized members for that one.  Use the reserved key '_gmm_adaptive_cap'.
     """
-    orig = SR.build_sampler
+    orig = _ORIG_BUILD_SAMPLER
 
     def build(kind, target, n_chunk):
         s = orig(kind, target, n_chunk)
@@ -67,13 +75,33 @@ def patched_build(flags):
     return build
 
 
+@contextlib.contextmanager
+def flag_patch(flags):
+    """Install the flag-applying build_sampler for ONE run, then restore the original.
+
+    Restoring in a `finally` -- rather than overwriting the global at the next call site -- is what
+    keeps the arms independent: a run that raised used to leave its patch installed, and the next
+    "flags OFF" run inherited it.  Refusing to nest makes the accumulation bug impossible to
+    reintroduce quietly: a stacked wrapper is an error here, not a silently contaminated baseline.
+    """
+    if SR.build_sampler is not _ORIG_BUILD_SAMPLER:
+        raise RuntimeError(
+            "build_sampler is already patched; nesting would stack wrappers and leak one arm's "
+            "flags into another's")
+    SR.build_sampler = patched_build(flags)
+    try:
+        yield
+    finally:
+        SR.build_sampler = _ORIG_BUILD_SAMPLER
+
+
 def run_config(label, flags, jobs_spec, nmax_per_dim, neff, run_seed):
     """Run the portfolio rows for one flag configuration; return list of (job, record)."""
-    SR.build_sampler = patched_build(flags)
     out = []
     for (d, nc, ts) in jobs_spec:
         target = SR.MixtureTarget(d, nc, ts)
-        rec = SR.run_one("portfolio", target, nmax_per_dim * d, neff, seed=run_seed)
+        with flag_patch(flags):
+            rec = SR.run_one("portfolio", target, nmax_per_dim * d, neff, seed=run_seed)
         verdict = SR.evaluate(rec)
         out.append(((d, nc, ts), rec, verdict))
         print("  {:22s} d{}_n{}_s{}  n_eff={:8.0f}  lnI-lnZ={:+.4f}  {}".format(
@@ -106,12 +134,56 @@ def _run_one_cell(flags, job, nmax_per_dim, neff, run_seed):
     """One (config, target) cell at one run seed.  Returns the record, or None if it did not run."""
     d, nc, ts = job
     try:
-        SR.build_sampler = patched_build(flags)
-        return SR.run_one("portfolio", SR.MixtureTarget(d, nc, ts),
-                          nmax_per_dim * d, neff, seed=run_seed)
+        target = SR.MixtureTarget(d, nc, ts)
+        with flag_patch(flags):
+            return SR.run_one("portfolio", target, nmax_per_dim * d, neff, seed=run_seed)
     except Exception as e:
         print("     cell {} failed at seed {}: {}".format(job, run_seed, e))
         return None
+
+
+def confirm_plan(run_seed, repeats, explicit_seeds, min_valid):
+    """Turn the confirmation options into (seeds, min_valid), REJECTING zero-evidence settings.
+
+    A confirmation that runs no seeds, or that needs no valid pair to reach a verdict, prints
+    "NOT CONFIRMED (realization noise)" about a row nobody re-tested and exits 0 -- the precise
+    silent clear this step exists to prevent (--confirm-repeats 0 did exactly that).  So the
+    settings have to buy actual evidence:
+
+      * at least one fresh seed, and at least one valid pair required for a verdict;
+      * never more valid pairs required than there are seeds (unsatisfiable: nothing could clear);
+      * seeds DISTINCT, and distinct from the run seed that flagged the row.  Repeating a seed
+        repeats its realization, and the realization is exactly what is in dispute here: four
+        reruns at the flagging seed reproduced the same false FAIL.
+
+    Raises ValueError naming the reason; the CLI turns that into a usage error.
+    """
+    if explicit_seeds is not None:
+        seeds = [int(x) for x in explicit_seeds.split(",") if x.strip() != ""]
+        if not seeds:
+            raise ValueError("--confirm-seeds is empty: confirmation needs at least one fresh seed")
+    else:
+        if repeats < 1:
+            raise ValueError(
+                "--confirm-repeats must be >= 1 (got {}): zero reruns is no evidence, and would "
+                "clear the flagged row untested.  Use --no-confirm to skip confirmation "
+                "deliberately -- that fails the row rather than passing it.".format(repeats))
+        seeds = [run_seed + 1000 * (i + 1) for i in range(repeats)]
+    if len(set(seeds)) != len(seeds):
+        raise ValueError("confirmation seeds must be distinct, got {}: repeating a seed repeats "
+                         "its realization instead of testing a fresh one".format(seeds))
+    if run_seed in seeds:
+        raise ValueError("confirmation seed {} is the run seed that flagged the row: it would "
+                         "reproduce that verdict, not test it".format(run_seed))
+    if min_valid is None:
+        min_valid = len(seeds)
+    if min_valid < 1:
+        raise ValueError("--confirm-min-valid must be >= 1 (got {}): a verdict resting on zero "
+                         "valid pairs is a silent clear".format(min_valid))
+    if min_valid > len(seeds):
+        raise ValueError("--confirm-min-valid {} exceeds the {} seed(s) available: no row could "
+                         "ever reach a verdict".format(min_valid, len(seeds)))
+    return seeds, min_valid
 
 
 def confirm_flagged(flagged, nmax_per_dim, neff, seeds, min_valid):
@@ -126,8 +198,17 @@ def confirm_flagged(flagged, nmax_per_dim, neff, seeds, min_valid):
     responds to its realization".
 
     Fails closed, like confirm_regressions.py: a flag arm that produces no record counts AGAINST
-    the flag, and too few usable pairs is INCONCLUSIVE rather than a pass.
+    the flag, and too few usable pairs is INCONCLUSIVE rather than a pass.  The evidence
+    requirements are re-checked here rather than trusted from the CLI, so no caller can obtain a
+    verdict this function has no evidence for.
     """
+    seeds = list(seeds)
+    if not seeds:
+        raise ValueError("confirmation needs at least one fresh seed")
+    if len(set(seeds)) != len(seeds):
+        raise ValueError("confirmation seeds must be distinct, got {}".format(seeds))
+    if not 1 <= min_valid <= len(seeds):
+        raise ValueError("min_valid must be in 1..{} (got {})".format(len(seeds), min_valid))
     n_conf, n_inconc = 0, 0
     for label, flags, job in flagged:
         worse = same = 0
@@ -173,11 +254,15 @@ def confirm_flagged(flagged, nmax_per_dim, neff, seeds, min_valid):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--confirm-repeats", type=int, default=5,
-                    help="fresh run seeds per arm used to re-test a flagged row (default 5)")
-    ap.add_argument("--confirm-seeds", default=None, help="explicit comma list; overrides --confirm-repeats")
+                    help="fresh run seeds per arm used to re-test a flagged row (default 5; "
+                         "must be >= 1 -- see --no-confirm to skip confirmation instead)")
+    ap.add_argument("--confirm-seeds", default=None,
+                    help="explicit comma list; overrides --confirm-repeats.  Must be non-empty, "
+                         "distinct, and none of them the --run-seed that flagged the row.")
     ap.add_argument("--confirm-min-valid", type=int, default=None,
-                    help="usable default/flag pairs required for a verdict (default: all seeds). "
-                         "Fewer -> INCONCLUSIVE and exit 1, never a silent clear.")
+                    help="usable default/flag pairs required for a verdict (default: all seeds; "
+                         "must be 1..#seeds).  Fewer -> INCONCLUSIVE and exit 1, never a silent "
+                         "clear.")
     ap.add_argument("--no-confirm", action="store_true",
                     help="skip confirmation; a flagged row fails immediately (old behaviour)")
     ap.add_argument("--dims", default="2,4")
@@ -187,6 +272,16 @@ def main():
     ap.add_argument("--neff", type=int, default=None)
     ap.add_argument("--run-seed", type=int, default=987654)
     args = ap.parse_args()
+
+    # Validate the confirmation settings BEFORE the arms run: an unusable setting should cost a
+    # usage error, not an hour of sampling followed by a verdict backed by nothing.
+    seeds = min_valid = None
+    if not args.no_confirm:
+        try:
+            seeds, min_valid = confirm_plan(args.run_seed, args.confirm_repeats,
+                                            args.confirm_seeds, args.confirm_min_valid)
+        except ValueError as e:
+            ap.error(str(e))
 
     cfg = dict(SR.PRESETS["standard"])
     nmax_per_dim = args.nmax_per_dim or cfg["nmax_per_dim"]
@@ -247,9 +342,6 @@ def main():
               "#   Every threshold here is a hard cut on a stochastic quantity, so a single flagged\n"
               "#   row is a hypothesis; re-run without --no-confirm to test it.")
         return 1
-    seeds = ([int(x) for x in args.confirm_seeds.split(",")] if args.confirm_seeds
-             else [args.run_seed + 1000 * (i + 1) for i in range(args.confirm_repeats)])
-    min_valid = args.confirm_min_valid if args.confirm_min_valid is not None else len(seeds)
     print("\n# re-testing {} flagged row(s) at {} fresh seed(s) per arm: {}".format(
         bad, len(seeds), seeds))
     n_conf, n_inconc = confirm_flagged(flagged, nmax_per_dim, neff, seeds, min_valid)

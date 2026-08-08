@@ -8,9 +8,16 @@ evidence is included so none of it has to be re-derived.
 ## 1. The flag-ON probe can fail a PR on a coin flip -- it needs confirm-on-fail
 
 **Status:** DONE -- confirm-on-fail added to the probe (`--confirm-repeats`, `--confirm-seeds`,
-`--confirm-min-valid`, `--no-confirm`).  Verified live: the `adaptive_alloc ON / d4_n1_s303` row
-cleared at 3 fresh seeds with the two arms bit-identical (36/36, 84/84, 131/131), probe exit
-1 -> 0.  Tests in `test_probe_confirm.py`.
+`--confirm-min-valid`, `--no-confirm`).  Tests in `test_probe_confirm.py`.
+
+**The first live verification is VOID; the clear must be re-measured.**  That run reported the row
+cleared at 3 fresh seeds "with the two arms bit-identical (36/36, 84/84, 131/131)".  Bit-identical
+arms is not a clear -- it is the signature of the patching bug found in review: `patched_build()`
+wrapped `SR.build_sampler` as it then stood rather than the pristine factory, and nothing restored
+it, so the default arm ran through the flag arm's wrapper.  The confirmation was comparing the flag
+against itself, which cannot report "worse" no matter what the flag does.  Fixed here
+(`_ORIG_BUILD_SAMPLER` + the `flag_patch` context manager, which refuses to nest); re-run the
+confirmation on the fixed probe before treating that row as cleared.
 
 `probe_portfolio_optin_flags.py` reuses the shape gate's thresholds and its `evaluate()`, so it
 inherits the same near-threshold realization sensitivity -- but unlike `compare_shape_results.py`
