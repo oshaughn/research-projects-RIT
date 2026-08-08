@@ -1,15 +1,35 @@
 #!/usr/bin/env python
-"""`convergence_test_NormalSubIntegrals` needs DRAW order, not weight order.
+"""`convergence_test_NormalSubIntegrals` sees WEIGHT order, and nothing available repairs it.
+
+DOCUMENTATION ONLY.  These tests record a trap; no source fix ships with them, and the two
+samplers are unchanged apart from a corrected comment.
 
 The save-P thresholding block reindexes every `_rvs` column by cumulative-weight order
 (`mcsampler.py:739-752`), so surviving rows come out sorted by weight ascending.  The test then
 splits them into `ncopies` CONTIGUOUS segments and assumes those are independent -- but sorted rows
 put the smallest weights in the first segment and the largest in the last, so the sub-integrals
-differ by construction.
+differ by construction: measured, max/min segment mass is 1.15e3 sorted against 1.83 in draw order.
 
-The long-standing workaround (recompute the weights from the components rather than reading the
-cached column) does not help: the components were permuted by the same reindexing.  `sample_n`,
-written just before that block as an iteration number, is what survives it.
+Two candidate repairs were tried and BOTH fail, which is the point of this module:
+
+1. The long-standing in-tree workaround -- recompute the weights from the components rather than
+   reading the cached column -- does nothing.  The components were permuted by the same
+   reindexing, so cached and recomputed weights are both 100% ascending.
+
+2. Reordering by `sample_n` does not work either.  It is (re)created as `arange(len(...))` at the
+   START of the threshold block, so on a REUSED sampler it is assigned to an already-permuted
+   array and encodes the order at the start of that call, not the draw order -- measured, 0.752
+   ascending and a segment ratio of 373 after two `integrate()` calls.  And in the window between
+   appending new samples and the block re-running it is stale AND short (3000 weights against 1500
+   ids), so indexing by it silently drops every new sample.
+
+A real repair needs stable ids assigned where samples are APPENDED, in every sampler.  That is not
+justified today: this test has no live callers -- every production call site is commented out, only
+`test/test_like_and_samp.py` uses it -- but anyone re-enabling it must do that plumbing first, or
+the sub-integrals are not independent and the normality check is meaningless.
+
+`test_sample_n_does_not_encode_draw_order_after_reuse` is written to FAIL if the samplers ever grow
+stable append-time ids, which is the signal to revisit this note rather than let it go stale.
 
 Run:  python test_convergence_sample_order.py
 """
