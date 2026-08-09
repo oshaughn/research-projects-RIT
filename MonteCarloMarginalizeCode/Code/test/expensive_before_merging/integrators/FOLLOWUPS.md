@@ -10,7 +10,24 @@ evidence is included so none of it has to be re-derived.
 **Status:** DONE -- confirm-on-fail added to the probe (`--confirm-repeats`, `--confirm-seeds`,
 `--confirm-min-valid`, `--no-confirm`).  Tests in `test_probe_confirm.py`.
 
-**The first live verification is VOID; the clear must be re-measured.**  That run reported the row
+**RE-MEASURED ON THE FIXED PROBE: the row is a CONFIRMED opt-in regression, not noise.**
+5 fresh seeds, flag arm FAILS at every one:
+
+```
+seed 988654: base=PASS(213)   flag=FAIL(124)
+seed 989654: base=PASS(252)   flag=FAIL(125)
+seed 990654: base=PASS(244)   flag=FAIL(292)
+seed 991654: base=STARVED(67) flag=FAIL(177)
+seed 992654: base=PASS(136)   flag=FAIL(140)
+-> CONFIRMED (4 worse / 1 not-worse)
+```
+
+Note the failure mode: the flag arm often has HIGHER n_eff (292 vs 244, 177 vs 67, 140 vs 136) and
+still fails, so it is failing on SHAPE metrics -- more effective samples, worse recovered posterior.
+See item 4.  Everything below this line was written before that measurement and is retained for
+the record.
+
+**The first live verification was VOID.**  That run reported the row
 cleared at 3 fresh seeds "with the two arms bit-identical (36/36, 84/84, 131/131)".  Bit-identical
 arms is not a clear -- it is the signature of the patching bug found in review: `patched_build()`
 wrapped `SR.build_sampler` as it then stood rather than the pristine factory, and nothing restored
@@ -65,16 +82,35 @@ seed 992654: base=STARVED cand=STARVED (n_eff 96 vs 96)
 `REGRESSION(pass->starved)` in two consecutive full gate runs during PR #47 before confirm-on-fail
 cleared it.
 
-**Decision:** raise the budget for this cell so it clears the floor reliably, or drop it from
-`--strict-samplers`. Deliberately not changed unilaterally -- the strict list and per-cell budgets
-are shared with other people's work. Confirm-on-fail now stops it blocking spuriously, so this is
-cleanup rather than an outage: it costs a 5-seed rerun each time it fires.
+**MEASURED AND RESOLVED** (8 fresh seeds per budget):
+
+| budget | n_eff min / med / max | clears 100 | median \|bias\| |
+|---|---|---|---|
+| x1 (matrix default) | 59 / 105 / 159 | **5/8** | 0.014 |
+| x2 | 105 / 169 / 214 | 8/8 | 0.010 |
+| x4 | 209 / 293 / 473 | 8/8 | 0.012 |
+
+Bias is flat across budgets, so this is threshold margin, not a defect.
+
+**Correction to the options above:** neither was expressible. The matrix budget is `nmax_per_dim*d`
+for EVERY cell, and `--strict-samplers` is per-SAMPLER, so "re-budget this cell" and "drop this row
+from strict" both needed a mechanism that did not exist. Added `CELL_BUDGET_MULT` in
+`shape_recovery.py` (same shape as the existing per-case `WARM_CASES` budgets) and set this cell to
+**x4**: x2 clears 8/8 but its minimum, 105, is 5% above the floor, which is not a margin worth
+trusting for a row that has read 66 and 119 on unchanged code. x4 gives min 209 (2.1x) and costs
+~4% of the gate's evaluations, being one cell of ~96.
 
 ---
 
 ## 3. Audit `_rvs` consumers that prefer a cached column over the canonical components
 
-**Status:** not started.
+**Status:** DONE -- PR #55 (merged). Found and fixed two defects: the `.dgrid` and
+calibration-posterior exporters preferred a cached `log_weights` that means DIFFERENT things in
+different samplers (`mcsamplerGPU` stores the tempering-weighted adaptation weight, not the
+importance weight), and `mcsamplerGPU.py:1194` appended weights onto `joint_s_prior`, a fix
+`mcsampler.py:571` had carried for years. Verdict table in `RVS_CACHE_AUDIT.md`. The third
+divergence it flagged (`_rvs['weights']` sorted as a side effect) is resolved in PR #57 as a
+documented constraint.
 
 PR #51 fixed a case where exported science products disagreed with the reported evidence:
 `_pool_replica_rvs` rewrote `log_joint_s_prior` to carry the corrected replica weights, but the
@@ -98,3 +134,27 @@ the source must invalidate it too.
 **Acceptance.** A list of consumers with a verdict each (derives / kept in sync / fixed), plus a
 regression test for any defect found -- asserting the cached value both matches the components
 **and differs from the stale value**, so it fails on the buggy code rather than passing vacuously.
+
+
+---
+
+## 4. `--portfolio-adaptive-alloc` degrades posterior SHAPE on `d4_n1_s303` (confirmed)
+
+**Status:** open. Opt-in, default OFF, and the pipeline never sets it, so nothing in production is
+affected -- but the flag is not safe to promote, and this was invisible for the whole #47/#51/#55
+series because the probe was comparing the flag against itself.
+
+Confirmed on the fixed probe at 5 fresh seeds (per-seed numbers in item 1). The flag arm fails at
+**every** seed, and often with HIGHER n_eff than the default arm -- so it is failing on JS / pull /
+width, not on starvation. More effective samples, worse recovered posterior: the "confidently
+wrong" signature this project has documented elsewhere (n_eff measures weight CONCENTRATION, not
+coverage), now showing up in one of our own opt-in features.
+
+**Do not** treat the higher n_eff as evidence the flag helps. That is precisely the reading that
+made the estimator-clip experiment look like a success while it was biasing lnZ by -11.5 nats.
+
+**Next steps.** Establish scope before touching the policy: is this specific to d=4 / ncomp=1, or
+does the allocation signal systematically over-concentrate on whichever member reports the best
+per-chunk n_ess? Sweep the flag across the full matrix at several seeds, and record JS / pull /
+width alongside n_eff so the shape degradation is visible rather than inferred. If it generalizes,
+the allocation signal needs a shape-aware guard or the flag should be documented as unsafe.
