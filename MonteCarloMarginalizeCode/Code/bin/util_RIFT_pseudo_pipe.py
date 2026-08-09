@@ -54,6 +54,7 @@ if _use_hpip_pp:
 
 # Backward compatibility
 from RIFT.misc.dag_utils_generic import which
+from RIFT.misc.cip_pipeline import flag_final_group_unique
 ligolw_prefix = 'igwn_'
 if not(which(ligolw_prefix + "ligolw_add")):
     ligolw_prefix = ''
@@ -1691,8 +1692,15 @@ if opts.internal_use_amr:
 with open("args_cip_list.txt",'w') as f:
    if not(opts.internal_truncate_cip_arg_list is None):
        lines = lines[-opts.internal_truncate_cip_arg_list:]  # truncate the cip arg list file
+   # The final CIP group produces both the published posterior and the downstream grid,
+   # so it gets the duplicate-free fair draw (capped at sum(w)/max(w)).  Internal
+   # iterations keep the fair draw with duplicates allowed, so successive iterations feed
+   # an unbiased convergence test.  AMR arg lines drive a different executable that does
+   # not accept the flag, so that path is left untouched.
+   if not(opts.internal_use_amr):
+       lines = flag_final_group_unique(lines)
    for line in lines:
-           f.write(line)
+           f.write(line.rstrip("\n") + "\n")
 
 # Write test file
 # with open("args_test.txt",'w') as f:
