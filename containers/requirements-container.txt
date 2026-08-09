@@ -11,10 +11,12 @@
 # here -- it varies per build-matrix entry and is installed by the .def itself.
 # The canary has no GPU, so it skips cupy entirely.
 #
-# Intentionally UNPINNED (mirrors rift_container.def). The canary's whole job is
-# to catch when a fresh upstream release of one of these (e.g. swig>=4.4.0 via a
-# transitive build, lalsuite, numpy) breaks RIFT -- see issue #136 -- before it
-# surprises a container rebuild.
+# Runtime dependencies are intentionally UNPINNED (mirrors rift_container.def).
+# The canary's whole job is to catch when a fresh upstream release of one of
+# these (e.g. swig>=4.4.0 via a transitive build, lalsuite, numpy) breaks RIFT --
+# see issue #136 -- before it surprises a container rebuild. Build backends have
+# a separate, narrowly scoped compatibility bound in
+# constraints-container-build.txt.
 asimov>=0.5.6
 asimov-gwdata>=0.4.0
 gwdatafind==1.2.0

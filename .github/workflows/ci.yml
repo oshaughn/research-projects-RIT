@@ -344,6 +344,10 @@ jobs:
     # so a red run should alert maintainers, not block unrelated PRs.
     runs-on: ubuntu-latest
     continue-on-error: true
+    env:
+      # pygsl_lite 0.1.8 uses the pre-84 distutils.spawn calling convention.
+      # This affects only PEP 517 build backends, not the unpinned runtime solve.
+      PIP_BUILD_CONSTRAINT: ${{ github.workspace }}/containers/constraints-container-build.txt
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

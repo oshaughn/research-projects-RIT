@@ -40,9 +40,13 @@ containers/build_family.sh [--render-only] [OUTPUT_DIR]
 All matrix entries share the pip set in
 [`requirements-container.txt`](requirements-container.txt) (the cupy wheel is the
 only per-entry difference). That file is the **single source of truth** also
-consumed by the CI dependency canary (below). `build_family.sh` stages it into
-each image via the `.def`'s `%files` section, so the build does **not** depend on
-the cloned RIFT branch shipping the file.
+consumed by the CI dependency canary (below). The isolated PEP 517 build
+environments additionally use
+[`constraints-container-build.txt`](constraints-container-build.txt) for narrow
+build-tool compatibility bounds that do not pin the runtime solve.
+`build_family.sh` stages both files into each image via the `.def`'s `%files`
+section, so the build does **not** depend on the cloned RIFT branch shipping
+them.
 
 ### Build troubleshooting
 
@@ -236,6 +240,9 @@ when a container rebuild fails. The `container-dep-canary` job in
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) installs the unpinned
 [`requirements-container.txt`](requirements-container.txt) set (minus the
 GPU-only cupy wheel) and the pixi `swig-post44` lane, then runs the import check —
-on every push/PR **and weekly** — to flag such breakage early. It is
-non-blocking (advisory): it tracks upstream changes outside any PR author's
-control.
+on every push/PR **and weekly** — to flag such breakage early. The pip lane
+applies the same build-only constraints as the real containers; the Pixi lane
+expresses the equivalent build compatibility in `pixi.toml`. Runtime packages
+remain unpinned, so the canaries still detect new dependency incompatibilities.
+The jobs are non-blocking (advisory): they track upstream changes outside any PR
+author's control.
