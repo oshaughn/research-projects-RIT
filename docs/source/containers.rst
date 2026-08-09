@@ -208,6 +208,27 @@ Under asimov, set the variable from the blueprint rather than the shell:
    itself, which for a manifest is just a ``.yaml`` path — so the manifest's
    image URLs are inspected instead.
 
+.. warning::
+
+   **Open item on the container-universe mode.** ``condor_submit`` parses
+   ``container_image`` *before* any ``$$`` expansion, and derives the job ad's
+   ``ContainerImage`` (the name the image will have in the job scratch dir) as
+   the text after the **last** ``/``.  A ``$$([ ... ])`` selection contains
+   slashes, so that derivation cuts the expression in half.  On
+   ``$CondorVersion: 25.11.1``, ``condor_submit -dry-run`` of a generated
+   ``ILE.sub`` yields::
+
+       ContainerImage="rift_container_default.sif\") ])"
+       ContainerImageFullPath="$$([ ifThenElse(TARGET.GPUs_Capability >= 8.0, \"osdf:///...\", \"osdf:///...\") ])"
+
+   ``ContainerImageFullPath`` and ``transfer_input_files`` keep the ``$$`` token
+   and expand correctly at match time; ``ContainerImage`` no longer contains a
+   ``$$``, so nothing repairs it unless the schedd re-derives it after expansion
+   — which has not been verified against a live GPU match.  Confirm this on one
+   real ILE job (``condor_q -l`` the matched job) before running a production
+   OSPool campaign on this mode.  ``RIFT_CONTAINER_RUNTIME_SELECT=1`` emits no
+   container-universe attributes at all and is not affected.
+
 
 GPU attribute names
 -------------------

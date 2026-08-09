@@ -188,6 +188,22 @@ for `igwn+osdf:`) by inspecting the manifest's image URLs — the single-image p
 keys off the `SINGULARITY_RIFT_IMAGE` string, which for a family is only a
 `.yaml` path.
 
+> **Open item on the container-universe mode.** `condor_submit` parses
+> `container_image` *before* any `$$` expansion and derives the job ad's
+> `ContainerImage` (the name the image gets in the job scratch dir) as the text
+> after the **last** `/`. A `$$([ ... ])` selection contains slashes, so that
+> derivation cuts it in half. On `$CondorVersion: 25.11.1`, `condor_submit
+> -dry-run` of a generated `ILE.sub` gives
+> `ContainerImage="rift_container_default.sif\") ])"` while
+> `ContainerImageFullPath` keeps the intact `$$` token. The full path and
+> `transfer_input_files` expand correctly at match time; `ContainerImage` has no
+> `$$` left, so nothing repairs it unless the schedd re-derives it after
+> expansion -- unverified against a live GPU match. Check this on one real ILE
+> job (`condor_q -l`) before a production OSPool campaign.
+> `RIFT_CONTAINER_RUNTIME_SELECT=1` emits no container-universe attributes and is
+> unaffected.
+
+
 ### HTCondor GPU attribute names — important
 
 Two different namespaces are in play and are kept separate:
