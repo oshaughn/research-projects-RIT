@@ -1,6 +1,9 @@
 Bootstrap: docker
 From: nvidia/cuda:11.8.0-runtime-ubuntu22.04
 
+%files
+   containers/constraints-container-build.txt /opt/constraints-container-build.txt
+
 %post
    # Update the system and install essential libraries
    apt-get update -y
@@ -34,6 +37,8 @@ From: nvidia/cuda:11.8.0-runtime-ubuntu22.04
    cd research-projects-RIT
    #git checkout rift_O4c
    pip3 install --upgrade pip
+   # Keep isolated pygsl_lite builds on the last compatible setuptools API.
+   export PIP_BUILD_CONSTRAINT=/opt/constraints-container-build.txt
    pip3 install --upgrade setuptools --break-system-packages
    pip3 install -e .
 
