@@ -315,6 +315,11 @@ jobs:
       - name: Show resolved versions
         run: |
           python -c "import sys, numpy, scipy; print('python', sys.version); print('numpy', numpy.__version__); print('scipy', scipy.__version__)"
+      - name: Run sampler unit/regression tests
+        # Also run by .travis/test-integrate.sh (integration-check, py3.10). Repeated here
+        # because this job is the only one matrixed over BOTH numpy lanes, and these tests
+        # are the kind that break on numpy API removals (e.g. np.trapz -> np.trapezoid).
+        run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py
       - name: Run test scripts
         run: |
           . .travis/test-coord.sh
