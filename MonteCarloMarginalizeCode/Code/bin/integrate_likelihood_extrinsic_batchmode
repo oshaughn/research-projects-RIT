@@ -2003,7 +2003,7 @@ def resample_samples(my_samples,
 
   
 
-def ln_weights_from_rvs(rvs, convert=None):
+def ln_weights_from_rvs(rvs, convert=None, use_lnL=False):
     """THE importance log-weight of an _rvs record: lnL + ln(prior) - ln(sampling_prior).
 
     ONE definition, because the alternative has already cost us.  A stored 'log_weights' column
@@ -2017,6 +2017,20 @@ def ln_weights_from_rvs(rvs, convert=None):
     So the cache is never read here: the weight is always DERIVED from the canonical components --
     log form first, then the linear (mcsamplerEnsemble) form, with out-of-support rows set to
     -inf.  Raises when neither set is present: an explicit failure beats a plausible wrong number.
+
+    `use_lnL` is REQUIRED to interpret the linear form correctly, and callers must pass
+    `opts.internal_use_lnL`.  mcsamplerEnsemble reuses the 'integrand' field for BOTH conventions:
+
+        mcsamplerEnsemble:  self._rvs['integrand'] = self.identity_convert(value_array)
+
+    where `value_array` is L normally but lnL under --internal-use-lnL.  Taking log() of the
+    latter compresses tens of nats into log(tens), leaving an almost flat weight vector -- the
+    likelihood effectively drops out and whatever is reconstructed downstream is prior-dominated.
+    The positivity cut is wrong in that mode too: for a log, non-positive means a low-likelihood
+    point, not a rejected one, so `ig > 0` silently discards every sample with lnL <= 0.
+
+    Samplers that populate 'log_integrand' (adaptive volume, portfolio) take the first branch and
+    are unaffected either way.  Only the raw-field samplers reach the second.
     """
     conv = convert if convert is not None else (lambda x: x)
     if all(k in rvs for k in ('log_integrand', 'log_joint_prior', 'log_joint_s_prior')):
@@ -2027,9 +2041,14 @@ def ln_weights_from_rvs(rvs, convert=None):
         ig = numpy.asarray(conv(rvs['integrand']), dtype=float)
         jp = numpy.asarray(conv(rvs['joint_prior']), dtype=float)
         js = numpy.asarray(conv(rvs['joint_s_prior']), dtype=float)
-        keep = (ig > 0) & (jp > 0) & (js > 0)
         out = numpy.full(len(ig), -numpy.inf)
-        out[keep] = numpy.log(ig[keep]) + numpy.log(jp[keep]) - numpy.log(js[keep])
+        if use_lnL:
+            # 'integrand' already holds lnL: do not log it again, and do not cut on its sign.
+            keep = numpy.isfinite(ig) & (jp > 0) & (js > 0)
+            out[keep] = ig[keep] + numpy.log(jp[keep]) - numpy.log(js[keep])
+        else:
+            keep = (ig > 0) & (jp > 0) & (js > 0)
+            out[keep] = numpy.log(ig[keep]) + numpy.log(jp[keep]) - numpy.log(js[keep])
         return out
     raise Exception("cannot build importance weights from sampler._rvs (keys={})".format(
         sorted(rvs.keys())))
@@ -2176,7 +2195,7 @@ def _lnZ_of_rvs(rvs, already_pooled=True):
     """
     try:
         try:
-            lw = ln_weights_from_rvs(rvs)
+            lw = ln_weights_from_rvs(rvs, use_lnL=opts.internal_use_lnL)
         except Exception:
             return None
         lw = lw[numpy.isfinite(lw)]
@@ -2193,7 +2212,7 @@ def _kish_neff_of_rvs(rvs):
     """Kish effective sample size of an _rvs record, or None if the weights are not reconstructible."""
     try:
         try:
-            lw = ln_weights_from_rvs(rvs)
+            lw = ln_weights_from_rvs(rvs, use_lnL=opts.internal_use_lnL)
         except Exception:
             return None
         lw = lw[numpy.isfinite(lw)]
@@ -3628,7 +3647,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           fname_output_dgrid = opts.output_file +"_"+str(indx_event)+"_" + ".dgrid"
           dL = np.array(sampler._rvs["distance"])
           rvs = sampler._rvs
-          ln_wts = ln_weights_from_rvs(rvs)
+          ln_wts = ln_weights_from_rvs(rvs, use_lnL=opts.internal_use_lnL)
           # Distance prior at each sample. Use the sampler's stored prior_pdf
           # callable; this matches whatever ILE actually integrated against
           # (volumetric, pseudo_cosmo, redshift, ...).
@@ -3710,7 +3729,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # .dgrid.
           rvs = sampler._rvs
           _rvs = lambda k: np.asarray(identity_convert(rvs[k]), float)  # cupy-safe column read
-          ln_w_full = ln_weights_from_rvs(rvs, convert=identity_convert)
+          ln_w_full = ln_weights_from_rvs(rvs, convert=identity_convert, use_lnL=opts.internal_use_lnL)
           # Split K into core (reweight) and wing (fresh) slices.  --distance-slice-all-fresh
           # forces zero reweight core: EVERY slice is a fresh fixed-d integration.  Use it
           # when the main-loop n_eff is small -- the reweight core is then starved (the same
