@@ -124,7 +124,9 @@ For a manifest, the GPU ILE Condor submit files get:
 * **Selective transfer** — only ``osdf://`` images are fetched, and only on the
   machine that selected them, via a single HTCondor ``$$()`` match-time token
   appended to ``transfer_input_files``.  CVMFS/local images are referenced in
-  place and never transferred, so the **whole family is never pulled**::
+  place and never transferred, so the **whole family is never pulled**.  Under
+  container universe this token is what actually delivers the image (the
+  ``container_image`` selector only names a basename — see the warning below)::
 
       $$([ (TARGET.GPUs_Capability >= 8.0 ? "osdf:///.../rift_container_modern.sif" : "") ])
 
@@ -210,24 +212,31 @@ Under asimov, set the variable from the blueprint rather than the shell:
 
 .. warning::
 
-   **Open item on the container-universe mode.** ``condor_submit`` parses
-   ``container_image`` *before* any ``$$`` expansion, and derives the job ad's
-   ``ContainerImage`` (the name the image will have in the job scratch dir) as
-   the text after the **last** ``/``.  A ``$$([ ... ])`` selection contains
-   slashes, so that derivation cuts the expression in half.  On
-   ``$CondorVersion: 25.11.1``, ``condor_submit -dry-run`` of a generated
-   ``ILE.sub`` yields::
+   **Why the container-universe selector names basenames, not URLs.**
+   ``condor_submit`` parses ``container_image`` *before* any ``$$`` expansion and
+   derives the job ad's ``ContainerImage`` — the name the image will have in the
+   job scratch dir — as the text after the **last** ``/``.  A selector containing
+   full paths is therefore cut in half, and the fragment that survives is not a
+   valid image name.  Submitting that form to the IGWN pool holds the job at the
+   execute point::
 
-       ContainerImage="rift_container_default.sif\") ])"
-       ContainerImageFullPath="$$([ ifThenElse(TARGET.GPUs_Capability >= 8.0, \"osdf:///...\", \"osdf:///...\") ])"
+       PREPARE_JOB (prepare-hook) failed (reported status 001):
+       Unable to download or build singularity image cutest_busybox_...sif") ])
 
-   ``ContainerImageFullPath`` and ``transfer_input_files`` keep the ``$$`` token
-   and expand correctly at match time; ``ContainerImage`` no longer contains a
-   ``$$``, so nothing repairs it unless the schedd re-derives it after expansion
-   — which has not been verified against a live GPU match.  Confirm this on one
-   real ILE job (``condor_q -l`` the matched job) before running a production
-   OSPool campaign on this mode.  ``RIFT_CONTAINER_RUNTIME_SELECT=1`` emits no
-   container-universe attributes at all and is not affected.
+   So the selector emits **basenames only** (no ``/``), the whole ``$$`` token
+   survives into ``ContainerImage``, and the schedd expands it at match time
+   (``MATCH_EXP_ContainerImage = "rift_container_modern.sif"``).  The image itself
+   is delivered by the comma-free ``$$()`` transfer token, and ``MY.TransferInput``
+   is pinned so ``condor_submit`` does not append the basename selector to
+   ``TransferInput`` as a bogus extra input file.  Verified end to end on an OSPool
+   glidein against ``$CondorVersion: 25.11.1``.
+
+   Consequence: **every image in a family used with container universe must be a
+   transferable URL.**  An image referenced in place (a CVMFS or local path) can
+   only be named by its full path, which would reintroduce the truncation, so
+   :func:`~RIFT.misc.container_manifest.build_container_image_select` raises
+   ``ContainerManifestError`` for such a family.  Stage those images at a URL, or
+   use ``RIFT_CONTAINER_RUNTIME_SELECT=1``.
 
 
 GPU attribute names
@@ -254,9 +263,10 @@ Two different ClassAd namespaces are involved, and they are kept separate:
    attribute names, the ``require_gpus`` floor (matching a compatible GPU and
    excluding an incompatible one), the ``$$()`` match-time image selection, and
    tolerance of the empty-result case for a manifest that mixes CVMFS and
-   ``osdf`` entries.  The expression-valued ``MY.SingularityImage`` is *not*
-   OSPool-safe (see :ref:`osg-container-modes`); use
-   ``RIFT_CONTAINER_UNIVERSE=1`` there.
+   ``osdf`` entries.  The container-universe mode is additionally verified end to
+   end on an OSPool glidein (image selected, fetched and entered; job exit 0).  The
+   expression-valued ``MY.SingularityImage`` is *not* OSPool-safe (see
+   :ref:`osg-container-modes`); use ``RIFT_CONTAINER_UNIVERSE=1`` there.
 
 
 Building a container family

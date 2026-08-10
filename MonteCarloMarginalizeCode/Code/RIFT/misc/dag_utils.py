@@ -933,11 +933,14 @@ def write_ILE_sub_simple(tag='integrate', exe=None, log_dir=None, use_eos=False,
         # Selective transfer: only the matched osdf image is fetched (via the
         # $$() token, which is comma-free so it survives transfer_input_files
         # comma-splitting).  CVMFS/local images are referenced in place and
-        # never transferred, so the whole family is never pulled.  In container-
-        # universe mode the image is delivered via container_image itself; in
-        # runtime-select mode the wrapper self-fetches.  In both cases do NOT add
-        # the match-time transfer token.
-        if singularity_transfer_expr and not singularity_container_universe and not singularity_runtime_select:
+        # never transferred, so the whole family is never pulled.
+        #
+        # Container universe needs this token too: its container_image selector
+        # names BASENAMES (it may not contain a '/', or condor_submit truncates
+        # it -- see build_container_image_select), so the image itself must be
+        # delivered by file transfer.  Runtime-select mode self-fetches inside
+        # the wrapper, so it is the only mode that skips the token.
+        if singularity_transfer_expr and not singularity_runtime_select:
             extra_files += [singularity_transfer_expr]
     elif singularity_image:
         if 'osdf:' in singularity_image:
@@ -1252,6 +1255,15 @@ echo Starting ...
         fname_str=fname_str.strip()
         ile_job.add_condor_cmd('transfer_input_files', fname_str)
         ile_job.add_condor_cmd('should_transfer_files','YES')
+        if singularity_container_universe:
+            # condor_submit APPENDS the container_image value to the derived
+            # TransferInput.  Our selector names basenames (it may not contain a
+            # '/'), so that appended entry would ask the execute point to fetch a
+            # bare file name from the access point and fail.  Set TransferInput
+            # directly -- emitted after transfer_input_files, it wins -- so the
+            # list is exactly ours, with the matched image supplied by the
+            # comma-free $$() ternary already in extra_files.
+            ile_job.add_condor_cmd('MY.TransferInput', '"' + fname_str.replace('"', '\\"') + '"')
 
     if not transfer_output_files is None:
         if not isinstance(transfer_output_files, list):
@@ -1260,7 +1272,7 @@ echo Starting ...
             fname_str = ','.join(transfer_output_files)
         fname_str=fname_str.strip()
         ile_job.add_condor_cmd('transfer_output_files', fname_str)
- 
+
     # Periodic remove: kill jobs running longer than max runtime
     # https://stackoverflow.com/questions/5900400/maximum-run-time-in-condor
     if not(max_runtime_minutes is None):

@@ -58,6 +58,22 @@ ALL_CVMFS_MANIFEST = textwrap.dedent(
 )
 
 
+ALL_OSDF_MANIFEST = textwrap.dedent(
+    """
+    version: 1
+    fallback: ancient
+    containers:
+      - label: ancient
+        image: osdf:///igwn/sw/rift_ancient_cuda11.sif
+        cuda_capability_min: 3.0
+        cuda_capability_max: 7.0
+      - label: modern
+        image: osdf:///igwn/sw/rift_modern_cuda12.sif
+        cuda_capability_min: 7.0
+    """
+)
+
+
 def _write(tmp_path, text, name="fam.yaml"):
     p = tmp_path / name
     p.write_text(text)
@@ -158,7 +174,8 @@ def test_selectors_are_not_undefined_guarded(tmp_path):
     m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
     assert "=?= undefined" not in cm.build_singularity_image_expr(m)
     assert "=?= undefined" not in cm.build_transfer_input_expr(m)
-    assert "=?= undefined" not in cm.build_container_image_select(m)
+    assert "=?= undefined" not in cm.build_container_image_select(
+        cm.load_container_manifest(_write(tmp_path, ALL_OSDF_MANIFEST, "osdf.yaml")))
 
 
 def test_capability_defined_requirement(tmp_path):
@@ -268,23 +285,40 @@ def test_backward_compat_single_sif(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_container_image_select_expression(tmp_path):
-    m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
+    m = cm.load_container_manifest(_write(tmp_path, ALL_OSDF_MANIFEST))
     expr = cm.build_container_image_select(m)
-    # a $$() match-time substitution token with VERBATIM image values (osdf URL
-    # fetched by container universe; cvmfs path used in place) -- NOT a ./basename
-    # rewrite, and NOT undefined-guarded (Requirements exclusion is used instead)
+    # A $$() match-time substitution token over BASENAMES.  condor_submit derives the
+    # job ad's ContainerImage as the text after the LAST '/', *before* any $$
+    # expansion, so a selector containing a path is truncated and the job holds at the
+    # execute point ("Unable to download or build singularity image ...sif\") ])",
+    # observed live on an OSPool glidein).  With no '/' the token survives intact and
+    # the schedd expands it at match time.
     assert expr.startswith("$$([ ") and expr.endswith(" ])")
+    assert "/" not in expr                                        # THE invariant
     assert "=?= undefined" not in expr                            # not a guess-guard
     assert "ifThenElse(TARGET.GPUs_Capability >= 7.0," in expr
-    assert '"osdf:///igwn/rift_modern_cuda12.sif"' in expr         # raw osdf URL
-    assert '"/cvmfs/sw/rift_ancient_cuda11.sif"' in expr           # fallback verbatim
-    assert "./rift_modern_cuda12.sif" not in expr                  # no basename rewrite
+    assert '"rift_modern_cuda12.sif"' in expr                     # basename branch
+    assert '"rift_ancient_cuda11.sif"' in expr                    # fallback basename
+
+
+def test_container_image_select_rejects_in_place_images(tmp_path):
+    # An in-place (CVMFS/local) image can only be named by its full path, which would
+    # reintroduce the '/' truncation.  Refuse loudly rather than emit a submit file
+    # that holds every job.
+    m = cm.load_container_manifest(_write(tmp_path, MIXED_MANIFEST))
+    with pytest.raises(cm.ContainerManifestError) as exc:
+        cm.build_container_image_select(m)
+    assert "ancient" in str(exc.value)
+    # ... but the CPU-only single-image path is unaffected: it is a plain literal that
+    # condor_submit handles correctly.
+    assert cm.build_container_image_select(m, request_gpu=False) == "/cvmfs/sw/rift_ancient_cuda11.sif"
 
 
 def test_integration_container_universe(tmp_path, monkeypatch):
-    # Opt-in container-universe mode: per-machine image via $$()-substituted
-    # container_image; no MY.SingularityImage / BindCVMFS / $$() transfer token;
-    # universe=container; require_gpus floor still applied.
+    # Opt-in container-universe mode: per-machine image via a $$()-substituted
+    # container_image over BASENAMES, the matched image delivered by the comma-free
+    # $$() transfer token, no MY.SingularityImage / BindCVMFS, universe=container,
+    # require_gpus floor still applied.
     monkeypatch.setenv("RIFT_CONTAINER_UNIVERSE", "1")
     monkeypatch.delenv("RIFT_REQUIRE_GPUS", raising=False)
     monkeypatch.chdir(tmp_path)
@@ -296,7 +330,7 @@ def test_integration_container_universe(tmp_path, monkeypatch):
         arg_str="--foo bar",
         transfer_files=["../all.net"],
         use_singularity=True,
-        singularity_image=_write(tmp_path, MIXED_MANIFEST),
+        singularity_image=_write(tmp_path, ALL_OSDF_MANIFEST),
         request_gpu=True,
         cache_file="local.cache",
     )
@@ -305,9 +339,19 @@ def test_integration_container_universe(tmp_path, monkeypatch):
     ci = cmds["container_image"]
     assert ci.startswith("$$([")               # match-time substitution, unquoted
     assert not ci.startswith('"')
+    assert "/" not in ci                       # else condor_submit truncates it
     assert "MY.SingularityImage" not in cmds    # the OSG-breaking attr is gone
     assert "MY.SingularityBindCVMFS" not in cmds
-    assert "$$([" not in cmds.get("transfer_input_files", "")  # image via container_image, not transfer
+
+    # container_image names only a basename, so the image must arrive by transfer:
+    # exactly one comma-free $$() token carrying the full URLs.
+    tif = cmds["transfer_input_files"]
+    assert tif.count("$$([") == 1
+    assert "osdf:///igwn/sw/rift_modern_cuda12.sif" in tif
+    # ... and TransferInput is pinned, so condor_submit does not append the basename
+    # selector to it as a bogus extra input file.
+    assert cmds["MY.TransferInput"] == '"' + tif.replace('"', '\\"') + '"'
+
     assert "Capability >= 3.0" in cmds["require_gpus"]         # floor still steers GPUs
     # GPU family job: still excludes slots that don't advertise the capability attr
     assert "TARGET.GPUs_Capability =!= undefined" in cmds["requirements"]

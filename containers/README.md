@@ -188,20 +188,28 @@ for `igwn+osdf:`) by inspecting the manifest's image URLs — the single-image p
 keys off the `SINGULARITY_RIFT_IMAGE` string, which for a family is only a
 `.yaml` path.
 
-> **Open item on the container-universe mode.** `condor_submit` parses
-> `container_image` *before* any `$$` expansion and derives the job ad's
-> `ContainerImage` (the name the image gets in the job scratch dir) as the text
-> after the **last** `/`. A `$$([ ... ])` selection contains slashes, so that
-> derivation cuts it in half. On `$CondorVersion: 25.11.1`, `condor_submit
-> -dry-run` of a generated `ILE.sub` gives
-> `ContainerImage="rift_container_default.sif\") ])"` while
-> `ContainerImageFullPath` keeps the intact `$$` token. The full path and
-> `transfer_input_files` expand correctly at match time; `ContainerImage` has no
-> `$$` left, so nothing repairs it unless the schedd re-derives it after
-> expansion -- unverified against a live GPU match. Check this on one real ILE
-> job (`condor_q -l`) before a production OSPool campaign.
-> `RIFT_CONTAINER_RUNTIME_SELECT=1` emits no container-universe attributes and is
-> unaffected.
+> **Why the container-universe selector names basenames, not URLs.**
+> `condor_submit` parses `container_image` *before* any `$$` expansion and derives
+> the job ad's `ContainerImage` -- the name the image gets in the job scratch dir --
+> as the text after the **last** `/`. A selector containing full paths is cut in
+> half, and the fragment that survives is not a valid image name. Submitting that
+> form to the IGWN pool holds the job at the execute point:
+> `PREPARE_JOB (prepare-hook) failed: Unable to download or build singularity image
+> cutest_busybox_...sif") ])`.
+>
+> So the selector emits **basenames only** (no `/`); the whole `$$` token survives
+> into `ContainerImage` and the schedd expands it at match time
+> (`MATCH_EXP_ContainerImage = "rift_container_modern.sif"`). The image itself
+> arrives via the comma-free `$$()` transfer token, and `MY.TransferInput` is pinned
+> so `condor_submit` does not append the basename selector to `TransferInput` as a
+> bogus extra input file. Verified end to end on an OSPool glidein against
+> `$CondorVersion: 25.11.1`.
+>
+> Consequence: **every image in a family used with container universe must be a
+> transferable URL.** An in-place (CVMFS/local) image can only be named by its full
+> path, which reintroduces the truncation, so `build_container_image_select()`
+> raises `ContainerManifestError` for such a family. Stage those images at a URL, or
+> use `RIFT_CONTAINER_RUNTIME_SELECT=1`.
 
 
 ### HTCondor GPU attribute names — important
