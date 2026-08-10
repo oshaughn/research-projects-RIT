@@ -179,3 +179,27 @@ does the allocation signal systematically over-concentrate on whichever member r
 per-chunk n_ess? Sweep the flag across the full matrix at several seeds, and record JS / pull /
 width alongside n_eff so the shape degradation is visible rather than inferred. If it generalizes,
 the allocation signal needs a shape-aware guard or the flag should be documented as unsafe.
+
+---
+
+## 5. The `quick` preset cannot clear its own shape floor on `GMM d4_n2_s101`
+
+**Status:** open, low priority. Surfaced only because the pytest entry point stopped passing
+vacuously (see below) -- it had been silently STARVED the whole time.
+
+`quick` budgets `nmax_per_dim=50000`, so `d=4` runs at 200k evaluations and that cell reads
+**n_eff = 42** against the `MIN_NEFF_FOR_SHAPE = 100` floor. The other three quick cells pass. So
+the default `RIFT_RUN_EXPENSIVE=1 pytest test_shape_recovery.py` is 3 passed, 1 skipped, and one
+quarter of the quick matrix tests nothing.
+
+Not a defect in the sampler -- the same cell passes at the standard preset's budget. Either raise
+`quick`'s budget for `d=4` (it stops being quick: this cell needs roughly 2.5x), drop the cell from
+`quick`, or accept the skip. Deliberately not decided here.
+
+**How it was invisible.** `test_shape_recovery.py` unpacked `evaluate()` as `ok, reasons` and
+asserted `ok`. Commit 6467ac91 (2026-07-22) changed `evaluate()`'s contract from
+`return len(reasons) == 0, reasons` to `return ("FAIL" if reasons else "PASS"), reasons`, updating
+`compare_shape_results.py` and `shape_recovery.py` but not this caller -- which had been written
+hours earlier the same day. Every status string is truthy, so from that commit onward the pytest
+gate passed on FAIL, STARVED and ERROR alike. Same family as the #47/#51/#55 findings: a contract
+with two callers, one updated, both plausible in isolation, failure silent.

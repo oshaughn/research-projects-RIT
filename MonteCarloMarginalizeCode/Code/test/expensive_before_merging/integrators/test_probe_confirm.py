@@ -426,11 +426,12 @@ def test_adaptive_alloc_is_excluded_from_the_probe_configs():
     """`--portfolio-adaptive-alloc` is a CONFIRMED regression (FOLLOWUPS.md item 4) and is excluded
     until fixed.  Pinned so the exclusion cannot be undone silently: reinstating those rows is the
     first step of fixing the flag, and this test failing is the reminder that they will fail."""
-    import inspect
-    src = inspect.getsource(PB.main)
-    active = [l for l in src.splitlines()
-              if "portfolio_adaptive_alloc" in l and not l.strip().startswith("#")]
+    active = [name for name, flags in PB.FLAG_CONFIGS if "portfolio_adaptive_alloc" in flags]
     assert not active, "adaptive_alloc re-enabled in the probe configs: {}".format(active)
+    # and the probe must still HAVE arms to test -- an empty/flags-only list would satisfy the
+    # assertion above while testing nothing at all.
+    assert len([f for _, f in PB.FLAG_CONFIGS if f]) >= 2, \
+        "probe has no opt-in arms left: {}".format(PB.FLAG_CONFIGS)
 
 
 if __name__ == "__main__":
