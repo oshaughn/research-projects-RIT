@@ -64,8 +64,10 @@ def _rng(seed):
         return np.random.RandomState(seed)
 
 
-__all__ = ["NAL", "NALSet", "load_nal", "load_nal_dir",
-           "nal_lnL", "prepare_nal_lnL", "write_gwalk_view"]
+__all__ = ["NAL", "NALSet", "load_nal", "load_nal_dir", "write_nal",
+           "nal_lnL", "prepare_nal_lnL", "write_gwalk_view", "SCHEMA_VERSION"]
+
+SCHEMA_VERSION = 2
 
 # Charts this module knows how to build from RIFT's native parameters.  Definitions are taken from
 # RIFT/lalsimutils.py, NOT from any design document:
@@ -220,6 +222,93 @@ def load_nal_dir(pattern):
     if not out:
         raise IOError("nal_io: no artifacts matched %r" % pattern)
     return out
+
+
+def _sha256(path, chunk=1 << 20):
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for blk in iter(lambda: f.read(chunk), b""):
+            h.update(blk)
+    return h.hexdigest()
+
+
+def _git_sha(path):
+    """Short git sha of the tree `path` lives in, or None.  Best-effort provenance only."""
+    import subprocess
+    try:
+        d = path if os.path.isdir(path) else os.path.dirname(os.path.abspath(path)) or "."
+        out = subprocess.run(["git", "-C", d, "rev-parse", "--short", "HEAD"],
+                             capture_output=True, text=True, timeout=10)
+        return out.stdout.strip() or None
+    except Exception:
+        return None
+
+
+def check_frame_invariant(coord_names, frame, cosmology=None, d_prior=None):
+    """An artifact may carry EITHER the distance coordinate OR source-frame masses, never both.
+
+    A distance-marginalised DETECTOR-frame quadratic is not reusable: it has silently integrated
+    the mass-redshift degeneracy against one particular distance prior, and nothing downstream can
+    undo that or even detect it.  So:
+
+      * u_d present  =>  frame must be 'detector' (distance has not been marginalised yet)
+      * frame source =>  u_d must be absent, AND the cosmology and the distance prior that was
+                         integrated must both be recorded, since the source-frame masses are
+                         meaningless without them.
+
+    Raises ValueError rather than warning: an artifact that cannot state its own frame honestly
+    should not be written at all.  (The shipped O3/O4 NAL catalogue records none of this -- its
+    npz carries only names/labels/centers/sigs/covs/ess/method/kl -- so a consumer cannot tell
+    which cosmology produced it.)
+    """
+    has_ud = "u_d" in coord_names
+    if frame not in ("detector", "source"):
+        raise ValueError("nal_io: frame must be 'detector' or 'source', got %r" % (frame,))
+    if has_ud and frame != "detector":
+        raise ValueError("nal_io: chart carries u_d, so masses are detector-frame; got frame=%r"
+                         % (frame,))
+    if frame == "source":
+        if has_ud:
+            raise ValueError("nal_io: frame='source' must not also carry u_d")
+        if not cosmology:
+            raise ValueError("nal_io: frame='source' requires a declared cosmology")
+        if not d_prior:
+            raise ValueError("nal_io: frame='source' requires the distance prior that was "
+                             "integrated out (name and range)")
+
+
+def write_nal(base, nal, chart=None, frame="detector", cosmology=None, d_prior=None,
+              symmetry=None, unconstrained_dirs=None, validation=None, parents=None,
+              run_id=None, lnL_ref="noise_hypothesis_ratio", extra=None):
+    """Write <base>.npz + <base>.meta.json.
+
+    `parents` should be the source files the fit consumed (all.net / all_dslice.dat); their
+    sha256 is recorded so an artifact can always be traced to the grid that produced it.
+    """
+    coord_names = list(nal.coord_names)
+    check_frame_invariant(coord_names, frame, cosmology, d_prior)
+    bounds = nal.bounds
+    if bounds is None:
+        sd = np.sqrt(np.diag(nal.cov()))
+        bounds = np.stack([nal.mu - 10 * sd, nal.mu + 10 * sd], 1)
+    np.savez(base + ".npz", theta_star=nal.mu, gamma=nal.gamma, bounds=np.asarray(bounds))
+    meta = {
+        "schema": SCHEMA_VERSION, "method": "nal",
+        "chart": chart or nal.meta.get("chart"), "coord_names": coord_names,
+        "frame": frame, "cosmology": cosmology, "d_prior": d_prior,
+        "lnL_peak": float(nal.lnL_peak), "lnL_ref": lnL_ref,
+        "symmetry": symmetry, "unconstrained_dirs": list(unconstrained_dirs or []),
+        "parents": [{"path": p, "sha256": _sha256(p)} for p in (parents or [])
+                    if os.path.exists(p)],
+        "run_id": run_id, "git_sha": _git_sha(__file__),
+        "validation": dict(validation or {}),
+    }
+    if extra:
+        meta.update(extra)
+    with open(base + ".meta.json", "w") as f:
+        json.dump(meta, f, indent=1, sort_keys=True)
+    return base + ".npz", base + ".meta.json"
 
 
 def write_gwalk_view(path, nal, label, scale_max=None):

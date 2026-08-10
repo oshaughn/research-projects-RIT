@@ -143,3 +143,79 @@ def test_unbuildable_coordinate_raises_named_error(tmp_path, monkeypatch):
     nal_io.prepare_nal_lnL(config=None, coords=["mc", "eta"])
     with pytest.raises(KeyError, match="s1x_bar"):
         nal_io.nal_lnL(np.array([30.0]), np.array([0.2]))
+
+
+# --------------------------------------------------------------------------- writer / provenance
+
+def test_write_read_roundtrip_preserves_everything(tmp_path):
+    mu, G = _make(d=3, seed=7)
+    names = ["mc", "delta_mc", "xi"]
+    n = nal_io.NAL(mu, G, names, lnL_peak=12.5,
+                   bounds=np.stack([mu - 3, mu + 3], 1))
+    src = tmp_path / "all.net"
+    src.write_text("dummy grid\n")
+    base = str(tmp_path / "ev")
+    nal_io.write_nal(base, n, chart="NAL:aligned", frame="detector",
+                     parents=[str(src)], run_id="unit-test",
+                     validation={"chi2_red": 1.02})
+    back = nal_io.load_nal(base + ".npz")
+    assert back.coord_names == names
+    assert np.allclose(back.mu, mu) and np.allclose(back.gamma, G)
+    assert np.isclose(back.lnL_peak, 12.5)
+    X = mu + 0.1
+    assert np.allclose(back.lnL(X), n.lnL(X), atol=1e-12)
+    meta = json.load(open(base + ".meta.json"))
+    assert meta["schema"] == nal_io.SCHEMA_VERSION and meta["chart"] == "NAL:aligned"
+    assert meta["parents"] and len(meta["parents"][0]["sha256"]) == 64
+    assert meta["validation"]["chi2_red"] == 1.02
+
+
+def test_frame_invariant_rejects_source_frame_with_distance():
+    """An artifact may carry u_d OR source-frame masses, never both."""
+    with pytest.raises(ValueError, match="u_d"):
+        nal_io.check_frame_invariant(["mc", "delta_mc", "u_d"], "source",
+                                     cosmology={"name": "Planck15"},
+                                     d_prior={"name": "cosmo_sourceframe"})
+
+
+def test_frame_invariant_requires_cosmology_and_prior_for_source_frame():
+    with pytest.raises(ValueError, match="cosmology"):
+        nal_io.check_frame_invariant(["mc", "delta_mc"], "source")
+    with pytest.raises(ValueError, match="distance prior"):
+        nal_io.check_frame_invariant(["mc", "delta_mc"], "source",
+                                     cosmology={"name": "Planck15"})
+    # fully declared: fine
+    nal_io.check_frame_invariant(["mc", "delta_mc"], "source",
+                                 cosmology={"name": "Planck15"},
+                                 d_prior={"name": "cosmo_sourceframe",
+                                          "d_min": 1.0, "d_max": 10000.0})
+
+
+def test_frame_invariant_rejects_bad_frame_name():
+    with pytest.raises(ValueError, match="frame"):
+        nal_io.check_frame_invariant(["mc"], "det")
+
+
+def test_write_refuses_undeclared_source_frame(tmp_path):
+    """The writer must not emit an artifact that cannot state its own frame honestly."""
+    mu, G = _make(d=2, seed=8)
+    n = nal_io.NAL(mu, G, ["mc", "delta_mc"])
+    with pytest.raises(ValueError):
+        nal_io.write_nal(str(tmp_path / "bad"), n, frame="source")
+    assert not os.path.exists(str(tmp_path / "bad.npz"))
+
+
+def test_gwalk_offset_conversion_and_scale_max(tmp_path):
+    """offset = lnL_peak + D/2 ln2pi - 1/2 ln|Gamma|, and scale_max must clear gwalk's 500 cap."""
+    h5py = pytest.importorskip("h5py")
+    mu, G = _make(d=3, seed=4)
+    loud = 3386.0                                    # a real SNR~82 event's lnL_peak
+    n = nal_io.NAL(mu, G, ["mc", "delta_mc", "xi"], lnL_peak=loud)
+    path = str(tmp_path / "view.h5")
+    off = nal_io.write_gwalk_view(path, n, "S250114ax/NAL:aligned:test:nal")
+    sign, logdet = np.linalg.slogdet(G)
+    assert np.isclose(off, loud + 0.5 * 3 * np.log(2 * np.pi) - 0.5 * logdet)
+    with h5py.File(path, "r") as f:
+        g = f["S250114ax/NAL:aligned:test:nal"]
+        assert set(["mu", "std", "cor", "cov", "limits", "offset", "scale"]) <= set(g.keys())
+        assert g.attrs["scale_max"] > abs(off) > 500.0     # would trip gwalk's default cap
