@@ -61,4 +61,17 @@ assert_has    `pwd`/test_build_slices/ILE.sub      "--distance-marginalization "
 assert_absent `pwd`/test_build_slices/ILE_extr.sub "--distance-marginalization "
 echo "OK: Plan-B slice export only on ILE_extr.sub; distance marginalization disabled only at the extrinsic stage"
 
+# --- 4. Gauss-early ('G') CIP groups use the alternate exe in BOTH sub files ---
+# --use-gauss-early makes the first cip-args-list entry a G group.  The G exe
+# must land in the master sub (CIP_0.sub, the only CIP without
+# --cip-explode-jobs) and not just the worker sub; non-G groups keep the
+# standard CIP.
+util_RIFT_pseudo_pipe.py --use-ini $REF_INI --use-coinc $COINC --use-rundir `pwd`/test_build_gauss --fake-data-cache `pwd`/foo.cache --use-gauss-early
+assert_has    `pwd`/test_build_gauss/CIP_0.sub        "GaussianResampling"
+assert_absent `pwd`/test_build_gauss/CIP_0.sub        "GenericCoordinates"
+assert_has    `pwd`/test_build_gauss/CIP_worker0.sub  "GaussianResampling"
+assert_has    `pwd`/test_build_gauss/CIP_1.sub        "GenericCoordinates"
+assert_absent `pwd`/test_build_gauss/CIP_1.sub        "GaussianResampling"
+echo "OK: gauss-early G group uses GaussianResampling in master and worker subs"
+
 echo "test-build.sh: all pipeline-build checks passed"
