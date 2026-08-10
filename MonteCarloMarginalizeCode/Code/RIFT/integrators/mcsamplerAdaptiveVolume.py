@@ -820,7 +820,21 @@ class MCSampler(object):
         # V to 1 and throws away the seed's concentration).  resolution_pts is the
         # core (the actual proposal, without the uniform floor); coverage points
         # then land in scattered fine bins that still guarantee coverage.
-        res_pts = pts if resolution_pts is None else np.atleast_2d(np.asarray(resolution_pts, dtype=float))
+        # The core is filtered to the box by the SAME rule as `pts` above.  It describes the
+        # grid that gets built, and the grid only ever spans the box, so points outside it
+        # are not part of that description: left in, they widen `ext` (under-resolving the
+        # grid, since V_extent can even exceed 1) and they inflate the recorded affine rank,
+        # so a seed that is degenerate in-box could be recorded full-rank.  Callers do not
+        # always clip -- bootstrap_from_samples clips only when inflating, and the ILE's
+        # puffed fallback seed is an unclipped Gaussian about the peak.
+        if resolution_pts is None:
+            res_pts = pts
+        else:
+            res_pts = np.atleast_2d(np.asarray(resolution_pts, dtype=float))
+            _res_in = np.all((res_pts >= box_lo) & (res_pts <= box_hi), axis=1)
+            # Fall back to the (already filtered, guaranteed non-empty) full cloud if the
+            # core lies entirely outside: a resolution set of zero points defines nothing.
+            res_pts = res_pts[_res_in] if np.any(_res_in) else pts
         n_res = max(len(res_pts), 2)
         lo = np.quantile(res_pts, 0.5 * (1 - enc_prob), axis=0)
         hi = np.quantile(res_pts, 1 - 0.5 * (1 - enc_prob), axis=0)

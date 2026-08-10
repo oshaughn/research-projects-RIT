@@ -759,7 +759,10 @@ def test_ile_writes_a_machine_readable_integrator_status():
     assert 'integrator_status.json' in src, \
         'no machine-readable collapse marker is written beside the results'
     i = src.find('integrator_status.json')
-    block = src[max(0, i - 700):i + 1800]
+    # Bound the window by the enclosing try/except rather than a byte offset, so adding a
+    # line to the block cannot silently move an assertion off the end of it.
+    j = src.index('except Exception as _e_status', i)
+    block = src[max(0, i - 900):j + 300]
     assert '"collapsed"' in block, 'the sidecar does not record collapse status'
     # written unconditionally, so "collapsed": false is a statement and not an inference
     # from a missing file
@@ -774,6 +777,84 @@ def test_the_status_sidecar_carries_the_diagnostics_needed_to_act():
     with open(_ILE) as f:
         src = f.read()
     i = src.find('integrator_status.json')
-    block = src[i:i + 2000]
-    for key in ('collapse_reason', 'pareto_khat', 'n_ESS', 'n_live_final'):
+    block = src[i:src.index('except Exception as _e_status', i)]
+    for key in ('collapse_reason', 'pareto_khat', 'n_ESS', 'n_live_final',
+                'n_replicas_pooled', 'n_replicas_collapsed'):
         assert key in block, 'sidecar omits {}'.format(key)
+
+
+###
+### 13. Third review round
+###
+
+def test_seed_rank_is_measured_only_from_in_box_points():
+    """Out-of-box points must not make a degenerate in-box seed look full-rank.
+
+    bootstrap_from_samples does not clip unless it inflates, and the ILE's fallback seed
+    is an unclipped Gaussian, so out-of-box rows do reach the grid builder.
+    """
+    s = _sampler()
+    # In-box part is a LINE (rank 1); the out-of-box scatter would fake full rank.
+    t = np.linspace(0.4, 0.6, 40)
+    inbox = np.zeros((40, NDIM)) + 0.5
+    inbox[:, 0] = t
+    rng = np.random.RandomState(11)
+    outside = rng.uniform(1.5, 2.5, size=(40, NDIM))       # entirely outside [0,1]^6
+    pts = np.vstack([inbox, outside])
+    warm = s.bootstrap_from_samples(pts, cover_frac=0.0)
+    assert warm['n_seed'] == 40, 'only the in-box points should be counted'
+    assert warm['n_seed_rank'] == 1, \
+        'rank must come from the in-box core, got {}'.format(warm['n_seed_rank'])
+    collapsed, reasons = live_volume_collapse_verdict(
+        5000, NDIM, ess=40.0, khat=0.5, n_warm_seed=warm['n_seed'],
+        n_warm_seed_rank=warm['n_seed_rank'], n_warm_seed_dim=warm['n_seed_dim'])
+    assert collapsed is True, reasons
+
+
+def test_in_box_extent_is_not_widened_by_out_of_box_points():
+    """The same filtering keeps the grid resolution honest: V must stay a fraction."""
+    s = _sampler()
+    rng = np.random.RandomState(12)
+    core = 0.5 + 0.01 * rng.randn(200, NDIM)               # tight, in box
+    far = rng.uniform(5.0, 6.0, size=(50, NDIM))           # far outside
+    warm_clean = _sampler().bootstrap_from_samples(core, cover_frac=0.0)
+    warm_mixed = s.bootstrap_from_samples(np.vstack([core, far]), cover_frac=0.0)
+    assert 0 < warm_mixed['V'] <= 1.0, 'fractional volume must remain a fraction'
+    # the out-of-box rows contribute nothing, so the grid matches the clean one
+    assert warm_mixed['V'] == pytest.approx(warm_clean['V'], rel=1e-9)
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_replica_collapse_status_is_aggregated_into_the_verdict():
+    """A collapsed replica must taint the pooled export's recorded status."""
+    with open(_ILE) as f:
+        src = f.read()
+    i = src.find('_rep_rvs = [sampler._rvs]')
+    assert i > 0, 'replica block moved; update this test'
+    # from the start of the replica bookkeeping to the end of the pooling step
+    j = src.index('_pool_replica_rvs(_rep_rvs', i)
+    k = src.index('if len(_rep_lnZ) > 1:', j)
+    block = src[i:k]
+    assert '_rep_collapsed' in block, 'replica collapse status is never collected'
+    assert "_dd2.get('live_volume_collapsed'" in block, \
+        "the replica's own verdict is discarded"
+    assert 'any(_rep_collapsed)' in block, \
+        'the pooled status is not the OR over the replicas that were pooled'
+    # and it must reach dict_return, which is what the status sidecar reads
+    assert "dict_return['live_volume_collapsed']" in block, \
+        'the aggregated status never reaches dict_return'
+    # the OR must be taken AFTER the pool is formed, over the replicas actually in it
+    assert block.index('any(_rep_collapsed)') > block.index('_pool_replica_rvs(_rep_rvs')
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_sidecar_event_id_survives_a_missing_event_option():
+    """int(None) would raise and the defensive wrapper would eat the whole sidecar."""
+    with open(_ILE) as f:
+        src = f.read()
+    i = src.find('integrator_status.json')
+    block = src[i:i + 1200]
+    assert 'opts.event is not None' in block, \
+        'sidecar event id does not handle a missing --event, so int(None) suppresses it'
+    # the .dat writer's convention, which this must match
+    assert 'if opts.event == None:' in src
