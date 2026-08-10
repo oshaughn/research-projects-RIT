@@ -34,11 +34,19 @@ capability_attr: GPUs_Capability
 # CPU-safe / most broadly compatible image.
 fallback: default
 
+# NOTE for RIFT_CONTAINER_UNIVERSE=1 (the recommended OSG mode): every image below
+# must be a transferable URL.  condor_submit derives the job's ContainerImage as the
+# text after the last "/" of container_image, BEFORE any $$ expansion, so the
+# selector may not contain a path -- it names basenames, and the image is delivered
+# by file transfer.  An in-place CVMFS/local image cannot be named that way and is
+# rejected with ContainerManifestError.  It is still fine under the legacy and
+# runtime-select modes; see containers/README.md.
+
 containers:
-  # Default, broadly-compatible image for older machines.  Referenced in place
-  # on CVMFS -- never transferred; CVMFS lazy-fetches it only when selected.
+  # Default, broadly-compatible image for older machines.  Delivered via osdf:
+  # only the matched machine fetches it (selective $$() transfer).
   - label: default
-    image: /cvmfs/singularity.opensciencegrid.org/oshaughn/rift_container_default.sif
+    image: osdf:///igwn/staging/oshaughn/rift_containers/rift_container_default.sif
     cuda_capability_min: 3.5
     cuda_capability_max: 8.0
     note: "base=nvidia/cuda:11.8.0-runtime-ubuntu22.04, cupy-cuda11x"
