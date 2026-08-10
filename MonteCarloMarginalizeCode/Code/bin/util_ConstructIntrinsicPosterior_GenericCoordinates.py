@@ -762,14 +762,14 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
 
 
   if hasattr(external_likelihood_module,name_prep):
-    supplemental_ln_likelhood_prep=getattr(external_likelihood_module,name_prep)
+    supplemental_ln_likelihood_prep=getattr(external_likelihood_module,name_prep)
     # Check for and load in ini file associated with external library
     if opts.supplementary_likelihood_factor_ini:
       import configparser as ConfigParser
       config = ConfigParser.ConfigParser()
       config.optionxform=str # force preserve case! 
       config.read(opts.supplementary_likelihood_factor_ini)
-      supplemental_ln_likelhood_parsed_ini=config
+      supplemental_ln_likelihood_parsed_ini=config
 
       # Call the ini file, tell it what coordinates we are using by name
       supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=coord_names)
