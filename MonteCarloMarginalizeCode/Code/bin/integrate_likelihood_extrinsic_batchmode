@@ -395,8 +395,9 @@ intrinsic_params.add_option("--n-distance-slice-core",type=int,default=0,help="C
 intrinsic_params.add_option("--distance-slice-all-fresh",action="store_true",default=False,help="Emit ALL K slices as FRESH fixed-d full integrations (no importance-reweight core). Placement = posterior-d quantiles. Use this when the main-loop n_eff is small (e.g. 50): the reweight core is then starved (same MC noise as the .dgrid fair-draw histogram), whereas each fresh slice is an honest Omega-only integral at fixed d. Overrides --n-distance-slice-core / --n-distance-slice-wing.")
 intrinsic_params.add_option("--distance-slice-randomize",action="store_true",default=False,help="(all-fresh only) Draw the K fresh-slice distances at RANDOM posterior-d quantiles per intrinsic instead of fixed equi-probable quantiles. With K=1 this makes the single slice a fair-draw of d from THAT intrinsic's posterior, so over the intrinsic grid the slices sample (intrinsic,d) jointly -- cheap (~1 slice/intrinsic) dense coverage for a continuous AD surrogate -- rather than pinning every point to the median.")
 intrinsic_params.add_option("--n-distance-slice-wing",type=int,default=0,help="Wing slices via fresh Omega-only integrations at pinned distance (covers tails ~7 nats below peak). If 0 and --export-distance-slices>0, defaults to K - core.")
-intrinsic_params.add_option("--distance-slice-wing-nmax",type=int,default=20000,help="Max samples per wing fresh integration.")
+intrinsic_params.add_option("--distance-slice-wing-nmax",type=int,default=20000,help="Sample budget per wing fresh integration. NOT a hard cap: AV tests its budget BEFORE drawing a whole block, so the real ceiling is ceil(nmax/chunk) blocks -- up to nearly a full --distance-slice-chunk over this value, plus a small bin-rounding remainder. At the defaults (20000 with chunk 10000) it is effectively exact; at chunk 15000 a slice draws ~30000. Keep this a whole multiple of the block size if per-slice cost matters.")
 intrinsic_params.add_option("--distance-slice-wing-neff",type=int,default=30,help="n_eff target per wing fresh integration.")
+intrinsic_params.add_option("--distance-slice-chunk",type=int,default=None,help="AV block size for each fresh per-slice integration. DEFAULT: inherit --n-chunk, i.e. run the slice path at the same block size as the main extrinsic loop (10000) instead of a private number; this replaces a hardcoded 2000. An inherited value below 10000 is raised to 10000 (AV's live volume only contracts and each cycle's threshold comes from nsel=min(1000,0.1*n_chunk) samples, so a smaller block makes every threshold a permanent support cut decided by too few samples; 10000 is where nsel saturates) -- this matters because the input-skymap path sets --n-chunk 500. Setting this flag explicitly overrides both, unclamped. Measured on a real event, 2000 -> 10000 takes rms(dlnL) 3.58 -> 0.35 and sigma-understatement 38.8x -> 4.0x for +9% cost, and removes the 'cap-burner' slices (3.1% of slices, 40.9% of all evaluations) that exhaust n-max without reaching the n_eff target. Larger is not uniformly better: 40000 was worse than 10000-15000 on hard targets. Must be >=1. MEMORY: these integrations are host-side EVEN ON GPU JOBS (each block's likelihood is copied back by _to_cpu and the pinned-d arrays are built with numpy), so system RAM scales with this on every run -- budget >=8 GB request_memory at 10000 for CPU exports, and re-check GPU requests rather than assuming they are immune. Interacts with --distance-slice-wing-nmax, which is a block-granular budget, not a hard cap.")
 intrinsic_params.add_option("--distance-slice-skip-threshold",type=float,default=1.0,help="Absolute lnL scale: if the PEAK lnL across core slices is below this many nats, treat the event as effectively undetected and skip wing integrations. (lnL is a likelihood ratio vs noise, so this is an absolute detectability cut, not a relative-spread test.)")
 intrinsic_params.add_option("--distance-slice-wing-delta-lnL",type=float,default=7.0,help="Target lnL drop below peak used to place wing slice centers: wings span from the core edge out to where the parabolic lnL(1/d) model falls this many nats below peak (default 7 ~ prior weight <1e-3 outside). Falls back to log-uniform full-range placement if the parabolic fit is degenerate.")
 optp.add_option_group(intrinsic_params)
@@ -3552,6 +3553,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # likelihood is flat in d and fresh wings are wasted compute.
           d_wings = np.array([])
           lnL_wings = np.array([]); sigmaL_wings = np.array([]); neff_wings = np.array([]); ntotal_wings = np.array([], dtype=int)
+          # Block size for the fresh per-slice integrations: inherit --n-chunk (the
+          # main extrinsic loop's block size) unless --distance-slice-chunk says
+          # otherwise. Resolved once here so the advisories print once per event.
+          slice_chunk = distance_slices.resolve_slice_chunk(
+              getattr(opts, "distance_slice_chunk", None), opts.n_chunk)
           if all_fresh:
             # All K slices fresh.  Place centers at posterior-d quantiles: rough
             # placement is fine even at low n_eff -- the precision of each row comes
@@ -3562,6 +3568,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 sampler, like_to_integrate, d_wings,
                 n_max=int(opts.distance_slice_wing_nmax),
                 n_eff_target=int(opts.distance_slice_wing_neff),
+                n_chunk=slice_chunk,
                 return_lnL=return_lnL,
             )
             lnL_wings = lnL_wings_raw + manual_avoid_overflow_logarithm
@@ -3588,6 +3595,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     sampler, like_to_integrate, d_wings,
                     n_max=int(opts.distance_slice_wing_nmax),
                     n_eff_target=int(opts.distance_slice_wing_neff),
+                    n_chunk=slice_chunk,
                     return_lnL=return_lnL,
                 )
                 # fresh_sample_slices returns ln integral of L_with_overflow;

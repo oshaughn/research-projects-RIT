@@ -954,7 +954,13 @@ class MCSampler(object):
         temper_log -- Adapt in min(ln L, 10^(-5))^tempering_exp
         tempering_adapt -- Gradually evolve the tempering_exp based on previous history.
         floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
-        n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
+        n_adapt -- IGNORED as an adaptation schedule by this sampler; accepted only for API
+            compatibility with mcsampler/mcsamplerGPU, where it does gate update_sampling_prior.
+            AV has no update_sampling_prior: its volume adaptation is intrinsic to the algorithm
+            and runs every cycle regardless of this value. (Verified: output is bit-identical for
+            n_adapt in {10,100,1000}.) The ONLY thing it still does here is participate in the
+            save_intg gate, so n_adapt=0 can still suppress the _rvs cache. Do not reach for this
+            expecting an "adapt then freeze" control -- there isn't one.
         convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
         Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
         """
@@ -998,7 +1004,14 @@ class MCSampler(object):
             print("  Note: cannot adapt, no history ")
 
         tempering_exp = kwargs["tempering_exp"] if "tempering_exp" in kwargs else 0.0
-        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000  # default to adapt to 1000 chunks, then freeze
+        # NOTE: n_adapt does NOT schedule adaptation in this sampler -- AV has no
+        # update_sampling_prior, and the volume adaptation below runs every cycle
+        # unconditionally.  It survives only as a way to force save_intg off (n_adapt=0),
+        # which is how --no-adapt reaches this code.  It is deliberately NOT wired up to
+        # gate adaptation: doing so would change the numerics of every production AV run.
+        # Do not read the value below as "adapt to 1000 chunks, then freeze" -- it never
+        # freezes.  (Empirically bit-identical output for n_adapt in {10,100,1000}.)
+        n_adapt = int(kwargs["n_adapt"]*n) if "n_adapt" in kwargs else 1000
         floor_integrated_probability = kwargs["floor_level"] if "floor_level" in kwargs else 0
         temper_log = kwargs["tempering_log"] if "tempering_log" in kwargs else False
         tempering_adapt = kwargs["tempering_adapt"] if "tempering_adapt" in kwargs else False
@@ -1309,7 +1322,13 @@ class MCSampler(object):
         temper_log -- Adapt in min(ln L, 10^(-5))^tempering_exp
         tempering_adapt -- Gradually evolve the tempering_exp based on previous history.
         floor_level -- *total probability* of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
-        n_adapt -- number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
+        n_adapt -- IGNORED as an adaptation schedule by this sampler; accepted only for API
+            compatibility with mcsampler/mcsamplerGPU, where it does gate update_sampling_prior.
+            AV has no update_sampling_prior: its volume adaptation is intrinsic to the algorithm
+            and runs every cycle regardless of this value. (Verified: output is bit-identical for
+            n_adapt in {10,100,1000}.) The ONLY thing it still does here is participate in the
+            save_intg gate, so n_adapt=0 can still suppress the _rvs cache. Do not reach for this
+            expecting an "adapt then freeze" control -- there isn't one.
         convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
         Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to "pin" it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.
         """

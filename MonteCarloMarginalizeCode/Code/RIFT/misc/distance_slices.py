@@ -47,6 +47,100 @@ def _to_cpu(x):
     return x
 
 
+#: AV block size at which ``nsel = min(1000, int(0.1*n_chunk))`` saturates at its
+#: intended 1000.  This is a saturation point, not a tuned value -- see
+#: :func:`resolve_slice_chunk` for why going below it is not merely noisy.  It also
+#: happens to be the ILE driver's ``--n-chunk`` default, so on a default production
+#: run the slice path and the main extrinsic loop run at the same block size.
+AV_NSEL_SATURATION_CHUNK = 10000
+
+
+def resolve_slice_chunk(explicit_chunk, ile_n_chunk, verbose=True):
+    """AV block size to use for the fresh per-slice integrations.
+
+    The slice path has no business inventing its own block size: by default it
+    inherits the ILE driver's ``--n-chunk``, i.e. whatever the main extrinsic loop
+    is already running at (default 10000).  ``explicit_chunk`` is the optional
+    ``--distance-slice-chunk`` override and is honored as given.
+
+    The one guard: an inherited value below :data:`AV_NSEL_SATURATION_CHUNK` is
+    raised to it, with a warning.  AV's live volume only ever CONTRACTS, and each
+    cycle's likelihood threshold is estimated from ``nsel = min(1000,
+    int(0.1*n_chunk))`` samples; below n_chunk=10000 that cap binds, so every
+    threshold becomes a permanent support cut decided by fewer samples than
+    intended.  The resulting error is irreversible, not merely noisy.  This matters
+    concretely because ``helper_LDG_Events.py`` drops ``--n-chunk`` to 500 on the
+    input-skymap path -- correct for the main loop, catastrophic for an Omega-only
+    slice integral, which *is* the hard sky dimension.  An explicit
+    ``--distance-slice-chunk`` is a deliberate choice and is never clamped.
+
+    Measured on S240615dg (within-run duplicate pairs, 4 intrinsic points x 2 seeds)
+    and reproduced on analytic targets with known lnZ:
+
+        n_chunk   rms(dlnL)   rms/mad   sigma understatement   cost
+          2000      3.575       5.20          38.8x           1.00x
+         10000      0.350       1.14           4.0x           1.09x
+         15000      0.285       1.02           3.2x           1.24x
+
+    rms/mad 5.20 -> 1.14 is the load-bearing number: at 2000 the per-slice error is
+    a MIXTURE (a heavy tail on top of a core) and at 10000 it is not.  The same
+    change eliminates "cap-burner" slices -- those that exhaust ``n_max`` without
+    reaching the n_eff target -- which at 2000 were 3.1% of slices consuming 40.9%
+    of all likelihood evaluations.  Reclaiming that waste is why the net cost is
+    only +9%.
+
+    Larger is NOT uniformly better, in two independent ways, so both are warned
+    about rather than silently accepted:
+
+    * accuracy: on hard targets 40000 was measurably worse than 10000-15000
+      (coverage 0.17 vs 0.95 at KL 6.94).  10000-15000 is an optimum, not a floor.
+    * host RAM, on EVERY run: these slice integrations are host-side.
+      ``like_at_pinned_d`` pulls each block's likelihood back with ``_to_cpu`` and
+      builds the pinned-distance and clipped-Omega arrays with numpy, so per-block
+      *system* memory scales with n_chunk whether or not the job has a GPU.
+      Going 2000 -> 10000 took a 760-job CPU export pilot from ~1 GB typical to
+      spikes past 8 GB, holding ~12% of jobs on cgroup limits.  Budget >=8 GB
+      request_memory for CPU slice exports at 10000, and more above it.
+
+      GPU jobs are *less* exposed, not exempt: the main-loop arrays stay in GPU
+      memory, and 4 GB sufficed in the campaign that measured this -- but the
+      device-to-host transfer volume and the host arrays above both grow with
+      n_chunk, so re-check the request rather than assuming a GPU run is immune.
+      Note that MemoryUsage under-reports on cgroup OOM kills, so a job that dies
+      this way will not obviously look memory-bound.
+    """
+    if explicit_chunk is not None:
+        n_chunk = int(explicit_chunk)
+        if n_chunk < 1:
+            raise ValueError(
+                "--distance-slice-chunk must be >= 1, got {}. A nonpositive block"
+                " size makes AV draw an empty or negative-sized batch, which raises"
+                " inside the per-slice try/except and silently turns EVERY slice"
+                " into a -inf row instead of failing the run.".format(n_chunk))
+        if n_chunk < AV_NSEL_SATURATION_CHUNK and verbose:
+            print("    : WARNING --distance-slice-chunk {} is below the AV nsel"
+                  " saturation point {}; per-slice thresholds will be permanent"
+                  " support cuts decided by only {} samples. Honoring it as"
+                  " explicitly requested.".format(
+                      n_chunk, AV_NSEL_SATURATION_CHUNK, int(0.1 * n_chunk)))
+    else:
+        n_chunk = int(ile_n_chunk)
+        if n_chunk < AV_NSEL_SATURATION_CHUNK:
+            if verbose:
+                print("    : NOTE inherited --n-chunk {} is below the AV nsel"
+                      " saturation point; raising the slice block size to {}."
+                      " Pass --distance-slice-chunk to override.".format(
+                          n_chunk, AV_NSEL_SATURATION_CHUNK))
+            n_chunk = AV_NSEL_SATURATION_CHUNK
+    if n_chunk > 15000 and verbose:
+        print("    : WARNING slice block size {} exceeds the measured 10000-15000"
+              " optimum (40000 was WORSE: coverage 0.17 vs 0.95 at KL 6.94). These"
+              " integrations are host-side even on GPU jobs, so raise"
+              " request_memory (>8 GB at 10000) on BOTH CPU and GPU"
+              " exports.".format(n_chunk))
+    return n_chunk
+
+
 DISTANCE_SLICE_FIELDS = (
     "lnL",        # extrinsic-marginalized lnL at d=dist (pure likelihood,
                   # i.e. distance sampling prior divided out)
@@ -403,7 +497,8 @@ def pick_wing_centers(d_min, d_max, d_core, n_wing,
 
 
 def fresh_sample_slices(reference_sampler, like_to_integrate, d_slices,
-                         n_max=20000, n_eff_target=30, n_chunk=2000,
+                         n_max=20000, n_eff_target=30,
+                         n_chunk=AV_NSEL_SATURATION_CHUNK,
                          return_lnL=True, verbose=False):
     """Independent Omega-only integration at each pinned distance d_k.
 
@@ -415,8 +510,33 @@ def fresh_sample_slices(reference_sampler, like_to_integrate, d_slices,
 
     Returns the same (lnL, sigmaL, neff, ntotal_array) tuple shape as
     ``importance_reweight_slices``.
+
+    ``n_chunk`` is the AV block size.  ILE callers should pass
+    ``resolve_slice_chunk(opts.distance_slice_chunk, opts.n_chunk)`` so the slice
+    path runs at the driver's ordinary chunk size rather than a private number;
+    the default here is the same value the driver defaults to.  It is not a free
+    parameter -- read :func:`resolve_slice_chunk` before changing it, in either
+    direction.
+
+    ``n_max`` is a BLOCK-GRANULAR budget, not a hard cap.  AV tests
+    ``ntotal < nmax`` *before* drawing a whole block, so the real ceiling is
+    ``ceil(n_max/n_chunk)`` blocks -- up to nearly a full block over n_max, plus a
+    small bin-rounding remainder.  Measured at n_max=20000: n_chunk=10000 -> 20045
+    (1.00x), 15000 -> 30050 (1.50x), 40000 -> 40000 (2.00x).  This is pre-existing
+    AV behavior, but it only becomes reachable once n_chunk is configurable, so a
+    non-multiple pairing is warned about below.  Keep n_max a whole multiple of
+    n_chunk if the per-slice cost matters to you.
     """
     from RIFT.integrators import mcsamplerAdaptiveVolume
+
+    n_chunk = int(n_chunk)
+    n_max = int(n_max)
+    if n_chunk > n_max or (n_max % n_chunk):
+        n_actual = int(np.ceil(n_max / float(n_chunk)) * n_chunk)
+        print("    : NOTE n_max={} is not a whole multiple of the block size {};"
+              " AV checks its budget BEFORE drawing a block, so each slice will"
+              " actually draw up to {} samples ({:.2f}x the requested max)."
+              .format(n_max, n_chunk, n_actual, n_actual / float(max(n_max, 1))))
 
     arg_names = like_to_integrate.__code__.co_varnames[
         :like_to_integrate.__code__.co_argcount]
@@ -478,7 +598,12 @@ def fresh_sample_slices(reference_sampler, like_to_integrate, d_slices,
                 like_at_pinned_d,
                 *omega_params,
                 nmax=int(n_max), neff=int(n_eff_target), n=int(n_chunk),
-                tempering_exp=0.1, n_adapt=10,
+                # No n_adapt: AV accepts it but ignores it as an adaptation
+                # schedule (see mcsamplerAdaptiveVolume.integrate_log). Its only
+                # residual effect is gating save_intg, which tempering_exp>0
+                # already turns on, so passing it only implied a knob that
+                # does not exist.
+                tempering_exp=0.1,
                 verbose=verbose,
             )
         except Exception as e:
