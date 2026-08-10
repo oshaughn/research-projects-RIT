@@ -321,7 +321,14 @@ _ONE_TARGET = ["--dims", "2", "--ncomps", "1", "--seeds", "303",
                "--nmax-per-dim", "100", "--neff", "10"]
 
 
-def _main(argv, evaluate, seen=None):
+_SYNTH_CONFIGS = [
+    ("flags OFF (default)", {}),
+    ("probe_flag A", {"portfolio_probe_flag_a": True}),
+    ("probe_flag B", {"portfolio_probe_flag_b": 2.0}),
+]
+
+
+def _main(argv, evaluate, seen=None, configs=None):
     """Run PB.main() with the gate stubbed; returns (exit_code, flags-per-run)."""
     seen = [] if seen is None else seen
     saved_argv = sys.argv
@@ -329,7 +336,15 @@ def _main(argv, evaluate, seen=None):
     try:
         with _gate(seen):
             SR.evaluate = evaluate
-            return PB.main(), seen
+            # Inject a synthetic config list: these tests exercise the CONFIRMATION
+            # MACHINERY, and must not break when the shipped flag set changes (as it
+            # did when adaptive_alloc was excluded -- see FOLLOWUPS.md item 4).
+            saved_cfg = PB.FLAG_CONFIGS
+            PB.FLAG_CONFIGS = list(configs) if configs is not None else saved_cfg
+            try:
+                return PB.main(), seen
+            finally:
+                PB.FLAG_CONFIGS = saved_cfg
     finally:
         sys.argv = saved_argv
 
@@ -337,14 +352,13 @@ def _main(argv, evaluate, seen=None):
 def test_main_passes_a_clean_run_and_gives_each_arm_only_its_own_flags():
     """End-to-end on the entry path: exit 0, and the arms are independent where it counts -- the
     baseline is built with NO flags and no arm inherits its predecessor's."""
-    code, seen = _main(_ONE_TARGET, evaluate=lambda rec: "PASS")
+    code, seen = _main(_ONE_TARGET, evaluate=lambda rec: "PASS", configs=_SYNTH_CONFIGS)
     assert code == 0, code
-    assert len(seen) == 7, seen                                   # one run per configured arm
+    assert len(seen) == len(_SYNTH_CONFIGS), seen                 # one run per configured arm
     assert seen[0] == {}, "the flags-OFF baseline was not built clean: {}".format(seen[0])
-    assert seen[1] == {"portfolio_adaptive_alloc": True}, seen[1]
-    assert seen[2] == {"portfolio_weight_clip": 1.0}, seen[2]     # no adaptive_alloc carried over
-    assert "portfolio_adaptive_alloc" not in seen[4], seen[4]     # nor into the varaha rows
-    assert "portfolio_weight_clip" not in seen[6], seen[6]
+    assert seen[1] == {"portfolio_probe_flag_a": True}, seen[1]
+    assert seen[2] == {"portfolio_probe_flag_b": 2.0}, seen[2]    # arm A's flag not carried over
+    assert "portfolio_probe_flag_a" not in seen[2], seen[2]
 
 
 def test_main_clears_a_row_that_only_fails_at_the_flagging_seed():
@@ -354,13 +368,14 @@ def test_main_clears_a_row_that_only_fails_at_the_flagging_seed():
 
     def evaluate(rec):
         seeds_ruled_on.append(rec["seed"])
-        if rec["flags"] == {"portfolio_adaptive_alloc": True} and rec["seed"] == 987654:
+        if rec["flags"] == {"portfolio_probe_flag_a": True} and rec["seed"] == 987654:
             return "FAIL"
         return "PASS"
 
-    code, seen = _main(_ONE_TARGET + ["--confirm-repeats", "2"], evaluate=evaluate)
+    code, seen = _main(_ONE_TARGET + ["--confirm-repeats", "2"], evaluate=evaluate,
+                       configs=_SYNTH_CONFIGS)
     assert code == 0, "a row that only fails at its own seed still failed the run"
-    confirmation = seeds_ruled_on[7:]                             # 7 summary runs, then the reruns
+    confirmation = seeds_ruled_on[len(_SYNTH_CONFIGS):]           # summary runs, then the reruns
     assert 987654 not in confirmation, "re-tested at the seed that flagged it: {}".format(confirmation)
     assert len(set(confirmation)) == 2, confirmation              # two DISTINCT fresh seeds
     assert len(confirmation) == 4, confirmation                   # both arms at each of them
@@ -369,19 +384,22 @@ def test_main_clears_a_row_that_only_fails_at_the_flagging_seed():
 def test_main_still_fails_a_row_that_fails_at_every_fresh_seed():
     """The other direction, on the same path: confirmation must not become a blanket amnesty."""
     def evaluate(rec):
-        return "FAIL" if rec["flags"] == {"portfolio_adaptive_alloc": True} else "PASS"
+        return "FAIL" if rec["flags"] == {"portfolio_probe_flag_a": True} else "PASS"
 
-    code, _ = _main(_ONE_TARGET + ["--confirm-repeats", "2"], evaluate=evaluate)
+    code, _ = _main(_ONE_TARGET + ["--confirm-repeats", "2"], evaluate=evaluate,
+                    configs=_SYNTH_CONFIGS)
     assert code == 1, "a reproducible opt-in regression was cleared by the confirmation step"
 
 
 def test_main_fails_a_row_immediately_under_no_confirm():
     def evaluate(rec):
-        return "FAIL" if rec["flags"] == {"portfolio_adaptive_alloc": True} else "PASS"
+        return "FAIL" if rec["flags"] == {"portfolio_probe_flag_a": True} else "PASS"
 
-    code, seen = _main(_ONE_TARGET + ["--no-confirm"], evaluate=evaluate)
+    code, seen = _main(_ONE_TARGET + ["--no-confirm"], evaluate=evaluate,
+                       configs=_SYNTH_CONFIGS)
     assert code == 1, code
-    assert len(seen) == 7, "--no-confirm ran reruns anyway: {}".format(len(seen))
+    assert len(seen) == len(_SYNTH_CONFIGS), \
+        "--no-confirm ran reruns anyway: {} runs for {} arms".format(len(seen), len(_SYNTH_CONFIGS))
 
 
 def test_main_exits_2_on_an_unusable_confirmation_setting_before_running_anything():
@@ -400,6 +418,19 @@ def test_main_exits_2_on_an_unusable_confirmation_setting_before_running_anythin
         else:
             assert False, "accepted {}".format(bad_opt)
         assert seen == [], "{} ran samplers before being rejected".format(bad_opt)
+
+
+
+
+def test_adaptive_alloc_is_excluded_from_the_probe_configs():
+    """`--portfolio-adaptive-alloc` is a CONFIRMED regression (FOLLOWUPS.md item 4) and is excluded
+    until fixed.  Pinned so the exclusion cannot be undone silently: reinstating those rows is the
+    first step of fixing the flag, and this test failing is the reminder that they will fail."""
+    import inspect
+    src = inspect.getsource(PB.main)
+    active = [l for l in src.splitlines()
+              if "portfolio_adaptive_alloc" in l and not l.strip().startswith("#")]
+    assert not active, "adaptive_alloc re-enabled in the probe configs: {}".format(active)
 
 
 if __name__ == "__main__":

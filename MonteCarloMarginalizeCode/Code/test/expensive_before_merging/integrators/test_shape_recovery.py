@@ -14,7 +14,7 @@ import os
 
 import pytest
 
-from shape_recovery import MixtureTarget, PRESETS, evaluate, run_one
+from shape_recovery import MixtureTarget, PRESETS, evaluate, run_one, cell_budget
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("RIFT_RUN_EXPENSIVE"),
@@ -33,6 +33,10 @@ _MATRIX = [(kind, d, nc, ts)
 @pytest.mark.parametrize("kind,ndim,ncomp,tseed", _MATRIX)
 def test_shape_recovery(kind, ndim, ncomp, tseed):
     target = MixtureTarget(ndim, ncomp, tseed)
-    r = run_one(kind, target, _PRESET["nmax_per_dim"] * ndim, _PRESET["neff"])
+    # via cell_budget(), not nmax_per_dim*ndim inline: otherwise a per-cell override applies
+    # under run_shape_recovery.sh but not under pytest, and the two disagree on the same cell.
+    r = run_one(kind, target,
+                cell_budget(kind, ndim, ncomp, tseed, _PRESET["nmax_per_dim"]),
+                _PRESET["neff"])
     ok, reasons = evaluate(r)
     assert ok, "{} on {}: {}".format(kind, target.name, "; ".join(reasons))

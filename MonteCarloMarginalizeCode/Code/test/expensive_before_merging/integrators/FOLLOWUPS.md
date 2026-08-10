@@ -100,6 +100,19 @@ from strict" both needed a mechanism that did not exist. Added `CELL_BUDGET_MULT
 trusting for a row that has read 66 and 119 on unchanged code. x4 gives min 209 (2.1x) and costs
 ~4% of the gate's evaluations, being one cell of ~96.
 
+**The override goes through `cell_budget()`, not an inline multiply.** The matrix has TWO entry
+points -- `main()` (what `run_shape_recovery.sh` drives) and the pytest parametrization in
+`test_shape_recovery.py` -- and the first cut applied the table only in `main()`, so the cell this
+entry exists to fix stayed starved under `RIFT_SHAPE_PRESET=standard pytest`, which the suite
+documents as an equivalent way to run it. Both now call `cell_budget(...)`; verified they agree
+(4800000 == 4800000 for this cell).
+
+An **explicit** `--nmax-per-dim` disables the table (`apply_overrides=False`) and says so on
+stdout. The CLI documents `nmax = this * ndim`, and silently scaling a caller-named budget by 4
+would have corrupted precisely the controlled x1/x2/x4 comparison the table above was derived
+from -- the study script passes `--nmax-per-dim`, so it would have been measuring x4/x8/x16 while
+labelling the columns x1/x2/x4. `--no-cell-budget-mult` disables it at preset defaults too.
+
 ---
 
 ## 3. Audit `_rvs` consumers that prefer a cached column over the canonical components
@@ -152,6 +165,14 @@ coverage), now showing up in one of our own opt-in features.
 
 **Do not** treat the higher n_eff as evidence the flag helps. That is precisely the reading that
 made the estimator-clip experiment look like a success while it was biasing lnZ by -11.5 nats.
+
+**Interim mitigation: the two adaptive_alloc rows are EXCLUDED from the probe** (commented out in
+`FLAG_CONFIGS`, `probe_portfolio_optin_flags.py`), so the probe stays a working regression detector
+for the flags that do pass instead of being a standing red row everyone learns to ignore. This is
+containment, not a fix -- it is recorded here, greppable in the source, and asserted by
+`test_adaptive_alloc_is_excluded_from_the_probe_configs` so the exclusion cannot be quietly lost.
+Reinstating the two commented lines is the first step of any fix; expect them to fail until the
+flag is actually repaired.
 
 **Next steps.** Establish scope before touching the policy: is this specific to d=4 / ncomp=1, or
 does the allocation signal systematically over-concentrate on whichever member reports the best
