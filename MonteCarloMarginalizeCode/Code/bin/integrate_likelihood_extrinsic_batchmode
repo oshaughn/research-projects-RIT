@@ -1860,6 +1860,36 @@ if opts.sampler_method == "AV":
   return_lnL=True
   pinned_params.update( { 'enforce_bounds':True})  # don't go out of range : choose integer bin sizes
 
+# WHICH CONVENTION IS ACTUALLY STORED IN _rvs['integrand'] for this run.
+#
+# This is NOT the same question as opts.internal_use_lnL, and using that option as the predicate
+# is wrong.  --internal-use-lnL is accepted for every method in ok_lnL_methods, but the samplers
+# do different things with it:
+#
+#   GMM (mcsamplerEnsemble)  gets return_lnI, so value_array = integrator.cumulative_values, i.e.
+#                            lnL, stored raw in _rvs['integrand'].  It writes NO log_* columns, so
+#                            it is the one sampler that reaches the linear branch holding a log.
+#   AV / portfolio           populate log_integrand + log_joint_prior + log_joint_s_prior; their
+#                            _rvs['integrand'] alias is lnL as well, but every consumer here takes
+#                            the log branch first, so the flag never decides anything for them.
+#   adaptive_cartesian_gpu   use_lnL routes integrate() -> integrate_log(), which writes
+#                            log_integrand and never sets 'integrand' at all.
+#   adaptive_cartesian       mcsampler.py has NO use_lnL / return_lnI handling whatsoever -- it
+#                            always stores linear L (see its numpy.log(self._rvs["integrand"]))
+#                            and the driver never hands it use_lnL, so return_lnL stays False and
+#                            the likelihood it integrates is L.
+#
+# Keying off opts.internal_use_lnL would therefore tell the linear branch of ln_weights_from_rvs
+# to read lnL out of a record that holds L for '--sampler-method adaptive_cartesian
+# --internal-use-lnL' -- a NEW wrong answer (L + ln p - ln p_s) on a path the old code got right.
+# The honest predicate is the convention we actually handed the sampler: return_lnI.  Derived ONCE
+# here, where pinned_params is final, and passed explicitly from here on.  It is deliberately NOT
+# sniffed back out of the data ("are there negative values?"): a plausible guess about a science
+# output is exactly what ln_weights_from_rvs exists to refuse.
+rvs_integrand_is_lnL = bool(pinned_params.get("return_lnI", False))
+print("  _rvs['integrand'] convention: {} (sampler_method={}, internal_use_lnL={})".format(
+    "lnL" if rvs_integrand_is_lnL else "L", opts.sampler_method, bool(opts.internal_use_lnL)))
+
 
 # set up sampler, as needed.  Mainly for portfolio integrator
 if use_portfolio:
@@ -2003,6 +2033,22 @@ def resample_samples(my_samples,
 
   
 
+def _rvs_lnL_convention(use_lnL=None):
+    """Resolve the stored-'integrand' convention for a helper call.
+
+    Returns the explicit argument when one is given, otherwise the run's `rvs_integrand_is_lnL`
+    (derived once from pinned_params['return_lnI']; see the comment where it is set).  Falls back
+    to False -- the historical linear reading -- when that global is absent, which happens when
+    these helpers are lifted out of the driver by the unit tests.  Reading it through globals()
+    rather than referencing the name directly matters: several callers wrap this in a bare
+    `except Exception: return None`, so a NameError would turn into a silent None instead of a
+    diagnosable failure.
+    """
+    if use_lnL is not None:
+        return bool(use_lnL)
+    return bool(globals().get('rvs_integrand_is_lnL', False))
+
+
 def ln_weights_from_rvs(rvs, convert=None, use_lnL=False):
     """THE importance log-weight of an _rvs record: lnL + ln(prior) - ln(sampling_prior).
 
@@ -2018,16 +2064,24 @@ def ln_weights_from_rvs(rvs, convert=None, use_lnL=False):
     log form first, then the linear (mcsamplerEnsemble) form, with out-of-support rows set to
     -inf.  Raises when neither set is present: an explicit failure beats a plausible wrong number.
 
-    `use_lnL` is REQUIRED to interpret the linear form correctly, and callers must pass
-    `opts.internal_use_lnL`.  mcsamplerEnsemble reuses the 'integrand' field for BOTH conventions:
+    `use_lnL` is REQUIRED to interpret the linear form correctly.  mcsamplerEnsemble reuses the
+    'integrand' field for BOTH conventions:
 
         mcsamplerEnsemble:  self._rvs['integrand'] = self.identity_convert(value_array)
 
-    where `value_array` is L normally but lnL under --internal-use-lnL.  Taking log() of the
-    latter compresses tens of nats into log(tens), leaving an almost flat weight vector -- the
-    likelihood effectively drops out and whatever is reconstructed downstream is prior-dominated.
-    The positivity cut is wrong in that mode too: for a log, non-positive means a low-likelihood
-    point, not a rejected one, so `ig > 0` silently discards every sample with lnL <= 0.
+    where `value_array` is L normally but lnL when the sampler was given return_lnI.  Taking log()
+    of the latter compresses tens of nats into log(tens), leaving an almost flat weight vector --
+    the likelihood effectively drops out and whatever is reconstructed downstream is
+    prior-dominated.  The positivity cut is wrong in that mode too: for a log, non-positive means a
+    low-likelihood point, not a rejected one, so `ig > 0` silently discards every sample with
+    lnL <= 0.
+
+    PASS THE STORED CONVENTION, NOT THE CLI OPTION.  Callers must pass the module-level
+    `rvs_integrand_is_lnL` (or thread it through `_rvs_lnL_convention`).  `opts.internal_use_lnL`
+    is NOT the same predicate: it is accepted for adaptive_cartesian too, whose sampler
+    (mcsampler.py) has no use_lnL/return_lnI handling at all and always stores linear L -- so
+    keying off the option would compute L + ln p - ln p_s there, breaking a case the pre-fix code
+    handled correctly.
 
     Samplers that populate 'log_integrand' (adaptive volume, portfolio) take the first branch and
     are unaffected either way.  Only the raw-field samplers reach the second.
@@ -2063,7 +2117,7 @@ def _rvs_len(rvs):
     return 0
 
 
-def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False):
+def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, use_lnL=None):
     """Concatenate the replicas' samples into one correctly-weighted set.
 
     Each replica k is an independent importance-sampling estimate with weights w_ki and its own
@@ -2075,7 +2129,12 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False):
 
     Falls back to the first replica if the record shape is unexpected: a degraded export is
     recoverable, a silently mis-weighted one is not.
+
+    `use_lnL` is the stored convention of the RAW ('integrand') columns -- see
+    `_rvs_lnL_convention`.  It matters here because this function REWRITES joint_s_prior to force a
+    block's weights, and the equation to solve is convention-dependent (see below).
     """
+    _lnL_here = _rvs_lnL_convention(use_lnL)
     rep_rvs = [r for r in rep_rvs if r]
     if len(rep_rvs) <= 1:
         return rep_rvs[0] if rep_rvs else {}
@@ -2119,7 +2178,7 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False):
                 scale = 0.0
             elif rep_lnZ is not None and _i < len(rep_lnZ) and numpy.isfinite(rep_lnZ[_i]):
                 # target: this block's weights sum to Z_k/K
-                _cur = _lnZ_of_rvs(r, already_pooled=True)
+                _cur = _lnZ_of_rvs(r, already_pooled=True, use_lnL=_lnL_here)
                 if _cur is None or not numpy.isfinite(_cur):
                     scale = numpy.log(float(K) * float(n_k))
                 else:
@@ -2138,15 +2197,34 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False):
                 if _flat_block and log_key is not None and k == log_key:
                     v = _forced
                 elif _flat_block and lin_key is not None and k == lin_key:
+                    # Same forcing for a RAW-field record: choose joint_s_prior so the
+                    # reconstructed weight is exactly _target_lw.  WHICH equation that is depends
+                    # on the convention 'integrand' is stored in -- the same ambiguity
+                    # ln_weights_from_rvs handles:
+                    #   linear:  lw = log(ig) + log(jp) - log(js)  ->  js = ig*jp/exp(target)
+                    #   log:     lw = ig      + log(jp) - log(js)  ->  js = exp(ig + log(jp) - target)
+                    # Applying the linear form to an lnL record gives js < 0 for every row with
+                    # lnL < 0 -- a NEGATIVE proposal density -- and the block weights it produces
+                    # are not constant at all, which is the entire point of the flat block.  Worse,
+                    # it corrupts the canonical columns BEFORE ln_weights_from_rvs ever reads them,
+                    # so fixing the helper alone does not rescue this path.
                     _ig = numpy.atleast_1d(numpy.asarray(
                         sampler.identity_convert(r['integrand']), dtype=float)).ravel()
                     _jp = numpy.atleast_1d(numpy.asarray(
                         sampler.identity_convert(r['joint_prior']), dtype=float)).ravel()
-                    v = _ig * _jp / numpy.exp(_target_lw)
+                    if _lnL_here:
+                        v = numpy.exp(_ig + numpy.log(_jp) - _target_lw)
+                    else:
+                        v = _ig * _jp / numpy.exp(_target_lw)
                 elif k == log_key:
                     v = v + scale
                 elif k == lin_key:
-                    v = v * (float(K) * float(n_k))
+                    # The linear counterpart of 'log_joint_s_prior += scale'.  This used to be a
+                    # hardcoded K*n_k, which is only the FALLBACK value of `scale` -- so whenever a
+                    # reported per-replica lnZ was available the raw-field path silently skipped
+                    # the renormalization the log path applied, and a pruned or thresholded replica
+                    # was mis-weighted.  exp(scale) reduces to K*n_k in the fallback case.
+                    v = v * numpy.exp(scale)
                 cols[k].append(v)
         for k in keys:
             out[k] = numpy.concatenate(cols[k]) if cols[k] else numpy.array([])
@@ -2157,18 +2235,14 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False):
         # scientific outputs the ORIGINAL weights while the estimate used the corrected ones:
         # replica rebalancing ignored, and fairdraw blocks double-weighted again in exactly the
         # products this pooling exists to make consistent.  Recompute from the canonical columns.
-        _lw_pooled = None
-        if all(k in out for k in ('log_integrand', 'log_joint_prior', 'log_joint_s_prior')):
-            _lw_pooled = (numpy.asarray(out['log_integrand'], dtype=float)
-                          + numpy.asarray(out['log_joint_prior'], dtype=float)
-                          - numpy.asarray(out['log_joint_s_prior'], dtype=float))
-        elif all(k in out for k in ('integrand', 'joint_prior', 'joint_s_prior')):
-            _ig = numpy.asarray(out['integrand'], dtype=float)
-            _jp = numpy.asarray(out['joint_prior'], dtype=float)
-            _js = numpy.asarray(out['joint_s_prior'], dtype=float)
-            _ok = (_ig > 0) & (_jp > 0) & (_js > 0)
-            _lw_pooled = numpy.full(len(_ig), -numpy.inf)
-            _lw_pooled[_ok] = numpy.log(_ig[_ok]) + numpy.log(_jp[_ok]) - numpy.log(_js[_ok])
+        # Rebuild through the ONE canonical definition rather than a second inline copy of it:
+        # the copy that used to live here carried the same linear-only assumption as the helper's
+        # old second branch, so under the log convention it re-logged lnL and cut on its sign --
+        # writing exactly the flattened weights the exporters prefer.
+        try:
+            _lw_pooled = ln_weights_from_rvs(out, use_lnL=_lnL_here)
+        except Exception:
+            _lw_pooled = None
         if _lw_pooled is not None:
             if 'log_weights' in out:
                 out['log_weights'] = _lw_pooled
@@ -2187,7 +2261,7 @@ def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False):
     return out
 
 
-def _lnZ_of_rvs(rvs, already_pooled=True):
+def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None):
     """log of the evidence implied by an _rvs record.
 
     For a POOLED record the weights already carry their 1/(K n_k) factor, so the estimate is the
@@ -2195,7 +2269,7 @@ def _lnZ_of_rvs(rvs, already_pooled=True):
     """
     try:
         try:
-            lw = ln_weights_from_rvs(rvs, use_lnL=opts.internal_use_lnL)
+            lw = ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL))
         except Exception:
             return None
         lw = lw[numpy.isfinite(lw)]
@@ -2208,11 +2282,11 @@ def _lnZ_of_rvs(rvs, already_pooled=True):
         return None
 
 
-def _kish_neff_of_rvs(rvs):
+def _kish_neff_of_rvs(rvs, use_lnL=None):
     """Kish effective sample size of an _rvs record, or None if the weights are not reconstructible."""
     try:
         try:
-            lw = ln_weights_from_rvs(rvs, use_lnL=opts.internal_use_lnL)
+            lw = ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL))
         except Exception:
             return None
         lw = lw[numpy.isfinite(lw)]
@@ -3396,7 +3470,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # sampling density, not a fudge -- and it leaves every downstream weight computation
         # (which all form log_integrand + log_joint_prior - log_joint_s_prior) correct untouched.
         sampler._rvs = _pool_replica_rvs(_rep_rvs, sampler, rep_lnZ=_rep_lnZ,
-                                         already_resampled=bool(opts.fairdraw_extrinsic_output))
+                                         already_resampled=bool(opts.fairdraw_extrinsic_output),
+                                         use_lnL=rvs_integrand_is_lnL)
         # The pooled export is a mixture over every replica in _rep_rvs, so its collapse
         # status is the OR over them: one collapsed member taints the pool.  Fold that back
         # into dict_return, which is what the status sidecar and the downstream reporting
@@ -3483,14 +3558,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # sampler (mcsamplerGPU) stores log_weights = tempering_exp*lnL + ln(prior) - ln(s_prior)
         # (the adapt-weight-exponent, e.g. 0.1, baked in) -- fitting the GMM to those flattened
         # weights places the proposal in the WRONG region.  GMM's own _rvs has no tempering.
-        if 'log_integrand' in _rvs and 'log_joint_prior' in _rvs and 'log_joint_s_prior' in _rvs:
-          _lw = np.array(_rvs['log_integrand'] + _rvs['log_joint_prior'] - _rvs['log_joint_s_prior'], dtype=float)
-        elif 'integrand' in _rvs and 'joint_prior' in _rvs and 'joint_s_prior' in _rvs:
-          _ig = np.asarray(_rvs['integrand'], dtype=float); _jp = np.asarray(_rvs['joint_prior'], dtype=float); _jsp = np.asarray(_rvs['joint_s_prior'], dtype=float)
-          _keep = (_ig > 0) & (_jp > 0) & (_jsp > 0)
-          _lw = np.full(len(_ig), -np.inf); _lw[_keep] = np.log(_ig[_keep]) + np.log(_jp[_keep]) - np.log(_jsp[_keep])
-        else:
-          raise Exception("no weights in sampler._rvs (keys={})".format(list(_rvs.keys())))
+        # Use the ONE canonical derivation.  The inline copy that used to live here carried the
+        # same linear-only assumption ln_weights_from_rvs was just fixed for, so a GMM run storing
+        # lnL in 'integrand' fitted the handoff proposal to log(lnL)-flattened weights.
+        _lw = np.asarray(ln_weights_from_rvs(_rvs, convert=identity_convert,
+                                             use_lnL=rvs_integrand_is_lnL), dtype=float)
         # extrinsic samples + bounds for the standard groups that this run actually sampled.
         _ext_params = [p for grp in _ehmod.STANDARD_GROUPS for p in grp]
         _ext_samples = {p: np.array(_rvs[p], dtype=float).reshape(-1) for p in _ext_params if p in _rvs}
@@ -3647,7 +3719,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           fname_output_dgrid = opts.output_file +"_"+str(indx_event)+"_" + ".dgrid"
           dL = np.array(sampler._rvs["distance"])
           rvs = sampler._rvs
-          ln_wts = ln_weights_from_rvs(rvs, use_lnL=opts.internal_use_lnL)
+          ln_wts = ln_weights_from_rvs(rvs, use_lnL=rvs_integrand_is_lnL)
           # Distance prior at each sample. Use the sampler's stored prior_pdf
           # callable; this matches whatever ILE actually integrated against
           # (volumetric, pseudo_cosmo, redshift, ...).
@@ -3729,7 +3801,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # .dgrid.
           rvs = sampler._rvs
           _rvs = lambda k: np.asarray(identity_convert(rvs[k]), float)  # cupy-safe column read
-          ln_w_full = ln_weights_from_rvs(rvs, convert=identity_convert, use_lnL=opts.internal_use_lnL)
+          ln_w_full = ln_weights_from_rvs(rvs, convert=identity_convert, use_lnL=rvs_integrand_is_lnL)
           # Split K into core (reweight) and wing (fresh) slices.  --distance-slice-all-fresh
           # forces zero reweight core: EVERY slice is a fresh fixed-d integration.  Use it
           # when the main-loop n_eff is small -- the reweight core is then starved (the same
@@ -3919,6 +3991,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       # --extrinsic-proposal-output (writes lnL + ln(prior) - ln(s_prior)) or --calibration-export-posterior.
       if "log_integrand" in samples:
           samples["loglikelihood"] = samples["log_integrand"] +  manual_avoid_overflow_logarithm
+      elif rvs_integrand_is_lnL:
+          # raw-field record whose 'integrand' ALREADY holds lnL (GMM under return_lnI): logging it
+          # again would write log(lnL) into alpha1 -- and nan for every row with lnL < 0.
+          samples["loglikelihood"] = samples["integrand"] + manual_avoid_overflow_logarithm
       else:
           samples["loglikelihood"] = numpy.log(samples["integrand"]) + manual_avoid_overflow_logarithm  # export with consistent offset
       if not opts.rom_integrate_intrinsic:
