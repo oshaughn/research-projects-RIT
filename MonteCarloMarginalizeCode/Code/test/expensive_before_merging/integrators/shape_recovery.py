@@ -737,6 +737,45 @@ def evaluate(r):
 # ----------------------------------------------------------------------------
 # Matrix presets + CLI
 # ----------------------------------------------------------------------------
+# PER-CELL BUDGET OVERRIDES.  The matrix budget is nmax_per_dim*d for EVERY cell, and strictness
+# is per-SAMPLER, so a single mis-budgeted cell can be neither re-budgeted nor exempted without a
+# hook like this one.  (WARM_CASES already carries per-case budgets; same idea.)
+#
+# GMM mix_d6_n3_s303 sits on the n_eff=100 starvation floor at the matrix budget, which makes it a
+# coin flip as a merge-BLOCKING row -- measured over 8 fresh seeds:
+#
+#     budget   n_eff min/med/max   clears 100   median |bias|
+#      x1        59 / 105 / 159       5/8          0.014
+#      x2       105 / 169 / 214       8/8          0.010
+#      x4       209 / 293 / 473       8/8          0.012
+#
+# The bias is flat, so this is purely threshold margin, not a defect.  x2 clears 8/8 but its
+# MINIMUM (105) is 5% above the floor -- not a margin worth trusting for a row that has already
+# swung between 66 and 119 on unchanged code.  x4 gives min 209 (2.1x margin) and costs ~4% of the
+# gate's total evaluations, since it is one cell of ~96.
+CELL_BUDGET_MULT = {
+    ("GMM", 6, 3, 303): 4,
+}
+
+
+def cell_budget(kind, ndim, ncomp, tseed, nmax_per_dim, apply_overrides=True):
+    """THE budget for one matrix cell: nmax_per_dim*ndim, times any per-cell override.
+
+    Single entry point because there are two of them.  `main()` builds jobs, and
+    test_shape_recovery.py parametrizes the same matrix under pytest; computing the budget
+    separately in each left the override applied on one path and not the other, so the cell this
+    table exists to fix stayed starved under `RIFT_SHAPE_PRESET=standard pytest`.
+
+    `apply_overrides=False` returns the plain contract value.  Callers pass it when the budget was
+    named EXPLICITLY (`--nmax-per-dim`), because the CLI documents `nmax = this * ndim` and silently
+    scaling that would corrupt exactly the controlled x1/x2/x4 comparisons this table was derived
+    from.
+    """
+    base = int(nmax_per_dim) * int(ndim)
+    if not apply_overrides:
+        return base
+    return base * int(CELL_BUDGET_MULT.get((kind, int(ndim), int(ncomp), int(tseed)), 1))
+
 PRESETS = {
     # (dims, ncomps, target_seeds, nmax_per_dim, neff)
     "quick": (dict(dims=[2, 4], ncomps=[2], seeds=[101], nmax_per_dim=50000, neff=2000)),
@@ -773,7 +812,10 @@ def main(argv=None):
     ap.add_argument("--ncomps", default=None)
     ap.add_argument("--target-seeds", default=None)
     ap.add_argument("--nmax-per-dim", type=int, default=None,
-                    help="nmax = this * ndim")
+                    help="nmax = this * ndim (exactly; passing this disables per-cell overrides)")
+    ap.add_argument("--no-cell-budget-mult", action="store_true",
+                    help="ignore CELL_BUDGET_MULT even at preset defaults (for controlled "
+                         "budget comparisons)")
     ap.add_argument("--neff", type=int, default=None)
     ap.add_argument("--run-seed", type=int, default=987654)
     ap.add_argument("--jobs", type=int, default=1)
@@ -788,8 +830,16 @@ def main(argv=None):
         cfg["ncomps"] = [int(x) for x in opts.ncomps.split(",")]
     if opts.target_seeds:
         cfg["seeds"] = [int(x) for x in opts.target_seeds.split(",")]
+    # An EXPLICIT --nmax-per-dim means the caller is controlling the budget; honour the documented
+    # contract (nmax = this * ndim) rather than silently multiplying it.  --no-cell-budget-mult
+    # disables the table even for preset defaults.
+    _apply_cell_overrides = not bool(opts.no_cell_budget_mult)
     if opts.nmax_per_dim:
         cfg["nmax_per_dim"] = opts.nmax_per_dim
+        _apply_cell_overrides = False
+        if CELL_BUDGET_MULT:
+            print("# --nmax-per-dim given explicitly: per-cell budget overrides DISABLED "
+                  "({} cell(s) affected at preset defaults)".format(len(CELL_BUDGET_MULT)))
     if opts.neff:
         cfg["neff"] = opts.neff
 
@@ -802,7 +852,9 @@ def main(argv=None):
             for ts in cfg["seeds"]:
                 for kind in samplers:
                     jobs.append((kind, (d, nc, ts),
-                                 cfg["nmax_per_dim"] * d, cfg["neff"], opts.run_seed))
+                                 cell_budget(kind, d, nc, ts, cfg["nmax_per_dim"],
+                                             apply_overrides=_apply_cell_overrides),
+                                 cfg["neff"], opts.run_seed))
     n_matrix = len(jobs)
     want_warm = (opts.warm_cases == "on" or
                  (opts.warm_cases == "auto" and opts.preset == "standard"))

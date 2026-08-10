@@ -10,7 +10,24 @@ evidence is included so none of it has to be re-derived.
 **Status:** DONE -- confirm-on-fail added to the probe (`--confirm-repeats`, `--confirm-seeds`,
 `--confirm-min-valid`, `--no-confirm`).  Tests in `test_probe_confirm.py`.
 
-**The first live verification is VOID; the clear must be re-measured.**  That run reported the row
+**RE-MEASURED ON THE FIXED PROBE: the row is a CONFIRMED opt-in regression, not noise.**
+5 fresh seeds, flag arm FAILS at every one:
+
+```
+seed 988654: base=PASS(213)   flag=FAIL(124)
+seed 989654: base=PASS(252)   flag=FAIL(125)
+seed 990654: base=PASS(244)   flag=FAIL(292)
+seed 991654: base=STARVED(67) flag=FAIL(177)
+seed 992654: base=PASS(136)   flag=FAIL(140)
+-> CONFIRMED (4 worse / 1 not-worse)
+```
+
+Note the failure mode: the flag arm often has HIGHER n_eff (292 vs 244, 177 vs 67, 140 vs 136) and
+still fails, so it is failing on SHAPE metrics -- more effective samples, worse recovered posterior.
+See item 4.  Everything below this line was written before that measurement and is retained for
+the record.
+
+**The first live verification was VOID.**  That run reported the row
 cleared at 3 fresh seeds "with the two arms bit-identical (36/36, 84/84, 131/131)".  Bit-identical
 arms is not a clear -- it is the signature of the patching bug found in review: `patched_build()`
 wrapped `SR.build_sampler` as it then stood rather than the pristine factory, and nothing restored
@@ -65,16 +82,48 @@ seed 992654: base=STARVED cand=STARVED (n_eff 96 vs 96)
 `REGRESSION(pass->starved)` in two consecutive full gate runs during PR #47 before confirm-on-fail
 cleared it.
 
-**Decision:** raise the budget for this cell so it clears the floor reliably, or drop it from
-`--strict-samplers`. Deliberately not changed unilaterally -- the strict list and per-cell budgets
-are shared with other people's work. Confirm-on-fail now stops it blocking spuriously, so this is
-cleanup rather than an outage: it costs a 5-seed rerun each time it fires.
+**MEASURED AND RESOLVED** (8 fresh seeds per budget):
+
+| budget | n_eff min / med / max | clears 100 | median \|bias\| |
+|---|---|---|---|
+| x1 (matrix default) | 59 / 105 / 159 | **5/8** | 0.014 |
+| x2 | 105 / 169 / 214 | 8/8 | 0.010 |
+| x4 | 209 / 293 / 473 | 8/8 | 0.012 |
+
+Bias is flat across budgets, so this is threshold margin, not a defect.
+
+**Correction to the options above:** neither was expressible. The matrix budget is `nmax_per_dim*d`
+for EVERY cell, and `--strict-samplers` is per-SAMPLER, so "re-budget this cell" and "drop this row
+from strict" both needed a mechanism that did not exist. Added `CELL_BUDGET_MULT` in
+`shape_recovery.py` (same shape as the existing per-case `WARM_CASES` budgets) and set this cell to
+**x4**: x2 clears 8/8 but its minimum, 105, is 5% above the floor, which is not a margin worth
+trusting for a row that has read 66 and 119 on unchanged code. x4 gives min 209 (2.1x) and costs
+~4% of the gate's evaluations, being one cell of ~96.
+
+**The override goes through `cell_budget()`, not an inline multiply.** The matrix has TWO entry
+points -- `main()` (what `run_shape_recovery.sh` drives) and the pytest parametrization in
+`test_shape_recovery.py` -- and the first cut applied the table only in `main()`, so the cell this
+entry exists to fix stayed starved under `RIFT_SHAPE_PRESET=standard pytest`, which the suite
+documents as an equivalent way to run it. Both now call `cell_budget(...)`; verified they agree
+(4800000 == 4800000 for this cell).
+
+An **explicit** `--nmax-per-dim` disables the table (`apply_overrides=False`) and says so on
+stdout. The CLI documents `nmax = this * ndim`, and silently scaling a caller-named budget by 4
+would have corrupted precisely the controlled x1/x2/x4 comparison the table above was derived
+from -- the study script passes `--nmax-per-dim`, so it would have been measuring x4/x8/x16 while
+labelling the columns x1/x2/x4. `--no-cell-budget-mult` disables it at preset defaults too.
 
 ---
 
 ## 3. Audit `_rvs` consumers that prefer a cached column over the canonical components
 
-**Status:** not started.
+**Status:** DONE -- PR #55 (merged). Found and fixed two defects: the `.dgrid` and
+calibration-posterior exporters preferred a cached `log_weights` that means DIFFERENT things in
+different samplers (`mcsamplerGPU` stores the tempering-weighted adaptation weight, not the
+importance weight), and `mcsamplerGPU.py:1194` appended weights onto `joint_s_prior`, a fix
+`mcsampler.py:571` had carried for years. Verdict table in `RVS_CACHE_AUDIT.md`. The third
+divergence it flagged (`_rvs['weights']` sorted as a side effect) is resolved in PR #57 as a
+documented constraint.
 
 PR #51 fixed a case where exported science products disagreed with the reported evidence:
 `_pool_replica_rvs` rewrote `log_joint_s_prior` to carry the corrected replica weights, but the
@@ -98,3 +147,59 @@ the source must invalidate it too.
 **Acceptance.** A list of consumers with a verdict each (derives / kept in sync / fixed), plus a
 regression test for any defect found -- asserting the cached value both matches the components
 **and differs from the stale value**, so it fails on the buggy code rather than passing vacuously.
+
+
+---
+
+## 4. `--portfolio-adaptive-alloc` degrades posterior SHAPE on `d4_n1_s303` (confirmed)
+
+**Status:** open. Opt-in, default OFF, and the pipeline never sets it, so nothing in production is
+affected -- but the flag is not safe to promote, and this was invisible for the whole #47/#51/#55
+series because the probe was comparing the flag against itself.
+
+Confirmed on the fixed probe at 5 fresh seeds (per-seed numbers in item 1). The flag arm fails at
+**every** seed, and often with HIGHER n_eff than the default arm -- so it is failing on JS / pull /
+width, not on starvation. More effective samples, worse recovered posterior: the "confidently
+wrong" signature this project has documented elsewhere (n_eff measures weight CONCENTRATION, not
+coverage), now showing up in one of our own opt-in features.
+
+**Do not** treat the higher n_eff as evidence the flag helps. That is precisely the reading that
+made the estimator-clip experiment look like a success while it was biasing lnZ by -11.5 nats.
+
+**Interim mitigation: the two adaptive_alloc rows are EXCLUDED from the probe** (commented out in
+`FLAG_CONFIGS`, `probe_portfolio_optin_flags.py`), so the probe stays a working regression detector
+for the flags that do pass instead of being a standing red row everyone learns to ignore. This is
+containment, not a fix -- it is recorded here, greppable in the source, and asserted by
+`test_adaptive_alloc_is_excluded_from_the_probe_configs` so the exclusion cannot be quietly lost.
+Reinstating the two commented lines is the first step of any fix; expect them to fail until the
+flag is actually repaired.
+
+**Next steps.** Establish scope before touching the policy: is this specific to d=4 / ncomp=1, or
+does the allocation signal systematically over-concentrate on whichever member reports the best
+per-chunk n_ess? Sweep the flag across the full matrix at several seeds, and record JS / pull /
+width alongside n_eff so the shape degradation is visible rather than inferred. If it generalizes,
+the allocation signal needs a shape-aware guard or the flag should be documented as unsafe.
+
+---
+
+## 5. The `quick` preset cannot clear its own shape floor on `GMM d4_n2_s101`
+
+**Status:** open, low priority. Surfaced only because the pytest entry point stopped passing
+vacuously (see below) -- it had been silently STARVED the whole time.
+
+`quick` budgets `nmax_per_dim=50000`, so `d=4` runs at 200k evaluations and that cell reads
+**n_eff = 42** against the `MIN_NEFF_FOR_SHAPE = 100` floor. The other three quick cells pass. So
+the default `RIFT_RUN_EXPENSIVE=1 pytest test_shape_recovery.py` is 3 passed, 1 skipped, and one
+quarter of the quick matrix tests nothing.
+
+Not a defect in the sampler -- the same cell passes at the standard preset's budget. Either raise
+`quick`'s budget for `d=4` (it stops being quick: this cell needs roughly 2.5x), drop the cell from
+`quick`, or accept the skip. Deliberately not decided here.
+
+**How it was invisible.** `test_shape_recovery.py` unpacked `evaluate()` as `ok, reasons` and
+asserted `ok`. Commit 6467ac91 (2026-07-22) changed `evaluate()`'s contract from
+`return len(reasons) == 0, reasons` to `return ("FAIL" if reasons else "PASS"), reasons`, updating
+`compare_shape_results.py` and `shape_recovery.py` but not this caller -- which had been written
+hours earlier the same day. Every status string is truthy, so from that commit onward the pytest
+gate passed on FAIL, STARVED and ERROR alike. Same family as the #47/#51/#55 findings: a contract
+with two callers, one updated, both plausible in isolation, failure silent.
