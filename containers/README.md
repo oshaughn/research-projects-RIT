@@ -169,7 +169,7 @@ selected by an environment variable at DAG-build time:
 | env var | behaviour |
 |---|---|
 | *(unset)* | legacy `universe = vanilla` + expression-valued `MY.SingularityImage`. Correct on a local/CIT pool; **not OSG-safe**. |
-| `RIFT_CONTAINER_UNIVERSE=1` | **recommended for OSG.** `universe = container` + `container_image = $$([ ifThenElse(...) ])`. `$$()` is HTCondor's match-time (schedd-side) machine-ad substitution, so the pilot only ever sees a literal URL. No `MY.SingularityImage`, no `MY.SingularityBindCVMFS`, no `$$()` transfer token — the image arrives via `container_image`. GPU access is automatic under `request_gpus`. Works on CIT-local too. |
+| `RIFT_CONTAINER_UNIVERSE=1` | **recommended for OSG.** `universe = container` + `container_image = $$([ ifThenElse(...) ])` over image BASENAMES. `$$()` is HTCondor's match-time (schedd-side) machine-ad substitution, so the pilot only ever sees a literal image name. No `MY.SingularityImage`, no `MY.SingularityBindCVMFS`; the matched image arrives via the `$$()` transfer token with `MY.TransferInput` pinned (see below). Requires every family image to be a transferable URL. GPU access is automatic under `request_gpus`. Works on CIT-local too. |
 | `RIFT_CONTAINER_RUNTIME_SELECT=1` | older ILE-only fallback: Condor runs a generated `rift_container_select.sh` on the bare node, which reads the real capability from `nvidia-smi`, fetches only the matching image (`stashcp`/`pelican`) and re-execs under `apptainer exec --nv`. |
 
 Under asimov set it from the blueprint, not the shell:
