@@ -247,6 +247,7 @@ optp.add_option("--mc-error-replicas",default=0,type=int, help="MC-error stabili
 optp.add_option("--mc-error-sigma-trigger",default=0.4,type=float, help="Replicate (see --mc-error-replicas) when the reported sigma_lnZ exceeds this value.")
 optp.add_option("--mc-error-khat-trigger",default=0.7,type=float, help="Replicate when the Pareto k-hat weight-tail diagnostic exceeds this value (0.7 = the PSIS reliability threshold: above it the weight variance is effectively unresolved and the naive sigma is a lower bound).")
 optp.add_option("--mc-error-ess-trigger",default=30.,type=float, help="Replicate when the Kish effective sample size (sum w)^2/sum w^2 of the run's weights falls below this value.")
+optp.add_option("--reject-collapsed-live-volume",action='store_true',default=False, help="DROP an event whose adaptive-volume live volume degenerated (see the [AV COLLAPSE] report) instead of exporting it: the integration is treated as a failure, so no likelihood row, XML or posterior samples are written for it.  Such a run's lnZ and samples describe a single mode of the integrand and are NOT a fair posterior draw, and nothing downstream can distinguish them from a converged export.  Default off, because dropping the event silently THINS the posterior in an SNR-dependent way -- that was the pre-fix behaviour, when this case crashed.  Left off, the event is exported but announces itself loudly and (with --mc-error-replicas>0) triggers replication.  Turn it on when a contaminated point is worse than a missing one.")
 optp.add_option("--calibration-neff-cal-target",default=10,type=float, help="Calmarg ADAPTIVE draw count: after the cal-block precompute, probe the effective number of contributing cal draws (neff_cal) at this intrinsic point; while it is below this target, DOUBLE the cal draw set (drawing fresh independent realizations and appending their precomputed blocks) up to --calibration-n-realizations-max.  Set 0 to disable (fixed --calibration-n-realizations).")
 optp.add_option("--calibration-n-realizations-max",default=0,type=int, help="Cap for the adaptive cal draw count (see --calibration-neff-cal-target).  Default 0 = 8x --calibration-n-realizations.")
 optp.add_option("--calibration-burn-in-neff",default=None,type=float, help="Opt-in: before the production cal-marginalized integration, BURN IN the extrinsic sampler on the cheap ZERO-CAL (n_cal=1) likelihood until this effective sample count, then switch to the full cal-marginalized likelihood. The extrinsic posterior is ~cal-independent. CAVEAT: the AV sampler RESETS between integrate() calls (no seedable AV yet), so this gives AV no speedup (correctness-safe only). It can warm-start GMM/portfolio (model reuse). Awaiting a seedable / boundary-shifting AV; see DESIGN_adaptive_driver.md. No effect unless calmarg is active.")
@@ -3040,6 +3041,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     if (opts.sampler_method in ('AV', 'portfolio') and opts.sampler_warmstart_retry_neff
             and hasattr(sampler, 'bootstrap_from_samples')
             and _needs_l0_rescue):
+        # Cold state to fall back on, captured only once the warm pass is actually about to run.
+        # `None` means nothing has been disturbed yet, so the handler must not "restore".
+        _cold_state_l0 = None
         try:
             _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
             _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel() if _lnkey else np.array([])
@@ -3087,12 +3091,17 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 # the cold pass reached.  There we keep the cold result rather than report the
                 # precise-but-truncated one.  Detection is imperfect -- a missed mode need not
                 # produce this ordering -- so this narrows the failure, it does not close it.
-                _cold_rvs = sampler._rvs
+                # SNAPSHOT, not an alias: integrate_log repopulates sampler._rvs IN PLACE, so
+                # `_cold_rvs = sampler._rvs` would be holding the warm samples by the time the
+                # restore below ran -- i.e. the reject path would report the cold lnZ while
+                # exporting the warm cloud, exactly what it exists to prevent.
+                _cold_rvs = dict(sampler._rvs)
                 _cold_lnZ = _lnZ_of_rvs(_cold_rvs, already_pooled=False)
                 # dict_return too: khat, block scatter, ESS, the confidence interval and the
                 # replica trigger downstream all read it, so keeping the warm pass's diagnostics
                 # beside a restored cold result would describe a run we did not report.
                 _cold_res, _cold_var, _cold_neff, _cold_dict = res, var, neff, dict_return
+                _cold_state_l0 = (_cold_rvs, _cold_res, _cold_var, _cold_neff, _cold_dict)
                 sampler.bootstrap_from_samples(_seed, cover_frac=0.0)
                 res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
                 _warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False)
@@ -3118,7 +3127,20 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                         res, var, neff, dict_return = _cold_res, _cold_var, _cold_neff, _cold_dict
                 _clear_warm_state(sampler)
         except Exception as _e_l0:
-            print("  [L0 auto-rescue] skipped (", _e_l0, ")")
+            # "skipped" is only true if the warm pass never started.  If it raised PARTWAY THROUGH
+            # sampler.integrate(), the assignment `res, var, neff, dict_return = ...` never
+            # completed, so those still hold the COLD pass -- while sampler._rvs was repopulated in
+            # place and now holds the WARM samples.  Reporting cold k-hat / ESS / lnZ beside a warm
+            # export describes a run that was never made, and it did so silently for a whole
+            # campaign.  Put the point back on the cold pass, in full, and say so loudly.
+            print("  [L0 auto-rescue] *** FAILED *** (", _e_l0, ")")
+            import traceback as _tb_l0
+            _tb_l0.print_exc()
+            if _cold_state_l0 is not None:
+                print("  [L0 auto-rescue] the warm pass may already have replaced the stored"
+                      " samples; restoring the COLD pass so the reported diagnostics and the"
+                      " exported samples describe the same integral.")
+                sampler._rvs, res, var, neff, dict_return = _cold_state_l0
             _clear_warm_state(sampler)
 
     # Persist adapted state / trained flow for reuse by later instances.
@@ -3167,7 +3189,30 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     if _ci90 is not None:
         print(" [mc error] bootstrap lnZ 5/50/95 quantiles: {}".format(numpy.array2string(numpy.asarray(_ci90) + manual_avoid_overflow_logarithm, precision=4)))
 
+    # LIVE-VOLUME COLLAPSE.  The sampler can now tell us that its live volume degenerated
+    # (see live_volume_collapse_verdict in mcsamplerAdaptiveVolume).  Before this branch
+    # such a run CRASHED, and the crash -- however badly attributed -- at least kept the
+    # result out of the posterior.  Now that it completes we must not simply write an
+    # ordinary likelihood row: lnZ and the exported samples describe a single mode, and
+    # nothing downstream can tell them from a converged export.  So: say so unmistakably,
+    # let it trigger the existing replication machinery, and offer a hard gate.
+    _collapsed = bool(dict_return.get('live_volume_collapsed', False)) if isinstance(dict_return, dict) else False
+    _collapse_reason = (dict_return or {}).get('collapse_reason', '') if isinstance(dict_return, dict) else ''
+    if _collapsed:
+        print(" [mc error] *** LIVE VOLUME COLLAPSED *** {}".format(_collapse_reason))
+        print(" [mc error] this event's lnZ and exported samples are NOT a fair draw from the posterior.")
+        if opts.reject_collapsed_live_volume:
+            # Route through the ordinary failure path, so the caller skips this binary and
+            # writes no result row -- the pre-fix outcome, but for a stated reason.
+            _exc = mcsamplerAdaptiveVolume.LiveVolumeCollapse if mcsampler_AV_ok else RuntimeError
+            raise _exc(
+                "extrinsic integration collapsed: live volume degenerated ({}); "
+                "--reject-collapsed-live-volume is set, so this event is being dropped "
+                "rather than exported".format(_collapse_reason))
+
     _trigger_reasons = []
+    if _collapsed and opts.mc_error_replicas > 0:
+        _trigger_reasons.append('live volume collapsed ({})'.format(_collapse_reason))
     if opts.mc_error_replicas > 0:
         _neff_target = pinned_params.get('neff', None)
         if sqrt_var_over_res > opts.mc_error_sigma_trigger:
@@ -4040,11 +4085,17 @@ for indx in numpy.arange(len(P_list)):
   # UNCONDITIONALLY, for every exception raised anywhere in the block above.  That pointed
   # the high-SNR integrator collapse below -- the dominant extrinsic-export failure at
   # rho_net >~ 100, where >90% of exports died -- at the waveform generation code instead.
-  if ('LiveVolumeCollapse' in str(type(exception_failure))
-      or 'live volume' in str_err or 'live set' in str_err
-      or ('zero-size array' in str_err and 'no identity' in str_err)):
-    # covers both the named exception and the bare numpy/cupy empty-reduction error that
-    # older trees (and any other integrator with the same defect) still raise.
+  # The NAMED exception is the reliable signal.  The bare numpy/cupy empty-reduction error
+  # is kept only as a fallback for trees that predate LiveVolumeCollapse -- and it must be
+  # corroborated by the traceback, because this handler also covers waveform generation,
+  # data conditioning and the whole likelihood stack, any of which could reduce over an
+  # empty array for reasons that have nothing to do with the live volume.
+  _tb_txt = _tb_mod.format_exc()
+  _is_named_collapse = (mcsampler_AV_ok
+                        and isinstance(exception_failure, mcsamplerAdaptiveVolume.LiveVolumeCollapse))
+  _is_legacy_collapse = ('zero-size array' in str_err and 'no identity' in str_err
+                         and 'mcsamplerAdaptiveVolume' in _tb_txt)
+  if _is_named_collapse or _is_legacy_collapse:
     print( " Probable reason: the INTEGRATOR's live volume collapsed -- no samples survived the")
     print( " adaptive-volume likelihood threshold.  This is NOT a waveform problem: nyquist, start")
     print( " frequency and segment duration are all irrelevant to it.  At high network SNR the")
