@@ -1391,11 +1391,12 @@ else:
             cip_exe_here_master = " {} ".format(cip_exe_master)
         if indx in creating_G_list:
             cip_exe_here = opts.cip_exe_G
+            cip_exe_here_master = opts.cip_exe_G  # master sub must also use the G exe: it is the only CIP without --cip-explode-jobs
         if opts.cip_explode_jobs:
             if not opts.cip_explode_jobs_flat:
                 cip_args_extra += " --fit-save-gp " + out_dir_inside_cip+"/my_fit"
-            # else:
-            #     cip_exe_here_master = "/bin/true"
+            else:
+                cip_exe_here_master = "/bin/true"  # flat mode: no shared fit, master is a no-op (must override any G-group exe; matches the non-list-branch behavior above)
 #            out_dir_base += "/iteration_$(macroiteration)_cip/"
             # set n_eff for primary job to be small. ONLY used for the primary non-worker job
             cip_args_truncate = " --n-eff 5 --n-max 10000 --n-output-samples 1 "  # cap n_eff, number of iterations, and *output samples* for non-worker jobs, to avoid contamination
