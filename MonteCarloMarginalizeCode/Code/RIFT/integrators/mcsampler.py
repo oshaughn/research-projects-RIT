@@ -941,6 +941,31 @@ _COSINE_SAMPLER_CONVENTIONS = {
 }
 
 
+def infer_array_module(x, xpy=None):
+    """Return the array module (numpy, cupy, ...) that should be used to operate on `x`.
+
+    The truncated samplers below are handed to whichever backend the run selected:
+    mcsampler and mcsamplerAdaptiveVolume call them with host (numpy) arrays, while
+    mcsamplerGPU.draw_simplified() calls `self.pdf[param](samples)` / `self.cdf_inv[param](p)`
+    with a SINGLE positional argument holding a cupy array.  Defaulting to numpy would then
+    hit `numpy.asarray(cupy_array)`, which raises, so the backend is inferred from the
+    argument instead of assumed.  An explicit `xpy=` always wins.
+
+    The lookup is by the array type's top-level module, taken from `sys.modules` (a cupy
+    array cannot exist unless cupy is already imported), so this file keeps its numpy-only
+    import list and works for any duck-typed backend exposing the numpy API.
+    """
+    if xpy is not None:
+        return xpy
+    mod_name = type(x).__module__.split('.')[0]
+    if mod_name in ('numpy', 'builtins'):
+        return numpy
+    mod = sys.modules.get(mod_name)
+    if mod is not None and all(hasattr(mod, _attr) for _attr in ('asarray', 'where', 'clip')):
+        return mod
+    return numpy
+
+
 def clip_angle_limits(lo, hi, kind):
     """Clip an angular range [lo,hi] (radians) to the physical domain of `kind`
     ('declination' -> [-pi/2,pi/2], 'inclination' -> [0,pi]).
@@ -997,9 +1022,11 @@ def ret_dec_samp_vector(dec_lo, dec_hi):
     z_lo, z_hi = cosine_sampler_limits(dec_lo, dec_hi, 'declination')
     lo_c, hi_c = clip_angle_limits(dec_lo, dec_hi, 'declination')
     norm = z_hi - z_lo
-    def _pdf(x, xpy=numpy):
+    def _pdf(x, xpy=None):
+        xpy = infer_array_module(x, xpy)
         x = xpy.asarray(x, dtype=numpy.float64)
-        return xpy.where((x >= lo_c) & (x <= hi_c), xpy.cos(x)/norm, 0.0)
+        vals = xpy.cos(x)/norm
+        return xpy.where((x >= lo_c) & (x <= hi_c), vals, xpy.zeros_like(vals))
     return _pdf
 
 
@@ -1007,7 +1034,8 @@ def ret_dec_samp_cdf_inv_vector(dec_lo, dec_hi):
     """Inverse CDF (p in [0,1] -> declination) for uniform-in-sin(dec) truncated
     to [dec_lo, dec_hi].  Monotonically increasing in p."""
     z_lo, z_hi = cosine_sampler_limits(dec_lo, dec_hi, 'declination')
-    def _cdf_inv(p, xpy=numpy):
+    def _cdf_inv(p, xpy=None):
+        xpy = infer_array_module(p, xpy)
         p = xpy.asarray(p, dtype=numpy.float64)
         return xpy.arcsin(xpy.clip(z_lo + p*(z_hi - z_lo), -1.0, 1.0))
     return _cdf_inv
@@ -1020,9 +1048,11 @@ def ret_cos_samp_vector(incl_lo, incl_hi):
     z_lo, z_hi = cosine_sampler_limits(incl_lo, incl_hi, 'inclination')
     lo_c, hi_c = clip_angle_limits(incl_lo, incl_hi, 'inclination')
     norm = z_hi - z_lo
-    def _pdf(x, xpy=numpy):
+    def _pdf(x, xpy=None):
+        xpy = infer_array_module(x, xpy)
         x = xpy.asarray(x, dtype=numpy.float64)
-        return xpy.where((x >= lo_c) & (x <= hi_c), xpy.sin(x)/norm, 0.0)
+        vals = xpy.sin(x)/norm
+        return xpy.where((x >= lo_c) & (x <= hi_c), vals, xpy.zeros_like(vals))
     return _pdf
 
 
@@ -1031,7 +1061,8 @@ def ret_cos_samp_cdf_inv_vector(incl_lo, incl_hi):
     truncated to [incl_lo, incl_hi].  Monotonically increasing in p: p=0 gives
     incl_lo (which is arccos of the UPPER cosine limit -- note the swap)."""
     z_lo, z_hi = cosine_sampler_limits(incl_lo, incl_hi, 'inclination')
-    def _cdf_inv(p, xpy=numpy):
+    def _cdf_inv(p, xpy=None):
+        xpy = infer_array_module(p, xpy)
         p = xpy.asarray(p, dtype=numpy.float64)
         return xpy.arccos(xpy.clip(z_hi - p*(z_hi - z_lo), -1.0, 1.0))
     return _cdf_inv

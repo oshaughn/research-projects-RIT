@@ -22,6 +22,8 @@ The second one is the easy thing to get backwards, so it gets its own test.
 """
 
 import os
+import sys
+import types
 
 import numpy as np
 import pytest
@@ -30,11 +32,16 @@ import RIFT.integrators.mcsampler as mcsampler
 from RIFT.integrators.mcsampler import (
     clip_angle_limits,
     cosine_sampler_limits,
+    infer_array_module,
     ret_cos_samp_cdf_inv_vector,
     ret_cos_samp_vector,
     ret_dec_samp_cdf_inv_vector,
     ret_dec_samp_vector,
 )
+
+# np.trapz was REMOVED in numpy 2.x (renamed np.trapezoid); the modern CI lane runs
+# numpy>=2, the legacy lane numpy 1.24.4, so pick whichever exists.
+_trapz = getattr(np, 'trapezoid', None) or np.trapz
 
 # The conversions applied inside the ILE likelihood closures, verbatim
 # (the .astype mirrors the numpy.copy(...).astype(numpy.float64) those closures do,
@@ -264,11 +271,11 @@ def test_AV_style_posterior_shape_matches_between_samplers_dec():
 
     # plain branch: uniform in dec, weight 0.5*cos(dec)
     q_plain = mcsampler.uniform_samp_dec(dec_grid)
-    q_plain = q_plain / np.trapz(q_plain, dec_grid)
+    q_plain = q_plain / _trapz(q_plain, dec_grid)
 
     # cosine branch: uniform in z=sin(dec), weight 1/2 -> push forward to dec
     q_cos = 0.5 * np.cos(dec_grid)      # Jacobian dz/ddec = cos(dec)
-    q_cos = q_cos / np.trapz(q_cos, dec_grid)
+    q_cos = q_cos / _trapz(q_cos, dec_grid)
 
     assert np.allclose(q_plain, q_cos)
     assert z_lo < z_hi
@@ -345,14 +352,89 @@ def test_end_to_end_declination_box_same_integral_for_a_peaked_likelihood():
 
     # analytic reference: int 0.5*cos(dec) * L(dec) ddec over the box
     grid = np.linspace(lo, hi, 200001)
-    ref = np.trapz(0.5 * np.cos(grid) * like_dec(grid), grid)
+    ref = _trapz(0.5 * np.cos(grid) * like_dec(grid), grid)
 
     assert float(plain) == pytest.approx(ref, rel=2e-2)
     assert float(cosine) == pytest.approx(ref, rel=2e-2)
 
 
 ###
-### 6. Wiring: the bin script must not reintroduce the hardcoded [-1,1] range
+### 6. Backend dispatch: the GPU sampler calls these with ONE positional argument
+###
+# mcsamplerGPU.draw_simplified() does `self.cdf_inv[param](unif_samples)` and
+# `self.pdf[param](param_samples)` with a cupy array and no xpy= keyword.  A numpy
+# default would then evaluate numpy.asarray(cupy_array), which raises, so the closures
+# infer the backend from the argument.  There is no GPU in CI, so the cupy module is
+# stood in for by a recording shim registered in sys.modules (the inference is a
+# sys.modules lookup on the array type's top-level module, exactly as for cupy).
+
+_XPY_FUNCS = ('asarray', 'where', 'cos', 'sin', 'arcsin', 'arccos', 'clip', 'zeros_like')
+
+
+def _fake_backend(monkeypatch, name='fake_xpy_backend'):
+    """Return (array_type, calls): a numpy-backed stand-in for cupy."""
+    calls = []
+    mod = types.ModuleType(name)
+    for _name in _XPY_FUNCS:
+        def _record(*args, _f=getattr(np, _name), _n=_name, **kwargs):
+            calls.append(_n)
+            return _f(*args, **kwargs)
+        setattr(mod, _name, _record)
+    monkeypatch.setitem(sys.modules, name, mod)
+
+    class _FakeArray(np.ndarray):
+        pass
+    _FakeArray.__module__ = name          # this is what the inference keys on
+    return _FakeArray, calls
+
+
+def test_infer_array_module_defaults_to_numpy_and_honors_explicit_xpy():
+    assert infer_array_module(np.linspace(0, 1, 4)) is np
+    assert infer_array_module([0.1, 0.2]) is np
+    assert infer_array_module(0.3) is np
+    sentinel = object()
+    assert infer_array_module(np.linspace(0, 1, 4), sentinel) is sentinel
+
+
+@pytest.mark.parametrize('factory,arg', [
+    (lambda: ret_dec_samp_vector(-0.62, -0.41), np.linspace(-0.62, -0.41, 32)),
+    (lambda: ret_cos_samp_vector(0.30, 1.20), np.linspace(0.30, 1.20, 32)),
+    (lambda: ret_dec_samp_cdf_inv_vector(-0.62, -0.41), np.linspace(0.0, 1.0, 32)),
+    (lambda: ret_cos_samp_cdf_inv_vector(0.30, 1.20), np.linspace(0.0, 1.0, 32)),
+])
+def test_truncated_closures_dispatch_to_the_arrays_own_backend(monkeypatch, factory, arg):
+    """Called with a single positional non-numpy array, they must use ITS module."""
+    fake_array_type, calls = _fake_backend(monkeypatch)
+    fn = factory()
+    expected = fn(arg)                     # host reference, numpy path
+    del calls[:]
+    got = fn(arg.view(fake_array_type))    # the draw_simplified() call signature
+    assert calls, 'closure ignored the backend of its argument (would fail on cupy input)'
+    assert np.allclose(np.asarray(got), np.asarray(expected))
+
+
+@pytest.mark.parametrize('angle,factory_pdf,factory_cdf,prior_name,box', [
+    ('declination', ret_dec_samp_vector, ret_dec_samp_cdf_inv_vector, 'uniform_samp_dec', (-0.62, -0.41)),
+    ('inclination', ret_cos_samp_vector, ret_cos_samp_cdf_inv_vector, 'uniform_samp_theta', (0.30, 1.20)),
+])
+def test_gpu_sampler_draws_inside_the_box(angle, factory_pdf, factory_cdf, prior_name, box):
+    """Exercise the actual mcsamplerGPU call path (CPU fallback when cupy is absent)."""
+    mcsamplerGPU = pytest.importorskip('RIFT.integrators.mcsamplerGPU')
+    lo, hi = box
+    s = mcsamplerGPU.MCSampler()
+    s.add_parameter(angle, pdf=factory_pdf(lo, hi), cdf_inv=factory_cdf(lo, hi),
+                    left_limit=lo, right_limit=hi,
+                    prior_pdf=getattr(mcsamplerGPU, prior_name))
+    rv = s.draw_simplified(2000, angle)[-1]
+    drawn = np.asarray(mcsamplerGPU.identity_convert(rv)).reshape(-1)
+    assert drawn.min() >= lo - 1e-9
+    assert drawn.max() <= hi + 1e-9
+    # and it fills the box, i.e. the limits were not merely clipped to a point
+    assert drawn.max() - drawn.min() > 0.8 * (hi - lo)
+
+
+###
+### 7. Wiring: the bin script must not reintroduce the hardcoded [-1,1] range
 ###
 
 _ILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),

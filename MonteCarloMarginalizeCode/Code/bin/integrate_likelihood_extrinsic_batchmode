@@ -51,8 +51,10 @@ import RIFT.lalsimutils as lalsimutils
 from RIFT.precision import RiftFloat
 import RIFT.integrators.mcsampler as mcsampler
 # NOTE: the name 'mcsampler' above is REBOUND below to mcsamplerGPU for some --sampler-method
-# choices, so the zoom-box helpers are imported under their own names (they are pure-numpy,
-# xpy-aware, and identical for every backend).
+# choices, so the zoom-box helpers are imported under their own names.  They are backend-agnostic:
+# each closure infers its array module from the argument it is handed (numpy on the CPU/AV paths,
+# cupy when mcsamplerGPU.draw_simplified() calls it with a device array), so one definition serves
+# every sampler.
 from RIFT.integrators.mcsampler import (clip_angle_limits, cosine_sampler_limits,
                                         ret_dec_samp_vector, ret_dec_samp_cdf_inv_vector,
                                         ret_cos_samp_vector, ret_cos_samp_cdf_inv_vector)
