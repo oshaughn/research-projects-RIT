@@ -101,11 +101,65 @@ __author__ = "R. O'Shaughnessy, V. Tiwari"
 
 rosDebugMessages = True
 
+# Opt-in per-cycle trace of the live-volume contraction (RIFT_AV_TRACE=1).  Diagnosing
+# a contraction failure needs the *sequence* of (n_finite, ninj, thr, nrec), which no
+# other output exposes; it is far too chatty for production, hence the env gate.
+_AV_TRACE = bool(os.environ.get('RIFT_AV_TRACE', ''))
+
+def _av_trace(msg):
+    if _AV_TRACE:
+        print("  [AV trace] " + msg)
+        sys.stdout.flush()
+
 class NanOrInf(Exception):
     def __init__(self, value):
         self.value = value
     def __str__(self):
         return repr(self.value)
+
+class LiveVolumeCollapse(Exception):
+    """The adaptive-volume live set is empty (or carries no usable information).
+
+    Raised INSTEAD of the bare numpy/cupy "zero-size array to reduction operation
+    ... which has no identity" that the empty-live-volume path used to produce, so
+    callers and logs can tell a degenerate contraction apart from a waveform
+    generation failure.  See the collapse discussion in get_likelihood_threshold.
+    """
+    pass
+
+def live_volume_collapse_verdict(n_live, ndim, ess=None, khat=None,
+                                 n_empty_cycles=0, n_live_collapses=0):
+    """Has the adaptive-volume live set degenerated?  -> (collapsed, [reasons])
+
+    A degenerate contraction must be REPORTED rather than silently exported: the run
+    still returns a lnZ and a sample cloud, but both describe a single mode and the
+    cloud is not a fair posterior draw.
+
+    Thresholds, against the separation measured on zero-noise injections at a fixed
+    intrinsic point (rho_net 51 -> 147):
+        healthy    ESS 16.8-20.2,  k-hat 1.03-1.50   (rho 51.4, converges cold)
+        collapsed  ESS 1.0-1.7,    k-hat 21-202      (rho 103-147)
+      * n_live <= ndim -- a live set no larger than the dimension cannot span the
+        space, let alone describe a posterior in it.  Geometric, not tuned.
+      * ESS < 2 -- fewer than two effective samples IS one sample.
+      * ESS < 5 with k-hat > 10 -- near-degenerate AND a pathological weight tail.
+    The gap between the regimes is an order of magnitude wide, so these sit far from
+    both sides of it.  k-hat is deliberately NOT a gate on its own: it exceeds its
+    nominal 0.70 "unresolved tail" threshold even in the healthy runs on this problem,
+    and it is not always computable once the live set is tiny.
+    """
+    reasons = []
+    if n_empty_cycles:
+        reasons.append("{} cycle(s) with no finite in-volume sample".format(n_empty_cycles))
+    if n_live_collapses:
+        reasons.append("{} cycle(s) whose threshold emptied the live set".format(n_live_collapses))
+    if n_live <= ndim:
+        reasons.append("final live volume holds {} sample(s) in {} dimensions".format(n_live, ndim))
+    if ess is not None and (ess < 2.0 or (khat is not None and ess < 5.0 and khat > 10.0)):
+        reasons.append("ESS={:.2f}".format(ess)
+                       + ("" if khat is None else " with k-hat={:.1f}".format(khat)))
+    return bool(reasons), reasons
+
 
 ### V. Tiwari routines
 
@@ -117,7 +171,12 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_defau
     nsel : integer, has to do with size of array of likelihoods used to evaluate for next array.
     discard_prob: threshold on CDF to throw away an entire bin.  Should be very small
     """
-    
+    if len(lkl) == 0:
+        # Caller must not ask for a threshold on an empty live volume: every reduction
+        # below (max, argsort, [0]) is undefined.  Named error, so the caller can tell
+        # this apart from a waveform/likelihood failure.
+        raise LiveVolumeCollapse("no samples in the live volume: cannot set a likelihood threshold")
+
     w = xpy_here.exp(lkl - np.max(lkl))
     npoints = len(w)
     sumw = xpy_here.sum(w)
@@ -126,7 +185,7 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_defau
     ecdf = xpy_here.cumsum(prob[idx])
     F = xpy_here.linspace(np.min(ecdf), 1., npoints)
     prob_stop_thr = lkl[idx][ecdf >= discard_prob][0]
-    
+
     lkl_stop_thr = xpy_here.flip(np.sort(lkl))
     if len(lkl_stop_thr)>nsel:
         lkl_stop_thr = lkl_stop_thr[nsel]
@@ -134,8 +193,41 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_defau
         lkl_stop_thr = lkl_stop_thr[-1]
     lkl_thr = min(lkl_stop_thr, prob_stop_thr)
 
+    # CLAMP: the threshold is applied downstream as a STRICT `lkl > thr`, so a threshold
+    # at or above max(lkl) discards the entire live volume -- which encloses zero
+    # probability and so contradicts the enc_prob=0.999 this function exists to maintain.
+    # It happens whenever the live set is small AND one weight dominates: then
+    # prob_stop_thr saturates at max(lkl) (every other weight underflows to 0, so the
+    # discard_prob quantile IS the top sample) while lkl_stop_thr falls back to the
+    # array MINIMUM (the len<=nsel branch above).  At high SNR both conditions hold from
+    # the first cycle -- ~1e5 cold extrinsic draws yield a handful of finite lnL -- and
+    # the live volume ratchets down one sample per cycle to 1, then to 0, and every
+    # reduction over it raises "zero-size array to reduction operation ... no identity".
+    # Back the threshold off to the largest value strictly below the maximum so at least
+    # the peak always survives.  In a healthy run len(lkl) >> nsel and lkl_stop_thr is
+    # the nsel-th largest, far below the max, so this clamp never engages.
+    # Reduce on the ACTIVE backend and move only the scalar: identity_convert(lkl) here
+    # would copy the whole live set device->host every cycle, on the healthy path too.
+    lkl_max = float(identity_convert(xpy_here.max(lkl)))
+    if not (float(identity_convert(lkl_thr)) < lkl_max):
+        lkl_host = identity_convert(lkl)   # rare branch: the live set is tiny by construction
+        below = lkl_host[lkl_host < lkl_max]
+        if len(below):
+            lkl_thr = np.max(below)          # keep only the maximum: maximal (but safe) contraction
+        else:
+            # every surviving sample has the SAME lnL: no contraction is possible, so
+            # take a threshold below all of them and leave the live volume intact.
+            lkl_thr = np.nextafter(lkl_max, -np.inf)
+        _av_trace("threshold CLAMPED to {:.10g} (would have discarded the whole live volume of {})".format(
+            float(lkl_thr), npoints))
+
+    if _AV_TRACE:
+        _av_trace("threshold: n={} nsel={} lkl_stop_thr={:.6g} prob_stop_thr={:.6g} -> thr={:.6g} (max={:.6g})".format(
+            npoints, nsel, float(identity_convert(lkl_stop_thr)), float(identity_convert(prob_stop_thr)),
+            float(identity_convert(lkl_thr)), lkl_max))
+
     truncp = xpy_here.sum(w[lkl < lkl_thr]) / sumw
-            
+
     return identity_convert(lkl_thr), identity_convert(truncp)  # send both to CPU as needed
 
 def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
@@ -1081,6 +1173,14 @@ class MCSampler(object):
           allx = identity_convert_togpu(allx)
           allloglkl = identity_convert_togpu(allloglkl)
 
+        # live-volume health bookkeeping (reported at the end and in dict_return)
+        n_empty_cycles = 0      # cycles in which NO finite sample fell inside the live volume
+        n_live_collapses = 0    # cycles in which the threshold would have emptied the live set
+        collapse_reported = False
+        nrec = 0
+        allloglkl_prev, allp_prev, allx_prev = allloglkl, allp, allx
+        loglkl_thr_prev = loglkl_thr
+
         ntotal_true = 0
         while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
             # Draw samples. Note state variables binunique, ninbin -- so we can re-use the sampler later outside the loop
@@ -1127,13 +1227,39 @@ class MCSampler(object):
             
             loglkl = log_integrand # note we are putting the prior in here
 
-            idxsel = xpy_here.where(loglkl > loglkl_thr)
+            # Admit only FINITE samples above threshold.  A +inf lnL (overflow in a
+            # degenerate extrinsic configuration) passes the plain `> thr` test and then
+            # poisons every downstream max()/exp(); NaN silently fails it.  Screening here
+            # matches update_sampling_prior_selfish, which already does this.
+            idxsel = xpy_here.where(xpy_here.logical_and(loglkl > loglkl_thr, xpy_here.isfinite(loglkl)))
             #only admit samples that lie inside the live volume, i.e. one that cross likelihood threshold
             allx = xpy_here.append(allx, rv[idxsel], axis = 0)
             allloglkl = xpy_here.append(allloglkl, loglkl[idxsel])
             allp = xpy_here.append(allp, log_joint_p_prior[idxsel])
             ninj = len(allloglkl)
 
+            if _AV_TRACE:
+                _lk = identity_convert(loglkl)
+                _av_trace("cycle {}: drawn={} finite={} neginf={} posinf={} nan={} ninj={} thr_in={:.6g}".format(
+                    cycle, len(_lk), int(np.sum(np.isfinite(_lk))), int(np.sum(np.isneginf(_lk))),
+                    int(np.sum(np.isposinf(_lk))), int(np.sum(np.isnan(_lk))), ninj, loglkl_thr))
+
+            if ninj == 0:
+                # NOTHING finite in the live volume this cycle.  At high SNR the production
+                # likelihood underflows to -inf more than ~745 nats below its peak, so a cold
+                # chunk can contain no usable sample at all.  Leave the grid and the threshold
+                # untouched and draw again: this is recoverable, and the old code instead fell
+                # into get_likelihood_threshold and died on max() of an empty array.
+                n_empty_cycles += 1
+                if not collapse_reported:
+                    print("  [AV collapse] cycle {}: no finite in-volume samples ({} drawn, all -inf/NaN).".format(cycle, len(rv)))
+                    print("                Live volume unchanged; continuing to draw.  This is the high-SNR")
+                    print("                likelihood-underflow regime -- see --sampler-warmstart-retry-neff.")
+                    collapse_reported = True
+                cycle += 1
+                if cycle > 1000:
+                    break
+                continue
 
             #just some test to verify if we dont discard more than 1 - Pthr probability
             at_final_threshold = np.round(enc_prob/trunc_p) - np.round(enc_prob/(1 - enc_prob)) == 0
@@ -1141,7 +1267,7 @@ class MCSampler(object):
             if not(at_final_threshold):
                 loglkl_thr, truncp = get_likelihood_threshold(allloglkl, loglkl_thr, nsel, 1 - enc_prob - trunc_p,xpy_here=xpy_here)
                 trunc_p += truncp
-    
+
             # Select with threshold
             idxsel = xpy_here.where(allloglkl > loglkl_thr)
             allloglkl = allloglkl[idxsel]
@@ -1149,12 +1275,35 @@ class MCSampler(object):
             allx = allx[idxsel]
             nrec = len(allloglkl)   # recovered size of active volume at present, after selection
 
+            _av_trace("cycle {}: after selection at thr={:.6g}: nrec={} (was ninj={})".format(
+                cycle, loglkl_thr, nrec, ninj))
+
+            if nrec == 0:
+                # Defensive: get_likelihood_threshold now clamps the threshold below max(lkl),
+                # so this is unreachable by the route that produced the reported crash.  Keep
+                # the guard anyway -- an empty live set must never reach the reductions below.
+                n_live_collapses += 1
+                print("  [AV collapse] cycle {}: threshold {:.6g} emptied a live volume of {}; ".format(cycle, loglkl_thr, ninj)
+                      + "restoring it and stopping contraction.")
+                allloglkl, allp, allx = allloglkl_prev, allp_prev, allx_prev
+                loglkl_thr = loglkl_thr_prev
+                nrec = len(allloglkl)
+                if nrec == 0:
+                    raise LiveVolumeCollapse(
+                        "adaptive-volume live set is empty after {} cycles: the likelihood returned no "
+                        "finite value inside the sampled volume (high-SNR underflow, or a likelihood/"
+                        "waveform failure).  This is NOT a waveform Nyquist/duration problem.".format(cycle))
+                break
+
+            # remember the last GOOD state, so a degenerate contraction can be undone
+            allloglkl_prev, allp_prev, allx_prev, loglkl_thr_prev = allloglkl, allp, allx, loglkl_thr
+
             # Weights
             lw = allloglkl - xpy_here.max(allloglkl)
             w = xpy_here.exp(lw)
             neff_varaha = identity_convert(xpy_here.sum(w) ** 2 / xpy_here.sum(w ** 2))
             eff_samp = identity_convert(xpy_here.sum(w)/xpy_here.max(w))  # to CPU as needed
- 
+
             #New live volume based on new likelihood threshold
             V *= (nrec / ninj)
             delta_V = V / np.sqrt(nrec) 
@@ -1195,6 +1344,18 @@ class MCSampler(object):
                 break
 
         # VT approach was to accumulate samples, but then prune them.  So we have all the lnL and x draws
+
+        if len(allloglkl) == 0:
+            # Every cycle came back empty: the integrand never returned a finite value inside
+            # the sampled volume.  There is no integral to report, so fail with a message that
+            # names the actual cause instead of an anonymous empty-array reduction.
+            raise LiveVolumeCollapse(
+                "adaptive-volume live set is empty after {} cycles ({} draws): the likelihood "
+                "returned no finite value anywhere in the sampled volume.  At high network SNR "
+                "this is likelihood UNDERFLOW (exp() of a lnL more than ~745 nats below the peak "
+                "returns 0), not a waveform Nyquist/start-frequency/duration problem; narrow the "
+                "extrinsic prior or seed the sampler (--sampler-warmstart-retry-neff).".format(
+                    cycle, ntotal_true))
 
         # write in variables requested in the standard format
         for indx in np.arange(len(self.params_ordered)):
@@ -1278,6 +1439,29 @@ class MCSampler(object):
                 round(mc_diag['n_ESS'],1) if 'n_ESS' in mc_diag else None))
         except Exception as _e_diag:
             print(" mcsamplerAdaptiveVolume: MC-error diagnostics failed ({}); continuing.".format(_e_diag))
+
+        # ------------------------------------------------------------------
+        # LIVE-VOLUME COLLAPSE VERDICT: a degenerate contraction must be REPORTED, not
+        # silently exported.  Thresholds and the measured regimes they separate are
+        # documented on live_volume_collapse_verdict.
+        n_live_final = int(len(log_wt))
+        _ess = dict_return.get('n_ESS', None)
+        _khat_v = dict_return.get('pareto_khat', None)
+        collapsed, _reasons = live_volume_collapse_verdict(
+            n_live_final, ndim, ess=_ess, khat=_khat_v,
+            n_empty_cycles=n_empty_cycles, n_live_collapses=n_live_collapses)
+        dict_return['live_volume_collapsed'] = collapsed
+        dict_return['n_live_final'] = n_live_final
+        dict_return['n_empty_cycles'] = int(n_empty_cycles)
+        dict_return['n_live_collapses'] = int(n_live_collapses)
+        if collapsed:
+            dict_return['collapse_reason'] = "; ".join(_reasons)
+            print(" [AV COLLAPSE] the live volume degenerated: " + dict_return['collapse_reason'] + ".")
+            print(" [AV COLLAPSE] lnZ and the exported samples describe a SINGLE mode of the integrand and are")
+            print(" [AV COLLAPSE] NOT a fair draw from the posterior.  Do not use this export unweighted.")
+            print(" [AV COLLAPSE] At high network SNR this is likelihood underflow over a cold extrinsic prior;")
+            print(" [AV COLLAPSE] narrow the prior or seed the sampler (--sampler-warmstart-retry-neff).")
+
         return log_int, np.log(rel_var)  +2*log_int, eff_samp, dict_return
 
         # if outvals:
