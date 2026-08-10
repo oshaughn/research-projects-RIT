@@ -118,10 +118,9 @@ What the pipeline generates
 For a manifest, the ILE (and CIP) Condor submit files get:
 
 * **``MY.SingularityImage``** — an *unquoted* ``ifThenElse`` expression that
-  selects the highest-capability image the matched machine can run, falling back
-  to the ``fallback`` image (also used when the capability attribute is
-  ``undefined``, e.g. on a CPU-only CIP slot — hence the fallback must be
-  CPU-safe)::
+  selects the highest-capability image the matched machine can run, with the
+  ``fallback`` image as the innermost ``else`` (used when the machine's
+  capability is below every threshold)::
 
       ifThenElse(TARGET.GPUs_Capability >= 8.0, "./rift_container_modern.sif", "/cvmfs/.../rift_container_default.sif")
 
@@ -139,6 +138,107 @@ For a manifest, the ILE (and CIP) Condor submit files get:
   combined (``&&``) with any ``RIFT_REQUIRE_GPUS`` you set.  Both apply; neither
   is dropped.  This stops jobs matching a GPU that *no* image in the family
   supports.
+
+
+* **A capability-defined ``Requirements`` clause** —
+  ``TARGET.GPUs_Capability =!= undefined``.  The selection above is deliberately
+  *not* undefined-guarded: a slot that does not advertise the machine-level
+  capability rollup could be anything (including a Blackwell that hard-fails on
+  the older fallback image), so the safe action is to **not match it** rather
+  than guess.  Measured on the CIT pool, a large fraction of GPU slots satisfy
+  the per-GPU ``require_gpus`` floor yet do not advertise the rollup attribute;
+  without this clause those jobs go on hold with "Cannot expand $$ expression".
+
+CPU-only jobs are handled differently.  **CIP requests no GPU**, so its matched
+slot advertises no capability at all and a capability-keyed selection cannot
+resolve — it would hold the job.  CIP therefore collapses to a **single fixed
+container**: the manifest ``fallback`` image (hence the requirement that the
+fallback be CPU-safe), quoted as a plain literal, with no ``$$()`` token and no
+capability ``Requirements`` clause.
+
+
+.. _osg-container-modes:
+
+Choosing a delivery mode (legacy vs container universe)
+-------------------------------------------------------
+
+The expression-valued ``MY.SingularityImage`` above is evaluated on the
+*execute* side.  That works on a local HTCondor pool, but **OSPool glidein
+pilots read** ``SingularityImage`` **as a literal string**, so an ``ifThenElse``
+lands verbatim and the job holds.  Two opt-in modes solve this; pick one with an
+environment variable at DAG-build time.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 74
+
+   * - Mode
+     - Behaviour
+   * - *(default)*
+     - Legacy: ``universe = vanilla`` + expression-valued
+       ``MY.SingularityImage``.  Correct on a local/CIT pool.  **Not OSG-safe.**
+   * - ``RIFT_CONTAINER_UNIVERSE=1``
+     - **Recommended for OSG.**  ``universe = container`` and
+       ``container_image = $$([ ifThenElse(...) ])``.  ``$$()`` is HTCondor's
+       documented *match-time* (schedd-side) machine-ad substitution, so the
+       pilot only ever sees a literal image URL.  No ``MY.SingularityImage``,
+       no ``MY.SingularityBindCVMFS``, no ``$$()`` transfer token — the image is
+       delivered by ``container_image`` itself.  GPU access is automatic under
+       ``request_gpus``.  Works on CIT-local too.
+   * - ``RIFT_CONTAINER_RUNTIME_SELECT=1``
+     - Older fallback, ILE only.  Condor runs a generated
+       ``rift_container_select.sh`` on the bare execute node; the wrapper reads
+       the *real* GPU capability from ``nvidia-smi``, fetches only the matching
+       image (``stashcp``/``pelican``), and re-execs the command under
+       ``apptainer exec --nv``.  Detects the actual device rather than trusting
+       an advertised attribute, at the cost of running outside a container.
+
+Under asimov, set the variable from the blueprint rather than the shell:
+
+.. code-block:: yaml
+
+    scheduler:
+      singularity image: /path/to/rift_container_family.yaml
+      singularity base exe directory: /usr/local/bin/
+      environment variables:
+        RIFT_CONTAINER_UNIVERSE: 1
+
+.. note::
+
+   With a family manifest whose images are ``osdf://`` URLs, the pipeline also
+   enables the matching transfer credential automatically
+   (``use_oauth_services = scitokens``, or ``igwn`` for ``igwn+osdf:``).  The
+   single-image code path keys that off the ``SINGULARITY_RIFT_IMAGE`` string
+   itself, which for a manifest is just a ``.yaml`` path — so the manifest's
+   image URLs are inspected instead.
+
+.. warning::
+
+   **Why the container-universe selector names basenames, not URLs.**
+   ``condor_submit`` parses ``container_image`` *before* any ``$$`` expansion and
+   derives the job ad's ``ContainerImage`` — the name the image will have in the
+   job scratch dir — as the text after the **last** ``/``.  A selector containing
+   full paths is therefore cut in half, and the fragment that survives is not a
+   valid image name.  Submitting that form to the IGWN pool holds the job at the
+   execute point::
+
+       PREPARE_JOB (prepare-hook) failed (reported status 001):
+       Unable to download or build singularity image cutest_busybox_...sif") ])
+
+   So the selector emits **basenames only** (no ``/``), the whole ``$$`` token
+   survives into ``ContainerImage``, and the schedd expands it at match time
+   (``MATCH_EXP_ContainerImage = "rift_container_modern.sif"``).  The image itself
+   is delivered by the comma-free ``$$()`` transfer token, and ``MY.TransferInput``
+   is pinned so ``condor_submit`` does not append the basename selector to
+   ``TransferInput`` as a bogus extra input file.  Verified end to end on an OSPool
+   glidein against ``$CondorVersion: 25.11.1``.
+
+   Consequence: **every image in a family used with container universe must be a
+   transferable URL.**  An image referenced in place (a CVMFS or local path) can
+   only be named by its full path, which would reintroduce the truncation, so
+   :func:`~RIFT.misc.container_manifest.build_container_image_select` raises
+   ``ContainerManifestError`` for such a family.  Stage those images at a URL, or
+   use ``RIFT_CONTAINER_RUNTIME_SELECT=1``.
 
 
 GPU attribute names

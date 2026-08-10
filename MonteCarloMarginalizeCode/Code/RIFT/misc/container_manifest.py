@@ -105,6 +105,14 @@ def _image_runtime_path(image):
     return image
 
 
+def _image_basename(image):
+    """The bare file name an image has once transferred into the job scratch dir.
+
+    Used by the container-universe selector, which MUST NOT contain a ``/``.
+    """
+    return image.rstrip("/").split("/")[-1]
+
+
 def _fmt_cap(value):
     """Format a capability number for a ClassAd expression (e.g. 7.0 -> '7.0')."""
     return repr(float(value))
@@ -311,17 +319,36 @@ def build_container_image_select(manifest, request_gpu=True):
     GPU jobs (``request_gpu=True``, the default) get a per-machine selection: an
     unquoted ``$$([ ... ])`` token.  ``$$()`` is HTCondor's *match-time machine-ad
     substitution* -- the schedd evaluates the bracketed expression against the
-    matched machine ad and substitutes a literal image string into
-    ``container_image`` before the job reaches the execution point.  Unlike
-    :func:`build_singularity_image_expr` (an execute-side ClassAd expression that
-    OSPool glidein pilots read as a literal string and hold on), the pilot only
-    ever sees a literal URL.  ``$$`` in ``container_image`` is HTCondor's
-    documented mechanism for per-GPU-capability image selection, and it works on
-    both the CIT-local pool and OSPool glideins.  The branch value is the manifest
-    image *verbatim* (an ``osdf://`` URL the container-universe file-transfer
-    plugin fetches, or a CVMFS/local path used in place) -- NOT a ``./basename``
-    rewrite.  ``container_image`` is a single submit command (not a comma list),
-    so the comma-bearing ``ifThenElse`` form is fine.
+    matched machine ad and substitutes a literal string before the job reaches the
+    execution point.  Unlike :func:`build_singularity_image_expr` (an execute-side
+    ClassAd expression that OSPool glidein pilots read as a literal string and hold
+    on), the pilot only ever sees a literal image name.  ``container_image`` is a
+    single submit command (not a comma list), so the comma-bearing ``ifThenElse``
+    form is fine here.
+
+    **The branch values are BASENAMES, not full URLs.**  ``condor_submit`` parses
+    ``container_image`` *before* any ``$$`` expansion and derives the job ad's
+    ``ContainerImage`` -- the name the image will have in the job scratch dir -- as
+    the text after the **last** ``/``.  A selector containing full paths therefore
+    gets cut in half, and what survives is not even a valid image name.  This is not
+    theoretical: submitting the full-URL form to the IGWN pool holds the job at the
+    execute point with::
+
+        PREPARE_JOB (prepare-hook) failed (reported status 001):
+        Unable to download or build singularity image cutest_busybox_...sif") ])
+
+    With no ``/`` in the value, that derivation is a no-op, the whole ``$$`` token
+    survives into ``ContainerImage``, and the schedd expands it at match time
+    (``MATCH_EXP_ContainerImage = "rift_container_modern.sif"``) -- verified end to
+    end on an OSPool glidein.
+
+    Because the selector now names only basenames, the caller MUST also deliver the
+    matched image itself: add :func:`build_transfer_input_expr` (the comma-free
+    ternary over the full URLs) to ``transfer_input_files`` **and** emit it as
+    ``MY.TransferInput`` so it overrides the entry ``condor_submit`` would otherwise
+    derive from ``container_image``.  All images in the family must therefore be
+    transferable URLs; a family that references an image in place (CVMFS/local path)
+    cannot be selected this way and raises :class:`ContainerManifestError`.
 
     **Non-GPU jobs (``request_gpu=False``) collapse to a SINGLE fixed container**:
     the plain ``fallback`` image (a literal ``container_image``, no ``$$()``).
@@ -339,9 +366,20 @@ def build_container_image_select(manifest, request_gpu=True):
     by_label = {c["label"]: c for c in manifest["containers"]}
     fb_image = by_label[manifest["fallback"]]["image"]
     if not request_gpu:
-        # Single fixed container: no capability, no $$() -- a plain literal.
+        # Single fixed container: no capability, no $$() -- a plain literal.  This is
+        # the ordinary single-image path condor_submit handles correctly (it derives
+        # ContainerImage as the basename, which is exactly right).
         return fb_image
-    selector = _build_selector(manifest, lambda c: '"{}"'.format(c["image"]))
+    in_place = [c["label"] for c in manifest["containers"] if not _image_needs_transfer(c["image"])]
+    if in_place:
+        raise ContainerManifestError(
+            "container universe per-machine selection requires every image in the family "
+            "to be a transferable URL (e.g. osdf://), because the selector may not contain "
+            "a '/' -- condor_submit would truncate it.  In-place image(s): {}.  Either "
+            "stage those images at a URL, or use RIFT_CONTAINER_RUNTIME_SELECT=1 instead "
+            "of RIFT_CONTAINER_UNIVERSE=1.".format(", ".join(sorted(in_place)))
+        )
+    selector = _build_selector(manifest, lambda c: '"{}"'.format(_image_basename(c["image"])))
     return "$$([ {} ])".format(selector)
 
 
