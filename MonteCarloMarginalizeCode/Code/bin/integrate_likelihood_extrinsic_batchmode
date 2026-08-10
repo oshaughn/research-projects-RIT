@@ -8,6 +8,7 @@ Integrate the extrinsic parameters of the prefactored likelihood function.
 """
 
 import sys
+import json
 import functools
 from optparse import OptionParser, OptionGroup
 
@@ -3385,6 +3386,37 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             opts.extrinsic_proposal_output, len(_ext['groups']), [g['params'] for g in _ext['groups']]))
       except Exception as _e_eho:
         print(" WARNING: could not write extrinsic proposal to {} ({}); continuing.".format(opts.extrinsic_proposal_output, _e_eho))
+
+    # MACHINE-READABLE INTEGRATOR STATUS, beside every other artifact.
+    # A collapsed run is not distinguishable from a converged one in the .dat/.grid/XML
+    # products: their schemas are positional and consumed by CIP, so a marker cannot go in
+    # a new column without breaking every reader.  A sidecar can, and unlike a stdout
+    # warning it survives into the pipeline.  Written on EVERY run, so "collapsed": false
+    # is an explicit statement rather than an inference from a missing file -- downstream
+    # can require the file and fail loudly on an integrator too old to write one.
+    if opts.output_file and isinstance(dict_return, dict):
+        _fn_status = opts.output_file + "_" + str(indx_event) + "_" + "integrator_status.json"
+        try:
+            _status = {"event_id": int(opts.event) if opts.sim_xml else -1,
+                       "indx_event": int(indx_event),
+                       "sampler_method": opts.sampler_method,
+                       "collapsed": bool(dict_return.get('live_volume_collapsed', False)),
+                       "collapse_reason": dict_return.get('collapse_reason', ''),
+                       "lnL": float(log_res + manual_avoid_overflow_logarithm),
+                       "sigma_lnL": float(sqrt_var_over_res),
+                       "neff": float(sampler.identity_convert(neff)) if neff is not None else None,
+                       "ntotal": int(sampler.ntotal)}
+            for _k in ('pareto_khat', 'n_ESS', 'n_live_final', 'n_empty_cycles',
+                       'n_live_collapses', 'n_warm_seed', 'n_warm_seed_rank', 'V_warm_start'):
+                if _k in dict_return and dict_return[_k] is not None:
+                    _status[_k] = float(dict_return[_k]) if not isinstance(dict_return[_k], bool) else dict_return[_k]
+            with open(_fn_status, 'w') as _f_status:
+                json.dump(_status, _f_status, indent=1, sort_keys=True)
+            if _status["collapsed"]:
+                print(" [mc error] collapse recorded for downstream in {}".format(_fn_status))
+        except Exception as _e_status:
+            # Never let a diagnostic file abort a run that otherwise succeeded.
+            print(" WARNING: could not write {} ({}); continuing.".format(_fn_status, _e_status))
 
     # Report results
     if opts.output_file and opts.sim_grid:

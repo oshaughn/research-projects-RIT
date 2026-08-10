@@ -129,7 +129,8 @@ class LiveVolumeCollapse(Exception):
 
 def live_volume_collapse_verdict(n_live, ndim, ess=None, khat=None,
                                  n_empty_cycles=0, n_live_collapses=0,
-                                 n_warm_seed=None):
+                                 n_warm_seed=None, n_warm_seed_rank=None,
+                                 n_warm_seed_dim=None):
     """Has the adaptive-volume live set degenerated?  -> (collapsed, [reasons])
 
     A degenerate contraction must be REPORTED rather than silently exported: the run
@@ -157,15 +158,30 @@ def live_volume_collapse_verdict(n_live, ndim, ess=None, khat=None,
     at V = 7.5e-9 to 1.5e-8 (351-684 live bins) and returned ln(Z/Lmax) = -27.0 to -30.6;
     the one seeded from 2 points warm-started at V = 9.2e-36 (13 bins) and returned -80.7,
     i.e. ~50 nats low, with eff_samp 9789 of 10010 samples.  So:
-      * n_warm_seed <= ndim + 1 -- fewer points than a simplex cannot define a volume in
-        ndim dimensions, whatever the grid built from them looks like.  Geometric, not
-        tuned, and the same kind of statement as the n_live <= ndim rule above.
-    n_warm_seed is None (cold pass) or 0 (grid of unknown provenance) -> rule skipped.
+      * n_warm_seed_rank < n_warm_seed_dim -- the seed cloud's AFFINE RANK (rank of the
+        mean-centred points, per-axis scaled by the box) is below the dimension it must
+        span, so it lies in a lower-dimensional subspace and cannot define a volume there.
+    RANK, not row count, is the invariant.  Rows are neither necessary nor sufficient:
+    thousands of duplicated or collinear points span the same degenerate subspace two
+    points do and fail identically, while d+1 affinely independent points are exactly
+    enough to define a volume in d dimensions and must NOT be flagged.  Rank subsumes the
+    count anyway, since n points span at most n-1 affine dimensions.
+
+    n_warm_seed* are None on a cold pass -> the rule is skipped.  If rank is unavailable
+    (a grid restored by load_state from a run that predates it) we fall back to the count,
+    at the correct simplex boundary: fewer than dim+1 points, i.e. n <= dim.
     """
     reasons = []
-    if n_warm_seed and n_warm_seed <= ndim + 1:   # None (cold) / 0 (unknown) -> skip
+    _seed_dim = n_warm_seed_dim if n_warm_seed_dim else ndim
+    if n_warm_seed_rank is not None and n_warm_seed_dim:
+        if n_warm_seed_rank < n_warm_seed_dim:
+            reasons.append(
+                "warm-started from a seed of affine rank {} in {} adaptive dimension(s)"
+                "{}".format(n_warm_seed_rank, n_warm_seed_dim,
+                            "" if not n_warm_seed else " ({} point(s))".format(n_warm_seed)))
+    elif n_warm_seed and n_warm_seed <= _seed_dim:   # None (cold) / 0 (unknown) -> skip
         reasons.append("warm-started from only {} seed point(s) in {} dimensions".format(
-            n_warm_seed, ndim))
+            n_warm_seed, _seed_dim))
     if n_empty_cycles:
         reasons.append("{} cycle(s) with no finite in-volume sample".format(n_empty_cycles))
     if n_live_collapses:
@@ -850,11 +866,24 @@ class MCSampler(object):
         # keeps the seeded region; if no lnL given, let integrate_log recompute it
         # (the concentrated grid already delivers the efficiency win).
         loglkl_thr = -1e15 if loglkl is None else float(np.min(loglkl))
-        # n_seed: how many in-box reference points this grid was actually built from.
-        # Carried so integrate_log can report a seed too small to define a volume -- see
-        # live_volume_collapse_verdict.  It is provenance, not a sampling parameter.
+        # SEED PROVENANCE, carried so integrate_log can report a seed that cannot define a
+        # volume -- see live_volume_collapse_verdict.  Not sampling parameters.
+        #
+        # The row COUNT alone is the wrong test.  Many rows that are duplicated or
+        # collinear span the same degenerate subspace two points do and produce the
+        # identical near-zero-volume failure; conversely d+1 affinely independent points
+        # are exactly enough to define a volume in d dimensions and are fine.  So record
+        # the AFFINE RANK of the seed cloud -- the rank of the mean-centred points -- over
+        # the adaptive axes, scaled by the box so the test is unit-free (a distance in Mpc
+        # and an angle in radians must not get different tolerances).  n points span at
+        # most n-1 affine dimensions, so rank subsumes the count test.
+        _ax = list(self.indx_adaptive) if self.d_adaptive > 0 else list(range(ndim))
+        _core = np.asarray(res_pts, dtype=float)[:, _ax]
+        _scaled = (_core - _core.mean(axis=0)) / np.clip(box[_ax], 1e-300, None)
+        n_seed_rank = int(np.linalg.matrix_rank(_scaled, tol=1e-9)) if len(_core) > 1 else 0
         return dict(binunique=binunique, dx=dx, nbins=nbins, V=V,
-                    loglkl_thr=loglkl_thr, trunc_p=1e-10, n_seed=nrec)
+                    loglkl_thr=loglkl_thr, trunc_p=1e-10, n_seed=nrec,
+                    n_seed_rank=n_seed_rank, n_seed_dim=len(_ax))
 
     def bootstrap_from_samples(self, samples, params=None, loglkl=None, enc_prob=0.999,
                                cover_frac=0.0, dilate=1, inflate=1.0, seed=None):
@@ -1026,7 +1055,9 @@ class MCSampler(object):
                  binunique=warm['binunique'], dx=warm['dx'], nbins=warm['nbins'],
                  V=warm['V'], loglkl_thr=warm['loglkl_thr'],
                  trunc_p=warm.get('trunc_p', 1e-10),
-                 n_seed=warm.get('n_seed', 0))   # 0 = unknown provenance (grid taken from the live state)
+                 n_seed=warm.get('n_seed', 0),   # 0 = unknown provenance (grid taken from the live state)
+                 n_seed_rank=warm.get('n_seed_rank', -1),   # -1 = not recorded by the producing run
+                 n_seed_dim=warm.get('n_seed_dim', 0))
         return path
 
     def load_state(self, path):
@@ -1046,7 +1077,11 @@ class MCSampler(object):
         self._warm = dict(binunique=np.array(d['binunique']), dx=np.array(d['dx']),
                           nbins=np.array(d['nbins']), V=float(d['V']),
                           loglkl_thr=float(d['loglkl_thr']), trunc_p=float(d['trunc_p']),
-                          n_seed=int(d['n_seed']) if 'n_seed' in d else 0)
+                          n_seed=int(d['n_seed']) if 'n_seed' in d else 0,
+                          # -1 / 0 = a state file written before the rank was recorded; the
+                          # verdict then falls back to the count rule.
+                          n_seed_rank=int(d['n_seed_rank']) if 'n_seed_rank' in d else -1,
+                          n_seed_dim=int(d['n_seed_dim']) if 'n_seed_dim' in d else 0)
         return self._warm
 
 
@@ -1188,6 +1223,8 @@ class MCSampler(object):
         # already reset these to cold defaults, so we re-apply the seed here.
         warm = getattr(self, '_warm', None)
         n_warm_seed = None   # in-box points the seeded grid was built from (None: cold pass)
+        n_warm_seed_rank = None  # affine rank of that seed cloud (None: cold, or not recorded)
+        n_warm_seed_dim = None   # dimensions it had to span
         V_warm = None        # the seeded fractional volume, for the collapse report
         if warm is not None:
             self.binunique = np.array(warm['binunique'])
@@ -1200,11 +1237,18 @@ class MCSampler(object):
             # 0 (or absent) = provenance unknown, e.g. a grid restored by load_state from a run
             # that predates this field; the seed-size check below then does not fire.
             n_warm_seed = int(warm.get('n_seed', 0)) or None
+            # Affine rank of the seed cloud, which is the invariant the verdict tests; -1 or
+            # absent means the producing run predates it and the count rule is used instead.
+            _rk = int(warm.get('n_seed_rank', -1))
+            n_warm_seed_rank = _rk if _rk >= 0 else None
+            n_warm_seed_dim = int(warm.get('n_seed_dim', 0)) or None
             V_warm = V
             if bShowEvaluationLog:
-                print("  [AV warm-start] live bins={} V={:.3e} loglkl_thr={:.3g} from {} seed pt(s)".format(
+                print("  [AV warm-start] live bins={} V={:.3e} loglkl_thr={:.3g} from {} seed pt(s), affine rank {}/{}".format(
                     self.binunique.shape[0], V, loglkl_thr,
-                    "?" if n_warm_seed is None else n_warm_seed))
+                    "?" if n_warm_seed is None else n_warm_seed,
+                    "?" if n_warm_seed_rank is None else n_warm_seed_rank,
+                    "?" if n_warm_seed_dim is None else n_warm_seed_dim))
 
         var_lnV = 0.0  # accumulated variance of ln(V): V is a stochastic product of per-cycle
                        # binomial survival fractions, and Z ~ V*mean(w), so Var(lnV) is a
@@ -1514,20 +1558,30 @@ class MCSampler(object):
         collapsed, _reasons = live_volume_collapse_verdict(
             n_live_final, ndim, ess=_ess, khat=_khat_v,
             n_empty_cycles=n_empty_cycles, n_live_collapses=n_live_collapses,
-            n_warm_seed=n_warm_seed)
+            n_warm_seed=n_warm_seed, n_warm_seed_rank=n_warm_seed_rank,
+            n_warm_seed_dim=n_warm_seed_dim)
         dict_return['live_volume_collapsed'] = collapsed
         dict_return['n_live_final'] = n_live_final
         dict_return['n_empty_cycles'] = int(n_empty_cycles)
         dict_return['n_live_collapses'] = int(n_live_collapses)
         if n_warm_seed is not None:
             dict_return['n_warm_seed'] = int(n_warm_seed)
+            if n_warm_seed_rank is not None:
+                dict_return['n_warm_seed_rank'] = int(n_warm_seed_rank)
+                dict_return['n_warm_seed_dim'] = int(n_warm_seed_dim or 0)
             dict_return['V_warm_start'] = float(V_warm)
         if collapsed:
             dict_return['collapse_reason'] = "; ".join(_reasons)
             print(" [AV COLLAPSE] the live volume degenerated: " + dict_return['collapse_reason'] + ".")
             print(" [AV COLLAPSE] lnZ and the exported samples describe a SINGLE mode of the integrand and are")
             print(" [AV COLLAPSE] NOT a fair draw from the posterior.  Do not use this export unweighted.")
-            if n_warm_seed is not None and n_warm_seed <= ndim + 1:
+            # The same test the verdict used -- rank when recorded, count at the simplex
+            # boundary otherwise -- so the advice always matches the reason just given.
+            _seed_degenerate = (
+                (n_warm_seed_rank < n_warm_seed_dim)
+                if (n_warm_seed_rank is not None and n_warm_seed_dim)
+                else (n_warm_seed is not None and n_warm_seed <= (n_warm_seed_dim or ndim)))
+            if _seed_degenerate:
                 # OPPOSITE failure to the cold one below, so it needs the opposite advice: the
                 # numbers look GOOD (n_eff at target in one cycle) precisely because the seeded
                 # volume is too small for the integrand to vary across it.  lnZ is a lower bound.

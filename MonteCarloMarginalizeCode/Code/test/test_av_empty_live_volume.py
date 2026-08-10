@@ -443,12 +443,19 @@ def test_the_existing_rules_alone_do_not_see_an_over_contracted_warm_start():
 
 
 @pytest.mark.parametrize('n_seed,expect', [
-    (2, True),          # seed 9134: V = 9.192e-36, lnZ ~50 nats low
-    (NDIM + 1, True),   # a simplex is the smallest cloud that spans NDIM dimensions
+    (2, True),           # seed 9134: V = 9.192e-36, lnZ ~50 nats low
+    (NDIM, True),        # fewer points than a simplex cannot span NDIM dimensions
+    (NDIM + 1, False),   # a simplex CAN: ndim+1 independent points do define a volume
     (NDIM + 2, False),
-    (2000, False),      # the eleven healthy replicates (the caller's puffed seed)
+    (2000, False),       # the eleven healthy replicates (the caller's puffed seed)
 ])
-def test_collapse_verdict_flags_a_warm_seed_too_small_to_define_a_volume(n_seed, expect):
+def test_count_fallback_flags_a_warm_seed_too_small_to_define_a_volume(n_seed, expect):
+    """The COUNT rule, which applies only when the affine rank was not recorded.
+
+    The boundary is n <= dim, not n <= dim+1: dim+1 affinely independent points are
+    exactly enough to define a volume in dim dimensions, so flagging them is wrong.
+    Where rank IS available it supersedes this entirely -- see the rank tests below.
+    """
     collapsed, reasons = live_volume_collapse_verdict(10010, NDIM, ess=9788.7, khat=0.4,
                                                       n_warm_seed=n_seed)
     assert collapsed is expect, reasons
@@ -473,12 +480,15 @@ def test_the_warm_seed_size_reaches_the_verdict_from_bootstrap_from_samples():
     s.bootstrap_from_samples(peak + 1e-3 * np.array([[-1.0] * NDIM, [1.0] * NDIM]),
                              cover_frac=0.0)
     assert s._warm['n_seed'] == 2
+    # two points span a line: affine rank 1, not NDIM
+    assert s._warm['n_seed_rank'] == 1 and s._warm['n_seed_dim'] == NDIM
     res = s.integrate_log(_peaked(20.0), *NAMES, nmax=100000, neff=8, n=20000,
                           no_protect_names=True, verbose=False)
     dd = res[3]
     assert dd['n_warm_seed'] == 2
+    assert dd['n_warm_seed_rank'] == 1
     assert dd['live_volume_collapsed'] is True
-    assert 'seed point' in dd['collapse_reason']
+    assert 'affine rank' in dd['collapse_reason']
 
 
 def test_a_well_seeded_warm_start_is_not_flagged():
@@ -639,3 +649,131 @@ def test_legacy_empty_reduction_classifier_requires_traceback_corroboration():
     # the named exception remains the primary, isinstance-based route
     assert 'isinstance(exception_failure' in src, \
         'the named LiveVolumeCollapse is no longer matched by type'
+
+
+###
+### 11. Warm-seed adequacy is a RANK question, not a row count  (PR #63 review, finding 2)
+###
+# A row count is neither necessary nor sufficient.  Duplicated or collinear points span
+# the same degenerate subspace two points do and fail identically however many there are;
+# ndim+1 affinely independent points are exactly enough to define a volume and must pass.
+
+def test_duplicated_seed_points_are_flagged_however_many_there_are():
+    """1000 copies of one point span nothing: rank 0 in NDIM dimensions."""
+    collapsed, reasons = live_volume_collapse_verdict(
+        5000, NDIM, ess=9788.0, khat=0.1,
+        n_warm_seed=1000, n_warm_seed_rank=0, n_warm_seed_dim=NDIM)
+    assert collapsed is True, reasons
+    assert 'affine rank' in '; '.join(reasons)
+
+
+def test_collinear_seed_points_are_flagged_however_many_there_are():
+    """Many points along a line span one dimension, not NDIM."""
+    collapsed, reasons = live_volume_collapse_verdict(
+        5000, NDIM, ess=9788.0, khat=0.1,
+        n_warm_seed=2000, n_warm_seed_rank=1, n_warm_seed_dim=NDIM)
+    assert collapsed is True, reasons
+
+
+def test_a_simplex_of_independent_points_is_NOT_flagged():
+    """ndim+1 affinely independent points define a volume in ndim dimensions.
+
+    This is the case the earlier count rule (n <= ndim+1) wrongly rejected.
+    """
+    collapsed, reasons = live_volume_collapse_verdict(
+        5000, NDIM, ess=40.0, khat=0.5,
+        n_warm_seed=NDIM + 1, n_warm_seed_rank=NDIM, n_warm_seed_dim=NDIM)
+    assert collapsed is False, reasons
+
+
+def test_count_fallback_uses_the_simplex_boundary_when_rank_is_unavailable():
+    """Old saved state carries no rank: fall back to the count, at n <= dim."""
+    # ndim points cannot span ndim dimensions -> flagged
+    c_short, _ = live_volume_collapse_verdict(5000, NDIM, ess=40.0, khat=0.5,
+                                              n_warm_seed=NDIM)
+    assert c_short is True
+    # ndim+1 points might -> not flagged on the count alone
+    c_ok, _ = live_volume_collapse_verdict(5000, NDIM, ess=40.0, khat=0.5,
+                                           n_warm_seed=NDIM + 1)
+    assert c_ok is False
+
+
+def test_a_cold_pass_is_never_flagged_for_seed_geometry():
+    collapsed, reasons = live_volume_collapse_verdict(5000, NDIM, ess=40.0, khat=0.5)
+    assert collapsed is False, reasons
+
+
+def test_the_seed_rank_is_measured_from_the_actual_points():
+    """End to end: bootstrap_from_samples must record rank, not just a row count."""
+    s = _sampler()
+    rng = np.random.RandomState(3)
+    # 500 points, but confined to a 2-D plane inside the 6-D box: rank 2, not 6.
+    base = rng.uniform(0.4, 0.6, size=(500, 2))
+    pts = np.zeros((500, NDIM)) + 0.5
+    pts[:, 0] = base[:, 0]
+    pts[:, 1] = base[:, 1]
+    warm = s.bootstrap_from_samples(pts, cover_frac=0.0)
+    assert warm['n_seed'] == 500, 'row count should still be recorded'
+    assert warm['n_seed_dim'] == NDIM
+    assert warm['n_seed_rank'] == 2, \
+        'affine rank of a planar cloud must be 2, got {}'.format(warm['n_seed_rank'])
+    collapsed, reasons = live_volume_collapse_verdict(
+        5000, NDIM, ess=40.0, khat=0.5, n_warm_seed=warm['n_seed'],
+        n_warm_seed_rank=warm['n_seed_rank'], n_warm_seed_dim=warm['n_seed_dim'])
+    assert collapsed is True, reasons
+
+
+def test_a_full_rank_seed_cloud_is_measured_as_full_rank():
+    s = _sampler()
+    rng = np.random.RandomState(4)
+    pts = rng.uniform(0.35, 0.65, size=(500, NDIM))
+    warm = s.bootstrap_from_samples(pts, cover_frac=0.0)
+    assert warm['n_seed_rank'] == NDIM
+    collapsed, _ = live_volume_collapse_verdict(
+        5000, NDIM, ess=40.0, khat=0.5, n_warm_seed=warm['n_seed'],
+        n_warm_seed_rank=warm['n_seed_rank'], n_warm_seed_dim=warm['n_seed_dim'])
+    assert collapsed is False
+
+
+def test_seed_rank_survives_save_and_load_state(tmp_path):
+    s = _sampler()
+    rng = np.random.RandomState(5)
+    pts = rng.uniform(0.4, 0.6, size=(300, NDIM))
+    s.bootstrap_from_samples(pts, cover_frac=0.0)
+    path = s.save_state(str(tmp_path / "warm.npz"))
+    s2 = _sampler()
+    warm2 = s2.load_state(path)
+    assert warm2['n_seed_rank'] == NDIM and warm2['n_seed_dim'] == NDIM
+
+
+###
+### 12. Collapse status must be machine-readable downstream  (PR #63 review, finding 1)
+###
+# The stdout warning does not survive into the pipeline, and .dat/.grid/XML schemas are
+# positional (CIP reads them by column), so the marker rides in a sidecar instead.
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_ile_writes_a_machine_readable_integrator_status():
+    with open(_ILE) as f:
+        src = f.read()
+    assert 'integrator_status.json' in src, \
+        'no machine-readable collapse marker is written beside the results'
+    i = src.find('integrator_status.json')
+    block = src[max(0, i - 700):i + 1800]
+    assert '"collapsed"' in block, 'the sidecar does not record collapse status'
+    # written unconditionally, so "collapsed": false is a statement and not an inference
+    # from a missing file
+    assert 'if opts.output_file and isinstance(dict_return, dict)' in src, \
+        'the status sidecar is not written on every run'
+    # and it must not be able to break a run that otherwise succeeded
+    assert 'could not write' in block
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_the_status_sidecar_carries_the_diagnostics_needed_to_act():
+    with open(_ILE) as f:
+        src = f.read()
+    i = src.find('integrator_status.json')
+    block = src[i:i + 2000]
+    for key in ('collapse_reason', 'pareto_khat', 'n_ESS', 'n_live_final'):
+        assert key in block, 'sidecar omits {}'.format(key)
