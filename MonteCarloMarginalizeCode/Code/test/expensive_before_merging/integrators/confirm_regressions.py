@@ -65,10 +65,23 @@ def _rerun(checkout, rec, seed, jobs, tag):
     env = dict(os.environ)
     env["PYTHONPATH"] = os.path.join(checkout, "MonteCarloMarginalizeCode", "Code") + \
         os.pathsep + env.get("PYTHONPATH", "")
+    # Have the child CHECK that prepend rather than trust it.  This is the arm-comparison path, so
+    # a checkout that does not resolve makes BOTH arms fall back to the installed RIFT and report
+    # bit-identical numbers -- indistinguishable from the genuine "equivalent at fresh seeds"
+    # clear this script exists to issue.  Mismatch now aborts the child, the record is missing,
+    # and too few valid pairs is INCONCLUSIVE, which is already non-zero exit.
+    env["RIFT_SHAPE_CHECKOUT"] = checkout
     env["CUDA_VISIBLE_DEVICES"] = ""
     try:
-        subprocess.run(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                       check=False)
+        # stderr is KEPT (it was DEVNULL): a child that dies -- wrong RIFT, missing dependency,
+        # crash -- otherwise reaches the operator only as an unexplained INCONCLUSIVE much later.
+        proc = subprocess.run(cmd, env=env, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.PIPE, check=False)
+        if proc.returncode:
+            detail = (proc.stderr or b"").decode("utf-8", "replace").strip()
+            sys.stderr.write("# {} arm FAILED (rc={}) on {} seed {}\n{}\n".format(
+                tag, proc.returncode, _key(rec), seed,
+                "\n".join(detail.splitlines()[-20:])))
         with open(path) as fh:
             for r in json.load(fh):
                 if _key(r) == _key(rec):

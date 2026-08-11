@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 """pytest wrapper for the shape-recovery merge gate.
 
-Guarded by an env var so ordinary `pytest` sweeps stay fast:
+Guarded by an env var so ordinary `pytest` sweeps stay fast.  PYTHONPATH is NOT optional: it is
+what decides whether the branch or the environment's installed RIFT gets measured (see below), so
+the documented invocation carries it, and the module refuses to run without it.
 
+    export PYTHONPATH=<checkout>/MonteCarloMarginalizeCode/Code:$PYTHONPATH
     RIFT_RUN_EXPENSIVE=1 pytest -v test_shape_recovery.py            # quick matrix
     RIFT_RUN_EXPENSIVE=1 RIFT_SHAPE_PRESET=standard pytest -v ...    # full gate
 
@@ -14,11 +17,38 @@ import os
 
 import pytest
 
-from shape_recovery import MixtureTarget, PRESETS, evaluate, run_one, cell_budget
+from shape_recovery import (MixtureTarget, PRESETS, assert_rift_under_test, cell_budget,
+                            evaluate, run_one)
+
+_EXPENSIVE = bool(os.environ.get("RIFT_RUN_EXPENSIVE"))
 
 pytestmark = pytest.mark.skipif(
-    not os.environ.get("RIFT_RUN_EXPENSIVE"),
-    reason="expensive merge-gate suite; set RIFT_RUN_EXPENSIVE=1")
+    not _EXPENSIVE, reason="expensive merge-gate suite; set RIFT_RUN_EXPENSIVE=1")
+
+# The gate has two entry points and only one of them carried the piece of setup that decides WHICH
+# RIFT is measured: run_shape_recovery.sh exports PYTHONPATH=<checkout>/MonteCarloMarginalizeCode/
+# Code, pytest exports nothing.  So in any environment with RIFT installed -- every IGWN conda env
+# -- this file gated the INSTALLED RIFT and reported pass/fail as if it had gated the branch.  On
+# `GMM mix_d4_n2_s101` at the quick budget (run seed 987654) that is n_eff 42.3 (branch) vs 4.6
+# (CVMFS-installed); whole-sweep medians differ by ~2x and the width_ratio signature differs
+# qualitatively.  Same family as FOLLOWUPS items 3 and 5: one thing, two ways in, one of them
+# missing required setup, both plausible in isolation, failure silent.
+#
+# This REFUSES rather than repairing sys.path.  Prepending the checkout here would make these
+# numbers right and leave the operator's invocation wrong, so the next thing they run by hand --
+# the probe, a bisect, an interactive reproduction -- would measure the installed RIFT again.
+# Checked only under RIFT_RUN_EXPENSIVE so a plain `pytest` sweep still just skips.
+_WRONG_RIFT = None
+if _EXPENSIVE:
+    try:
+        assert_rift_under_test(os.environ.get("RIFT_SHAPE_CHECKOUT"),
+                               who="the pytest entry point of the shape-recovery gate")
+    except RuntimeError as exc:
+        _WRONG_RIFT = str(exc)
+# raised OUTSIDE the handler: inside it, pytest chains the RuntimeError and prints its traceback,
+# burying the operator-facing message this exists to deliver.  Collection ERROR, message only.
+if _WRONG_RIFT:
+    pytest.fail(_WRONG_RIFT, pytrace=False)
 
 _PRESET = PRESETS[os.environ.get("RIFT_SHAPE_PRESET", "quick")]
 _STRICT = os.environ.get("RIFT_SHAPE_STRICT", "AV,GMM").split(",")

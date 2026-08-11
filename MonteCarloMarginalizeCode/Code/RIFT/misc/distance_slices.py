@@ -47,6 +47,19 @@ def _to_cpu(x):
     return x
 
 
+def _array_module(x):
+    """Array module that owns ``x``: cupy for device arrays, numpy otherwise.
+
+    Same duck typing as ``_to_cpu``, so cupy stays an optional import -- only a
+    genuine cupy array triggers it.  Lets a helper do arithmetic on whatever
+    backend it was handed instead of forcing a host round trip.
+    """
+    if type(x).__module__.split(".")[0] == "cupy":
+        import cupy
+        return cupy
+    return np
+
+
 #: AV block size at which ``nsel = min(1000, int(0.1*n_chunk))`` saturates at its
 #: intended 1000.  This is a saturation point, not a tuned value -- see
 #: :func:`resolve_slice_chunk` for why going below it is not merely noisy.  It also
@@ -94,20 +107,20 @@ def resolve_slice_chunk(explicit_chunk, ile_n_chunk, verbose=True):
 
     * accuracy: on hard targets 40000 was measurably worse than 10000-15000
       (coverage 0.17 vs 0.95 at KL 6.94).  10000-15000 is an optimum, not a floor.
-    * host RAM, on EVERY run: these slice integrations are host-side.
-      ``like_at_pinned_d`` pulls each block's likelihood back with ``_to_cpu`` and
-      builds the pinned-distance and clipped-Omega arrays with numpy, so per-block
-      *system* memory scales with n_chunk whether or not the job has a GPU.
-      Going 2000 -> 10000 took a 760-job CPU export pilot from ~1 GB typical to
-      spikes past 8 GB, holding ~12% of jobs on cgroup limits.  Budget >=8 GB
-      request_memory for CPU slice exports at 10000, and more above it.
+    * host RAM on a CPU export: with no device to hold them, every block's arrays
+      are in *system* memory, so per-block RSS scales with n_chunk.  Going
+      2000 -> 10000 took a 760-job CPU export pilot from ~1 GB typical to spikes
+      past 8 GB, holding ~12% of jobs on cgroup limits.  Budget >=8 GB
+      request_memory for CPU slice exports at 10000, and more above it.  Note that
+      MemoryUsage under-reports on cgroup OOM kills, so a job that dies this way
+      will not obviously look memory-bound.
 
-      GPU jobs are *less* exposed, not exempt: the main-loop arrays stay in GPU
-      memory, and 4 GB sufficed in the campaign that measured this -- but the
-      device-to-host transfer volume and the host arrays above both grow with
-      n_chunk, so re-check the request rather than assuming a GPU run is immune.
-      Note that MemoryUsage under-reports on cgroup OOM kills, so a job that dies
-      this way will not obviously look memory-bound.
+      GPU jobs are much less exposed.  ``like_at_pinned_d`` clips and pins on the
+      sampler's own backend, so on a GPU run the Omega block never leaves the
+      device and only the lnL vector comes back through ``_to_cpu``; the per-block
+      host arrays that used to scale with n_chunk are gone.  4 GB sufficed in the
+      campaign that measured this.  What still grows with n_chunk on a GPU run is
+      device memory, not host.
     """
     if explicit_chunk is not None:
         n_chunk = int(explicit_chunk)
@@ -134,10 +147,10 @@ def resolve_slice_chunk(explicit_chunk, ile_n_chunk, verbose=True):
             n_chunk = AV_NSEL_SATURATION_CHUNK
     if n_chunk > 15000 and verbose:
         print("    : WARNING slice block size {} exceeds the measured 10000-15000"
-              " optimum (40000 was WORSE: coverage 0.17 vs 0.95 at KL 6.94). These"
-              " integrations are host-side even on GPU jobs, so raise"
-              " request_memory (>8 GB at 10000) on BOTH CPU and GPU"
-              " exports.".format(n_chunk))
+              " optimum (40000 was WORSE: coverage 0.17 vs 0.95 at KL 6.94). CPU"
+              " exports run these integrations entirely host-side, so raise"
+              " request_memory there (>8 GB at 10000); GPU runs keep the Omega"
+              " block on the device.".format(n_chunk))
     return n_chunk
 
 
@@ -577,20 +590,25 @@ def fresh_sample_slices(reference_sampler, like_to_integrate, d_slices,
                          for p in omega_params}
 
         def like_at_pinned_d(**kw):
-            # AV's integrate_log passes Omega params as kwargs by name.
+            # AV's integrate_log passes Omega params as kwargs by name, in its
+            # own native backend: cupy on a GPU run, numpy otherwise.  Stay on
+            # that backend.  Clipping with numpy here would raise TypeError on a
+            # cupy array; AV catches that and retries the whole block with a host
+            # copy, so every block would cross PCIe twice (D2H for this helper,
+            # then H2D inside the device-native likelihood) for nothing.
             sample = next(iter(kw.values()))
-            N_eval = len(sample)
-            d_arr = np.full(N_eval, d_fixed)
+            xp = _array_module(sample)
             full = {}
             for p, arr in kw.items():
                 lo, hi = omega_bounds.get(p, (-np.inf, np.inf))
                 # nudge inward by a tiny epsilon relative to range, so arccos
                 # and friends never see the exact boundary
                 eps = 1e-12 * max(abs(hi - lo), 1.0)
-                full[p] = np.clip(np.asarray(arr, float), lo + eps, hi - eps)
-            full["distance"] = d_arr
+                full[p] = xp.clip(xp.asarray(arr, dtype=float), lo + eps, hi - eps)
+            full["distance"] = xp.full_like(sample, d_fixed, dtype=float)
             # like_to_integrate is the cached ILE likelihood -> returns CUPY on a
-            # GPU run; the fresh AV integrator here is host-side, so bring it back.
+            # GPU run; the AV bookkeeping downstream is host-side, so bring the
+            # lnL vector (and only that) back.
             return _to_cpu(like_to_integrate(*(full[a] for a in arg_names)))
 
         try:

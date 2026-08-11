@@ -267,6 +267,88 @@ with two callers, one updated, both plausible in isolation, failure silent.
 
 ---
 
+## 6. The pytest entry point gated the INSTALLED RIFT, not the branch
+
+**Status:** DONE -- the two entry points now agree, and both refuse a foreign RIFT.
+Tests in `test_rift_provenance_guard.py`.
+
+`test_shape_recovery.py` documents itself as an equivalent way into the same gate
+`run_shape_recovery.sh` drives:
+
+```
+RIFT_RUN_EXPENSIVE=1 pytest -v test_shape_recovery.py            # quick matrix
+RIFT_RUN_EXPENSIVE=1 RIFT_SHAPE_PRESET=standard pytest -v ...    # full gate
+```
+
+But the shell driver exports two things the pytest path did not:
+
+```
+export PYTHONPATH="${CHECKOUT}/MonteCarloMarginalizeCode/Code:${PYTHONPATH}"
+export CUDA_VISIBLE_DEVICES=""
+```
+
+So in any environment that also has RIFT installed -- every IGWN conda env -- the pytest entry
+point measured the **installed** RIFT and reported pass/fail as if it had gated the branch.
+Nothing in the output distinguished the two runs.
+
+**Evidence** (`GMM mix_d4_n2_s101`, quick budget, run seed 987654, ldas-pcdev2,
+`/cvmfs/software.igwn.org/conda/envs/igwn`):
+
+| RIFT | n_eff | n_ESS | JSmax | \|pull\| | widthdev |
+|---|---|---|---|---|---|
+| branch (`rift_O4d` checkout on PYTHONPATH) | 42 | 404 | 0.0205 | 0.123 | 0.099 |
+| installed (CVMFS igwn) | 5 | 20 | 0.0865 | 0.245 | 0.166 |
+
+Whole-sweep medians differ by ~2x and the `width_ratio` signature differs qualitatively. Both
+happen to read STARVED on this one cell, which is the point: the two runs are different
+experiments that a verdict column cannot tell apart.
+
+**Fix, and why it REFUSES rather than repairs.** `shape_recovery.assert_rift_under_test()` walks up
+from `__file__` to `<checkout>/MonteCarloMarginalizeCode/Code` and compares against the directory
+`import RIFT` actually resolved to; a mismatch raises with both paths and the `export` to run.
+`test_shape_recovery.py` calls it at import (under `RIFT_RUN_EXPENSIVE` only, so a plain `pytest`
+sweep still just skips), turning the silent wrong measurement into a collection ERROR.
+
+A `conftest.py` prepending the checkout to `sys.path` was the obvious alternative and was
+rejected: it makes the numbers right and leaves the operator's invocation wrong, so the next thing
+run by hand -- the probe, a bisect, an interactive reproduction -- measures the installed RIFT
+again. The failure this entry exists to remove is a person believing they gated a branch. The
+conftest carries only the environment half (`CUDA_VISIBLE_DEVICES=""`, BLAS thread counts), where
+there is nothing to learn.
+
+Resolution reads `RIFT.__file__`, not `sys.path`: an editable install (PEP 660) puts a meta-path
+finder ahead of `PYTHONPATH`, so reasoning about the path would give the wrong answer in exactly
+the case worth catching.
+
+**Same hole existed on the shell side, one level up.** `run_shape_recovery.sh` prepends `CHECKOUT`
+to `PYTHONPATH` but never checked that the prepend resolved anything. A mistyped or moved
+`CHECKOUT` falls back to the installed RIFT -- in **both** arms -- and two arms measuring one RIFT
+come back bit-identical, which this file has already taught everyone to read as "cleared at fresh
+seeds" (items 1 and 2). `run_shape_recovery.sh` and `confirm_regressions.py` now export
+`RIFT_SHAPE_CHECKOUT` alongside `PYTHONPATH`, and `shape_recovery.py:main()` asserts against it
+before building any truth pool. `RIFT_SHAPE_CHECKOUT` is also the escape hatch for measuring a
+checkout other than the enclosing one on purpose.
+
+Every run now prints `# RIFT under test: <dir>`, so a gate JSON attached to a PR can be traced to a
+checkout after the fact.
+
+`confirm_regressions._rerun` also stops discarding the child's stderr: a dying arm reached the
+operator only as an unexplained INCONCLUSIVE much later.
+
+**What is still unguarded.** `probe_portfolio_optin_flags.py` and `escaped_mass_study.py` repair
+`sys.path` silently at import (`sys.path.insert(0, _CODE)`) instead. That is correct for a library
+import and wrong as an operator lesson, but they are study tools, not merge gates, and they say so
+in their docstrings. Left alone deliberately. Note the collection-order consequence: those modules
+are imported by `pytest` before `test_shape_recovery.py`, so a whole-directory sweep can satisfy
+the guard that a sweep of `test_shape_recovery.py` alone would fail. The guard is still answering
+the right question -- "does `import RIFT` resolve to the checkout" -- but the two invocations can
+differ, which is worth knowing before filing it as a bug.
+
+Third instance of the family in items 3 and 5: one thing, two ways in, one way missing a required
+piece of setup, both plausible in isolation, failure silent.
+
+---
+
 ## 7. GMM under-covers a broad mixture component on `mix_d4_n2_s101`, and worsens with budget
 
 **Status:** open, confirmed, and **ungated -- no preset detects it.** Found while measuring item 5,
@@ -284,6 +366,7 @@ checkout; `CHECKOUT` is derived, and the script is invoked by absolute path so n
 
 ```
 CHECKOUT=$(git rev-parse --show-toplevel)
+export RIFT_SHAPE_CHECKOUT="${CHECKOUT}"
 export PYTHONPATH="${CHECKOUT}/MonteCarloMarginalizeCode/Code:${PYTHONPATH}"
 export CUDA_VISIBLE_DEVICES=""
 python3 "${CHECKOUT}/MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/shape_recovery.py" \
@@ -291,6 +374,7 @@ python3 "${CHECKOUT}/MonteCarloMarginalizeCode/Code/test/expensive_before_mergin
     --nmax-per-dim 800000 --neff 2000 --warm-cases off --run-seed 989654
 ```
 ```
+# RIFT under test: <checkout>/MonteCarloMarginalizeCode/Code/RIFT
 sampler    target               n_eff     n_ESS   JSmax  |pull| widthdev lnZbias  verdict
 GMM        mix_d4_n2_s101         148      4181  0.0082   0.061    0.146  -0.058  FAIL  [width_ratio[1]=0.854 (tol 0.055)]
 ```
@@ -300,11 +384,11 @@ GMM        mix_d4_n2_s101         148      4181  0.0082   0.061    0.146  -0.058
 
 The `PYTHONPATH` line is load-bearing -- without it you measure whichever RIFT is **installed**, not
 the branch. On this cell at `quick`'s budget and run seed 987654 that is the difference between
-n_eff 42.3 (branch) and 4.6 (CVMFS igwn), which is a different experiment wearing the same verdict
-column. `run_shape_recovery.sh` exports it; the pytest entry point it advertises as equivalent does
-not. Branch `claude/shape-recovery-pytest-checkout-guard` closes that hole -- it makes the mismatch
-raise instead of measuring silently -- and lands its own FOLLOWUPS entry as **item 6**, which is why
-this one is numbered 7.
+n_eff 42.3 (branch) and 4.6 (CVMFS igwn): a different experiment wearing the same verdict column,
+and the reason the numbers in this entry are reproducible at all. Item 6 closed that hole -- every
+run now prints `# RIFT under test:`, and the `RIFT_SHAPE_CHECKOUT` export above makes it **checked**
+rather than merely reported, so a mistyped path fails loudly instead of quietly measuring something
+else. Keep that line when adapting this command.
 
 On `MixtureTarget(4, 2, 101)` the GMM sampler recovers dimension 1's marginal **too narrow, and
 progressively more so the longer it runs**, while the other three dimensions stay exact. Medians
