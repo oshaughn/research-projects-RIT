@@ -218,9 +218,9 @@ Three readings, and none of them supports raising the budget:
   evaluations, 8x the *standard* preset's own d=4 budget) 2 of 8 seeds still starve. What widens
   with budget is the spread, not the floor margin. This does not prove some far larger budget could
   not clear all eight -- nothing here measures that -- but the next bullet makes the question moot.
-* **Clearing the floor does not produce a pass.** PASS is 1/8 at every budget from x2 up. At x32,
-  6/8 clear the floor and 5 of those 6 FAIL. Raising `quick`'s budget would turn the pytest smoke
-  row from a skip into a hard assertion failure on an unfixed defect -- correctly, but that is
+* **Clearing the floor does not produce a pass.** PASS is 1/8 at every measured budget from x2 up.
+  At x32, 6/8 clear the floor and 5 of those 6 FAIL. Raising `quick`'s budget would turn the pytest
+  smoke row from a skip into a hard assertion failure on an unfixed defect -- correctly, but that is
   item 7's decision to make, not a preset-tuning side effect.
 * **It fails because it converges to the WRONG answer.** `width_ratio[1]` degrades monotonically
   with budget (0.989 -> 0.889) while the other three dims sit at 1.00, and `mean_pull[1]` grows

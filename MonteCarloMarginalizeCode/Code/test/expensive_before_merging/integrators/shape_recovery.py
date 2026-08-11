@@ -869,10 +869,11 @@ def evaluate(r):
 # untested, and moot: the failures are not starvation -- width_ratio[1] degrades
 # MONOTONICALLY with budget while the other three dims stay at 1.00, so a bigger budget turns the
 # quick pytest row from a documented skip into a hard failure on a defect nobody has fixed yet.  AV
-# on the identical target passes 8/8 at every budget with width_ratio 1.000, so the target and the
-# thresholds are sound; this is a GMM defect.  Note the row as it stands is a REPRODUCER, not a
-# detector: evaluate() returns STARVED before it looks at width, so no preset currently gates that
-# defect.  FOLLOWUPS.md items 5 (why the skip is deliberate) and 7 (the defect, with a reproducer).
+# on the identical target passes 8/8 at each measured budget with width_ratio 1.000, so the target
+# and the thresholds are sound; this is a GMM defect.  Note the row as it stands is a REPRODUCER,
+# not a detector: evaluate() returns STARVED before it looks at width, so no preset currently gates
+# that defect.  FOLLOWUPS.md items 5 (why the skip is deliberate) and 7 (the defect, with a
+# reproducer).
 CELL_BUDGET_MULT = {
     ("GMM", 6, 3, 303): 4,
 }
