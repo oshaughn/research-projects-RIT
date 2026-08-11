@@ -1336,6 +1336,11 @@ class MCSampler(object):
         # mcsamplerPortfolio.integrate_log already drops it on entry for the same reason.
         if 'integrand' in self._rvs:
           del self._rvs['integrand']
+        # Same hazard for the warm-seed reserve, and a worse consequence: a pass that raises
+        # part-way leaves the PREVIOUS point's retained samples sitting here, and an L0 rescue
+        # would then seed this point's live volume from a different point's peak.  Drop it on
+        # entry, so "present" always means "this pass wrote it".
+        self._warm_seed_reserve = None
 
         #
         # Pin values
@@ -1687,6 +1692,43 @@ class MCSampler(object):
         # instead create a host array, leaving this term on a different backend
         # than log_integrand / log_joint_prior and breaking the arithmetic below.
         self._rvs['log_joint_s_prior'] = xpy_here.ones_like(allloglkl)*(np.log(1/V) - np.sum(np.log(self.dx0)))  # effective uniform sampling on this volume
+
+        # WARM-SEED RESERVE: keep a bounded copy of the points this pass actually RETAINED,
+        # before the fair draw below overwrites self._rvs in place.
+        #
+        # That overwrite is why a warm start seeded from _rvs was starving.  The fair draw
+        # takes n_extr = min(n_extr, 1.5*eff_samp, 1.5*neff) rows WITH REPLACEMENT and
+        # REBINDS every _rvs key to that subset, so on the collapsed high-amplitude pass the
+        # rescue is meant to fix -- eff_samp ~ 1 -- everything downstream sees ONE row, no
+        # matter that the live set held a thousand.  Measured at rho_net 146.8: "Fairdraw
+        # size : 1", and the rescue then reported a 1-point seed; at rho_net 102.8, 5 rows,
+        # several of them the same point drawn twice, which is how a "5-point" seed came back
+        # with affine rank 2 (and a "2-point" seed with rank 0 -- two copies of one point).
+        # So the earlier reading of this failure, that "a collapsed cold pass never sampled
+        # more than a handful of finite-likelihood points", was wrong: the points were drawn
+        # and retained, then discarded by a resample meant for EXPORT, not for provenance.
+        # It also explains why widening --sampler-sequential-warmstart-deltalnL could not
+        # help -- there were only n_extr rows left to admit at any window.
+        #
+        # Bounded, because this is the array the surrounding code calls a memory hog: a
+        # uniform subsample without replacement (plus the peak row, which the seed needs and
+        # a subsample can drop) is all a seed or a scale estimate can use.
+        try:
+            _res_n = int(getattr(self, 'n_warm_seed_reserve', 20000))
+            _res_X = identity_convert(allx)
+            _res_L = identity_convert(allloglkl - allp)
+            if _res_n > 0 and len(_res_X) > _res_n:
+                _res_i = np.random.choice(len(_res_X), size=_res_n, replace=False)
+                _res_i = np.unique(np.append(_res_i, int(np.nanargmax(_res_L))))
+                _res_X, _res_L = _res_X[_res_i], _res_L[_res_i]
+            self._warm_seed_reserve = dict(X=np.asarray(_res_X, dtype=float),
+                                           lnL=np.asarray(_res_L, dtype=float).ravel(),
+                                           n_retained=int(len(allx)),
+                                           params_ordered=list(self.params_ordered))
+        except Exception as _e_res:
+            # Provenance for a rescue, never a reason to lose a completed integral.
+            self._warm_seed_reserve = None
+            print("  [AV] warm-seed reserve not kept (", _e_res, ")")
 
         # Manual estimate of integrand, done transparently (no 'log aggregate' or running calculation -- so memory hog
         log_wt = self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]

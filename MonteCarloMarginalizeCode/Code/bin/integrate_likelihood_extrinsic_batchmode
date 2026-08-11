@@ -3224,10 +3224,36 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # `None` means nothing has been disturbed yet, so the handler must not "restore".
         _cold_state_l0 = None
         try:
-            _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
-            _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel() if _lnkey else np.array([])
+            # SEED FROM THE POINTS THE PASS RETAINED, not from what survived the fair draw.
+            # sampler._rvs has by now been REBOUND to a fair-draw subset of
+            # min(n_extr, 1.5*eff_samp, 1.5*neff) rows taken WITH REPLACEMENT -- a resample
+            # built for EXPORT.  On the collapsed pass this rescue exists for, eff_samp ~ 1,
+            # so _rvs is one row (measured at rho_net 146.8: "Fairdraw size : 1"), and at
+            # rho_net 102.8 it is five rows several of which are the same point twice, which
+            # is where "5 seed points of affine rank 2" came from.  The live set held a
+            # thousand.  integrate_log now stashes a bounded copy of the retained points
+            # before that overwrite; fall back to _rvs for a sampler that does not keep one.
+            _res_l0 = getattr(sampler, '_warm_seed_reserve', None)
+            if _res_l0 is None:
+                for _m in list(getattr(sampler, 'portfolio_realizations', []) or []):
+                    _res_l0 = getattr(_m, '_warm_seed_reserve', None)
+                    if _res_l0 is not None:
+                        break
+            if _res_l0 is not None and list(_res_l0.get('params_ordered', [])) != list(sampler.params_ordered):
+                _res_l0 = None   # column order must match, or the seed is scrambled
+            if _res_l0 is not None:
+                _cols = np.asarray(_res_l0['X'], dtype=float)
+                _lnv = np.asarray(_res_l0['lnL'], dtype=float).ravel()
+                print("  [L0 auto-rescue] seeding from {} retained sample(s) of {} (fair draw left {} in _rvs)".format(
+                    len(_lnv), _res_l0.get('n_retained', '?'),
+                    len(np.asarray(sampler.identity_convert(sampler._rvs['log_integrand'])).ravel())
+                    if 'log_integrand' in sampler._rvs else '?'))
+            else:
+                _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
+                _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel() if _lnkey else np.array([])
+                _cols = (np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel()
+                                    for p in sampler.params_ordered]).T if _lnv.size else np.zeros((0, len(sampler.params_ordered))))
             if _lnv.size >= 1 and np.any(np.isfinite(_lnv)):
-                _cols = np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel() for p in sampler.params_ordered]).T
                 # RANK, not count, decides whether this seed can define a live volume.  The
                 # rule here used to be `len(_seed) < 2`, and a count cannot see the failure
                 # it was standing in for: a 2-to-5 point seed passes it and is still
