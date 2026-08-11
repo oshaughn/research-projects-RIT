@@ -216,9 +216,9 @@ Three readings, and none of them supports raising the budget:
   d=4 budget -- the cell still starves in 2 of 8 seeds, minimum 28. There is no "quick" budget that
   fixes this, and no expensive one either.
 * **Clearing the floor does not produce a pass.** PASS is 1/8 at every budget from x2 up. At x32,
-  6/8 clear the floor and 5 of those 6 FAIL. Raising `quick`'s budget would convert a documented
-  skip into a merge-blocking red row -- correctly, but that is item 6's decision to make, not a
-  preset-tuning side effect.
+  6/8 clear the floor and 5 of those 6 FAIL. Raising `quick`'s budget would turn the pytest smoke
+  row from a skip into a hard assertion failure on an unfixed defect -- correctly, but that is
+  item 6's decision to make, not a preset-tuning side effect.
 * **It fails because it converges to the WRONG answer.** `width_ratio[1]` degrades monotonically
   with budget (0.989 -> 0.889) while the other three dims sit at 1.00, and `mean_pull[1]` grows
   +0.023 -> +0.069. More samples, worse recovered posterior: the same signature as item 4.
@@ -227,15 +227,28 @@ Three readings, and none of them supports raising the budget:
 
 * *Raise the budget* -- rejected, measured above. It does not work at any budget, and where it does
   become testable the cell fails.
-* *Drop the cell from `quick`* -- rejected. It is the only cell in the whole matrix that exhibits
-  the item-6 defect (see the six-cell sweep there). Dropping it deletes the detector to make the
-  summary line tidier, which is how the vacuous-pass bug below lasted three months.
+* *Drop the cell from `quick`* -- rejected, but on cost, not on coverage. The matrix is
+  `dims x ncomps x seeds x samplers` with no per-cell exclusion (the same "not expressible" wall
+  item 2 hit: `--strict-samplers` is per-SAMPLER, `CELL_BUDGET_MULT` is budget-only). The only
+  expressible drop is removing `d=4` from `quick["dims"]`, which also removes **AV** d=4 -- a row
+  that clears the floor and passes 8/8 at every budget measured. Building a per-cell exclusion
+  mechanism to hide one row we have now fully characterized is the wrong trade; the row costs ~11 s.
 * *Accept the skip* -- taken. `quick` stays quick, the skip stays visible in the pytest summary,
   and the reason it skips is now recorded here and at `CELL_BUDGET_MULT` instead of being
   re-derived by the next person.
 
-So `RIFT_RUN_EXPENSIVE=1 pytest test_shape_recovery.py` is 3 passed / 1 skipped **by design**, and
-the skipped quarter is containment of a known defect, not an untested corner.
+**What the retained row does and does not buy.** It is a *reproducer*, not a detector. `evaluate()`
+returns `STARVED` at the `n_eff` floor **before** it looks at JS, pull, width or correlation, and
+the pytest wrapper skips that result -- so at `quick`'s budget this row asserts nothing about shape.
+Under the canonical driver it is no better: `classify()` maps STARVED/STARVED to `BOTH-STARVED` and
+returns before the metric-regression branch, and STARVED->FAIL to `NEWLY-TESTABLE-FAIL`, which is
+explicitly flag-don't-block. The only thing a permanently-starved row still catches is
+`REGRESSION(missing-in-candidate)` -- a candidate that crashes and emits no record at all.
+
+So `RIFT_RUN_EXPENSIVE=1 pytest test_shape_recovery.py` is 3 passed / 1 skipped by design, but be
+clear about what that means: **the skipped quarter is an untested corner, and the defect in item 6
+is currently ungated by every preset.** Keeping the row preserves the reproducer and the crash
+canary; it does not preserve coverage, because there was never any to lose.
 
 **Do not "fix" this with a `CELL_BUDGET_MULT` entry.** The mechanism added in #59 makes it a
 one-line edit -- `("GMM", 4, 2, 101): 3` -- that looks exactly like the fix item 2 landed for
@@ -256,9 +269,32 @@ with two callers, one updated, both plausible in isolation, failure silent.
 
 ## 6. GMM under-covers a broad mixture component on `mix_d4_n2_s101`, and worsens with budget
 
-**Status:** open, confirmed. Found while measuring item 5, which had recorded the cell as merely
-under-budgeted. Not known to affect production: no gate row runs this target at a budget where the
-defect is visible, and the ncomp=2 d=4 geometry appears only in the `quick` preset.
+**Status:** open, confirmed, and **ungated -- no preset detects it.** Found while measuring item 5,
+which had recorded the cell as merely under-budgeted. Not known to affect production.
+
+**Nothing currently catches this, and nothing did before.** `standard` runs `ncomps=[1, 3]`, so the
+ncomp=2 geometry never appears in the merge gate at all. `quick` does run it, but at a budget where
+`evaluate()` short-circuits to `STARVED` at the `n_eff` floor before examining width, pull or
+correlation -- and the pytest wrapper skips STARVED, while `compare_shape_results.classify()` maps
+STARVED/STARVED to the non-blocking `BOTH-STARVED` and never reaches its metric-regression branch.
+Adding coverage therefore means deciding to gate a defect that is not yet fixed; see **Next steps**.
+
+**Reproducer** (~20 s, exits 1, prints the width failure directly):
+
+```
+export PYTHONPATH=$CHECKOUT/MonteCarloMarginalizeCode/Code:$PYTHONPATH
+export CUDA_VISIBLE_DEVICES=""
+python shape_recovery.py --samplers GMM --dims 4 --ncomps 2 --target-seeds 101 \
+    --nmax-per-dim 800000 --neff 2000 --warm-cases off --run-seed 989654
+```
+```
+sampler    target               n_eff     n_ESS   JSmax  |pull| widthdev lnZbias  verdict
+GMM        mix_d4_n2_s101         148      4181  0.0082   0.061    0.146  -0.058  FAIL  [width_ratio[1]=0.854 (tol 0.055)]
+```
+
+Set `PYTHONPATH` or you will measure whichever RIFT is installed, not the branch: on this cell at
+`quick`'s budget and run seed 987654 that is the difference between n_eff 42.3 (branch) and 4.6
+(CVMFS igwn). `run_shape_recovery.sh` exports it; the pytest entry point does not.
 
 On `MixtureTarget(4, 2, 101)` the GMM sampler recovers dimension 1's marginal **too narrow, and
 progressively more so the longer it runs**, while the other three dimensions stay exact. Medians
@@ -327,6 +363,18 @@ not need to collapse -- if both fitted components land on the narrow mode, the d
 initialization or in the tempered-refit path (`GMM refit skipped: ESS too low even untempered`
 fires on some seeds here), not in the component count.
 
+**On adding coverage.** Two shapes are available once the scan above says what the trigger is, and
+they answer different questions:
+
+* *Gate it* -- put a ncomp=2 row into `standard` at a budget above the floor. This is the honest
+  end state, but it makes the merge gate red on every branch until the defect is fixed, so it
+  belongs with the fix, not before it.
+* *Characterize it* -- a non-blocking regression test pinning `width_ratio[1]` to the measured band
+  at a stated budget and seed, so that a fix, or a worsening, is visible instead of silent. Cheaper,
+  and it does not hold merges hostage -- but it freezes current behaviour into the suite, so it
+  needs an explicit expiry: it exists to be deleted by whoever fixes the defect.
+
 **Do not** reach for a budget increase, and do not add this cell to `standard` to "make it gated"
-until the defect is understood -- that just converts a documented skip into a red row on every
-branch. See item 5 for why the skip is the deliberate containment.
+until the defect is understood -- that turns the quick smoke row red without telling anyone anything
+the table above has not already established. See item 5 for what the retained row does and does not
+buy.
