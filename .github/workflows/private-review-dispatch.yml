@@ -1,0 +1,109 @@
+name: Private upstream RIFT review dispatch
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+      - synchronize
+      - converted_to_draft
+      - closed
+
+permissions:
+  id-token: write
+
+concurrency:
+  group: private-review-dispatch-upstream-rift-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    if: >-
+      github.event.pull_request.user.login == 'oshaughnessy-junior' &&
+      github.event.pull_request.head.repo.owner.login == 'oshaughnessy-junior' &&
+      (github.event.pull_request.base.ref == 'rift_O4c' ||
+       github.event.pull_request.base.ref == 'master' ||
+       github.event.pull_request.base.ref == 'rift_O4d')
+    name: Dispatch exact upstream RIFT PR generation
+    runs-on: ubuntu-24.04
+    environment: private-review-dispatch-rift-upstream
+    timeout-minutes: 5
+    steps:
+      # SECURITY: pull_request_target runs trusted default-branch code. This
+      # workflow must never check out, fetch, cache, download, interpret, or
+      # execute pull-request-controlled content.
+      - name: Join review-dispatch tailnet segment
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4
+        with:
+          oauth-client-id: ${{ vars.TS_WIF_CLIENT_ID }}
+          audience: ${{ vars.TS_WIF_AUDIENCE }}
+          tags: tag:review-dispatcher
+          version: 1.98.10
+          ping: ${{ vars.REVIEW_COORDINATOR_HOST }}
+          use-cache: "false"
+
+      - name: Verify dispatcher cannot reach blocked coordinator ports
+        shell: bash
+        env:
+          REVIEW_COORDINATOR_HOST: ${{ vars.REVIEW_COORDINATOR_HOST }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$REVIEW_COORDINATOR_HOST" =~ ^([a-z0-9-]+\.)*[a-z0-9-]+$ ]]; then
+            echo "Coordinator host variable is invalid" >&2
+            exit 1
+          fi
+          for port in 22 443 18789 3000; do
+            if timeout 3 bash -c 'exec 3<>"/dev/tcp/$1/$2"' \
+              _ "$REVIEW_COORDINATOR_HOST" "$port" 2>/dev/null; then
+              echo "Dispatcher unexpectedly reached blocked coordinator port $port" >&2
+              exit 1
+            fi
+          done
+
+      - name: Admit PR event through private coordinator
+        shell: bash
+        env:
+          DISPATCH_ACTION: ${{ github.event.action }}
+          DISPATCH_REPOSITORY: ${{ github.repository }}
+          DISPATCH_REPOSITORY_ID: ${{ github.repository_id }}
+          DISPATCH_PR: ${{ github.event.pull_request.number }}
+          DISPATCH_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DISPATCH_DRAFT: ${{ github.event.pull_request.draft }}
+          REVIEW_COORDINATOR_HOST: ${{ vars.REVIEW_COORDINATOR_HOST }}
+          REVIEW_COORDINATOR_PORT: ${{ vars.REVIEW_COORDINATOR_PORT }}
+          OIDC_AUDIENCE: interhost-cross-review-upstream-rift
+        run: |
+          set -euo pipefail
+          if [[ ! "$REVIEW_COORDINATOR_HOST" =~ ^([a-z0-9-]+\.)*[a-z0-9-]+$ ]] ||
+             [[ ! "$REVIEW_COORDINATOR_PORT" =~ ^[0-9]{2,5}$ ]]; then
+            echo "Coordinator address variables are invalid" >&2
+            exit 1
+          fi
+
+          oidc_response="$(curl --fail --silent --show-error \
+            --header "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}")"
+          oidc_token="$(jq -er '.value | select(type == "string" and length > 0)' <<<"$oidc_response")"
+          echo "::add-mask::$oidc_token"
+
+          payload="$(jq -cn \
+            --arg schema "interhost-cross-review.github-actions-dispatch.v1" \
+            --arg action "$DISPATCH_ACTION" \
+            --arg repository "$DISPATCH_REPOSITORY" \
+            --arg repository_id "$DISPATCH_REPOSITORY_ID" \
+            --arg pr "$DISPATCH_PR" \
+            --arg head_sha "$DISPATCH_HEAD_SHA" \
+            --arg draft "$DISPATCH_DRAFT" \
+            '{schema:$schema, action:$action, repository:$repository,
+              repository_id:($repository_id | tonumber), pr:($pr | tonumber),
+              head_sha:$head_sha, draft:($draft == "true")}')"
+
+          curl --fail-with-body --silent --show-error \
+            --proto '=https' \
+            --retry 3 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 10 --max-time 30 \
+            --header "Authorization: Bearer $oidc_token" \
+            --header "Content-Type: application/json" \
+            --data-binary "$payload" \
+            "https://${REVIEW_COORDINATOR_HOST}:${REVIEW_COORDINATOR_PORT}/github/actions/upstream-rift-dispatch"
