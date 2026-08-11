@@ -64,7 +64,7 @@ def build_data_from_precompute(P, data_dict, psd_dict, fiducial_epoch,
     ``extras`` is a dict with the raw precompute products (rholms, cross terms,
     guessed SNR) for callers that want them.
     """
-    rholms_intp, cross_terms, cross_terms_V, rholms, guess_snr, _ = \
+    rholms_intp, cross_terms, cross_terms_V, rholms, guess_snr, _, _ct_cal, _ctV_cal = \
         factored_likelihood.PrecomputeLikelihoodTerms(
             fiducial_epoch, storage_window_half, P, data_dict, psd_dict,
             Lmax, fMax, analyticPSD_Q, inv_spec_trunc_Q, T_spec,

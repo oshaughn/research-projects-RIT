@@ -31,7 +31,15 @@
     invDist : (n_ext,)                    float64      distMpcRef/distMpc
     rho_sq  : (n_ext, npts)               float64      template (U,V) term, summed over det
     w_t     : (npts,)                     float64      Simpson weights * deltaT
+    rho_sq_cal : (n_cal, n_ext)           float64      per-realization self-term
+                                                       rho_sq_c=<C_c h|C_c h> (fused-calmarg
+                                                       self-term fix); used iff use_rho_sq_cal
     out     : (n_ext,)                    float64
+
+  Self-term fix (analyses/calmarg_selfterm_bias/NOTE.md): the shared rho_sq keeps
+  <h|h> calibration-INDEPENDENT, which drops the per-realization data self-term and
+  breaks the C->lambda*C distance-degeneracy invariance.  With use_rho_sq_cal set, the
+  kernel uses the per-realization rho_sq_cal[c,j] = <C_c h|C_c h> instead, restoring it.
 */
 
 extern "C" {
@@ -53,6 +61,8 @@ extern "C" {
     int n_lms,
     int n_ext,
     int npts_full,
+    const double * rho_sq_cal,   /* (n_cal, n_ext) per-realization self-term, or dummy */
+    int use_rho_sq_cal,          /* 1 -> use rho_sq_cal[c,j] instead of rho_sq[j,t] */
     double * out
   ){
     size_t j = threadIdx.x + (size_t)blockDim.x * blockIdx.x;
@@ -92,7 +102,11 @@ extern "C" {
         /* phase marginalization: use |kappa| (the (2,-2) conjugation is already baked
            into Q/A by the caller), else Re(kappa). */
         double kre = phase_marg ? sqrt(kappa.real()*kappa.real() + kappa.imag()*kappa.imag()) : kappa.real();
-        double lnLt = inv * kre - 0.5 * rho_sq[(size_t)j * npts + t] + lw;
+        /* fused-calmarg self-term fix: per-realization rho_sq_c = <C_c h|C_c h>
+           (time-independent, indexed by realization c and extrinsic sample j) in
+           place of the shared cal-independent rho_sq[j,t]. */
+        double rsq = use_rho_sq_cal ? rho_sq_cal[(size_t)c * n_ext + j] : rho_sq[(size_t)j * npts + t];
+        double lnLt = inv * kre - 0.5 * rsq + lw;
         double wt = w_t[t];
 
         if (first) {

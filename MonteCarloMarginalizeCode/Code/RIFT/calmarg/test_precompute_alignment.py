@@ -43,14 +43,14 @@ Lmax = 2
 n_cal = 5
 
 # baseline (no calibration marginalization)
-rholms_intp_b, ct_b, ctV_b, rholms_base, snr_b, _ = fl.PrecomputeLikelihoodTerms(
+rholms_intp_b, ct_b, ctV_b, rholms_base, snr_b, _, _ctcal_b, _ctVcal_b = fl.PrecomputeLikelihoodTerms(
     event_time, t_window, Psig, data_dict, psd_dict, Lmax, fmax,
     analyticPSD_Q=True, verbose=False, quiet=True, skip_interpolation=True)
 
 # calibration marginalization with the IDENTITY calibration (factor == 1)
 cal_real = {det: np.ones((data_dict[det].data.length, n_cal), dtype=complex)
             for det in data_dict}
-rholms_intp_c, ct_c, ctV_c, rholms_cal, snr_c, _ = fl.PrecomputeLikelihoodTerms(
+rholms_intp_c, ct_c, ctV_c, rholms_cal, snr_c, _, ctcal_c, ctVcal_c = fl.PrecomputeLikelihoodTerms(
     event_time, t_window, Psig, data_dict, psd_dict, Lmax, fmax,
     analyticPSD_Q=True, verbose=False, quiet=True, skip_interpolation=True,
     calibration_realizations=cal_real)
@@ -79,4 +79,21 @@ for det in data_dict:
             ok = False
 
 assert ok, "calmarg precompute alignment MISMATCH (epoch and/or block data)"
-print("\nPASS: calmarg precompute is time-aligned with the baseline (epoch + per-block data).")
+
+# (4) fused-calmarg self-term fix: with the IDENTITY calibration (|C_c|==1), the
+# per-realization |C_c|^2-weighted cross terms must reproduce the baseline cross
+# terms exactly (rho_sq_c == rho_sq).  This checks the ComputeModeCrossTermIPCal
+# path and its packing/keying alignment.
+assert ctcal_c is not None and ctVcal_c is not None, "cal cross terms not returned"
+cal_err = 0.0
+for det in data_dict:
+    assert len(ctcal_c[det]) == n_cal and len(ctVcal_c[det]) == n_cal
+    for c in range(n_cal):
+        for pair in ct_b[det]:
+            cal_err = max(cal_err, abs(complex(ctcal_c[det][c][pair]) - complex(ct_b[det][pair])))
+            cal_err = max(cal_err, abs(complex(ctVcal_c[det][c][pair]) - complex(ctV_b[det][pair])))
+flag_c = "OK" if cal_err < 1e-8 else "**CAL CROSSTERM MISMATCH**"
+print("identity-cal cross terms vs baseline: max|delta|=%.3e %s" % (cal_err, flag_c))
+assert cal_err < 1e-8, "identity-cal |C|^2-weighted cross terms != baseline cross terms"
+
+print("\nPASS: calmarg precompute is time-aligned with the baseline (epoch + per-block data),\n      and identity-cal self-term cross terms reproduce the baseline.")
