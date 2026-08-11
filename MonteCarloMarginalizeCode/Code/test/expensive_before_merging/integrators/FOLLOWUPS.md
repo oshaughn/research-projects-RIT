@@ -212,9 +212,12 @@ this file warns about everywhere else.
 
 Three readings, and none of them supports raising the budget:
 
-* **Budget does not clear the floor.** At x32 -- 6.4M evaluations, 8x the *standard* preset's own
-  d=4 budget -- the cell still starves in 2 of 8 seeds, minimum 28. There is no "quick" budget that
-  fixes this, and no expensive one either.
+* **No TESTED budget reliably clears the floor across seeds.** The median improves sublinearly
+  (~`nmax**0.3`), but the across-seed *minimum* stops improving after x4 -- 11, 16, 24, 28, 41, 33,
+  28 for x1..x32. So over a 32x range the worst seed never gets past ~40, and at x32 (6.4M
+  evaluations, 8x the *standard* preset's own d=4 budget) 2 of 8 seeds still starve. What widens
+  with budget is the spread, not the floor margin. This does not prove some far larger budget could
+  not clear all eight -- nothing here measures that -- but the next bullet makes the question moot.
 * **Clearing the floor does not produce a pass.** PASS is 1/8 at every budget from x2 up. At x32,
   6/8 clear the floor and 5 of those 6 FAIL. Raising `quick`'s budget would turn the pytest smoke
   row from a skip into a hard assertion failure on an unfixed defect -- correctly, but that is
@@ -225,8 +228,8 @@ Three readings, and none of them supports raising the budget:
 
 **Decision.** Accept the skip.
 
-* *Raise the budget* -- rejected, measured above. It does not work at any budget, and where it does
-  become testable the cell fails.
+* *Raise the budget* -- rejected, measured above. No budget up to x32 makes the row reliable, and
+  the budgets that do make it testable turn it into a failure, not a pass.
 * *Drop the cell from `quick`* -- rejected, but on cost, not on coverage. The matrix is
   `dims x ncomps x seeds x samplers` with no per-cell exclusion (the same "not expressible" wall
   item 2 hit: `--strict-samplers` is per-SAMPLER, `CELL_BUDGET_MULT` is budget-only). The only
@@ -421,8 +424,8 @@ budget   n_eff min/med/max   clears 100   PASS   median width_ratio per dim
 x16    2002 / 2008 / 2013       8/8       8/8    1.000  1.000  0.999  0.999
 ```
 
-AV converges TO 1.000 on the dimension GMM diverges from, and clears the floor at every seed and
-every budget including `quick`'s.
+AV converges TO 1.000 on the dimension GMM diverges from, and clears the floor at all 8 seeds at
+each of the three budgets measured -- including `quick`'s own x1, where GMM cleared it once.
 
 **It is target-specific, not general GMM.** Sweeping GMM over the six `standard` d=4 cells at x1
 and x4 (8 seeds each): every one scales n_eff ~4x for a 4x budget, holds `width_ratio` within 0.99

@@ -863,8 +863,10 @@ def evaluate(r):
 #      x4 800k        28 /  44 / 179      2/8       1/8         0.919
 #     x32 6.4M        28 / 139 / 217      6/8       1/8         0.889
 #
-# n_eff grows as ~nmax**0.3, so no budget clears the floor: at x32 (8x the STANDARD preset's own d=4
-# budget) it still starves 2/8.  And the failures are not starvation -- width_ratio[1] degrades
+# The median n_eff grows only as ~nmax**0.3 and the across-seed MINIMUM stops improving after x4
+# (11, 16, 24, 28, 41, 33, 28 for x1..x32), so no budget tested up to x32 -- 8x the STANDARD preset's
+# own d=4 budget -- clears the floor at every seed; 2/8 still starve there.  A far larger budget is
+# untested, and moot: the failures are not starvation -- width_ratio[1] degrades
 # MONOTONICALLY with budget while the other three dims stay at 1.00, so a bigger budget turns the
 # quick pytest row from a documented skip into a hard failure on a defect nobody has fixed yet.  AV
 # on the identical target passes 8/8 at every budget with width_ratio 1.000, so the target and the
