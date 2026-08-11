@@ -569,6 +569,204 @@ def test_the_exact_total_is_absent_rather_than_wrong_without_the_prior_component
 
 
 ###
+### 4b. the reject gate must not read a fair-draw artifact as evidence of lost mass
+###
+
+def test_a_fair_drawn_lnZ_sits_above_the_retained_set_lnZ_by_a_predictable_amount():
+    """WHY the reject gate had to stop reading _rvs.
+
+    _lnZ_of_rvs forms logsumexp(w) - log(n).  The fair draw resamples n rows proportional to
+    w, so its rows cluster at the TOP of the weight distribution and the estimate lands near
+    max(w) rather than mean(w) -- high by about log(n_retained / eff_samp).  The gate compared
+    a 1-row cold reading against a 5-row warm one and read the difference as lost mass.
+    """
+    rng = np.random.RandomState(20260811)
+    n = 1000
+    lw = np.concatenate([[0.0], -30.0 - 5.0 * rng.rand(n - 1)])   # one dominant weight
+    w = np.exp(lw - lw.max())
+    eff = w.sum() / w.max()
+    lnZ_all = np.log(np.mean(np.exp(lw)))
+    drawn = rng.choice(n, size=1, replace=True, p=w / w.sum())
+    lnZ_fair = np.log(np.mean(np.exp(lw[drawn])))
+    assert lnZ_fair > lnZ_all, 'the fair-drawn reading must be the HIGH one'
+    predicted = np.log(n / eff)
+    assert abs((lnZ_fair - lnZ_all) - predicted) < 0.5, \
+        'gap {:.2f} should track log(n/eff_samp) = {:.2f}'.format(lnZ_fair - lnZ_all, predicted)
+
+
+def test_the_reserve_carries_what_is_needed_to_rebuild_the_weight():
+    """lnZ needs the two prior components, not just lnL."""
+    np.random.seed(20260811)
+    s = _sampler(20000)
+    s.integrate_log(_peaked(60.0), *NAMES, nmax=400000, neff=8, n=20000,
+                    no_protect_names=True, verbose=False,
+                    igrand_fairdraw_samples=True, igrand_fairdraw_samples_max=200)
+    r = s._warm_seed_reserve
+    for k in ('lnL', 'log_joint_prior', 'log_joint_s_prior'):
+        assert k in r, 'reserve omits {}'.format(k)
+        assert len(r[k]) == len(r['X']), '{} is not aligned with the points'.format(k)
+
+
+###
+### 4e. the reserve's lnZ must be normalized by the DRAWS, not by what survived filtering
+###
+
+def _reserve(lnL, lp=None, ls=None, n_retained=None, n_finite=None):
+    from RIFT.integrators.mcsamplerAdaptiveVolume import make_warm_seed_reserve
+    lnL = np.asarray(lnL, dtype=float)
+    X = np.zeros((len(lnL), NDIM))
+    r = make_warm_seed_reserve(
+        X, lnL, NAMES, n_max=0,
+        log_joint_prior=np.zeros(len(lnL)) if lp is None else lp,
+        log_joint_s_prior=np.zeros(len(lnL)) if ls is None else ls)
+    if n_retained is not None:
+        r['n_retained'] = n_retained
+    if n_finite is not None:
+        r['n_finite'] = n_finite
+    return r
+
+
+def test_reserve_lnZ_divides_by_the_draws_made_not_by_the_finite_survivors():
+    """A -inf draw is a real draw contributing a real zero; dropping it must not renormalize.
+
+    Averaging over the stored rows overestimates by log(n_retained/n_finite) -- ~11 nats for
+    a portfolio whose finite fraction on a collapsed pass is ~1e-5.
+    """
+    from RIFT.integrators.mcsamplerAdaptiveVolume import lnZ_from_reserve
+    finite = np.array([10.0, 9.0, 8.0])
+    n_draws = 300000
+    lnL = np.concatenate([finite, np.full(n_draws - len(finite), -np.inf)])
+    r = _reserve(lnL)
+    assert r['n_retained'] == n_draws and r['n_finite'] == len(finite)
+    expected = np.log(np.sum(np.exp(finite))) - np.log(n_draws)
+    assert abs(lnZ_from_reserve(r) - expected) < 1e-9
+
+
+def test_reserve_lnZ_is_unchanged_for_a_sampler_whose_rows_are_all_finite():
+    """AV retains only finite rows, so the correction is exactly zero there."""
+    from RIFT.integrators.mcsamplerAdaptiveVolume import lnZ_from_reserve
+    lw = np.array([3.0, 2.0, 1.0, 0.5])
+    r = _reserve(lw)
+    assert r['n_retained'] == r['n_finite'] == 4
+    expected = np.log(np.mean(np.exp(lw)))
+    assert abs(lnZ_from_reserve(r) - expected) < 1e-9
+
+
+def test_the_fallback_reading_accounts_for_the_uniform_cap():
+    """The FALLBACK path only -- a reserve with no recorded exact total (an older writer, or
+    one built without the prior components).  With m rows kept out of n_finite, the sum must
+    be scaled back up by n_finite/m.  Where the exact total IS recorded it wins, because this
+    estimate's logarithm carries cap sampling error; see section 4g."""
+    from RIFT.integrators.mcsamplerAdaptiveVolume import lnZ_from_reserve
+    lw = np.zeros(100)                      # w = 1 each, so the arithmetic is exact
+    r = dict(lnL=lw, log_joint_prior=np.zeros(100), log_joint_s_prior=np.zeros(100),
+             n_retained=10000, n_finite=1000, params_ordered=NAMES)
+    assert 'ln_sum_w_finite' not in r
+    # 100 kept of 1000 finite of 10000 drawn -> Z = (1000/100)*100*1 / 10000 = 0.1
+    assert abs(lnZ_from_reserve(r) - np.log(0.1)) < 1e-9
+
+
+def test_the_normalization_error_does_not_cancel_between_two_passes():
+    """WHY this is a gate bug and not just a wrong number: the fractions differ.
+
+    A cold pass with a 1e-5 finite fraction and a warm pass with 1e-2, on IDENTICAL finite
+    weights, must give the same lnZ ordering as their draw counts imply -- not an artefact
+    of how much each one underflowed.
+    """
+    from RIFT.integrators.mcsamplerAdaptiveVolume import lnZ_from_reserve
+    finite = np.array([10.0, 9.5, 9.0, 8.0])
+    cold = _reserve(finite, n_retained=1000000, n_finite=len(finite))
+    warm = _reserve(finite, n_retained=1000, n_finite=len(finite))
+    gap = lnZ_from_reserve(warm) - lnZ_from_reserve(cold)
+    assert abs(gap - np.log(1000000.0 / 1000.0)) < 1e-9, \
+        'the draw-count difference is not being carried into lnZ'
+    # and the naive row-average would have made them IDENTICAL, hiding a 6.9-nat difference
+    naive = np.log(np.mean(np.exp(finite)))
+    assert abs(naive - (lnZ_from_reserve(cold) + np.log(1000000.0 / len(finite)))) < 1e-9
+
+
+def test_a_portfolio_pass_with_underflowed_draws_reports_a_draw_normalized_lnZ():
+    """End to end on the sampler that actually holds -inf rows in _rvs."""
+    from RIFT.integrators.mcsamplerAdaptiveVolume import lnZ_from_reserve
+    np.random.seed(20260812)
+    s = _portfolio(20000)
+    # a peak sharp enough that most draws underflow, so n_finite << n_retained
+    s.integrate_log(_peaked(90.0), *NAMES, nmax=200000, neff=8, n=20000,
+                    no_protect_names=True, verbose=False, save_intg=True,
+                    igrand_fairdraw_samples=True, igrand_fairdraw_samples_max=200)
+    r = s._warm_seed_reserve
+    assert r is not None
+    assert r['n_finite'] < r['n_retained'], \
+        'this target did not underflow; the test would prove nothing'
+    v = lnZ_from_reserve(r)
+    assert v is not None and np.isfinite(v)
+    # it is the EXACT pre-cap total over the draws made -- not an average of stored rows
+    assert abs(v - (r['ln_sum_w_finite'] - np.log(r['n_retained']))) < 1e-9
+    # and the naive row-average, which is what reading the reserve like an _rvs would give,
+    # is higher.  The gap is log(n_retained/n_finite) only when the cap did not bind; with a
+    # cap the stored rows are a subsample too, so assert the direction, not the exact size.
+    lw = r['lnL'] + r['log_joint_prior'] - r['log_joint_s_prior']
+    lw = lw[np.isfinite(lw)]
+    naive = np.log(np.sum(np.exp(lw - lw.max()))) + lw.max() - np.log(len(r['lnL']))
+    assert naive > v, 'the draw normalization did not lower the estimate'
+    if len(r['lnL']) >= r['n_finite']:      # uncapped: the exact relation holds
+        assert abs((naive - v) - np.log(r['n_retained'] / float(r['n_finite']))) < 1e-6
+
+
+###
+### 4g. the gate's reading must not depend on whether the cap happened to bind
+###
+
+def test_capping_does_not_move_the_reserve_lnZ():
+    """The reviewer's scenario, end to end.
+
+    Two equally dominant rows among 200,000.  Uncapped, both are in the reserve; capped at
+    2,000 only the force-appended peak is certain and the other is missed ~99% of the time.
+    Estimating lnZ from the kept rows puts the capped reading log(2) = 0.69 nats low --
+    above the 0.5-nat default reject threshold -- so a cold pass that fits under the cap
+    would reject an otherwise identical warm pass that does not, on subsample luck alone.
+    """
+    from RIFT.integrators.mcsamplerAdaptiveVolume import (
+        make_warm_seed_reserve, lnZ_from_reserve)
+    n = 200000
+    lnL = np.full(n, -50.0)
+    lnL[[7, 9999]] = 0.0
+    X = np.zeros((n, NDIM))
+    z = np.zeros(n)
+    cold = make_warm_seed_reserve(X, lnL, NAMES, n_max=0,
+                                  log_joint_prior=z, log_joint_s_prior=z)
+    warm = make_warm_seed_reserve(X, lnL, NAMES, n_max=2000,
+                                  log_joint_prior=z, log_joint_s_prior=z)
+    assert len(warm['lnL']) < len(cold['lnL']), 'the cap did not bind; test proves nothing'
+    gap = abs(lnZ_from_reserve(cold) - lnZ_from_reserve(warm))
+    assert gap < 1e-9, 'cap sampling error of {:.3f} nats reached the gate'.format(gap)
+
+
+def test_the_exact_reading_is_the_draw_normalized_one():
+    from RIFT.integrators.mcsamplerAdaptiveVolume import (
+        make_warm_seed_reserve, lnZ_from_reserve)
+    n = 50000
+    lnL = np.full(n, -np.inf)
+    lnL[:4] = np.array([1.0, 0.5, 0.25, 0.0])
+    X = np.zeros((n, NDIM))
+    z = np.zeros(n)
+    r = make_warm_seed_reserve(X, lnL, NAMES, n_max=0,
+                               log_joint_prior=z, log_joint_s_prior=z)
+    expected = np.log(np.sum(np.exp(lnL[:4]))) - np.log(n)
+    assert abs(lnZ_from_reserve(r) - expected) < 1e-9
+
+
+def test_the_fallback_still_works_for_a_reserve_without_the_exact_total():
+    """An older writer, or one that had no prior components at build time."""
+    from RIFT.integrators.mcsamplerAdaptiveVolume import lnZ_from_reserve
+    lw = np.array([1.0, 0.5, 0.25])
+    r = dict(lnL=lw, log_joint_prior=np.zeros(3), log_joint_s_prior=np.zeros(3),
+             n_retained=300, n_finite=3, params_ordered=NAMES)
+    expected = np.log(np.sum(np.exp(lw))) - np.log(300)
+    assert abs(lnZ_from_reserve(r) - expected) < 1e-9
+
+
+###
 ### 5. the ILE must actually use all of this
 ###
 
@@ -601,3 +799,19 @@ def test_the_puff_width_is_configurable_and_defaults_are_the_measured_ones():
         assert opt in src, 'missing {}'.format(opt)
     i = src.index('--sampler-l0-rescue-puff-factor')
     assert 'default=2.0' in src[i:i + 200], 'the measured optimum is not the default'
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_the_reject_gate_reads_both_sides_from_the_same_record():
+    with open(_ILE) as f:
+        src = f.read()
+    assert '_lnZ_of_reserve_or_rvs' in src, 'the gate still reads lnZ straight out of _rvs'
+    i = src.index('_evidence_of_loss = (')
+    block = src[max(0, i - 2000):i]
+    assert '_cold_src != _warm_src' in block, \
+        'nothing stops the gate comparing a retained-set lnZ against a fair-drawn one'
+    assert 'lnZ_from_reserve' in src, \
+        'the reserve reading still averages over stored rows instead of over the draws made'
+    # the cold reserve must be snapshotted before the warm pass overwrites it
+    assert block.index('_cold_reserve_l0') < block.index('sampler.integrate('), \
+        'the cold reserve is read after the warm pass has already replaced it'
