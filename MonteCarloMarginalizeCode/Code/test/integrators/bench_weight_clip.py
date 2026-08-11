@@ -49,8 +49,14 @@ def _provenance():
                 git_describes=_git('log', '-1', '--format=%h %s'))
 
 
-def run_clip(target, clip, n_chunk, nmax, seed, adaptive=False):
+def run_clip(make_target, clip, n_chunk, nmax, seed, adaptive=False):
     np.random.seed(seed)
+    # Build the target FRESH for every run.  Target objects cache sampling state (e.g. `_rvs`), so a
+    # single instance reused across the sweep makes each result depend on what ran before it in the
+    # same process: measured, the identical seed/config gives lnI differing by ~3e-4 nats depending
+    # on its position in the loop.  That is the same size as the paired C-to-C shifts this benchmark
+    # is meant to resolve, so reuse would put an uncontrolled artifact directly into the answer.
+    target = make_target()
     port = T.build(target, ['AV', 'GMM'], n_chunk)
     lnI, _, eff, _ = port.integrate_log(
         T._host_lnfunc(target), *target.params, no_protect_names=True,
@@ -75,26 +81,70 @@ def main():
     ap.add_argument("--n-chunk", type=int, default=10000)
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--clips", type=str, default="0,0.5,1,2,5,20")
+    ap.add_argument("--targets", type=str, default="uncorrelated,correlated",
+                    help="comma-separated: uncorrelated, correlated (easy, the historical pair), "
+                         "or any benchmark_integrators target (gaussmix4, gaussmix8, rosenbrock, "
+                         "corrgauss3/5/8).  gaussmix8 is the high-D stress case where AV degrades.")
+    ap.add_argument("--one", type=str, default=None, metavar="TARGET:CLIP:SEED",
+                    help="run exactly ONE (target, clip, seed) and write a single-row JSON. Runs in "
+                         "this process are not fully independent -- the same seed and config gives "
+                         "lnI differing by ~3e-4 nats depending on how many runs preceded it, and "
+                         "the leaked state is not in the target object -- so the only way to get a "
+                         "reproducible cell is one run per interpreter. Fan these out and merge.")
     ap.add_argument("--json", type=str, default=None,
                     help="persist per-seed rows + provenance here (the printed table is a summary "
                          "of this file, so downstream macros never re-type a number)")
     args = ap.parse_args()
 
     clips = [float(c) for c in args.clips.split(',')]
-    targets = [("uncorrelated", B.CorrelatedGaussian(ndim=args.ndim, rho=0.0, narrow=0.1)),
-               ("correlated", T.CompoundCorrelatedGaussian(ndim=args.ndim))]
+    # The two original targets are deliberately EASY -- CompoundCorrelatedGaussian's own docstring
+    # says its narrow directions "stay findable cold (std ~0.3, not a needle)" -- and the sampler
+    # reaches ~1e-3 effective samples per evaluation on them.  Production extrinsic integrals run
+    # 2-4 orders of magnitude below that, and truncation only acts on heavy-tailed weights, so a
+    # null measured only on these says nothing about the regime that motivates the feature.
+    # --targets therefore reaches the stress targets benchmark_integrators.py already ships.
+    _EASY = {
+        "uncorrelated": lambda d: B.CorrelatedGaussian(ndim=d, rho=0.0, narrow=0.1),
+        "correlated": lambda d: T.CompoundCorrelatedGaussian(ndim=d),
+    }
+    # Factories, not instances -- see run_clip on why a shared instance corrupts the measurement.
+    targets = []
+    for nm in args.targets.split(','):
+        nm = nm.strip()
+        if nm in _EASY:
+            targets.append((nm, (lambda n=nm: _EASY[n](args.ndim))))
+        elif nm in B._TARGETS:
+            targets.append((nm, (lambda n=nm: B._TARGETS[n]())))
+        else:
+            raise SystemExit("unknown target %r; choose from %s" % (
+                nm, sorted(list(_EASY) + list(B._TARGETS))))
     seeds = [1234 + 101 * i for i in range(args.seeds)]
+
+    if args.one:
+        tname, cstr, sstr = args.one.rsplit(':', 2)
+        make = dict(targets)[tname]
+        clip, seed = float(cstr), int(sstr)
+        row = run_clip(make, clip, args.n_chunk, args.nmax, seed)
+        out = dict(provenance=_provenance(), single=dict(
+            target=tname, true_lnZ=float(make().true_lnZ), clip=clip, seed=seed,
+            n_chunk=int(args.n_chunk), nmax=int(args.nmax), ndim=int(args.ndim), row=row))
+        if args.json:
+            json.dump(out, open(args.json, 'w'), indent=2)
+        print("{} C={} seed={}: n_eff={:.3f} bias={:+.5f} clip_frac={:.3e}".format(
+            tname, clip, seed, row["n_eff"], row["bias"], row["clip_frac"]))
+        return
 
     print("# weight-clip sweep: nmax={} n_chunk={} ndim={} seeds={}".format(
         args.nmax, args.n_chunk, args.ndim, seeds))
     print("# clip C=0 is OFF (unbiased reference).  bias = lnI - true_lnZ (mean +/- std over seeds)")
     cells = []
-    for name, tgt in targets:
+    for name, make_target in targets:
+        tgt = make_target()   # one throwaway instance, for true_lnZ and the printed header only
         print("\n== {}  true_lnZ={:.4f} ==".format(name, tgt.true_lnZ))
         print("{:>6} {:>12} {:>18} {:>12} {:>12}".format(
             "C", "n_eff", "bias", "clip_frac", "pred_bias"))
         for c in clips:
-            rows = [run_clip(tgt, c, args.n_chunk, args.nmax, s) for s in seeds]
+            rows = [run_clip(make_target, c, args.n_chunk, args.nmax, s) for s in seeds]
             ne = np.array([r["n_eff"] for r in rows])
             bi = np.array([r["bias"] for r in rows])
             cf = np.mean([r["clip_frac"] for r in rows])
