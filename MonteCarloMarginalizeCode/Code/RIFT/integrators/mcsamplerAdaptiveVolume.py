@@ -101,11 +101,98 @@ __author__ = "R. O'Shaughnessy, V. Tiwari"
 
 rosDebugMessages = True
 
+# Opt-in per-cycle trace of the live-volume contraction (RIFT_AV_TRACE=1).  Diagnosing
+# a contraction failure needs the *sequence* of (n_finite, ninj, thr, nrec), which no
+# other output exposes; it is far too chatty for production, hence the env gate.
+_AV_TRACE = bool(os.environ.get('RIFT_AV_TRACE', ''))
+
+def _av_trace(msg):
+    if _AV_TRACE:
+        print("  [AV trace] " + msg)
+        sys.stdout.flush()
+
 class NanOrInf(Exception):
     def __init__(self, value):
         self.value = value
     def __str__(self):
         return repr(self.value)
+
+class LiveVolumeCollapse(Exception):
+    """The adaptive-volume live set is empty (or carries no usable information).
+
+    Raised INSTEAD of the bare numpy/cupy "zero-size array to reduction operation
+    ... which has no identity" that the empty-live-volume path used to produce, so
+    callers and logs can tell a degenerate contraction apart from a waveform
+    generation failure.  See the collapse discussion in get_likelihood_threshold.
+    """
+    pass
+
+def live_volume_collapse_verdict(n_live, ndim, ess=None, khat=None,
+                                 n_empty_cycles=0, n_live_collapses=0,
+                                 n_warm_seed=None, n_warm_seed_rank=None,
+                                 n_warm_seed_dim=None):
+    """Has the adaptive-volume live set degenerated?  -> (collapsed, [reasons])
+
+    A degenerate contraction must be REPORTED rather than silently exported: the run
+    still returns a lnZ and a sample cloud, but both describe a single mode and the
+    cloud is not a fair posterior draw.
+
+    Thresholds, against the separation measured on zero-noise injections at a fixed
+    intrinsic point (rho_net 51 -> 147):
+        healthy    ESS 16.8-20.2,  k-hat 1.03-1.50   (rho 51.4, converges cold)
+        collapsed  ESS 1.0-1.7,    k-hat 21-202      (rho 103-147)
+      * n_live <= ndim -- a live set no larger than the dimension cannot span the
+        space, let alone describe a posterior in it.  Geometric, not tuned.
+      * ESS < 2 -- fewer than two effective samples IS one sample.
+      * ESS < 5 with k-hat > 10 -- near-degenerate AND a pathological weight tail.
+    The gap between the regimes is an order of magnitude wide, so these sit far from
+    both sides of it.  k-hat is deliberately NOT a gate on its own: it exceeds its
+    nominal 0.70 "unresolved tail" threshold even in the healthy runs on this problem,
+    and it is not always computable once the live set is tiny.
+
+    A WARM start fails the OTHER way, and none of the rules above see it: seeded from too
+    few points the grid contracts onto a sliver of the support, the integrand is then flat
+    across it, and the pass terminates in one cycle looking excellent -- large n_live, ESS
+    ~ n, small k-hat -- while lnZ is short by the mass outside the sliver.  Measured on 12
+    rho_net=146.8 rescue replicates: the eleven seeded from 2000 puffed points warm-started
+    at V = 7.5e-9 to 1.5e-8 (351-684 live bins) and returned ln(Z/Lmax) = -27.0 to -30.6;
+    the one seeded from 2 points warm-started at V = 9.2e-36 (13 bins) and returned -80.7,
+    i.e. ~50 nats low, with eff_samp 9789 of 10010 samples.  So:
+      * n_warm_seed_rank < n_warm_seed_dim -- the seed cloud's AFFINE RANK (rank of the
+        mean-centred points, per-axis scaled by the box) is below the dimension it must
+        span, so it lies in a lower-dimensional subspace and cannot define a volume there.
+    RANK, not row count, is the invariant.  Rows are neither necessary nor sufficient:
+    thousands of duplicated or collinear points span the same degenerate subspace two
+    points do and fail identically, while d+1 affinely independent points are exactly
+    enough to define a volume in d dimensions and must NOT be flagged.  Rank subsumes the
+    count anyway, since n points span at most n-1 affine dimensions.
+
+    n_warm_seed* are None on a cold pass -> the rule is skipped.  If rank is unavailable
+    (a grid restored by load_state from a run that predates it) we fall back to the count,
+    at the correct simplex boundary: fewer than dim+1 points, i.e. n <= dim.
+    """
+    reasons = []
+    _seed_dim = n_warm_seed_dim if n_warm_seed_dim else ndim
+    if n_warm_seed_rank is not None and n_warm_seed_dim:
+        if n_warm_seed_rank < n_warm_seed_dim:
+            reasons.append(
+                "warm-started from a seed of affine rank {} in {} adaptive dimension(s)"
+                "{}".format(n_warm_seed_rank, n_warm_seed_dim,
+                            "" if not n_warm_seed else " ({} point(s))".format(n_warm_seed)))
+    elif n_warm_seed and n_warm_seed <= _seed_dim:   # None (cold) / 0 (unknown) -> skip
+        reasons.append("warm-started from only {} seed point(s) in {} dimensions".format(
+            n_warm_seed, _seed_dim))
+    if n_empty_cycles:
+        reasons.append("{} cycle(s) with no finite in-volume sample".format(n_empty_cycles))
+    if n_live_collapses:
+        reasons.append("{} cycle(s) whose threshold emptied the live set".format(n_live_collapses))
+    if n_live <= ndim:
+        reasons.append("final live volume holds {} sample(s) in {} dimensions".format(n_live, ndim))
+    if ess is not None and (ess < 2.0 or (khat is not None and ess < 5.0 and khat > 10.0)):
+        reasons.append("ESS={:.2f}".format(ess)
+                       + ("" if khat is None else " with k-hat={:.1f}".format(khat)))
+    return bool(reasons), reasons
+
 
 ### V. Tiwari routines
 
@@ -117,7 +204,12 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_defau
     nsel : integer, has to do with size of array of likelihoods used to evaluate for next array.
     discard_prob: threshold on CDF to throw away an entire bin.  Should be very small
     """
-    
+    if len(lkl) == 0:
+        # Caller must not ask for a threshold on an empty live volume: every reduction
+        # below (max, argsort, [0]) is undefined.  Named error, so the caller can tell
+        # this apart from a waveform/likelihood failure.
+        raise LiveVolumeCollapse("no samples in the live volume: cannot set a likelihood threshold")
+
     w = xpy_here.exp(lkl - np.max(lkl))
     npoints = len(w)
     sumw = xpy_here.sum(w)
@@ -126,7 +218,7 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_defau
     ecdf = xpy_here.cumsum(prob[idx])
     F = xpy_here.linspace(np.min(ecdf), 1., npoints)
     prob_stop_thr = lkl[idx][ecdf >= discard_prob][0]
-    
+
     lkl_stop_thr = xpy_here.flip(np.sort(lkl))
     if len(lkl_stop_thr)>nsel:
         lkl_stop_thr = lkl_stop_thr[nsel]
@@ -134,8 +226,41 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_defau
         lkl_stop_thr = lkl_stop_thr[-1]
     lkl_thr = min(lkl_stop_thr, prob_stop_thr)
 
+    # CLAMP: the threshold is applied downstream as a STRICT `lkl > thr`, so a threshold
+    # at or above max(lkl) discards the entire live volume -- which encloses zero
+    # probability and so contradicts the enc_prob=0.999 this function exists to maintain.
+    # It happens whenever the live set is small AND one weight dominates: then
+    # prob_stop_thr saturates at max(lkl) (every other weight underflows to 0, so the
+    # discard_prob quantile IS the top sample) while lkl_stop_thr falls back to the
+    # array MINIMUM (the len<=nsel branch above).  At high SNR both conditions hold from
+    # the first cycle -- ~1e5 cold extrinsic draws yield a handful of finite lnL -- and
+    # the live volume ratchets down one sample per cycle to 1, then to 0, and every
+    # reduction over it raises "zero-size array to reduction operation ... no identity".
+    # Back the threshold off to the largest value strictly below the maximum so at least
+    # the peak always survives.  In a healthy run len(lkl) >> nsel and lkl_stop_thr is
+    # the nsel-th largest, far below the max, so this clamp never engages.
+    # Reduce on the ACTIVE backend and move only the scalar: identity_convert(lkl) here
+    # would copy the whole live set device->host every cycle, on the healthy path too.
+    lkl_max = float(identity_convert(xpy_here.max(lkl)))
+    if not (float(identity_convert(lkl_thr)) < lkl_max):
+        lkl_host = identity_convert(lkl)   # rare branch: the live set is tiny by construction
+        below = lkl_host[lkl_host < lkl_max]
+        if len(below):
+            lkl_thr = np.max(below)          # keep only the maximum: maximal (but safe) contraction
+        else:
+            # every surviving sample has the SAME lnL: no contraction is possible, so
+            # take a threshold below all of them and leave the live volume intact.
+            lkl_thr = np.nextafter(lkl_max, -np.inf)
+        _av_trace("threshold CLAMPED to {:.10g} (would have discarded the whole live volume of {})".format(
+            float(lkl_thr), npoints))
+
+    if _AV_TRACE:
+        _av_trace("threshold: n={} nsel={} lkl_stop_thr={:.6g} prob_stop_thr={:.6g} -> thr={:.6g} (max={:.6g})".format(
+            npoints, nsel, float(identity_convert(lkl_stop_thr)), float(identity_convert(prob_stop_thr)),
+            float(identity_convert(lkl_thr)), lkl_max))
+
     truncp = xpy_here.sum(w[lkl < lkl_thr]) / sumw
-            
+
     return identity_convert(lkl_thr), identity_convert(truncp)  # send both to CPU as needed
 
 def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
@@ -695,7 +820,21 @@ class MCSampler(object):
         # V to 1 and throws away the seed's concentration).  resolution_pts is the
         # core (the actual proposal, without the uniform floor); coverage points
         # then land in scattered fine bins that still guarantee coverage.
-        res_pts = pts if resolution_pts is None else np.atleast_2d(np.asarray(resolution_pts, dtype=float))
+        # The core is filtered to the box by the SAME rule as `pts` above.  It describes the
+        # grid that gets built, and the grid only ever spans the box, so points outside it
+        # are not part of that description: left in, they widen `ext` (under-resolving the
+        # grid, since V_extent can even exceed 1) and they inflate the recorded affine rank,
+        # so a seed that is degenerate in-box could be recorded full-rank.  Callers do not
+        # always clip -- bootstrap_from_samples clips only when inflating, and the ILE's
+        # puffed fallback seed is an unclipped Gaussian about the peak.
+        if resolution_pts is None:
+            res_pts = pts
+        else:
+            res_pts = np.atleast_2d(np.asarray(resolution_pts, dtype=float))
+            _res_in = np.all((res_pts >= box_lo) & (res_pts <= box_hi), axis=1)
+            # Fall back to the (already filtered, guaranteed non-empty) full cloud if the
+            # core lies entirely outside: a resolution set of zero points defines nothing.
+            res_pts = res_pts[_res_in] if np.any(_res_in) else pts
         n_res = max(len(res_pts), 2)
         lo = np.quantile(res_pts, 0.5 * (1 - enc_prob), axis=0)
         hi = np.quantile(res_pts, 1 - 0.5 * (1 - enc_prob), axis=0)
@@ -741,8 +880,24 @@ class MCSampler(object):
         # keeps the seeded region; if no lnL given, let integrate_log recompute it
         # (the concentrated grid already delivers the efficiency win).
         loglkl_thr = -1e15 if loglkl is None else float(np.min(loglkl))
+        # SEED PROVENANCE, carried so integrate_log can report a seed that cannot define a
+        # volume -- see live_volume_collapse_verdict.  Not sampling parameters.
+        #
+        # The row COUNT alone is the wrong test.  Many rows that are duplicated or
+        # collinear span the same degenerate subspace two points do and produce the
+        # identical near-zero-volume failure; conversely d+1 affinely independent points
+        # are exactly enough to define a volume in d dimensions and are fine.  So record
+        # the AFFINE RANK of the seed cloud -- the rank of the mean-centred points -- over
+        # the adaptive axes, scaled by the box so the test is unit-free (a distance in Mpc
+        # and an angle in radians must not get different tolerances).  n points span at
+        # most n-1 affine dimensions, so rank subsumes the count test.
+        _ax = list(self.indx_adaptive) if self.d_adaptive > 0 else list(range(ndim))
+        _core = np.asarray(res_pts, dtype=float)[:, _ax]
+        _scaled = (_core - _core.mean(axis=0)) / np.clip(box[_ax], 1e-300, None)
+        n_seed_rank = int(np.linalg.matrix_rank(_scaled, tol=1e-9)) if len(_core) > 1 else 0
         return dict(binunique=binunique, dx=dx, nbins=nbins, V=V,
-                    loglkl_thr=loglkl_thr, trunc_p=1e-10)
+                    loglkl_thr=loglkl_thr, trunc_p=1e-10, n_seed=nrec,
+                    n_seed_rank=n_seed_rank, n_seed_dim=len(_ax))
 
     def bootstrap_from_samples(self, samples, params=None, loglkl=None, enc_prob=0.999,
                                cover_frac=0.0, dilate=1, inflate=1.0, seed=None):
@@ -913,7 +1068,10 @@ class MCSampler(object):
                  llim=self.my_ranges.T[0], rlim=self.my_ranges.T[1],
                  binunique=warm['binunique'], dx=warm['dx'], nbins=warm['nbins'],
                  V=warm['V'], loglkl_thr=warm['loglkl_thr'],
-                 trunc_p=warm.get('trunc_p', 1e-10))
+                 trunc_p=warm.get('trunc_p', 1e-10),
+                 n_seed=warm.get('n_seed', 0),   # 0 = unknown provenance (grid taken from the live state)
+                 n_seed_rank=warm.get('n_seed_rank', -1),   # -1 = not recorded by the producing run
+                 n_seed_dim=warm.get('n_seed_dim', 0))
         return path
 
     def load_state(self, path):
@@ -932,7 +1090,12 @@ class MCSampler(object):
         self._warm_applied = False   # new seed -> must be re-installed
         self._warm = dict(binunique=np.array(d['binunique']), dx=np.array(d['dx']),
                           nbins=np.array(d['nbins']), V=float(d['V']),
-                          loglkl_thr=float(d['loglkl_thr']), trunc_p=float(d['trunc_p']))
+                          loglkl_thr=float(d['loglkl_thr']), trunc_p=float(d['trunc_p']),
+                          n_seed=int(d['n_seed']) if 'n_seed' in d else 0,
+                          # -1 / 0 = a state file written before the rank was recorded; the
+                          # verdict then falls back to the count rule.
+                          n_seed_rank=int(d['n_seed_rank']) if 'n_seed_rank' in d else -1,
+                          n_seed_dim=int(d['n_seed_dim']) if 'n_seed_dim' in d else 0)
         return self._warm
 
 
@@ -961,6 +1124,17 @@ class MCSampler(object):
 
 
         xpy_here = self.xpy
+
+        # A SECOND integral on the same sampler object (the ILE L0 warm-start rescue) must not
+        # inherit the first one's 'integrand'.  integrate() writes that key AFTER integrate_log
+        # returns -- i.e. after the block below has already moved every array to the host and, if
+        # a fair draw ran, truncated it to the fair-draw length.  It is therefore stale on entry
+        # here in BOTH size and backend, and integrate_log repopulates every other key but not it.
+        # The fair-draw loop then indexes it (host, cold length) with a device index array and
+        # raises "Implicit conversion to a NumPy array is not allowed", aborting the pass.
+        # mcsamplerPortfolio.integrate_log already drops it on entry for the same reason.
+        if 'integrand' in self._rvs:
+          del self._rvs['integrand']
 
         #
         # Pin values
@@ -1062,6 +1236,10 @@ class MCSampler(object):
         # threshold with the seeded live-volume state.  self.setup() above has
         # already reset these to cold defaults, so we re-apply the seed here.
         warm = getattr(self, '_warm', None)
+        n_warm_seed = None   # in-box points the seeded grid was built from (None: cold pass)
+        n_warm_seed_rank = None  # affine rank of that seed cloud (None: cold, or not recorded)
+        n_warm_seed_dim = None   # dimensions it had to span
+        V_warm = None        # the seeded fractional volume, for the collapse report
         if warm is not None:
             self.binunique = np.array(warm['binunique'])
             self.dx = np.array(warm['dx'])
@@ -1070,9 +1248,21 @@ class MCSampler(object):
             V = float(warm['V'])
             loglkl_thr = float(warm['loglkl_thr'])
             trunc_p = float(warm.get('trunc_p', 1e-10))
+            # 0 (or absent) = provenance unknown, e.g. a grid restored by load_state from a run
+            # that predates this field; the seed-size check below then does not fire.
+            n_warm_seed = int(warm.get('n_seed', 0)) or None
+            # Affine rank of the seed cloud, which is the invariant the verdict tests; -1 or
+            # absent means the producing run predates it and the count rule is used instead.
+            _rk = int(warm.get('n_seed_rank', -1))
+            n_warm_seed_rank = _rk if _rk >= 0 else None
+            n_warm_seed_dim = int(warm.get('n_seed_dim', 0)) or None
+            V_warm = V
             if bShowEvaluationLog:
-                print("  [AV warm-start] live bins={} V={:.3e} loglkl_thr={:.3g}".format(
-                    self.binunique.shape[0], V, loglkl_thr))
+                print("  [AV warm-start] live bins={} V={:.3e} loglkl_thr={:.3g} from {} seed pt(s), affine rank {}/{}".format(
+                    self.binunique.shape[0], V, loglkl_thr,
+                    "?" if n_warm_seed is None else n_warm_seed,
+                    "?" if n_warm_seed_rank is None else n_warm_seed_rank,
+                    "?" if n_warm_seed_dim is None else n_warm_seed_dim))
 
         var_lnV = 0.0  # accumulated variance of ln(V): V is a stochastic product of per-cycle
                        # binomial survival fractions, and Z ~ V*mean(w), so Var(lnV) is a
@@ -1080,6 +1270,14 @@ class MCSampler(object):
         if cupy_ok:
           allx = identity_convert_togpu(allx)
           allloglkl = identity_convert_togpu(allloglkl)
+
+        # live-volume health bookkeeping (reported at the end and in dict_return)
+        n_empty_cycles = 0      # cycles in which NO finite sample fell inside the live volume
+        n_live_collapses = 0    # cycles in which the threshold would have emptied the live set
+        collapse_reported = False
+        nrec = 0
+        allloglkl_prev, allp_prev, allx_prev = allloglkl, allp, allx
+        loglkl_thr_prev = loglkl_thr
 
         ntotal_true = 0
         while (eff_samp < neff and ntotal_true < nmax ): #  and (not bConvergenceTests):
@@ -1127,13 +1325,52 @@ class MCSampler(object):
             
             loglkl = log_integrand # note we are putting the prior in here
 
-            idxsel = xpy_here.where(loglkl > loglkl_thr)
+            # Admit only FINITE samples above threshold.  A +inf lnL (overflow in a
+            # degenerate extrinsic configuration) passes the plain `> thr` test and then
+            # poisons every downstream max()/exp(); NaN silently fails it.  Screening here
+            # matches update_sampling_prior_selfish, which already does this.
+            idxsel = xpy_here.where(xpy_here.logical_and(loglkl > loglkl_thr, xpy_here.isfinite(loglkl)))
+            # How many samples did THIS chunk contribute?  Count before the append: `ninj`
+            # below is the CUMULATIVE live-set size, so testing that instead would only ever
+            # detect LEADING empty chunks.  Once a single sample has survived, a later chunk
+            # contributing nothing would sail past such a test and re-threshold the recycled
+            # live set -- shedding a point and shrinking V every cycle on no new evidence at
+            # all, which biases lnZ (Z ~ V*mean(w)).  Measured before this guard: 20 live
+            # points and ln V decreasing monotonically -0.05, -0.11, -0.16, -0.22, ... over
+            # chunks that each returned zero finite samples.
+            n_new = len(idxsel[0])
             #only admit samples that lie inside the live volume, i.e. one that cross likelihood threshold
             allx = xpy_here.append(allx, rv[idxsel], axis = 0)
             allloglkl = xpy_here.append(allloglkl, loglkl[idxsel])
             allp = xpy_here.append(allp, log_joint_p_prior[idxsel])
             ninj = len(allloglkl)
 
+            if _AV_TRACE:
+                _lk = identity_convert(loglkl)
+                _av_trace("cycle {}: drawn={} finite={} neginf={} posinf={} nan={} new={} ninj={} thr_in={:.6g}".format(
+                    cycle, len(_lk), int(np.sum(np.isfinite(_lk))), int(np.sum(np.isneginf(_lk))),
+                    int(np.sum(np.isposinf(_lk))), int(np.sum(np.isnan(_lk))), n_new, ninj, loglkl_thr))
+
+            if n_new == 0:
+                # This chunk contributed NO finite in-volume sample.  At high SNR the
+                # production likelihood underflows to -inf more than ~745 nats below its
+                # peak, so a chunk can hold nothing usable.  Contraction is an inference
+                # FROM the chunk, so an empty chunk supports none: leave the threshold, V
+                # and the grid untouched and draw again.  This is recoverable; the old code
+                # instead either fell into get_likelihood_threshold and died on max() of an
+                # empty array (no survivors yet) or contracted on recycled samples.
+                n_empty_cycles += 1
+                if not collapse_reported:
+                    print("  [AV collapse] cycle {}: no finite in-volume samples ({} drawn, all -inf/NaN;"
+                          " live set holds {}).".format(cycle, len(rv), ninj))
+                    print("                Threshold and live volume left unchanged; continuing to draw.")
+                    print("                This is the high-SNR likelihood-underflow regime --")
+                    print("                see --sampler-warmstart-retry-neff.")
+                    collapse_reported = True
+                cycle += 1
+                if cycle > 1000:
+                    break
+                continue
 
             #just some test to verify if we dont discard more than 1 - Pthr probability
             at_final_threshold = np.round(enc_prob/trunc_p) - np.round(enc_prob/(1 - enc_prob)) == 0
@@ -1141,7 +1378,7 @@ class MCSampler(object):
             if not(at_final_threshold):
                 loglkl_thr, truncp = get_likelihood_threshold(allloglkl, loglkl_thr, nsel, 1 - enc_prob - trunc_p,xpy_here=xpy_here)
                 trunc_p += truncp
-    
+
             # Select with threshold
             idxsel = xpy_here.where(allloglkl > loglkl_thr)
             allloglkl = allloglkl[idxsel]
@@ -1149,12 +1386,35 @@ class MCSampler(object):
             allx = allx[idxsel]
             nrec = len(allloglkl)   # recovered size of active volume at present, after selection
 
+            _av_trace("cycle {}: after selection at thr={:.6g}: nrec={} (was ninj={})".format(
+                cycle, loglkl_thr, nrec, ninj))
+
+            if nrec == 0:
+                # Defensive: get_likelihood_threshold now clamps the threshold below max(lkl),
+                # so this is unreachable by the route that produced the reported crash.  Keep
+                # the guard anyway -- an empty live set must never reach the reductions below.
+                n_live_collapses += 1
+                print("  [AV collapse] cycle {}: threshold {:.6g} emptied a live volume of {}; ".format(cycle, loglkl_thr, ninj)
+                      + "restoring it and stopping contraction.")
+                allloglkl, allp, allx = allloglkl_prev, allp_prev, allx_prev
+                loglkl_thr = loglkl_thr_prev
+                nrec = len(allloglkl)
+                if nrec == 0:
+                    raise LiveVolumeCollapse(
+                        "adaptive-volume live set is empty after {} cycles: the likelihood returned no "
+                        "finite value inside the sampled volume (high-SNR underflow, or a likelihood/"
+                        "waveform failure).  This is NOT a waveform Nyquist/duration problem.".format(cycle))
+                break
+
+            # remember the last GOOD state, so a degenerate contraction can be undone
+            allloglkl_prev, allp_prev, allx_prev, loglkl_thr_prev = allloglkl, allp, allx, loglkl_thr
+
             # Weights
             lw = allloglkl - xpy_here.max(allloglkl)
             w = xpy_here.exp(lw)
             neff_varaha = identity_convert(xpy_here.sum(w) ** 2 / xpy_here.sum(w ** 2))
             eff_samp = identity_convert(xpy_here.sum(w)/xpy_here.max(w))  # to CPU as needed
- 
+
             #New live volume based on new likelihood threshold
             V *= (nrec / ninj)
             delta_V = V / np.sqrt(nrec) 
@@ -1195,6 +1455,18 @@ class MCSampler(object):
                 break
 
         # VT approach was to accumulate samples, but then prune them.  So we have all the lnL and x draws
+
+        if len(allloglkl) == 0:
+            # Every cycle came back empty: the integrand never returned a finite value inside
+            # the sampled volume.  There is no integral to report, so fail with a message that
+            # names the actual cause instead of an anonymous empty-array reduction.
+            raise LiveVolumeCollapse(
+                "adaptive-volume live set is empty after {} cycles ({} draws): the likelihood "
+                "returned no finite value anywhere in the sampled volume.  At high network SNR "
+                "this is likelihood UNDERFLOW (exp() of a lnL more than ~745 nats below the peak "
+                "returns 0), not a waveform Nyquist/start-frequency/duration problem; narrow the "
+                "extrinsic prior or seed the sampler (--sampler-warmstart-retry-neff).".format(
+                    cycle, ntotal_true))
 
         # write in variables requested in the standard format
         for indx in np.arange(len(self.params_ordered)):
@@ -1237,15 +1509,26 @@ class MCSampler(object):
            ln_wt = self.xpy.array(self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"] ,dtype=float)
            ln_wt = identity_convert(ln_wt)  # send to CPU
            ln_wt += - special.logsumexp(ln_wt)
-           wt = xpy.exp(identity_convert_togpu(ln_wt))
+           # Build the weights on the SAMPLER's backend (self.xpy), which is what draws below.
+           # The module-global `xpy` kwarg defaults to cupy independently of self.xpy, so using it
+           # here handed a device array to numpy.random.choice whenever the two disagreed.
+           wt = self.xpy.exp(self.xpy.asarray(ln_wt))
            if n_extr < len(self._rvs["log_integrand"]):
                indx_list = self.xpy.random.choice(self.xpy.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
                # FIXME: See previous FIXME
+               # Gather on the HOST.  _rvs entries are not guaranteed to sit on the same backend as
+               # indx_list (a caller may set self.xpy independently of the module-level backend, and
+               # keys written outside integrate_log arrive host-typed), and a numpy array indexed by
+               # a cupy array raises "Implicit conversion to a NumPy array is not allowed" -- which
+               # aborted this pass mid-way, leaving the caller's result tuple unassigned.  Converting
+               # first is free: the block just below moves every array to the host anyway.
+               indx_host = np.asarray(identity_convert(indx_list))
                for key in list(self._rvs.keys()):
+                   arr = identity_convert(self._rvs[key])
                    if isinstance(key, tuple):
-                       self._rvs[key] = identity_convert(self._rvs[key][:,indx_list])
+                       self._rvs[key] = arr[:,indx_host]
                    else:
-                       self._rvs[key] = identity_convert(self._rvs[key][indx_list])
+                       self._rvs[key] = arr[indx_host]
 
 
         # perform type conversion of all stored variables.  VERY LARGE -- should only do this if we need it!
@@ -1278,6 +1561,53 @@ class MCSampler(object):
                 round(mc_diag['n_ESS'],1) if 'n_ESS' in mc_diag else None))
         except Exception as _e_diag:
             print(" mcsamplerAdaptiveVolume: MC-error diagnostics failed ({}); continuing.".format(_e_diag))
+
+        # ------------------------------------------------------------------
+        # LIVE-VOLUME COLLAPSE VERDICT: a degenerate contraction must be REPORTED, not
+        # silently exported.  Thresholds and the measured regimes they separate are
+        # documented on live_volume_collapse_verdict.
+        n_live_final = int(len(log_wt))
+        _ess = dict_return.get('n_ESS', None)
+        _khat_v = dict_return.get('pareto_khat', None)
+        collapsed, _reasons = live_volume_collapse_verdict(
+            n_live_final, ndim, ess=_ess, khat=_khat_v,
+            n_empty_cycles=n_empty_cycles, n_live_collapses=n_live_collapses,
+            n_warm_seed=n_warm_seed, n_warm_seed_rank=n_warm_seed_rank,
+            n_warm_seed_dim=n_warm_seed_dim)
+        dict_return['live_volume_collapsed'] = collapsed
+        dict_return['n_live_final'] = n_live_final
+        dict_return['n_empty_cycles'] = int(n_empty_cycles)
+        dict_return['n_live_collapses'] = int(n_live_collapses)
+        if n_warm_seed is not None:
+            dict_return['n_warm_seed'] = int(n_warm_seed)
+            if n_warm_seed_rank is not None:
+                dict_return['n_warm_seed_rank'] = int(n_warm_seed_rank)
+                dict_return['n_warm_seed_dim'] = int(n_warm_seed_dim or 0)
+            dict_return['V_warm_start'] = float(V_warm)
+        if collapsed:
+            dict_return['collapse_reason'] = "; ".join(_reasons)
+            print(" [AV COLLAPSE] the live volume degenerated: " + dict_return['collapse_reason'] + ".")
+            print(" [AV COLLAPSE] lnZ and the exported samples describe a SINGLE mode of the integrand and are")
+            print(" [AV COLLAPSE] NOT a fair draw from the posterior.  Do not use this export unweighted.")
+            # The same test the verdict used -- rank when recorded, count at the simplex
+            # boundary otherwise -- so the advice always matches the reason just given.
+            _seed_degenerate = (
+                (n_warm_seed_rank < n_warm_seed_dim)
+                if (n_warm_seed_rank is not None and n_warm_seed_dim)
+                else (n_warm_seed is not None and n_warm_seed <= (n_warm_seed_dim or ndim)))
+            if _seed_degenerate:
+                # OPPOSITE failure to the cold one below, so it needs the opposite advice: the
+                # numbers look GOOD (n_eff at target in one cycle) precisely because the seeded
+                # volume is too small for the integrand to vary across it.  lnZ is a lower bound.
+                print(" [AV COLLAPSE] this is an OVER-CONTRACTED WARM START (V={:.3e}), not underflow:".format(V_warm))
+                print(" [AV COLLAPSE] a healthy n_eff here is an artifact of a live volume too small to")
+                print(" [AV COLLAPSE] resolve the peak, and lnZ is a LOWER BOUND missing the mass outside it.")
+                print(" [AV COLLAPSE] Seed from more points (widen --sampler-sequential-warmstart-deltalnL,")
+                print(" [AV COLLAPSE] or let the caller puff a thin peak) rather than trusting this pass.")
+            else:
+                print(" [AV COLLAPSE] At high network SNR this is likelihood underflow over a cold extrinsic prior;")
+                print(" [AV COLLAPSE] narrow the prior or seed the sampler (--sampler-warmstart-retry-neff).")
+
         return log_int, np.log(rel_var)  +2*log_int, eff_samp, dict_return
 
         # if outvals:
