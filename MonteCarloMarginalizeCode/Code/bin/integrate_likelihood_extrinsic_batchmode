@@ -9,6 +9,7 @@ Integrate the extrinsic parameters of the prefactored likelihood function.
 
 import sys
 import functools
+import traceback
 from optparse import OptionParser, OptionGroup
 
 import numpy
@@ -2265,7 +2266,31 @@ for indx in numpy.arange(len(P_list)):
   #  if failure_mode in str(exception_failure):
   #    sys.exit(opts.custom_fail_codes[i])
 
-  print( " Probable reasons: SEOB nyquist or starting frequency limit or signal duration ")
+  # Attribute the failure to something the traceback actually supports.  This line used to
+  # read "Probable reasons: SEOB nyquist or starting frequency limit or signal duration"
+  # UNCONDITIONALLY, for every exception raised anywhere in the block above.  That pointed
+  # the high-SNR adaptive-volume live-volume collapse -- the dominant extrinsic-export
+  # failure at rho_net >~ 100, where >90% of exports died -- at the waveform generation
+  # code instead, which is why it went undiagnosed for so long.
+  if ((mcsampler_AV_ok and isinstance(exception_failure, mcsamplerAdaptiveVolume.LiveVolumeCollapse))
+      or 'live volume' in str_err or 'live set' in str_err
+      or ('zero-size array' in str_err and 'no identity' in str_err
+          and 'mcsamplerAdaptiveVolume' in traceback.format_exc())):
+    # covers both the named exception and the bare numpy/cupy empty-reduction error that
+    # older trees (and any other integrator with the same defect) still raise.  The string
+    # fallback additionally requires the traceback to name the integrator, because this
+    # handler also covers waveform generation, data conditioning and the likelihood stack.
+    print( " Probable reason: the INTEGRATOR's live volume collapsed -- no samples survived the")
+    print( " adaptive-volume likelihood threshold.  This is NOT a waveform problem: nyquist, start")
+    print( " frequency and segment duration are all irrelevant to it.  At high network SNR the")
+    print( " likelihood underflows (exp() of a lnL more than ~745 nats below the peak returns 0),")
+    print( " so a cold extrinsic prior yields almost no finite draw.  Narrow the extrinsic prior")
+    print( " (--limit-right-ascension/--limit-declination/--limit-inclination, tighter --d-min/--d-max).")
+  elif ('nyquist' in str_err.lower() or 'srate' in str_err.lower() or 'duration' in str_err.lower()
+        or 'ChooseFDWaveform' in str_err or 'ChooseTDWaveform' in str_err or 'gwsignal' in str_err):
+    print( " Probable reasons: SEOB nyquist or starting frequency limit or signal duration ")
+  else:
+    print( " Cause not classified -- read the traceback above; it names the failing call.")
   print( " Skipping the following binary! ")
   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
   P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0
