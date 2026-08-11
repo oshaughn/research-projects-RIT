@@ -64,7 +64,9 @@ silences it and makes N production copies no better than one.
 
 ## 2. Strict gate row `GMM mix_d6_n3_s303` is mis-budgeted (starves 4 of 5 seeds)
 
-**Status:** needs a decision, not a code fix.
+**Status:** DONE -- measured and resolved. The cell carries a x4 `CELL_BUDGET_MULT` entry in
+`shape_recovery.py`, applied through `cell_budget()` so both entry points agree. The measurement
+table and the reasoning for x4 over x2 are below.
 
 The cell sits on the `n_eff = 100` starvation floor, so as a **strict** (merge-blocking) row it is
 close to a coin flip on every branch. From the confirm-on-fail run added in #49 (5 fresh seeds,
@@ -184,17 +186,63 @@ the allocation signal needs a shape-aware guard or the flag should be documented
 
 ## 5. The `quick` preset cannot clear its own shape floor on `GMM d4_n2_s101`
 
-**Status:** open, low priority. Surfaced only because the pytest entry point stopped passing
-vacuously (see below) -- it had been silently STARVED the whole time.
+**Status:** RESOLVED as a preset question -- accept the skip, keep the cell, and do NOT give it a
+`CELL_BUDGET_MULT` entry. But the premise below was wrong: this is not a budget shortfall. The
+measurement turned up a real, budget-resistant GMM shape defect, now tracked as item 6.
 
 `quick` budgets `nmax_per_dim=50000`, so `d=4` runs at 200k evaluations and that cell reads
 **n_eff = 42** against the `MIN_NEFF_FOR_SHAPE = 100` floor. The other three quick cells pass. So
 the default `RIFT_RUN_EXPENSIVE=1 pytest test_shape_recovery.py` is 3 passed, 1 skipped, and one
-quarter of the quick matrix tests nothing.
+quarter of the quick matrix tests nothing. That much still stands.
 
-Not a defect in the sampler -- the same cell passes at the standard preset's budget. Either raise
-`quick`'s budget for `d=4` (it stops being quick: this cell needs roughly 2.5x), drop the cell from
-`quick`, or accept the skip. Deliberately not decided here.
+**MEASURED (8 fresh run seeds per budget: 987654 + 988654..994654, CPU, branch on `PYTHONPATH`).**
+The paragraph that used to sit here read "Not a defect in the sampler -- the same cell passes at
+the standard preset's budget ... this cell needs roughly 2.5x". Both halves are false. It was
+extrapolated from the single default-seed reading, which is exactly the one-realization reasoning
+this file warns about everywhere else.
+
+| budget | nmax | n_eff min / med / max | clears 100 | PASS | median `width_ratio[1]` |
+|---|---|---|---|---|---|
+| x1 (`quick`) | 200k | 11 / 50 / 101 | 1/8 | 0/8 | 0.989 |
+| x2 | 400k | 16 / 32 / 122 | 1/8 | 1/8 | 0.976 |
+| x4 (= `standard`'s per-dim budget) | 800k | 28 / 44 / 179 | 2/8 | 1/8 | 0.919 |
+| x8 | 1.6M | 41 / 81 / 133 | 2/8 | 1/8 | 0.906 |
+| x16 | 3.2M | 33 / 96 / 148 | 4/8 | 1/8 | 0.900 |
+| x32 | 6.4M | 28 / 139 / 217 | 6/8 | 1/8 | 0.889 |
+
+Three readings, and none of them supports raising the budget:
+
+* **Budget does not clear the floor.** At x32 -- 6.4M evaluations, 8x the *standard* preset's own
+  d=4 budget -- the cell still starves in 2 of 8 seeds, minimum 28. There is no "quick" budget that
+  fixes this, and no expensive one either.
+* **Clearing the floor does not produce a pass.** PASS is 1/8 at every budget from x2 up. At x32,
+  6/8 clear the floor and 5 of those 6 FAIL. Raising `quick`'s budget would convert a documented
+  skip into a merge-blocking red row -- correctly, but that is item 6's decision to make, not a
+  preset-tuning side effect.
+* **It fails because it converges to the WRONG answer.** `width_ratio[1]` degrades monotonically
+  with budget (0.989 -> 0.889) while the other three dims sit at 1.00, and `mean_pull[1]` grows
+  +0.023 -> +0.069. More samples, worse recovered posterior: the same signature as item 4.
+
+**Decision.** Accept the skip.
+
+* *Raise the budget* -- rejected, measured above. It does not work at any budget, and where it does
+  become testable the cell fails.
+* *Drop the cell from `quick`* -- rejected. It is the only cell in the whole matrix that exhibits
+  the item-6 defect (see the six-cell sweep there). Dropping it deletes the detector to make the
+  summary line tidier, which is how the vacuous-pass bug below lasted three months.
+* *Accept the skip* -- taken. `quick` stays quick, the skip stays visible in the pytest summary,
+  and the reason it skips is now recorded here and at `CELL_BUDGET_MULT` instead of being
+  re-derived by the next person.
+
+So `RIFT_RUN_EXPENSIVE=1 pytest test_shape_recovery.py` is 3 passed / 1 skipped **by design**, and
+the skipped quarter is containment of a known defect, not an untested corner.
+
+**Do not "fix" this with a `CELL_BUDGET_MULT` entry.** The mechanism added in #59 makes it a
+one-line edit -- `("GMM", 4, 2, 101): 3` -- that looks exactly like the fix item 2 landed for
+`mix_d6_n3_s303`. It is not the same situation: that cell's bias was flat across budgets, so more
+budget bought real margin; this one's width deficit *grows* with budget. The table above is
+reproduced in a comment at `CELL_BUDGET_MULT` in `shape_recovery.py`, at the line someone would
+edit.
 
 **How it was invisible.** `test_shape_recovery.py` unpacked `evaluate()` as `ok, reasons` and
 asserted `ok`. Commit 6467ac91 (2026-07-22) changed `evaluate()`'s contract from
@@ -203,3 +251,82 @@ asserted `ok`. Commit 6467ac91 (2026-07-22) changed `evaluate()`'s contract from
 hours earlier the same day. Every status string is truthy, so from that commit onward the pytest
 gate passed on FAIL, STARVED and ERROR alike. Same family as the #47/#51/#55 findings: a contract
 with two callers, one updated, both plausible in isolation, failure silent.
+
+---
+
+## 6. GMM under-covers a broad mixture component on `mix_d4_n2_s101`, and worsens with budget
+
+**Status:** open, confirmed. Found while measuring item 5, which had recorded the cell as merely
+under-budgeted. Not known to affect production: no gate row runs this target at a budget where the
+defect is visible, and the ncomp=2 d=4 geometry appears only in the `quick` preset.
+
+On `MixtureTarget(4, 2, 101)` the GMM sampler recovers dimension 1's marginal **too narrow, and
+progressively more so the longer it runs**, while the other three dimensions stay exact. Medians
+over 8 fresh run seeds per budget:
+
+```
+budget   med n_eff   median width_ratio per dim (x0 x1 x2 x3)   median mean_pull[1]
+ x1  200k     50     1.005  0.989  1.002  1.011                  +0.023
+ x2  400k     32     1.001  0.976  0.981  0.993                  -0.003
+ x3  600k     37     1.001  0.923  0.985  0.998                  +0.039
+ x4  800k     44     1.000  0.919  0.993  0.998                  +0.039
+ x8  1.6M     81     1.003  0.906  0.992  1.003                  +0.052
+x16  3.2M     96     1.003  0.900  0.993  0.994                  +0.046
+x32  6.4M    139     1.008  0.889  0.989  1.004                  +0.069
+```
+
+n_eff grows roughly as `nmax**0.3` instead of linearly, and every FAIL in the sweep names
+`width_ratio[1]` (0.843-0.915); at x32 `mean_pull[1]` and `corr_diff_max` join it as the tolerances
+tighten with n_eff. The evidence bias stays small (median |bias| 0.03-0.07 nats) throughout, so
+**the integral looks fine while the posterior does not** -- which is the failure mode this whole
+suite exists to catch, and is invisible to `.travis/test-integrate.sh`.
+
+**The target is not pathological, and the thresholds are not too tight.** AV on the identical
+target, same seeds:
+
+```
+budget   n_eff min/med/max   clears 100   PASS   median width_ratio per dim
+ x1     157 /  188 /  203       8/8       8/8    1.001  1.004  1.000  0.996
+ x4     721 /  770 /  802       8/8       8/8    1.000  1.004  1.002  1.000
+x16    2002 / 2008 / 2013       8/8       8/8    1.000  1.000  0.999  0.999
+```
+
+AV converges TO 1.000 on the dimension GMM diverges from, and clears the floor at every seed and
+every budget including `quick`'s.
+
+**It is target-specific, not general GMM.** Sweeping GMM over the six `standard` d=4 cells at x1
+and x4 (8 seeds each): every one scales n_eff ~4x for a 4x budget, holds `width_ratio` within 0.99
+-- 1.01 in all dims, and reaches 7-8/8 PASS at x4. Only `n2_s101` fails to scale (50 -> 44).
+
+```
+cell           x1 med n_eff -> x4      x4 PASS   x4 width_ratio per dim
+d4 n1 s101         69 ->  279            7/8     1.001 1.003 1.002 1.001
+d4 n1 s202         63 ->  252            8/8     1.004 1.005 1.004 1.003
+d4 n1 s303         89 ->  357            8/8     1.002 0.999 0.999 1.000
+d4 n3 s101         74 ->  297            8/8     1.002 0.994 0.994 0.992
+d4 n3 s202        182 ->  719            8/8     1.000 0.998 0.996 1.000
+d4 n3 s303         62 ->  222            7/8     1.008 1.007 1.003 1.000
+d4 n2 s101         50 ->   44            1/8     1.000 0.919 0.993 0.998   <-- this item
+```
+
+Note the ncomp=3 cells are fine, so plain multimodality is not the trigger.
+
+**Geometry of the one target that breaks it.** Two near-equal-weight components (0.479 / 0.521),
+separated 1.83 sigma along x0, whose widths along x1 differ by 2.5x (component sd 1.302 vs 0.520)
+with only 0.95 sigma of separation in that dimension. The recovered pull is positive, i.e. toward
+the NARROW component's x1 mean (0.062) and away from the broad one's (-0.985). So the proposal is
+progressively abandoning the broad component's tail and concentrating on the sharper, higher-density
+one -- and `n_eff = sum(w)/max(w)` cannot see it, because a proposal that has collapsed onto part
+of the support still reports concentrated weights.
+
+**Next steps.** Establish whether the trigger is the width ratio between overlapping components or
+the near-equal weights, by scanning `sigma_1d` / weight ratio on a synthetic two-component target
+rather than hunting more random seeds. Then check whether the fit is degenerate at the source: this
+runs `n_comp=2` on a genuinely 2-component target, so the EM fit is correctly specified and should
+not need to collapse -- if both fitted components land on the narrow mode, the defect is in the
+initialization or in the tempered-refit path (`GMM refit skipped: ESS too low even untempered`
+fires on some seeds here), not in the component count.
+
+**Do not** reach for a budget increase, and do not add this cell to `standard` to "make it gated"
+until the defect is understood -- that just converts a documented skip into a red row on every
+branch. See item 5 for why the skip is the deliberate containment.
