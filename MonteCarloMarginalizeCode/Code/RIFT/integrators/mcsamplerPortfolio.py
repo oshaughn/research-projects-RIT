@@ -1875,18 +1875,38 @@ class MCSampler(object):
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*identity_convert(eff_samp),1.5*neff]))
            print(" Fairdraw size : ", n_extr)
-           ln_wt = self.xpy.array(self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"] ,dtype=float)
-           ln_wt = identity_convert(ln_wt)  # send to CPU
+           # Host-convert each operand BEFORE the arithmetic.  self.xpy is numpy throughout
+           # integrate_log (forced above: the portfolio aggregates on the host), while a
+           # device-native integrand can leave these keys cupy-typed -- and numpy.array() on a
+           # cupy array raises the same TypeError as the draw below, one line earlier.
+           ln_wt = self.xpy.asarray(identity_convert(self._rvs["log_integrand"])
+                                    + identity_convert(self._rvs["log_joint_prior"])
+                                    - identity_convert(self._rvs["log_joint_s_prior"]), dtype=float)
            ln_wt += - special.logsumexp(ln_wt)
-           wt = xpy.exp(identity_convert_togpu(ln_wt))
+           # Build the weights on the SAMPLER's backend (self.xpy), which is what draws below.
+           # The module-global `identity_convert_togpu` is cupy.asarray independently of self.xpy,
+           # so this line sent ln_wt to the DEVICE; numpy.exp then dispatched through cupy's
+           # __array_ufunc__ and handed back a cupy array, which numpy.random.choice refuses with
+           # "Implicit conversion to a NumPy array is not allowed".  That aborted the entire ILE
+           # run (analyze_event -> sampler.integrate) on every GPU host, so --sampler-method
+           # portfolio could not be used at all there.  Same defect, same fix, as the fair-draw
+           # block in mcsamplerAdaptiveVolume.
+           wt = self.xpy.exp(self.xpy.asarray(ln_wt))
            if n_extr < len(self._rvs["log_integrand"]):
                indx_list = self.xpy.random.choice(self.xpy.arange(len(wt)), size=n_extr,replace=True,p=wt) # fair draw
                # FIXME: See previous FIXME
+               # Gather on the HOST.  _rvs entries are not guaranteed to sit on the same backend as
+               # indx_list (a device-native integrand writes log_integrand as cupy, and keys written
+               # outside integrate_log arrive host-typed), and indexing a numpy array with a cupy
+               # array raises the same "Implicit conversion" TypeError.  Converting first is free:
+               # this block moves every array to the host anyway.
+               indx_host = np.asarray(identity_convert(indx_list))
                for key in list(self._rvs.keys()):
+                   arr = identity_convert(self._rvs[key])
                    if isinstance(key, tuple):
-                       self._rvs[key] = identity_convert(self._rvs[key][:,indx_list])
+                       self._rvs[key] = arr[:,indx_host]
                    else:
-                       self._rvs[key] = identity_convert(self._rvs[key][indx_list])
+                       self._rvs[key] = arr[indx_host]
 
 
         # Create extra dictionary to return things
