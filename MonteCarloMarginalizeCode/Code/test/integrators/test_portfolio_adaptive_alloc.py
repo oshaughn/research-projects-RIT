@@ -71,14 +71,40 @@ def _host_lnfunc(target):
     return ln_f
 
 
+def _target_components(target):
+    """(weights, means, covs) for whatever geometry the target exposes, so the broad seed works for
+    mixtures and for targets with no analytic mode -- not only single Gaussians."""
+    if hasattr(target, 'mu') and hasattr(target, 'cov'):
+        return np.array([1.0]), [np.asarray(target.mu)], [np.atleast_2d(target.cov)]
+    if hasattr(target, 'means') and hasattr(target, 'covs'):
+        wt = np.asarray(getattr(target, 'wt', np.ones(len(target.means)) / len(target.means)),
+                        dtype=float)
+        return (wt / wt.sum(), [np.asarray(m) for m in target.means],
+                [np.atleast_2d(c) for c in target.covs])
+    # No analytic geometry (e.g. Rosenbrock): cover the prior box instead of a mode.
+    lo, hi = np.asarray(target.llim, dtype=float), np.asarray(target.rlim, dtype=float)
+    return np.array([1.0]), [0.5 * (lo + hi)], [np.diag(((hi - lo) / 4.0) ** 2)]
+
+
 def _seed_gmm_broad(gmm, target, broad=3.0, n=8000, seed=7):
     """Give the GMM member a BROAD but peak-covering full-covariance proposal (fit to a wide cloud
     N(mu, broad^2 cov) around the mode).  This removes the cold-start LOTTERY -- cold GMM only
     sometimes finds a thin correlated ridge from a uniform start -- so the test deterministically
     exercises the ALLOCATION policy given a member that *can* model the correlation (AV cannot,
-    seed or not).  The member still adapts/tightens during the run."""
+    seed or not).  The member still adapts/tightens during the run.
+
+    For a MIXTURE target the cloud is drawn from all components, so the seed covers every mode
+    rather than only the one that happens to expose `mu`.  The single-component path is kept
+    byte-identical (no extra draws from `rng` before the cloud) so previously recorded numbers on
+    the Gaussian targets are unaffected."""
     rng = np.random.RandomState(seed)
-    cloud = rng.multivariate_normal(target.mu, broad ** 2 * np.atleast_2d(target.cov), n)
+    wt, means, covs = _target_components(target)
+    if len(means) == 1:
+        cloud = rng.multivariate_normal(means[0], broad ** 2 * covs[0], n)
+    else:
+        counts = rng.multinomial(n, wt)
+        cloud = np.vstack([rng.multivariate_normal(m, broad ** 2 * c, k)
+                           for m, c, k in zip(means, covs, counts) if k > 0])
     cloud = np.clip(cloud, target.llim + 1e-3, target.rlim - 1e-3)
     gmm.update_sampling_prior(np.zeros(len(cloud)), 2 * len(cloud),
                               external_rvs={p: cloud[:, i] for i, p in enumerate(gmm.params_ordered)},
