@@ -108,35 +108,54 @@ def main():
         "correlated": lambda d: T.CompoundCorrelatedGaussian(ndim=d),
     }
     # Factories, not instances -- see run_clip on why a shared instance corrupts the measurement.
-    targets = []
-    for nm in args.targets.split(','):
-        nm = nm.strip()
+    # --ndim applies ONLY to the two parameterized easy targets; the stress targets carry their own
+    # dimensionality (gaussmix8 is 8-D, rosenbrock 2-D), which is why metadata below reads
+    # target.ndim rather than args.ndim -- the latter would label every one of them 5-D.
+    def make_factory(nm):
         if nm in _EASY:
-            targets.append((nm, (lambda n=nm: _EASY[n](args.ndim))))
-        elif nm in B._TARGETS:
-            targets.append((nm, (lambda n=nm: B._TARGETS[n]())))
-        else:
-            raise SystemExit("unknown target %r; choose from %s" % (
-                nm, sorted(list(_EASY) + list(B._TARGETS))))
+            return lambda n=nm: _EASY[n](args.ndim)
+        if nm in B._TARGETS:
+            return lambda n=nm: B._TARGETS[n]()
+        raise SystemExit("unknown target %r; choose from %s" % (
+            nm, sorted(list(_EASY) + list(B._TARGETS))))
+
+    targets = [(nm.strip(), make_factory(nm.strip())) for nm in args.targets.split(',')]
     seeds = [1234 + 101 * i for i in range(args.seeds)]
 
     if args.one:
         tname, cstr, sstr = args.one.rsplit(':', 2)
-        make = dict(targets)[tname]
+        # Resolved independently of --targets: --one names its own target, and requiring the two to
+        # agree made the documented interface raise KeyError.
+        make = make_factory(tname)
         clip, seed = float(cstr), int(sstr)
         row = run_clip(make, clip, args.n_chunk, args.nmax, seed)
+        meta = make()
         out = dict(provenance=_provenance(), single=dict(
-            target=tname, true_lnZ=float(make().true_lnZ), clip=clip, seed=seed,
-            n_chunk=int(args.n_chunk), nmax=int(args.nmax), ndim=int(args.ndim), row=row))
+            target=tname, true_lnZ=float(meta.true_lnZ), clip=clip, seed=seed,
+            n_chunk=int(args.n_chunk), nmax=int(args.nmax), ndim=int(meta.ndim), row=row))
         if args.json:
             json.dump(out, open(args.json, 'w'), indent=2)
         print("{} C={} seed={}: n_eff={:.3f} bias={:+.5f} clip_frac={:.3e}".format(
             tname, clip, seed, row["n_eff"], row["bias"], row["clip_frac"]))
         return
 
-    print("# weight-clip sweep: nmax={} n_chunk={} ndim={} seeds={}".format(
-        args.nmax, args.n_chunk, args.ndim, seeds))
+    # Everything below runs every cell in ONE interpreter, which is exactly the contamination
+    # documented on --one: the same seed and config drifts by ~3e-4 nats with its position in the
+    # loop.  That is tolerable for an interactive look at the table; it is NOT tolerable to persist
+    # as an authoritative artifact that downstream macros quote.  So this path refuses --json.
+    if args.json:
+        raise SystemExit(
+            "refusing to write %s from the multi-cell path: every cell here shares one interpreter, "
+            "so the numbers carry a run-order artifact of the same size as the effects being "
+            "measured.\nUse one process per cell -- 'bench_weight_clip.py --one TARGET:CLIP:SEED "
+            "--json <file>' -- and merge; the paper repository's analyses/weight_clip_efficiency/"
+            "run_sweep.sh does exactly that." % args.json)
+
+    print("# weight-clip sweep: nmax={} n_chunk={} seeds={}".format(
+        args.nmax, args.n_chunk, seeds))
     print("# clip C=0 is OFF (unbiased reference).  bias = lnI - true_lnZ (mean +/- std over seeds)")
+    print("# WARNING: cells share one interpreter -- results carry a run-order artifact (~3e-4 nats)."
+          "\n#          Indicative only.  Use --one per cell for numbers anyone will rely on.")
     cells = []
     for name, make_target in targets:
         tgt = make_target()   # one throwaway instance, for true_lnZ and the printed header only
@@ -157,7 +176,7 @@ def main():
             # never bind, and a flat n_eff then means "inactive", not "harmless".
             cells.append(dict(
                 target=name, true_lnZ=float(tgt.true_lnZ), clip=float(c),
-                n_chunk=int(args.n_chunk), nmax=int(args.nmax), ndim=int(args.ndim),
+                n_chunk=int(args.n_chunk), nmax=int(args.nmax), ndim=int(tgt.ndim),
                 seeds=list(map(int, seeds)), rows=rows,
                 n_eff_mean=float(ne.mean()), n_eff_std=float(ne.std(ddof=1)) if len(ne) > 1 else 0.0,
                 n_eff_sem=float(ne.std(ddof=1) / np.sqrt(len(ne))) if len(ne) > 1 else 0.0,
