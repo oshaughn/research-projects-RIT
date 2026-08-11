@@ -188,7 +188,7 @@ the allocation signal needs a shape-aware guard or the flag should be documented
 
 **Status:** RESOLVED as a preset question -- accept the skip, keep the cell, and do NOT give it a
 `CELL_BUDGET_MULT` entry. But the premise below was wrong: this is not a budget shortfall. The
-measurement turned up a real, budget-resistant GMM shape defect, now tracked as item 6.
+measurement turned up a real, budget-resistant GMM shape defect, now tracked as item 7.
 
 `quick` budgets `nmax_per_dim=50000`, so `d=4` runs at 200k evaluations and that cell reads
 **n_eff = 42** against the `MIN_NEFF_FOR_SHAPE = 100` floor. The other three quick cells pass. So
@@ -218,7 +218,7 @@ Three readings, and none of them supports raising the budget:
 * **Clearing the floor does not produce a pass.** PASS is 1/8 at every budget from x2 up. At x32,
   6/8 clear the floor and 5 of those 6 FAIL. Raising `quick`'s budget would turn the pytest smoke
   row from a skip into a hard assertion failure on an unfixed defect -- correctly, but that is
-  item 6's decision to make, not a preset-tuning side effect.
+  item 7's decision to make, not a preset-tuning side effect.
 * **It fails because it converges to the WRONG answer.** `width_ratio[1]` degrades monotonically
   with budget (0.989 -> 0.889) while the other three dims sit at 1.00, and `mean_pull[1]` grows
   +0.023 -> +0.069. More samples, worse recovered posterior: the same signature as item 4.
@@ -246,7 +246,7 @@ explicitly flag-don't-block. The only thing a permanently-starved row still catc
 `REGRESSION(missing-in-candidate)` -- a candidate that crashes and emits no record at all.
 
 So `RIFT_RUN_EXPENSIVE=1 pytest test_shape_recovery.py` is 3 passed / 1 skipped by design, but be
-clear about what that means: **the skipped quarter is an untested corner, and the defect in item 6
+clear about what that means: **the skipped quarter is an untested corner, and the defect in item 7
 is currently ungated by every preset.** Keeping the row preserves the reproducer and the crash
 canary; it does not preserve coverage, because there was never any to lose.
 
@@ -267,7 +267,7 @@ with two callers, one updated, both plausible in isolation, failure silent.
 
 ---
 
-## 6. GMM under-covers a broad mixture component on `mix_d4_n2_s101`, and worsens with budget
+## 7. GMM under-covers a broad mixture component on `mix_d4_n2_s101`, and worsens with budget
 
 **Status:** open, confirmed, and **ungated -- no preset detects it.** Found while measuring item 5,
 which had recorded the cell as merely under-budgeted. Not known to affect production.
@@ -279,12 +279,15 @@ correlation -- and the pytest wrapper skips STARVED, while `compare_shape_result
 STARVED/STARVED to the non-blocking `BOTH-STARVED` and never reaches its metric-regression branch.
 Adding coverage therefore means deciding to gate a defect that is not yet fixed; see **Next steps**.
 
-**Reproducer** (~20 s, exits 1, prints the width failure directly):
+**Reproducer** (~20 s, exits 1, prints the width failure directly). Run it from anywhere inside the
+checkout; `CHECKOUT` is derived, and the script is invoked by absolute path so no `cd` is needed:
 
 ```
-export PYTHONPATH=$CHECKOUT/MonteCarloMarginalizeCode/Code:$PYTHONPATH
+CHECKOUT=$(git rev-parse --show-toplevel)
+export PYTHONPATH="${CHECKOUT}/MonteCarloMarginalizeCode/Code:${PYTHONPATH}"
 export CUDA_VISIBLE_DEVICES=""
-python shape_recovery.py --samplers GMM --dims 4 --ncomps 2 --target-seeds 101 \
+python3 "${CHECKOUT}/MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/shape_recovery.py" \
+    --samplers GMM --dims 4 --ncomps 2 --target-seeds 101 \
     --nmax-per-dim 800000 --neff 2000 --warm-cases off --run-seed 989654
 ```
 ```
@@ -292,9 +295,16 @@ sampler    target               n_eff     n_ESS   JSmax  |pull| widthdev lnZbias
 GMM        mix_d4_n2_s101         148      4181  0.0082   0.061    0.146  -0.058  FAIL  [width_ratio[1]=0.854 (tol 0.055)]
 ```
 
-Set `PYTHONPATH` or you will measure whichever RIFT is installed, not the branch: on this cell at
-`quick`'s budget and run seed 987654 that is the difference between n_eff 42.3 (branch) and 4.6
-(CVMFS igwn). `run_shape_recovery.sh` exports it; the pytest entry point does not.
+`python3`, not `python`: several IGWN/conda environments provide only the former, the same reason
+`run_shape_recovery.sh` says so at its `exec` line.
+
+The `PYTHONPATH` line is load-bearing -- without it you measure whichever RIFT is **installed**, not
+the branch. On this cell at `quick`'s budget and run seed 987654 that is the difference between
+n_eff 42.3 (branch) and 4.6 (CVMFS igwn), which is a different experiment wearing the same verdict
+column. `run_shape_recovery.sh` exports it; the pytest entry point it advertises as equivalent does
+not. Branch `claude/shape-recovery-pytest-checkout-guard` closes that hole -- it makes the mismatch
+raise instead of measuring silently -- and lands its own FOLLOWUPS entry as **item 6**, which is why
+this one is numbered 7.
 
 On `MixtureTarget(4, 2, 101)` the GMM sampler recovers dimension 1's marginal **too narrow, and
 progressively more so the longer it runs**, while the other three dimensions stay exact. Medians
