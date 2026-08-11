@@ -853,6 +853,27 @@ def evaluate(r):
 # MINIMUM (105) is 5% above the floor -- not a margin worth trusting for a row that has already
 # swung between 66 and 119 on unchanged code.  x4 gives min 209 (2.1x margin) and costs ~4% of the
 # gate's total evaluations, since it is one cell of ~96.
+#
+# DO NOT add ("GMM", 4, 2, 101) here.  That cell -- the `quick` preset's d=4 GMM row, which skips as
+# STARVED under `RIFT_RUN_EXPENSIVE=1 pytest` -- looks like the same problem and is not.  Measured
+# over 8 fresh run seeds at each budget:
+#
+#     budget      n_eff min/med/max   clears 100   PASS   median width_ratio[1]
+#      x1 200k        11 /  50 / 101      1/8       0/8         0.989
+#      x4 800k        28 /  44 / 179      2/8       1/8         0.919
+#     x32 6.4M        28 / 139 / 217      6/8       1/8         0.889
+#
+# The median n_eff grows only as ~nmax**0.3 and the across-seed MINIMUM stops improving after x4
+# (11, 16, 24, 28, 41, 33, 28 for x1..x32), so no budget tested up to x32 -- 8x the STANDARD preset's
+# own d=4 budget -- clears the floor at every seed; 2/8 still starve there.  A far larger budget is
+# untested, and moot: the failures are not starvation -- width_ratio[1] degrades
+# MONOTONICALLY with budget while the other three dims stay at 1.00, so a bigger budget turns the
+# quick pytest row from a documented skip into a hard failure on a defect nobody has fixed yet.  AV
+# on the identical target passes 8/8 at each measured budget with width_ratio 1.000, so the target
+# and the thresholds are sound; this is a GMM defect.  Note the row as it stands is a REPRODUCER,
+# not a detector: evaluate() returns STARVED before it looks at width, so no preset currently gates
+# that defect.  FOLLOWUPS.md items 5 (why the skip is deliberate) and 7 (the defect, with a
+# reproducer).
 CELL_BUDGET_MULT = {
     ("GMM", 6, 3, 303): 4,
 }
