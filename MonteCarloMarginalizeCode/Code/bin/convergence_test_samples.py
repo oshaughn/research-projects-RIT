@@ -37,6 +37,11 @@ parser.add_argument("--quantile-tolerance",default=0.02,type=float, help="[js_la
 parser.add_argument("--drift-window",default=3,type=int, help="[js_lame] how many previous iterations to test quantile drift against (files located by the posterior_samples-N.dat naming convention next to the first --samples argument).  Slow monotone tail drift is invisible in one-step statistics but accumulates over the window.  Default 3.")
 parser.add_argument("--drift-quantiles",default="90,95", help="[js_lame] comma-separated upper percentiles whose relative drift is tested.  Default '90,95'.")
 parser.add_argument("--transverse-parameter", action='append', help="[js_lame] parameters (subset of --parameter) treated as bounded transverse parameters.  Default: any of chi1_perp,chi2_perp,chi_p,a1,a2,chi1,chi2 present in --parameter.")
+parser.add_argument("--js-lame-auto-threshold",action='store_true', help="[js_lame] derive --threshold/--js-threshold/--quantile-tolerance from the MEASURED noise floor at the number of DISTINCT samples actually supplied, instead of using the fixed values.  The floor moves with n (JS and lame as 1/n, quantile drift as 1/sqrt(n)), so a fixed threshold is right at exactly one sample size and wrong everywhere else: the shipped defaults sit 15-50x below the floor at the honest per-worker supply (~800 distinct), where they fire on pure noise and the gate never converges.  Strongly recommended.")
+parser.add_argument("--js-lame-noise-safety",default=1.5,type=float, help="[js_lame] multiple of the p95 noise floor used as the threshold under --js-lame-auto-threshold.  Default 1.5, which reproduces the thresholds recommended in the measured-noise study.")
+parser.add_argument("--js-lame-n-distinct",default=None,type=int, help="[js_lame] override the distinct-sample count used to set the noise floor.  Use this when the test is handed a POOLED posterior whose distinct count is known from the export sidecars (+annotation_export.dat); otherwise it is counted from the supplied rows.")
+parser.add_argument("--js-lame-require-lags",action='store_true', help="[js_lame] refuse to report convergence until the --drift-window lag history actually exists.  Without this, the first couple of (sub-)iterations have no lagged posteriors and the test quietly falls back to a one-step statistic that cannot see the tail drift -- which is how the shipped 'lame' gate stopped the nested loop at sub-iteration 2-3 of ~50.")
+parser.add_argument("--js-lame-reference-drift",default=0.045,type=float, help="[js_lame] the per-iteration upper-quantile drift the gate is REQUIRED to be able to see, used only to report whether it can.  Default 0.045, the measured S240629by chi1_perp widening rate.  Drift compounds over the lag window, so the gate sees the reference signal only if the quantile threshold is below (1+d)**drift_window - 1; when it is not, the test is warned to be blind and the fix is more pooled workers or a longer window.")
 parser.add_argument("--test-output",  help="Filename to return output. Result is a scalar >=0 and ideally <=1.  Closer to 0 should be good. Second column is the diagnostic, first column is 0 or 1 (success or failure)")
 parser.add_argument("--always-succeed",action='store_true',help="Test output is always success.  Use for plotting convergence diagnostics so jobs insured to run for many iterations.")
 parser.add_argument("--iteration-threshold",default=0,type=int,help="Test is applied if iteration >= iteration-threshold. Default is 0")
@@ -148,6 +153,50 @@ def calculate_js_bounded(A, B, lo=0.0, hi=1.0, ntests=20, xsteps=100):
 JS_LAME_BOUNDED_DEFAULT = ['chi1_perp', 'chi2_perp', 'chi_p', 'a1', 'a2', 'chi1', 'chi2']
 JS_LAME_CIRCULAR = ['phi1', 'phi2', 'phi12', 'phiJL', 'psiJ', 'phiorb', 'psi']
 
+# p95 noise floors of the js_lame components under the null (two independent draws of the SAME
+# converged posterior), fitted to a K=400-pair bootstrap over n_distinct = 300..20000:
+#
+#   n_distinct |   js p95 |  lame p95 | dq90 p95 | dq95 p95
+#         300  |  0.0798  |  0.0830   |  0.1538  |  0.1597
+#         800  |  0.0313  |  0.0319   |  0.0981  |  0.1013
+#        2000  |  0.0126  |  0.0138   |  0.0621  |  0.0645
+#        5000  |  0.0048  |  0.0054   |  0.0417  |  0.0441
+#       20000  |  0.0012  |  0.0012   |  0.0197  |  0.0217
+#
+# JS and lame are both squared distances between densities, so their null scales as 1/n
+# (n*js p95 is 24-25 across the whole range); a quantile position scales as 1/sqrt(n)
+# (sqrt(n)*dq95 p95 is 2.8-3.1).  Constants are taken at the conservative end of each fit.
+JS_LAME_NOISE_JS_COEFF   = 25.0   # js p95   ~ COEFF / n
+JS_LAME_NOISE_LAME_COEFF = 25.5   # lame p95 ~ COEFF / n
+JS_LAME_NOISE_DQ_COEFF   = 3.1    # dq p95   ~ COEFF / sqrt(n)
+
+
+def js_lame_noise_floor(n_distinct):
+    """p95 null noise floor of each js_lame component at n_distinct samples.  See the table above."""
+    n = max(float(n_distinct), 1.0)
+    return {'js':   JS_LAME_NOISE_JS_COEFF / n,
+            'lame': JS_LAME_NOISE_LAME_COEFF / n,
+            'dq':   JS_LAME_NOISE_DQ_COEFF / np.sqrt(n)}
+
+
+def js_lame_count_distinct(*arrays):
+    """Smallest number of DISTINCT rows among the supplied sample blocks.
+
+    The noise floor is set by INFORMATION, not by row count.  CIP's export pads its request with
+    duplicates once the requested count exceeds the honest supply, so a 20000-row posterior can
+    carry only ~800 distinct points; keying the thresholds to the row count would then put them
+    ~25x below the true floor.  Counting distinct rows here makes the gate honest whether or not
+    --posterior-unique-draw was used upstream.
+    """
+    counts = []
+    for a in arrays:
+        a = np.atleast_2d(np.asarray(a, dtype=float))
+        try:
+            counts.append(len(np.unique(a, axis=0)))
+        except TypeError:   # numpy too old for axis= on unique
+            counts.append(len(a))
+    return min(counts) if counts else 0
+
 
 def test_js_lame(dat1, dat2, param_list, opts, samples_path_current=None):
     """
@@ -162,6 +211,9 @@ def test_js_lame(dat1, dat2, param_list, opts, samples_path_current=None):
                    because the observed failure mode is SLOW MONOTONE tail drift that is
                    inside the noise floor of any one-step statistic ('lame' passed at
                    0.016<0.02 while chi1_perp's 90% CI was still moving ~4.5%/iteration).
+    Each component's threshold is either the fixed CLI value or, under
+    --js-lame-auto-threshold, a multiple of the measured p95 null noise floor at the DISTINCT
+    sample count supplied (see js_lame_noise_floor).
     Returns a value scaled so the standard 'val < opts.threshold' semantics apply:
       val = opts.threshold * max_over_components(component/its_threshold).
     """
@@ -172,25 +224,72 @@ def test_js_lame(dat1, dat2, param_list, opts, samples_path_current=None):
         bounded = [p for p in JS_LAME_BOUNDED_DEFAULT if p in idx]
     gaussian_params = [p for p in param_list if p not in bounded and p not in JS_LAME_CIRCULAR]
 
+    # Thresholds keyed to the noise floor at the DISTINCT sample count actually supplied.
+    n_distinct = opts.js_lame_n_distinct if opts.js_lame_n_distinct else js_lame_count_distinct(dat1, dat2)
+    floor = js_lame_noise_floor(n_distinct)
+    if opts.js_lame_auto_threshold:
+        thr_lame = opts.js_lame_noise_safety * floor['lame']
+        thr_js   = opts.js_lame_noise_safety * floor['js']
+        thr_dq   = opts.js_lame_noise_safety * floor['dq']
+        print(" js_lame: n_distinct %d -> p95 noise floor js %.2e lame %.2e dq %.2e" % (
+            n_distinct, floor['js'], floor['lame'], floor['dq']))
+        print("          thresholds (%.2f x floor): js %.2e lame %.2e dq %.2e" % (
+            opts.js_lame_noise_safety, thr_js, thr_lame, thr_dq))
+    else:
+        thr_lame, thr_js, thr_dq = opts.threshold, opts.js_threshold, opts.quantile_tolerance
+        below = [name for name, thr, fl in (('--threshold', thr_lame, floor['lame']),
+                                            ('--js-threshold', thr_js, floor['js']),
+                                            ('--quantile-tolerance', thr_dq, floor['dq'])) if thr < fl]
+        if below:
+            print(" js_lame WARNING: at n_distinct %d the p95 null noise floor is js %.2e lame %.2e dq %.2e,"
+                  % (n_distinct, floor['js'], floor['lame'], floor['dq']))
+            print("   which is ABOVE the fixed threshold(s) %s -- those components will fire on pure noise and"
+                  % ', '.join(below))
+            print("   this gate can never report convergence.  Pass --js-lame-auto-threshold, or pool more CIP")
+            print("   workers (distinct scales linearly with worker count; ~25 workers reach ~2e4 distinct).")
+    # Can this gate actually SEE the failure mode it exists to catch?  Noise is lag-independent
+    # while a monotone tail drift compounds, so a reference drift of d per iteration accumulates to
+    # (1+d)**L - 1 over a lag of L.  If even the longest available lag stays under the quantile
+    # threshold, the gate is blind and will stop the loop early -- the original bug, reintroduced.
+    # This is the direction that costs a run, so report it whichever way the thresholds were set.
+    lag_max = max(1, opts.drift_window)
+    signal_max = (1.0 + opts.js_lame_reference_drift) ** lag_max - 1.0
+    if signal_max < thr_dq:
+        lag_needed = int(np.ceil(np.log1p(thr_dq) / np.log1p(opts.js_lame_reference_drift)))
+        print(" js_lame WARNING: BLIND to the reference drift.  At n_distinct %d the quantile threshold is"
+              % n_distinct)
+        print("   %.4f, but a %.1f%%/iteration drift only reaches %.4f over the %d-iteration window."
+              % (thr_dq, 100 * opts.js_lame_reference_drift, signal_max, lag_max))
+        print("   This gate can stop the loop while the tail is still widening.  Fix with more pooled CIP")
+        print("   workers (the floor falls as 1/sqrt(n_distinct)) or --drift-window %d." % lag_needed)
+    elif opts.verbose:
+        print(" js_lame: a %.1f%%/iteration drift reaches %.4f over the %d-iteration window vs threshold %.4f -- detectable."
+              % (100 * opts.js_lame_reference_drift, signal_max, lag_max, thr_dq))
+
     components = {}
     if gaussian_params:
         cols = [idx[p] for p in gaussian_params]
         val_lame = test_lame(dat1[:, cols], dat2[:, cols])
-        components['lame(%s)' % ','.join(gaussian_params)] = val_lame / opts.threshold
+        components['lame(%s)' % ','.join(gaussian_params)] = val_lame / thr_lame
     for p in bounded:
         A = dat1[:, idx[p]]; B = dat2[:, idx[p]]
         hi = max(1.0, np.max(A), np.max(B))
         val_js = calculate_js_bounded(A, B, lo=0.0, hi=hi)
-        components['js(%s)' % p] = val_js / opts.js_threshold
+        components['js(%s)' % p] = val_js / thr_js
         for qq in [float(x) for x in opts.drift_quantiles.split(',')]:
             qa = np.percentile(A, qq); qb = np.percentile(B, qq)
             drift = np.abs(qa - qb) / max(np.abs(qa), np.abs(qb), 1e-10)
-            components['dq%g(%s,lag1)' % (qq, p)] = drift / opts.quantile_tolerance
+            components['dq%g(%s,lag1)' % (qq, p)] = drift / thr_dq
 
     # lagged drift: locate previous-iteration posterior files by naming convention
+    n_lags_used = 0
     if samples_path_current and opts.drift_window > 1:
         import re, os
         m = re.search(r'^(.*posterior_samples-)(\d+)(\.dat)$', samples_path_current)
+        if not m:
+            print(" js_lame WARNING: --samples '%s' does not match the posterior_samples-N.dat naming that"
+                  % samples_path_current)
+            print("   locates lagged iterations, so NO lag window is in effect and this is a one-step test.")
         if m:
             it_now = int(m.group(2))
             for lag in range(2, opts.drift_window + 1):
@@ -199,6 +298,7 @@ def test_js_lame(dat1, dat2, param_list, opts, samples_path_current=None):
                     continue
                 try:
                     s_lag = read_and_prepare(f_lag)
+                    n_lags_used += 1
                     for p in bounded:
                         if p not in s_lag.dtype.names:
                             continue
@@ -206,15 +306,28 @@ def test_js_lame(dat1, dat2, param_list, opts, samples_path_current=None):
                         for qq in [float(x) for x in opts.drift_quantiles.split(',')]:
                             qa = np.percentile(A, qq); qc = np.percentile(C, qq)
                             drift = np.abs(qa - qc) / max(np.abs(qa), np.abs(qc), 1e-10)
-                            components['dq%g(%s,lag%d)' % (qq, p, lag)] = drift / opts.quantile_tolerance
+                            components['dq%g(%s,lag%d)' % (qq, p, lag)] = drift / thr_dq
                 except Exception as e:
                     print("   js_lame: could not use lagged file %s : %s" % (f_lag, e))
+
+    # Refuse to certify convergence before the lag window is actually populated.  With a window of
+    # W, sub-iteration 2 or 3 has no lagged files at all, so the test silently degrades to the
+    # one-step statistic that the noise-floor study shows cannot see the drift -- and stopping at
+    # sub-iteration 2-3 of ~50 is precisely the failure this method exists to prevent.
+    if opts.drift_window > 1 and n_lags_used < opts.drift_window - 1:
+        msg = ("only %d of %d lagged iterations available -- the drift window is not populated, so"
+               " this is effectively a one-step test" % (n_lags_used, opts.drift_window - 1))
+        if opts.js_lame_require_lags:
+            print(" js_lame: %s; reporting NOT CONVERGED by --js-lame-require-lags." % msg)
+            return np.inf
+        print(" js_lame WARNING: %s." % msg)
+        print("   A one-step test at this supply cannot see the tail drift; consider --js-lame-require-lags.")
 
     worst = max(components, key=components.get)
     print(" js_lame components (value/threshold; converged needs ALL < 1):")
     for k in sorted(components, key=components.get, reverse=True):
         print("    %-28s %.4f" % (k, components[k]))
-    print("  js_lame worst: %s" % worst)
+    print("  js_lame worst: %s (n_distinct %d, lags used %d)" % (worst, n_distinct, n_lags_used))
     return opts.threshold * components[worst]
 
 
