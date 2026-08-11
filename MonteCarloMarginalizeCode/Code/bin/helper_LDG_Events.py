@@ -223,6 +223,7 @@ parser.add_argument("--internal-cip-use-lnL",action='store_true')
 parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed to ILE.  Try to keep above 2")
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
 parser.add_argument("--internal-test-convergence-threshold",type=float,default=0.02,help="The value of the threshold. 0.02 has been default ")
+parser.add_argument("--internal-test-convergence-method",type=str,default="lame",help="Convergence-test method passed to convergence_test_samples.py (lame|ks1d|KL_1d|js_additive|js_lame). Default 'lame' (multivariate-Gaussian mean+variance KL) is BLIND to skewed transverse tails: it can declare convergence while chi1_perp is still contracting (observed: passed at 0.016<0.02 while the chi1_perp 90% CI was still moving ~4.5 percent/iteration). Use 'js_lame' (lame on mc/eta/xi AND bounded-domain JS + lagged upper-quantile drift on chi1_perp) to resolve transverse tails, esp. at low mass. See transverse-spin convergence protocol (results_triage/CONVERGENCE_PROTOCOL_*).")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
 parser.add_argument("--online", action='store_true', help="Use online settings")
 parser.add_argument("--propose-initial-grid",action='store_true',help="If present, the code will either write an initial grid file or (optionally) add arguments to the workflow so the grid is created by the workflow.  The proposed grid is designed for ground-based LIGO/Virgo/Kagra-scale instruments")
@@ -1054,7 +1055,7 @@ helper_cip_arg_list = []
 
 chieff_str = '' # Scoping issue fix
 
-helper_test_args += "  --method lame  --parameter mc --parameter eta  --iteration $(macroiteration) "
+helper_test_args += "  --method {}  --parameter mc --parameter eta  --iteration $(macroiteration) ".format(opts.internal_test_convergence_method)
 if not opts.assume_nospin:
     helper_test_args += " --parameter xi "  # require chi_eff distribution to be stable
     if opts.assume_precessing_spin:  # test on spin 1 perpendicular variables. Note this WILL PROBABLY FAIL IF PRIMARY HAS EXACTLY ZERO TRANSVERSE SPIN (or zero overall)

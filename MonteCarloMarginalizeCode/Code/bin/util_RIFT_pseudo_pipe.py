@@ -535,6 +535,18 @@ parser.add_argument("--n-output-samples-last",type=int,default=20000,help="Numbe
 parser.add_argument("--internal-last-iteration-extrinsic-samples-per-ile",default=5,type=int,help="Draw this many samples from each ILE job")
 parser.add_argument("--internal-last-iteration-extrinsic-samples-per-ile-internal",default=10,type=int,help="Draw this many samples from each ILE job")
 parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest value for CIP n_eff to use for *non-final* iterations. ALWAYS APPLIED. ")
+# --- Alt config: resolve transverse-spin (chi1_perp) tails, esp. low mass (transverse-spin study) ---
+# The interim CIP posterior is the COMBINATION of the cip-explode-jobs worker cohort; its NET
+# effective-sample count (not any single worker's n_eff) is what resolves the transverse tails.
+# The shipped default caps that net count via --internal-cip-cap-neff=500 and n-output-samples=5000,
+# and stops on the tail-blind Gaussian 'lame' convergence test -> chi1_perp under-extends vs bilby.
+# This opt-in bundle lifts the NET samples-out and switches to a tail-sensitive stop.
+parser.add_argument("--internal-cip-transverse-tails",action='store_true',help="OPT-IN alt config for resolving transverse-spin (chi1_perp) tails, esp. at low mass. Bundles: (a) tail-sensitive convergence test (passes --internal-test-convergence-method js_lame to helper_LDG_Events.py, unless overridden); (b) raises the NET interim posterior samples across the CIP worker cohort by lifting --internal-cip-cap-neff and --n-output-samples and scaling up --cip-explode-jobs (MORE WORKERS -> more net samples-out, NOT larger per-worker n_eff) -- the raised interim sample count is what makes js_lame's quantile-drift tolerance statistically meaningful; (c) transverse TAIL-GUARD in the puffball: --append-with-random-parameter chi1_perp appends+shuffles uniformly-random transverse draws into every puff, so the proposed grid keeps offering chi1_perp tail coverage even after the posterior contracts (the measured tail-starvation feedback), and puff is kept active through all iterations. Tune with the --internal-cip-transverse-tails-* flags. Default OFF (behavior unchanged). See results_triage/CONVERGENCE_PROTOCOL_2026-07-23.md.")
+parser.add_argument("--internal-cip-transverse-tails-cap-neff",type=int,default=4000,help="With --internal-cip-transverse-tails: raise --internal-cip-cap-neff to at least this (the interim net-n_eff throttle; shipped base is 500).")
+parser.add_argument("--internal-cip-transverse-tails-nout",type=int,default=20000,help="With --internal-cip-transverse-tails: raise interim --n-output-samples to at least this (net samples out, combined across workers).")
+parser.add_argument("--internal-cip-transverse-tails-worker-scale",type=float,default=3.0,help="With --internal-cip-transverse-tails: multiply cip-explode-jobs (and -last) by this, so the raised net sample count is produced by MORE WORKERS while each worker's n_eff stays modest.")
+parser.add_argument("--internal-cip-transverse-tails-puff-fraction",type=float,default=0.3,help="With --internal-cip-transverse-tails: fraction of the puff output appended as uniformly-random chi1_perp tail-guard points (puffball --append-with-random-fraction).")
+parser.add_argument("--internal-test-convergence-method",type=str,default=None,help="Convergence-test method passed to helper_LDG_Events.py (lame|ks1d|KL_1d|js_additive|js_lame). If js_lame is requested, --internal-cip-transverse-tails is AUTO-ENABLED (the raised interim sample count is required for js_lame's drift tolerance). If unset: helper default (lame), or js_lame when --internal-cip-transverse-tails is on.")
 parser.add_argument('--internal-cip-tripwire',type=float,help="Passed to CIP")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
 parser.add_argument("--internal-cip-request-memory",default=None,type=int,help="ILE memory request in Mb. Only experts should change this.")
@@ -983,7 +995,25 @@ if not(opts.skip_reproducibility): # not(assume_lowlatency):
 
 # Run helper command
 npts_it = 500
+# Alt config for transverse-spin (chi1_perp) tails (opt-in; transverse-spin study). Lift the NET
+# interim posterior-sample count (combined across CIP workers) and switch to a tail-sensitive stop.
+# Worker COUNT is scaled later (after the auto-explode block); here we lift the per-iteration net
+# throttles (cap-neff, n-output) and record that helper must use the tail-sensitive convergence test.
+# js_lame REQUIRES the raised interim sample count (its quantile-drift tolerance is at the
+# split-half noise floor at the shipped n~5e3): requesting js_lame auto-enables the tails bundle.
+if opts.internal_test_convergence_method == 'js_lame' and not opts.internal_cip_transverse_tails:
+    opts.internal_cip_transverse_tails = True
+    print("  [transverse-tails] AUTO-ENABLED by --internal-test-convergence-method js_lame (drift test needs the raised interim n-output-samples)")
+if opts.internal_cip_transverse_tails:
+    opts.internal_cip_cap_neff = int(np.max([opts.internal_cip_cap_neff, opts.internal_cip_transverse_tails_cap_neff]))
+    opts.n_output_samples      = int(np.max([opts.n_output_samples,      opts.internal_cip_transverse_tails_nout]))
+    if opts.internal_test_convergence_method is None:
+        opts.internal_test_convergence_method = 'js_lame'
+    print("  [transverse-tails] raising NET interim sampling: cip-cap-neff -> {}, n-output-samples -> {} (worker count scaled x{} below); convergence test -> {}; puff tail-guard chi1_perp fraction {}".format(opts.internal_cip_cap_neff, opts.n_output_samples, opts.internal_cip_transverse_tails_worker_scale, opts.internal_test_convergence_method, opts.internal_cip_transverse_tails_puff_fraction))
+
 cmd = " helper_LDG_Events.py --force-notune-initial-grid   --propose-fit-strategy --propose-ile-convergence-options  --fmin " + str(fmin) + " --fmin-template " + str(fmin_template) + " --working-directory " + base_dir + "/" + dirname_run  + helper_psd_args  + " --no-enforce-duration-bound --test-convergence "
+if opts.internal_test_convergence_method:
+    cmd += " --internal-test-convergence-method {} ".format(opts.internal_test_convergence_method)
 if opts.internal_use_gracedb_bayestar:
     cmd += " --internal-use-gracedb-bayestar "
 if opts.internal_use_amr:
@@ -1461,7 +1491,19 @@ if opts.cip_explode_jobs_auto:
           opts.cip_explode_job_last = int(opts.n_output_samples_last/300)
           print("  LARGE OUTPUT SAMPLES, CHANGING FINAL EXPLODE to keep n_eff in CIP reasonable ", opts.cip_explode_job_last)
 
-    
+
+# Alt config for transverse-spin tails (opt-in): scale up the CIP worker cohort AFTER the
+# auto-explode block has set the baseline worker count. More workers produce the raised NET
+# sample count (cap-neff/n-output lifted above) while each worker's n_eff stays modest -- the
+# net (combined) posterior is what resolves chi1_perp tails, not any single worker. (transverse-spin study)
+if opts.internal_cip_transverse_tails:
+    _sc = opts.internal_cip_transverse_tails_worker_scale
+    _base = opts.cip_explode_jobs if opts.cip_explode_jobs else 1
+    _base_last = opts.cip_explode_jobs_last if opts.cip_explode_jobs_last else _base
+    opts.cip_explode_jobs = int(np.ceil(_base * _sc))
+    opts.cip_explode_jobs_last = int(np.ceil(_base_last * _sc))
+    print("  [transverse-tails] scaled CIP worker cohort x{}: cip-explode-jobs {} -> {}, -last {} -> {}".format(_sc, _base, opts.cip_explode_jobs, _base_last, opts.cip_explode_jobs_last))
+
 # Add arguments to the file we will use
 instructions_cip = list(map(lambda x: x.rstrip().split(' '), raw_lines))#np.loadtxt("helper_cip_arg_list.txt", dtype=str)
 n_iterations =0
@@ -1727,6 +1769,15 @@ puff_params = ' '.join(instructions_puff)
 if opts.internal_puff_transverse:
     puff_params = puff_params.replace('--parameter chieff_aligned', '--parameter s1z_bar --parameter s2z_bar ')
     puff_params +=  ' --parameter phi1 --parameter phi2 --parameter chi1_perp_u --parameter chi2_perp_u --reflect-parameter chi1_perp_u --downselect-parameter chi1_perp_u  --downselect-parameter-range [0,1]  --reflect-parameter chi2_perp_u --downselect-parameter chi2_perp_u  --downselect-parameter-range [0,1] '
+if opts.internal_cip_transverse_tails:
+    # transverse TAIL-GUARD (transverse-spin study 2026-07): every puff APPENDS (and shuffles in)
+    # uniformly-random chi1_perp draws (range defaults to [0, chi1-downselect-cap], azimuth also
+    # randomized), so the proposed grid keeps offering transverse-tail coverage even after the
+    # posterior/grid contracts -- the measured tail-starvation feedback that narrows chi1_perp.
+    # Keep the puff active through ALL outer iterations (the nested refinement subdag already
+    # puffs every sub-iteration): a guard that turns off at puff-max-it stops guarding.
+    puff_params += ' --append-with-random-parameter chi1_perp --append-with-random-fraction {} '.format(opts.internal_cip_transverse_tails_puff_fraction)
+    puff_max_it = max(puff_max_it, 30)
 if opts.assume_matter:
 #    puff_params += " --parameter LambdaTilde "  # should already be present
     puff_max_it +=5   # make sure we resolve the correlations
