@@ -331,6 +331,15 @@ def test_degenerate_live_volume_on_the_cupy_backend():
 
 import os
 
+
+def _find_all(hay, needle):
+    """All offsets of `needle` in `hay` (str.find only gives the first)."""
+    out, i = [], hay.find(needle)
+    while i >= 0:
+        out.append(i)
+        i = hay.find(needle, i + 1)
+    return out
+
 _ILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                     '..', 'bin', 'integrate_likelihood_extrinsic_batchmode')
 
@@ -858,3 +867,44 @@ def test_sidecar_event_id_survives_a_missing_event_option():
         'sidecar event id does not handle a missing --event, so int(None) suppresses it'
     # the .dat writer's convention, which this must match
     assert 'if opts.event == None:' in src
+
+
+###
+### 14. The rejection gate must see the POOLED verdict  (PR #63 review, round 4)
+###
+# Checking rejection only before replication bypasses the flag for the case pooling
+# introduced: a healthy first run whose replica collapses still exports the pooled,
+# collapsed result.
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_rejection_gate_is_applied_after_replica_aggregation():
+    with open(_ILE) as f:
+        src = f.read()
+    calls = [m for m in _find_all(src, '_reject_if_collapsed(dict_return')]
+    assert len(calls) >= 2, \
+        'the rejection gate is applied once, so a replica that collapses after the first ' \
+        'run is checked bypasses --reject-collapsed-live-volume'
+    i_agg = src.index('any(_rep_collapsed)')
+    assert any(c > i_agg for c in calls), \
+        'no rejection check happens after the replica statuses are aggregated'
+    # and the fast path must survive: reject before spending GPU on replicas
+    i_trig = src.index('_trigger_reasons = []')
+    assert any(c < i_trig for c in calls), \
+        'the pre-replication fast path was removed; a first-run collapse would now pay ' \
+        'for replicas before being dropped'
+
+
+@pytest.mark.skipif(not os.path.exists(_ILE), reason='ILE executable not in this tree')
+def test_every_collapse_status_write_is_followed_by_a_rejection_check():
+    """Whatever sets the verdict last, the gate must see it before anything is exported."""
+    with open(_ILE) as f:
+        src = f.read()
+    writes = [m for m in _find_all(src, "dict_return['live_volume_collapsed'] =")]
+    assert writes, 'status write moved; update this test'
+    calls = [m for m in _find_all(src, '_reject_if_collapsed(dict_return')]
+    for w in writes:
+        assert any(c > w for c in calls), \
+            'a collapse-status write at offset {} is never re-checked by the gate'.format(w)
+    # and the gate always precedes the artifacts it is meant to suppress
+    assert max(calls) < src.index('integrator_status.json')
+    assert max(calls) < src.index('numpy.savetxt(fname_output_txt')

@@ -3197,19 +3197,33 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # ordinary likelihood row: lnZ and the exported samples describe a single mode, and
     # nothing downstream can tell them from a converged export.  So: say so unmistakably,
     # let it trigger the existing replication machinery, and offer a hard gate.
+    def _reject_if_collapsed(dd, stage):
+        """Apply --reject-collapsed-live-volume to whatever the CURRENT verdict is.
+
+        Called twice on purpose.  The early call is a fast path: if the first run already
+        collapsed and the user wants such events dropped, there is nothing to learn from
+        spending GPU on replicas.  But it cannot be the only call -- replication can turn a
+        healthy first run into a collapsed POOL, and the gate has to see that too, or the
+        flag is silently bypassed for exactly the case the pooling introduced.
+        """
+        if not opts.reject_collapsed_live_volume:
+            return
+        if not (isinstance(dd, dict) and dd.get('live_volume_collapsed', False)):
+            return
+        # Route through the ordinary failure path, so the caller skips this binary and
+        # writes no result row -- the pre-fix outcome, but for a stated reason.
+        _exc = mcsamplerAdaptiveVolume.LiveVolumeCollapse if mcsampler_AV_ok else RuntimeError
+        raise _exc(
+            "extrinsic integration collapsed ({}): live volume degenerated ({}); "
+            "--reject-collapsed-live-volume is set, so this event is being dropped "
+            "rather than exported".format(stage, dd.get('collapse_reason', '')))
+
     _collapsed = bool(dict_return.get('live_volume_collapsed', False)) if isinstance(dict_return, dict) else False
     _collapse_reason = (dict_return or {}).get('collapse_reason', '') if isinstance(dict_return, dict) else ''
     if _collapsed:
         print(" [mc error] *** LIVE VOLUME COLLAPSED *** {}".format(_collapse_reason))
         print(" [mc error] this event's lnZ and exported samples are NOT a fair draw from the posterior.")
-        if opts.reject_collapsed_live_volume:
-            # Route through the ordinary failure path, so the caller skips this binary and
-            # writes no result row -- the pre-fix outcome, but for a stated reason.
-            _exc = mcsamplerAdaptiveVolume.LiveVolumeCollapse if mcsampler_AV_ok else RuntimeError
-            raise _exc(
-                "extrinsic integration collapsed: live volume degenerated ({}); "
-                "--reject-collapsed-live-volume is set, so this event is being dropped "
-                "rather than exported".format(_collapse_reason))
+    _reject_if_collapsed(dict_return, "first run")
 
     _trigger_reasons = []
     if _collapsed and opts.mc_error_replicas > 0:
@@ -3322,6 +3336,10 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     dict_return['n_replicas_collapsed'], dict_return['n_replicas_pooled']))
                 print(" [mc error] {}".format(dict_return['collapse_reason']))
                 print(" [mc error] the POOLED posterior therefore contains degenerate samples.")
+        # Re-apply the rejection gate to the POOLED verdict.  The early call above saw only
+        # the first run, so without this a healthy first run followed by a collapsed replica
+        # would export the pooled, collapsed result with --reject-collapsed-live-volume set.
+        _reject_if_collapsed(dict_return, "pooled over {} replicas".format(len(_rep_lnZ)))
         if len(_rep_lnZ) > 1:
             _K = len(_rep_lnZ)
             _l = numpy.array(_rep_lnZ); _s = numpy.array(_rep_sig)
