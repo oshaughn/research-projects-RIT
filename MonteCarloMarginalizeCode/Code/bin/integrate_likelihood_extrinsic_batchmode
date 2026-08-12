@@ -248,6 +248,8 @@ optp.add_option("--calibration-envelope-directory",default=None, help="Name of d
 optp.add_option("--calibration-n-realizations", default=100, type=int, help="Number of realizations to use for calmarg, recommend 100")
 optp.add_option("--calibration-spline-count", default=10,type=int)
 optp.add_option("--calibration-fused-kernel", action="store_true", default=False, help="Opt-in: use the fused GPU kernel (Option C) for in-loop calibration marginalization. GPU only, no phase marginalization; with distance marginalization it uses the fused distmarg kernel. Falls back to the loop method (Option B) otherwise.")
+optp.add_option("--calibration-conjugate-phase", action="store_true", default=False, help="Opt-in calmarg phase-convention fix: apply conj(C) instead of C to the data when building the per-realization rholms, so the recovered calibration PHASE tracks the correct sign (matches the template-side <d|C h> convention).  Needed only for a phase-UNmarginalized or large-phase treatment; under phase marginalization with small phase it changes lnL by <0.05 nats.  Independent of the per-realization self-term amplitude fix (|C|^2 is conjugation-invariant), which is on by default when calibration marginalization is active.")
+optp.add_option("--calibration-global-norm", action="store_true", default=False, help="Opt-in cheaper calmarg route: use the calibration-INDEPENDENT template norm <h|h> for every realization instead of the complete per-realization self-term <C_c h|C_c h>.  Skips the amplitude-basis precompute (an SVD of {|C_c|^2} plus rank-M(M+1)/2 weighted template blocks), which can dominate the per-intrinsic-point cost for long low-mass templates and large --calibration-n-realizations.  The dropped term is the amplitude self-term, whose evidence bias scales as ~0.5 rho^4 sigma_A^2 (amplitude-only, phase-independent): negligible at low/moderate SNR unless the amplitude envelope is wide, but growing as rho^4, so NOT for loud sources or wide amplitude envelopes.")
 optp.add_option("--calibration-proposal-breadcrumb",default=None, help="Opt-in (Option C / adaptive pilot): path to a breadcrumb .npz (RIFT.calmarg.breadcrumbs) carrying a LEARNED Gaussian proposal over cal spline nodes. When set, the cal realizations are drawn from that proposal instead of the broad prior, and the marginalization carries Phase-0 importance weights log(prior/proposal) so it stays unbiased. Requires --calibration-envelope-directory (the prior).")
 optp.add_option("--calibration-dump-responsibilities",default=None, help="Opt-in (Option C / adaptive pilot): path to write per-cal-realization log-responsibilities (length n_cal), accumulated over the evaluated grid, plus the cal node draws. This is the pilot's output, fitted into a proposal by util_CalPilotFit.py. No effect on the returned likelihood.")
 optp.add_option("--calibration-pilot-extrinsic",default=256,type=int, help="Pilot only: number of uniform-prior extrinsic samples used to extrinsic-marginalize the per-realization cal responsibility at each intrinsic point. Cal is ~extrinsic-independent, so a modest batch suffices.")
@@ -1951,7 +1953,7 @@ if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
 
 
 def resample_samples(my_samples,
-                     lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None, n_cal=1, cal_log_weights=None): # uses LOTS of global variables, don't pass them all
+                     lookupNKDict=None, rholmArrayDict=None, ctUArrayDict=None, ctVArrayDict=None,epochDict=None, n_cal=1, cal_log_weights=None, ctUArrayDict_cal=None, ctVArrayDict_cal=None): # uses LOTS of global variables, don't pass them all
   global fSample # access global sampling rate
   # will look a LOT like the likelihood function definitions, unfortunately
   if not opts.vectorized:
@@ -1983,7 +1985,8 @@ def resample_samples(my_samples,
   # time resampling below operates on the marginalized likelihood.
   lnLt = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,return_lnLt=True,n_cal=n_cal,cal_log_weights=cal_log_weights,
-                        time_interp=opts._noloop_time_interp)
+                        time_interp=opts._noloop_time_interp,
+                        ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
 
   lnLt = identity_convert(lnLt) # back to CPU.  Note we have removed offsets 
   if opts.zero_likelihood:
@@ -2396,10 +2399,15 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     use_fused_calmarg = bool(calibration_marginalization and opts.calibration_fused_kernel)
     if calibration_marginalization:
       extra_kwargs['calibration_realizations'] = calibration_realization_dict
+      extra_kwargs['calibration_conjugate'] = bool(opts.calibration_conjugate_phase)
+      # --calibration-global-norm falls back to the cheaper <h|h> route: skip the
+      # per-realization self-term cross terms (and their SVD-basis precompute) entirely.
+      extra_kwargs['calibration_self_term'] = not bool(opts.calibration_global_norm)
       n_cal_for_likelihood = opts.calibration_n_realizations
-    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest=factored_likelihood.PrecomputeLikelihoodTerms(
+    rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest, cross_terms_cal, cross_terms_cal_V=factored_likelihood.PrecomputeLikelihoodTerms(
             fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
             False, inv_spec_trunc_Q, T_spec,
+            return_calibration_crossterms=True,
             ignore_threshold=ignore_threshold,   # default is None, old default was 1e-4. Use to speed calculation and/or discard 'junky' modes, esp at lower SNR. Dangerous at high SNR
             NR_group=NR_template_group,NR_param=NR_template_param,
             use_gwsignal=opts.use_gwsignal,
@@ -2435,18 +2443,37 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         lookupKNconjDict={}
         ctUArrayDict = {}
         ctVArrayDict={}
+        # Per-realization |C_c|^2-weighted cross terms for the fused-calmarg self-term
+        # fix.  ctUArrayDict_cal[det] is (n_cal, n_lms, n_lms); None-valued dicts stay
+        # empty when calibration marginalization is off.  Built ONCE here, threaded to
+        # the calmarg likelihood calls so rho_sq_c = <C_c h|C_c h> replaces the shared
+        # (cal-independent) rho_sq.  See the calmarg self-term-bias analysis note.
+        ctUArrayDict_cal = {}
+        ctVArrayDict_cal = {}
+        _have_cal_crossterms = (cross_terms_cal is not None) and (cross_terms_cal_V is not None)
         rholmArrayDict={}
         rholms_intpArrayDict={}
         epochDict={}
         for det in rholms_intp.keys():
             print( " Packing ", det)
             lookupNKDict[det],lookupKNDict[det], lookupKNconjDict[det], ctUArrayDict[det], ctVArrayDict[det], rholmArrayDict[det], rholms_intpArrayDict[det], epochDict[det] = factored_likelihood.PackLikelihoodDataStructuresAsArrays( rholms[det].keys(), rholms_intp[det], rholms[det], cross_terms[det],cross_terms_V[det])
+            if _have_cal_crossterms:
+                ctUArrayDict_cal[det], ctVArrayDict_cal[det] = factored_likelihood.PackCalCrossTermsAsArrays(
+                    list(rholms[det].keys()), lookupKNDict[det], cross_terms_cal[det], cross_terms_cal_V[det])
             if opts.gpu and (not xpy_default is np):
                 lookupNKDict[det] = cupy.asarray(lookupNKDict[det])
                 rholmArrayDict[det] = cupy.asarray(rholmArrayDict[det])
                 ctUArrayDict[det] = cupy.asarray(ctUArrayDict[det])
                 ctVArrayDict[det] = cupy.asarray(ctVArrayDict[det])
                 epochDict[det] = cupy.asarray(epochDict[det])
+                if _have_cal_crossterms:
+                    ctUArrayDict_cal[det] = cupy.asarray(ctUArrayDict_cal[det])
+                    ctVArrayDict_cal[det] = cupy.asarray(ctVArrayDict_cal[det])
+        # Pass None (not empty dicts) downstream when the fix is inactive, so the
+        # likelihood keeps its exact cal-independent behavior.
+        if not _have_cal_crossterms:
+            ctUArrayDict_cal = None
+            ctVArrayDict_cal = None
 
         # [Path A] slow-rotation precompute: build the harmonic-indexed bank and pack it.
         rotation_slow_data = None
@@ -2573,7 +2600,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 _comp = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
                     _tv, P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict, epochDict,
                     Lmax=opts.l_max, xpy=xpy_default, n_cal=n_cal_now, cal_method='loop',
-                    return_cal_components=True, time_interp=opts._noloop_time_interp)
+                    return_cal_components=True, time_interp=opts._noloop_time_interp,
+                    ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
                 comp_list.append(np.atleast_2d(np.asarray(identity_convert(_comp), dtype=float)))
                 corr_list.append(_corr)
                 comp_all = np.vstack(comp_list); corr_all = np.concatenate(corr_list)
@@ -2612,20 +2640,30 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 print(" [calmarg adapt] growing cal draw set by {} -> {} (incremental precompute)".format(_n_more, n_cal_for_likelihood + _n_more))
                 _new_real = _draw_more_calibration_draws(_n_more, psd_dict)
                 _ek_more = dict(extra_kwargs); _ek_more['calibration_realizations'] = _new_real
-                _intp_more, _ct_more, _ctV_more, rholms_more, _snr_more, _rest_more = factored_likelihood.PrecomputeLikelihoodTerms(
+                _intp_more, _ct_more, _ctV_more, rholms_more, _snr_more, _rest_more, _ct_cal_more, _ctV_cal_more = factored_likelihood.PrecomputeLikelihoodTerms(
                     fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
                     False, inv_spec_trunc_Q, T_spec,
+                    return_calibration_crossterms=True,
                     ignore_threshold=ignore_threshold,
                     NR_group=NR_template_group,NR_param=NR_template_param,
                     use_gwsignal=opts.use_gwsignal,
                     use_gwsignal_approx=opts.approximant,
                     use_external_EOB=opts.use_external_EOB,nr_lookup=opts.nr_lookup,nr_lookup_valid_groups=opts.nr_lookup_group,perturbative_extraction=opts.nr_perturbative_extraction,perturbative_extraction_full=opts.nr_perturbative_extraction_full,use_provided_strain=opts.nr_use_provided_strain,hybrid_use=opts.nr_hybrid_use,hybrid_method=opts.nr_hybrid_method,ROM_group=opts.rom_group,ROM_param=opts.rom_param,ROM_use_basis=opts.rom_use_basis,verbose=opts.verbose,quiet=not opts.verbose,ROM_limit_basis_size=opts.rom_limit_basis_size_to,no_memory=opts.no_memory,skip_interpolation=opts.vectorized, extra_waveform_kwargs=extra_waveform_kwargs,**_ek_more)
                 for det in rholms_more.keys():
-                    _,_,_,_,_, _rholmArray_more, _, _ = factored_likelihood.PackLikelihoodDataStructuresAsArrays(
+                    _lNK_m,_lKN_m,_,_,_, _rholmArray_more, _, _ = factored_likelihood.PackLikelihoodDataStructuresAsArrays(
                         rholms_more[det].keys(), _intp_more[det], rholms_more[det], _ct_more[det], _ctV_more[det])
                     if opts.gpu and (not xpy_default is np):
                         _rholmArray_more = cupy.asarray(_rholmArray_more)
                     rholmArrayDict[det] = xpy_default.concatenate([rholmArrayDict[det], _rholmArray_more], axis=-1)
+                    # Grow the per-realization self-term cross terms in lockstep with
+                    # the rholm blocks, so rho_sq_c stays aligned with the enlarged set.
+                    if _have_cal_crossterms and _ct_cal_more is not None:
+                        _U_cal_more, _V_cal_more = factored_likelihood.PackCalCrossTermsAsArrays(
+                            list(rholms_more[det].keys()), _lKN_m, _ct_cal_more[det], _ctV_cal_more[det])
+                        if opts.gpu and (not xpy_default is np):
+                            _U_cal_more = cupy.asarray(_U_cal_more); _V_cal_more = cupy.asarray(_V_cal_more)
+                        ctUArrayDict_cal[det] = xpy_default.concatenate([ctUArrayDict_cal[det], _U_cal_more], axis=0)
+                        ctVArrayDict_cal[det] = xpy_default.concatenate([ctVArrayDict_cal[det], _V_cal_more], axis=0)
                 n_cal_for_likelihood += _n_more
                 opts.calibration_n_realizations = n_cal_for_likelihood   # later events start consistent with the extended dict
 
@@ -2650,7 +2688,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             _comp = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
                 _tvals, P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict, epochDict,
                 Lmax=opts.l_max, xpy=xpy_default, n_cal=n_cal_for_likelihood, cal_method='loop',
-                return_cal_components=True, time_interp=opts._noloop_time_interp)
+                return_cal_components=True, time_interp=opts._noloop_time_interp,
+                ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
             _comp = np.asarray(identity_convert(_comp))                       # (Next, n_cal) -> CPU
             from scipy.special import logsumexp as _logsumexp
             _calpilot_logresp_list.append(_logsumexp(_comp, axis=0) - np.log(_Next))
@@ -2862,7 +2901,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,n_cal=n_cal_for_likelihood,
                         cal_method=('fused' if use_fused_calmarg and opts._noloop_time_interp == 'nearest' else 'loop'), cal_log_weights=calibration_log_weights,
-                        time_interp=opts._noloop_time_interp)  # non-distmarg: default-helper fused kernel (cal_distmarg=None)
+                        time_interp=opts._noloop_time_interp,
+                        ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)  # non-distmarg: default-helper fused kernel (cal_distmarg=None)
 #                nEvals +=len(right_ascension)
                 if opts.internal_reparam_dl_incl:
                   # PRIOR-AGNOSTIC measure for the D_eff<->d_L reparam: the integrand needs
@@ -2994,7 +3034,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood, phase_marginalization=True,n_cal=n_cal_for_likelihood,
                     cal_method=('fused' if cal_distmarg_dict is not None and opts._noloop_time_interp == 'nearest' else 'loop'), cal_distmarg=(cal_distmarg_dict if opts._noloop_time_interp == 'nearest' else None), cal_log_weights=calibration_log_weights,
-                    time_interp=opts._noloop_time_interp)
+                    time_interp=opts._noloop_time_interp,
+                    ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
 #                  nEvals +=len(right_ascension)
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
@@ -3039,7 +3080,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                     P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default, loglikelihood=distmarg_loglikelihood,n_cal=n_cal_for_likelihood,
                     cal_method=('fused' if cal_distmarg_dict is not None and opts._noloop_time_interp == 'nearest' else 'loop'), cal_distmarg=(cal_distmarg_dict if opts._noloop_time_interp == 'nearest' else None), cal_log_weights=calibration_log_weights,
-                    time_interp=opts._noloop_time_interp)
+                    time_interp=opts._noloop_time_interp,
+                    ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
 #                  nEvals +=len(right_ascension)
                   if supplemental_ln_likelihood:
                     lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, 0,xpy=xpy_default) # Same API
@@ -4087,7 +4129,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             samples["alpha3"] = numpy.zeros(samples["psi"].shape)
 
       if opts.resample_time_marginalization:
-        samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict, n_cal=n_cal_for_likelihood, cal_log_weights=calibration_log_weights)
+        samples = resample_samples(samples,lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict, n_cal=n_cal_for_likelihood, cal_log_weights=calibration_log_weights, ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
         samples["loglikelihood" ] = samples["lnL_raw"]  # export the non-time-marginalized likelihood, if we are in the final stages
 #        print(samples['t_ref'] - fiducial_epoch, len(samples['t_ref']))
         # Recovered CALIBRATION posterior (opt-in): for each fair-draw sample, draw ONE cal
@@ -4109,7 +4151,8 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             _comp = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(_tv,
                        P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict, epochDict,
                        Lmax=opts.l_max, xpy=xpy_default, n_cal=n_cal_for_likelihood,
-                       cal_method='loop', return_cal_components=True, time_interp=opts._noloop_time_interp)
+                       cal_method='loop', return_cal_components=True, time_interp=opts._noloop_time_interp,
+                       ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)
             _comp = np.atleast_2d(np.asarray(identity_convert(_comp), dtype=float))   # (n_samples, n_cal)
             _calw = np.zeros(n_cal_for_likelihood) if calibration_log_weights is None else np.asarray(identity_convert(calibration_log_weights), dtype=float)
             _logp = _comp + _calw[None, :]                                  # posterior weight per (sample, realization)

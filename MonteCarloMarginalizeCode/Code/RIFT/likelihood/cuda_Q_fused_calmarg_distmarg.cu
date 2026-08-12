@@ -57,6 +57,8 @@ extern "C" {
     int n_lms,
     int n_ext,
     int npts_full,
+    const double * rho_sq_cal,   /* (n_cal, n_ext) per-realization self-term, or dummy */
+    int use_rho_sq_cal,          /* 1 -> use rho_sq_cal[c,j] instead of rho_sq[j,t] */
     double * out
   ){
     size_t j = threadIdx.x + (size_t)blockDim.x * blockIdx.x;
@@ -94,7 +96,9 @@ extern "C" {
         /* phase marginalization: |kappa| (conjugation baked into Q/A), else Re(kappa) */
         double kre = phase_marg ? sqrt(kappa.real()*kappa.real() + kappa.imag()*kappa.imag()) : kappa.real();
         double kappa_sq = inv * kre;
-        double rsq = rho_sq[(size_t)j * npts + t];
+        /* fused-calmarg self-term fix: per-realization rho_sq_c = <C_c h|C_c h>
+           replaces the shared rho_sq throughout the distmarg transform (x0, tt, lnLt). */
+        double rsq = use_rho_sq_cal ? rho_sq_cal[(size_t)c * n_ext + j] : rho_sq[(size_t)j * npts + t];
         double x0 = kappa_sq / rsq;
 
         double s = _asinh_stable(sqrt_bmax * (x0 - xmin))
