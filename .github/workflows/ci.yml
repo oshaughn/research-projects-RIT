@@ -341,6 +341,19 @@ jobs:
         # because this job is the only one matrixed over BOTH numpy lanes, and these tests
         # are the kind that break on numpy API removals (e.g. np.trapz -> np.trapezoid).
         run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py
+      - name: Run adaptive-volume collapse / evidence-accounting regressions
+        # These were unguarded.  The AV live-volume-collapse family, the L0 rescue's warm
+        # seed, and the portfolio fair-draw backend each shipped a regression suite that NO
+        # CI job invoked, so a required check could stay green while any of them broke --
+        # including suites from already-merged PRs.  They are exactly the kind that regress
+        # silently: an evidence normalization or an inclusion probability is still a
+        # plausible-looking number when it is wrong.  Fast (seconds each), CPU-only, and
+        # matrixed over both numpy lanes here.
+        run: |
+          python -m pytest -q \
+            MonteCarloMarginalizeCode/Code/test/test_av_empty_live_volume.py \
+            MonteCarloMarginalizeCode/Code/test/test_l0_rescue_seed.py \
+            MonteCarloMarginalizeCode/Code/test/test_portfolio_fairdraw_backend.py
       - name: Run test scripts
         run: |
           . .travis/test-coord.sh

@@ -519,6 +519,56 @@ def test_the_reserve_subsample_is_reproducible():
 
 
 ###
+### 4f. the EXACT finite-population total, captured before the cap can perturb it
+###
+
+def test_the_reserve_records_the_exact_pre_cap_weight_total():
+    """A capped reserve is a Horvitz-Thompson sample: unbiased in the LINEAR total, but its
+    logarithm moves in discrete jumps depending on whether the subsample caught the rows that
+    carry the weight.  The exact total is the one thing a bounded record cannot rebuild
+    afterwards, so it is captured at build time."""
+    from RIFT.integrators.mcsamplerAdaptiveVolume import make_warm_seed_reserve
+    n = 200000
+    lnL = np.full(n, -50.0)
+    lnL[[7, 9999]] = 0.0                       # two EQUAL dominant rows
+    X = np.zeros((n, NDIM))
+    zeros = np.zeros(n)
+    r = make_warm_seed_reserve(X, lnL, NAMES, n_max=2000,
+                               log_joint_prior=zeros, log_joint_s_prior=zeros)
+    exact = np.log(np.sum(np.exp(lnL)))
+    assert r['ln_sum_w_finite'] is not None
+    assert abs(r['ln_sum_w_finite'] - exact) < 1e-9, \
+        'the recorded total is not the full finite-population total'
+    assert len(r['lnL']) <= 2001, 'the cap did not actually bind; test proves nothing'
+
+
+def test_the_exact_total_does_not_move_with_the_cap():
+    """The failure this prevents: same population, different cap -> same lnZ."""
+    from RIFT.integrators.mcsamplerAdaptiveVolume import make_warm_seed_reserve
+    n = 200000
+    lnL = np.full(n, -50.0)
+    lnL[[7, 9999]] = 0.0
+    X = np.zeros((n, NDIM))
+    zeros = np.zeros(n)
+    uncapped = make_warm_seed_reserve(X, lnL, NAMES, n_max=0,
+                                      log_joint_prior=zeros, log_joint_s_prior=zeros)
+    capped = make_warm_seed_reserve(X, lnL, NAMES, n_max=2000,
+                                    log_joint_prior=zeros, log_joint_s_prior=zeros)
+    assert abs(uncapped['ln_sum_w_finite'] - capped['ln_sum_w_finite']) < 1e-9
+    # ... whereas the capped SUBSAMPLE misses the second dominant row, which is the log(2)
+    # error that would have driven the gate
+    lw_kept = capped['lnL'] + capped['log_joint_prior'] - capped['log_joint_s_prior']
+    n_dom_kept = int(np.sum(lw_kept > -1.0))
+    assert n_dom_kept < 2, 'this cap happened to keep both; the scenario is not exercised'
+
+
+def test_the_exact_total_is_absent_rather_than_wrong_without_the_prior_components():
+    from RIFT.integrators.mcsamplerAdaptiveVolume import make_warm_seed_reserve
+    r = make_warm_seed_reserve(np.zeros((10, NDIM)), np.zeros(10), NAMES, n_max=0)
+    assert r['ln_sum_w_finite'] is None
+
+
+###
 ### 5. the ILE must actually use all of this
 ###
 
