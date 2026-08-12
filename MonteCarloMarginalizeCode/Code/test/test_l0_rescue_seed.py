@@ -452,6 +452,73 @@ def test_a_portfolio_reserve_cannot_leak_from_one_point_to_the_next():
 
 
 ###
+### 4d. the cap must not throw away the thing it is capping
+###
+
+def test_the_cap_keeps_every_finite_row_when_they_are_rare():
+    """The portfolio's _rvs holds EVERY draw, and on a collapsed pass almost all are -inf.
+
+    Uniformly subsampling all rows keeps the finite ones in proportion -- which is to say
+    almost none.  Measured before the fix: 10 finite rows among 1,000,000 at a 20,000 cap
+    survived as 2 (the forced peak plus one lucky draw), leaving build_warm_seed a rank-0
+    core and the scale estimator nothing to work with.
+    """
+    from RIFT.integrators.mcsamplerAdaptiveVolume import make_warm_seed_reserve
+    n = 1000000
+    lnL = np.full(n, -np.inf)
+    idx = np.random.RandomState(1).choice(n, 10, replace=False)
+    lnL[idx] = 10700.0 - 0.5 * np.arange(10)
+    X = np.random.RandomState(2).uniform(size=(n, NDIM))
+    r = make_warm_seed_reserve(X, lnL, NAMES, n_max=20000)
+    assert int(np.sum(np.isfinite(r['lnL']))) == 10, 'finite rows were thinned by the cap'
+    assert r['n_retained'] == n and r['n_finite'] == 10
+    # and what the rescue builds from it is now usable
+    seed, info = build_warm_seed(r['X'], r['lnL'], LO, HI, AX, deltalnL=15.0)
+    assert info['n_core'] >= 10 or info['rank_final'] == NDIM
+
+
+def test_the_cap_still_binds_and_still_keeps_the_peak_on_a_healthy_run():
+    from RIFT.integrators.mcsamplerAdaptiveVolume import make_warm_seed_reserve
+    n = 200000
+    lnL = 10700.0 - np.random.RandomState(3).exponential(50.0, size=n)
+    X = np.random.RandomState(4).uniform(size=(n, NDIM))
+    r = make_warm_seed_reserve(X, lnL, NAMES, n_max=5000)
+    assert 5000 <= len(r['lnL']) <= 5001, 'cap not honoured'
+    assert np.isclose(r['lnL'].max(), lnL.max()), 'the peak row was dropped'
+
+
+def test_building_the_reserve_does_not_disturb_the_global_random_stream():
+    """It is built unconditionally, including when --sampler-warmstart-retry-neff is unset.
+
+    Drawing its subsample from the global numpy stream advanced that stream before the fair
+    draw, the exported posterior, and every later event -- so an opt-in rescue that is
+    switched OFF changed a seeded run's output.
+    """
+    from RIFT.integrators.mcsamplerAdaptiveVolume import make_warm_seed_reserve
+    n = 60000                                   # over any sane cap, so the draw really happens
+    lnL = 10700.0 - np.random.RandomState(5).exponential(50.0, size=n)
+    X = np.random.RandomState(6).uniform(size=(n, NDIM))
+    np.random.seed(1234)
+    expected = np.random.rand(3)
+    np.random.seed(1234)
+    r = make_warm_seed_reserve(X, lnL, NAMES, n_max=20000)
+    assert len(r['lnL']) > 20000 - 1, 'the subsample path did not run; test proves nothing'
+    assert np.array_equal(np.random.rand(3), expected), \
+        'the reserve consumed the global RNG'
+
+
+def test_the_reserve_subsample_is_reproducible():
+    """A private stream is only an improvement if it is deterministic."""
+    from RIFT.integrators.mcsamplerAdaptiveVolume import make_warm_seed_reserve
+    n = 60000
+    lnL = 10700.0 - np.random.RandomState(7).exponential(50.0, size=n)
+    X = np.random.RandomState(8).uniform(size=(n, NDIM))
+    a = make_warm_seed_reserve(X, lnL, NAMES, n_max=20000)
+    b = make_warm_seed_reserve(X, lnL, NAMES, n_max=20000)
+    assert np.array_equal(a['lnL'], b['lnL'])
+
+
+###
 ### 5. the ILE must actually use all of this
 ###
 

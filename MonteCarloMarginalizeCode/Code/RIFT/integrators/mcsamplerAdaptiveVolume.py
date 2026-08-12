@@ -310,9 +310,36 @@ def make_warm_seed_reserve(X, lnL, params_ordered, n_max=20000,
     that reads _rvs afterwards and treats it as the sample set sees, on the collapsed pass
     a rescue exists for, a handful of rows several of which are the same point twice.
 
-    Bounded by a uniform subsample WITHOUT replacement, because the full array is the one
-    the surrounding code calls a memory hog.  The PEAK row is appended unconditionally: the
-    seed is defined relative to it and a subsample can drop it.
+    STRATIFY BY FINITE-NESS BEFORE BOUNDING, or the bound destroys exactly what it is
+    keeping.  AV arrives here with only retained (finite) rows, but the PORTFOLIO's _rvs
+    holds EVERY draw -- and on the collapsed pass this exists for, essentially all of them
+    are -inf.  A uniform subsample over all rows then keeps the finite ones in proportion,
+    which is to say almost none: measured, 10 finite rows among 1,000,000 at a 20,000 cap
+    survived as **2** (the forced peak, plus one lucky draw).  build_warm_seed would then
+    see a rank-0 core, warm_seed_scale_from_finite_points would decline for want of points,
+    and the puff would fall back to the fixed prior fraction -- the very truncation
+    (0.8-8.3 nats, with a healthy-looking ESS) this whole change exists to remove.
+
+    So the non-finite rows are dropped outright.  They are ballast for every consumer: the
+    seed core is `lnL > max - deltalnL`, the scale estimator filters to finite, and
+    _lnZ_of_rvs filters to finite before it averages -- so dropping them here leaves that
+    lnZ bit-identical while making the cap mean what it says.
+
+    NO SECOND STRATUM, deliberately.  Once the finite rows are the population, the cap only
+    binds on a run with >n_max FINITE samples -- a healthy one, where the peak window is
+    proportionally represented anyway (measured: a 20,001-row reserve out of 4e6 gave a
+    239-point seed core).  Adding a top-lnL stratum on top of that would buy nothing there
+    and would bias both the covariance estimate and any lnZ taken from the reserve, because
+    neither is a uniform sample of the level set any more.  The one deliberate exception is
+    the PEAK row, appended unconditionally because the seed is defined relative to it and a
+    subsample can drop it; at one row in n_max its effect on either estimate is negligible.
+
+    ISOLATED RNG.  This reserve is built unconditionally -- including when
+    --sampler-warmstart-retry-neff is unset and nothing will ever read it -- so drawing the
+    subsample from the global numpy stream would advance it before the fair draw, before the
+    exported posterior, and before every later event and replica.  An opt-in rescue that is
+    switched OFF must not change a seeded run's output.  Default to a private, deterministic
+    generator so the reserve is itself reproducible and costs the caller nothing.
 
     The two prior components ride along when given, so a consumer can rebuild the importance
     weight -- and therefore lnZ -- from the retained set rather than from the fair draw.
@@ -325,14 +352,22 @@ def make_warm_seed_reserve(X, lnL, params_ordered, n_max=20000,
         extra['log_joint_prior'] = np.asarray(identity_convert(log_joint_prior), dtype=float).ravel()
     if log_joint_s_prior is not None:
         extra['log_joint_s_prior'] = np.asarray(identity_convert(log_joint_s_prior), dtype=float).ravel()
+    # 1. keep only what any consumer can use
+    finite = np.isfinite(lnL)
+    if np.any(finite) and not np.all(finite):
+        X, lnL = X[finite], lnL[finite]
+        extra = {k: v[finite] for k, v in extra.items()}
+    n_fin = len(X)
+    # 2. bound, uniformly over that population, on a stream of our own
     n_max = int(n_max)
-    if n_max > 0 and n_ret > n_max:
-        rng = rng if rng is not None else np.random
-        idx = rng.choice(n_ret, size=n_max, replace=False)
+    if n_max > 0 and n_fin > n_max:
+        rng = rng if rng is not None else np.random.RandomState(20260811)
+        idx = rng.choice(n_fin, size=n_max, replace=False)
         idx = np.unique(np.append(idx, int(np.nanargmax(lnL))))
         X, lnL = X[idx], lnL[idx]
         extra = {k: v[idx] for k, v in extra.items()}
-    out = dict(X=X, lnL=lnL, n_retained=int(n_ret), params_ordered=list(params_ordered))
+    out = dict(X=X, lnL=lnL, n_retained=int(n_ret), n_finite=int(n_fin),
+               params_ordered=list(params_ordered))
     out.update(extra)
     return out
 
