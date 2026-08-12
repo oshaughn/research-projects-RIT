@@ -391,13 +391,13 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     crossTermsCalV = None
     _have_cal = (not (calibration_realizations is None)) and isinstance(calibration_realizations, dict)
     # The (potentially expensive) per-realization |C_c|^2-weighted self-term cross terms
-    # are built only for the complete route (calibration_self_term=True, the default).  For
-    # the cheaper global-norm route (calibration_self_term=False), the calibration is still
-    # applied to the data (rholms are cal-extended below), but the SVD amplitude basis +
-    # weighted blocks are skipped and the reduction falls back to the cal-independent <h|h>.
-    # (return_calibration_crossterms only controls the RETURN arity, not the build; when the
-    # build is skipped the trailing crossTermsCal/crossTermsCalV are returned as None.)
-    _build_cal_ct = _have_cal and calibration_self_term
+    # are built ONLY when the caller will actually receive them (return_calibration_crossterms)
+    # AND wants the complete route (calibration_self_term=True, the default).  So a six-value-
+    # API caller that happens to supply calibration realizations never pays the (potentially
+    # dominant) SVD + rank integrations just to discard the result, and the cheaper global-norm
+    # route (calibration_self_term=False) skips them and falls back to the cal-independent
+    # <h|h>.  When the build is skipped the trailing crossTermsCal/crossTermsCalV are None.
+    _build_cal_ct = _have_cal and return_calibration_crossterms and calibration_self_term
     if _build_cal_ct:
         crossTermsCal = {}
         crossTermsCalV = {}
@@ -1120,20 +1120,22 @@ def ComputeModeCrossTermIP(hlmsA, hlmsB, psd, fmin, fMax, fNyq, deltaF,
     return crossTerms
 
 
-_cal_selfterm_basis_cache = {}   # fingerprint -> basis dict (bounded to a few entries)
+_cal_selfterm_basis_cache = {}   # key -> (weakref(cal), basis dict); bounded to a few entries
 
 
-def _cal_selfterm_fingerprint(cal, base_weights2side):
-    """Cheap, collision-resistant fingerprint of (draws, band/PSD) so the once-per-
-    draw-set SVD basis is reused across intrinsic points WITHOUT a per-point rebuild.
-    The basis depends ONLY on |C_c|^2 and the 1/S band weights (NOT on the template),
-    so it is constant over the intrinsic grid for a fixed draw set + PSD."""
-    csum = cal[::997]   # strided subsample: O(n/997), fast even for large arrays
-    wsum = base_weights2side[::503]
-    return (id(cal), tuple(cal.shape),
-            float(np.real(csum).sum()), float(np.imag(csum).sum()),
-            float(np.abs(cal[0, 0])), float(np.abs(cal[-1, -1])),
-            int(base_weights2side.shape[0]), float(wsum.sum()))
+def _cal_selfterm_key(cal, base_weights2side):
+    """Collision-resistant cache key for the SVD self-term basis, which depends on the
+    draws |C_c|^2 AND the 1/S band weights (band + values) -- NOT on the template -- so it
+    is constant over the intrinsic grid for a fixed draw set + PSD, but MUST change if the
+    PSD/band changes.  The band weights are digested in FULL (they are small next to the
+    draws, and a strided sample can collide -- two different PSDs agreeing on the sampled
+    bins returned a stale basis).  The draws are keyed by object identity + shape/dtype and
+    re-verified against the stored weakref on a hit (see BuildCalibrationSelfTermBasis), so
+    an id reused after garbage collection cannot return another array's basis."""
+    import hashlib
+    w = np.ascontiguousarray(base_weights2side, dtype=np.float64)
+    wdig = hashlib.blake2b(w.tobytes(), digest_size=16).digest()
+    return (id(cal), tuple(cal.shape), str(cal.dtype), wdig)
 
 
 def BuildCalibrationSelfTermBasis(calibration_realizations, base_weights2side,
@@ -1174,10 +1176,13 @@ def BuildCalibrationSelfTermBasis(calibration_realizations, base_weights2side,
     cal = np.asarray(calibration_realizations)
     n_cal = cal.shape[1]
     if use_cache:
-        _key = _cal_selfterm_fingerprint(cal, base_weights2side)
+        _key = _cal_selfterm_key(cal, base_weights2side)
         _hit = _cal_selfterm_basis_cache.get(_key)
         if _hit is not None:
-            return _hit
+            _ref, _basis = _hit
+            if _ref() is cal:            # exact identity: guards id-reuse after GC
+                return _basis
+            _cal_selfterm_basis_cache.pop(_key, None)   # stale id -> drop and rebuild
     band = base_weights2side != 0.0
     absC2_band = (np.abs(cal[band, :]) ** 2).astype(np.float64)     # (n_band, n_cal)
     # economy SVD: absC2_band = Ub @ diag(S) @ Vt ; columns live in a low-dim subspace
@@ -1200,9 +1205,11 @@ def BuildCalibrationSelfTermBasis(calibration_realizations, base_weights2side,
               % (rank, n_cal, resid))
     basis = dict(weights2side=w2, alpha=alpha, rank=rank, resid=resid, n_cal=n_cal)
     if use_cache:
+        import weakref
         if len(_cal_selfterm_basis_cache) >= 8:      # bound memory: evict an arbitrary entry
             _cal_selfterm_basis_cache.pop(next(iter(_cal_selfterm_basis_cache)))
-        _cal_selfterm_basis_cache[_key] = basis
+        # store a weakref to the draws so a hit can re-verify identity (see lookup above)
+        _cal_selfterm_basis_cache[_key] = (weakref.ref(cal), basis)
     return basis
 
 
@@ -2361,8 +2368,14 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
         # (un-phase-conjugated) Ylms_vec, matching rho_sq_det, so it is computed here
         # before the phase_marginalization conjugation below.
         if _use_rho_sq_cal:
-            U_cal = ctUArrayDict_cal[det]
-            V_cal = ctVArrayDict_cal[det]
+            # Use the FIRST n_cal weighted blocks.  The supplied arrays may hold more
+            # realizations than n_cal -- e.g. the zero-cal burn-in (--calibration-burn-in-neff)
+            # runs with n_cal=1 while retaining the full N_cal cross-term arrays -- and without
+            # this slice rho_sq_det_cal would be (N_cal, npts) and mismatch the (n_cal, npts)
+            # accumulator.  Slicing keeps rho_sq_c consistent with the rholm blocks the n_cal
+            # reduction actually reads (realizations 0..n_cal-1).
+            U_cal = ctUArrayDict_cal[det][:n_cal]
+            V_cal = ctVArrayDict_cal[det][:n_cal]
             rho_sq_det_cal = (
                 (F_vec*xpy.conj(F_vec)).real *
                 xpy.einsum("ei,ej,cij->ce", xpy.conj(Ylms_vec), Ylms_vec, U_cal).real
