@@ -16,6 +16,7 @@
 
 import numpy as np
 import argparse
+import hashlib
 import scipy.stats
 from scipy.spatial.distance import jensenshannon
 from scipy.stats import gaussian_kde
@@ -127,6 +128,30 @@ def calculate_js(samplesA, samplesB, ntests=100, xsteps=100):
 
     return np.median(js_array)
 
+def js_lame_rng(*arrays):
+    """Deterministic RNG for the js_lame estimators, seeded from the sample VALUES themselves.
+
+    Nothing in the stop decision may depend on process-global RNG state.  Both the JS statistic
+    (resampled draws) and, under --js-lame-auto-threshold, the threshold it is compared against
+    (split-half null) are Monte Carlo estimates; scored from np.random they come out differently
+    every time the job runs, so the same posterior files can be converged on one attempt and not
+    converged on the next -- a Condor retry of an identical iteration is enough to flip it, and the
+    workflow then terminates at a different iteration than an identical rerun.  A fixed constant
+    seed would make each call reproducible but would also reuse one partition/draw pattern for
+    every parameter and every iteration; keying on the data keeps those estimates independent of
+    each other while making each of them a function of its inputs alone.
+
+    Uses the legacy RandomState because its stream is guaranteed stable across numpy versions,
+    so the same inputs score the same way on a resumed or relocated run.
+    """
+    h = hashlib.sha256()
+    for a in arrays:
+        a = np.ascontiguousarray(np.asarray(a, dtype=float))
+        h.update(repr(a.shape).encode('utf-8'))
+        h.update(a.tobytes())
+    return np.random.RandomState(int.from_bytes(h.digest()[:4], 'big'))
+
+
 def reflected_kde_pdf(x, samples, lo, hi):
     """Reflected-boundary KDE for samples on [lo,hi], evaluated at x.
 
@@ -153,20 +178,24 @@ def reflected_kde_pdf(x, samples, lo, hi):
     return kde(x) + kde(2*lo - x) + kde(2*hi - x)
 
 
-def calculate_js_bounded(A, B, lo=0.0, hi=1.0, ntests=20, xsteps=100):
+def calculate_js_bounded(A, B, lo=0.0, hi=1.0, ntests=20, xsteps=100, rng=None):
     """
     Bounded-domain-aware JS (base-2, squared) for a parameter on [lo,hi] (e.g. chi1_perp >= 0):
     reflect the samples about both boundaries before the KDE and evaluate only inside [lo,hi],
     so edge-piling at the boundary does not leak probability mass and bias the estimate.
     (The plain calculate_js KDE is biased for edge-piled bounded variables.)
     The reflection is applied at the bandwidth of the unreflected samples: see reflected_kde_pdf.
+    The resampling draws come from a deterministic RNG keyed to A and B (js_lame_rng) unless a
+    caller supplies one, so re-scoring the same two posteriors always returns the same value.
     """
+    if rng is None:
+        rng = js_lame_rng(A, B)
     js_array = np.zeros(ntests)
     n = min(len(A), len(B))
     x = np.linspace(lo, hi, xsteps)
     for j in range(ntests):
-        a = np.random.choice(A, size=n, replace=False)
-        b = np.random.choice(B, size=n, replace=False)
+        a = rng.choice(A, size=n, replace=False)
+        b = rng.choice(B, size=n, replace=False)
         pa = reflected_kde_pdf(x, a, lo, hi); pb = reflected_kde_pdf(x, b, lo, hi)
         if pa is None or pb is None:
             # An exactly-constant draw (e.g. a column with no transverse spin at all) has no
@@ -249,16 +278,22 @@ def js_bounded_null_floor(samples, lo, hi, n_target,
         below the true noise and hang the gate forever on pure noise.
       - the halves hold len(unique)//2 points each, while the real comparison is scored at
         n_target; the null scales as 1/n per side, so rescale by (half / n_target).
+      - the partitions are drawn from a deterministic RNG keyed to these samples (js_lame_rng),
+        never from np.random.  This measurement IS the pass threshold under
+        --js-lame-auto-threshold, so an unseeded partition would score the same posterior files
+        against a different threshold on every attempt -- including a Condor retry of the same
+        iteration -- and identical runs could stop at different iterations.
     """
     u = np.unique(np.asarray(samples, dtype=float))
     m = len(u) // 2
     if m < JS_LAME_NULL_MIN_HALF:
         return None
+    rng = js_lame_rng(u)
     vals = np.zeros(n_splits)
     for j in range(n_splits):
-        perm = np.random.permutation(len(u))
+        perm = rng.permutation(len(u))
         vals[j] = calculate_js_bounded(u[perm[:m]], u[perm[m:2*m]], lo=lo, hi=hi,
-                                       ntests=1, xsteps=xsteps)
+                                       ntests=1, xsteps=xsteps, rng=rng)
     return np.percentile(vals, quantile) * float(m) / max(float(n_target), 1.0)
 
 
