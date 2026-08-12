@@ -31,10 +31,10 @@ except:
     print(" - No multiprocessing - ")
 
 try:
-    import NRWaveformCatalogManager3 as nrwf
-    hasNR =True
-except:
-    hasNR=False
+    from RIFT.physics._nrwf_loader import get_nrwf as _rift_get_nrwf
+    nrwf, hasNR = _rift_get_nrwf()
+except ImportError:
+    nrwf = None; hasNR = False
 
 ###
 ### Load options

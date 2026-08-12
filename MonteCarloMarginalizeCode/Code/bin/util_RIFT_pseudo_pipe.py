@@ -54,6 +54,7 @@ if _use_hpip_pp:
 
 # Backward compatibility
 from RIFT.misc.dag_utils_generic import which
+from RIFT.misc.cip_pipeline import flag_final_group_unique
 ligolw_prefix = 'igwn_'
 if not(which(ligolw_prefix + "ligolw_add")):
     ligolw_prefix = ''
@@ -468,6 +469,7 @@ parser.add_argument("--add-extrinsic-time-resampling",action='store_true',help="
 parser.add_argument("--internal-ile-srate-time-resampling",default=None, help=" Adds --srate-resample-time-marginalization to ILE for  output, to provide higher-resolution time output ")
 parser.add_argument("--internal-ile-srate-internal",default=None, help=" Adds --srate-internal to ILE, modifying how calculations are performed internally to use a higher sampling rate ")
 parser.add_argument("--internal-ile-interpolate-time",action='store_true',help="Pass --interpolate-time True to ILE, enabling cubic interpolation of Q_lm at fractional detector arrival times in the maintained NoLoop likelihood.")
+parser.add_argument("--internal-ile-n-chunk",default=None,type=int,help="Override the extrinsic chunk size (--n-chunk) passed to ILE, via the helper. Default behaviour (helper): 40000, scaled linearly with SNR above 40 and capped at 160000, because at high SNR the posterior is a vanishing fraction of the prior volume and a small chunk gives few informative samples per adaptation step. Larger chunks cost GPU memory but measured HOST memory (what RequestMemory governs) is flat, so no memory-request change is normally needed. EXPERTS ONLY.")
 parser.add_argument("--batch-extrinsic",action='store_true')
 parser.add_argument("--fmin",default=20,type=int,help="Mininum frequency for integration. template minimum frequency (we hope) so all modes resolved at this frequency")  # should be 23 for the BNS
 parser.add_argument("--fmin-template",default=None,type=float,help="Mininum frequency for template. If provided, then overrides automated settings for fmin-template = fmin/Lmax")  # should be 23 for the BNS
@@ -585,6 +587,7 @@ parser.add_argument("--use-osg-public",action='store_true',help="Activate public
 parser.add_argument("--archive-pesummary-label",default=None,help="If provided, creates a 'pesummary' directory and fills it with this run's final output at the end of the run")
 parser.add_argument("--archive-pesummary-event-label",default="this_event",help="Label to use on the pesummary page itself")
 parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_frame|rotate, choose method to deal with ChooseFDWaveform being in wrong frame. Default is to request L frame for inputs")
+parser.add_argument("--internal-force-puff-iterations", default=4, type=int, help="Number of iterations to be puffed")
 opts=  parser.parse_args()
 
 config_stored=None; config_dict=None
@@ -1159,6 +1162,13 @@ if opts.internal_ile_auto_logarithm_offset:
     cmd += " --internal-ile-auto-logarithm-offset "
 if opts.internal_ile_rotate_phase:
     cmd += " --internal-ile-rotate-phase "
+if opts.internal_ile_interpolate_time:
+    # HELPER passthrough (not a raw ILE arg): the helper owns ILE argument construction, and it
+    # also knows whether the NoLoop path (--vectorized --gpu --force-xpy) that --interpolate-time
+    # requires is actually in use.
+    cmd += " --internal-ile-interpolate-time "
+if not(opts.internal_ile_n_chunk is None):
+    cmd += " --internal-ile-n-chunk {} ".format(int(opts.internal_ile_n_chunk))
 # If user provides ini file *and* ini file has fake-cache field, generate a local.cache file, and pass it as argument
 if opts.use_ini:
 #    config = ConfigParser.ConfigParser()
@@ -1273,8 +1283,6 @@ if opts.internal_ile_reset_adapt or ((opts.ile_sampler_method =='adaptive_cartes
     #   - requested or
     #   - AC + not freezeadapt
     line += " --force-reset-all "
-if opts.internal_ile_interpolate_time:
-    line += " --interpolate-time True "
 if not(opts.manual_extra_ile_args is None):
     line += " {} ".format(opts.manual_extra_ile_args)  # embed with space on each side, avoid collisions
     if '--declination ' in opts.manual_extra_ile_args:   # if we are pinning dec, we aren't using a cosine coordinate. Don't mess up.
@@ -1684,8 +1692,15 @@ if opts.internal_use_amr:
 with open("args_cip_list.txt",'w') as f:
    if not(opts.internal_truncate_cip_arg_list is None):
        lines = lines[-opts.internal_truncate_cip_arg_list:]  # truncate the cip arg list file
+   # The final CIP group produces both the published posterior and the downstream grid,
+   # so it gets the duplicate-free fair draw (capped at sum(w)/max(w)).  Internal
+   # iterations keep the fair draw with duplicates allowed, so successive iterations feed
+   # an unbiased convergence test.  AMR arg lines drive a different executable that does
+   # not accept the flag, so that path is left untouched.
+   if not(opts.internal_use_amr):
+       lines = flag_final_group_unique(lines)
    for line in lines:
-           f.write(line)
+           f.write(line.rstrip("\n") + "\n")
 
 # Write test file
 # with open("args_test.txt",'w') as f:
@@ -1699,7 +1714,7 @@ with open("args_cip_list.txt",'w') as f:
 
 # Write puff file
 #puff_params = " --parameter mc --parameter delta_mc --parameter chieff_aligned "
-puff_max_it =4
+puff_max_it = opts.internal_force_puff_iterations
 #  Read puff args from file, if present
 try:
     with open("helper_puff_max_it.txt",'r') as f:
@@ -1845,6 +1860,30 @@ if not(opts.internal_use_amr) or opts.internal_use_amr_puff:
 if opts.calmarg_pilot:
     cmd += " --calmarg-pilot --calmarg-pilot-cadence {} --calmarg-pilot-max-it {} --calmarg-pilot-top-fraction {} --calmarg-pilot-max-points {} ".format(
         opts.calmarg_pilot_cadence, opts.calmarg_pilot_max_it, opts.calmarg_pilot_top_fraction, opts.calmarg_pilot_max_points)
+    if opts.use_osg_file_transfer:
+        # Graceful degradation for the OSG file-transfer regime.  The wide ILE jobs (and the
+        # last-iteration EXTRINSIC ILE jobs) list cal_consolidated_$(macroiterationprev).npz in
+        # transfer_input_files; condor HARD-HOLDS (HoldReasonCode 13) if that source file is
+        # absent on the submit node.  A calpilot only produces cal_consolidated_<it>.npz for
+        # iterations it<=--calmarg-pilot-max-it on-cadence, so any wide/extrinsic iteration
+        # whose seed was never produced (e.g. --calmarg-pilot-max-it 1 but 5 wide iterations)
+        # would dead-hold.  Pre-seed a VALID prior-breadcrumb placeholder (a copy of the always
+        # -present cal_consolidated_-1.npz iteration-0 seed) for EVERY iteration index a wide or
+        # extrinsic job can reference.  A real calpilot OVERWRITES its placeholder at runtime via
+        # transfer_output_files (the DAG seed barrier guarantees ordering), so behavior is
+        # unchanged whenever the learned seed IS produced; a missing seed now falls back to the
+        # prior (the placeholder == proposal==prior -> zero-weight prior cal draws) instead of
+        # dead-holding.  skip-if-exists preserves real seeds across a DAG rescue/resume.
+        _cal_ph_seed = os.getcwd() + "/cal_consolidated_-1.npz"
+        if os.path.exists(_cal_ph_seed):
+            # wide it in [it_start, n_iterations-1] references prev=it-1; the extrinsic stage
+            # (it=n_iterations) references prev=n_iterations-1 -> indices 0 .. n_iterations-1.
+            for _kit in range(0, int(n_iterations)):
+                _cal_ph_dst = os.getcwd() + "/cal_consolidated_{}.npz".format(_kit)
+                if not os.path.exists(_cal_ph_dst):
+                    shutil.copyfile(_cal_ph_seed, _cal_ph_dst)
+        else:
+            print("  WARNING: cal_consolidated_-1.npz placeholder absent; cannot pre-seed missing cal proposal breadcrumbs (wide/extrinsic ILE may hard-hold if a calpilot stage is skipped).")
 if opts.extrinsic_handoff:
     cmd += " --extrinsic-handoff --extrinsic-handoff-select {} ".format(opts.extrinsic_handoff_select)
 if opts.assume_eccentric:

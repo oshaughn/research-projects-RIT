@@ -40,20 +40,24 @@ class PuffballOracle(MCSamplerGeneric):
             raise Exception(" oracle  - puffball -update_sampling_prior requires initial history")
 
         n_history_to_use = np.min([n_history,  len(rvs_here[self.params_ordered[0]])] )
-        if ln_weights:
-            n_history_to_use = np.min([n_history,len(ln_weights)])
-        
+        if ln_weights is not None:
+            n_history_to_use = np.min([n_history,len(ln_weights), len(rvs_here[self.params_ordered[0]])])
+
+        # sample_array is (ndim, n_history_to_use): rows are parameters, columns samples
         sample_array = self.xpy.empty( (len(self.params_ordered), n_history_to_use))
         for indx, p in enumerate(self.params_ordered):
             sample_array[indx] = rvs_here[p][-n_history_to_use:]
 
 
-        if lnw_cut and ln_weights: # we can override and trainon all data
-            sample_array = sample_array[ln_weights > np.max(ln_weights) + lnw_cut ]  # training range
+        if lnw_cut is not None and ln_weights is not None: # restrict to high-weight training range
+            lnw = np.asarray(ln_weights)[-n_history_to_use:]
+            keep = lnw > np.max(lnw) + lnw_cut
+            if np.sum(keep) > len(self.params_ordered) + 1:  # need enough for a covariance
+                sample_array = sample_array[:, keep]  # select COLUMNS (samples), not rows
 
-        # compute mean and cov
+        # compute mean and cov (over samples = columns)
         self.reference_mean = np.mean(sample_array, axis=-1)
-        self.reference_cov =  np.cov(sample_array)
+        self.reference_cov =  np.atleast_2d(np.cov(sample_array))
         if verbose:
             print(" oracle - puffball - update_sampling_prior ", self.reference_mean, self.reference_cov)
 

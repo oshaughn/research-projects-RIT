@@ -8,7 +8,7 @@ from collections import defaultdict
 import numpy
 from RIFT.precision import RiftFloat  # platform-portable replacement for np.float128
 from scipy import integrate, interpolate
-from ..integrators.statutils import cumvar, welford, update, finalize
+from ..integrators.statutils import cumvar, welford, update, finalize, pareto_khat_from_log, ess_from_log_weights, block_scatter_sigma, bootstrap_lnZ_quantiles
 import itertools
 import functools
 
@@ -470,6 +470,9 @@ class MCSampler(object):
         maxlnL = -float("Inf")
         eff_samp = 0
         mean, var = None, RiftFloat(0)    # to prevent infinite variance due to overflow
+        # per-chunk lnZ record for the between-chunk error floor (each chunk used a
+        # different adapted proposal; the pooled variance cannot see their scatter)
+        lnZ_chunk_list = []; n_chunk_list = []
 
         if bShowEvaluationLog:
             print("iteration Neff  sqrt(2*lnLmax) sqrt(2*lnLmarg) ln(Z/Lmax) int_var")
@@ -565,7 +568,7 @@ class MCSampler(object):
                     self._rvs["integrand"] = numpy.hstack( (self._rvs["integrand"], fval) )
                     self._rvs["joint_prior"] = numpy.hstack( (self._rvs["joint_prior"], joint_p_prior) )
                     self._rvs["joint_s_prior"] = numpy.hstack( (self._rvs["joint_s_prior"], joint_p_s) )
-                    self._rvs["weights"] = numpy.hstack( (self._rvs["joint_s_prior"], fval*joint_p_prior/joint_p_s) )
+                    self._rvs["weights"] = numpy.hstack( (self._rvs["weights"], fval*joint_p_prior/joint_p_s) )   # BUGFIX: was appending onto joint_s_prior, corrupting the weights record
                 else:
                     self._rvs["integrand"] = fval
                     self._rvs["joint_prior"] = joint_p_prior
@@ -607,6 +610,11 @@ class MCSampler(object):
             var = outvals[-1]
             # running integral (note also in current_aggregate)
             int_val1 += int_val.sum()
+            # per-chunk lnZ for the between-chunk error floor (log first: RiftFloat-safe)
+            try:
+                lnZ_chunk_list.append(float(numpy.log(int_val.sum())) - numpy.log(n)); n_chunk_list.append(n)
+            except Exception:
+                pass
             # running number of evaluations
             self.ntotal += n
             # FIXME: Likely redundant with int_val1
@@ -743,6 +751,32 @@ class MCSampler(object):
                 else:
                     self._rvs[key] = self._rvs[key][indx_list]
 
+        # MC-error diagnostics (before the fairdraw resampling rewrites _rvs).
+        # The pooled weight variance is 1/ESS restated and tail-blind; disclose the
+        # tail (Pareto k-hat), the between-chunk scatter, and -- when the naive
+        # relative error is already large -- bootstrap lnZ quantiles.
+        mc_diag = {}
+        try:
+            _sb = block_scatter_sigma(lnZ_chunk_list, n_chunk_list)
+            if _sb is not None:
+                mc_diag['sigma_lnZ_block'] = _sb
+            if "integrand" in self._rvs and len(self._rvs["integrand"]) > 0:
+                # log first (RiftFloat-safe), cast after
+                _lw_diag = numpy.asarray(numpy.log(self._rvs["integrand"]) + numpy.log(self._rvs["joint_prior"]) - numpy.log(self._rvs["joint_s_prior"]), dtype=float)
+                _kh = pareto_khat_from_log(_lw_diag)
+                if _kh is not None:
+                    mc_diag['pareto_khat'] = _kh
+                mc_diag['n_ESS'] = ess_from_log_weights(_lw_diag)
+                _sig_rel_naive = numpy.inf
+                if int_val1 > 0 and self.ntotal > 1:
+                    _sig_rel_naive = float(numpy.sqrt(var*self.ntotal)/int_val1)
+                if _sig_rel_naive > 0.3 or mc_diag.get('sigma_lnZ_block', 0) > 0.3:
+                    _q = bootstrap_lnZ_quantiles(_lw_diag, n_total=self.ntotal)
+                    if _q is not None:
+                        mc_diag['lnZ_ci90'] = _q
+        except Exception as _e_diag:
+            print(" mcsampler: MC-error diagnostics failed ({}); continuing.".format(_e_diag), file=sys.stderr)
+
         # Do a fair draw of points, if option is set
         if bFairdraw and not(n_extr is None):
            n_extr = int(numpy.min([n_extr,1.5*eff_samp,1.5*neff]))
@@ -762,6 +796,7 @@ class MCSampler(object):
         dict_return ={}
         if convergence_tests is not None:
             dict_return["convergence_test_results"] = last_convergence_test
+        dict_return.update(mc_diag)   # MC-error diagnostics (pareto_khat, n_ESS, sigma_lnZ_block, lnZ_ci90)
 
         return int_val1/self.ntotal, var/self.ntotal, eff_samp, dict_return
 
@@ -875,6 +910,162 @@ def cos_samp_cdf_inv_vector(p):
     return numpy.arccos( 2*p-1)   # returns from 0 to pi
 def dec_samp_cdf_inv_vector(p):
     return numpy.arccos(2*p-1) - numpy.pi/2  # target from -pi/2 to pi/2
+
+
+###
+### Truncated isotropic angle samplers ("zoom box" support)
+###
+# RIFT can sample sky location / orientation either in the ANGLE itself (dec,
+# iota) or -- with --declination-cosine-sampler / --inclination-cosine-sampler --
+# in the cosine variable that makes the isotropic prior flat.  The two
+# conventions, read off the conversions applied in
+# bin/integrate_likelihood_extrinsic_batchmode, are
+#
+#   declination:  dec  = pi/2 - arccos(z)  <=>  z = sin(dec),   z in [-1,1]
+#                 sin() is INCREASING on [-pi/2, pi/2], so a box [lo,hi] maps to
+#                 [sin(lo), sin(hi)]: the order of the limits is PRESERVED.
+#   inclination:  iota = arccos(z)         <=>  z = cos(iota),  z in [-1,1]
+#                 cos() is DECREASING on [0, pi], so a box [lo,hi] maps to
+#                 [cos(hi), cos(lo)]: the order of the limits SWAPS.
+#
+# In both cases the physical isotropic prior is p(z) dz = dz/2, i.e. a CONSTANT
+# density 1/2 in the cosine coordinate.  That constant is deliberately NOT
+# renormalized over a restricted box, so that restricting the box reduces the
+# prior mass (and hence lnZ) by exactly the same factor as in the angle
+# coordinate, where the prior density is 0.5*cos(dec) resp. 0.5*sin(iota).
+
+_COSINE_SAMPLER_CONVENTIONS = {
+    # name: (angle_min, angle_max, angle->cosine-coordinate map, reverses_order)
+    'declination': (-numpy.pi/2, numpy.pi/2, numpy.sin, False),
+    'inclination': (0.0,         numpy.pi,   numpy.cos, True),
+}
+
+
+def infer_array_module(x, xpy=None):
+    """Return the array module (numpy, cupy, ...) that should be used to operate on `x`.
+
+    The truncated samplers below are handed to whichever backend the run selected:
+    mcsampler and mcsamplerAdaptiveVolume call them with host (numpy) arrays, while
+    mcsamplerGPU.draw_simplified() calls `self.pdf[param](samples)` / `self.cdf_inv[param](p)`
+    with a SINGLE positional argument holding a cupy array.  Defaulting to numpy would then
+    hit `numpy.asarray(cupy_array)`, which raises, so the backend is inferred from the
+    argument instead of assumed.  An explicit `xpy=` always wins.
+
+    The lookup is by the array type's top-level module, taken from `sys.modules` (a cupy
+    array cannot exist unless cupy is already imported), so this file keeps its numpy-only
+    import list and works for any duck-typed backend exposing the numpy API.
+    """
+    if xpy is not None:
+        return xpy
+    mod_name = type(x).__module__.split('.')[0]
+    if mod_name in ('numpy', 'builtins'):
+        return numpy
+    mod = sys.modules.get(mod_name)
+    if mod is not None and all(hasattr(mod, _attr) for _attr in ('asarray', 'where', 'clip')):
+        return mod
+    return numpy
+
+
+def clip_angle_limits(lo, hi, kind):
+    """Clip an angular range [lo,hi] (radians) to the physical domain of `kind`
+    ('declination' -> [-pi/2,pi/2], 'inclination' -> [0,pi]).
+
+    Raises ValueError if the requested range is empty/inverted, or if it does
+    not overlap the physical domain.  Returns (lo, hi) as floats with lo < hi.
+    """
+    if kind not in _COSINE_SAMPLER_CONVENTIONS:
+        raise ValueError("clip_angle_limits: unknown angle '{}' (expected one of {})".format(kind, sorted(_COSINE_SAMPLER_CONVENTIONS)))
+    angle_min, angle_max, _, _ = _COSINE_SAMPLER_CONVENTIONS[kind]
+    lo = float(lo)
+    hi = float(hi)
+    if not numpy.isfinite(lo) or not numpy.isfinite(hi):
+        raise ValueError("clip_angle_limits: non-finite {} range [{}, {}]".format(kind, lo, hi))
+    if not (hi > lo):
+        raise ValueError("clip_angle_limits: empty or inverted {} range [{}, {}] (need LO < HI, in radians)".format(kind, lo, hi))
+    lo_c = min(max(lo, angle_min), angle_max)
+    hi_c = min(max(hi, angle_min), angle_max)
+    if not (hi_c > lo_c):
+        raise ValueError("clip_angle_limits: {} range [{}, {}] does not overlap the physical domain [{}, {}]".format(kind, lo, hi, angle_min, angle_max))
+    return lo_c, hi_c
+
+
+def cosine_sampler_limits(lo, hi, kind):
+    """Map an angular range [lo,hi] (radians) into the coordinate actually sampled
+    by RIFT's 'cosine' sky/orientation samplers.
+
+    kind='declination': sampled variable is z = sin(dec); sin is increasing, so
+        the limit order is preserved:  [lo,hi] -> [sin(lo), sin(hi)].
+    kind='inclination': sampled variable is z = cos(iota); cos is DECREASING, so
+        the limit order SWAPS:         [lo,hi] -> [cos(hi), cos(lo)].
+
+    The range is clipped to the physical angular domain first, and the result is
+    clipped to the sampler domain [-1,1].  Raises ValueError on an empty or
+    inverted request.  Returns (z_lo, z_hi) with z_lo < z_hi.
+    """
+    lo_c, hi_c = clip_angle_limits(lo, hi, kind)
+    _, _, fn, reverses = _COSINE_SAMPLER_CONVENTIONS[kind]
+    z_a = float(fn(lo_c))
+    z_b = float(fn(hi_c))
+    z_lo, z_hi = (z_b, z_a) if reverses else (z_a, z_b)
+    z_lo = max(z_lo, -1.0)
+    z_hi = min(z_hi,  1.0)
+    if not (z_hi > z_lo):
+        raise ValueError("cosine_sampler_limits: {} range [{}, {}] maps to an empty sampling interval [{}, {}]".format(kind, lo, hi, z_lo, z_hi))
+    return z_lo, z_hi
+
+
+def ret_dec_samp_vector(dec_lo, dec_hi):
+    """Sampling pdf in DECLINATION for a uniform-in-sin(dec) draw truncated to
+    [dec_lo, dec_hi].  Normalized to unity over that box (the samplers that use
+    an explicit cdf_inv do not renormalize the pdf themselves).  Reduces to
+    dec_samp_vector for the full range."""
+    z_lo, z_hi = cosine_sampler_limits(dec_lo, dec_hi, 'declination')
+    lo_c, hi_c = clip_angle_limits(dec_lo, dec_hi, 'declination')
+    norm = z_hi - z_lo
+    def _pdf(x, xpy=None):
+        xpy = infer_array_module(x, xpy)
+        x = xpy.asarray(x, dtype=numpy.float64)
+        vals = xpy.cos(x)/norm
+        return xpy.where((x >= lo_c) & (x <= hi_c), vals, xpy.zeros_like(vals))
+    return _pdf
+
+
+def ret_dec_samp_cdf_inv_vector(dec_lo, dec_hi):
+    """Inverse CDF (p in [0,1] -> declination) for uniform-in-sin(dec) truncated
+    to [dec_lo, dec_hi].  Monotonically increasing in p."""
+    z_lo, z_hi = cosine_sampler_limits(dec_lo, dec_hi, 'declination')
+    def _cdf_inv(p, xpy=None):
+        xpy = infer_array_module(p, xpy)
+        p = xpy.asarray(p, dtype=numpy.float64)
+        return xpy.arcsin(xpy.clip(z_lo + p*(z_hi - z_lo), -1.0, 1.0))
+    return _cdf_inv
+
+
+def ret_cos_samp_vector(incl_lo, incl_hi):
+    """Sampling pdf in INCLINATION for a uniform-in-cos(iota) draw truncated to
+    [incl_lo, incl_hi].  Normalized to unity over that box.  Reduces to
+    cos_samp_vector for the full range."""
+    z_lo, z_hi = cosine_sampler_limits(incl_lo, incl_hi, 'inclination')
+    lo_c, hi_c = clip_angle_limits(incl_lo, incl_hi, 'inclination')
+    norm = z_hi - z_lo
+    def _pdf(x, xpy=None):
+        xpy = infer_array_module(x, xpy)
+        x = xpy.asarray(x, dtype=numpy.float64)
+        vals = xpy.sin(x)/norm
+        return xpy.where((x >= lo_c) & (x <= hi_c), vals, xpy.zeros_like(vals))
+    return _pdf
+
+
+def ret_cos_samp_cdf_inv_vector(incl_lo, incl_hi):
+    """Inverse CDF (p in [0,1] -> inclination) for uniform-in-cos(iota)
+    truncated to [incl_lo, incl_hi].  Monotonically increasing in p: p=0 gives
+    incl_lo (which is arccos of the UPPER cosine limit -- note the swap)."""
+    z_lo, z_hi = cosine_sampler_limits(incl_lo, incl_hi, 'inclination')
+    def _cdf_inv(p, xpy=None):
+        xpy = infer_array_module(p, xpy)
+        p = xpy.asarray(p, dtype=numpy.float64)
+        return xpy.arccos(xpy.clip(z_hi - p*(z_hi - z_lo), -1.0, 1.0))
+    return _cdf_inv
 
 
 def pseudo_dist_samp(r0,r):
@@ -1100,7 +1291,31 @@ def convergence_test_MostSignificantPoint(pcut, rvs, params):
 #    - this test assumes *unsorted* past history: the 'ncopies' segments are assumed independent.
 import scipy.stats as stats
 def convergence_test_NormalSubIntegrals(ncopies, pcutNormalTest, sigmaCutRelativeErrorThreshold, rvs, params):
-    weights = rvs["integrand"]* rvs["joint_prior"]/rvs["joint_s_prior"]  # rvs["weights"] # rvs["weights"] is *sorted* (side effect?), breaking test. Recalculated weights are not.  Use explicitly calculated weights until sorting effect identified
+    # ORDERING CAVEAT (documented, deliberately NOT worked around here -- see
+    # test_convergence_sample_order.py, which carries the measurements).
+    #
+    # The save-P thresholding block (mcsampler.py:739-752) reindexes EVERY _rvs column by
+    # cumulative-weight order, so after it runs the rows are sorted by weight ascending.  This test
+    # splits them into `ncopies` CONTIGUOUS segments and assumes those are independent, which sorted
+    # rows are not: measured, max/min segment mass is 1.15e3 sorted versus 1.83 in draw order.
+    #
+    # The previous note here claimed recomputing the weights from the components avoided this.  It
+    # does not: the components were permuted by the same reindexing, and measured, cached and
+    # recomputed weights are BOTH 100% ascending.  That claim is simply false and is removed.
+    #
+    # `sample_n` does not rescue it either.  It is (re)created as arange(len(...)) at the START of
+    # the threshold block, so on a REUSED sampler it is assigned to an already-permuted array and
+    # encodes the order at the start of that call, not the draw order -- measured, reordering by it
+    # after two integrate() calls leaves 0.752 ascending and a segment ratio of 373.  Worse, between
+    # appending new samples and the block re-running, sample_n is STALE and SHORT (3000 weights vs
+    # 1500 ids), so indexing by it would silently drop half the samples.
+    #
+    # A real fix needs stable ids assigned where samples are APPENDED, in every sampler.  Since this
+    # test has no live callers (all production call sites are commented out; only
+    # test/test_like_and_samp.py uses it), that plumbing is not justified -- but anyone re-enabling
+    # this test must do it first, or the sub-integrals are not independent and the normality check
+    # is meaningless.
+    weights = rvs["integrand"] * rvs["joint_prior"] / rvs["joint_s_prior"]
 #    weights = weights /numpy.sum(weights)    # Keep original normalization, so the integral values printed to stdout have meaning relative to the overall integral value.  No change in code logic : this factor scales out (from the log, below)
     igrandValues = numpy.zeros(ncopies)
     len_part = int(len(weights)/ncopies)  # deprecated: np.floor->np.int

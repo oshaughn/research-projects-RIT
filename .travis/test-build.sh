@@ -61,4 +61,39 @@ assert_has    `pwd`/test_build_slices/ILE.sub      "--distance-marginalization "
 assert_absent `pwd`/test_build_slices/ILE_extr.sub "--distance-marginalization "
 echo "OK: Plan-B slice export only on ILE_extr.sub; distance marginalization disabled only at the extrinsic stage"
 
+# --- 4. Gauss-early ('G') CIP groups use the alternate exe where a real CIP runs ---
+# --use-gauss-early makes the first cip-args-list entry a G group.  Two regimes:
+#
+# 4a. Non-flat exploded jobs (gp fit method): the master job runs a real
+#     CIP (it saves the shared fit), so the G exe must land in the master sub
+#     (CIP_0.sub) and not just the worker sub; non-G groups keep the standard
+#     CIP.  Without explode jobs the master is the only CIP, same assignment.
+#     The ini's [rift-pseudo-pipe] section overrides the command line, so the
+#     gp fit method must be set in an ini variant, not via --cip-fit-method.
+GAUSS_INI=`pwd`/test_build_gauss_gpfit.ini
+sed 's/^cip-fit-method=.*/cip-fit-method="gp"/' $REF_INI > $GAUSS_INI
+util_RIFT_pseudo_pipe.py --use-ini $GAUSS_INI --use-coinc $COINC --use-rundir `pwd`/test_build_gauss --fake-data-cache `pwd`/foo.cache --use-gauss-early
+assert_has    `pwd`/test_build_gauss/CIP_0.sub        "GaussianResampling"
+assert_absent `pwd`/test_build_gauss/CIP_0.sub        "GenericCoordinates"
+assert_has    `pwd`/test_build_gauss/CIP_worker0.sub  "GaussianResampling"
+assert_has    `pwd`/test_build_gauss/CIP_1.sub        "GenericCoordinates"
+assert_absent `pwd`/test_build_gauss/CIP_1.sub        "GaussianResampling"
+echo "OK: gauss-early G group uses GaussianResampling in master and worker subs (non-flat)"
+
+# 4b. Flat exploded jobs (default here: non-gp fit method): no shared fit, so
+#     the master is a documented /bin/true no-op for EVERY group -- including G
+#     groups, whose exe must appear only in the worker sub.  Matches the
+#     non-per-iteration CIP.sub, which is also /bin/true in flat mode.
+util_RIFT_pseudo_pipe.py --use-ini $REF_INI --use-coinc $COINC --use-rundir `pwd`/test_build_gauss_flat --fake-data-cache `pwd`/foo.cache --use-gauss-early
+# CIP.sub (the non-per-iteration master) goes /bin/true via long-standing
+# separate code; it doubles as the witness that this render really is flat.
+assert_has    `pwd`/test_build_gauss_flat/CIP.sub            "/bin/true"
+assert_has    `pwd`/test_build_gauss_flat/CIP_0.sub          "/bin/true"
+assert_absent `pwd`/test_build_gauss_flat/CIP_0.sub          "GaussianResampling"
+assert_absent `pwd`/test_build_gauss_flat/CIP_0.sub          "GenericCoordinates"
+assert_has    `pwd`/test_build_gauss_flat/CIP_worker0.sub    "GaussianResampling"
+assert_has    `pwd`/test_build_gauss_flat/CIP_1.sub          "/bin/true"
+assert_has    `pwd`/test_build_gauss_flat/CIP_worker1.sub    "GenericCoordinates"
+echo "OK: flat explode mode keeps the no-op /bin/true master for G and non-G groups"
+
 echo "test-build.sh: all pipeline-build checks passed"

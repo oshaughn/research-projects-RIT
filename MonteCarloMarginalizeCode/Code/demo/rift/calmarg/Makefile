@@ -549,14 +549,15 @@ endif
 # OVERRIDES the CLI, which previously left ILE stuck at 4M while cip/general got bumped.
 PP_DISK_FLAGS := --internal-ile-request-disk $(PP_DISK) --internal-cip-request-disk $(PP_DISK) --internal-general-request-disk $(PP_DISK)
 
-# ILE memory request (Mb).  pseudo_pipe defaults to 4096, far too tight here.  Each job
-# does 50 intrinsic points with the fused calmarg + distance-marg extrinsic sampler; the
-# well-behaved points finish at ~7.3 GB, but pathological low-cal-n_eff points spin the AV
-# sampler toward --n-max 4e6 and accumulate sample arrays past 8 GB -> held ("over cgroup
-# memory limit").  Observed: 4096 and 8192 both held; completers peak ~7.3 GB.  16384 (2.2x)
-# covers the hard-point spikes and still matches most GPU nodes (median ~27 GB RAM).  Raise
-# to 24576 if any still hold; ILE_extr auto-gets 2x this.
-PP_MEM_ILE ?= 16384
+# ILE memory request (Mb).  Sized for the DEFAULT (mild 1% cal) envelope: measured ILE RSS is
+# ~1.2 GB, so 6144 is ~5x headroom and matches the WHOLE GPU pool.  A 16384 default matched only
+# ~55 of 3400 slots (the RAM-starved GPU pool has few >=16 GB slots) and, combined with a cc>=8
+# require_gpus floor, left runs idle for WEEKS.  ILE_extr auto-gets 2x this (12288).  NOTE the
+# --wide STRESS envelope is different: there the sampler spins toward --n-max on collapsed-cal-n_eff
+# points and accumulates arrays past 8 GB (completers ~7.3 GB) -- for a --wide run bump PP_MEM_ILE
+# to 24576.  Pair with RIFT_REQUIRE_GPUS floor 6.0 (setup_here.sh) so the ~529 uncontested cc6.1
+# slots are admitted; at ~6 min/job on the mild envelope they finish well inside the 120-min wall.
+PP_MEM_ILE ?= 6144
 PP_MEM_FLAGS := --internal-ile-request-memory $(PP_MEM_ILE)
 
 .PHONY: pp-run pp-run-build pp-coinc

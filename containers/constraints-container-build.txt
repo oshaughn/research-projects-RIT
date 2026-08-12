@@ -1,0 +1,7 @@
+# pygsl_lite 0.1.8 still calls distutils.util.spawn(cmd, 1, 1).
+# setuptools 84 made every argument after cmd keyword-only, so fresh builds of
+# pyseobnr (which depends on pygsl_lite) fail before RIFT can be installed.
+# Remove this upper bound once pygsl_lite contains the upstream compatibility
+# fix.  This constrains isolated build backends only; runtime dependencies in
+# requirements-container.txt remain intentionally unpinned.
+setuptools<84

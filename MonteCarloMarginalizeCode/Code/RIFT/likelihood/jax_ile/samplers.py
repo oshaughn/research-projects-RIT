@@ -288,6 +288,8 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
                     num_samples=500, n_prior_pilot=8000, seed=0,
                     target_accept=0.8, min_sep=0.3, proposal_inflate=2.0,
                     n_is=40000, sky_coords="equatorial",
+                    dense_mass=True, max_tree_depth=10, rotate_phase=False,
+                    polish_seeds=True, extra_seeds=None,
                     verbose=False, chain_progress_bar=False):
     """Multimodal posterior sampling by multi-start gradient-based NUTS.
 
@@ -316,6 +318,49 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
         Base PRNG seed (numpy + JAX).
     target_accept : float
         NUTS target acceptance probability.
+    dense_mass : bool
+        Adapt a FULL (dense) mass matrix during warmup instead of the default
+        diagonal one.  The distance-marginalized angular posterior is strongly
+        correlated -- at high SNR it is a thin, curved sky ring entangled with
+        the psi/incl/phiref degeneracies -- so a diagonal mass matrix leaves the
+        Hamiltonian geometry wildly anisotropic and NUTS hits ``max_tree_depth``
+        (~2^depth leapfrog steps) on essentially every sample, stalling the run.
+        A dense mass matrix ≈ the inverse posterior covariance whitens the
+        geometry so trajectories are short and acceptance is high.  ``True`` is
+        the sane production default for this problem; only set ``False`` for a
+        deliberately cheap low-SNR run where the posterior is broad and round.
+    max_tree_depth : int or (int, int)
+        NUTS maximum tree depth (numpyro passthrough).  Bounds the worst-case
+        leapfrog steps per sample (``2^depth``) so an ill-conditioned *early*
+        warmup window -- before the mass matrix has adapted -- cannot blow up
+        wall-clock.  A ``(warmup_depth, sampling_depth)`` tuple caps warmup more
+        tightly than sampling; a scalar applies to both.
+    rotate_phase : bool
+        Sample the rotated "polarization-phase" coordinates
+        ``phase_p = phiref + psi`` and ``phase_m = phiref - psi`` (each over
+        ``[0, 4pi)``) instead of ``(psi, phiref)`` directly, then map back
+        ``psi = (phase_p - phase_m)/2``, ``phiref = (phase_p + phase_m)/2``.
+        This is the JAX mirror of production RIFT's ``--internal-rotate-phase``:
+        the quadrupole-dominated likelihood depends on ``2psi +/- 2phiref``, so
+        the curved psi/phiref degeneracy ridge becomes AXIS-ALIGNED in
+        ``(phase_p, phase_m)`` -- the sampler's (dense) mass matrix is then
+        near-diagonal and NUTS keeps a healthy step at high SNR.  The map is a
+        constant-Jacobian rotation, so the flat prior is preserved (exactly, in
+        the enlarged periodic domain).  Combine with ``sky_coords="network"``
+        (which similarly straightens the sky time-delay ring) for the full
+        high-SNR reparameterization.  Exact for the (2,+/-2) quadrupole; still a
+        valid (just less-perfectly-decorrelating) reparameterization with higher
+        modes.
+    polish_seeds : bool
+        Gradient-ascend (+ Newton) each pilot seed to its local MAP before
+        running NUTS.  At very high SNR the sky posterior is a ~1/SNR-thin ring
+        that a finite prior pilot cannot land ON -- the best raw pilot draw sits
+        many nats below the peak (e.g. SNR=1000: seed lnL ~24500 below
+        0.5<d|d>), so a chain started there samples the wrong arc (MAP degrees
+        off truth).  A few hundred AD-gradient steps + Fisher-inverse Newton
+        steps climb from the broad basin onto the true peak, so NUTS starts AT
+        the needle -- the whole point of having exact gradients.  Cheap
+        (a few hundred grad evals per seed); default on.
     min_sep : float
         Minimum angular separation (radians, in the combined sky+angle metric)
         between seeds.
@@ -356,6 +401,33 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
         print("  chose %d seeds (lnL): %s" %
               (len(seeds), np.array2string(seed_lnL, precision=1)))
 
+    # Optional caller-supplied seeds (each a length-5 (ra,dec,psi,incl,phiref)),
+    # PREPENDED to the pilot seeds before the polish.  At very high SNR the true
+    # peak is thinner than 1 pilot draw can resolve (~(1/SNR)^2 of the sky), so a
+    # blind pilot + gradient polish can settle on a secondary mode nats below the
+    # global peak; a known seed near the true basin (in production: the intrinsic
+    # grid + coarse extrinsic pass; here: the injected truth) guarantees one chain
+    # characterizes the injected mode.  Still polished, so it snaps to the exact MAP.
+    if extra_seeds is not None:
+        ex = np.atleast_2d(np.asarray(extra_seeds, dtype=float))
+        seeds = np.vstack([ex, seeds])
+        seed_lnL = np.concatenate([eval_lnL(like, ex), seed_lnL])
+        if verbose:
+            print("  + %d caller seed(s) (lnL): %s" %
+                  (len(ex), np.array2string(eval_lnL(like, ex), precision=1)))
+
+    # Gradient MAP-polish: climb each raw pilot seed onto the true (1/SNR-thin)
+    # peak so NUTS starts AT the needle rather than degrees off it on the wrong
+    # arc.  Uses the exact JAX gradient (+ Fisher-inverse Newton); cheap.  Keeps
+    # each seed at its OWN local MAP (preserves the multi-start mode coverage).
+    if polish_seeds:
+        _, _, _pol = _map_polish_4(like, seeds, bounds=_BOUNDS5)
+        seeds = np.array([p[0] for p in _pol])
+        seed_lnL = np.array([p[1] for p in _pol])
+        if verbose:
+            print("  polished seeds to MAP (lnL): %s"
+                  % np.array2string(seed_lnL, precision=1))
+
     # Optional: sample the sky in NETWORK-frame coordinates (polar axis = the
     # baseline of the first two detectors), which folds the time-delay ring onto
     # a constant-polar-angle line.  Falls back to equatorial if <2 detectors.
@@ -379,57 +451,89 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
     # well-conditioned space with the prior Jacobians handled automatically;
     # the uniform sky prior is uniform in (cos_theta_n, phi_n) too, since the
     # rotation preserves the sphere measure.
+    # Shared phase parameterization: either sample (psi, phiref) directly, or
+    # the rotated (phase_p, phase_m) = (phiref+psi, phiref-psi) that decorrelate
+    # the 2psi+/-2phiref degeneracy (production --internal-rotate-phase).
+    _4PI = 4.0 * _PI
+
+    def _sample_phase():
+        if rotate_phase:
+            pp = numpyro.sample("phase_p", dist.Uniform(0.0, _4PI))
+            pm = numpyro.sample("phase_m", dist.Uniform(0.0, _4PI))
+            return (pp - pm) * 0.5, (pp + pm) * 0.5      # psi, phiref
+        psi = numpyro.sample("psi", dist.Uniform(0.0, _PI))
+        phiref = numpyro.sample("phiref", dist.Uniform(0.0, _TWO_PI))
+        return psi, phiref
+
+    def _init_phase(th0):
+        psi0, phi0 = float(th0[2]), float(th0[4])
+        if rotate_phase:
+            return {"phase_p": (phi0 + psi0) % _4PI,
+                    "phase_m": (phi0 - psi0) % _4PI}
+        return {"psi": psi0, "phiref": phi0}
+
+    def _extract_phase(s):
+        if rotate_phase:
+            pp = np.asarray(s["phase_p"]); pm = np.asarray(s["phase_m"])
+            return np.mod((pp - pm) * 0.5, _PI), np.mod((pp + pm) * 0.5, _TWO_PI)
+        return np.mod(np.asarray(s["psi"]), _PI), np.mod(np.asarray(s["phiref"]), _TWO_PI)
+
     if net is None:
         def model():
             ra = numpyro.sample("ra", dist.Uniform(0.0, _TWO_PI))
             sin_dec = numpyro.sample("sin_dec", dist.Uniform(-1.0, 1.0))
-            psi = numpyro.sample("psi", dist.Uniform(0.0, _PI))
             cos_incl = numpyro.sample("cos_incl", dist.Uniform(-1.0, 1.0))
-            phiref = numpyro.sample("phiref", dist.Uniform(0.0, _TWO_PI))
+            psi, phiref = _sample_phase()
             lnL = like._scalar(jnp.stack(
                 [ra, jnp.arcsin(sin_dec), psi, jnp.arccos(cos_incl), phiref]))
             numpyro.factor("loglike", lnL)
 
         def make_init(th0):
-            return {"ra": float(th0[0]), "sin_dec": float(np.sin(th0[1])),
-                    "psi": float(th0[2]), "cos_incl": float(np.cos(th0[3])),
-                    "phiref": float(th0[4])}
+            d = {"ra": float(th0[0]), "sin_dec": float(np.sin(th0[1])),
+                 "cos_incl": float(np.cos(th0[3]))}
+            d.update(_init_phase(th0))
+            return d
 
         def extract(s):
+            psi, phiref = _extract_phase(s)
             return np.stack([np.asarray(s["ra"]), np.arcsin(np.asarray(s["sin_dec"])),
-                             np.asarray(s["psi"]), np.arccos(np.asarray(s["cos_incl"])),
-                             np.asarray(s["phiref"])], axis=-1)
+                             psi, np.arccos(np.asarray(s["cos_incl"])),
+                             phiref], axis=-1)
     else:
         _C, R, gmst = net
 
         def model():
             cos_tn = numpyro.sample("cos_theta_n", dist.Uniform(-1.0, 1.0))
             phi_n = numpyro.sample("phi_n", dist.Uniform(0.0, _TWO_PI))
-            psi = numpyro.sample("psi", dist.Uniform(0.0, _PI))
             cos_incl = numpyro.sample("cos_incl", dist.Uniform(-1.0, 1.0))
-            phiref = numpyro.sample("phiref", dist.Uniform(0.0, _TWO_PI))
+            psi, phiref = _sample_phase()
             ra, dec = _C.network_to_equatorial(jnp.arccos(cos_tn), phi_n, R, gmst)
             lnL = like._scalar(jnp.stack([ra, dec, psi, jnp.arccos(cos_incl), phiref]))
             numpyro.factor("loglike", lnL)
 
         def make_init(th0):
             tn, pn = _C.equatorial_to_network(float(th0[0]), float(th0[1]), R, gmst)
-            return {"cos_theta_n": float(np.cos(float(tn))),
-                    "phi_n": float(float(pn) % _TWO_PI),
-                    "psi": float(th0[2]), "cos_incl": float(np.cos(th0[3])),
-                    "phiref": float(th0[4])}
+            d = {"cos_theta_n": float(np.cos(float(tn))),
+                 "phi_n": float(float(pn) % _TWO_PI),
+                 "cos_incl": float(np.cos(th0[3]))}
+            d.update(_init_phase(th0))
+            return d
 
         def extract(s):
             tn = np.arccos(np.asarray(s["cos_theta_n"]))
             ra, dec = _C.network_to_equatorial(tn, np.asarray(s["phi_n"]), R, gmst)
-            return np.stack([np.asarray(ra), np.asarray(dec), np.asarray(s["psi"]),
+            psi, phiref = _extract_phase(s)
+            return np.stack([np.asarray(ra), np.asarray(dec), psi,
                              np.arccos(np.asarray(s["cos_incl"])),
-                             np.asarray(s["phiref"])], axis=-1)
+                             phiref], axis=-1)
 
     # -- 2. one NUTS chain per seed, pooled --------------------------------
+    # (len(seeds) may exceed n_starts when the caller supplies extra_seeds)
     per_chain = []     # (num_samples, 5) per seed, in equatorial theta5
-    for k in range(n_starts):
+    n_chains = len(seeds)
+    for k in range(n_chains):
         kernel = NUTS(model, target_accept_prob=target_accept,
+                      dense_mass=dense_mass, max_tree_depth=max_tree_depth,
                       init_strategy=init_to_value(values=make_init(seeds[k])))
         mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples,
                     num_chains=1, progress_bar=chain_progress_bar)
@@ -437,10 +541,45 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
         per_chain.append(extract(mcmc.get_samples()))
         if verbose:
             print("  chain %d/%d done (seed lnL=%.2f)" %
-                  (k + 1, n_starts, seed_lnL[k]))
+                  (k + 1, n_chains, seed_lnL[k]))
 
     theta = np.concatenate(per_chain, axis=0)
     lnL = eval_lnL(like, theta)
+
+    # Evidence-weighted pooling.  Multi-start places one chain per mode, but the
+    # modes carry vastly different posterior mass -- at high SNR the sub-dominant
+    # time-delay-ring images and amplitude-degeneracy branches sit many nats below
+    # the true peak.  Pooling the chains with EQUAL weight over-represents those
+    # negligible modes (they dominate a naive credible-region or corner plot).
+    # Weight each chain by a LAPLACE estimate of its mode evidence,
+    #   log Z_k ~= peak_lnL_k + 1/2 log det Sigma^sky_k ,
+    # i.e. the mode's peak likelihood times its (sky) width.  Peak alone is wrong:
+    # at LOW SNR the chains sample one broad, overlapping posterior with similar
+    # peaks, and a tiny peak difference would spuriously collapse it -- the width
+    # term keeps broad modes comparable there, while at HIGH SNR the sub-dominant
+    # modes are suppressed by their far-lower peak regardless of width.  ``theta``
+    # stays the raw pooled draws; ``post_weight`` is the per-sample posterior weight
+    # callers use for credible regions, sky areas, and corner plots.
+    n_per = [len(c) for c in per_chain]
+    _off = np.cumsum([0] + n_per)
+    logev = np.full(len(per_chain), -np.inf)
+    for k in range(len(per_chain)):
+        if n_per[k] < 3:
+            continue
+        thk = per_chain[k]
+        ra_k, dec_k = thk[:, 0], thk[:, 1]
+        ra0 = np.angle(np.mean(np.exp(1j * ra_k)))
+        x = ((ra_k - ra0 + np.pi) % (2 * np.pi) - np.pi) * np.cos(np.median(dec_k))
+        y = dec_k - np.median(dec_k)
+        cov = np.cov(np.vstack([x, y])) + 1e-8 * np.eye(2)
+        logdet = float(np.log(max(np.linalg.det(cov), 1e-30)))
+        peak_k = float(lnL[_off[k]:_off[k + 1]].max())
+        logev[k] = peak_k + 0.5 * logdet
+    cw = np.exp(logev - np.max(logev))
+    post_weight = np.concatenate([
+        np.full(n_per[k], cw[k] / max(n_per[k], 1)) for k in range(len(per_chain))])
+    sw = post_weight.sum()
+    post_weight = post_weight / sw if sw > 0 else np.full(len(theta), 1.0 / max(len(theta), 1))
 
     # -- 3. Gaussian-mixture importance evidence (one comp per seed) -------
     mus, covs = [], []
@@ -477,8 +616,14 @@ def multistart_nuts(like, d_min, d_max, n_starts=8, num_warmup=300,
     logZ, sigma_over_Z, neff = _finalize_evidence(
         logZ, sigma_over_Z, neff, float(np.max(lnL)) if len(lnL) else np.nan)
 
+    # Per-chain posterior draws (stacked) so callers can compute a POSTERIOR
+    # effective-sample-size / R-hat -- the right "did we resolve the posterior"
+    # diagnostic, distinct from the importance-sampling evidence ``neff`` above
+    # (which is limited by the Gaussian-mixture proposal's fit to the target).
+    theta_per_chain = np.stack(per_chain, axis=0)   # (n_starts, num_samples, 5)
     return dict(theta=theta, lnL=lnL, seeds=seeds, seed_lnL=seed_lnL,
-                logZ=logZ, sigma_over_Z=sigma_over_Z, neff=neff)
+                logZ=logZ, sigma_over_Z=sigma_over_Z, neff=neff,
+                theta_per_chain=theta_per_chain, post_weight=post_weight)
 
 
 # ---------------------------------------------------------------------------
@@ -635,6 +780,9 @@ def flowmc_sample(like, d_min, d_max, n_chains=20, n_local_steps=20,
 
 _BOUNDS4 = [(0.0, _TWO_PI), (-_PI / 2 + 1e-3, _PI / 2 - 1e-3),
             (0.0, _PI), (1e-3, _PI - 1e-3)]
+# 5-D support (ra, dec, psi, incl, phiref) for MAP-polishing the 5-D
+# distance-marginalized seeds in multistart_nuts.
+_BOUNDS5 = _BOUNDS4 + [(0.0, _TWO_PI)]
 
 
 def sample_prior_4(n, rng):
@@ -1894,10 +2042,12 @@ def fisher_nuts_sample_phimarg(like, num_warmup=300, num_samples=1000,
               "logZ=%.3f  neff(IS)=%.1f  mode mass=%s"
               % (len(theta), K, logZ, neff,
                  np.array2string(mass, precision=3)))
+    theta_per_chain = per_chain    # list of (num_samples, 4) arrays, one per mode
     return dict(theta=theta, lnL=lnL, post_weight=post_weight, logZ=logZ,
                 sigma_over_Z=sigma_over_Z, neff=neff,
                 theta_map=modes[0], modes=modes, mode_lnL=mode_lnL,
-                mode_logZ=mode_logZ, flow_state=None)
+                mode_logZ=mode_logZ, theta_per_chain=theta_per_chain,
+                flow_state=None)
 
 
 # ---------------------------------------------------------------------------

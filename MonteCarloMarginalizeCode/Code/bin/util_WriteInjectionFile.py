@@ -29,9 +29,10 @@ parser.add_argument("--param",default=None)
 opts=  parser.parse_args()
 
 hasNR = False
+nrwf = None
 if opts.group:
-    import NRWaveformCatalogManager3 as nrwf
-    hasNR=True
+    from RIFT.physics._nrwf_loader import get_nrwf as _rift_get_nrwf
+    nrwf, hasNR = _rift_get_nrwf()    # prefers nrcatalog.compat_nrwf, falls back to NRWaveformCatalogManager3
 
 
 P=None

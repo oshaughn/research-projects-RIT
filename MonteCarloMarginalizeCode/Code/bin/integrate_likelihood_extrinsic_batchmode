@@ -8,6 +8,7 @@ Integrate the extrinsic parameters of the prefactored likelihood function.
 """
 
 import sys
+import json
 import functools
 from optparse import OptionParser, OptionGroup
 
@@ -50,6 +51,14 @@ import glue.lal
 import RIFT.lalsimutils as lalsimutils
 from RIFT.precision import RiftFloat
 import RIFT.integrators.mcsampler as mcsampler
+# NOTE: the name 'mcsampler' above is REBOUND below to mcsamplerGPU for some --sampler-method
+# choices, so the zoom-box helpers are imported under their own names.  They are backend-agnostic:
+# each closure infers its array module from the argument it is handed (numpy on the CPU/AV paths,
+# cupy when mcsamplerGPU.draw_simplified() calls it with a device array), so one definition serves
+# every sampler.
+from RIFT.integrators.mcsampler import (clip_angle_limits, cosine_sampler_limits,
+                                        ret_dec_samp_vector, ret_dec_samp_cdf_inv_vector,
+                                        ret_cos_samp_vector, ret_cos_samp_cdf_inv_vector)
 import RIFT.misc.sky_rotations as sky_rotations
 try:
     import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
@@ -245,6 +254,11 @@ optp.add_option("--calibration-proposal-breadcrumb",default=None, help="Opt-in (
 optp.add_option("--calibration-dump-responsibilities",default=None, help="Opt-in (Option C / adaptive pilot): path to write per-cal-realization log-responsibilities (length n_cal), accumulated over the evaluated grid, plus the cal node draws. This is the pilot's output, fitted into a proposal by util_CalPilotFit.py. No effect on the returned likelihood.")
 optp.add_option("--calibration-pilot-extrinsic",default=256,type=int, help="Pilot only: number of uniform-prior extrinsic samples used to extrinsic-marginalize the per-realization cal responsibility at each intrinsic point. Cal is ~extrinsic-independent, so a modest batch suffices.")
 optp.add_option("--calibration-mc-error-extrinsic",default=8192,type=int, help="Calmarg error budget: CAP on the number of extrinsic-prior samples used to estimate the calibration Monte-Carlo contribution to the lnL error (per-realization responsibilities a_c -> Var(lnZ) ~= n_cal*Var_c(a_c)), added IN QUADRATURE to the reported sigma column.  The batch is ADAPTIVE: it starts small and doubles until the estimate stabilizes or this cap is reached.  Distance is drawn from the RUN'S distance prior (sampler prior / --d-prior; with a PINNED distance the probe runs at that fixed value and warns that the estimate is conservative).  The extrinsic sampler's variance cannot see the spread over the (fixed) cal draw set, so without this term the reported error badly understates the truth whenever the cal n_eff is small.  Set 0 to disable (restores the old, extrinsic-only sigma).")
+optp.add_option("--mc-error-replicas",default=0,type=int, help="MC-error stabilization: when the reported lnL error is untrustworthy (see the trigger options below), re-run the extrinsic integration this many EXTRA times as cold replicas (adaptation reset, sample cache dropped, fresh RNG draws) and report lnL from the LINEAR mean of the replica integrals with sigma from the max of the propagated error and the between-replica scatter (t-distributed, K-1 dof).  The naive per-run sigma is computed from the SAME weights as the integral, so it is small exactly when the run silently missed the peak; only independent replicas can see that.  NEVER combine replicas by inverse-variance weighting -- that overweights the worst replica.  The posterior/fairdraw export POOLS the replicas (weights renormalized so each contributes Z_k/K; fairdraw blocks contribute equal within-block weights, since those samples already carry their weights once), so the exported samples represent the same mixture as the reported evidence.  Default 0 = off (production behavior unchanged).")
+optp.add_option("--mc-error-sigma-trigger",default=0.4,type=float, help="Replicate (see --mc-error-replicas) when the reported sigma_lnZ exceeds this value.")
+optp.add_option("--mc-error-khat-trigger",default=0.7,type=float, help="Replicate when the Pareto k-hat weight-tail diagnostic exceeds this value (0.7 = the PSIS reliability threshold: above it the weight variance is effectively unresolved and the naive sigma is a lower bound).")
+optp.add_option("--mc-error-ess-trigger",default=30.,type=float, help="Replicate when the Kish effective sample size (sum w)^2/sum w^2 of the run's weights falls below this value.")
+optp.add_option("--reject-collapsed-live-volume",action='store_true',default=False, help="DROP an event whose adaptive-volume live volume degenerated (see the [AV COLLAPSE] report) instead of exporting it: the integration is treated as a failure, so no likelihood row, XML or posterior samples are written for it.  Such a run's lnZ and samples describe a single mode of the integrand and are NOT a fair posterior draw, and nothing downstream can distinguish them from a converged export.  Default off, because dropping the event silently THINS the posterior in an SNR-dependent way -- that was the pre-fix behaviour, when this case crashed.  Left off, the event is exported but announces itself loudly and (with --mc-error-replicas>0) triggers replication.  Turn it on when a contaminated point is worse than a missing one.")
 optp.add_option("--calibration-neff-cal-target",default=10,type=float, help="Calmarg ADAPTIVE draw count: after the cal-block precompute, probe the effective number of contributing cal draws (neff_cal) at this intrinsic point; while it is below this target, DOUBLE the cal draw set (drawing fresh independent realizations and appending their precomputed blocks) up to --calibration-n-realizations-max.  Set 0 to disable (fixed --calibration-n-realizations).")
 optp.add_option("--calibration-n-realizations-max",default=0,type=int, help="Cap for the adaptive cal draw count (see --calibration-neff-cal-target).  Default 0 = 8x --calibration-n-realizations.")
 optp.add_option("--calibration-burn-in-neff",default=None,type=float, help="Opt-in: before the production cal-marginalized integration, BURN IN the extrinsic sampler on the cheap ZERO-CAL (n_cal=1) likelihood until this effective sample count, then switch to the full cal-marginalized likelihood. The extrinsic posterior is ~cal-independent. CAVEAT: the AV sampler RESETS between integrate() calls (no seedable AV yet), so this gives AV no speedup (correctness-safe only). It can warm-start GMM/portfolio (model reuse). Awaiting a seedable / boundary-shifting AV; see DESIGN_adaptive_driver.md. No effect unless calmarg is active.")
@@ -256,10 +270,16 @@ optp.add_option("--extrinsic-proposal-adapt",action='store_true',default=False, 
 optp.add_option("--vectorized", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, not LAL data structures.  (Combine with --gpu to enable GPU use, where available)")
 optp.add_option("--gpu", action="store_true", help="Perform manipulations of lm and timeseries using numpy arrays, CONVERTING TO GPU when available. You MUST use this option with --vectorized (otherwise it is a no-op). You MUST have a suitable version of cupy installed, your cuda operational, etc")
 optp.add_option("--force-gpu-only", action="store_true", help="Hard fail if no GPU present (assessed by cupy not loading)")
+optp.add_option("--rotation-slow", action="store_true", help="[Path A] Slow-rotation likelihood: account for the sidereal time-dependence of the antenna pattern F(t) over the signal (harmonic modulation).  Requires --vectorized; supports --gpu (n_cal=1, no glitch/cal marg).  Uses factored_likelihood_with_rotation.")
+optp.add_option("--rotation-n-harmonics", type=int, default=2, help="Number of sidereal harmonics for --rotation-slow (antenna pattern needs 2, i.e. n=-2..2).")
+optp.add_option("--rotation-p-max", type=int, default=0, help="[Path B] Max delay-derivative order for --rotation-slow (0 = amplitude drift only; >=1 adds propagation-delay drift).")
+optp.add_option("--freqresponse", action="store_true", help="[Path D] Finite-size (frequency-dependent) detector-response likelihood: account for the finite light-travel-time transfer across the arms (matters for 3G/CE-ET).  Requires --vectorized; supports --gpu (n_cal=1, no glitch/cal marg).  Uses factored_likelihood_freqresponse (sky-harmonic route b, sky stays extrinsic).")
+optp.add_option("--freqresponse-qmax", type=int, default=4, help="Highest power of the arm projection retained for --freqresponse (basis size Qmax+2).  Higher for larger fL/c (heavier systems / higher fmax).")
+optp.add_option("--freqresponse-arm-length", default=None, help="Arm-length override [m] for --freqresponse.  Either a single float applied to ALL detectors (e.g. 40000 for 40-km CE), or per-detector 'C1=40000,E1=10000,...' (needed for mixed CE+ET networks, since LAL's cached C1 arm is a placeholder).  Default: each detector's native LAL arm length.")
 optp.add_option("--force-xpy", action="store_true", help="Use the xpy code path.  Use with --vectorized --gpu to use the fallback CPU-based code path. Useful for debugging.")
 optp.add_option("-o", "--output-file", help="Save result to this file.")
 optp.add_option("-O", "--output-format", default='xml', help="[xml|hdf5]")
-optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file. Requires --output-file to be defined.")
+optp.add_option("-S", "--save-samples", action="store_true", help="Save sample points to output-file (sparse sim_inspiral XML). Requires --output-file to be defined. NOTE: the XML carries lnL only, not the importance weight -- it does NOT persist the joint prior / sampling prior, so it must not be reweighted by likelihood for a weighted-posterior/shape check. For that, use the ASCII per-sample outputs --extrinsic-proposal-output (full log-weight) or --calibration-export-posterior.")
 optp.add_option("--save-samples-process-params", action="store_true", help="XML output retains process_params table, Default is not to do this")
 optp.add_option("-L", "--save-deltalnL", type=float, default=float("Inf"), help="Threshold on deltalnL for points preserved in output file.  Requires --output-file to be defined")
 optp.add_option("-P", "--save-P", type=float,default=0.1, help="Threshold on cumulative probability for points preserved in output file.  Requires --output-file to be defined")
@@ -299,6 +319,10 @@ integration_params.add_option("--adapt-log",action='store_true',help="Use a loga
 integration_params.add_option("--internal-gmm-correlate-all",action='store_true',help="GMM sampler: use a SINGLE full-dimension GMM group instead of the default (sky)(distance,inclination)(psi,phi) pairing. The default pairing targets quadrupole-dominated binaries with a large sky ring; a product of per-group GMMs cannot represent cross-group correlations (e.g. sky-phase), and for a strongly-localized single-peak source the factored proposal can stall at the prior. Component count from --internal-gmm-sky-components (default 2 in this mode).")
 integration_params.add_option("--internal-gmm-sky-components",type=int,default=None,help="GMM sampler: number of mixture components for the (ra,dec) group (default 4, sized for a large sky ring; use 1-2 for a well-localized single peak, e.g. 3+ IFOs / high SNR). With --internal-gmm-correlate-all, sets the single full-dimension group's component count.")
 integration_params.add_option("--internal-gmm-phase-components",type=int,default=None,help="GMM sampler: number of mixture components for the (psi,phi_orb) group (default 4; use 1-2 for a single dominant phase peak).")
+integration_params.add_option("--internal-gmm-adaptive-components",action='store_true',help="GMM sampler (FLEXIBLE allocation): choose each adaptive group's component count from the DATA by BIC each chunk (GMM.fit_gmm_adaptive), instead of the hard-coded per-group counts (sky=4,dist-incl=2,...) that target quadrupole/large-sky-ring binaries.  BIC allocates more components only where the importance-weighted cloud is genuinely non-Gaussian (e.g. a curved distance-inclination arc) and stays at k=1 for a single blob; a defensive tail component (see --internal-gmm-defensive-frac) keeps the importance weights bounded.  Cap per group via --internal-gmm-max-components.")
+integration_params.add_option("--internal-gmm-max-components",type=int,default=8,help="Cap on the per-group component count for --internal-gmm-adaptive-components (default 8).")
+integration_params.add_option("--internal-gmm-defensive-frac",type=float,default=0.0,help="Weight of the broad box-covering 'defensive' mixture component added to each adaptive GMM group (default 0 = OFF).  Intended to bound the importance weights (Hesterberg defensive IS), but on a wide extrinsic prior the broad component draws physically-extreme points where the likelihood is NaN and it did not improve n_eff on the SNR~82 benchmark -- opt-in only.")
+integration_params.add_option("--internal-gmm-inflate",type=float,default=1.0,help="Covariance inflation factor (std multiplier) applied to each adaptive GMM component (default 1.0 = none).  A value >1 widens the proposal relative to the elite cloud it was fit to; complements --internal-gmm-defensive-frac.")
 integration_params.add_option("--interpolate-time", default=False,help="If using the maintained NoLoop likelihood, evaluate Q_lm at fractional detector times using cubic interpolation instead of nearest sample bins. Accepts truthy values such as True/1/yes. (Default=false)")
 integration_params.add_option("--d-prior",default='Euclidean' ,type=str,help="Distance prior for dL.  Options are dL^2 (Euclidean), 'pseudo_cosmo', and 'cosmo'  and 'cosmo_sourceframe' .")
 integration_params.add_option("--d-prior-redshift", action='store_true', help="If true, distance prior is computed in redshift. This option MAY be enforced for 'cosmo' sampling")
@@ -306,6 +330,10 @@ integration_params.add_option("--d-max", default=10000,type=float,help="Maximum 
 integration_params.add_option("--d-min", default=1,type=float,help="Minimum distance in volume integral. Used to SET THE PRIOR; changing this value changes the numerical answer.")
 integration_params.add_option("--declination-cosine-sampler",action='store_true',help="If specified, the parameter used for declination is cos(dec), not dec")
 integration_params.add_option("--inclination-cosine-sampler",action='store_true',help="If specified, the parameter used for inclination is cos(dec), not dec")
+integration_params.add_option("--limit-right-ascension",default=None,help="Restrict RA sampling AND prior to 'LO,HI' [rad] (truth-centered zoom box). Narrows the extrinsic prior like --d-min/--d-max do for distance; keep the box large vs the posterior so credible regions are unaffected.  Not compatible with --internal-sky-network-coordinates (the sampled sky angles are then in a rotated frame).")
+integration_params.add_option("--limit-declination",default=None,help="Restrict declination sampling AND prior to 'LO,HI' [rad].  Always given in radians of DECLINATION: with --declination-cosine-sampler the box is transformed internally to the sampled coordinate sin(dec).  Not compatible with --internal-sky-network-coordinates.")
+integration_params.add_option("--limit-inclination",default=None,help="Restrict inclination sampling AND prior to 'LO,HI' [rad].  Always given in radians of INCLINATION: with --inclination-cosine-sampler the box is transformed internally to the sampled coordinate cos(iota), which reverses the limit order.")
+integration_params.add_option("--limit-psi",default=None,help="Restrict polarization psi sampling AND prior to 'LO,HI' [rad].")
 integration_params.add_option("--internal-rotate-phase", action='store_true',help="If specified, the integration sampler uses phase_p ==phi+psi and phase_m == phi-psi as sampling coordinates, both ranging from 0 to 4 pi.  The prior is twice as large.")
 integration_params.add_option("--internal-sky-network-coordinates",action='store_true',help="If specified, perform integration in sky coordinates aligned with the first two IFOs provided")
 integration_params.add_option("--internal-sky-network-coordinates-raw",action='store_true',help="If specified, does not attempt to organize IFO network sensibly, uses them AS PROVIDED IN ORDER.")
@@ -315,7 +343,47 @@ integration_params.add_option("--internal-use-lnL",action='store_true',help="lik
 integration_params.add_option("--sampler-method",default="adaptive_cartesian_gpu",help="adaptive_cartesian|GMM|adaptive_cartesian_gpu")
 integration_params.add_option("--sampler-portfolio",default=None,action='append',type=str,help="comma-separated strings, matching sampler methods other than portfolio")
 integration_params.add_option("--sampler-portfolio-args",default=None, action='append', type=str, help='eval-able dictionaryo to be passed to that sampler')
+# Portfolio freeze-policy knobs (only meaningful with --sampler-method portfolio).  A member
+# whose balance weight drops below --portfolio-freeze-wt normally stops updating its proposal;
+# these control that.  Defaults (None here) mean "use the sampler's built-in default".
+integration_params.add_option("--portfolio-grace-iters",default=None,type=int,help="Portfolio: never freeze ANY member during the first N integration chunks (let slow starters contract). Sampler default 25.")
+integration_params.add_option("--portfolio-revive-period",default=None,type=int,help="Portfolio: every N chunks, update even a frozen member one step so it can recover. 0 disables. Sampler default 8.")
+integration_params.add_option("--portfolio-freeze-wt",default=None,type=float,help="Portfolio: a member whose balance weight is below this stops updating its proposal (subject to grace/revive/VARAHA-exemption). Sampler default 0.05.")
+integration_params.add_option("--portfolio-varaha-never-freeze",action='store_true',default=False,help="Portfolio: VARAHA/AV members always update every chunk past their breakpoint (freeze-exempt). This is the sampler default; the flag is here for explicitness/pipe pass-through.")
+integration_params.add_option("--portfolio-varaha-can-freeze",action='store_true',default=False,help="Portfolio: DISABLE the VARAHA freeze-exemption, so VARAHA/AV members obey the grace/revive/weight freeze schedule like other members. Use only if a VARAHA member is a known-bad fit and you want to save its selfish-draw eval cycles.")
+# Portfolio DRAW-ALLOCATION policy (adaptive-probe): OPT-IN (default off).  Concentrates the draw
+# budget on the member with the highest per-chunk n_ess, with round-robin probing.  Unbiased for
+# any allocation (q_mix).  Helps on strongly-correlated targets, but the n_ess signal rewards
+# self-consistency and STARVES a slow-contracting VARAHA/AV member on real high-SNR events, so it
+# is not the default -- see DESIGN_portfolio_freeze_policy.md.
+integration_params.add_option("--portfolio-adaptive-alloc",action='store_true',default=False,help="Portfolio: ENABLE (opt-in) adaptive-probe draw allocation -- concentrate draws on the best per-chunk-n_ess member. Good on strongly-correlated targets; NOT recommended for AV-favorable high-SNR events (it starves the slow-contracting AV workhorse). Off by default (legacy n_ess reweighting).")
+integration_params.add_option("--portfolio-varaha-min-frac",default=None,type=float,help="Portfolio: reserve this combined DRAW fraction for VARAHA/AV members (0/unset = off). never-freeze keeps a VARAHA member UPDATING, but both allocation rules score by per-chunk n_ess, which sits at ~1 during VARAHA's slow cumulative contraction -- so a member that looks instantly good can take nearly the whole budget (measured on S250114ax post-#33: GMM took ~0.84 and the portfolio collapsed to n_eff ~2 vs ~100 for standalone AV). Unbiased for any allocation (q_mix); trades efficiency only.")
+integration_params.add_option("--portfolio-varaha-max-frac",default=None,type=float,help="Portfolio: CAP the combined DRAW fraction of VARAHA/AV members (0/unset = no cap).  Use WITH --portfolio-varaha-min-frac to constrain the VARAHA share to a BAND.  Rationale: a floor alone stops the mixture degenerating to peaked-member-only (which strips q_mix of its broad backstop, so a missed mode goes uncovered and lnZ is silently low while n_eff looks GOOD), but the share can then run away the OTHER way to ~1 and the mixture degenerates to VARAHA-only instead.  A band (e.g. 0.25/0.75) keeps q_mix genuinely mixed by construction.  Unbiased either way (balance heuristic), so it costs at most draws, never correctness.")
+integration_params.add_option("--portfolio-weight-clip",default=None,type=float,help="Portfolio: OPT-IN truncated importance sampling applied to the PROPOSAL-FIT INPUT ONLY. Caps the weights fed to member.update_sampling_prior (the GMM covariance fit) at tau = C*sqrt(n)*mean(w) (0/unset = off; C~1 is the standard Ionides choice), so one enormous weight cannot make that fit degenerate. The estimator (ln Z, n_eff), the n_ess report, and the allocation signal all use the TRUE unclipped weights, so they stay exactly unbiased and undistorted. Do NOT clip the estimator (measured on S250114ax: n_eff=100 2x faster than AV but ln Z biased -11.5 nats) or the n_ess report (clipping inflates the clipped member's n_ess and starves the AV workhorse). The withheld tail mass is tracked and reported as a diagnostic. NOTE: if huge weights come from q_mix UNDERFLOW (watch for the warning) they are a numerical artifact, not tail mass.")
+integration_params.add_option("--portfolio-quality-signal",default=None,type=str,help="Portfolio adaptive allocation: which per-member quality signal to rank members by. 'global' (default) = marginal gain in POOLED n_eff per sample (credits weight mass, debits weight variance); 'credit' = q_mix-native MIS credit assignment, sum_i [frac_m q_m/q_mix]_i * w_i per drawn sample (credits a member for COVERING where the integrand is, even if it drew few samples there); 'ness' = legacy per-member Kish n_ess (scale-invariant, misranks a slow-contracting AV -- see DESIGN_portfolio_freeze_policy.md).")
+integration_params.add_option("--portfolio-alloc-exponent",default=None,type=float,help="Portfolio: adaptive allocation ~ member_quality^exponent. Higher concentrates harder on the winner. Sampler default 1.0.")
+integration_params.add_option("--portfolio-probe-period",default=None,type=int,help="Portfolio: round-robin probe one member at a raised draw share every N chunks (breaks the under-observation trap). 0 disables probing. Sampler default 4.")
 integration_params.add_option("--sampler-xpy",default=None,help="numpy|cupy  if the adaptive_cartesian_gpu sampler is active, use that.")
+# Integrator warm-start / reuse (bootstrap AV, persist/reuse a trained NF flow).  All
+# default off.  A warm start only affects the initial PROPOSAL, never the integral.
+integration_params.add_option("--sampler-warmstart-samples",default=None,help="AV only: ASCII file (named columns) of prior extrinsic samples used to warm-start the adaptive-volume live region.  Intended for the CHERRY-PICKED-PILOT workflow: after iteration 0, run ONE ILE at the best (highest-lnL / CIP-MAP) point with --save-samples (~tens of KB for a single point), then warm-start every subsequent point from it.  Do NOT --save-samples the whole grid (disk) and do NOT pick the pilot at random (a poor fit endangers the grid) -- pick the best point.  Columns matched to the sampler's extrinsic parameters by name; the coverage-floor + inflation margins below keep a shifted peak from biasing.")
+integration_params.add_option("--sampler-warmstart-cover-frac",type=float,default=0.5,help="Coverage floor for --sampler-warmstart-samples (default 0.5): fraction of full-prior coverage mixed in so a mismatched pilot degrades to cold rather than biasing.  0.5 is the MEASURED-safe floor (test_AV_warmstart_safety.py, 20 calibration seeds: max |bias| 0.164, max degradation vs cold 0.113); 0.1 is genuinely under-covered (1.1-1.7 in log bias across seeds) and raising --n-max does not rescue it, because the runs terminate on n_eff first.  Lower it only for SAME-problem reuse, where the peak is already in the seed.")
+integration_params.add_option("--sampler-warmstart-inflate",type=float,default=1.5,help="Handoff safety margin for --sampler-warmstart-samples (default 1.5): widen the pilot seed about its mean to cover the peak shift between the pilot point and this one.")
+integration_params.add_option("--sampler-load-state",default=None,help="AV only: load a saved live-volume state (.npz from --sampler-save-state) to warm-start this integration. Overrides --sampler-warmstart-samples.")
+integration_params.add_option("--sampler-save-state",default=None,help="AV only: after integration, write the adapted live-volume state (.npz) for reuse by later instances/iterations. Point --sampler-load-state at the same file across a grid to warm-start each point from the previous one.")
+integration_params.add_option("--nf-flow-load",default=None,help="NF only: load a pre-trained normalizing flow (.pt from --nf-flow-save); with --n-adapt 0 this reuses it directly (skips training), otherwise it is polished.")
+integration_params.add_option("--nf-flow-save",default=None,help="NF only: after integration, serialize the trained normalizing flow (.pt) for reuse across ILE instances.")
+integration_params.add_option("--sampler-sequential-warmstart",action='store_true',help="AV only: when a worker analyzes several intrinsic points (--n-events-to-analyze>1), warm-start each point's extrinsic integral from the previous point's converged high-likelihood samples.  Points are processed in their given order (NOT reordered), so a truncated/failed worker still drops a spatially-unbiased subset.  A coverage floor (see --sampler-sequential-warmstart-cover-frac) keeps a poorly-matched transfer from ever biasing the result.")
+integration_params.add_option("--sampler-sequential-warmstart-cover-frac",type=float,default=0.5,help="Coverage floor for --sampler-sequential-warmstart: fraction of full-prior coverage mixed into the seed so the warm live volume always contains a cold start (a mis-matched proposal then only costs efficiency, never bias).  Default 0.5, the measured-safe floor (see --sampler-warmstart-cover-frac); 0.1 is under-covered.")
+integration_params.add_option("--sampler-sequential-warmstart-deltalnL",type=float,default=15.0,help="Keep previous-point samples within this lnL of the max as the warm seed for the next point.  Default 15.")
+integration_params.add_option("--sampler-l0-rescue-accept-truncated", action='store_true', default=False, help="Report the L0 rescue's warm pass even when it lands well below the full-support cold pass (see --sampler-l0-rescue-reject-dlnZ).  Default OFF: on that evidence the cold result is kept instead, since the warm pass is confined to the seeded peak and may be missing a mode.  The rescue itself still runs either way.")
+integration_params.add_option("--sampler-l0-rescue-reject-dlnZ", type=float, default=0.5, help="Evidence threshold (nats) for rejecting the L0 rescue's warm pass: reject when the full-support cold pass reports lnZ this much HIGHER, which indicates the seed missed mass.  Larger = more permissive.")
+integration_params.add_option("--sampler-warmstart-retry-neff",type=float,default=None,help="AV or portfolio (L0 auto-rescue): if a pass finishes below this n_eff (i.e. it stalled on a very sharp / high-amplitude peak), automatically re-run a second pass warm-started from THIS point's own highest-likelihood samples.  Same-problem reuse in the sense that the seed provably contains the peak the cold pass found -- but NOT that every mode is represented, so the warm pass can be biased low if the seed missed one.  The rescue still runs as before; its result is rejected in favour of the cold pass only on positive evidence of lost mass (see --sampler-l0-rescue-reject-dlnZ).  A portfolio is unaffected: its GMM member carries a defensive component.  Directly targets the high-SNR n_eff LOTTERY (a large fraction of independent runs collapse to n_eff~1 by contracting onto the wrong spot); the rescue re-seeds a collapsed run from the peak it did find.  Recommended for high-SNR events; e.g. 5.")
+integration_params.add_option("--sampler-anisotropic-bins",action="store_true",help="AV only: give each extrinsic axis a DIFFERENT number of bins during contraction -- fine where the live points cluster tightly (phase/polarization/sky), coarse where they are broad (distance/inclination) -- instead of the default equal split.  Keeps the same total bin budget, so the estimator is unchanged; helps AV wrap a correlated/degenerate posterior more tightly.")
+integration_params.add_option("--internal-reparam-dl-incl",action="store_true",help="Sample the DISTANCE axis as an effective distance D_eff = d_L / A(iota), with A(iota)=sqrt(((1+cos^2 i)/2)^2 + cos^2 i) the leading (l=|m|=2) inclination amplitude.  This axis-aligns the distance<->inclination degeneracy (L depends mostly on A(iota)/d_L), decorrelating the two broad directions so the sampler wraps them efficiently.  The likelihood reconstructs physical d_L=D_eff*A(iota); the measure correction is PRIOR-AGNOSTIC -- ln p(d_L) - ln p(D_eff) + ln A(iota), using the ACTUAL --d-prior (dist_prior_pdf), so it is correct for Euclidean, cosmo, cosmo_sourceframe, pseudo_cosmo alike (normalization cancels in the ratio; reduces to +3 ln A only for Euclidean).  The physical d_L bound is enforced.  NOT compatible with --d-prior-redshift (errors out).  Estimator stays unbiased (validate vs baseline posterior).")
+integration_params.add_option("--extrinsic-proposal-field",default=None,help="AV only (L3): path to a ProposalField (.npz built by util_BuildProposalField.py from a previous ILE iteration).  Each intrinsic point warm-starts its extrinsic integral from the field's nearest entry.  Cross-problem reuse, so a coverage floor + an inflation margin are applied (see the two options below); a stale/mismatched field can only cost efficiency, never bias.")
+integration_params.add_option("--extrinsic-proposal-field-cover-frac",type=float,default=0.5,help="Coverage floor for --extrinsic-proposal-field handoff (default 0.5, the measured-safe floor -- see --sampler-warmstart-cover-frac; 0.1 is under-covered).")
+integration_params.add_option("--extrinsic-proposal-field-inflate",type=float,default=1.5,help="Handoff safety margin for --extrinsic-proposal-field: widen the imported seed by this factor about its mean to cover the peak shift between the neighbouring intrinsic point and this one (default 1.5).")
 integration_params.add_option("--supplementary-likelihood-factor-code", default=None,type=str,help="Import a module (in your pythonpath!) containing a supplementary factor for the likelihood.  Used to impose supplementary external priors of arbitrary complexity and external dependence (e.g., EM observations). EXPERTS-ONLY")
 integration_params.add_option("--supplementary-likelihood-factor-function", default=None,type=str,help="With above option, specifies the specific function used as an external prior. EXPERTS ONLY")
 integration_params.add_option("--supplementary-likelihood-factor-ini", default=None,type=str,help="With above option, specifies an ini file that is parsed (here) and passed to the preparation code, called when the module is first loaded, to configure the module. EXPERTS ONLY")
@@ -339,8 +407,9 @@ intrinsic_params.add_option("--n-distance-slice-core",type=int,default=0,help="C
 intrinsic_params.add_option("--distance-slice-all-fresh",action="store_true",default=False,help="Emit ALL K slices as FRESH fixed-d full integrations (no importance-reweight core). Placement = posterior-d quantiles. Use this when the main-loop n_eff is small (e.g. 50): the reweight core is then starved (same MC noise as the .dgrid fair-draw histogram), whereas each fresh slice is an honest Omega-only integral at fixed d. Overrides --n-distance-slice-core / --n-distance-slice-wing.")
 intrinsic_params.add_option("--distance-slice-randomize",action="store_true",default=False,help="(all-fresh only) Draw the K fresh-slice distances at RANDOM posterior-d quantiles per intrinsic instead of fixed equi-probable quantiles. With K=1 this makes the single slice a fair-draw of d from THAT intrinsic's posterior, so over the intrinsic grid the slices sample (intrinsic,d) jointly -- cheap (~1 slice/intrinsic) dense coverage for a continuous AD surrogate -- rather than pinning every point to the median.")
 intrinsic_params.add_option("--n-distance-slice-wing",type=int,default=0,help="Wing slices via fresh Omega-only integrations at pinned distance (covers tails ~7 nats below peak). If 0 and --export-distance-slices>0, defaults to K - core.")
-intrinsic_params.add_option("--distance-slice-wing-nmax",type=int,default=20000,help="Max samples per wing fresh integration.")
+intrinsic_params.add_option("--distance-slice-wing-nmax",type=int,default=20000,help="Sample budget per wing fresh integration. NOT a hard cap: AV tests its budget BEFORE drawing a whole block, so the real ceiling is ceil(nmax/chunk) blocks -- up to nearly a full --distance-slice-chunk over this value, plus a small bin-rounding remainder. At the defaults (20000 with chunk 10000) it is effectively exact; at chunk 15000 a slice draws ~30000. Keep this a whole multiple of the block size if per-slice cost matters.")
 intrinsic_params.add_option("--distance-slice-wing-neff",type=int,default=30,help="n_eff target per wing fresh integration.")
+intrinsic_params.add_option("--distance-slice-chunk",type=int,default=None,help="AV block size for each fresh per-slice integration. DEFAULT: inherit --n-chunk, i.e. run the slice path at the same block size as the main extrinsic loop (10000) instead of a private number; this replaces a hardcoded 2000. An inherited value below 10000 is raised to 10000 (AV's live volume only contracts and each cycle's threshold comes from nsel=min(1000,0.1*n_chunk) samples, so a smaller block makes every threshold a permanent support cut decided by too few samples; 10000 is where nsel saturates) -- this matters because the input-skymap path sets --n-chunk 500. Setting this flag explicitly overrides both, unclamped. Measured on a real event, 2000 -> 10000 takes rms(dlnL) 3.58 -> 0.35 and sigma-understatement 38.8x -> 4.0x for +9% cost, and removes the 'cap-burner' slices (3.1% of slices, 40.9% of all evaluations) that exhaust n-max without reaching the n_eff target. Larger is not uniformly better: 40000 was worse than 10000-15000 on hard targets. Must be >=1. MEMORY: these integrations are host-side EVEN ON GPU JOBS (each block's likelihood is copied back by _to_cpu and the pinned-d arrays are built with numpy), so system RAM scales with this on every run -- budget >=8 GB request_memory at 10000 for CPU exports, and re-check GPU requests rather than assuming they are immune. Interacts with --distance-slice-wing-nmax, which is a block-granular budget, not a hard cap.")
 intrinsic_params.add_option("--distance-slice-skip-threshold",type=float,default=1.0,help="Absolute lnL scale: if the PEAK lnL across core slices is below this many nats, treat the event as effectively undetected and skip wing integrations. (lnL is a likelihood ratio vs noise, so this is an absolute detectability cut, not a relative-spread test.)")
 intrinsic_params.add_option("--distance-slice-wing-delta-lnL",type=float,default=7.0,help="Target lnL drop below peak used to place wing slice centers: wings span from the core edge out to where the parabolic lnL(1/d) model falls this many nats below peak (default 7 ~ prior weight <1e-3 outside). Falls back to log-uniform full-range placement if the parabolic fit is degenerate.")
 optp.add_option_group(intrinsic_params)
@@ -386,6 +455,30 @@ def _truthy_option(value):
     return str(value).strip().lower() in ("1", "true", "t", "yes", "y", "on")
 
 opts._noloop_time_interp = "cubic" if _truthy_option(opts.interpolate_time) else "nearest"
+
+if opts.rotation_slow:
+    # Path A/B slow-rotation: wired into BOTH the CPU-vectorized and GPU (xpy) branches; the
+    # NoLoop-with-rotation reuses the baseline fused Q_inner_product kernel per elementary
+    # template on GPU (same memory footprint as the baseline).
+    if not opts.vectorized:
+        raise ValueError("--rotation-slow requires --vectorized")
+    if opts.gpu and getattr(opts, 'calibration_marginalization', False):
+        raise ValueError("--rotation-slow on GPU does not support calibration/glitch marginalization (n_cal>1)")
+    if getattr(opts, 'distance_marginalization', False) or getattr(opts, 'phase_marginalization', False):
+        raise ValueError("--rotation-slow does not yet support distance/phase marginalization")
+
+if opts.freqresponse:
+    # Path D finite-size response: wired into BOTH the CPU-vectorized and GPU (xpy) branches;
+    # the NoLoop reuses the baseline fused Q_inner_product kernel per basis weight p on GPU
+    # (same memory footprint as the baseline), mirroring --rotation-slow.
+    if opts.rotation_slow:
+        raise ValueError("--freqresponse and --rotation-slow both replace the likelihood; use at most one")
+    if not opts.vectorized:
+        raise ValueError("--freqresponse requires --vectorized")
+    if opts.gpu and getattr(opts, 'calibration_marginalization', False):
+        raise ValueError("--freqresponse on GPU does not support calibration/glitch marginalization (n_cal>1)")
+    if getattr(opts, 'distance_marginalization', False) or getattr(opts, 'phase_marginalization', False):
+        raise ValueError("--freqresponse does not yet support distance/phase marginalization")
 
 # cosmo d prior tools for interpolation:  not used normally, but set if needed
 final_scipy_interpolate=None
@@ -433,6 +526,8 @@ if cupy_success and opts.gpu and opts.sampler_method == 'adaptive_cartesian_gpu'
 if not(opts.use_gwsignal):
   os.environ['RIFT_NO_GWSIGNAL'] = 'True'
 import RIFT.likelihood.factored_likelihood as factored_likelihood
+import RIFT.likelihood.factored_likelihood_with_rotation as factored_likelihood_with_rotation
+import RIFT.likelihood.factored_likelihood_freqresponse as factored_likelihood_freqresponse
 
 if opts.use_gwsignal and not(factored_likelihood.has_GWS):
   print(" HARD FAILURE: this node could not import gwsignal ! ")
@@ -451,6 +546,17 @@ if opts.resample_time_marginalization and not(opts.fairdraw_extrinsic_output):
 #  if opts.sampler_method == 'GMM':
 #    raise Exception(" Fairdraw not available  for this sampler")
 
+
+def _reparam_A_of_incl(incl_rad, xpy=numpy):
+    """Leading (l=|m|=2) inclination amplitude A(iota)=sqrt(((1+cos^2 i)/2)^2 + cos^2 i).
+    Used by --internal-reparam-dl-incl to map the effective distance D_eff <-> physical d_L
+    (d_L = D_eff * A(iota)).  A in [0.5 (edge-on), sqrt(2) (face-on)]."""
+    ci = xpy.cos(incl_rad)
+    return xpy.sqrt(((1.0 + ci*ci)/2.0)**2 + ci*ci)
+
+_REPARAM_A_MIN = 0.5           # A(iota=pi/2), edge-on
+_REPARAM_A_MAX = numpy.sqrt(2.0)  # A(iota=0), face-on
+_REPARAM_LNF = 0.0            # ln(physical-range prior mass fraction); set at setup for --internal-reparam-dl-incl
 
 supplemental_ln_likelihood= None
 supplemental_ln_likelhood_prep=None
@@ -1047,6 +1153,41 @@ param_limits = { "psi": (0, 2*numpy.pi),
 if opts.internal_rotate_phase:
   param_limits['psi'] = (0, 4*numpy.pi)
   param_limits['phi_orb'] = (0, 4*numpy.pi)
+if opts.internal_reparam_dl_incl:
+  # The reparam operates in DISTANCE units (D_eff = d_L/A in Mpc).  --d-prior-redshift samples
+  # in redshift and converts, which does not compose with the amplitude relation -- refuse it
+  # rather than silently bias.  All distance-space priors (Euclidean/cosmo/cosmo_sourceframe/
+  # pseudo_cosmo) ARE supported: the measure correction below uses dist_prior_pdf directly.
+  if getattr(opts, 'd_prior_redshift', False):
+    raise SystemExit(" --internal-reparam-dl-incl is not compatible with --d-prior-redshift (redshift-space sampling). Use a distance-space --d-prior.")
+  # sample the distance axis as D_eff = d_L / A(iota); widen it so physical d_L = D_eff*A(iota)
+  # can cover [dmin,dmax] for all iota (A in [0.5, sqrt(2)]).  dist_prior_pdf auto-normalizes
+  # over this range (=> a constant lnZ offset vs baseline, computable; posterior unaffected);
+  # the physical d_L bound and the prior-agnostic measure term are applied in the likelihood closure.
+  param_limits['distance'] = (dmin/_REPARAM_A_MAX, dmax/_REPARAM_A_MIN)
+  print("  [reparam d_L<->D_eff] distance axis is D_eff; sampling range {:.1f}..{:.1f}".format(*param_limits['distance']))
+# Optional truth-centered "zoom box": narrow the extrinsic sampling AND prior ranges so the
+# adaptive sampler can resolve a narrow high-SNR peak it could never find from the full prior.
+# Threads through param_limits into every sky/orientation sampler + its pdf/cdf_inv/prior_pdf.
+# The limits are ALWAYS specified in radians of the physical angle; the cosine samplers
+# (--declination-cosine-sampler / --inclination-cosine-sampler) transform them below into the
+# coordinate they actually sample (sin(dec) resp. cos(iota)).
+for _optv, _k in [(opts.limit_psi, 'psi'), (opts.limit_right_ascension, 'right_ascension'),
+                  (opts.limit_declination, 'declination'), (opts.limit_inclination, 'inclination')]:
+  if _optv:
+    try:
+      _lo, _hi = [float(_x) for _x in str(_optv).split(',')]
+    except ValueError:
+      raise SystemExit(" --limit-{} expects 'LO,HI' in radians, got '{}'".format(_k.replace('_','-'), _optv))
+    if _k in ('declination', 'inclination'):
+      # validates lo<hi and overlap with the physical domain; raises loudly otherwise
+      _lo, _hi = clip_angle_limits(_lo, _hi, _k)
+    elif not (_hi > _lo):
+      raise SystemExit(" --limit-{}: empty or inverted range [{}, {}] (need LO < HI)".format(_k.replace('_','-'), _lo, _hi))
+    param_limits[_k] = (_lo, _hi)
+    print("  [limit] restricting {} sampling/prior to [{:.4f}, {:.4f}]".format(_k, _lo, _hi))
+limit_declination_active = bool(opts.limit_declination)
+limit_inclination_active = bool(opts.limit_inclination)
 
 #
 # Parameter integral sampling strategy
@@ -1057,6 +1198,7 @@ if opts.internal_rotate_phase:
 
 # Portfolio
 use_portfolio=False
+use_gmm_member=False   # set when a portfolio carries a GMM member (see the portfolio setup loop)
 params = {}
 sampler = mcsampler.MCSampler()
 xpy_asarray_already = functools.partial(xpy_default.asarray,dtype=np.float64)
@@ -1097,7 +1239,11 @@ elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
     use_portfolio=True
     opts.internal_use_lnL=True  # required, we only implement those scenarios right now
     sampler_list = []
-    sampler_types = opts.sampler_portfolio
+    # --sampler-portfolio is action='append' AND documented as comma-separated, so honor BOTH:
+    # flatten the appended list and split every element on ',' (e.g. ['AV,GMM'] -> ['AV','GMM'],
+    # ['AV','GMM'] -> ['AV','GMM']).  Without this, 'AV,GMM' was one bogus member name that matched
+    # no branch, silently yielding a single-member portfolio.
+    sampler_types = [s.strip() for item in opts.sampler_portfolio for s in str(item).split(',') if s.strip()]
 
     # prep xpy, etc
     my_xpy = xpy_default
@@ -1115,8 +1261,14 @@ elif opts.sampler_method == "portfolio" and mcsampler_Portfolio_ok:
             sampler = mcsamplerAdaptiveVolume.MCSampler(n_chunk=opts.n_chunk) # enforce now, so provided for setup phase
         elif name =='GMM':
             sampler = mcsamplerEnsemble.MCSampler()
-            # following override means sampler_method is CHANGED, so THIS MUST BE LAST, and can't condition on portfolio
-            opts.sampler_method = 'GMM'  # this will force the creation/parsing of GMM-specific arguments below, so they are properly passed
+            # A GMM member needs the GMM-specific argument blocks below to run so its config is
+            # forwarded.  Historically this was done by CLOBBERING opts.sampler_method='GMM', which
+            # silently broke every downstream `sampler_method == "portfolio"` test (the portfolio
+            # setup block became dead code, and the L0 auto-rescue gate never fired for a portfolio)
+            # and made a portfolio take GMM-only branches (e.g. return_lnI).  Instead flag it
+            # non-destructively: sampler_method stays 'portfolio', and the GMM blocks below key off
+            # `use_gmm_args` = standalone GMM OR a portfolio carrying a GMM member.
+            use_gmm_member = True
         elif name == "adaptive_cartesian_gpu" or name == 'AC':
             sampler = mcsamplerGPU.MCSampler()
             mcsampler  = mcsamplerGPU  # force use of routines in that file, for properly configured GPU-accelerated code as needed
@@ -1191,23 +1343,40 @@ if (opts.sampler_method == "adaptive_cartesian_gpu"  or opts.sampler_method == '
   adapt_extra_extrinsic=True
 
 if not opts.inclination_cosine_sampler:
- incl_sampler = mcsampler.cos_samp_vector # this is NOT dec_samp_vector, because the angular zero point is different!
- incl_sampler_cdf_inv = mcsampler.cos_samp_cdf_inv_vector
- sampler.add_parameter("inclination", 
-    pdf = incl_sampler, 
-    cdf_inv = incl_sampler_cdf_inv, 
-    left_limit = param_limits["inclination"][0], 
+ if limit_inclination_active:
+   # truncated uniform-in-cos(iota) draw, expressed in the ANGLE coordinate
+   incl_sampler = ret_cos_samp_vector(param_limits["inclination"][0], param_limits["inclination"][1])
+   incl_sampler_cdf_inv = ret_cos_samp_cdf_inv_vector(param_limits["inclination"][0], param_limits["inclination"][1])
+ else:
+   incl_sampler = mcsampler.cos_samp_vector # this is NOT dec_samp_vector, because the angular zero point is different!
+   incl_sampler_cdf_inv = mcsampler.cos_samp_cdf_inv_vector
+ sampler.add_parameter("inclination",
+    pdf = incl_sampler,
+    cdf_inv = incl_sampler_cdf_inv,
+    left_limit = param_limits["inclination"][0],
     right_limit = param_limits["inclination"][1],
     prior_pdf = mcsampler.uniform_samp_theta)  # do not adapt in parameter going to zero at edge
 else:
- incl_sampler = mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0)
- incl_sampler_cdf_inv = lambda x: x*2.0-1.  #functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1) 
- sampler.add_parameter("inclination", 
-    pdf = incl_sampler, 
-    cdf_inv = incl_sampler_cdf_inv, 
-    left_limit = -1, 
-    right_limit = 1,
-    prior_pdf = incl_sampler,
+ # Sample uniformly in cos(iota) [=1 face-on, -1 face-off]: the likelihood closure below
+ # converts back with iota = arccos(z).  A --limit-inclination box must therefore be mapped
+ # into z, and because cos() DECREASES on [0,pi] the limits SWAP:
+ #    [iota_lo, iota_hi]  ->  [cos(iota_hi), cos(iota_lo)]
+ # (before this fix the range was hardcoded to [-1,1] and --limit-inclination was silently ignored).
+ incl_z_lo, incl_z_hi = cosine_sampler_limits(param_limits["inclination"][0], param_limits["inclination"][1], 'inclination')
+ if limit_inclination_active:
+   print("  [limit] inclination box [{:.4f}, {:.4f}] rad -> cos(iota) sampling range [{:.6f}, {:.6f}]".format(
+       param_limits["inclination"][0], param_limits["inclination"][1], incl_z_lo, incl_z_hi))
+ incl_sampler = mcsampler.ret_uniform_samp_vector_alt(incl_z_lo, incl_z_hi)
+ incl_sampler_cdf_inv = lambda x, _a=incl_z_lo, _b=incl_z_hi: _a + x*(_b-_a)  # functools.partial(mcsampler.uniform_samp_cdf_inv_vector,_a,_b)
+ sampler.add_parameter("inclination",
+    pdf = incl_sampler,
+    cdf_inv = incl_sampler_cdf_inv,
+    left_limit = incl_z_lo,
+    right_limit = incl_z_hi,
+    # prior density in cos(iota) is the FULL-RANGE constant 1/2, deliberately not renormalized
+    # to the box, so restricting the box costs exactly the prior mass it should -- matching the
+    # non-cosine branch, where prior_pdf=0.5*sin(iota) is likewise not renormalized.
+    prior_pdf = mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0),
     adaptive_sampling=adapt_extra_extrinsic)
 
 #
@@ -1277,8 +1446,19 @@ elif not opts.distance_marginalization:
   elif opts.d_prior != 'Euclidean':
     print(" ==== WARNING UNKNOWN DISTANCE PRIOR === ")
     raise Exception('distance prior')
+  if opts.internal_reparam_dl_incl:
+    # dist_prior_pdf is normalized over the WIDENED D_eff range; the physical prior must be
+    # normalized over [dmin,dmax].  ln F = ln(mass of dist_prior_pdf in [dmin,dmax]); the closure
+    # subtracts it so the reported lnZ matches the baseline physical-range normalization exactly.
+    _xg = numpy.linspace(dmin, dmax, 40000)
+    try:
+      _pg = numpy.asarray(dist_prior_pdf(_xg), dtype=float)
+    except Exception:
+      _pg = numpy.array([float(dist_prior_pdf(numpy.array([_x]))[0]) for _x in _xg])
+    _REPARAM_LNF = float(numpy.log(numpy.trapz(_pg, _xg)))
+    print("  [reparam] physical-range prior-mass fraction F={:.4f} (lnF={:.3f}); lnZ normalization matched".format(numpy.exp(_REPARAM_LNF), _REPARAM_LNF))
   #dist_sampler_cdf_inv=None
-  sampler.add_parameter("distance", 
+  sampler.add_parameter("distance",
                         pdf = dist_sampler, 
                         cdf_inv = dist_sampler_cdf_inv,
                         left_limit = param_limits["distance"][0], 
@@ -1303,8 +1483,12 @@ if opts.internal_sky_network_coordinates:
   else:
     sky_rotations.assign_sky_frame(ifo_list[0], ifo_list[1], fiducial_epoch)
     frm = identity_convert_togpu(sky_rotations.frm)
-    my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default) 
-    my_rotation_cpu = functools.partial(lalsimutils.polar_angles_in_frame_alt,sky_rotations.frm,xpy=np) 
+    my_rotation = functools.partial(lalsimutils.polar_angles_in_frame_alt,frm,xpy=xpy_default)
+    my_rotation_cpu = functools.partial(lalsimutils.polar_angles_in_frame_alt,sky_rotations.frm,xpy=np)
+if opts.internal_sky_network_coordinates and (opts.limit_right_ascension or opts.limit_declination):
+  # The sampled RA/dec live in the network-aligned frame, so a truth-centered sky box given in
+  # equatorial coordinates would silently select the wrong patch of sky.  Fail loudly.
+  raise SystemExit(" --limit-right-ascension / --limit-declination are sky boxes in EQUATORIAL coordinates and are not compatible with --internal-sky-network-coordinates (which samples in a rotated, network-aligned frame). Drop --internal-sky-network-coordinates when using a sky zoom box.")
 
 #
 # Intrinsic parameters
@@ -1375,26 +1559,42 @@ else:
     # sky sampler: cos(dec) uniform in [-1, 1), adaptive sampling
     #
     if not opts.declination_cosine_sampler:
-     dec_sampler = mcsampler.dec_samp_vector
-     dec_sampler_cdf_inv = mcsampler.dec_samp_cdf_inv_vector
-     sampler.add_parameter("declination", 
-        pdf = dec_sampler, 
-        cdf_inv = dec_sampler_cdf_inv, 
-        left_limit = param_limits["declination"][0], 
+     if limit_declination_active:
+       # truncated uniform-in-sin(dec) draw, expressed in the ANGLE coordinate
+       dec_sampler = ret_dec_samp_vector(param_limits["declination"][0], param_limits["declination"][1])
+       dec_sampler_cdf_inv = ret_dec_samp_cdf_inv_vector(param_limits["declination"][0], param_limits["declination"][1])
+     else:
+       dec_sampler = mcsampler.dec_samp_vector
+       dec_sampler_cdf_inv = mcsampler.dec_samp_cdf_inv_vector
+     sampler.add_parameter("declination",
+        pdf = dec_sampler,
+        cdf_inv = dec_sampler_cdf_inv,
+        left_limit = param_limits["declination"][0],
         right_limit = param_limits["declination"][1],
         prior_pdf = mcsampler.uniform_samp_dec,
         adaptive_sampling = opts.force_adapt_all or (not opts.no_adapt))
     else:
      # Sample uniformly in cos(polar_theta), =1 for north pole, -1 for south pole.
      # Propagate carefully in conversions: time of flight libraries use RA,DEC
-     dec_sampler = mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0)
-     dec_sampler_cdf_inv = lambda x: x*2.0-1. # functools.partial(mcsampler.uniform_samp_cdf_inv_vector,-1,1)
-     sampler.add_parameter("declination", 
-        pdf = dec_sampler, 
-        cdf_inv = dec_sampler_cdf_inv, 
-        left_limit = -1, 
-        right_limit = 1,
-        prior_pdf = dec_sampler,
+     # polar_theta = pi/2 - dec, so the sampled variable is z = sin(dec) (see the likelihood
+     # closures: dec = pi/2 - arccos(z)).  sin() INCREASES on [-pi/2,pi/2], so a
+     # --limit-declination box maps order-preservingly:  [lo,hi] -> [sin(lo), sin(hi)]
+     # (before this fix the range was hardcoded to [-1,1] and --limit-declination was silently ignored).
+     dec_z_lo, dec_z_hi = cosine_sampler_limits(param_limits["declination"][0], param_limits["declination"][1], 'declination')
+     if limit_declination_active:
+       print("  [limit] declination box [{:.4f}, {:.4f}] rad -> sin(dec) sampling range [{:.6f}, {:.6f}]".format(
+           param_limits["declination"][0], param_limits["declination"][1], dec_z_lo, dec_z_hi))
+     dec_sampler = mcsampler.ret_uniform_samp_vector_alt(dec_z_lo, dec_z_hi)
+     dec_sampler_cdf_inv = lambda x, _a=dec_z_lo, _b=dec_z_hi: _a + x*(_b-_a) # functools.partial(mcsampler.uniform_samp_cdf_inv_vector,_a,_b)
+     sampler.add_parameter("declination",
+        pdf = dec_sampler,
+        cdf_inv = dec_sampler_cdf_inv,
+        left_limit = dec_z_lo,
+        right_limit = dec_z_hi,
+        # prior density in sin(dec) is the FULL-RANGE constant 1/2, deliberately not renormalized
+        # to the box, so the prior mass removed by the box matches the non-cosine branch, where
+        # prior_pdf=uniform_samp_dec=0.5*cos(dec) is likewise not renormalized.
+        prior_pdf = mcsampler.ret_uniform_samp_vector_alt(-1.0,1.0),
         adaptive_sampling = opts.force_adapt_all or (not opts.no_adapt))
 
 if not opts.time_marginalization:
@@ -1501,9 +1701,16 @@ pinned_params.update({
     "igrand_fairdraw_samples_max": np.min([opts.fairdraw_extrinsic_output_n_max,opts.n_eff])
 })
 if opts.sampler_method == "adaptive_cartesian_gpu":
-  pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!  
+  pinned_params.update({"save_no_samples":True})   # do not exhaust GPU memory with MC samples!
+# GMM-specific argument blocks must run for a STANDALONE GMM *or* for a portfolio carrying a GMM
+# member (whose config still has to be forwarded).  This used to be achieved by clobbering
+# opts.sampler_method='GMM' during portfolio setup, which broke every downstream 'portfolio' test;
+# key off this explicit flag instead so sampler_method keeps meaning what the user asked for.
+use_gmm_args = (opts.sampler_method == "GMM") or use_gmm_member
 return_lnL=False
-if opts.sampler_method=="GMM"  and opts.internal_use_lnL:
+if (opts.sampler_method=="GMM") and opts.internal_use_lnL:
+  # standalone GMM only: return_lnI is an mcsamplerEnsemble kwarg; the portfolio does not consume it
+  # (the portfolio's own use_lnL wiring is in the portfolio block below).
   return_lnL=True
   pinned_params.update({"use_lnL":True,"return_lnI":True})
 if opts.sampler_method =="adaptive_cartesian_gpu" and opts.internal_use_lnL:
@@ -1518,7 +1725,18 @@ if opts.sampler_method =="AV" and opts.internal_use_lnL:
 if opts.sampler_method =="portfolio":
   return_lnL=True
   pinned_params.update({"use_lnL":True})
-if opts.sampler_method == "GMM":
+  # FLEXIBLE allocation for the portfolio's GMM member.  NOTE: when the portfolio HAS a GMM member
+  # (use_gmm_member), the GMM block below already forwards gmm_adaptive as a per-group DICT (keyed by
+  # the member's actual parameter groups) via extra_args -- which is richer than the scalar cap here,
+  # and is the path every portfolio benchmark on this branch actually exercised (it ran because
+  # sampler_method used to be clobbered to 'GMM').  Only fall back to the scalar form for a portfolio
+  # WITHOUT a GMM member, where that block does not run.  Setting both would double-specify it.
+  if opts.internal_gmm_adaptive_components and not use_gmm_member:
+    pinned_params.update({'gmm_adaptive': int(opts.internal_gmm_max_components),
+                          'gmm_defensive_frac': float(opts.internal_gmm_defensive_frac),
+                          'gmm_inflate': float(opts.internal_gmm_inflate)})
+    print(" Portfolio: GMM member adaptive components enabled (BIC, cap {})".format(opts.internal_gmm_max_components))
+if use_gmm_args:   # standalone GMM, or a portfolio carrying a GMM member (see use_gmm_args above)
     n_step =pinned_params["n"]
     n_max_blocks = ((1.0*int(opts.n_max))/n_step)
     # pairing coordinates for adaptive integration: see definition of order below
@@ -1596,6 +1814,21 @@ if opts.sampler_method == "GMM":
     else:
       comp_dict = {pair_ra_dec:n_sky,pair_d_incl:n_d,pair_phi_psi:n_phase}
     extra_args = {'n_comp':comp_dict,'max_iter':n_max_blocks,'gmm_dict':gmm_dict, 'gmm_adapt':gmm_adapt}  # made up for now, should adjust
+    # FLEXIBLE allocation: each ADAPTING group chooses its component count from
+    # the data by BIC (GMM.fit_gmm_adaptive), replacing the hard-coded per-group
+    # counts above.  A defensive tail component + optional inflation keep the
+    # importance weights bounded (the fix that gets GMM n_eff off ~1 at high SNR).
+    if opts.internal_gmm_adaptive_components:
+      k_cap = int(opts.internal_gmm_max_components)
+      gmm_adaptive = {}
+      for _g in gmm_dict:
+        if (gmm_adapt is None) or gmm_adapt.get(_g, True):   # only groups that adapt
+          gmm_adaptive[_g] = k_cap
+      extra_args['gmm_adaptive'] = gmm_adaptive
+      extra_args['gmm_defensive_frac'] = float(opts.internal_gmm_defensive_frac)
+      extra_args['gmm_inflate'] = float(opts.internal_gmm_inflate)
+      print("GMM adaptive components (BIC, cap {}, defensive {}, inflate {}): groups {}".format(
+          k_cap, opts.internal_gmm_defensive_frac, opts.internal_gmm_inflate, list(gmm_adaptive.keys())))
     print("GMM:",extra_args)
     print("GMM:",sampler.params_ordered)
     # if opts.distance_marginalization:
@@ -1629,6 +1862,36 @@ if opts.sampler_method == "AV":
   return_lnL=True
   pinned_params.update( { 'enforce_bounds':True})  # don't go out of range : choose integer bin sizes
 
+# WHICH CONVENTION IS ACTUALLY STORED IN _rvs['integrand'] for this run.
+#
+# This is NOT the same question as opts.internal_use_lnL, and using that option as the predicate
+# is wrong.  --internal-use-lnL is accepted for every method in ok_lnL_methods, but the samplers
+# do different things with it:
+#
+#   GMM (mcsamplerEnsemble)  gets return_lnI, so value_array = integrator.cumulative_values, i.e.
+#                            lnL, stored raw in _rvs['integrand'].  It writes NO log_* columns, so
+#                            it is the one sampler that reaches the linear branch holding a log.
+#   AV / portfolio           populate log_integrand + log_joint_prior + log_joint_s_prior; their
+#                            _rvs['integrand'] alias is lnL as well, but every consumer here takes
+#                            the log branch first, so the flag never decides anything for them.
+#   adaptive_cartesian_gpu   use_lnL routes integrate() -> integrate_log(), which writes
+#                            log_integrand and never sets 'integrand' at all.
+#   adaptive_cartesian       mcsampler.py has NO use_lnL / return_lnI handling whatsoever -- it
+#                            always stores linear L (see its numpy.log(self._rvs["integrand"]))
+#                            and the driver never hands it use_lnL, so return_lnL stays False and
+#                            the likelihood it integrates is L.
+#
+# Keying off opts.internal_use_lnL would therefore tell the linear branch of ln_weights_from_rvs
+# to read lnL out of a record that holds L for '--sampler-method adaptive_cartesian
+# --internal-use-lnL' -- a NEW wrong answer (L + ln p - ln p_s) on a path the old code got right.
+# The honest predicate is the convention we actually handed the sampler: return_lnI.  Derived ONCE
+# here, where pinned_params is final, and passed explicitly from here on.  It is deliberately NOT
+# sniffed back out of the data ("are there negative values?"): a plausible guess about a science
+# output is exactly what ln_weights_from_rvs exists to refuse.
+rvs_integrand_is_lnL = bool(pinned_params.get("return_lnI", False))
+print("  _rvs['integrand'] convention: {} (sampler_method={}, internal_use_lnL={})".format(
+    "lnL" if rvs_integrand_is_lnL else "L", opts.sampler_method, bool(opts.internal_use_lnL)))
+
 
 # set up sampler, as needed.  Mainly for portfolio integrator
 if use_portfolio:
@@ -1642,7 +1905,44 @@ if use_portfolio:
             if not(isinstance(opts.sampler_portfolio_args[indx], dict)):
                 print(indx,opts.sampler_portfolio_args[indx]) 
           print(" ARGS ", opts.sampler_portfolio_args)
-      sampler.setup(portfolio_args=opts.sampler_portfolio_args, **pinned_params) # directly pass all parameters set above to low-level portfolios.  In particular, GMM setup
+      # Assemble freeze-policy overrides from the CLI.  Only include options the user actually
+      # set (None = unset) so the sampler keeps its built-in defaults otherwise.  The two VARAHA
+      # flags are mutually exclusive; --portfolio-varaha-can-freeze wins if both are given.
+      _freeze_policy_kwargs = {}
+      if opts.portfolio_grace_iters is not None:
+          _freeze_policy_kwargs['portfolio_grace_iters'] = opts.portfolio_grace_iters
+      if opts.portfolio_revive_period is not None:
+          _freeze_policy_kwargs['portfolio_revive_period'] = opts.portfolio_revive_period
+      if opts.portfolio_freeze_wt is not None:
+          _freeze_policy_kwargs['portfolio_freeze_wt'] = opts.portfolio_freeze_wt
+      if opts.portfolio_varaha_can_freeze:
+          _freeze_policy_kwargs['portfolio_varaha_never_freeze'] = False
+      elif opts.portfolio_varaha_never_freeze:
+          _freeze_policy_kwargs['portfolio_varaha_never_freeze'] = True
+      # adaptive-probe draw allocation (OPT-IN; off by default in the sampler)
+      if opts.portfolio_adaptive_alloc:
+          _freeze_policy_kwargs['portfolio_adaptive_alloc'] = True
+      if opts.portfolio_varaha_min_frac is not None:
+          _freeze_policy_kwargs['portfolio_varaha_min_frac'] = opts.portfolio_varaha_min_frac
+      if opts.portfolio_varaha_max_frac is not None:
+          _freeze_policy_kwargs['portfolio_varaha_max_frac'] = opts.portfolio_varaha_max_frac
+      if opts.portfolio_weight_clip is not None:
+          _freeze_policy_kwargs['portfolio_weight_clip'] = opts.portfolio_weight_clip
+      if opts.portfolio_quality_signal is not None:
+          _freeze_policy_kwargs['portfolio_quality_signal'] = opts.portfolio_quality_signal
+      if opts.portfolio_alloc_exponent is not None:
+          _freeze_policy_kwargs['portfolio_alloc_exponent'] = opts.portfolio_alloc_exponent
+      if opts.portfolio_probe_period is not None:
+          _freeze_policy_kwargs['portfolio_probe_period'] = opts.portfolio_probe_period
+      print(" PORTFOLIO freeze-policy overrides: ", _freeze_policy_kwargs)
+      sampler.setup(portfolio_args=opts.sampler_portfolio_args, **_freeze_policy_kwargs, **pinned_params) # directly pass all parameters set above to low-level portfolios.  In particular, GMM setup
+      # NOTE: the portfolio oracle MECHANISM is fixed (proposals now actually enter
+      # member training; see mcsamplerPortfolio), and a FisherGaussianOracle can be
+      # attached via sampler.oracle_realizations.  It is not auto-wired here because
+      # (a) ILE has no natural Fisher source for the full extrinsic space, and
+      # (b) MCSampler.setup() re-runs each oracle's setup(), which would reset a
+      # pre-configured skymap ResamplingOracle.  Wire deliberately when a proposal
+      # source is available.
 
 # initialize sampler, before we call integrate, so we can seed it
 if opts.sampler_method == 'adaptive_cartesian_gpu' and opts.skymap_file:
@@ -1697,11 +1997,25 @@ def resample_samples(my_samples,
   lnL_out = np.zeros(n_samples)
   # IF UPSAMPLING, PERFORM NOW.  (Currently on
   if opts.srate_resample_time_marginalization and opts.srate_resample_time_marginalization > fSample:
-    deltaT_orig = tvals[1]-tvals[0]
-    tvals_denser = tvals[0] + deltaT_orig/2 * np.arange(2*len(tvals))
+    # Resample the marginalization-time grid to EXACTLY the requested rate, so
+    # the exported geocenter time is quantized at 1/srate_resample seconds.  We
+    # step by exactly 1/srate_resample rather than by an integer subdivision of
+    # the internal grid: that internal grid is a closed-interval linspace whose
+    # spacing is ~1/fSample but NOT exactly (here ~4086.7 Hz vs 4096), so an
+    # integer-factor upsample would land at ~n/deltaT_orig, tens of percent off
+    # the request.  For the usual power-of-two rates 1/srate is exactly
+    # representable in float64, so consecutive output times differ by exactly
+    # that step.
+    dt_target = 1.0/opts.srate_resample_time_marginalization
+    # floor(): stay within [tvals[0], tvals[-1]] so the spline never
+    # extrapolates.  At most one step (<1/srate s, tens of us) is dropped at the
+    # far edge of the +-75 ms window, where the time-marginalized likelihood is
+    # negligible.
+    n_dense = int(np.floor((tvals[-1]-tvals[0])/dt_target)) + 1
+    tvals_denser = tvals[0] + dt_target * np.arange(n_dense)
     from scipy.interpolate import RegularGridInterpolator, CubicSpline
     # cubic spline at first, easiest  - generally not exporting too many events
-    lnLt_new = np.zeros( (lnLt.shape[0], lnLt.shape[1]*2) )
+    lnLt_new = np.zeros( (lnLt.shape[0], n_dense) )
     for indx_here in np.arange(n_samples):
       cs = CubicSpline(tvals, lnLt[indx_here])
       lnLt_new[indx_here] = cs(tvals_denser)
@@ -1721,6 +2035,292 @@ def resample_samples(my_samples,
   return my_samples
 
   
+
+def _rvs_lnL_convention(use_lnL=None):
+    """Resolve the stored-'integrand' convention for a helper call.
+
+    Returns the explicit argument when one is given, otherwise the run's `rvs_integrand_is_lnL`
+    (derived once from pinned_params['return_lnI']; see the comment where it is set).  Falls back
+    to False -- the historical linear reading -- when that global is absent, which happens when
+    these helpers are lifted out of the driver by the unit tests.  Reading it through globals()
+    rather than referencing the name directly matters: several callers wrap this in a bare
+    `except Exception: return None`, so a NameError would turn into a silent None instead of a
+    diagnosable failure.
+    """
+    if use_lnL is not None:
+        return bool(use_lnL)
+    return bool(globals().get('rvs_integrand_is_lnL', False))
+
+
+def ln_weights_from_rvs(rvs, convert=None, use_lnL=False):
+    """THE importance log-weight of an _rvs record: lnL + ln(prior) - ln(sampling_prior).
+
+    ONE definition, because the alternative has already cost us.  A stored 'log_weights' column
+    does not mean the same thing in every sampler: mcsamplerPortfolio stores the true importance
+    weight, but mcsamplerGPU stores tempering_exp*lnL + ln p - ln p_s -- the ADAPTATION weight,
+    with the adapt-weight-exponent baked in.  That exponent is NOT 1 in production
+    (helper_LDG_Events.py:1472/1477 sets it from the SNR) and --no-adapt drives it to 0, which
+    removes the likelihood from the column entirely.  A consumer preferring that cache silently
+    reweights its output by L^(e-1) whenever the GPU/AC sampler is in use.
+
+    So the cache is never read here: the weight is always DERIVED from the canonical components --
+    log form first, then the linear (mcsamplerEnsemble) form, with out-of-support rows set to
+    -inf.  Raises when neither set is present: an explicit failure beats a plausible wrong number.
+
+    `use_lnL` is REQUIRED to interpret the linear form correctly.  mcsamplerEnsemble reuses the
+    'integrand' field for BOTH conventions:
+
+        mcsamplerEnsemble:  self._rvs['integrand'] = self.identity_convert(value_array)
+
+    where `value_array` is L normally but lnL when the sampler was given return_lnI.  Taking log()
+    of the latter compresses tens of nats into log(tens), leaving an almost flat weight vector --
+    the likelihood effectively drops out and whatever is reconstructed downstream is
+    prior-dominated.  The positivity cut is wrong in that mode too: for a log, non-positive means a
+    low-likelihood point, not a rejected one, so `ig > 0` silently discards every sample with
+    lnL <= 0.
+
+    PASS THE STORED CONVENTION, NOT THE CLI OPTION.  Callers must pass the module-level
+    `rvs_integrand_is_lnL` (or thread it through `_rvs_lnL_convention`).  `opts.internal_use_lnL`
+    is NOT the same predicate: it is accepted for adaptive_cartesian too, whose sampler
+    (mcsampler.py) has no use_lnL/return_lnI handling at all and always stores linear L -- so
+    keying off the option would compute L + ln p - ln p_s there, breaking a case the pre-fix code
+    handled correctly.
+
+    Samplers that populate 'log_integrand' (adaptive volume, portfolio) take the first branch and
+    are unaffected either way.  Only the raw-field samplers reach the second.
+    """
+    conv = convert if convert is not None else (lambda x: x)
+    if all(k in rvs for k in ('log_integrand', 'log_joint_prior', 'log_joint_s_prior')):
+        return (numpy.asarray(conv(rvs['log_integrand']), dtype=float)
+                + numpy.asarray(conv(rvs['log_joint_prior']), dtype=float)
+                - numpy.asarray(conv(rvs['log_joint_s_prior']), dtype=float))
+    if all(k in rvs for k in ('integrand', 'joint_prior', 'joint_s_prior')):
+        ig = numpy.asarray(conv(rvs['integrand']), dtype=float)
+        jp = numpy.asarray(conv(rvs['joint_prior']), dtype=float)
+        js = numpy.asarray(conv(rvs['joint_s_prior']), dtype=float)
+        out = numpy.full(len(ig), -numpy.inf)
+        if use_lnL:
+            # 'integrand' already holds lnL: do not log it again, and do not cut on its sign.
+            keep = numpy.isfinite(ig) & (jp > 0) & (js > 0)
+            out[keep] = ig[keep] + numpy.log(jp[keep]) - numpy.log(js[keep])
+        else:
+            keep = (ig > 0) & (jp > 0) & (js > 0)
+            out[keep] = numpy.log(ig[keep]) + numpy.log(jp[keep]) - numpy.log(js[keep])
+        return out
+    raise Exception("cannot build importance weights from sampler._rvs (keys={})".format(
+        sorted(rvs.keys())))
+
+
+def _rvs_len(rvs):
+    for v in rvs.values():
+        try:
+            return len(numpy.atleast_1d(numpy.asarray(v)).ravel())
+        except Exception:
+            continue
+    return 0
+
+
+def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, use_lnL=None):
+    """Concatenate the replicas' samples into one correctly-weighted set.
+
+    Each replica k is an independent importance-sampling estimate with weights w_ki and its own
+    sample count n_k, and the reported evidence is the linear mean (1/K) sum_k Z_k.  The posterior
+    that matches THAT estimator is the concatenation with weights w_ki/(K n_k) -- equivalently the
+    importance weight against the pooled proposal q'_ki = q_ki * K * n_k, which is the actual
+    density of "pick a replica uniformly, then one of its n_k draws".  So the K*n_k factor goes
+    into the sampling prior, where every downstream weight computation already accounts for it.
+
+    Falls back to the first replica if the record shape is unexpected: a degraded export is
+    recoverable, a silently mis-weighted one is not.
+
+    `use_lnL` is the stored convention of the RAW ('integrand') columns -- see
+    `_rvs_lnL_convention`.  It matters here because this function REWRITES joint_s_prior to force a
+    block's weights, and the equation to solve is convention-dependent (see below).
+    """
+    _lnL_here = _rvs_lnL_convention(use_lnL)
+    rep_rvs = [r for r in rep_rvs if r]
+    if len(rep_rvs) <= 1:
+        return rep_rvs[0] if rep_rvs else {}
+    # `already_resampled` -- the records are FAIRDRAW output.  Those samples were already drawn in
+    # proportion to their own importance weights, so reusing those weights applies them a second
+    # time and the pooled block follows w^2 instead of w.  Renormalizing to Z_k/K fixes the block's
+    # SCALE but not its SHAPE, so it does not help here.  A fairdraw block is an equal-weight draw
+    # from its own posterior, so that is what it must contribute: constant weights within the
+    # block, summing to Z_k/K.
+    #
+    # DO NOT assume the records are raw importance samples.  integrate() may have thresholded or
+    # fairdraw-resampled _rvs before we see it, in which case sum_i w_ki over the RETAINED rows is
+    # no longer Z_k * n_k and a 1/n_k rescale would mis-weight the replica (a fairdraw record is
+    # already posterior-resampled, so scaling it by its retained length weights it twice).  When
+    # the reported per-replica lnZ is available, renormalize each block so it contributes exactly
+    # Z_k/K -- correct whether the rows are raw, pruned or resampled, since only their RELATIVE
+    # weights need be right.
+    keys = set(rep_rvs[0])
+    for r in rep_rvs[1:]:
+        keys &= set(r)
+    log_key = 'log_joint_s_prior' if 'log_joint_s_prior' in keys else None
+    lin_key = 'joint_s_prior' if (log_key is None and 'joint_s_prior' in keys) else None
+    if log_key is None and lin_key is None:
+        print(" [mc error] pooling skipped: no sampling-prior column in the replica records; "
+              "exporting the FIRST replica (consistent weights, fewer samples)")
+        return rep_rvs[0]
+    K = len(rep_rvs)
+    out = {}
+    try:
+        cols = {k: [] for k in keys}
+        for _i, r in enumerate(rep_rvs):
+            n_k = _rvs_len(r)
+            if n_k <= 0:
+                continue
+            _flat_block = False
+            if already_resampled and rep_lnZ is not None and _i < len(rep_lnZ) \
+                    and numpy.isfinite(rep_lnZ[_i]):
+                # equal weights within the block, summing to Z_k/K
+                _flat_block = True
+                _target_lw = float(rep_lnZ[_i]) - numpy.log(float(K)) - numpy.log(float(n_k))
+                scale = 0.0
+            elif rep_lnZ is not None and _i < len(rep_lnZ) and numpy.isfinite(rep_lnZ[_i]):
+                # target: this block's weights sum to Z_k/K
+                _cur = _lnZ_of_rvs(r, already_pooled=True, use_lnL=_lnL_here)
+                if _cur is None or not numpy.isfinite(_cur):
+                    scale = numpy.log(float(K) * float(n_k))
+                else:
+                    scale = _cur - (float(rep_lnZ[_i]) - numpy.log(float(K)))
+            else:
+                scale = numpy.log(float(K) * float(n_k))
+            if _flat_block and log_key is not None:
+                # force lw_i = log_integrand + log_joint_prior - log_joint_s_prior == _target_lw
+                _li = numpy.atleast_1d(numpy.asarray(
+                    sampler.identity_convert(r['log_integrand']), dtype=float)).ravel()
+                _lp = numpy.atleast_1d(numpy.asarray(
+                    sampler.identity_convert(r['log_joint_prior']), dtype=float)).ravel()
+                _forced = _li + _lp - _target_lw
+            for k in keys:
+                v = numpy.atleast_1d(numpy.asarray(sampler.identity_convert(r[k]))).ravel()
+                if _flat_block and log_key is not None and k == log_key:
+                    v = _forced
+                elif _flat_block and lin_key is not None and k == lin_key:
+                    # Same forcing for a RAW-field record: choose joint_s_prior so the
+                    # reconstructed weight is exactly _target_lw.  WHICH equation that is depends
+                    # on the convention 'integrand' is stored in -- the same ambiguity
+                    # ln_weights_from_rvs handles:
+                    #   linear:  lw = log(ig) + log(jp) - log(js)  ->  js = ig*jp/exp(target)
+                    #   log:     lw = ig      + log(jp) - log(js)  ->  js = exp(ig + log(jp) - target)
+                    # Applying the linear form to an lnL record gives js < 0 for every row with
+                    # lnL < 0 -- a NEGATIVE proposal density -- and the block weights it produces
+                    # are not constant at all, which is the entire point of the flat block.  Worse,
+                    # it corrupts the canonical columns BEFORE ln_weights_from_rvs ever reads them,
+                    # so fixing the helper alone does not rescue this path.
+                    _ig = numpy.atleast_1d(numpy.asarray(
+                        sampler.identity_convert(r['integrand']), dtype=float)).ravel()
+                    _jp = numpy.atleast_1d(numpy.asarray(
+                        sampler.identity_convert(r['joint_prior']), dtype=float)).ravel()
+                    if _lnL_here:
+                        v = numpy.exp(_ig + numpy.log(_jp) - _target_lw)
+                    else:
+                        v = _ig * _jp / numpy.exp(_target_lw)
+                elif k == log_key:
+                    v = v + scale
+                elif k == lin_key:
+                    # The linear counterpart of 'log_joint_s_prior += scale'.  This used to be a
+                    # hardcoded K*n_k, which is only the FALLBACK value of `scale` -- so whenever a
+                    # reported per-replica lnZ was available the raw-field path silently skipped
+                    # the renormalization the log path applied, and a pruned or thresholded replica
+                    # was mis-weighted.  exp(scale) reduces to K*n_k in the fallback case.
+                    v = v * numpy.exp(scale)
+                cols[k].append(v)
+        for k in keys:
+            out[k] = numpy.concatenate(cols[k]) if cols[k] else numpy.array([])
+        # CACHED WEIGHTS MUST FOLLOW THE COMPONENTS.  _rvs may carry a precomputed 'log_weights'
+        # (mcsamplerPortfolio writes one), and the .dgrid and calibration-posterior exporters
+        # PREFER it -- they only fall back to log_integrand + log_joint_prior - log_joint_s_prior
+        # when it is absent.  Concatenating the per-replica caches unchanged would hand those
+        # scientific outputs the ORIGINAL weights while the estimate used the corrected ones:
+        # replica rebalancing ignored, and fairdraw blocks double-weighted again in exactly the
+        # products this pooling exists to make consistent.  Recompute from the canonical columns.
+        # Rebuild through the ONE canonical definition rather than a second inline copy of it:
+        # the copy that used to live here carried the same linear-only assumption as the helper's
+        # old second branch, so under the log convention it re-logged lnL and cut on its sign --
+        # writing exactly the flattened weights the exporters prefer.
+        try:
+            _lw_pooled = ln_weights_from_rvs(out, use_lnL=_lnL_here)
+        except Exception:
+            _lw_pooled = None
+        if _lw_pooled is not None:
+            if 'log_weights' in out:
+                out['log_weights'] = _lw_pooled
+            if 'weights' in out:
+                out['weights'] = numpy.exp(_lw_pooled - numpy.max(_lw_pooled[numpy.isfinite(_lw_pooled)]))
+        elif 'log_weights' in out or 'weights' in out:
+            # cannot rebuild them -> DROP, so consumers fall through to whatever components exist
+            # rather than silently trusting a stale cache.
+            out.pop('log_weights', None)
+            out.pop('weights', None)
+            print(" [mc error] pooled record: dropped stale cached weights (components unavailable"
+                  " to rebuild them); consumers will reconstruct from what remains")
+    except Exception as e:
+        print(" [mc error] pooling failed ({}); exporting the FIRST replica".format(e))
+        return rep_rvs[0]
+    return out
+
+
+def _lnZ_of_rvs(rvs, already_pooled=True, use_lnL=None):
+    """log of the evidence implied by an _rvs record.
+
+    For a POOLED record the weights already carry their 1/(K n_k) factor, so the estimate is the
+    plain sum; for a single run it is the mean.  Returns None when the weights cannot be rebuilt.
+    """
+    try:
+        try:
+            lw = ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL))
+        except Exception:
+            return None
+        lw = lw[numpy.isfinite(lw)]
+        if lw.size == 0:
+            return None
+        m = numpy.max(lw)
+        tot = m + numpy.log(numpy.sum(numpy.exp(lw - m)))
+        return float(tot if already_pooled else tot - numpy.log(lw.size))
+    except Exception:
+        return None
+
+
+def _kish_neff_of_rvs(rvs, use_lnL=None):
+    """Kish effective sample size of an _rvs record, or None if the weights are not reconstructible."""
+    try:
+        try:
+            lw = ln_weights_from_rvs(rvs, use_lnL=_rvs_lnL_convention(use_lnL))
+        except Exception:
+            return None
+        lw = lw[numpy.isfinite(lw)]
+        if lw.size == 0:
+            return None
+        lw = lw - numpy.max(lw)
+        w = numpy.exp(lw)
+        return float(numpy.sum(w) ** 2 / numpy.sum(w ** 2))
+    except Exception:
+        return None
+
+
+def _clear_warm_state(sampler):
+    """Clear a warm-start seed AND any grid it installed, reaching PORTFOLIO MEMBERS too.
+
+    `sampler._warm = None` alone is not enough for mcsamplerPortfolio: `_warm` and the contracted
+    AV grid live on each MEMBER, and portfolio.integrate_log() does not rerun each member's setup(),
+    so the next point would silently draw from the PREVIOUS point's contracted live volume.  If the
+    new point's support falls outside it, lnZ is biased low with a healthy-looking n_eff and no
+    error.  Portfolio exposes clear_warm_state(); everything else keeps the old behaviour.
+    """
+    # Deliberately NOT wrapped in try/except.  A reset that quietly did not happen leaves the next
+    # point drawing from the previous point's contracted grid -- the exact silent bias this guards
+    # against -- so a failure must abort the point (the per-point handler below reports it) rather
+    # than degrade to a log line nobody reads.
+    if hasattr(sampler, 'clear_warm_state'):
+        sampler.clear_warm_state()
+    else:
+        sampler._warm = None
+        sampler._warm_applied = False
+
 
 def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec):
     nEvals=0
@@ -1848,6 +2448,67 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         if not _have_cal_crossterms:
             ctUArrayDict_cal = None
             ctVArrayDict_cal = None
+
+        # [Path A] slow-rotation precompute: build the harmonic-indexed bank and pack it.
+        rotation_slow_data = None
+        if opts.rotation_slow:
+            _pmax = int(opts.rotation_p_max)
+            _nh = max(int(opts.rotation_n_harmonics), 2 + _pmax)  # wide enough to cover all C_{(p,ntilde)}
+            _harm = tuple(range(-_nh, _nh + 1))
+            _rint_r, _ct_r, _ctV_r, _rho_r, _meta_r = factored_likelihood_with_rotation.PrecomputeLikelihoodTermsWithRotation(
+                fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
+                harmonics=_harm, p_max=_pmax, analyticPSD_Q=False,
+                inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec,
+                verbose=opts.verbose, quiet=not opts.verbose, skip_interpolation=True)
+            _lkR, _rhoN, _uNN, _vNN, _epR = factored_likelihood_with_rotation.pack_rotation_arrays(
+                _meta_r, _rho_r, _ct_r, _ctV_r)
+            if opts.gpu and (not xpy_default is np):
+                # move the (per-elementary-template) Q banks + U/V to device; the NoLoop
+                # reuses the baseline fused kernel per template.  epoch/lookup stay on host.
+                for _det in _rhoN:
+                    for _a in _rhoN[_det]:
+                        _rhoN[_det][_a] = cupy.asarray(_rhoN[_det][_a])
+                    for _pair in _uNN[_det]:
+                        _uNN[_det][_pair] = cupy.asarray(_uNN[_det][_pair])
+                    for _pair in _vNN[_det]:
+                        _vNN[_det][_pair] = cupy.asarray(_vNN[_det][_pair])
+            rotation_slow_data = dict(meta=_meta_r, lookupNKDict=_lkR, rho_by_n=_rhoN,
+                                      U_by_nn=_uNN, V_by_nn=_vNN, epochDict=_epR)
+            print("  [rotation-slow] precompute complete; p_max", _pmax, "sidereal harmonics", _harm,
+                  "(GPU)" if (opts.gpu and not xpy_default is np) else "(CPU)")
+
+        # [Path D] finite-size (frequency-dependent) response precompute: fold each W_p(f)
+        # into the modes once and pack the response-basis overlap bank.
+        freqresponse_data = None
+        if opts.freqresponse:
+            _qmax = int(opts.freqresponse_qmax)
+            _arm = opts.freqresponse_arm_length
+            if _arm is not None:
+                if '=' in str(_arm):   # per-detector 'C1=40000,E1=10000'
+                    _arm = {kv.split('=')[0]: float(kv.split('=')[1]) for kv in str(_arm).split(',')}
+                else:
+                    _arm = float(_arm)
+            _rint_f, _ct_f, _ctV_f, _rho_f, _meta_f = factored_likelihood_freqresponse.PrecomputeLikelihoodTermsFreqResponse(
+                fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
+                Qmax=_qmax, L_arm=_arm, analyticPSD_Q=False,
+                inv_spec_trunc_Q=inv_spec_trunc_Q, T_spec=T_spec,
+                verbose=opts.verbose, quiet=not opts.verbose, skip_interpolation=True)
+            _lkF, _rhoP, _uPP, _vPP, _epF = factored_likelihood_freqresponse.pack_freqresponse_arrays(
+                _meta_f, _rho_f, _ct_f, _ctV_f)
+            if opts.gpu and (not xpy_default is np):
+                # move the (per-basis-weight) Q banks + U/V to device; the NoLoop reuses the
+                # baseline fused kernel per weight p.  epoch/lookup stay on host (as in rotation).
+                for _det in _rhoP:
+                    for _p in _rhoP[_det]:
+                        _rhoP[_det][_p] = cupy.asarray(_rhoP[_det][_p])
+                    for _pair in _uPP[_det]:
+                        _uPP[_det][_pair] = cupy.asarray(_uPP[_det][_pair])
+                    for _pair in _vPP[_det]:
+                        _vPP[_det][_pair] = cupy.asarray(_vPP[_det][_pair])
+            freqresponse_data = dict(meta=_meta_f, lookupNKDict=_lkF, rho_by_p=_rhoP,
+                                     U_by_pp=_uPP, V_by_pp=_vPP, epochDict=_epF)
+            print("  [freqresponse] precompute complete; Qmax", _qmax, "arm-length", opts.freqresponse_arm_length,
+                  "(GPU)" if (opts.gpu and not xpy_default is np) else "(CPU)")
 
         def _cal_error_probe(n_cal_now, n_start=256, n_cap=None, rel_tol=0.1):
             """Estimate (sigma_lnZ_cal, neff_cal, n_used, dist_mode): the calibration
@@ -2068,7 +2729,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             tvals = numpy.linspace(-t_ref_wind,t_ref_wind,int((t_ref_wind)*2/P.deltaT))  # choose an array at the target sampling rate. P is inherited globally
 
             for ph, th, phr, ic, ps, di in zip(right_ascension, dec,
-                    phi_orb, inclination, psi, distance):
+                    phi_orb, incl, psi, distance):   # 'incl', NOT the raw sampled 'inclination': under --inclination-cosine-sampler the sampled variable is cos(iota)
                 P.phi = ph # right ascension
                 P.theta = th # declination
                 P.tref = fiducial_epoch  # see 'tvals', above
@@ -2130,7 +2791,20 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
               P.psi= psi_true
               P.phiref = phi_orb_true
 
-            lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
+            if opts.rotation_slow:
+              lnL = factored_likelihood_with_rotation.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
+                        tvals, P, rotation_slow_data['meta'], rotation_slow_data['lookupNKDict'],
+                        rotation_slow_data['rho_by_n'], rotation_slow_data['U_by_nn'],
+                        rotation_slow_data['V_by_nn'], rotation_slow_data['epochDict'], Lmax=opts.l_max,
+                        time_interp=opts._noloop_time_interp)
+            elif opts.freqresponse:
+              lnL = factored_likelihood_freqresponse.DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
+                        tvals, P, freqresponse_data['meta'], freqresponse_data['lookupNKDict'],
+                        freqresponse_data['rho_by_p'], freqresponse_data['U_by_pp'],
+                        freqresponse_data['V_by_pp'], freqresponse_data['epochDict'], Lmax=opts.l_max,
+                        time_interp=opts._noloop_time_interp)
+            else:
+              lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVector(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max)
 #            nEvals +=len(right_ascension)
             if supplemental_ln_likelihood:
@@ -2164,6 +2838,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   distance = redshift_to_distance(distance)
 
                 P.psi = xpy_default.asarray(psi, dtype=np.float64)
+                if opts.internal_reparam_dl_incl:
+                  # distance axis holds D_eff; reconstruct physical d_L = D_eff * A(iota)
+                  distance = distance * _reparam_A_of_incl(P.incl, xpy=xpy_default)
                 P.dist = xpy_default.asarray(distance* 1.e6 * lalsimutils.lsu_PC, dtype=np.float64) # luminosity distance
 
                 # rotate sky if needed
@@ -2182,12 +2859,38 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                   P.phiref = phi_orb_true
 
 
-                lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
+                if opts.rotation_slow:
+                  lnL = factored_likelihood_with_rotation.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoopWithRotation(
+                        tvals, P, rotation_slow_data['meta'], rotation_slow_data['lookupNKDict'],
+                        rotation_slow_data['rho_by_n'], rotation_slow_data['U_by_nn'],
+                        rotation_slow_data['V_by_nn'], rotation_slow_data['epochDict'], Lmax=opts.l_max,
+                        time_interp=opts._noloop_time_interp, xpy=xpy_default)
+                elif opts.freqresponse:
+                  lnL = factored_likelihood_freqresponse.DiscreteFactoredLogLikelihoodFreqResponseNoLoop(
+                        tvals, P, freqresponse_data['meta'], freqresponse_data['lookupNKDict'],
+                        freqresponse_data['rho_by_p'], freqresponse_data['U_by_pp'],
+                        freqresponse_data['V_by_pp'], freqresponse_data['epochDict'], Lmax=opts.l_max,
+                        time_interp=opts._noloop_time_interp, xpy=xpy_default)
+                else:
+                  lnL = factored_likelihood.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals,
                         P, lookupNKDict, rholmArrayDict, ctUArrayDict, ctVArrayDict,epochDict,Lmax=opts.l_max,xpy=xpy_default,n_cal=n_cal_for_likelihood,
                         cal_method=('fused' if use_fused_calmarg and opts._noloop_time_interp == 'nearest' else 'loop'), cal_log_weights=calibration_log_weights,
                         time_interp=opts._noloop_time_interp,
                         ctUArrayDict_cal=ctUArrayDict_cal, ctVArrayDict_cal=ctVArrayDict_cal)  # non-distmarg: default-helper fused kernel (cal_distmarg=None)
 #                nEvals +=len(right_ascension)
+                if opts.internal_reparam_dl_incl:
+                  # PRIOR-AGNOSTIC measure for the D_eff<->d_L reparam: the integrand needs
+                  #   p_prior(d_L) * |dd_L/dD_eff|  but the sampler applied p_prior(D_eff),
+                  # so add  ln p(d_L) - ln p(D_eff) + ln A , using the ACTUAL --d-prior
+                  # (dist_prior_pdf).  Its normalization cancels in the ratio, so this is correct
+                  # for Euclidean / cosmo / cosmo_sourceframe / pseudo_cosmo (reduces to +3 ln A
+                  # only for Euclidean).  Then enforce the physical d_L in [dmin,dmax].
+                  _A = _reparam_A_of_incl(P.incl, xpy=xpy_default)
+                  _dl = distance                # physical d_L (reconstructed above)
+                  _deff = _dl / _A              # the sampled D_eff
+                  # physical prior normalized over [dmin,dmax] (=> - _REPARAM_LNF); sampler prior at D_eff; Jacobian A
+                  lnL = lnL + (xpy_default.log(dist_prior_pdf(_dl)) - _REPARAM_LNF) - xpy_default.log(dist_prior_pdf(_deff)) + xpy_default.log(_A)
+                  lnL = xpy_default.where((_dl >= dmin) & (_dl <= dmax), lnL, -1e300)
                 if supplemental_ln_likelihood:
                   lnL += supplemental_ln_likelihood(P.phi, P.theta, P.phiref ,P.incl, P.psi, P.dist,xpy=xpy_default) # use these variables so they are already float-type
                 if return_lnL:
@@ -2413,7 +3116,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       if 'distance' in sampler.params:
         sampler.reset_sampling('distance')
       sampler.reset_sampling('inclination')
-    elif opts.sampler_method == "GMM":
+    elif use_gmm_args:   # standalone GMM or a portfolio with a GMM member (gmm_dict exists in both)
       if 'distance' in sampler.params:
          pair_d_incl = sampler_param_tuple(sampler, ['distance','inclination'])
          if  pair_d_incl in gmm_dict:
@@ -2444,6 +3147,44 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
              lnL_oracles  = np.zeros(opts.n_chunk)
              sampler.update_sampling_prior(lnL_oracles, opts.n_chunk, external_rvs=rvs_train,log_scale_weights=True,floor_integrated_probability=opts.adapt_floor_level)
 
+    # Warm-start / bootstrap.  The AV (VARAHA) sampler has no update_sampling_prior, so the
+    # skymap-oracle seeding above is skipped for it; instead seed its live volume directly
+    # (bootstrap_from_samples).  A PORTFOLIO forwards the seed to its warm-startable members
+    # (e.g. its AV member) via the same method; members without it stay cold, and the
+    # balance-heuristic mixture density (q_mix) keeps a cold/mis-seeded member from biasing.
+    # A seed only shapes the initial proposal, never the integral, so this cannot bias.
+    # Fires for any sampler exposing bootstrap_from_samples (AV directly, or a portfolio).
+    if hasattr(sampler, 'bootstrap_from_samples'):
+        try:
+            if opts.sampler_load_state and hasattr(sampler, 'load_state'):
+                print("  warm-start: loading saved sampler state from", opts.sampler_load_state)
+                sampler.load_state(opts.sampler_load_state)
+            elif opts.sampler_warmstart_samples:
+                _dat = np.genfromtxt(opts.sampler_warmstart_samples, names=True)
+                _cols = np.vstack([np.asarray(_dat[p], dtype=float) for p in sampler.params_ordered]).T
+                print("  warm-start: bootstrapping from", opts.sampler_warmstart_samples, _cols.shape,
+                      "(cover_frac={}, inflate={})".format(opts.sampler_warmstart_cover_frac, opts.sampler_warmstart_inflate))
+                # cover_frac + inflate are the handoff safety margins: this seed usually
+                # comes from a DIFFERENT (cherry-picked pilot) point, so it must not be
+                # able to bias if the peak has shifted.  Default them >0 in this path.
+                sampler.bootstrap_from_samples(_cols,
+                                               cover_frac=opts.sampler_warmstart_cover_frac,
+                                               inflate=opts.sampler_warmstart_inflate)
+            elif oracleRS:
+                _, _, _rv_oracle = oracleRS.draw_simplified(opts.n_chunk)
+                print("  AV warm-start: bootstrapping live volume from skymap oracle")
+                sampler.bootstrap_from_samples(_rv_oracle, params=list(sampler.params_ordered))
+        except Exception as _e_ws:
+            print("  AV warm-start skipped (", _e_ws, ")")
+
+    # NF flow reuse: warm-load a pre-trained flow so this instance skips/shortens training.
+    if opts.nf_flow_load and hasattr(sampler, 'load_flow'):
+        try:
+            print("  NF: loading pre-trained flow from", opts.nf_flow_load)
+            sampler.load_flow(opts.nf_flow_load)
+        except Exception as _e_nf:
+            print("  NF flow load skipped (", _e_nf, ")")
+
     # Optional ZERO-CAL burn-in (generally useful; see RIFT/calmarg/DESIGN_adaptive_driver.md).
     # Adapt the extrinsic sampler cheaply on the n_cal=1 baseline first, then run the full
     # cal-marginalized integration reusing the adapted proposal.  The likelihood closures
@@ -2465,7 +3206,151 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             print(" [calmarg burn-in] integrate failed ({}); proceeding to production".format(_eb))
         n_cal_for_likelihood = _ncal_full   # restore: production uses the full cal set
 
+    # opt-in anisotropic per-axis bin allocation: set on the AV sampler and any AV portfolio members
+    if getattr(opts, 'sampler_anisotropic_bins', False):
+        _aniso_targets = [sampler] + list(getattr(sampler, 'portfolio_realizations', []))
+        for _t in _aniso_targets:
+            if hasattr(_t, 'anisotropic_bins'):
+                _t.anisotropic_bins = True
+        print("  AV: anisotropic per-axis bin allocation ENABLED")
+
     res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
+
+    # L0 auto-rescue: on a very sharply-peaked (high-amplitude) point a cold AV can
+    # stall at n_eff ~ 1 because it never draws near the tiny peak.  If so, seed a
+    # SECOND pass from this same point's own highest-likelihood samples and re-run.
+    # This is SAME-problem reuse (the peak provably lies in the seed, since the cold
+    # pass found it), so no coverage floor is needed (cover_frac=0) and it cannot
+    # bias the result.  AV or a portfolio carrying an AV member; opt-in via
+    # --sampler-warmstart-retry-neff.  For a portfolio the peak-seed is bootstrapped into its
+    # warm-startable members (the AV live volume) and the whole mixture is re-run; the seed comes
+    # from the run's OWN _rvs (already in the sampling frame), so it is coordinate-safe by construction.
+    # A DEGENERATE EARLY TERMINATION (neff is None) is the strongest possible rescue trigger, not a
+    # reason to skip: mcsamplerPortfolio/AV return (None,None,None,None) from their "terminate early"
+    # branch when the live volume never finds finite in-volume samples -- i.e. exactly the cold, very
+    # sharp peak this rescue exists for.  Such a pass still populates _rvs (it DID sample the peak,
+    # it just could not build a volume around it), so the peak-seed below is available.  Treat
+    # neff=None as "below threshold".
+    _neff_val = None if neff is None else float(sampler.identity_convert(neff))
+    _needs_l0_rescue = (_neff_val is None) or (_neff_val < float(opts.sampler_warmstart_retry_neff or 0))
+    if (opts.sampler_method in ('AV', 'portfolio') and opts.sampler_warmstart_retry_neff
+            and hasattr(sampler, 'bootstrap_from_samples')
+            and _needs_l0_rescue):
+        # Cold state to fall back on, captured only once the warm pass is actually about to run.
+        # `None` means nothing has been disturbed yet, so the handler must not "restore".
+        _cold_state_l0 = None
+        try:
+            _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
+            _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel() if _lnkey else np.array([])
+            if _lnv.size >= 1 and np.any(np.isfinite(_lnv)):
+                _cols = np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel() for p in sampler.params_ordered]).T
+                _kthr = np.nanmax(_lnv) - opts.sampler_sequential_warmstart_deltalnL
+                _seed = _cols[_lnv > _kthr]
+                if len(_seed) < 2:   # peak found with too few points -> puff the single best point
+                    _best = _cols[int(np.nanargmax(_lnv))]
+                    _wid = (np.array([sampler.rlim[p] for p in sampler.params_ordered]) - np.array([sampler.llim[p] for p in sampler.params_ordered])) / 200.0
+                    _seed = np.random.RandomState(0).normal(_best, _wid, size=(2000, len(_best)))
+                print("  [L0 auto-rescue] cold n_eff {} < {}; re-running warm from this point's peak ({} pts)".format(
+                    "DEGENERATE (early termination)" if _neff_val is None else "{:.1f}".format(_neff_val),
+                    opts.sampler_warmstart_retry_neff, len(_seed)))
+                # The warm pass is an estimate over TRUNCATED support: the seeded box provably
+                # contains the peak the cold pass found, and says nothing about what that pass did
+                # not reach, so it is biased low by any missed mode.  Three things that look like
+                # fixes are not:
+                #   * cover_frac is a finite sprinkle of points into the grid (2.9% of the box at
+                #     d=6), not a mixture, so it gives no coverage guarantee;
+                #   * pooling cold+warm propagates the bias in diluted form, because averaging Z is
+                #     unbiased only when EVERY term is.  Measured on a bimodal target whose seed
+                #     caught one mode: true -4.6052, cold -4.6265, warm -5.3009 (-log 2, the missed
+                #     mode), pooled -4.9079 (log 0.75).  Pinned in test_replica_pooling.py;
+                #   * a warning alone does not correct the number that gets reported.
+                # AND THE OBVIOUS "REAL FIX" IS A TRAP.  Giving AV a defensive component with
+                # support everywhere requires per-sample sampling densities (integrate_log applies
+                # ONE scalar log_joint_s_prior to every sample), i.e. a proposal that is a weighted
+                # mixture of components whose densities are evaluated per sample and combined.
+                # That is mcsamplerPortfolio: q_mix, defensive members, and the coverage
+                # bookkeeping around them already exist there, tested.  Rebuilding it inside AV
+                # would leave two implementations of the same mathematics to keep in step, and the
+                # bugs found in this review -- a capability flag that lied, a defensive component
+                # absorbed by an update, config silently dropped on re-setup -- are precisely the
+                # kind that appear when one of two parallel paths is updated and the other is not.
+                # So this is NOT scoped as future work on AV.  The architectural answer is that a
+                # run needing a coverage guarantee uses the portfolio; standalone AV stays a fast
+                # single-proposal sampler with this limitation documented at its call site.
+                #
+                # WHAT THIS DOES, DELIBERATELY NARROWLY.  The rescue still runs, because it exists
+                # to fix the high-SNR n_eff lottery and removing it by default would be a certain
+                # production regression traded against a possible bias.  What changes is only the
+                # case where we have POSITIVE EVIDENCE of lost mass: the cold pass had full
+                # support, so if the warm evidence lands well below it, the seed missed something
+                # the cold pass reached.  There we keep the cold result rather than report the
+                # precise-but-truncated one.  Detection is imperfect -- a missed mode need not
+                # produce this ordering -- so this narrows the failure, it does not close it.
+                # SNAPSHOT, not an alias: integrate_log repopulates sampler._rvs IN PLACE, so
+                # `_cold_rvs = sampler._rvs` would be holding the warm samples by the time the
+                # restore below ran -- i.e. the reject path would report the cold lnZ while
+                # exporting the warm cloud, exactly what it exists to prevent.
+                _cold_rvs = dict(sampler._rvs)
+                _cold_lnZ = _lnZ_of_rvs(_cold_rvs, already_pooled=False)
+                # dict_return too: khat, block scatter, ESS, the confidence interval and the
+                # replica trigger downstream all read it, so keeping the warm pass's diagnostics
+                # beside a restored cold result would describe a run we did not report.
+                _cold_res, _cold_var, _cold_neff, _cold_dict = res, var, neff, dict_return
+                _cold_state_l0 = (_cold_rvs, _cold_res, _cold_var, _cold_neff, _cold_dict)
+                sampler.bootstrap_from_samples(_seed, cover_frac=0.0)
+                res, var, neff, dict_return = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
+                _warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False)
+                _evidence_of_loss = (
+                    (_cold_lnZ is not None) and (_warm_lnZ is not None)
+                    and numpy.isfinite(_cold_lnZ) and numpy.isfinite(_warm_lnZ)
+                    and (_cold_lnZ - _warm_lnZ) > float(opts.sampler_l0_rescue_reject_dlnZ))
+                if _evidence_of_loss:
+                    print("  [L0 auto-rescue] *** REJECTING the warm pass *** its lnZ {:.3f} is"
+                          " {:.3f} nats BELOW the full-support cold pass ({:.3f}), which is evidence"
+                          " the seed missed mass the cold pass reached.".format(
+                              _warm_lnZ + manual_avoid_overflow_logarithm,
+                              _cold_lnZ - _warm_lnZ,
+                              _cold_lnZ + manual_avoid_overflow_logarithm))
+                    if opts.sampler_l0_rescue_accept_truncated:
+                        print("  [L0 auto-rescue] --sampler-l0-rescue-accept-truncated set:"
+                              " reporting the warm pass anyway (may be biased LOW).")
+                    else:
+                        print("  [L0 auto-rescue] keeping the COLD (full-support) result; its n_eff"
+                              " is lower but it is not missing mass.  A portfolio avoids this"
+                              " trade entirely -- its GMM member carries a defensive component.")
+                        sampler._rvs = _cold_rvs
+                        res, var, neff, dict_return = _cold_res, _cold_var, _cold_neff, _cold_dict
+                _clear_warm_state(sampler)
+        except Exception as _e_l0:
+            # "skipped" is only true if the warm pass never started.  If it raised PARTWAY THROUGH
+            # sampler.integrate(), the assignment `res, var, neff, dict_return = ...` never
+            # completed, so those still hold the COLD pass -- while sampler._rvs was repopulated in
+            # place and now holds the WARM samples.  Reporting cold k-hat / ESS / lnZ beside a warm
+            # export describes a run that was never made, and it did so silently for a whole
+            # campaign.  Put the point back on the cold pass, in full, and say so loudly.
+            print("  [L0 auto-rescue] *** FAILED *** (", _e_l0, ")")
+            import traceback as _tb_l0
+            _tb_l0.print_exc()
+            if _cold_state_l0 is not None:
+                print("  [L0 auto-rescue] the warm pass may already have replaced the stored"
+                      " samples; restoring the COLD pass so the reported diagnostics and the"
+                      " exported samples describe the same integral.")
+                sampler._rvs, res, var, neff, dict_return = _cold_state_l0
+            _clear_warm_state(sampler)
+
+    # Persist adapted state / trained flow for reuse by later instances.
+    if opts.sampler_method == 'AV' and opts.sampler_save_state and hasattr(sampler, 'save_state'):
+        try:
+            sampler.save_state(opts.sampler_save_state)
+            print("  AV: saved live-volume state to", opts.sampler_save_state)
+        except Exception as _e_ss:
+            print("  AV: could not save state (", _e_ss, ")")
+    if opts.nf_flow_save and hasattr(sampler, 'save_flow'):
+        try:
+            sampler.save_flow(opts.nf_flow_save)
+            print("  NF: saved trained flow to", opts.nf_flow_save)
+        except Exception as _e_fs:
+            print("  NF: could not save flow (", _e_fs, ")")
 
     if not(res): # no resut
       raise ValueError(" No integral result returned")
@@ -2476,6 +3361,210 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     else:
       log_res = res
       sqrt_var_over_res =  numpy.exp(var/2 - log_res)
+
+    # ------------------------------------------------------------------
+    # MC-error stabilization (see RIFT/integrators/statutils.py helpers).
+    # The sampler's naive sigma is (1/ESS_hat - 1/n)^{1/2} computed from the SAME
+    # weights as the integral: tail-blind, and small exactly when the run silently
+    # missed the peak.  Three disclosed defenses:
+    #  (1) floor sigma at the between-chunk lnZ scatter (adaptation nonstationarity);
+    #  (2) print the Pareto k-hat tail diagnostic (k>0.7: sigma is a LOWER BOUND);
+    #  (3) if triggered and --mc-error-replicas>0, re-run cold replicas and combine
+    #      by the LINEAR mean with scatter-based error (never inverse-variance).
+    # ------------------------------------------------------------------
+    def _extract_mc_diag(dd):
+        dd = dd if isinstance(dd, dict) else {}
+        return dd.get('pareto_khat', None), dd.get('sigma_lnZ_block', None), dd.get('n_ESS', None), dd.get('lnZ_ci90', None)
+    _khat, _sig_block, _n_ess, _ci90 = _extract_mc_diag(dict_return)
+    if _sig_block is not None and numpy.isfinite(_sig_block) and _sig_block > sqrt_var_over_res:
+        print(" [mc error] sigma_lnZ raised to the between-chunk scatter: {:.4f} -> {:.4f}".format(float(sqrt_var_over_res), float(_sig_block)))
+        sqrt_var_over_res = float(_sig_block)
+    if _khat is not None:
+        print(" [mc error] Pareto k-hat = {:.3f}{}".format(float(_khat), "  (> {:.2f}: weight tail unresolved; the reported sigma is a LOWER BOUND)".format(opts.mc_error_khat_trigger) if _khat > opts.mc_error_khat_trigger else ""))
+    if _ci90 is not None:
+        print(" [mc error] bootstrap lnZ 5/50/95 quantiles: {}".format(numpy.array2string(numpy.asarray(_ci90) + manual_avoid_overflow_logarithm, precision=4)))
+
+    # LIVE-VOLUME COLLAPSE.  The sampler can now tell us that its live volume degenerated
+    # (see live_volume_collapse_verdict in mcsamplerAdaptiveVolume).  Before this branch
+    # such a run CRASHED, and the crash -- however badly attributed -- at least kept the
+    # result out of the posterior.  Now that it completes we must not simply write an
+    # ordinary likelihood row: lnZ and the exported samples describe a single mode, and
+    # nothing downstream can tell them from a converged export.  So: say so unmistakably,
+    # let it trigger the existing replication machinery, and offer a hard gate.
+    def _reject_if_collapsed(dd, stage):
+        """Apply --reject-collapsed-live-volume to whatever the CURRENT verdict is.
+
+        Called twice on purpose.  The early call is a fast path: if the first run already
+        collapsed and the user wants such events dropped, there is nothing to learn from
+        spending GPU on replicas.  But it cannot be the only call -- replication can turn a
+        healthy first run into a collapsed POOL, and the gate has to see that too, or the
+        flag is silently bypassed for exactly the case the pooling introduced.
+        """
+        if not opts.reject_collapsed_live_volume:
+            return
+        if not (isinstance(dd, dict) and dd.get('live_volume_collapsed', False)):
+            return
+        # Route through the ordinary failure path, so the caller skips this binary and
+        # writes no result row -- the pre-fix outcome, but for a stated reason.
+        _exc = mcsamplerAdaptiveVolume.LiveVolumeCollapse if mcsampler_AV_ok else RuntimeError
+        raise _exc(
+            "extrinsic integration collapsed ({}): live volume degenerated ({}); "
+            "--reject-collapsed-live-volume is set, so this event is being dropped "
+            "rather than exported".format(stage, dd.get('collapse_reason', '')))
+
+    _collapsed = bool(dict_return.get('live_volume_collapsed', False)) if isinstance(dict_return, dict) else False
+    _collapse_reason = (dict_return or {}).get('collapse_reason', '') if isinstance(dict_return, dict) else ''
+    if _collapsed:
+        print(" [mc error] *** LIVE VOLUME COLLAPSED *** {}".format(_collapse_reason))
+        print(" [mc error] this event's lnZ and exported samples are NOT a fair draw from the posterior.")
+    _reject_if_collapsed(dict_return, "first run")
+
+    _trigger_reasons = []
+    if _collapsed and opts.mc_error_replicas > 0:
+        _trigger_reasons.append('live volume collapsed ({})'.format(_collapse_reason))
+    if opts.mc_error_replicas > 0:
+        _neff_target = pinned_params.get('neff', None)
+        if sqrt_var_over_res > opts.mc_error_sigma_trigger:
+            _trigger_reasons.append('sigma={:.3f}>{:.2f}'.format(float(sqrt_var_over_res), opts.mc_error_sigma_trigger))
+        if _khat is not None and _khat > opts.mc_error_khat_trigger:
+            _trigger_reasons.append('khat={:.2f}>{:.2f}'.format(float(_khat), opts.mc_error_khat_trigger))
+        if _n_ess is not None and _n_ess < opts.mc_error_ess_trigger:
+            _trigger_reasons.append('ESS={:.1f}<{:g}'.format(float(_n_ess), opts.mc_error_ess_trigger))
+        if _neff_target is not None and float(neff) < float(_neff_target):
+            _trigger_reasons.append('neff={:.1f}<target {:g} (ran out of nmax)'.format(float(neff), float(_neff_target)))
+    if _trigger_reasons:
+        print(" [mc error] REPLICATING ({} extra cold runs): ".format(int(opts.mc_error_replicas)) + ", ".join(_trigger_reasons))
+        _rep_lnZ = [float(log_res)]; _rep_sig = [float(sqrt_var_over_res)]; _rep_neff = [float(neff)]
+        # Keep EVERY replica's samples.  Exporting only the highest-n_eff replica made the
+        # posterior disagree with the evidence it was reported alongside: lnZ is the linear mean
+        # over K replicas, so the samples must represent that same mixture.  Worse, n_eff is the
+        # wrong selector -- it measures weight CONCENTRATION, not coverage, so a mode-collapsed
+        # replica scores HIGHEST and would be the one exported.  (Measured elsewhere in this work:
+        # the copy with the highest n_eff in its arm was the most biased, 11 nats low.)
+        _rep_rvs = [sampler._rvs]
+        # Collapse status must be aggregated over EVERY replica that ends up in the pool.
+        # The exported posterior is the pooled mixture, so one collapsed replica taints it
+        # even if the first run was healthy -- and the status sidecar is written from
+        # dict_return, which only ever held the FIRST run's verdict.
+        _rep_collapsed = [bool(dict_return.get('live_volume_collapsed', False))
+                          if isinstance(dict_return, dict) else False]
+        _rep_collapse_why = [("run 1: " + dict_return['collapse_reason'])
+                             if isinstance(dict_return, dict) and dict_return.get('collapse_reason')
+                             else None]
+        for _irep in range(int(opts.mc_error_replicas)):
+            # cold restart: drop the sample cache and reset per-parameter adaptation so
+            # this replica is independent of the runs before it (AV cold-starts by
+            # construction; the AC/GPU sampler needs the explicit reset; samplers
+            # without reset_sampling rerun warm -- still an independent realization of
+            # the draws, just not of the adaptation).
+            sampler._rvs = {}
+            # PORTFOLIO first.  Neither mcsamplerPortfolio, mcsamplerAdaptiveVolume nor
+            # mcsamplerEnsemble defines reset_sampling (only the AC/GPU sampler does), so the
+            # loop below was a no-op for them -- and because portfolio.integrate_log does NOT
+            # call self.setup(), a portfolio replica reran with the PREVIOUS replica's adapted
+            # grid and fitted GMM.  Such replicas share the very adaptation whose failure they
+            # exist to detect, so their scatter understates the true MC error.  clear_warm_state
+            # rebuilds every member from its original setup arguments.  (Standalone AV is
+            # already cold: its integrate_log calls setup() itself.)
+            # reset_adaptation() is the FULL reset: member proposals via clear_warm_state PLUS the
+            # portfolio's own learned state (draw allocation, quality EMAs and their counts, probe
+            # pointer, iteration counter, n_ess histories).  Clearing only the members leaves each
+            # replica scheduling itself from what the previous replicas learned, so they are not
+            # adaptation-independent and the between-replica scatter -- the whole quantity being
+            # measured -- still understates the error.
+            if hasattr(sampler, 'reset_adaptation'):
+                sampler.reset_adaptation()
+            elif hasattr(sampler, 'clear_warm_state'):
+                sampler.clear_warm_state()
+            if hasattr(sampler, 'reset_sampling'):
+                for _p in list(getattr(sampler, 'params_ordered', [])):
+                    try:
+                        sampler.reset_sampling(_p)
+                    except Exception:
+                        pass
+            try:
+                _r2 = sampler.integrate(like_to_integrate, *unpinned_params, **pinned_params)
+            except Exception as _e_rep:
+                print(" [mc error] replica {} failed ({}); continuing with {} results".format(_irep + 1, _e_rep, len(_rep_lnZ)))
+                continue
+            if (_r2 is None) or (_r2[0] is None):
+                continue
+            _res2, _var2, _neff2, _dd2 = _r2
+            if not(opts.internal_use_lnL):
+                _lr2 = numpy.log(_res2); _sig2 = numpy.sqrt(_var2)/_res2
+            else:
+                _lr2 = _res2; _sig2 = numpy.exp(_var2/2 - _lr2)
+            _kh2, _sb2, _ne2, _unused = _extract_mc_diag(_dd2)
+            if _sb2 is not None and numpy.isfinite(_sb2):
+                _sig2 = max(float(_sig2), float(_sb2))
+            _rep_lnZ.append(float(_lr2)); _rep_sig.append(float(_sig2)); _rep_neff.append(float(_neff2))
+            _rep_rvs.append(sampler._rvs)
+            _rep_collapsed.append(bool(_dd2.get('live_volume_collapsed', False))
+                                  if isinstance(_dd2, dict) else False)
+            if isinstance(_dd2, dict) and _dd2.get('collapse_reason'):
+                _rep_collapse_why.append("replica {}: {}".format(_irep + 1, _dd2['collapse_reason']))
+        # POOL the replicas rather than picking one, so the exported posterior is a draw from the
+        # same mixture the reported evidence describes.
+        #   Zhat = (1/K) sum_k (1/n_k) sum_i w_ki    ->    pooled weight  w_ki / (K n_k)
+        # which is exactly the importance weight against the POOLED proposal density
+        # q'_ki = q_ki * K * n_k  (pick a replica uniformly, then draw one of its n_k samples).
+        # Folding the factor into log_joint_s_prior is therefore a statement of the real pooled
+        # sampling density, not a fudge -- and it leaves every downstream weight computation
+        # (which all form log_integrand + log_joint_prior - log_joint_s_prior) correct untouched.
+        sampler._rvs = _pool_replica_rvs(_rep_rvs, sampler, rep_lnZ=_rep_lnZ,
+                                         already_resampled=bool(opts.fairdraw_extrinsic_output),
+                                         use_lnL=rvs_integrand_is_lnL)
+        # The pooled export is a mixture over every replica in _rep_rvs, so its collapse
+        # status is the OR over them: one collapsed member taints the pool.  Fold that back
+        # into dict_return, which is what the status sidecar and the downstream reporting
+        # read -- otherwise a healthy first run followed by a collapsed replica would export
+        # the pooled posterior while recording "collapsed": false.
+        if isinstance(dict_return, dict):
+            _any_collapsed = any(_rep_collapsed)
+            _why = [w for w in _rep_collapse_why if w]
+            dict_return['live_volume_collapsed'] = bool(_any_collapsed)
+            dict_return['n_replicas_pooled'] = int(len(_rep_lnZ))
+            dict_return['n_replicas_collapsed'] = int(sum(1 for c in _rep_collapsed if c))
+            if _any_collapsed:
+                dict_return['collapse_reason'] = "; ".join(_why) if _why else "a pooled replica collapsed"
+                print(" [mc error] *** LIVE VOLUME COLLAPSED in {} of {} pooled replicas ***".format(
+                    dict_return['n_replicas_collapsed'], dict_return['n_replicas_pooled']))
+                print(" [mc error] {}".format(dict_return['collapse_reason']))
+                print(" [mc error] the POOLED posterior therefore contains degenerate samples.")
+        # Re-apply the rejection gate to the POOLED verdict.  The early call above saw only
+        # the first run, so without this a healthy first run followed by a collapsed replica
+        # would export the pooled, collapsed result with --reject-collapsed-live-volume set.
+        _reject_if_collapsed(dict_return, "pooled over {} replicas".format(len(_rep_lnZ)))
+        if len(_rep_lnZ) > 1:
+            _K = len(_rep_lnZ)
+            _l = numpy.array(_rep_lnZ); _s = numpy.array(_rep_sig)
+            _lref = numpy.max(_l)
+            _Z = numpy.exp(_l - _lref)
+            _Zbar = numpy.mean(_Z)
+            _lnZ_comb = numpy.log(_Zbar) + _lref          # linear mean over replicas: unbiased in Z
+            _sig_prop = float(numpy.sqrt(numpy.sum((_s*_Z)**2))/(_K*_Zbar))
+            _sig_scatter = float(numpy.std(_l, ddof=1)/numpy.sqrt(_K))   # t_{K-1}: small-K quantiles are wider than Gaussian, hence the max() below
+            _sig_comb = max(_sig_prop, _sig_scatter)
+            print(" [mc error] combined {} replicas: lnZ {} -> {:.4f} (shift {:+.3f} vs first); sigma propagated {:.3f} / scatter {:.3f} -> {:.3f}; neff {} -> {:.1f}".format(
+                _K, numpy.array2string(_l + manual_avoid_overflow_logarithm, precision=3), float(_lnZ_comb + manual_avoid_overflow_logarithm), float(_lnZ_comb - _rep_lnZ[0]),
+                _sig_prop, _sig_scatter, _sig_comb, numpy.array2string(numpy.asarray(_rep_neff), precision=1), float(numpy.sum(_rep_neff))))
+            log_res = float(_lnZ_comb)
+            sqrt_var_over_res = _sig_comb
+            # Report the POOLED n_eff, not the sum.  The sum claims the posterior carries the
+            # combined effective sample size of K independent runs, which is only true if they
+            # agree; when they disagree -- the case these replicas exist to detect -- the pooled
+            # Kish n_eff is smaller, and that disagreement is exactly what should show up here.
+            _neff_pooled = _kish_neff_of_rvs(sampler._rvs)
+            neff = float(_neff_pooled) if _neff_pooled is not None else float(numpy.sum(_rep_neff))
+            if _neff_pooled is not None:
+                print(" [mc error] pooled posterior: {} samples, Kish n_eff {:.1f} (sum over replicas was {:.1f})".format(
+                    len(numpy.atleast_1d(list(sampler._rvs.values())[0])) if sampler._rvs else 0,
+                    float(_neff_pooled), float(numpy.sum(_rep_neff))))
+            # keep the (res, var) pair consistent for any downstream reader
+            if not(opts.internal_use_lnL):
+                res = numpy.exp(log_res); var = (sqrt_var_over_res*res)**2
+            else:
+                res = log_res; var = 2*numpy.log(sqrt_var_over_res) + 2*log_res
 
     # Calibration MC error budget.  The sampler's `var` is the EXTRINSIC sampling
     # variance with the cal draw set held FIXED -- it is structurally blind to the
@@ -2511,14 +3600,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # sampler (mcsamplerGPU) stores log_weights = tempering_exp*lnL + ln(prior) - ln(s_prior)
         # (the adapt-weight-exponent, e.g. 0.1, baked in) -- fitting the GMM to those flattened
         # weights places the proposal in the WRONG region.  GMM's own _rvs has no tempering.
-        if 'log_integrand' in _rvs and 'log_joint_prior' in _rvs and 'log_joint_s_prior' in _rvs:
-          _lw = np.array(_rvs['log_integrand'] + _rvs['log_joint_prior'] - _rvs['log_joint_s_prior'], dtype=float)
-        elif 'integrand' in _rvs and 'joint_prior' in _rvs and 'joint_s_prior' in _rvs:
-          _ig = np.asarray(_rvs['integrand'], dtype=float); _jp = np.asarray(_rvs['joint_prior'], dtype=float); _jsp = np.asarray(_rvs['joint_s_prior'], dtype=float)
-          _keep = (_ig > 0) & (_jp > 0) & (_jsp > 0)
-          _lw = np.full(len(_ig), -np.inf); _lw[_keep] = np.log(_ig[_keep]) + np.log(_jp[_keep]) - np.log(_jsp[_keep])
-        else:
-          raise Exception("no weights in sampler._rvs (keys={})".format(list(_rvs.keys())))
+        # Use the ONE canonical derivation.  The inline copy that used to live here carried the
+        # same linear-only assumption ln_weights_from_rvs was just fixed for, so a GMM run storing
+        # lnL in 'integrand' fitted the handoff proposal to log(lnL)-flattened weights.
+        _lw = np.asarray(ln_weights_from_rvs(_rvs, convert=identity_convert,
+                                             use_lnL=rvs_integrand_is_lnL), dtype=float)
         # extrinsic samples + bounds for the standard groups that this run actually sampled.
         _ext_params = [p for grp in _ehmod.STANDARD_GROUPS for p in grp]
         _ext_samples = {p: np.array(_rvs[p], dtype=float).reshape(-1) for p in _ext_params if p in _rvs}
@@ -2540,6 +3626,48 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             opts.extrinsic_proposal_output, len(_ext['groups']), [g['params'] for g in _ext['groups']]))
       except Exception as _e_eho:
         print(" WARNING: could not write extrinsic proposal to {} ({}); continuing.".format(opts.extrinsic_proposal_output, _e_eho))
+
+    # MACHINE-READABLE INTEGRATOR STATUS, beside every other artifact.
+    # A collapsed run is not distinguishable from a converged one in the .dat/.grid/XML
+    # products: their schemas are positional and consumed by CIP, so a marker cannot go in
+    # a new column without breaking every reader.  A sidecar can, and unlike a stdout
+    # warning it survives into the pipeline.  Written on EVERY run, so "collapsed": false
+    # is an explicit statement rather than an inference from a missing file -- downstream
+    # can require the file and fail loudly on an integrator too old to write one.
+    if opts.output_file and isinstance(dict_return, dict):
+        _fn_status = opts.output_file + "_" + str(indx_event) + "_" + "integrator_status.json"
+        try:
+            # Same convention as the .dat writer below, INCLUDING its explicit
+            # `opts.event is None -> -1` case.  int(None) raises, and because the write is
+            # wrapped defensively that would have silently suppressed the whole sidecar for
+            # any --sim-xml run without --event -- turning a missing marker into the default.
+            _event_id = opts.event if (opts.sim_xml and opts.event is not None) else -1
+            _status = {"event_id": int(_event_id),
+                       "indx_event": int(indx_event),
+                       "sampler_method": opts.sampler_method,
+                       "collapsed": bool(dict_return.get('live_volume_collapsed', False)),
+                       "collapse_reason": dict_return.get('collapse_reason', ''),
+                       "lnL": float(log_res + manual_avoid_overflow_logarithm),
+                       "sigma_lnL": float(sqrt_var_over_res),
+                       "neff": float(sampler.identity_convert(neff)) if neff is not None else None,
+                       "ntotal": int(sampler.ntotal)}
+            # NOTE on pooling: lnL/sigma_lnL above are the POOLED values, while the
+            # per-run diagnostics below (ESS, k-hat, live-set counts) are the first run's --
+            # they are per-integration quantities and the pool has no single value for them.
+            # n_replicas_pooled/_collapsed say how many runs are behind the export, and
+            # collapse_reason names each collapsed one individually.
+            for _k in ('pareto_khat', 'n_ESS', 'n_live_final', 'n_empty_cycles',
+                       'n_live_collapses', 'n_warm_seed', 'n_warm_seed_rank', 'V_warm_start',
+                       'n_replicas_pooled', 'n_replicas_collapsed'):
+                if _k in dict_return and dict_return[_k] is not None:
+                    _status[_k] = float(dict_return[_k]) if not isinstance(dict_return[_k], bool) else dict_return[_k]
+            with open(_fn_status, 'w') as _f_status:
+                json.dump(_status, _f_status, indent=1, sort_keys=True)
+            if _status["collapsed"]:
+                print(" [mc error] collapse recorded for downstream in {}".format(_fn_status))
+        except Exception as _e_status:
+            # Never let a diagnostic file abort a run that otherwise succeeded.
+            print(" WARNING: could not write {} ({}); continuing.".format(_fn_status, _e_status))
 
     # Report results
     if opts.output_file and opts.sim_grid:
@@ -2633,22 +3761,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           fname_output_dgrid = opts.output_file +"_"+str(indx_event)+"_" + ".dgrid"
           dL = np.array(sampler._rvs["distance"])
           rvs = sampler._rvs
-          if 'log_weights' in rvs:
-            ln_wts = np.array(rvs['log_weights'])
-          elif 'log_integrand' in rvs:
-            ln_wts = np.array(rvs['log_integrand'] + rvs['log_joint_prior'] - rvs['log_joint_s_prior'])
-          elif 'integrand' in rvs and 'joint_prior' in rvs and 'joint_s_prior' in rvs:
-            # mcsamplerEnsemble / GMM stores raw (non-log) integrand and priors.
-            # Drop rejected/out-of-support samples (zero integrand or zero prior
-            # contribution) by setting log weight to -inf.
-            integrand = np.asarray(rvs['integrand'])
-            jp = np.asarray(rvs['joint_prior'])
-            jsp = np.asarray(rvs['joint_s_prior'])
-            keep = (integrand > 0) & (jp > 0) & (jsp > 0)
-            ln_wts = np.full(len(integrand), -np.inf)
-            ln_wts[keep] = np.log(integrand[keep]) + np.log(jp[keep]) - np.log(jsp[keep])
-          else:
-            raise Exception("distance grid export: cannot find weights in sampler._rvs (keys={})".format(list(rvs.keys())))
+          ln_wts = ln_weights_from_rvs(rvs, use_lnL=rvs_integrand_is_lnL)
           # Distance prior at each sample. Use the sampler's stored prior_pdf
           # callable; this matches whatever ILE actually integrated against
           # (volumetric, pseudo_cosmo, redshift, ...).
@@ -2730,16 +3843,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # .dgrid.
           rvs = sampler._rvs
           _rvs = lambda k: np.asarray(identity_convert(rvs[k]), float)  # cupy-safe column read
-          if 'log_weights' in rvs:
-            ln_w_full = _rvs('log_weights')
-          elif 'log_integrand' in rvs:
-            ln_w_full = _rvs('log_integrand') + _rvs('log_joint_prior') - _rvs('log_joint_s_prior')
-          else:
-            integrand = _rvs('integrand')
-            jp = _rvs('joint_prior'); jsp = _rvs('joint_s_prior')
-            keep = (integrand > 0) & (jp > 0) & (jsp > 0)
-            ln_w_full = np.full(len(integrand), -np.inf)
-            ln_w_full[keep] = np.log(integrand[keep]) + np.log(jp[keep]) - np.log(jsp[keep])
+          ln_w_full = ln_weights_from_rvs(rvs, convert=identity_convert, use_lnL=rvs_integrand_is_lnL)
           # Split K into core (reweight) and wing (fresh) slices.  --distance-slice-all-fresh
           # forces zero reweight core: EVERY slice is a fresh fixed-d integration.  Use it
           # when the main-loop n_eff is small -- the reweight core is then starved (the same
@@ -2776,6 +3880,11 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # likelihood is flat in d and fresh wings are wasted compute.
           d_wings = np.array([])
           lnL_wings = np.array([]); sigmaL_wings = np.array([]); neff_wings = np.array([]); ntotal_wings = np.array([], dtype=int)
+          # Block size for the fresh per-slice integrations: inherit --n-chunk (the
+          # main extrinsic loop's block size) unless --distance-slice-chunk says
+          # otherwise. Resolved once here so the advisories print once per event.
+          slice_chunk = distance_slices.resolve_slice_chunk(
+              getattr(opts, "distance_slice_chunk", None), opts.n_chunk)
           if all_fresh:
             # All K slices fresh.  Place centers at posterior-d quantiles: rough
             # placement is fine even at low n_eff -- the precision of each row comes
@@ -2786,6 +3895,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 sampler, like_to_integrate, d_wings,
                 n_max=int(opts.distance_slice_wing_nmax),
                 n_eff_target=int(opts.distance_slice_wing_neff),
+                n_chunk=slice_chunk,
                 return_lnL=return_lnL,
             )
             lnL_wings = lnL_wings_raw + manual_avoid_overflow_logarithm
@@ -2812,6 +3922,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                     sampler, like_to_integrate, d_wings,
                     n_max=int(opts.distance_slice_wing_nmax),
                     n_eff_target=int(opts.distance_slice_wing_neff),
+                    n_chunk=slice_chunk,
                     return_lnL=return_lnL,
                 )
                 # fresh_sample_slices returns ln integral of L_with_overflow;
@@ -2914,8 +4025,18 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
       else:
             samples["latitude"] = samples["declination"]
             samples["longitude"] = samples["right_ascension"]
+      # NOTE: the sim_inspiral XML schema is deliberately sparse -- it carries lnL only (below, mapped
+      # to alpha1), NOT the importance weight.  It does NOT persist log_joint_prior/log_joint_s_prior,
+      # so a downstream consumer CANNOT reconstruct the true weight (log_integrand + log_joint_prior -
+      # log_joint_s_prior) from this file and must not reweight it by likelihood for a weighted-posterior
+      # or shape check.  For richer, ASCII, per-sample output that carries the full log-weight, use
+      # --extrinsic-proposal-output (writes lnL + ln(prior) - ln(s_prior)) or --calibration-export-posterior.
       if "log_integrand" in samples:
           samples["loglikelihood"] = samples["log_integrand"] +  manual_avoid_overflow_logarithm
+      elif rvs_integrand_is_lnL:
+          # raw-field record whose 'integrand' ALREADY holds lnL (GMM under return_lnI): logging it
+          # again would write log(lnL) into alpha1 -- and nan for every row with lnL < 0.
+          samples["loglikelihood"] = samples["integrand"] + manual_avoid_overflow_logarithm
       else:
           samples["loglikelihood"] = numpy.log(samples["integrand"]) + manual_avoid_overflow_logarithm  # export with consistent offset
       if not opts.rom_integrate_intrinsic:
@@ -3103,6 +4224,25 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     # integrate_log() fairdraw does self._rvs[key][indx_list] and raises
     # "list indices must be integers or slices, not ndarray". This silently dropped
     # every binary after the first in each ILE batch whenever fairdraw export was on.
+    # SEQUENTIAL WARM-START SEED must be captured BEFORE the _rvs wipe below.  The caller's capture
+    # block runs after this function returns, by which point _rvs is empty -- so
+    # --sampler-sequential-warmstart was silently inert (it always saw no samples and never seeded
+    # the next point).  Stash the seed here instead; the caller consumes _SEQ_WS_PENDING.
+    global _SEQ_WS_PENDING
+    _SEQ_WS_PENDING = None
+    if getattr(opts, 'sampler_sequential_warmstart', False) and hasattr(sampler, 'bootstrap_from_samples'):
+        try:
+            _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
+            if _lnkey is not None and all(p in sampler._rvs for p in sampler.params_ordered):
+                _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel()
+                if _lnv.size >= 2 and np.any(np.isfinite(_lnv)):
+                    _cols = np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel()
+                                       for p in sampler.params_ordered]).T
+                    _keep = _lnv > (np.nanmax(_lnv) - opts.sampler_sequential_warmstart_deltalnL)
+                    _SEQ_WS_PENDING = _cols[_keep] if np.sum(_keep) >= 2 else (_cols if _cols.shape[0] >= 2 else None)
+        except Exception as _e_cap:
+            print("  [seq warm-start] could not capture seed ({})".format(_e_cap))
+
     sampler._rvs = {}
 
     return res
@@ -3111,16 +4251,76 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
 lnL_sofar = -np.inf
 no_adapt_sky = False
 
+# L3: load a proposal field (from a previous ILE iteration) once, if provided
+_proposal_field = None
+if opts.extrinsic_proposal_field and hasattr(sampler, 'bootstrap_from_samples'):
+    try:
+        from RIFT.integrators.proposal_field import ProposalField, lambda_from_P
+        _proposal_field = ProposalField.load(opts.extrinsic_proposal_field)
+        print(" [proposal-field] loaded {} entries from {}".format(len(_proposal_field), opts.extrinsic_proposal_field))
+    except Exception as _e_pf:
+        print(" [proposal-field] could not load {} ({}); ignoring".format(opts.extrinsic_proposal_field, _e_pf))
+        _proposal_field = None
+
+_seq_ws_proposal = None   # L1 sequential hot-feed: previous point's extrinsic seed (in-memory)
+_SEQ_WS_PENDING = None    # seed captured INSIDE analyze_event, before it wipes sampler._rvs
 for indx in numpy.arange(len(P_list)):
  try:
+  # UNCONDITIONAL per-point reset.  mcsamplerPortfolio.integrate_log does NOT call self.setup()
+  # (it is commented out at mcsamplerPortfolio.py:874), so member state -- including the AV live
+  # volume contracted around the PREVIOUS point -- survives into the next integral.  With
+  # --n-events-to-analyze > 1 the second point then draws from a box shaped by the first, and if
+  # its support falls outside, lnZ is biased low with a healthy-looking n_eff and no error.  This
+  # is independent of any warm-start feature: it bites users who never enable one.  Reset FIRST,
+  # so an intentional seed installed just below survives.
+  if indx > 0:
+    _clear_warm_state(sampler)
+  # Warm-start this point's extrinsic integral.  Order is preserved (no grid
+  # reordering), so a truncated worker still drops a spatially-unbiased subset; a
+  # coverage floor + inflation margin make a poorly-matched transfer degrade to
+  # cold rather than bias.  AV only.  Priority: L3 proposal field (cross-iteration)
+  # over L1 sequential (same worker).
+  if _proposal_field is not None and len(_proposal_field) > 0:
+    try:
+      from RIFT.integrators.proposal_field import lambda_from_P
+      _seed = _proposal_field.warm_seed_for(lambda_from_P(P_list[indx]), k=1)
+      if _seed is not None and len(_seed) >= 2:
+        sampler.bootstrap_from_samples(_seed,
+                                       params=_proposal_field.extrinsic_params,
+                                       cover_frac=opts.extrinsic_proposal_field_cover_frac,
+                                       inflate=opts.extrinsic_proposal_field_inflate)
+        print("  [proposal-field] point {} seeded from nearest entry ({} pts, cover_frac={}, inflate={})".format(
+            indx, len(_seed), opts.extrinsic_proposal_field_cover_frac, opts.extrinsic_proposal_field_inflate))
+    except Exception as _e_pfq:
+      print("  [proposal-field] seed skipped for point {} ({})".format(indx, _e_pfq))
+      _clear_warm_state(sampler)
+  elif opts.sampler_sequential_warmstart and (_seq_ws_proposal is not None) and hasattr(sampler, 'bootstrap_from_samples'):
+    try:
+      sampler.bootstrap_from_samples(_seq_ws_proposal,
+                                     cover_frac=opts.sampler_sequential_warmstart_cover_frac)
+      print("  [seq warm-start] point {} seeded from previous point ({} pts, cover_frac={})".format(
+          indx, len(_seq_ws_proposal), opts.sampler_sequential_warmstart_cover_frac))
+    except Exception as _e_sw:
+      print("  [seq warm-start] skipped for point {} ({})".format(indx, _e_sw))
+      _clear_warm_state(sampler)
   res = analyze_event(P_list, indx, data_dict, psd_dict, fmax, opts)
+  # capture this point's converged high-likelihood extrinsic samples as the seed
+  # for the next point (in-memory; no files leave the job)
+  if opts.sampler_sequential_warmstart and hasattr(sampler, 'bootstrap_from_samples'):
+    # Consume the seed captured inside analyze_event BEFORE it wiped sampler._rvs.  Reading
+    # sampler._rvs here would always find it empty (that wipe is required: it fixes a fairdraw
+    # export bug that silently dropped every binary after the first).
+    _seq_ws_proposal = _SEQ_WS_PENDING
+    if _seq_ws_proposal is None:
+      print("  [seq warm-start] no seed captured from point {}".format(indx))
+    _clear_warm_state(sampler)   # clear before the next point (re-seeded above if enabled)
   # abort if horrible (nan event) - done with 'raise'
   lnL_sofar = np.max([lnL_sofar,res])
   if opts.force_reset_all:  # depends on integrator!  May not always be availble
     if opts.sampler_method == "adaptive_cartesian_gpu": 
       for name in sampler.params:
         sampler.reset_sampling(name)
-    elif opts.sampler_method == "GMM":
+    elif use_gmm_args:   # standalone GMM or a portfolio with a GMM member
       # reset the GMM dictionary
       for component in gmm_dict:
           gmm_dict[component] = None
@@ -3141,6 +4341,11 @@ for indx in numpy.arange(len(P_list)):
  except Exception as exception_failure:
   print( "  ===> FAILED ANALYSIS <==== ")
   print( exception_failure)
+  # The message alone ("boolean index did not match...", "index out of range", ...) is rarely enough
+  # to locate a failure inside the sampler stack, and this handler is often the ONLY record a batch
+  # job leaves behind.  Print the traceback too -- it costs nothing on the success path.
+  import traceback as _tb_mod
+  _tb_mod.print_exc()
   if opts.internal_make_empty_file_on_error:
     fname_output_txt = opts.output_file +"_"+str(indx)+"_" + ".dat"
     open(fname_output_txt,'a').close()  # create empty file
@@ -3170,7 +4375,34 @@ for indx in numpy.arange(len(P_list)):
   #  if failure_mode in str(exception_failure):
   #    sys.exit(opts.custom_fail_codes[i])
 
-  print( " Probable reasons: SEOB nyquist or starting frequency limit or signal duration ")
+  # Attribute the failure to something the traceback actually supports.  This line used to
+  # read "Probable reasons: SEOB nyquist or starting frequency limit or signal duration"
+  # UNCONDITIONALLY, for every exception raised anywhere in the block above.  That pointed
+  # the high-SNR integrator collapse below -- the dominant extrinsic-export failure at
+  # rho_net >~ 100, where >90% of exports died -- at the waveform generation code instead.
+  # The NAMED exception is the reliable signal.  The bare numpy/cupy empty-reduction error
+  # is kept only as a fallback for trees that predate LiveVolumeCollapse -- and it must be
+  # corroborated by the traceback, because this handler also covers waveform generation,
+  # data conditioning and the whole likelihood stack, any of which could reduce over an
+  # empty array for reasons that have nothing to do with the live volume.
+  _tb_txt = _tb_mod.format_exc()
+  _is_named_collapse = (mcsampler_AV_ok
+                        and isinstance(exception_failure, mcsamplerAdaptiveVolume.LiveVolumeCollapse))
+  _is_legacy_collapse = ('zero-size array' in str_err and 'no identity' in str_err
+                         and 'mcsamplerAdaptiveVolume' in _tb_txt)
+  if _is_named_collapse or _is_legacy_collapse:
+    print( " Probable reason: the INTEGRATOR's live volume collapsed -- no samples survived the")
+    print( " adaptive-volume likelihood threshold.  This is NOT a waveform problem: nyquist, start")
+    print( " frequency and segment duration are all irrelevant to it.  At high network SNR the")
+    print( " likelihood underflows (exp() of a lnL more than ~745 nats below the peak returns 0),")
+    print( " so a cold extrinsic prior yields almost no finite draw.  Narrow the extrinsic prior")
+    print( " (--limit-right-ascension/--limit-declination, tighter --d-min/--d-max) or seed the")
+    print( " sampler with --sampler-warmstart-retry-neff.")
+  elif ('nyquist' in str_err.lower() or 'srate' in str_err.lower() or 'duration' in str_err.lower()
+        or 'ChooseFDWaveform' in str_err or 'ChooseTDWaveform' in str_err or 'gwsignal' in str_err):
+    print( " Probable reasons: SEOB nyquist or starting frequency limit or signal duration ")
+  else:
+    print( " Cause not classified -- read the traceback above; it names the failing call.")
   print( " Skipping the following binary! ")
   # Zero out extrinsic parameters -- these are CUDA-populated / meaningless, but could cause errors if populated
   P_list[indx].incl = P_list[indx].tref = P_list[indx].dist = P_list[indx].phiref = P_list[indx].psi =P_list[indx].theta = P_list[indx].phi =0

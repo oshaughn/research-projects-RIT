@@ -25,7 +25,10 @@ platforms = ["linux-64", "osx-64", "osx-arm64"]
 [dependencies]
 python = ">=3.11,<3.13"
 pip = "*"
-setuptools = "*"
+# pygsl_lite 0.1.8 calls distutils.util.spawn with the pre-84 positional API.
+# Keep its build backend compatible until pygsl_lite ships the upstream fix.
+setuptools = "<84"
+setuptools-scm = "*"
 wheel = "*"
 pytest = "*"
 coverage = "*"
@@ -62,6 +65,11 @@ pyseobnr = "*"
 asimov = ">=0.5.6"
 asimov-gwdata = ">=0.4.0"
 
+[pypi-options]
+# Build only this legacy sdist in the conda environment so the setuptools
+# compatibility bound above also governs its build backend.
+no-build-isolation = ["pygsl-lite"]
+
 [feature.swig-pre44.dependencies]
 swig = "<4.4.0"
 
@@ -85,6 +93,7 @@ PATH = "$PIXI_PROJECT_ROOT/MonteCarloMarginalizeCode/Code/bin:$PATH"
 install-rift = "python -m pip install --no-deps --editable ."
 swig-version = "swig -version"
 import-check = "python .travis/test-all-mod.py"
+dependency-compat-check = "python .travis/test-dependency-compat.py"
 help-check = "bash .travis/test-all-bin.sh"
 sim-manager-check = "python MonteCarloMarginalizeCode/Code/test/test_simulation_manager.py -v"
 test-likelihood = "python MonteCarloMarginalizeCode/Code/test/test_likelihood.py"

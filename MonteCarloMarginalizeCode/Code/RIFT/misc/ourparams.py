@@ -15,10 +15,10 @@ import lal
 from igwn_ligolw import utils, lsctables, table
 
 try:
-    hasNR=True
-    import NRWaveformCatalogManager3 as nrwf
-except:
-    hasNR=False
+    from RIFT.physics._nrwf_loader import get_nrwf as _rift_get_nrwf
+    nrwf, hasNR = _rift_get_nrwf()
+except ImportError:
+    nrwf = None; hasNR = False
     print(" - no NR waveforms - ")
 
 rosDebugMessagesDictionary = {}   # Mutable after import (passed by reference). Not clear if it can be used by caling routines

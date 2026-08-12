@@ -8,7 +8,7 @@ development tree is rift_O4d.
     canaries, hyperpipeline ASCII workflow support, parsimonious-placement preview, EFPE and standalone NR-frame
     utilities, plot_RIFT diagnostics, and GPU/CuPy portability fixes.
 
-** (rc0)
+** (rc1)
   - parsimonious-placement (preview): new RIFT.misc.tracer_placement engine (SMC+MALA, birth-death,
     and SMC-MALA+BD samplers; pluggable RF / RBF / polynomial / quadratic fits) plus two
     opt-in CLI tools that mirror the existing puffball tools' I/O contract:
@@ -39,9 +39,10 @@ development tree is rift_O4d.
     rollout plan, and references.
   - distance grid creation and (AD-compatible) fit
   - RiftFloat wrapper for portability across platforms with modern python/numpy
-  - ascii data format; waveforms (epfe);  container auto-selection framework (first draft); cepp_alternate now feature-parity;
+  - ascii data format; waveforms (epfe);  container auto-selection framework ; cepp_alternate now feature-parity;
     mcsamplerEnsemble full GPU path
-  - multiple demos
+  - demos: calmarg, lisa, distance grids, likelihood export, multiple GPU use, hyperpipe
+  - tools: importing cal posteriors from other codes
   - (rc1 pending) In-loop calibration marginalization: move calibration draws into ILE, add loop and fused
     GPU kernels (including distance-marginalized and phase-marginalized paths), export cal/time diagnostics,
     account for calibration Monte-Carlo error in reported uncertainty, add adaptive/pilot calibration proposal
@@ -50,16 +51,18 @@ development tree is rift_O4d.
     breadcrumbs across iterations, seed later ILE jobs from those proposals, add GMM proposal/adaptation
     controls and diagnostics, improve log-domain covariance/ESS handling, and thread the cal/extrinsic seed
     barriers through CEPP/puffball workflows.
-  - (rc1 pending) Differentiable JAX likelihood/export work: optional jax_gp interpolators, differentiable
-    export artifacts, quad-GP and RF/GP validation tooling, jax_cip experiments, and a JAX ILE driver with
-    AD-compatible extrinsic likelihood, distance/phase marginalization, network coordinates, and gradient-aware
+  - Likelihood export Differentiable JAX likelihood/export work: optional jax_gp interpolators, differentiable
+    export artifacts, quad-GP and RF/GP validation tooling, jax_cip experiments
+  - JAX ILE driver with AD-compatible extrinsic likelihood, distance/phase marginalization, network coordinates, and gradient-aware
     samplers. These remain optional extras and are skipped by base CI when JAX is not installed.
-  - (rc1 pending) LISA support: add a LISA compatibility layer, response import path, standalone helper
+  -  LISA support: add a LISA compatibility layer, response import path, standalone helper
     contract, LISA ILE scaffold, and synthetic operational/import tests.
-  - (rc1 pending) EOS/coordinate and workflow updates: add NMB/PCA/tabular EOS sequence dispatch and
+  - EOS/coordinate and workflow updates: add NMB/PCA/tabular EOS sequence dispatch and
     single-EOS-index evidence support, coordinate-plugin hooks for posterior plotting and puffing, Morisaki-frame
     and aligned-spin coordinate helpers for GP/JAX studies, container-universe/OSDF scitokens support, and
     per-machine container image selection.
+  - ILE 'fanout' submission can use multiple GPUs on one host (RIFT_ILE_GPU_FANOUT)
+  - Qlm interpolated in factored_likelihood...NoLoop (option)
 
 0.0.17.9
 ------------

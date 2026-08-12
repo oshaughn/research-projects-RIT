@@ -1,7 +1,7 @@
 # RIFT containers
 
 This directory holds the multi-architecture container build and the "container
-family" deployment mechanism. It has two related but independent pieces:
+family" deployment mechanism. It has three related pieces:
 
 1. **Multi-target build** — build a *family* of RIFT containers (different base
    image + cupy/CUDA variant, targeting different GPU compute capabilities) from
@@ -9,6 +9,9 @@ family" deployment mechanism. It has two related but independent pieces:
 2. **Family deployment** — let `SINGULARITY_RIFT_IMAGE` point at a YAML
    *manifest* describing that family, so each Condor job picks the right image
    for the machine it lands on.
+3. **Survey + warmup scans** — survey a target Condor GPU pool and emit
+   representative CuPy/JAX warmup jobs for the image bands that pool actually
+   uses.
 
 The top-level [`rift_container.def`](../rift_container.def) is unchanged and
 remains the default single-image build.
@@ -37,9 +40,13 @@ containers/build_family.sh [--render-only] [OUTPUT_DIR]
 All matrix entries share the pip set in
 [`requirements-container.txt`](requirements-container.txt) (the cupy wheel is the
 only per-entry difference). That file is the **single source of truth** also
-consumed by the CI dependency canary (below). `build_family.sh` stages it into
-each image via the `.def`'s `%files` section, so the build does **not** depend on
-the cloned RIFT branch shipping the file.
+consumed by the CI dependency canary (below). The isolated PEP 517 build
+environments additionally use
+[`constraints-container-build.txt`](constraints-container-build.txt) for narrow
+build-tool compatibility bounds that do not pin the runtime solve.
+`build_family.sh` stages both files into each image via the `.def`'s `%files`
+section, so the build does **not** depend on the cloned RIFT branch shipping
+them.
 
 ### Build troubleshooting
 
@@ -188,7 +195,44 @@ wrapper to exercise it): that the pilot evaluates the expression-valued
 
 ---
 
-## 3. CI dependency-resolution canary
+## 3. Survey + Warmup Scans
+
+`survey_scan.sh` records the target pool's GPU classes, emits one Condor warmup
+job per container/profile combination, and collects JSON timing/cache reports.
+The submit-side tools use only the Python standard library; the CuPy/JAX imports
+happen inside the container on the execute node.
+
+```console
+containers/survey_scan.sh survey \
+  --out survey/cit-YYYYMMDD \
+  --manifest container_family/rift_container_family.generated.yaml
+containers/survey_scan.sh emit-jobs \
+  --survey survey/cit-YYYYMMDD \
+  --manifest container_family/rift_container_family.generated.yaml
+cd survey/cit-YYYYMMDD/jobs
+./submit_all.sh
+containers/survey_scan.sh collect --survey survey/cit-YYYYMMDD
+```
+
+Profiles:
+
+- `cupy` warms common NoLoop/fused-calmarg CuPy kernels:
+  `Q_inner_product_cupy`, `Q_fused_calmarg_cupy`,
+  `Q_fused_calmarg_distmarg_cupy`, and `interp_gpu.interp`.
+- `jax` warms synthetic JAX ILE wrapper shapes. Use this only for JAX-enabled
+  images, for example `--profiles cupy,jax` on a JAX image manifest.
+
+Generated job wrappers set `CUPY_CACHE_DIR`, `JAX_COMPILATION_CACHE_DIR`, and
+conservative thread defaults before `apptainer exec --nv`. If an image is listed
+as `osdf://...`, the wrapper fetches only that selected image with `stashcp` or
+`pelican`.
+
+See [`survey_scan/README.md`](survey_scan/README.md) and
+[`SURVEY_SCAN_PROPOSAL.md`](SURVEY_SCAN_PROPOSAL.md) for details.
+
+---
+
+## 4. CI dependency-resolution canary
 
 The default container build uses *unpinned* deps, so a fresh upstream release
 (e.g. `swig>=4.4.0`, see issue #136) can silently break RIFT and we only find out
@@ -196,6 +240,9 @@ when a container rebuild fails. The `container-dep-canary` job in
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) installs the unpinned
 [`requirements-container.txt`](requirements-container.txt) set (minus the
 GPU-only cupy wheel) and the pixi `swig-post44` lane, then runs the import check —
-on every push/PR **and weekly** — to flag such breakage early. It is
-non-blocking (advisory): it tracks upstream changes outside any PR author's
-control.
+on every push/PR **and weekly** — to flag such breakage early. The pip lane
+applies the same build-only constraints as the real containers; the Pixi lane
+expresses the equivalent build compatibility in `pixi.toml`. Runtime packages
+remain unpinned, so the canaries still detect new dependency incompatibilities.
+The jobs are non-blocking (advisory): they track upstream changes outside any PR
+author's control.

@@ -84,14 +84,20 @@ except:
         has_GWS=False
 
 if not( 'RIFT_LOWLATENCY'  in os.environ):
-  # Dont support external packages in low latency
- try:
-        import NRWaveformCatalogManager3 as nrwf
-        useNR =True
-        if log_loud:
-          print(" factored_likelihood.py : NRWaveformCatalogManager3 available ")
- except ImportError:
-        useNR=False
+ # Dont support external packages in low latency.
+ # Resolution order (see RIFT/physics/_nrwf_loader.py):
+ #   1. nrcatalog.compat_nrwf  (cleanup_2026 NR catalog package)
+ #   2. NRWaveformCatalogManager3  (legacy)
+ #   3. None
+ # Override with $RIFT_NRWF_BACKEND={auto,new,legacy,none}.
+ from RIFT.physics._nrwf_loader import get_nrwf as _rift_get_nrwf
+ nrwf, useNR = _rift_get_nrwf()
+ if useNR and log_loud:
+        backend = "nrcatalog" if getattr(nrwf, "is_using_legacy", None) else "NRWaveformCatalogManager3"
+        legacy_note = ""
+        if getattr(nrwf, "is_using_legacy", None) is not None:
+              legacy_note = " (legacy wrapped)" if nrwf.is_using_legacy() else " (no legacy)"
+        print(" factored_likelihood.py : NR backend = " + backend + legacy_note)
 
 
  try:
@@ -1637,7 +1643,7 @@ def PackLikelihoodDataStructuresAsArrays(pairKeys, rholms_intpDictionaryForDetec
         rholmArray[indx1][:] = rholmsDictionaryForDetector[pair1].data.data  # Copy the array of time values.
 
     ### Step 3: Create rholm_intp array-ized structure
-    rholm_intpArray = range(nKeys)   # create a flexible python array of the desired size, to hold function pointers
+    rholm_intpArray = [None] * nKeys   # create a flexible python array of the desired size, to hold function pointers
     if rholms_intpDictionaryForDetector:
         for pair1 in pairKeys:
             indx1 = lookupKeysToNumber[pair1]
@@ -2736,9 +2742,10 @@ if fallback or ('RIFT_LOWLATENCY' in os.environ):
         numba_on = False
         if log_loud:
           print(" Numba off ")
-        # Very inefficient
-        def lalylm(th,ph,s,l,m):
-                return lal.SpinWeightedSphericalHarmonic(th,ph,s,l,m)
+        # Very inefficient.  np.vectorize replicates the numba @vectorize elementwise
+        # behavior (the plain scalar wrapper below breaks ComputeYlmsArrayVector, which
+        # passes numpy ARRAYS for th,ph,s,l,m -> LAL raises 'argument 1 of type REAL8').
+        lalylm = np.vectorize(lal.SpinWeightedSphericalHarmonic, otypes=[complex])
         def lalF(det, RA, DEC,psi,tref):
                 if isinstance(RA, float):
                         return ComplexAntennaFactor(det, RA, DEC, psi,tref)
