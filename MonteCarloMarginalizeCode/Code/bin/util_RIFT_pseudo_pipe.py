@@ -1009,9 +1009,42 @@ npts_it = 500
 # rejects them or silently analyzes a different spin model, and the convergence test is handed no
 # transverse parameter at all (helper only passes chi1_perp when the analysis is precessing).
 # Refuse the combination rather than quietly changing the physics of the run.
+def approx_supports_precession(approx_name):
+    """Authoritative precession classification of an approximant, from lalsimulation's own spin
+    support flag.  The is_analysis_precessing test above is a hand-maintained name list that omits
+    supported precessing models (e.g. IMRPhenomXO4a), so it must not be the sole gate on options
+    that require transverse spin.  Returns None when the name is not a lalsimulation approximant
+    (external/NR waveforms), in which case the caller should fall back to the name list."""
+    try:
+        support = lalsim.SimInspiralGetSpinSupportFromApproximant(lalsim.GetApproximantFromString(approx_name))
+    except Exception:
+        return None
+    # CASEBYCASE (e.g. NR/surrogate entries) allows precession, decided per waveform; both the
+    # current and the older LAL_-prefixed spellings of these constants are accepted.
+    precessing_support = [getattr(lalsim, name) for name in
+                          ('SIM_INSPIRAL_PRECESSINGSPIN', 'LAL_SIM_INSPIRAL_PRECESSINGSPIN',
+                           'SIM_INSPIRAL_CASEBYCASE', 'LAL_SIM_INSPIRAL_CASEBYCASE')
+                          if hasattr(lalsim, name)]
+    if not precessing_support:
+        return None
+    return support in precessing_support
+
 if opts.internal_cip_transverse_tails or opts.internal_test_convergence_method == 'js_lame':
-    if opts.assume_nospin or not(is_analysis_precessing):
+    # "precessing approximant or --assume-precessing" is the contract, so ask lalsimulation about
+    # the approximant rather than trusting only the name list.  The forced flags still win, since
+    # they change what the analysis actually samples.
+    analysis_has_transverse_spin = is_analysis_precessing or bool(approx_supports_precession(opts.approx))
+    if opts.assume_nospin or opts.assume_nonprecessing:
+        analysis_has_transverse_spin = False
+    if not analysis_has_transverse_spin:
         raise Exception(" --internal-cip-transverse-tails (and --internal-test-convergence-method js_lame, which enables it) require a PRECESSING analysis: the puff tail-guard proposes nonzero chi1_perp and the convergence test scores its tail, neither of which an aligned-spin/zero-spin waveform can represent.  Current settings give a nonprecessing analysis (approx {}{}{}).  Use a precessing approximant or --assume-precessing, or drop these options.".format(opts.approx, ' with --assume-nospin' if opts.assume_nospin else '', ' with --assume-nonprecessing' if opts.assume_nonprecessing else ''))
+    if not is_analysis_precessing:
+        # A precessing approximant the name list does not recognize.  The bundle needs the analysis
+        # itself to carry transverse spin -- the helper only proposes the precessing fit strategy and
+        # the chi1_perp convergence parameter for a precessing analysis -- so turn it on here instead
+        # of making the user restate the approximant's own physics with --assume-precessing.
+        is_analysis_precessing = True
+        print("  [transverse-tails] approximant {} supports precession; using the precessing analysis options this bundle requires".format(opts.approx))
 if opts.internal_test_convergence_method == 'js_lame' and not opts.internal_cip_transverse_tails:
     opts.internal_cip_transverse_tails = True
     print("  [transverse-tails] AUTO-ENABLED by --internal-test-convergence-method js_lame (drift test needs the raised interim n-output-samples)")

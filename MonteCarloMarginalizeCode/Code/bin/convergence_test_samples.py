@@ -341,6 +341,18 @@ def test_js_lame(dat1, dat2, param_list, opts, samples_path_current=None):
         bounded = [p for p in opts.transverse_parameter if p in idx]
     else:
         bounded = [p for p in JS_LAME_BOUNDED_DEFAULT if p in idx]
+    # Without a bounded transverse parameter there is no JS component and no quantile-drift
+    # component: only the Gaussian 'lame' block would remain, i.e. this method would silently
+    # become the very test it exists to replace, and could stop the loop early while a transverse
+    # tail is still contracting.  Refuse instead of certifying convergence from that.
+    if not bounded:
+        print(" js_lame ERROR: no bounded transverse parameter supplied.  --parameter gave %s;"
+              % list(param_list))
+        print("   expected one of %s, or an explicit --transverse-parameter." % JS_LAME_BOUNDED_DEFAULT)
+        print("   With none, js_lame has neither its JS nor its quantile-drift component and degenerates")
+        print("   to the Gaussian 'lame' test.  Reporting NOT CONVERGED: add e.g. --parameter chi1_perp")
+        print("   (a precessing analysis), or use --method lame if that is what you actually want.")
+        return np.inf
     gaussian_params = [p for p in param_list if p not in bounded and p not in JS_LAME_CIRCULAR]
 
     # Thresholds keyed to the noise floor at the DISTINCT sample count actually supplied.

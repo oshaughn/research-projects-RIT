@@ -1077,6 +1077,13 @@ if not opts.assume_nospin:
     helper_test_args += " --parameter xi "  # require chi_eff distribution to be stable
     if opts.assume_precessing_spin:  # test on spin 1 perpendicular variables. Note this WILL PROBABLY FAIL IF PRIMARY HAS EXACTLY ZERO TRANSVERSE SPIN (or zero overall)
         helper_test_args += " --parameter chi1_perp --parameter phi1 "
+# js_lame's tail sensitivity comes entirely from its bounded-JS and quantile-drift components, and
+# those only exist if the test is handed a bounded transverse parameter.  chi1_perp is added just
+# above ONLY for a precessing analysis, so without one this method silently degenerates to the
+# Gaussian 'lame' test on (mc,eta,xi) -- the premature stop it was added to prevent.  Refuse the
+# combination rather than shipping a convergence gate that cannot see the tail it advertises.
+if opts.internal_test_convergence_method == 'js_lame' and not(' --parameter chi1_perp ' in helper_test_args):
+    raise Exception(" --internal-test-convergence-method js_lame scores the tail of a bounded transverse parameter (chi1_perp), which exists only for a precessing analysis; the current settings ({}{}) supply no transverse parameter, so the test would degenerate to the 'lame' test it replaces.  Pass --assume-precessing-spin (without --assume-nospin), or use --internal-test-convergence-method lame.".format('--assume-nospin ' if opts.assume_nospin else '', 'without --assume-precessing-spin' if not opts.assume_precessing_spin else 'with --assume-precessing-spin'))
 if not opts.test_convergence:
     helper_test_args+= " --always-succeed "
 
