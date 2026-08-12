@@ -263,6 +263,269 @@ def get_likelihood_threshold(lkl, lkl_thr, nsel, discard_prob,xpy_here=xpy_defau
 
     return identity_convert(lkl_thr), identity_convert(truncp)  # send both to CPU as needed
 
+def seed_affine_rank(pts, box_lo, box_hi, axes=None, tol=1e-9):
+    """Affine rank of a warm-seed cloud over `axes`, i.e. the dimension of the subspace
+    the seed actually spans -> (rank, n_in_box).
+
+    THE ONE PLACE this is defined, because two callers must agree exactly: the grid
+    builder records it for the collapse diagnostic, and the ILE's L0 rescue tests it to
+    decide whether the seed needs puffing.  A rescue that puffed on a rank the diagnostic
+    then measured differently would either puff a healthy seed or ship a flagged one.
+
+    Measured the way _build_grid_from_points must see it:
+      * IN-BOX ROWS ONLY.  The grid only ever spans the box, so out-of-box rows describe
+        nothing it will build -- and left in they inflate the rank, so a seed that is
+        degenerate where it matters could be recorded full-rank.
+      * mean-centred (AFFINE rank: n points span at most n-1 affine dimensions, so this
+        subsumes the row-count test that used to stand in for it), and
+      * per-axis scaled by the box, so the tolerance is unit-free -- a distance in Mpc and
+        an angle in radians must not get different tolerances.
+    """
+    pts = np.atleast_2d(np.asarray(pts, dtype=float))
+    box_lo = np.asarray(box_lo, dtype=float)
+    box_hi = np.asarray(box_hi, dtype=float)
+    if pts.size == 0:
+        return 0, 0
+    inside = np.all((pts >= box_lo) & (pts <= box_hi), axis=1)
+    core = pts[inside]
+    if len(core) < 2:
+        return 0, len(core)
+    ax = list(range(pts.shape[1])) if axes is None else list(axes)
+    core = core[:, ax]
+    scaled = (core - core.mean(axis=0)) / np.clip((box_hi - box_lo)[ax], 1e-300, None)
+    return int(np.linalg.matrix_rank(scaled, tol=tol)), len(core)
+
+
+def make_warm_seed_reserve(X, lnL, params_ordered, n_max=20000,
+                           log_joint_prior=None, log_joint_s_prior=None, rng=None):
+    """A bounded copy of the points a pass RETAINED, for a later warm start -> dict.
+
+    THE ONE BUILDER, because every sampler that can be L0-rescued needs the identical
+    record and they reach this point by different routes: mcsamplerAdaptiveVolume from its
+    own accumulated draws, mcsamplerPortfolio from its aggregated _rvs (it drives members
+    through draw_simplified(), never their integrate_log(), so a member never builds one).
+
+    WHY IT HAS TO BE TAKEN EARLY.  Both samplers then prune _rvs and fair-draw it down to
+    ~1.5*n_eff rows resampled WITH REPLACEMENT -- a resample built for EXPORT.  Anything
+    that reads _rvs afterwards and treats it as the sample set sees, on the collapsed pass
+    a rescue exists for, a handful of rows several of which are the same point twice.
+
+    STRATIFY BY FINITE-NESS BEFORE BOUNDING, or the bound destroys exactly what it is
+    keeping.  AV arrives here with only retained (finite) rows, but the PORTFOLIO's _rvs
+    holds EVERY draw -- and on the collapsed pass this exists for, essentially all of them
+    are -inf.  A uniform subsample over all rows then keeps the finite ones in proportion,
+    which is to say almost none: measured, 10 finite rows among 1,000,000 at a 20,000 cap
+    survived as **2** (the forced peak, plus one lucky draw).  build_warm_seed would then
+    see a rank-0 core, warm_seed_scale_from_finite_points would decline for want of points,
+    and the puff would fall back to the fixed prior fraction -- the very truncation
+    (0.8-8.3 nats, with a healthy-looking ESS) this whole change exists to remove.
+
+    So the non-finite rows are dropped outright.  They are ballast for every consumer: the
+    seed core is `lnL > max - deltalnL`, the scale estimator filters to finite, and
+    _lnZ_of_rvs filters to finite before it averages -- so dropping them here leaves that
+    lnZ bit-identical while making the cap mean what it says.
+
+    NO SECOND STRATUM, deliberately.  Once the finite rows are the population, the cap only
+    binds on a run with >n_max FINITE samples -- a healthy one, where the peak window is
+    proportionally represented anyway (measured: a 20,001-row reserve out of 4e6 gave a
+    239-point seed core).  Adding a top-lnL stratum on top of that would buy nothing there
+    and would bias both the covariance estimate and any lnZ taken from the reserve, because
+    neither is a uniform sample of the level set any more.  The one deliberate exception is
+    the PEAK row, appended unconditionally because the seed is defined relative to it and a
+    subsample can drop it; at one row in n_max its effect on either estimate is negligible.
+
+    ISOLATED RNG.  This reserve is built unconditionally -- including when
+    --sampler-warmstart-retry-neff is unset and nothing will ever read it -- so drawing the
+    subsample from the global numpy stream would advance it before the fair draw, before the
+    exported posterior, and before every later event and replica.  An opt-in rescue that is
+    switched OFF must not change a seeded run's output.  Default to a private, deterministic
+    generator so the reserve is itself reproducible and costs the caller nothing.
+
+    The two prior components ride along when given, so a consumer can rebuild the importance
+    weight -- and therefore lnZ -- from the retained set rather than from the fair draw.
+    """
+    X = np.atleast_2d(np.asarray(identity_convert(X), dtype=float))
+    lnL = np.asarray(identity_convert(lnL), dtype=float).ravel()
+    n_ret = len(X)
+    extra = {}
+    if log_joint_prior is not None:
+        extra['log_joint_prior'] = np.asarray(identity_convert(log_joint_prior), dtype=float).ravel()
+    if log_joint_s_prior is not None:
+        extra['log_joint_s_prior'] = np.asarray(identity_convert(log_joint_s_prior), dtype=float).ravel()
+    # 1. keep only what any consumer can use
+    finite = np.isfinite(lnL)
+    if np.any(finite) and not np.all(finite):
+        X, lnL = X[finite], lnL[finite]
+        extra = {k: v[finite] for k, v in extra.items()}
+    n_fin = len(X)
+    # 2. bound, uniformly over that population, on a stream of our own
+    n_max = int(n_max)
+    if n_max > 0 and n_fin > n_max:
+        rng = rng if rng is not None else np.random.RandomState(20260811)
+        idx = rng.choice(n_fin, size=n_max, replace=False)
+        idx = np.unique(np.append(idx, int(np.nanargmax(lnL))))
+        X, lnL = X[idx], lnL[idx]
+        extra = {k: v[idx] for k, v in extra.items()}
+    out = dict(X=X, lnL=lnL, n_retained=int(n_ret), n_finite=int(n_fin),
+               params_ordered=list(params_ordered))
+    out.update(extra)
+    return out
+
+
+def warm_seed_scale_from_finite_points(points, lnL, box_lo, box_hi, axes,
+                                       eig_lo=1e-5, eig_hi=0.5):
+    """Estimate the POSTERIOR scale (a box-scaled covariance over `axes`) from the finite
+    log-likelihoods a collapsed pass already drew -> cov, or None if it cannot be measured.
+
+    Why this exists.  The L0 rescue's fallback puff used a hardcoded 1/200 of each
+    parameter's prior range, which is a property of the PRIOR and knows nothing about the
+    posterior -- but the posterior narrows as 1/rho, so one fixed fraction cannot be right
+    across the amplitude range, and a puff narrower than the posterior truncates real mass
+    (VARAHA's live volume only ever contracts, so the seed is a ceiling on the support).
+
+    The information needed is already in hand and was being thrown away.  A cold pass at
+    high amplitude draws (near enough) uniformly from the prior box, and returns a finite
+    lnL only inside the region where exp() has not underflowed -- i.e. the level set
+    lnL > lnL_max - D.  For a locally Gaussian peak that level set is the ellipsoid
+    u^T A u < 2D (u box-scaled about the peak), and points uniform in an ellipsoid have
+    covariance (2D/(d+2)) A^{-1}.  So the posterior covariance A^{-1} is recovered as
+
+        cov_post  =  cov(finite points) * (d + 2) / (2 D),     D = lnL_max - min(finite lnL)
+
+    which is one sample covariance, no fit and nothing to fail to converge.  It also
+    delivers the CORRELATIONS -- sky position, time and distance are strongly correlated at
+    high amplitude, and an isotropic puff wastes almost all of its points off the ridge.
+
+    Deliberately approximate -- the draws are only uniform-in-prior until AV starts
+    contracting, and the peak is only locally Gaussian.  Measured against a known lnZ on a
+    correlated 6-D peak with the same 745-nat underflow (sigma recovered / true, per axis,
+    6 replicates): 1.01 - 1.23.  So it is good to ~20%, which is what matters, because the
+    error that was being made is a factor of ~5-10.
+
+    NEITHER DIRECTION IS FREE, so do not treat "wide is safe" as a licence.  Too narrow
+    silently truncates: on that same target a puff at the historical 1/200 of the prior
+    range came in 0.8 - 8.3 nats below the truth, with a healthy-looking ESS.  Too wide is
+    not merely inefficient, which is what the surrounding code used to assume.  Scanning a
+    multiplier on this estimate, mean (worst) lnZ error over 6 replicates, mean ESS:
+
+        x0.5   -8.52 (-19.0) nats, ESS 71      truncated
+        x1     -1.61  (-3.5) nats, ESS 53
+        x2     +0.08  (-0.2) nats, ESS 52      <-- the default
+        x3     +1.13  (+0.6) nats, ESS 26
+        x6     +3.03  (-1.6) nats, ESS 10      biased HIGH, and efficiency is going
+        x12   -29.99 (-71.9) nats, ESS  1      a cold start in all but name: re-collapses
+
+    Both tails are wrong, and the useful range is under a decade wide, so inflate by a small
+    factor and not by an order of magnitude.
+
+    Eigenvalues are floored/capped in box-scaled units (`eig_lo`, `eig_hi` are standard
+    deviations as a fraction of the box) so no direction can come back degenerate -- a
+    zero-width direction would re-create the rank deficiency this is being used to repair.
+    """
+    box_lo = np.asarray(box_lo, dtype=float)
+    box_hi = np.asarray(box_hi, dtype=float)
+    box = np.clip(box_hi - box_lo, 1e-300, None)
+    ax = list(axes)
+    d = len(ax)
+    pts = np.atleast_2d(np.asarray(points, dtype=float))
+    lnL = np.asarray(lnL, dtype=float).ravel()
+    good = np.isfinite(lnL) & np.all(np.isfinite(pts), axis=1) \
+        & np.all((pts >= box_lo) & (pts <= box_hi), axis=1)
+    if int(np.sum(good)) < max(2 * d, d + 2):
+        return None                     # too few finite points to estimate a d-dim covariance
+    u = (pts[good][:, ax] - box_lo[ax]) / box[ax]
+    depth = float(np.max(lnL[good]) - np.min(lnL[good]))
+    if not np.isfinite(depth) or depth <= 0:
+        return None
+    cov = np.cov(u, rowvar=False) * (d + 2.0) / (2.0 * depth)
+    cov = np.atleast_2d(cov)
+    if not np.all(np.isfinite(cov)):
+        return None
+    w, Q = np.linalg.eigh(0.5 * (cov + cov.T))
+    w = np.clip(w, eig_lo ** 2, eig_hi ** 2)
+    return Q @ np.diag(w) @ Q.T
+
+
+def build_warm_seed(points, lnL, box_lo, box_hi, axes, deltalnL=15.0,
+                    puff_width_frac=1.0 / 200, puff_scale='auto', puff_factor=2.0,
+                    n_puff=2000, seed=0):
+    """Build the L0 rescue's warm seed from a pass's own samples -> (seed, info).
+
+    `points` (n, ndim) and `lnL` (n,) are the completed pass's draws.  The seed is the
+    points within `deltalnL` of the peak, PUFFED to full rank if they do not span `axes`.
+
+    RANK, NOT COUNT, is the guard.  The rule this replaces was `len(seed) < 2`, and a count
+    cannot see the failure: measured on zero-noise injections, a 5-point seed at rho_net
+    102.8 had affine rank 2-4 of 6 and a 2-point seed at rho_net 146.8 had rank 0 of 6.
+    Both passed the count test, and both then warm-started a live volume that had collapsed
+    onto a degenerate subspace (V ~ 3e-06 and ~9e-36 against a healthy ~1e-08), which
+    reports a fine n_eff while lnZ is a lower bound.  n points span at most n-1 affine
+    dimensions, so the rank test subsumes the count it replaces.
+
+    AUGMENT, DO NOT REPLACE.  The handful of real points are the only direct evidence of
+    where the peak is and how wide it is, so they are kept and the puff is added alongside
+    them.  This can only help: the grid is built from the union's extent, so a real point
+    lying outside the puff widens the seeded volume to include it, and VARAHA can only
+    contract afterwards -- whereas replacing them throws that information away and pins the
+    support to a guessed width about a single point.
+
+    `puff_scale`:
+      'fixed'  -- isotropic, `puff_width_frac` of each parameter's prior range (the
+                  historical behaviour; `puff_width_frac` = 1/200 reproduces it exactly).
+      'auto'   -- the measured posterior scale and correlations from every finite lnL the
+                  pass drew (warm_seed_scale_from_finite_points), falling back to 'fixed'
+                  when there are too few finite points to estimate one.
+    `puff_factor` multiplies the resulting width (variance scales as its square).  2 is the
+    measured optimum and both tails are wrong -- see warm_seed_scale_from_finite_points.
+    """
+    pts = np.atleast_2d(np.asarray(points, dtype=float))
+    lnL = np.asarray(lnL, dtype=float).ravel()
+    box_lo = np.asarray(box_lo, dtype=float)
+    box_hi = np.asarray(box_hi, dtype=float)
+    box = np.clip(box_hi - box_lo, 1e-300, None)
+    ax = list(axes)
+    ndim = pts.shape[1]
+    best = pts[int(np.nanargmax(lnL))]
+    core = pts[lnL > (np.nanmax(lnL) - float(deltalnL))]
+    rank, n_in_box = seed_affine_rank(core, box_lo, box_hi, axes=ax)
+    info = dict(n_core=int(len(core)), n_core_in_box=int(n_in_box), rank_core=int(rank),
+                dim=len(ax), puffed=False, puff_scale=None, n_puff=0,
+                rank_final=int(rank), n_seed=int(len(core)))
+    if rank >= len(ax):
+        return core, info
+
+    # --- the seed is rank-deficient: puff to full rank about the best point
+    cov_u = None
+    if puff_scale == 'auto':
+        cov_u = warm_seed_scale_from_finite_points(pts, lnL, box_lo, box_hi, ax)
+    used = 'auto'
+    if cov_u is None:
+        used = 'fixed'
+        cov_u = np.diag(np.full(len(ax), float(puff_width_frac) ** 2))
+    cov_u = cov_u * (float(puff_factor) ** 2)
+    rng = np.random.RandomState(seed)
+    n_puff = int(n_puff)
+    # scaled draws on the adaptive axes; the remaining axes get the isotropic width (the
+    # grid puts one bin on them, so their only job is to not be a single repeated value)
+    u = rng.multivariate_normal(np.zeros(len(ax)), cov_u, size=n_puff)
+    pad = np.tile(best, (n_puff, 1)).astype(float)
+    pad[:, ax] += u * box[ax]
+    _other = [i for i in range(ndim) if i not in set(ax)]
+    if _other:
+        pad[:, _other] += rng.normal(
+            0.0, float(puff_width_frac) * float(puff_factor), size=(n_puff, len(_other))) * box[_other]
+    # CLIP to the box.  The grid builder discards out-of-box rows, so an unclipped puff
+    # silently loses points (and, at a peak near an edge, most of them) -- and a seed the
+    # sampler never sees is not the seed that was measured for rank here.
+    pad = np.clip(pad, box_lo, box_hi)
+    out = np.vstack([core, pad]) if len(core) else pad
+    rank_final, _ = seed_affine_rank(out, box_lo, box_hi, axes=ax)
+    info.update(puffed=True, puff_scale=used, n_puff=n_puff,
+                rank_final=int(rank_final), n_seed=int(len(out)),
+                puff_sigma_scaled=np.sqrt(np.clip(np.diag(cov_u), 0, None)))
+    return out, info
+
+
 def sample_from_bins(xrange, dx, bu, ninbin, reject_out_of_range=False):
         # Draw uniformly within each occupied hypercube bin.  VECTORIZED: the old
         # implementation looped over bins in Python (a list comprehension + vstack
@@ -787,6 +1050,16 @@ class MCSampler(object):
             out[:, j] = X[:, list(params).index(p)]
         return out
 
+    def warm_seed_axes(self):
+        """Column indices a warm seed must span: the ADAPTIVE axes (all of them when
+        nothing is adaptive, since then the grid is one bin per dim and the seed's only
+        job is to be well-defined).  Exposed so a caller building a seed -- the ILE's L0
+        rescue -- can ask the sampler which dimensions its seed will be judged on instead
+        of guessing.  A portfolio has no such axes of its own; ask a member."""
+        if getattr(self, 'd_adaptive', 0) > 0:
+            return list(self.indx_adaptive)
+        return list(range(len(self.params_ordered)))
+
     def _build_grid_from_points(self, pts, loglkl=None, enc_prob=0.999, dilate=1,
                                 resolution_pts=None):
         """Build a VARAHA live-volume grid (binunique, dx, nbins) and a
@@ -891,10 +1164,8 @@ class MCSampler(object):
         # the adaptive axes, scaled by the box so the test is unit-free (a distance in Mpc
         # and an angle in radians must not get different tolerances).  n points span at
         # most n-1 affine dimensions, so rank subsumes the count test.
-        _ax = list(self.indx_adaptive) if self.d_adaptive > 0 else list(range(ndim))
-        _core = np.asarray(res_pts, dtype=float)[:, _ax]
-        _scaled = (_core - _core.mean(axis=0)) / np.clip(box[_ax], 1e-300, None)
-        n_seed_rank = int(np.linalg.matrix_rank(_scaled, tol=1e-9)) if len(_core) > 1 else 0
+        _ax = self.warm_seed_axes()
+        n_seed_rank, _ = seed_affine_rank(res_pts, box_lo, box_hi, axes=_ax)
         return dict(binunique=binunique, dx=dx, nbins=nbins, V=V,
                     loglkl_thr=loglkl_thr, trunc_p=1e-10, n_seed=nrec,
                     n_seed_rank=n_seed_rank, n_seed_dim=len(_ax))
@@ -1141,6 +1412,11 @@ class MCSampler(object):
         # mcsamplerPortfolio.integrate_log already drops it on entry for the same reason.
         if 'integrand' in self._rvs:
           del self._rvs['integrand']
+        # Same hazard for the warm-seed reserve, and a worse consequence: a pass that raises
+        # part-way leaves the PREVIOUS point's retained samples sitting here, and an L0 rescue
+        # would then seed this point's live volume from a different point's peak.  Drop it on
+        # entry, so "present" always means "this pass wrote it".
+        self._warm_seed_reserve = None
 
         #
         # Pin values
@@ -1492,6 +1768,37 @@ class MCSampler(object):
         # instead create a host array, leaving this term on a different backend
         # than log_integrand / log_joint_prior and breaking the arithmetic below.
         self._rvs['log_joint_s_prior'] = xpy_here.ones_like(allloglkl)*(np.log(1/V) - np.sum(np.log(self.dx0)))  # effective uniform sampling on this volume
+
+        # WARM-SEED RESERVE: keep a bounded copy of the points this pass actually RETAINED,
+        # before the fair draw below overwrites self._rvs in place.
+        #
+        # That overwrite is why a warm start seeded from _rvs was starving.  The fair draw
+        # takes n_extr = min(n_extr, 1.5*eff_samp, 1.5*neff) rows WITH REPLACEMENT and
+        # REBINDS every _rvs key to that subset, so on the collapsed high-amplitude pass the
+        # rescue is meant to fix -- eff_samp ~ 1 -- everything downstream sees ONE row, no
+        # matter that the live set held a thousand.  Measured at rho_net 146.8: "Fairdraw
+        # size : 1", and the rescue then reported a 1-point seed; at rho_net 102.8, 5 rows,
+        # several of them the same point drawn twice, which is how a "5-point" seed came back
+        # with affine rank 2 (and a "2-point" seed with rank 0 -- two copies of one point).
+        # So the earlier reading of this failure, that "a collapsed cold pass never sampled
+        # more than a handful of finite-likelihood points", was wrong: the points were drawn
+        # and retained, then discarded by a resample meant for EXPORT, not for provenance.
+        # It also explains why widening --sampler-sequential-warmstart-deltalnL could not
+        # help -- there were only n_extr rows left to admit at any window.
+        #
+        # Bounded, because this is the array the surrounding code calls a memory hog: a
+        # uniform subsample without replacement (plus the peak row, which the seed needs and
+        # a subsample can drop) is all a seed or a scale estimate can use.
+        try:
+            self._warm_seed_reserve = make_warm_seed_reserve(
+                allx, allloglkl - allp, self.params_ordered,
+                n_max=getattr(self, 'n_warm_seed_reserve', 20000),
+                log_joint_prior=allp,
+                log_joint_s_prior=self._rvs['log_joint_s_prior'])
+        except Exception as _e_res:
+            # Provenance for a rescue, never a reason to lose a completed integral.
+            self._warm_seed_reserve = None
+            print("  [AV] warm-seed reserve not kept (", _e_res, ")")
 
         # Manual estimate of integrand, done transparently (no 'log aggregate' or running calculation -- so memory hog
         log_wt = self._rvs["log_integrand"] + self._rvs["log_joint_prior"] - self._rvs["log_joint_s_prior"]

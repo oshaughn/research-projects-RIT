@@ -376,6 +376,9 @@ integration_params.add_option("--sampler-sequential-warmstart-cover-frac",type=f
 integration_params.add_option("--sampler-sequential-warmstart-deltalnL",type=float,default=15.0,help="Keep previous-point samples within this lnL of the max as the warm seed for the next point.  Default 15.")
 integration_params.add_option("--sampler-l0-rescue-accept-truncated", action='store_true', default=False, help="Report the L0 rescue's warm pass even when it lands well below the full-support cold pass (see --sampler-l0-rescue-reject-dlnZ).  Default OFF: on that evidence the cold result is kept instead, since the warm pass is confined to the seeded peak and may be missing a mode.  The rescue itself still runs either way.")
 integration_params.add_option("--sampler-l0-rescue-reject-dlnZ", type=float, default=0.5, help="Evidence threshold (nats) for rejecting the L0 rescue's warm pass: reject when the full-support cold pass reports lnZ this much HIGHER, which indicates the seed missed mass.  Larger = more permissive.")
+integration_params.add_option("--sampler-l0-rescue-puff-scale", type='choice', choices=['fixed','auto'], default='auto', help="How wide to puff the L0 rescue's seed when it is rank-deficient in the adaptive dimensions.  'auto' (default) measures the posterior scale AND correlations from every finite lnL the collapsed pass already drew; 'fixed' uses --sampler-l0-rescue-puff-width-frac of each parameter's prior range, which is the historical behaviour and knows nothing about the posterior (which narrows as 1/rho).  'auto' falls back to 'fixed' when there are too few finite points to estimate a covariance.")
+integration_params.add_option("--sampler-l0-rescue-puff-width-frac", type=float, default=0.005, help="Isotropic puff width for the L0 rescue's rank-deficient seed, as a fraction of each parameter's prior range.  Used by --sampler-l0-rescue-puff-scale fixed, and as the 'auto' fallback.  Default 0.005 = the historical hardcoded 1/200.")
+integration_params.add_option("--sampler-l0-rescue-puff-factor", type=float, default=2.0, help="Multiply the L0 rescue's puff width by this factor.  Default 2 is the measured optimum on a known-lnZ 6-D target (mean lnZ error +0.08 nats, ESS 52); BOTH tails are wrong, so do not treat wide as free -- x0.5 truncates (-8.5 nats), x6 biases high (+3.0) and costs efficiency, x12 is a cold start in all but name and re-collapses (-30).")
 integration_params.add_option("--sampler-warmstart-retry-neff",type=float,default=None,help="AV or portfolio (L0 auto-rescue): if a pass finishes below this n_eff (i.e. it stalled on a very sharp / high-amplitude peak), automatically re-run a second pass warm-started from THIS point's own highest-likelihood samples.  Same-problem reuse in the sense that the seed provably contains the peak the cold pass found -- but NOT that every mode is represented, so the warm pass can be biased low if the seed missed one.  The rescue still runs as before; its result is rejected in favour of the cold pass only on positive evidence of lost mass (see --sampler-l0-rescue-reject-dlnZ).  A portfolio is unaffected: its GMM member carries a defensive component.  Directly targets the high-SNR n_eff LOTTERY (a large fraction of independent runs collapse to n_eff~1 by contracting onto the wrong spot); the rescue re-seeds a collapsed run from the peak it did find.  Recommended for high-SNR events; e.g. 5.")
 integration_params.add_option("--sampler-anisotropic-bins",action="store_true",help="AV only: give each extrinsic axis a DIFFERENT number of bins during contraction -- fine where the live points cluster tightly (phase/polarization/sky), coarse where they are broad (distance/inclination) -- instead of the default equal split.  Keeps the same total bin budget, so the estimator is unchanged; helps AV wrap a correlated/degenerate posterior more tightly.")
 integration_params.add_option("--internal-reparam-dl-incl",action="store_true",help="Sample the DISTANCE axis as an effective distance D_eff = d_L / A(iota), with A(iota)=sqrt(((1+cos^2 i)/2)^2 + cos^2 i) the leading (l=|m|=2) inclination amplitude.  This axis-aligns the distance<->inclination degeneracy (L depends mostly on A(iota)/d_L), decorrelating the two broad directions so the sampler wraps them efficiently.  The likelihood reconstructs physical d_L=D_eff*A(iota); the measure correction is PRIOR-AGNOSTIC -- ln p(d_L) - ln p(D_eff) + ln A(iota), using the ACTUAL --d-prior (dist_prior_pdf), so it is correct for Euclidean, cosmo, cosmo_sourceframe, pseudo_cosmo alike (normalization cancels in the ratio; reduces to +3 ln A only for Euclidean).  The physical d_L bound is enforced.  NOT compatible with --d-prior-redshift (errors out).  Estimator stays unbiased (validate vs baseline posterior).")
@@ -2299,6 +2302,29 @@ def _kish_neff_of_rvs(rvs, use_lnL=None):
         return None
 
 
+def _warm_seed_geometry(sampler):
+    """Which columns a warm seed must span, and the box it must lie in -> (axes, lo, hi).
+
+    The seed is judged on the ADAPTIVE axes, because those are the only ones the live-volume
+    grid resolves (the rest get a single bin), and that is the set the [AV COLLAPSE] report
+    counts against.  Ask the sampler that will consume the seed rather than assuming all
+    dimensions: with --force-adapt-all they coincide, without it a rank test over every
+    column would demand a seed span directions the grid cannot resolve and puff for nothing.
+
+    A PORTFOLIO has no adaptive axes of its own -- they live on its AV-style members -- so
+    fall through to the first member that can answer.  If nobody can, every column it is.
+    """
+    _lo = np.array([sampler.llim[p] for p in sampler.params_ordered], dtype=float)
+    _hi = np.array([sampler.rlim[p] for p in sampler.params_ordered], dtype=float)
+    for _s in [sampler] + list(getattr(sampler, 'portfolio_realizations', []) or []):
+        if hasattr(_s, 'warm_seed_axes'):
+            try:
+                return list(_s.warm_seed_axes()), _lo, _hi
+            except Exception:
+                pass
+    return list(range(len(sampler.params_ordered))), _lo, _hi
+
+
 def _clear_warm_state(sampler):
     """Clear a warm-start seed AND any grid it installed, reaching PORTFOLIO MEMBERS too.
 
@@ -3198,19 +3224,64 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # `None` means nothing has been disturbed yet, so the handler must not "restore".
         _cold_state_l0 = None
         try:
-            _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
-            _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel() if _lnkey else np.array([])
+            # SEED FROM THE POINTS THE PASS RETAINED, not from what survived the fair draw.
+            # sampler._rvs has by now been REBOUND to a fair-draw subset of
+            # min(n_extr, 1.5*eff_samp, 1.5*neff) rows taken WITH REPLACEMENT -- a resample
+            # built for EXPORT.  On the collapsed pass this rescue exists for, eff_samp ~ 1,
+            # so _rvs is one row (measured at rho_net 146.8: "Fairdraw size : 1"), and at
+            # rho_net 102.8 it is five rows several of which are the same point twice, which
+            # is where "5 seed points of affine rank 2" came from.  The live set held a
+            # thousand.  integrate_log now stashes a bounded copy of the retained points
+            # before that overwrite; fall back to _rvs for a sampler that does not keep one.
+            _res_l0 = getattr(sampler, '_warm_seed_reserve', None)
+            if _res_l0 is None:
+                for _m in list(getattr(sampler, 'portfolio_realizations', []) or []):
+                    _res_l0 = getattr(_m, '_warm_seed_reserve', None)
+                    if _res_l0 is not None:
+                        break
+            if _res_l0 is not None and list(_res_l0.get('params_ordered', [])) != list(sampler.params_ordered):
+                _res_l0 = None   # column order must match, or the seed is scrambled
+            if _res_l0 is not None:
+                _cols = np.asarray(_res_l0['X'], dtype=float)
+                _lnv = np.asarray(_res_l0['lnL'], dtype=float).ravel()
+                print("  [L0 auto-rescue] seeding from {} retained sample(s) of {} (fair draw left {} in _rvs)".format(
+                    len(_lnv), _res_l0.get('n_retained', '?'),
+                    len(np.asarray(sampler.identity_convert(sampler._rvs['log_integrand'])).ravel())
+                    if 'log_integrand' in sampler._rvs else '?'))
+            else:
+                _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
+                _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel() if _lnkey else np.array([])
+                _cols = (np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel()
+                                    for p in sampler.params_ordered]).T if _lnv.size else np.zeros((0, len(sampler.params_ordered))))
             if _lnv.size >= 1 and np.any(np.isfinite(_lnv)):
-                _cols = np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel() for p in sampler.params_ordered]).T
-                _kthr = np.nanmax(_lnv) - opts.sampler_sequential_warmstart_deltalnL
-                _seed = _cols[_lnv > _kthr]
-                if len(_seed) < 2:   # peak found with too few points -> puff the single best point
-                    _best = _cols[int(np.nanargmax(_lnv))]
-                    _wid = (np.array([sampler.rlim[p] for p in sampler.params_ordered]) - np.array([sampler.llim[p] for p in sampler.params_ordered])) / 200.0
-                    _seed = np.random.RandomState(0).normal(_best, _wid, size=(2000, len(_best)))
+                # RANK, not count, decides whether this seed can define a live volume.  The
+                # rule here used to be `len(_seed) < 2`, and a count cannot see the failure
+                # it was standing in for: a 2-to-5 point seed passes it and is still
+                # rank-deficient in 6 adaptive dimensions, so the warm start contracts onto
+                # a degenerate subspace and reports a healthy n_eff over a sliver of the
+                # support.  build_warm_seed applies the rank test the [AV COLLAPSE] report
+                # already prints, through the SAME seed_affine_rank the grid builder uses,
+                # and puffs to full rank when it is short.
+                _ax_l0, _lo_l0, _hi_l0 = _warm_seed_geometry(sampler)
+                _seed, _seed_info = mcsamplerAdaptiveVolume.build_warm_seed(
+                    _cols, _lnv, _lo_l0, _hi_l0, _ax_l0,
+                    deltalnL=opts.sampler_sequential_warmstart_deltalnL,
+                    puff_scale=opts.sampler_l0_rescue_puff_scale,
+                    puff_width_frac=opts.sampler_l0_rescue_puff_width_frac,
+                    puff_factor=opts.sampler_l0_rescue_puff_factor)
                 print("  [L0 auto-rescue] cold n_eff {} < {}; re-running warm from this point's peak ({} pts)".format(
                     "DEGENERATE (early termination)" if _neff_val is None else "{:.1f}".format(_neff_val),
                     opts.sampler_warmstart_retry_neff, len(_seed)))
+                if _seed_info['puffed']:
+                    print("  [L0 auto-rescue] seed of {} point(s) had affine rank {}/{}: PUFFED to rank"
+                          " {}/{} with {} points ({} scale, x{:g}), keeping the original point(s)".format(
+                              _seed_info['n_core'], _seed_info['rank_core'], _seed_info['dim'],
+                              _seed_info['rank_final'], _seed_info['dim'], _seed_info['n_puff'],
+                              _seed_info['puff_scale'], opts.sampler_l0_rescue_puff_factor))
+                    if _seed_info['rank_final'] < _seed_info['dim']:
+                        print("  [L0 auto-rescue] *** the puffed seed is STILL rank-deficient"
+                              " ({}/{}); the warm pass will be reported as collapsed.".format(
+                                  _seed_info['rank_final'], _seed_info['dim']))
                 # The warm pass is an estimate over TRUNCATED support: the seeded box provably
                 # contains the peak the cold pass found, and says nothing about what that pass did
                 # not reach, so it is biased low by any missed mode.  Three things that look like
