@@ -541,12 +541,12 @@ parser.add_argument("--internal-cip-cap-neff",type=int,default=500,help="Largest
 # The shipped default caps that net count via --internal-cip-cap-neff=500 and n-output-samples=5000,
 # and stops on the tail-blind Gaussian 'lame' convergence test -> chi1_perp under-extends vs bilby.
 # This opt-in bundle lifts the NET samples-out and switches to a tail-sensitive stop.
-parser.add_argument("--internal-cip-transverse-tails",action='store_true',help="OPT-IN alt config for resolving transverse-spin (chi1_perp) tails, esp. at low mass. Bundles: (a) tail-sensitive convergence test (passes --internal-test-convergence-method js_lame to helper_LDG_Events.py, unless overridden); (b) raises the NET interim posterior samples across the CIP worker cohort by lifting --internal-cip-cap-neff and --n-output-samples and scaling up --cip-explode-jobs (MORE WORKERS -> more net samples-out, NOT larger per-worker n_eff) -- the raised interim sample count is what makes js_lame's quantile-drift tolerance statistically meaningful; (c) transverse TAIL-GUARD in the puffball: --append-with-random-parameter chi1_perp appends+shuffles uniformly-random transverse draws into every puff, so the proposed grid keeps offering chi1_perp tail coverage even after the posterior contracts (the measured tail-starvation feedback), and puff is kept active through all iterations. Tune with the --internal-cip-transverse-tails-* flags. Default OFF (behavior unchanged). See results_triage/CONVERGENCE_PROTOCOL_2026-07-23.md.")
+parser.add_argument("--internal-cip-transverse-tails",action='store_true',help="OPT-IN alt config for resolving transverse-spin (chi1_perp) tails, esp. at low mass. Bundles: (a) tail-sensitive convergence test (passes --internal-test-convergence-method js_lame to helper_LDG_Events.py, unless overridden); (b) raises the NET interim posterior samples across the CIP worker cohort by lifting --internal-cip-cap-neff and --n-output-samples and scaling up --cip-explode-jobs (MORE WORKERS -> more net samples-out, NOT larger per-worker n_eff) -- the raised interim sample count is what makes js_lame's quantile-drift tolerance statistically meaningful; (c) transverse TAIL-GUARD in the puffball: --append-with-random-parameter chi1_perp appends+shuffles uniformly-random transverse draws into every puff, so the proposed grid keeps offering chi1_perp tail coverage even after the posterior contracts (the measured tail-starvation feedback), and puff is kept active through all iterations. REQUIRES A PRECESSING ANALYSIS (precessing approximant or --assume-precessing): the tail guard proposes nonzero transverse spin, so combining this with --assume-nospin/--assume-nonprecessing or an aligned-spin approximant is REJECTED rather than silently changing the spin model analyzed. Tune with the --internal-cip-transverse-tails-* flags. Default OFF (behavior unchanged). See results_triage/CONVERGENCE_PROTOCOL_2026-07-23.md.")
 parser.add_argument("--internal-cip-transverse-tails-cap-neff",type=int,default=4000,help="With --internal-cip-transverse-tails: raise --internal-cip-cap-neff to at least this (the interim net-n_eff throttle; shipped base is 500).")
 parser.add_argument("--internal-cip-transverse-tails-nout",type=int,default=20000,help="With --internal-cip-transverse-tails: raise interim --n-output-samples to at least this (net samples out, combined across workers).")
 parser.add_argument("--internal-cip-transverse-tails-worker-scale",type=float,default=3.0,help="With --internal-cip-transverse-tails: multiply cip-explode-jobs (and -last) by this, so the raised net sample count is produced by MORE WORKERS while each worker's n_eff stays modest.")
 parser.add_argument("--internal-cip-transverse-tails-puff-fraction",type=float,default=0.3,help="With --internal-cip-transverse-tails: fraction of the puff output appended as uniformly-random chi1_perp tail-guard points (puffball --append-with-random-fraction).")
-parser.add_argument("--internal-test-convergence-method",type=str,default=None,help="Convergence-test method passed to helper_LDG_Events.py (lame|ks1d|KL_1d|js_additive|js_lame). If js_lame is requested, --internal-cip-transverse-tails is AUTO-ENABLED (the raised interim sample count is required for js_lame's drift tolerance). If unset: helper default (lame), or js_lame when --internal-cip-transverse-tails is on.")
+parser.add_argument("--internal-test-convergence-method",type=str,default=None,help="Convergence-test method passed to helper_LDG_Events.py (lame|ks1d|KL_1d|js_additive|js_lame). If js_lame is requested, --internal-cip-transverse-tails is AUTO-ENABLED (the raised interim sample count is required for js_lame's drift tolerance) and therefore js_lame REQUIRES A PRECESSING ANALYSIS -- it is rejected with --assume-nospin/--assume-nonprecessing or an aligned-spin approximant, where there is no transverse tail to score. If unset: helper default (lame), or js_lame when --internal-cip-transverse-tails is on.")
 parser.add_argument('--internal-cip-tripwire',type=float,help="Passed to CIP")
 parser.add_argument("--internal-cip-temper-log",action='store_true',help="Use temper_log in CIP.  Helps stabilize adaptation for high q for example")
 parser.add_argument("--internal-cip-request-memory",default=None,type=int,help="ILE memory request in Mb. Only experts should change this.")
@@ -1001,6 +1001,17 @@ npts_it = 500
 # throttles (cap-neff, n-output) and record that helper must use the tail-sensitive convergence test.
 # js_lame REQUIRES the raised interim sample count (its quantile-drift tolerance is at the
 # split-half noise floor at the shipped n~5e3): requesting js_lame auto-enables the tails bundle.
+#
+# The whole bundle only has meaning for an analysis that HAS transverse spin: the tail guard
+# appends uniformly-random chi1_perp (i.e. nonzero s1x/s1y) to every puff, and js_lame scores the
+# chi1_perp tail.  Under --assume-nospin/--assume-nonprecessing, or with an aligned-spin
+# approximant, those grid points are not representable by the waveform being used: ILE either
+# rejects them or silently analyzes a different spin model, and the convergence test is handed no
+# transverse parameter at all (helper only passes chi1_perp when the analysis is precessing).
+# Refuse the combination rather than quietly changing the physics of the run.
+if opts.internal_cip_transverse_tails or opts.internal_test_convergence_method == 'js_lame':
+    if opts.assume_nospin or not(is_analysis_precessing):
+        raise Exception(" --internal-cip-transverse-tails (and --internal-test-convergence-method js_lame, which enables it) require a PRECESSING analysis: the puff tail-guard proposes nonzero chi1_perp and the convergence test scores its tail, neither of which an aligned-spin/zero-spin waveform can represent.  Current settings give a nonprecessing analysis (approx {}{}{}).  Use a precessing approximant or --assume-precessing, or drop these options.".format(opts.approx, ' with --assume-nospin' if opts.assume_nospin else '', ' with --assume-nonprecessing' if opts.assume_nonprecessing else ''))
 if opts.internal_test_convergence_method == 'js_lame' and not opts.internal_cip_transverse_tails:
     opts.internal_cip_transverse_tails = True
     print("  [transverse-tails] AUTO-ENABLED by --internal-test-convergence-method js_lame (drift test needs the raised interim n-output-samples)")
@@ -1776,6 +1787,9 @@ if opts.internal_cip_transverse_tails:
     # posterior/grid contracts -- the measured tail-starvation feedback that narrows chi1_perp.
     # Keep the puff active through ALL outer iterations (the nested refinement subdag already
     # puffs every sub-iteration): a guard that turns off at puff-max-it stops guarding.
+    # These points carry nonzero s1x/s1y, so they are only physical for a precessing analysis;
+    # the bundle is refused above for nonprecessing/zero-spin settings, which is what makes it
+    # safe to append them unconditionally here.
     puff_params += ' --append-with-random-parameter chi1_perp --append-with-random-fraction {} '.format(opts.internal_cip_transverse_tails_puff_fraction)
     puff_max_it = max(puff_max_it, 30)
 if opts.assume_matter:
