@@ -374,6 +374,84 @@ def test_a_reserve_from_a_previous_point_cannot_leak_into_the_next():
 
 
 ###
+### 4c. the PORTFOLIO must build its own reserve -- no member ever will
+###
+
+def _portfolio(n_chunk=10000):
+    """An AV+GMM portfolio built the way the ILE builds one: member INSTANCES, then
+    add_parameter on the portfolio, which forwards to every member in the same order."""
+    import RIFT.integrators.mcsamplerPortfolio as mcsamplerPF
+    import RIFT.integrators.mcsamplerEnsemble as mcsamplerEnsemble
+    members = [mcsamplerAV.MCSampler(n_chunk=n_chunk), mcsamplerEnsemble.MCSampler()]
+    s = mcsamplerPF.MCSampler(portfolio=members)
+    pdf = np.vectorize(lambda x: 1.0)
+    for name in NAMES:
+        s.add_parameter(name, pdf, prior_pdf=pdf, left_limit=0.0, right_limit=1.0,
+                        adaptive_sampling=True)
+    s.setup()          # initializes portfolio_breakpoints/weights; integrate_log assumes it
+    return s
+
+
+def test_the_portfolio_never_routes_through_a_member_integrate_log():
+    """The premise of the portfolio reserve, pinned so it cannot silently stop being true.
+
+    mcsamplerPortfolio drives members through draw_simplified(); if it ever started calling
+    member.integrate_log() the members would build their own reserves and the portfolio-level
+    one could be reconsidered.  Until then the portfolio is the ONLY place its aggregate
+    retained set exists.
+    """
+    import RIFT.integrators.mcsamplerPortfolio as mcsamplerPF
+    import inspect
+    src = inspect.getsource(mcsamplerPF.MCSampler.integrate_log)
+    assert 'draw_simplified' in src
+    assert 'member.integrate_log' not in src and '.integrate_log(' not in src.replace(
+        'self.integrate_log(', ''), 'members are now driven through integrate_log'
+
+
+def test_a_portfolio_pass_leaves_a_reserve_of_its_aggregate_retained_points():
+    """Without this the L0 rescue on a portfolio reads the pruned + fair-drawn _rvs."""
+    np.random.seed(20260811)
+    s = _portfolio(20000)
+    s.integrate_log(_peaked(40.0), *NAMES, nmax=300000, neff=8, n=20000,
+                    no_protect_names=True, verbose=False, save_intg=True,
+                    igrand_fairdraw_samples=True, igrand_fairdraw_samples_max=200)
+    r = s._warm_seed_reserve
+    assert r is not None, 'the portfolio built no reserve; the rescue would starve on _rvs'
+    n_rvs = len(np.asarray(mcsamplerAV.identity_convert(s._rvs['log_integrand'])).ravel())
+    assert r['n_retained'] >= n_rvs
+    assert len(r['lnL']) == len(r['X']) >= n_rvs, \
+        'reserve ({}) is no larger than the fair-drawn _rvs ({})'.format(len(r['lnL']), n_rvs)
+    assert list(r['params_ordered']) == list(s.params_ordered)
+    assert r['X'].shape[1] == NDIM
+
+
+def test_the_portfolio_reserve_is_taken_before_pruning_and_the_fair_draw():
+    """Order matters: taken after either step it would carry the same starved subset."""
+    import RIFT.integrators.mcsamplerPortfolio as mcsamplerPF
+    import inspect
+    src = inspect.getsource(mcsamplerPF.MCSampler.integrate_log)
+    i_res = src.index('make_warm_seed_reserve')
+    assert i_res < src.index("Clean out the _rvs arrays"), 'reserve taken after pruning'
+    assert i_res < src.index('if bFairdraw'), 'reserve taken after the fair draw'
+
+
+def test_a_portfolio_reserve_cannot_leak_from_one_point_to_the_next():
+    np.random.seed(20260811)
+    s = _portfolio(20000)
+    s.integrate_log(_peaked(40.0), *NAMES, nmax=300000, neff=8, n=20000,
+                    no_protect_names=True, verbose=False, save_intg=True,
+                    igrand_fairdraw_samples=True, igrand_fairdraw_samples_max=200)
+    assert s._warm_seed_reserve is not None
+
+    def _explode(*args, **kwargs):
+        raise RuntimeError('waveform generation failed')
+    with pytest.raises(Exception):
+        s.integrate_log(_explode, *NAMES, nmax=300000, neff=8, n=20000,
+                        no_protect_names=True, verbose=False, save_intg=True)
+    assert s._warm_seed_reserve is None
+
+
+###
 ### 5. the ILE must actually use all of this
 ###
 

@@ -296,6 +296,47 @@ def seed_affine_rank(pts, box_lo, box_hi, axes=None, tol=1e-9):
     return int(np.linalg.matrix_rank(scaled, tol=tol)), len(core)
 
 
+def make_warm_seed_reserve(X, lnL, params_ordered, n_max=20000,
+                           log_joint_prior=None, log_joint_s_prior=None, rng=None):
+    """A bounded copy of the points a pass RETAINED, for a later warm start -> dict.
+
+    THE ONE BUILDER, because every sampler that can be L0-rescued needs the identical
+    record and they reach this point by different routes: mcsamplerAdaptiveVolume from its
+    own accumulated draws, mcsamplerPortfolio from its aggregated _rvs (it drives members
+    through draw_simplified(), never their integrate_log(), so a member never builds one).
+
+    WHY IT HAS TO BE TAKEN EARLY.  Both samplers then prune _rvs and fair-draw it down to
+    ~1.5*n_eff rows resampled WITH REPLACEMENT -- a resample built for EXPORT.  Anything
+    that reads _rvs afterwards and treats it as the sample set sees, on the collapsed pass
+    a rescue exists for, a handful of rows several of which are the same point twice.
+
+    Bounded by a uniform subsample WITHOUT replacement, because the full array is the one
+    the surrounding code calls a memory hog.  The PEAK row is appended unconditionally: the
+    seed is defined relative to it and a subsample can drop it.
+
+    The two prior components ride along when given, so a consumer can rebuild the importance
+    weight -- and therefore lnZ -- from the retained set rather than from the fair draw.
+    """
+    X = np.atleast_2d(np.asarray(identity_convert(X), dtype=float))
+    lnL = np.asarray(identity_convert(lnL), dtype=float).ravel()
+    n_ret = len(X)
+    extra = {}
+    if log_joint_prior is not None:
+        extra['log_joint_prior'] = np.asarray(identity_convert(log_joint_prior), dtype=float).ravel()
+    if log_joint_s_prior is not None:
+        extra['log_joint_s_prior'] = np.asarray(identity_convert(log_joint_s_prior), dtype=float).ravel()
+    n_max = int(n_max)
+    if n_max > 0 and n_ret > n_max:
+        rng = rng if rng is not None else np.random
+        idx = rng.choice(n_ret, size=n_max, replace=False)
+        idx = np.unique(np.append(idx, int(np.nanargmax(lnL))))
+        X, lnL = X[idx], lnL[idx]
+        extra = {k: v[idx] for k, v in extra.items()}
+    out = dict(X=X, lnL=lnL, n_retained=int(n_ret), params_ordered=list(params_ordered))
+    out.update(extra)
+    return out
+
+
 def warm_seed_scale_from_finite_points(points, lnL, box_lo, box_hi, axes,
                                        eig_lo=1e-5, eig_hi=0.5):
     """Estimate the POSTERIOR scale (a box-scaled covariance over `axes`) from the finite
@@ -1714,17 +1755,11 @@ class MCSampler(object):
         # uniform subsample without replacement (plus the peak row, which the seed needs and
         # a subsample can drop) is all a seed or a scale estimate can use.
         try:
-            _res_n = int(getattr(self, 'n_warm_seed_reserve', 20000))
-            _res_X = identity_convert(allx)
-            _res_L = identity_convert(allloglkl - allp)
-            if _res_n > 0 and len(_res_X) > _res_n:
-                _res_i = np.random.choice(len(_res_X), size=_res_n, replace=False)
-                _res_i = np.unique(np.append(_res_i, int(np.nanargmax(_res_L))))
-                _res_X, _res_L = _res_X[_res_i], _res_L[_res_i]
-            self._warm_seed_reserve = dict(X=np.asarray(_res_X, dtype=float),
-                                           lnL=np.asarray(_res_L, dtype=float).ravel(),
-                                           n_retained=int(len(allx)),
-                                           params_ordered=list(self.params_ordered))
+            self._warm_seed_reserve = make_warm_seed_reserve(
+                allx, allloglkl - allp, self.params_ordered,
+                n_max=getattr(self, 'n_warm_seed_reserve', 20000),
+                log_joint_prior=allp,
+                log_joint_s_prior=self._rvs['log_joint_s_prior'])
         except Exception as _e_res:
             # Provenance for a rescue, never a reason to lose a completed integral.
             self._warm_seed_reserve = None
