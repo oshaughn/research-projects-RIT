@@ -363,7 +363,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         extra_waveform_kwargs={},
         use_gwsignal=False,
         use_gwsignal_approx=None,
-        use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False, calibration_realizations=None, calibration_conjugate=False, return_calibration_crossterms=False):
+        use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False, calibration_realizations=None, calibration_conjugate=False, return_calibration_crossterms=False, calibration_self_term=True):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -390,7 +390,15 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
     crossTermsCal = None
     crossTermsCalV = None
     _have_cal = (not (calibration_realizations is None)) and isinstance(calibration_realizations, dict)
-    if _have_cal:
+    # The (potentially expensive) per-realization |C_c|^2-weighted self-term cross terms
+    # are built only for the complete route (calibration_self_term=True, the default).  For
+    # the cheaper global-norm route (calibration_self_term=False), the calibration is still
+    # applied to the data (rholms are cal-extended below), but the SVD amplitude basis +
+    # weighted blocks are skipped and the reduction falls back to the cal-independent <h|h>.
+    # (return_calibration_crossterms only controls the RETURN arity, not the build; when the
+    # build is skipped the trailing crossTermsCal/crossTermsCalV are returned as None.)
+    _build_cal_ct = _have_cal and calibration_self_term
+    if _build_cal_ct:
         crossTermsCal = {}
         crossTermsCalV = {}
 
@@ -470,12 +478,14 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         cal_realization = None
         if _have_cal:
           cal_realization=calibration_realizations[det]
+        if _build_cal_ct:
           # Per-realization |C_c|^2-weighted cross terms (fused-calmarg self-term fix).
           # U-type uses <h_lm | h_l'm'>_{|C|^2/S}, V-type uses <h_lm^* | h_l'm'>_{|C|^2/S},
           # mirroring crossTerms/crossTermsV.  Build the low-rank |C_c|^2 basis ONCE per
           # detector (SVD; rank ~ n_spline^2/2, NOT n_cal), so each realization's cross
           # terms are a cheap linear combo -- NO per-draw band integral, and the same
           # basis serves both the U and V calls.  See BuildCalibrationSelfTermBasis.
+          # (Skipped entirely for the cheaper global-norm route, so its cost is not paid.)
           _cal_IP = lsu.ComplexIP(P.fmin, fMax, 1./2./P.deltaT, P.deltaF, psd_dict[det],
                 analyticPSD_Q, inv_spec_trunc_Q, T_spec)
           _cal_basis = BuildCalibrationSelfTermBasis(cal_realization, _cal_IP.weights2side.copy(), verbose=verbose)
