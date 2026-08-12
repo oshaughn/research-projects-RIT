@@ -32,12 +32,12 @@ parser.add_argument("--parameter", action='append', help="Parameters used in con
 parser.add_argument("--parameter-range", action='append', help="Parameter ranges used in convergence test (used if KDEs or similar knowledge of the PDF is needed). If used, must specify for ALL variables, in order")
 parser.add_argument("--method", default='lame',  help="Test to perform: lame|KS_1d|KL_1d|JS|js_lame.  js_lame = lame on the unbounded parameters (mc,eta,xi) AND, on each bounded transverse parameter (chi1_perp,...), a bounded-domain-aware JS plus an upper-quantile DRIFT test over a lag window of previous iterations.  Converged only if ALL components pass (transverse-spin tail-contraction diagnostic).")
 parser.add_argument("--threshold",default=0.01,type=float,  help="Manual threshold for the test being performed. (If not specified, the success condition is determined by default for that diagnostic, based on the samples size and properties).  Try 0.01")
-parser.add_argument("--js-threshold",default=0.002,type=float, help="[js_lame] threshold on the bounded-domain JS (base-2, squared) of each transverse parameter.  Split-half noise floor at n~5e3 is ~1e-4 (p90 ~4e-4); active tail motion is >~2e-3.  Default 0.002.")
+parser.add_argument("--js-threshold",default=0.002,type=float, help="[js_lame] threshold on the bounded-domain JS (base-2, squared) of each transverse parameter.  The null floor of this statistic depends on the KDE bandwidth and so on the shape of the posterior, not on the sample count alone: any fixed value is right only for the samples it was tuned on.  The test measures the floor per parameter (split-half on the current iteration) and warns when this value sits below it; prefer --js-lame-auto-threshold.  Default 0.002.")
 parser.add_argument("--quantile-tolerance",default=0.02,type=float, help="[js_lame] relative tolerance on the drift of upper quantiles (see --drift-quantiles) of each transverse parameter, tested against every available lagged iteration in --drift-window.  NOTE: split-half noise on q95 at n=5e3 is ~1.2-1.7 percent (median), so this tolerance is only clean if interim posteriors have >~2e4 samples; at 5e3 it is deliberately conservative (extra iterations, never premature stop).  Default 0.02.")
 parser.add_argument("--drift-window",default=3,type=int, help="[js_lame] how many previous iterations to test quantile drift against (files located by the posterior_samples-N.dat naming convention next to the first --samples argument).  Slow monotone tail drift is invisible in one-step statistics but accumulates over the window.  Default 3.")
 parser.add_argument("--drift-quantiles",default="90,95", help="[js_lame] comma-separated upper percentiles whose relative drift is tested.  Default '90,95'.")
 parser.add_argument("--transverse-parameter", action='append', help="[js_lame] parameters (subset of --parameter) treated as bounded transverse parameters.  Default: any of chi1_perp,chi2_perp,chi_p,a1,a2,chi1,chi2 present in --parameter.")
-parser.add_argument("--js-lame-auto-threshold",action='store_true', help="[js_lame] derive --threshold/--js-threshold/--quantile-tolerance from the MEASURED noise floor at the number of DISTINCT samples actually supplied, instead of using the fixed values.  The floor moves with n (JS and lame as 1/n, quantile drift as 1/sqrt(n)), so a fixed threshold is right at exactly one sample size and wrong everywhere else: the shipped defaults sit 15-50x below the floor at the honest per-worker supply (~800 distinct), where they fire on pure noise and the gate never converges.  Strongly recommended.")
+parser.add_argument("--js-lame-auto-threshold",action='store_true', help="[js_lame] derive --threshold/--js-threshold/--quantile-tolerance from the noise floor at the number of DISTINCT samples actually supplied, instead of using the fixed values.  The lame and quantile floors come from the measured 1/n and 1/sqrt(n) fits; the JS floor is measured directly for each transverse parameter by splitting the current posterior in half, because it tracks the KDE bandwidth and hence the shape of the posterior.  The floor moves with n (JS and lame as 1/n, quantile drift as 1/sqrt(n)), so a fixed threshold is right at exactly one sample size and wrong everywhere else: the shipped defaults sit 15-50x below the floor at the honest per-worker supply (~800 distinct), where they fire on pure noise and the gate never converges.  Strongly recommended.")
 parser.add_argument("--js-lame-noise-safety",default=1.5,type=float, help="[js_lame] multiple of the p95 noise floor used as the threshold under --js-lame-auto-threshold.  Default 1.5, which reproduces the thresholds recommended in the measured-noise study.")
 parser.add_argument("--js-lame-n-distinct",default=None,type=int, help="[js_lame] override the distinct-sample count used to set the noise floor.  Use this when the test is handed a POOLED posterior whose distinct count is known from the export sidecars (+annotation_export.dat); otherwise it is counted from the supplied rows.")
 parser.add_argument("--js-lame-require-lags",action='store_true', help="[js_lame] refuse to report convergence until the --drift-window lag history actually exists.  Without this, the first couple of (sub-)iterations have no lagged posteriors and the test quietly falls back to a one-step statistic that cannot see the tail drift -- which is how the shipped 'lame' gate stopped the nested loop at sub-iteration 2-3 of ~50.")
@@ -127,12 +127,39 @@ def calculate_js(samplesA, samplesB, ntests=100, xsteps=100):
 
     return np.median(js_array)
 
+def reflected_kde_pdf(x, samples, lo, hi):
+    """Reflected-boundary KDE for samples on [lo,hi], evaluated at x.
+
+    The bandwidth is taken from the UNREFLECTED samples.  Fitting gaussian_kde to the
+    concatenated block [a, 2*lo-a, 2*hi-a] instead lets Scott's rule see the spread of that
+    block, which spans [2*lo-hi, 2*hi-lo]: for a posterior concentrated well inside the domain
+    -- exactly the transverse-spin case this test is for -- that inflates the bandwidth several
+    fold and smooths away the between-iteration shape change the JS component exists to detect.
+    Since bounded parameters are excluded from the Gaussian 'lame' block and the drift component
+    only watches q90/q95, an over-smoothed JS is a direct route to premature convergence.
+
+    Because the Gaussian kernel is symmetric, reflecting the DATA about a boundary is identical
+    to reflecting the EVALUATION point, so the mirrored contributions are just added here; the
+    result is the usual reflection estimator at the sample-scale bandwidth.
+    Returns None when the draw has no usable spread (KDE undefined) -- see calculate_js_bounded.
+    """
+    samples = np.asarray(samples, dtype=float)
+    if len(samples) < 2 or not np.isfinite(samples).all() or np.std(samples) <= 0:
+        return None
+    try:
+        kde = gaussian_kde(samples)
+    except np.linalg.LinAlgError:   # singular covariance (numerically degenerate draw)
+        return None
+    return kde(x) + kde(2*lo - x) + kde(2*hi - x)
+
+
 def calculate_js_bounded(A, B, lo=0.0, hi=1.0, ntests=20, xsteps=100):
     """
     Bounded-domain-aware JS (base-2, squared) for a parameter on [lo,hi] (e.g. chi1_perp >= 0):
     reflect the samples about both boundaries before the KDE and evaluate only inside [lo,hi],
     so edge-piling at the boundary does not leak probability mass and bias the estimate.
     (The plain calculate_js KDE is biased for edge-piled bounded variables.)
+    The reflection is applied at the bandwidth of the unreflected samples: see reflected_kde_pdf.
     """
     js_array = np.zeros(ntests)
     n = min(len(A), len(B))
@@ -140,9 +167,15 @@ def calculate_js_bounded(A, B, lo=0.0, hi=1.0, ntests=20, xsteps=100):
     for j in range(ntests):
         a = np.random.choice(A, size=n, replace=False)
         b = np.random.choice(B, size=n, replace=False)
-        aa = np.concatenate([a, 2*lo - a, 2*hi - a])
-        bb = np.concatenate([b, 2*lo - b, 2*hi - b])
-        pa = gaussian_kde(aa)(x); pb = gaussian_kde(bb)(x)
+        pa = reflected_kde_pdf(x, a, lo, hi); pb = reflected_kde_pdf(x, b, lo, hi)
+        if pa is None or pb is None:
+            # An exactly-constant draw (e.g. a column with no transverse spin at all) has no
+            # KDE.  Call it identical only when both sides are the SAME point mass; otherwise
+            # report the maximum (1 bit), i.e. not converged.  Never certify convergence from
+            # a density estimate that could not be formed.
+            same = (np.std(a) <= 0 and np.std(b) <= 0 and np.isclose(np.mean(a), np.mean(b)))
+            js_array[j] = 0.0 if same else 1.0
+            continue
         js_array[j] = np.nan_to_num(np.power(jensenshannon(pa, pb, base=2), 2))
     return np.median(js_array)
 
@@ -166,17 +199,67 @@ JS_LAME_CIRCULAR = ['phi1', 'phi2', 'phi12', 'phiJL', 'psiJ', 'phiorb', 'psi']
 # JS and lame are both squared distances between densities, so their null scales as 1/n
 # (n*js p95 is 24-25 across the whole range); a quantile position scales as 1/sqrt(n)
 # (sqrt(n)*dq95 p95 is 2.8-3.1).  Constants are taken at the conservative end of each fit.
-JS_LAME_NOISE_JS_COEFF   = 25.0   # js p95   ~ COEFF / n
+#
+# CAVEAT on the js column: those numbers were fitted with the older bounded-JS estimator, which
+# took its KDE bandwidth from the reflected block and was therefore over-smoothed (see
+# reflected_kde_pdf).  A sharper kernel has a HIGHER null, and by an amount that depends on the
+# bandwidth and hence on the shape of the posterior -- not on n alone -- so no single refitted
+# constant would be right for the corrected estimator either.  The js floor is therefore MEASURED
+# at run time by js_bounded_null_floor, and JS_LAME_NOISE_JS_COEFF survives only as a fallback for
+# when there are too few distinct values to split; treat it as a LOWER bound on the true floor.
+# The lame and dq estimators are unchanged, so their constants still apply as measured.
+JS_LAME_NOISE_JS_COEFF   = 25.0   # js p95   ~ COEFF / n   (superseded estimator; fallback only)
 JS_LAME_NOISE_LAME_COEFF = 25.5   # lame p95 ~ COEFF / n
 JS_LAME_NOISE_DQ_COEFF   = 3.1    # dq p95   ~ COEFF / sqrt(n)
 
+# Run-time measurement of the js null: how many disjoint split-half pairs to score, which
+# quantile of them to report (p95, to match the tabulated components), and the smallest half
+# that is worth measuring at all.
+JS_LAME_NULL_SPLITS   = 20
+JS_LAME_NULL_QUANTILE = 95
+JS_LAME_NULL_MIN_HALF = 50
+
 
 def js_lame_noise_floor(n_distinct):
-    """p95 null noise floor of each js_lame component at n_distinct samples.  See the table above."""
+    """p95 null noise floor of each js_lame component at n_distinct samples.  See the table above.
+    The 'js' entry is the fallback constant only; prefer the measured js_bounded_null_floor."""
     n = max(float(n_distinct), 1.0)
     return {'js':   JS_LAME_NOISE_JS_COEFF / n,
             'lame': JS_LAME_NOISE_LAME_COEFF / n,
             'dq':   JS_LAME_NOISE_DQ_COEFF / np.sqrt(n)}
+
+
+def js_bounded_null_floor(samples, lo, hi, n_target,
+                          n_splits=JS_LAME_NULL_SPLITS, quantile=JS_LAME_NULL_QUANTILE,
+                          xsteps=100):
+    """MEASURED p95 null floor of calculate_js_bounded for this parameter, scaled to n_target
+    samples per side.  Returns None if there are too few distinct values to split.
+
+    The null is 'two independent draws of the same distribution', so it is measured here the same
+    way the tabulated study measured it: split one posterior into two halves and score them
+    against each other, repeatedly.  Measuring rather than tabulating keeps the threshold
+    consistent with whatever the estimator actually does -- the JS null depends on the KDE
+    bandwidth, so it moves when the estimator or the posterior shape changes, and a constant
+    fitted against one estimator on one set of samples silently stops describing either.
+
+    Two details matter:
+      - split the DISTINCT values, not the rows.  When CIP's export has padded a request with
+        duplicate rows, a row-wise split puts the same point on both sides, the halves stop being
+        independent, and the measured floor collapses toward zero -- which would put the threshold
+        below the true noise and hang the gate forever on pure noise.
+      - the halves hold len(unique)//2 points each, while the real comparison is scored at
+        n_target; the null scales as 1/n per side, so rescale by (half / n_target).
+    """
+    u = np.unique(np.asarray(samples, dtype=float))
+    m = len(u) // 2
+    if m < JS_LAME_NULL_MIN_HALF:
+        return None
+    vals = np.zeros(n_splits)
+    for j in range(n_splits):
+        perm = np.random.permutation(len(u))
+        vals[j] = calculate_js_bounded(u[perm[:m]], u[perm[m:2*m]], lo=lo, hi=hi,
+                                       ntests=1, xsteps=xsteps)
+    return np.percentile(vals, quantile) * float(m) / max(float(n_target), 1.0)
 
 
 def js_lame_count_distinct(*arrays):
@@ -212,8 +295,9 @@ def test_js_lame(dat1, dat2, param_list, opts, samples_path_current=None):
                    inside the noise floor of any one-step statistic ('lame' passed at
                    0.016<0.02 while chi1_perp's 90% CI was still moving ~4.5%/iteration).
     Each component's threshold is either the fixed CLI value or, under
-    --js-lame-auto-threshold, a multiple of the measured p95 null noise floor at the DISTINCT
-    sample count supplied (see js_lame_noise_floor).
+    --js-lame-auto-threshold, a multiple of the p95 null noise floor: tabulated at the DISTINCT
+    sample count supplied for lame and dq (js_lame_noise_floor), and measured per parameter for
+    the bandwidth-dependent JS component (js_bounded_null_floor).
     Returns a value scaled so the standard 'val < opts.threshold' semantics apply:
       val = opts.threshold * max_over_components(component/its_threshold).
     """
@@ -227,22 +311,24 @@ def test_js_lame(dat1, dat2, param_list, opts, samples_path_current=None):
     # Thresholds keyed to the noise floor at the DISTINCT sample count actually supplied.
     n_distinct = opts.js_lame_n_distinct if opts.js_lame_n_distinct else js_lame_count_distinct(dat1, dat2)
     floor = js_lame_noise_floor(n_distinct)
+    # The js floor is measured per parameter below (it depends on the KDE bandwidth, so it is not
+    # a function of n alone); thr_js here is only the fallback used when that measurement cannot
+    # be made.
     if opts.js_lame_auto_threshold:
         thr_lame = opts.js_lame_noise_safety * floor['lame']
         thr_js   = opts.js_lame_noise_safety * floor['js']
         thr_dq   = opts.js_lame_noise_safety * floor['dq']
-        print(" js_lame: n_distinct %d -> p95 noise floor js %.2e lame %.2e dq %.2e" % (
-            n_distinct, floor['js'], floor['lame'], floor['dq']))
-        print("          thresholds (%.2f x floor): js %.2e lame %.2e dq %.2e" % (
-            opts.js_lame_noise_safety, thr_js, thr_lame, thr_dq))
+        print(" js_lame: n_distinct %d -> p95 noise floor lame %.2e dq %.2e (js floor measured per parameter)" % (
+            n_distinct, floor['lame'], floor['dq']))
+        print("          thresholds (%.2f x floor): lame %.2e dq %.2e" % (
+            opts.js_lame_noise_safety, thr_lame, thr_dq))
     else:
         thr_lame, thr_js, thr_dq = opts.threshold, opts.js_threshold, opts.quantile_tolerance
         below = [name for name, thr, fl in (('--threshold', thr_lame, floor['lame']),
-                                            ('--js-threshold', thr_js, floor['js']),
                                             ('--quantile-tolerance', thr_dq, floor['dq'])) if thr < fl]
         if below:
-            print(" js_lame WARNING: at n_distinct %d the p95 null noise floor is js %.2e lame %.2e dq %.2e,"
-                  % (n_distinct, floor['js'], floor['lame'], floor['dq']))
+            print(" js_lame WARNING: at n_distinct %d the p95 null noise floor is lame %.2e dq %.2e,"
+                  % (n_distinct, floor['lame'], floor['dq']))
             print("   which is ABOVE the fixed threshold(s) %s -- those components will fire on pure noise and"
                   % ', '.join(below))
             print("   this gate can never report convergence.  Pass --js-lame-auto-threshold, or pool more CIP")
@@ -274,8 +360,30 @@ def test_js_lame(dat1, dat2, param_list, opts, samples_path_current=None):
     for p in bounded:
         A = dat1[:, idx[p]]; B = dat2[:, idx[p]]
         hi = max(1.0, np.max(A), np.max(B))
+        # Measure this parameter's own JS null floor (split-half on the current iteration) rather
+        # than reading it off the tabulated 1/n fit, which was made against a different, more
+        # heavily smoothed estimator.
+        floor_js = js_bounded_null_floor(A, lo=0.0, hi=hi, n_target=n_distinct)
+        floor_js_source = 'measured'
+        if floor_js is None:
+            floor_js = floor['js']
+            floor_js_source = 'fallback'
+            print(" js_lame WARNING: %s has fewer than %d distinct values, too few to split and measure a JS null"
+                  % (p, 2 * JS_LAME_NULL_MIN_HALF))
+            print("   floor; falling back to the tabulated coefficient %.2e, which was fitted against the"
+                  % floor_js)
+            print("   older over-smoothed estimator and is therefore a LOWER bound on the real floor here.")
+        thr_js_p = opts.js_lame_noise_safety * floor_js if opts.js_lame_auto_threshold else thr_js
+        if opts.js_lame_auto_threshold or opts.verbose:
+            print(" js_lame: p95 JS null floor for %s is %.2e (%s) at n_distinct %d -> threshold %.2e"
+                  % (p, floor_js, floor_js_source, n_distinct, thr_js_p))
+        if not opts.js_lame_auto_threshold and thr_js_p < floor_js:
+            print(" js_lame WARNING: --js-threshold %.2e is BELOW the p95 JS null floor %.2e (%s) for %s,"
+                  % (thr_js_p, floor_js, floor_js_source, p))
+            print("   so that component fires on pure sampling noise and this gate can never report")
+            print("   convergence.  Pass --js-lame-auto-threshold, or pool more CIP workers.")
         val_js = calculate_js_bounded(A, B, lo=0.0, hi=hi)
-        components['js(%s)' % p] = val_js / thr_js
+        components['js(%s)' % p] = val_js / thr_js_p
         for qq in [float(x) for x in opts.drift_quantiles.split(',')]:
             qa = np.percentile(A, qq); qb = np.percentile(B, qq)
             drift = np.abs(qa - qb) / max(np.abs(qa), np.abs(qb), 1e-10)
