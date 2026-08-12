@@ -425,6 +425,26 @@ def test_a_portfolio_pass_leaves_a_reserve_of_its_aggregate_retained_points():
     assert r['X'].shape[1] == NDIM
 
 
+def test_a_second_portfolio_pass_reserve_contains_only_second_pass_draws():
+    """A warm retry reuses member proposals, not the cold pass's aggregate sample cache."""
+    np.random.seed(20260812)
+    s = _portfolio(256)
+
+    def _marked(value):
+        return lambda *args: np.full(np.asarray(args[0]).shape, value, dtype=float)
+
+    kwargs = dict(nmax=256, neff=1, n=256, no_protect_names=True,
+                  verbose=False, save_intg=True)
+    s.integrate_log(_marked(11.0), *NAMES, **kwargs)
+    assert np.all(s._warm_seed_reserve['lnL'] == 11.0)
+
+    s.integrate_log(_marked(22.0), *NAMES, **kwargs)
+    reserve = s._warm_seed_reserve
+    assert reserve['n_retained'] == s.ntotal == 256
+    assert np.all(reserve['lnL'] == 22.0), \
+        'the warm reserve contains cold-pass rows from the retained portfolio cache'
+
+
 def test_the_portfolio_reserve_is_taken_before_pruning_and_the_fair_draw():
     """Order matters: taken after either step it would carry the same starved subset."""
     import RIFT.integrators.mcsamplerPortfolio as mcsamplerPF
