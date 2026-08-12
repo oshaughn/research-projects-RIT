@@ -358,7 +358,24 @@ def make_warm_seed_reserve(X, lnL, params_ordered, n_max=20000,
         X, lnL = X[finite], lnL[finite]
         extra = {k: v[finite] for k, v in extra.items()}
     n_fin = len(X)
-    # 2. bound, uniformly over that population, on a stream of our own
+    # 2. RECORD THE EXACT TOTAL, before the cap can perturb it.  This is the one quantity a
+    #    bounded record cannot reconstruct afterwards, and the L0 reject gate needs exactly
+    #    it.  A capped reserve gives a Horvitz-Thompson estimate whose LINEAR total is
+    #    unbiased but whose LOGARITHM is not: when a few rare rows carry the weight, whether
+    #    the subsample happens to catch them moves lnZ in discrete jumps.  With two equally
+    #    dominant rows among 200,000 at n_max=2000, only the forced peak is certain and the
+    #    other is missed ~99% of the time -- lnZ low by log(2) = 0.69, against a default
+    #    reject threshold of 0.5.  A cold reserve that fits under the cap compared against an
+    #    otherwise identical warm reserve that does not would then reject a valid warm pass on
+    #    nothing but subsample luck.  Captured here, the gate never sees that error at all.
+    ln_sum_w = None
+    if 'log_joint_prior' in extra and 'log_joint_s_prior' in extra:
+        _lw = lnL + extra['log_joint_prior'] - extra['log_joint_s_prior']
+        _lw = _lw[np.isfinite(_lw)]
+        if _lw.size:
+            _mx = float(np.max(_lw))
+            ln_sum_w = float(_mx + np.log(np.sum(np.exp(_lw - _mx))))
+    # 3. bound, uniformly over that population, on a stream of our own
     n_max = int(n_max)
     if n_max > 0 and n_fin > n_max:
         rng = rng if rng is not None else np.random.RandomState(20260811)
@@ -367,7 +384,7 @@ def make_warm_seed_reserve(X, lnL, params_ordered, n_max=20000,
         X, lnL = X[idx], lnL[idx]
         extra = {k: v[idx] for k, v in extra.items()}
     out = dict(X=X, lnL=lnL, n_retained=int(n_ret), n_finite=int(n_fin),
-               params_ordered=list(params_ordered))
+               ln_sum_w_finite=ln_sum_w, params_ordered=list(params_ordered))
     out.update(extra)
     return out
 
