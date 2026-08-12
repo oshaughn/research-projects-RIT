@@ -101,6 +101,12 @@ sim_manager_check:
     - python -m pip install lscsoft-glue --break-system-packages || echo "lscsoft-glue unavailable; condor portion will skip"
     - bash .travis/test-simulation-manager.sh
 
+calmarg_check:
+  stage: unit tests
+  script:
+    # in-loop calibration marginalization + per-realization self-term (CPU).
+    - bash .travis/test-calmarg.sh
+
 test_run:
   stage: system tests
   script:
@@ -135,7 +141,7 @@ gpu_integration:
       --env GW_SURROGATE="$GW_SURROGATE"
       --env RIFT_CI_REQUIRE_GPU="$RIFT_CI_REQUIRE_GPU"
       "$RIFT_CI_APPTAINER_IMAGE"
-      bash -lc 'cd "$CI_PROJECT_DIR" && export PYTHONPATH="$CI_PROJECT_DIR/MonteCarloMarginalizeCode/Code${PYTHONPATH:+:$PYTHONPATH}" && bash .travis/test-integrate.sh'
+      bash -lc 'cd "$CI_PROJECT_DIR" && export PYTHONPATH="$CI_PROJECT_DIR/MonteCarloMarginalizeCode/Code${PYTHONPATH:+:$PYTHONPATH}" && bash .travis/test-integrate.sh && bash .travis/test-calmarg-gpu.sh'
   rules:
     - if: '$CI_PIPELINE_SOURCE == "web"'
       when: manual
