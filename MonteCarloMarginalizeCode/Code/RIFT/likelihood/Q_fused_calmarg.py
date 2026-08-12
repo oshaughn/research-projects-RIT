@@ -254,7 +254,7 @@ def Q_fused_calmarg_numpy(Q, A, ifirst, invDist, rho_sq, w_t, n_cal, N_window,
 
     rho_sq_cal : optional (n_cal, n_ext) per-realization template self-term
         rho_sq_c = <C_c h | C_c h> (fused-calmarg self-term fix,
-        analyses/calmarg_selfterm_bias/NOTE.md).  When supplied, realization c uses
+        the calmarg self-term-bias analysis note).  When supplied, realization c uses
         rho_sq_cal[c] (broadcast over time) instead of the shared, cal-independent
         rho_sq.  When None, behavior is unchanged.
     """

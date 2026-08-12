@@ -133,6 +133,27 @@ def run(backend="cpu", n_cal=12, npts_extrinsic=48, seed=20240611):
         if err >= tol: ok_all = False
         print("  [distmarg  ] %-6s vs brute: %.3e  %s" % (name, err, flag))
 
+    # ---- (D) n_cal == 1 : the SINGLE-draw self-term fix must ALSO apply ----
+    # A single applied calibration draw still carries its own self-term rho_sq_c;
+    # the n_cal==1 path must use rho_sq_cal[0], NOT the cal-independent <h|h>.
+    case1 = bt.make_synthetic_case(n_cal=1, npts_extrinsic=npts_extrinsic, seed=seed+3)
+    U_cal1, V_cal1 = _make_cal_crossterms(case1, rng)
+    ref1 = _brute_force(case1, xpy, U_cal1, V_cal1, False, fl._factored_lnL_helper)  # n_cal==1, own U
+    fixed1 = _cal_method(case1, xpy, U_cal1, V_cal1, 'loop', False, fl._factored_lnL_helper)
+    # WITHOUT the cal cross terms the n_cal==1 path uses the (cal-independent) baseline U,
+    # which must DIFFER (proving the fix is genuinely active, not a no-op):
+    P1 = bt._build_P(case1, xpy)
+    lookupNKDict, rholmsArrayDict, ctU, ctV, epochDict = bt._dicts(case1, xpy, case1["rholms"])
+    nofix1 = bt._to_host(fl.DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(
+        xpy.asarray(case1["tvals"]), P1, lookupNKDict, rholmsArrayDict, ctU, ctV, epochDict,
+        Lmax=2, xpy=xpy, n_cal=1, loglikelihood=fl._factored_lnL_helper))
+    err_fix = float(np.max(np.abs(fixed1 - ref1)))
+    diff_nofix = float(np.max(np.abs(nofix1 - ref1)))
+    ok_ncal1 = (err_fix < 1e-9) and (diff_nofix > 1e-6)
+    if not ok_ncal1: ok_all = False
+    print("  [n_cal==1  ] fixed vs brute(own-U): %.3e OK ; vs no-fix baseline: %.3e (must differ)"
+          % (err_fix, diff_nofix))
+
     print("# RESULT:", "PASS" if ok_all else "MISMATCH")
     return ok_all
 

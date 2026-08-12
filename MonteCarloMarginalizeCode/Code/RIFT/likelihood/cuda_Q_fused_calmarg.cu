@@ -36,7 +36,7 @@
                                                        self-term fix); used iff use_rho_sq_cal
     out     : (n_ext,)                    float64
 
-  Self-term fix (analyses/calmarg_selfterm_bias/NOTE.md): the shared rho_sq keeps
+  Self-term fix (the calmarg self-term-bias analysis note): the shared rho_sq keeps
   <h|h> calibration-INDEPENDENT, which drops the per-realization data self-term and
   breaks the C->lambda*C distance-degeneracy invariance.  With use_rho_sq_cal set, the
   kernel uses the per-realization rho_sq_cal[c,j] = <C_c h|C_c h> instead, restoring it.

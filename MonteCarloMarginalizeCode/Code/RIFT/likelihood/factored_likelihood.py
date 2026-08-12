@@ -363,7 +363,7 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
         extra_waveform_kwargs={},
         use_gwsignal=False,
         use_gwsignal_approx=None,
-        use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False, calibration_realizations=None, calibration_conjugate=False):
+        use_external_EOB=False,nr_lookup=False,nr_lookup_valid_groups=None,no_memory=True,perturbative_extraction=False,perturbative_extraction_full=False,hybrid_use=False,hybrid_method='taper_add',use_provided_strain=False,ROM_group=None,ROM_param=None,ROM_use_basis=False,ROM_limit_basis_size=None,skip_interpolation=False, calibration_realizations=None, calibration_conjugate=False, return_calibration_crossterms=False):
     """
     Compute < h_lm(t) | d > and < h_lm | h_l'm' >
 
@@ -536,13 +536,16 @@ def PrecomputeLikelihoodTerms(event_time_geo, t_window, P, data_dict,
       print("SNR guess (internal, from det response) ", rho_max,rho_max**2/2)
       guess_snr= rho_max
 
-    # NOTE: return arity extended by two trailing values (crossTermsCal,
-    # crossTermsCalV) for the fused-calmarg self-term fix.  They are None unless a
-    # per-detector calibration_realizations dict was supplied.  All callers updated.
-    if not ROM_use_basis:
-            return rholms_intp, crossTerms, crossTermsV,  rholms, guess_snr, None, crossTermsCal, crossTermsCalV
-    else:
-            return rholms_intp, crossTerms, crossTermsV,  rholms, guess_snr,  acatHere, crossTermsCal, crossTermsCalV    # labels are misleading for use_rom_basis
+    # Backward-compatible return.  DEFAULT is the historical 6-tuple, so every existing
+    # caller (integrate_likelihood_extrinsic[_batchmode[_lisa]], ile_postproc_add_time,
+    # jax_ile, test/*) is unaffected.  Only callers that opt in with
+    # return_calibration_crossterms=True get the two trailing fused-calmarg self-term
+    # cross-term structures (crossTermsCal, crossTermsCalV; None unless a per-detector
+    # calibration_realizations dict was supplied).
+    _rest = None if not ROM_use_basis else acatHere  # labels are misleading for use_rom_basis
+    if return_calibration_crossterms:
+            return rholms_intp, crossTerms, crossTermsV,  rholms, guess_snr, _rest, crossTermsCal, crossTermsCalV
+    return rholms_intp, crossTerms, crossTermsV,  rholms, guess_snr, _rest
 
 def ReconstructPrecomputedLikelihoodTermsROM(P,acat_rom,rho_intp_rom,crossTerms_rom, crossTermsV_rom, rho_rom,verbose=True):
         """
@@ -968,10 +971,14 @@ def ComputeModeIPTimeSeries(hlms, data, psd, fmin, fMax, fNyq,
          # Create multiple data realizations from the realizations, and construct a longer IP item.
          for index, calib_array in enumerate(calibration_realizations.T):
           #print(calib_array.shape, data.data.length, calibration_realizations.shape)
-          # Apply calibration to the DATA (d -> C(f) d), so the <h|h> U,V terms
-          # stay calibration-independent and are computed only once downstream.
+          # Apply calibration to the DATA (d -> C(f) d).  The data-side cross term
+          # kappa = <h|C d> then carries the calibration; the (unweighted) U,V cross
+          # terms feeding kappa are cal-independent.  NOTE: the template self-term is
+          # NOT -- the complete per-realization norm is rho_sq_c = <C_c h|C_c h>,
+          # supplied separately via the |C_c|^2-weighted cross terms
+          # (ComputeModeCrossTermIPCal) and used in place of <h|h> in the reduction.
           #
-          # Phase-convention caveat (analyses/calmarg_selfterm_bias/NOTE.md, sec 6):
+          # Phase-convention caveat (the calmarg self-term-bias analysis note, sec 6):
           # applying C to the DATA gives kappa = <h|C d>, whereas the template-side
           # (bilby) matched filter is <d|C h>.  The IDENTITY <h|conj(C) d> = conj(<d|C h>)
           # means using conj(C) on the data makes |kappa| EXACTLY equal the template-side
@@ -1259,7 +1266,7 @@ def ComputeModeCrossTermIPCal(hlmsA, hlmsB, psd, fmin, fMax, fNyq, deltaF,
         prefix="U", same_waveform_Q=False, cal_basis=None):
     r"""
     Per-realization |C_c(f)|^2-weighted mode cross terms for the fused-calmarg
-    self-term fix (rho_sq_c = <C_c h | C_c h>; analyses/calmarg_selfterm_bias/NOTE.md).
+    self-term fix (rho_sq_c = <C_c h | C_c h>; the calmarg self-term-bias analysis note).
 
     Uses the low-rank basis expansion (BuildCalibrationSelfTermBasis +
     CalibrationSelfTermCrossTermsFromBasis): rank (<= n_spline*(n_spline+1)/2, NOT n_cal)
@@ -2137,19 +2144,29 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     Note 'P' must have the *sampling rate* set to correctly interpret the event time.
      Note arguments passed are NOW ARRAYS, in contrast to similar function which does not have 'Vector' postfix
 
-    Calibration marginalization (n_cal>1)
-    -------------------------------------
+    Calibration marginalization (n_cal>=1)
+    --------------------------------------
     When n_cal>1, the rholm timeseries are assumed to hold ``n_cal`` contiguous
     calibration realizations, each of length N_window = npts_full/n_cal (built by
-    ComputeModeIPTimeSeries with the calibration applied to the *data*).  Because
-    calibration is applied to the data, the template-template cross terms U,V
-    (rho_sq) are calibration-INDEPENDENT and are computed only once; only the data
-    term kappa changes per realization, selected by shifting the window offset
-    ifirst -> ifirst + c*N_window.  We then Monte-Carlo marginalize:
+    ComputeModeIPTimeSeries with the calibration applied to the *data*).  The data
+    term kappa = <h|C_c d> changes per realization, selected by shifting the window
+    offset ifirst -> ifirst + c*N_window.
+
+    The template self-term is NOT calibration-independent once the calibration is
+    applied to the data: the statistically complete term is the per-realization
+    rho_sq_c = <C_c h | C_c h> = <h| |C_c|^2 |h>.  When the |C_c|^2-weighted cross
+    terms are supplied (ctUArrayDict_cal/ctVArrayDict_cal), this per-realization
+    rho_sq_c is used in place of the shared, cal-independent rho_sq=<h|h> -- for
+    every n_cal, INCLUDING n_cal==1 (a single applied draw still carries its own
+    self-term).  Omitting them (ctUArrayDict_cal=None) reproduces the historical,
+    cal-independent-<h|h> behavior byte-for-byte.  (The bare <h|h> shortcut broke
+    the C->lambda*C distance-degeneracy invariance and biased lnZ; see
+    ComputeModeCrossTermIPCal / BuildCalibrationSelfTermBasis.)
+
+    We then Monte-Carlo marginalize:
         Z_cal(theta) = (1/n_cal) sum_c  integral dt exp( lnL_t(theta, c) )
     via a streaming log-sum-exp over the n_cal realizations (memory unchanged vs
-    the n_cal==1 path; one extra GPU kernel launch per realization).  The n_cal==1
-    code path below is unchanged.
+    the n_cal==1 path; one extra GPU kernel launch per realization).
 
     cal_method selects the n_cal>1 reduction:
       'loop'  (default, Option B): Python loop over realizations reusing the
@@ -2228,7 +2245,7 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     # in the loop below, and kappa is recomputed per realization afterwards.
     cal_cache = {}
 
-    # Fused-calmarg self-term fix (analyses/calmarg_selfterm_bias/NOTE.md).  When the
+    # Fused-calmarg self-term fix (the calmarg self-term-bias analysis note).  When the
     # per-realization |C_c|^2-weighted cross terms are supplied, accumulate the
     # per-realization template self-term rho_sq_c = <C_c h | C_c h> (shape
     # (n_cal, npts_extrinsic); time-independent) alongside the shared rho_sq, and use
@@ -2236,7 +2253,10 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
     # rho_sq.  This restores the C -> lambda*C distance-degeneracy invariance that the
     # data-side shortcut (fixed <h|h>) broke.  When absent (ctUArrayDict_cal is None),
     # behavior is byte-for-byte identical to before.
-    _use_rho_sq_cal = (n_cal > 1) and (ctUArrayDict_cal is not None) and (ctVArrayDict_cal is not None)
+    # Active whenever the |C_c|^2-weighted cross terms are supplied -- INCLUDING n_cal==1
+    # (a single calibration draw is still applied to the data, so its self-term must be
+    # <C h|C h>, not the cal-independent <h|h>; the n_cal==1 path below uses rho_sq_cal[0]).
+    _use_rho_sq_cal = (ctUArrayDict_cal is not None) and (ctVArrayDict_cal is not None)
     rho_sq_cal = xpy.zeros((n_cal, npts_extrinsic), dtype=np.float64) if _use_rho_sq_cal else None
 
     if (xpy is np) or (optimized_gpu_tools is None):
@@ -2454,10 +2474,14 @@ def  DiscreteFactoredLogLikelihoodViaArrayVectorNoLoop(tvals, P_vec, lookupNKDic
 
 
     if n_cal == 1:
+        # Fused-calmarg self-term fix also applies to a SINGLE calibration draw: the data
+        # carries C_0, so its self-term is rho_sq_c = <C_0 h|C_0 h> = rho_sq_cal[0], not the
+        # cal-independent <h|h>.  Falls back to rho_sq for the ordinary (no-cal) likelihood.
+        rho_sq_here = rho_sq if not _use_rho_sq_cal else xpy.broadcast_to(rho_sq_cal[0][:, np.newaxis], (npts_extrinsic, npts))
         if phase_marginalization:
-            lnL_t = loglikelihood(xpy.abs(kappa_sq), rho_sq)
+            lnL_t = loglikelihood(xpy.abs(kappa_sq), rho_sq_here)
         else:
-            lnL_t = loglikelihood(kappa_sq.real, rho_sq)
+            lnL_t = loglikelihood(kappa_sq.real, rho_sq_here)
 
         # Take exponential of the log likelihood in-place.
         lnLmax  = xpy.max(lnL_t)

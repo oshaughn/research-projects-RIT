@@ -42,18 +42,19 @@ psd_dict = {det: lalsim.SimNoisePSDaLIGOZeroDetHighPower for det in data_dict}
 Lmax = 2
 n_cal = 5
 
-# baseline (no calibration marginalization)
-rholms_intp_b, ct_b, ctV_b, rholms_base, snr_b, _, _ctcal_b, _ctVcal_b = fl.PrecomputeLikelihoodTerms(
+# baseline (no calibration marginalization) -- DEFAULT 6-value API, unchanged
+rholms_intp_b, ct_b, ctV_b, rholms_base, snr_b, _ = fl.PrecomputeLikelihoodTerms(
     event_time, t_window, Psig, data_dict, psd_dict, Lmax, fmax,
     analyticPSD_Q=True, verbose=False, quiet=True, skip_interpolation=True)
 
-# calibration marginalization with the IDENTITY calibration (factor == 1)
+# calibration marginalization with the IDENTITY calibration (factor == 1);
+# opt in to the two trailing self-term cross-term structures.
 cal_real = {det: np.ones((data_dict[det].data.length, n_cal), dtype=complex)
             for det in data_dict}
 rholms_intp_c, ct_c, ctV_c, rholms_cal, snr_c, _, ctcal_c, ctVcal_c = fl.PrecomputeLikelihoodTerms(
     event_time, t_window, Psig, data_dict, psd_dict, Lmax, fmax,
     analyticPSD_Q=True, verbose=False, quiet=True, skip_interpolation=True,
-    calibration_realizations=cal_real)
+    calibration_realizations=cal_real, return_calibration_crossterms=True)
 
 ok = True
 for det in data_dict:

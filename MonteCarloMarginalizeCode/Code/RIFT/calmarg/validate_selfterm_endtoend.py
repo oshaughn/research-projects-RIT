@@ -116,7 +116,8 @@ def precompute_from_data(P, data_dict, cal_dict, event_time, t_window, fmax, cal
     return fl.PrecomputeLikelihoodTerms(
         event_time, t_window, P, data_dict, psd_dict, 2, fmax,
         analyticPSD_Q=True, verbose=False, quiet=True, skip_interpolation=True,
-        calibration_realizations=cal_dict, calibration_conjugate=calibration_conjugate)
+        calibration_realizations=cal_dict, calibration_conjugate=calibration_conjugate,
+        return_calibration_crossterms=True)
 
 
 def pack(rholms, rholms_intp, cross_terms, cross_terms_V, cross_terms_cal, cross_terms_cal_V, xpy):

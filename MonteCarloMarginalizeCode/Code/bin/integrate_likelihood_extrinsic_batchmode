@@ -239,7 +239,7 @@ optp.add_option("--calibration-envelope-directory",default=None, help="Name of d
 optp.add_option("--calibration-n-realizations", default=100, type=int, help="Number of realizations to use for calmarg, recommend 100")
 optp.add_option("--calibration-spline-count", default=10,type=int)
 optp.add_option("--calibration-fused-kernel", action="store_true", default=False, help="Opt-in: use the fused GPU kernel (Option C) for in-loop calibration marginalization. GPU only, no phase marginalization; with distance marginalization it uses the fused distmarg kernel. Falls back to the loop method (Option B) otherwise.")
-optp.add_option("--calibration-conjugate-phase", action="store_true", default=False, help="Opt-in (calmarg phase-convention fix, analyses/calmarg_selfterm_bias/NOTE.md sec 6): apply conj(C) instead of C to the data when building the per-realization rholms, so the recovered calibration PHASE tracks the correct sign (matches the template-side <d|C h> convention).  Needed only for a phase-UNmarginalized or large-phase treatment; under phase marginalization with small phase it changes lnL by <0.05 nats.  Independent of the self-term amplitude fix (|C|^2 is conjugation-invariant), which is always on when calmarg cross-terms are built.")
+optp.add_option("--calibration-conjugate-phase", action="store_true", default=False, help="Opt-in calmarg phase-convention fix: apply conj(C) instead of C to the data when building the per-realization rholms, so the recovered calibration PHASE tracks the correct sign (matches the template-side <d|C h> convention).  Needed only for a phase-UNmarginalized or large-phase treatment; under phase marginalization with small phase it changes lnL by <0.05 nats.  Independent of the per-realization self-term amplitude fix (|C|^2 is conjugation-invariant), which is always on when calibration marginalization is active.")
 optp.add_option("--calibration-proposal-breadcrumb",default=None, help="Opt-in (Option C / adaptive pilot): path to a breadcrumb .npz (RIFT.calmarg.breadcrumbs) carrying a LEARNED Gaussian proposal over cal spline nodes. When set, the cal realizations are drawn from that proposal instead of the broad prior, and the marginalization carries Phase-0 importance weights log(prior/proposal) so it stays unbiased. Requires --calibration-envelope-directory (the prior).")
 optp.add_option("--calibration-dump-responsibilities",default=None, help="Opt-in (Option C / adaptive pilot): path to write per-cal-realization log-responsibilities (length n_cal), accumulated over the evaluated grid, plus the cal node draws. This is the pilot's output, fitted into a proposal by util_CalPilotFit.py. No effect on the returned likelihood.")
 optp.add_option("--calibration-pilot-extrinsic",default=256,type=int, help="Pilot only: number of uniform-prior extrinsic samples used to extrinsic-marginalize the per-realization cal responsibility at each intrinsic point. Cal is ~extrinsic-independent, so a modest batch suffices.")
@@ -1777,6 +1777,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     rholms_intp, cross_terms, cross_terms_V,  rholms,  guess_snr, rest, cross_terms_cal, cross_terms_cal_V=factored_likelihood.PrecomputeLikelihoodTerms(
             fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
             False, inv_spec_trunc_Q, T_spec,
+            return_calibration_crossterms=True,
             ignore_threshold=ignore_threshold,   # default is None, old default was 1e-4. Use to speed calculation and/or discard 'junky' modes, esp at lower SNR. Dangerous at high SNR
             NR_group=NR_template_group,NR_param=NR_template_param,
             use_gwsignal=opts.use_gwsignal,
@@ -1816,7 +1817,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # fix.  ctUArrayDict_cal[det] is (n_cal, n_lms, n_lms); None-valued dicts stay
         # empty when calibration marginalization is off.  Built ONCE here, threaded to
         # the calmarg likelihood calls so rho_sq_c = <C_c h|C_c h> replaces the shared
-        # (cal-independent) rho_sq.  See analyses/calmarg_selfterm_bias/NOTE.md.
+        # (cal-independent) rho_sq.  See the calmarg self-term-bias analysis note.
         ctUArrayDict_cal = {}
         ctVArrayDict_cal = {}
         _have_cal_crossterms = (cross_terms_cal is not None) and (cross_terms_cal_V is not None)
@@ -1951,6 +1952,7 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
                 _intp_more, _ct_more, _ctV_more, rholms_more, _snr_more, _rest_more, _ct_cal_more, _ctV_cal_more = factored_likelihood.PrecomputeLikelihoodTerms(
                     fiducial_epoch, t_window, P, data_dict, psd_dict, opts.l_max, fmax,
                     False, inv_spec_trunc_Q, T_spec,
+                    return_calibration_crossterms=True,
                     ignore_threshold=ignore_threshold,
                     NR_group=NR_template_group,NR_param=NR_template_param,
                     use_gwsignal=opts.use_gwsignal,
