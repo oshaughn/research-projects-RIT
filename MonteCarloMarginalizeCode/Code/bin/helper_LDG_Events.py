@@ -224,6 +224,8 @@ parser.add_argument("--ile-n-eff",default=50,type=int,help="Target n_eff passed 
 parser.add_argument("--test-convergence",action='store_true',help="If present, the code will terminate if the convergence test  passes. WARNING: if you are using a low-dimensional model the code may terminate during the low-dimensional model!")
 parser.add_argument("--internal-test-convergence-threshold",type=float,default=0.02,help="The value of the threshold. 0.02 has been default ")
 parser.add_argument("--internal-test-convergence-method",type=str,default="lame",help="Convergence-test method passed to convergence_test_samples.py (lame|ks1d|KL_1d|js_additive|js_lame). Default 'lame' (multivariate-Gaussian mean+variance KL) is BLIND to skewed transverse tails: it can declare convergence while chi1_perp is still contracting (observed: passed at 0.016<0.02 while the chi1_perp 90%% CI was still moving ~4.5 percent/iteration). Use 'js_lame' (lame on mc/eta/xi AND bounded-domain JS + lagged upper-quantile drift on chi1_perp) to resolve transverse tails, esp. at low mass. See transverse-spin convergence protocol (results_triage/CONVERGENCE_PROTOCOL_*).")
+parser.add_argument("--internal-test-convergence-js-lame-fixed-thresholds",action='store_true',help="With --internal-test-convergence-method js_lame: do NOT pass --js-lame-auto-threshold, so the fixed --threshold/--js-threshold/--quantile-tolerance values are used as given.  Only correct if you know the distinct-sample supply matches the sample size those fixed values were tuned at; otherwise the components fire on pure sampling noise and the gate never converges.")
+parser.add_argument("--internal-test-convergence-js-lame-allow-missing-lags",action='store_true',help="With --internal-test-convergence-method js_lame: do NOT pass --js-lame-require-lags, so the test may report convergence before its lag window is populated.  This restores the one-step behaviour js_lame exists to replace (an unusually clean early comparison can stop the loop at sub-iteration 2-3); for diagnostics only.")
 parser.add_argument("--lowlatency-propose-approximant",action='store_true', help="If present, based on the object masses, propose an approximant. Typically TaylorF2 for mc < 6, and SEOBNRv4_ROM for mc > 6.")
 parser.add_argument("--online", action='store_true', help="Use online settings")
 parser.add_argument("--propose-initial-grid",action='store_true',help="If present, the code will either write an initial grid file or (optionally) add arguments to the workflow so the grid is created by the workflow.  The proposed grid is designed for ground-based LIGO/Virgo/Kagra-scale instruments")
@@ -1056,6 +1058,21 @@ helper_cip_arg_list = []
 chieff_str = '' # Scoping issue fix
 
 helper_test_args += "  --method {}  --parameter mc --parameter eta  --iteration $(macroiteration) ".format(opts.internal_test_convergence_method)
+if opts.internal_test_convergence_method == 'js_lame':
+    # js_lame's thresholds are only meaningful relative to the noise floor at the DISTINCT sample
+    # count it is actually handed, and that floor moves with n (JS/lame as 1/n, quantile drift as
+    # 1/sqrt(n)).  At the interim supply this pipeline produces -- and lower still once CIP's export
+    # pads a request with duplicates -- the p95 null quantile-drift floor sits ABOVE the fixed
+    # --quantile-tolerance, so that component fires on pure sampling noise and the gate can never
+    # report convergence.  Key the thresholds to the measured floor instead.
+    if not opts.internal_test_convergence_js_lame_fixed_thresholds:
+        helper_test_args += " --js-lame-auto-threshold "
+    # The drift component is what makes this test tail-sensitive, and it does not exist until the
+    # lag window is populated: before then the test silently degrades to the one-step statistic that
+    # cannot see slow monotone tail motion, so a clean early comparison can certify convergence at
+    # sub-iteration 2-3 -- exactly the premature stop js_lame was added to prevent.
+    if not opts.internal_test_convergence_js_lame_allow_missing_lags:
+        helper_test_args += " --js-lame-require-lags "
 if not opts.assume_nospin:
     helper_test_args += " --parameter xi "  # require chi_eff distribution to be stable
     if opts.assume_precessing_spin:  # test on spin 1 perpendicular variables. Note this WILL PROBABLY FAIL IF PRIMARY HAS EXACTLY ZERO TRANSVERSE SPIN (or zero overall)
