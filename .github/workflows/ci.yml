@@ -341,6 +341,13 @@ jobs:
         # because this job is the only one matrixed over BOTH numpy lanes, and these tests
         # are the kind that break on numpy API removals (e.g. np.trapz -> np.trapezoid).
         run: python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py
+      - name: Run NAL / supplementary-likelihood hook tests
+        # Also run by .travis/test-integrate.sh (integration-check, py3.10). Repeated here for the
+        # same reason as above: nal_io is pure numpy and has a legacy-numpy fallback for
+        # default_rng, so it must be exercised in BOTH numpy lanes.
+        run: |
+          python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_nal_io.py \
+                             MonteCarloMarginalizeCode/Code/test/test_supplementary_likelihood_hook.py
       - name: Run adaptive-volume collapse / evidence-accounting regressions
         # These were unguarded.  The AV live-volume-collapse family, the L0 rescue's warm
         # seed, and the portfolio fair-draw backend each shipped a regression suite that NO

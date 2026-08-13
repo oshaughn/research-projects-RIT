@@ -347,6 +347,8 @@ prior_range_map = param_ranges
 supplemental_ln_likelihood= None
 supplemental_ln_likelihood_prep =None
 supplemental_ln_likelihood_parsed_ini=None
+supplemental_ln_likelihood_offset_fn=None
+supplemental_ln_likelihood_offset=0.0
 # Supplemental likelihood factor. Must have identical call sequence to 'likelihood_function'. Called with identical raw inputs (including cosines/etc)
 if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_factor_function:
   print(" EXTERNAL SUPPLEMENTARY LIKELIHOOD FACTOR : {}.{} ".format(opts.supplementary_likelihood_factor_code,opts.supplementary_likelihood_factor_function))
@@ -354,18 +356,37 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
   external_likelihood_module = sys.modules[opts.supplementary_likelihood_factor_code]
   supplemental_ln_likelihood = getattr(external_likelihood_module,opts.supplementary_likelihood_factor_function)
   name_prep = "prepare_"+opts.supplementary_likelihood_factor_function
+  # Optional <function>_offset hook, same naming convention as prepare_<function>.  A plugin whose
+  # contribution is large must return a CENTRED lnL -- the default path here exponentiates it
+  # (likelihood_function*np.exp(supplemental)), and float64 overflows past ~709, which a single
+  # loud-event quadratic (lnL_peak ~ SNR^2/2) exceeds on its own.  That centring is a constant
+  # multiplicative factor: harmless in the posterior, but it would otherwise leak into the ABSOLUTE
+  # evidence written below and make it wrong by exactly that constant.  The plugin reports what it
+  # removed; we add it back at the write site.  Queried after integration, not here: the value is
+  # only known once the plugin has been prepared/loaded.
+  name_offset = opts.supplementary_likelihood_factor_function+"_offset"
+  if hasattr(external_likelihood_module,name_offset):
+    supplemental_ln_likelihood_offset_fn=getattr(external_likelihood_module,name_offset)
   if hasattr(external_likelihood_module,name_prep):
-    supplemental_ln_likelhood_prep=getattr(external_likelihood_module,name_prep)
+    supplemental_ln_likelihood_prep=getattr(external_likelihood_module,name_prep)
     # Check for and load in ini file associated with external library
     if opts.supplementary_likelihood_factor_ini:
       import configparser as ConfigParser
       config = ConfigParser.ConfigParser()
-      config.optionxform=str # force preserve case! 
+      config.optionxform=str # force preserve case!
       config.read(opts.supplementary_likelihood_factor_ini)
-      supplemental_ln_likelhood_parsed_ini=config
+      supplemental_ln_likelihood_parsed_ini=config
 
-      # Call the ini file, tell it what coordinates we are using by name
-      supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=coord_names)
+    # Prepare the plugin, telling it what coordinates we are using by name.  Called whether or not
+    # an ini was supplied (config=None then): a plugin configured entirely by environment still
+    # needs the basis, and without it the arrays it is handed are anonymous -- same count, same
+    # order, no error, wrong coordinates.
+    # coords MUST be low_level_coord_names, not coord_names: the sampler integrates over
+    # low_level_coord_names and so calls supplemental_ln_likelihood(*x) with one array per
+    # SAMPLING coordinate, in that order.  With --parameter-implied/--parameter-nofit the two
+    # lists differ, and handing over the fit basis would make the plugin label those arrays
+    # wrongly -- evaluating at the wrong coordinates without any error.
+    supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=low_level_coord_names)
 
 supplemental_coordinate_convert = None
 supplemental_coordinate_inverse = None
@@ -991,7 +1012,17 @@ else:
     ln_integrand_value = np.log(res)
 
 # Save result -- needed for odds ratios, etc.
-np.savetxt(opts.fname_output_integral, [ln_integrand_value])
+# Absolute scale: a supplementary-likelihood plugin may subtract a constant from its own lnL to keep
+# the exponentiated integrand in float64 range (see the <function>_offset note at the import above).
+# That constant divides out of the posterior but not out of an evidence -- which is exactly what
+# this file is read as -- so it is restored here.  Queried now rather than next to the prepare call
+# because a plugin configured entirely by environment prepares itself lazily on its first
+# evaluation.  Stays 0.0 for plugins that do not centre and for runs with no supplementary factor.
+if supplemental_ln_likelihood_offset_fn:
+    supplemental_ln_likelihood_offset = float(supplemental_ln_likelihood_offset_fn())
+    print(" EXTERNAL SUPPLEMENTARY LIKELIHOOD FACTOR : restoring offset {} in reported evidence ".format(supplemental_ln_likelihood_offset))
+ln_integrand_value_absolute = ln_integrand_value + supplemental_ln_likelihood_offset
+np.savetxt(opts.fname_output_integral, [ln_integrand_value_absolute])
 
 if neff < len(coord_names):
     print(" PLOTS WILL FAIL ")
@@ -1131,4 +1162,3 @@ if _extra_cols:
 
 print(" Saving to ", opts.fname_output_samples+".dat")
 np.savetxt(opts.fname_output_samples+".dat",dat_out,header=" lnL sigma_lnL " + ' '.join(dat_orig_names))
-

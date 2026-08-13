@@ -38,6 +38,12 @@ fi
 # rather than with the end-to-end run tests.
 python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py
 
+# Supplementary-likelihood plugin hook: the NAL reader/evaluator (pure numpy, no data) and the
+# static guard on the drivers' prepare-hook wiring, which is what makes the plugin receive the
+# SAMPLING basis at all. Both are seconds-long and protect a silent-wrong-answer path.
+python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_nal_io.py \
+                   MonteCarloMarginalizeCode/Code/test/test_supplementary_likelihood_hook.py
+
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000
 
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000 --use-lnL
