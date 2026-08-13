@@ -303,7 +303,7 @@ def test_set_refuses_undeclared_frame():
 
 
 def test_set_refuses_mismatched_cosmology_or_distance_prior():
-    a = {"frame": "source", "cosmology": {"name": "Planck15"},
+    a = {"frame": "source", "chart": "NAL:aligned", "cosmology": {"name": "Planck15"},
          "d_prior": {"name": "cosmo_sourceframe", "d_max": 10000.0}}
     b = dict(a, cosmology={"name": "Planck18"})
     with pytest.raises(ValueError, match="cosmology"):
@@ -314,14 +314,57 @@ def test_set_refuses_mismatched_cosmology_or_distance_prior():
 
 
 def test_set_requires_cosmology_for_source_frame_artifacts():
+    m = {"frame": "source", "chart": "NAL:aligned"}
     with pytest.raises(ValueError, match="cosmology"):
-        nal_io.NALSet([_nal({"frame": "source"}), _nal({"frame": "source"}, seed=1)])
+        nal_io.NALSet([_nal(m), _nal(m, seed=1)])
 
 
 def test_set_refuses_mismatched_charts():
     with pytest.raises(ValueError, match="chart"):
         nal_io.NALSet([_nal({"frame": "detector", "chart": "NAL:aligned"}),
                        _nal({"frame": "detector", "chart": "NAL:precessing"}, seed=1)])
+
+
+def test_set_refuses_artifacts_that_all_omit_the_chart():
+    """Silence from every artifact is not agreement.
+
+    Same coord_names, same frame, no chart anywhere: nothing establishes that the two were built
+    in the same coordinate CONVENTIONS (spin basis, mass pairing, angle reference), and the sum
+    would be well-defined arithmetic over two different meanings of theta. `write_nal(chart=None)`
+    produces exactly these, so the all-undeclared case is the one that actually occurs -- and it
+    is the case that a "declared values must match" check would wave through.
+    """
+    with pytest.raises(ValueError, match="chart"):
+        nal_io.NALSet([_nal({"frame": "detector"}), _nal({"frame": "detector"}, seed=1)])
+    # partially declared is no better: one artifact still cannot be shown to agree
+    with pytest.raises(ValueError, match="chart"):
+        nal_io.NALSet([_nal({"frame": "detector", "chart": "NAL:aligned"}),
+                       _nal({"frame": "detector"}, seed=1)])
+    # nor is a declaration that says nothing
+    with pytest.raises(ValueError, match="chart"):
+        nal_io.NALSet([_nal({"frame": "detector", "chart": ""}),
+                       _nal({"frame": "detector", "chart": ""}, seed=1)])
+    # and the escape hatch for a caller who has established equivalence by other means still works
+    nal_io.NALSet([_nal({"frame": "detector"}), _nal({"frame": "detector"}, seed=1)],
+                  require_compatible=False)
+
+
+def test_written_artifacts_without_a_chart_cannot_be_summed(tmp_path):
+    """End to end: write_nal(chart=None) is loadable and usable alone, but not addable."""
+    mu, G = _make(d=2)
+    paths = []
+    for i in range(2):
+        base = str(tmp_path / ("ev%d" % i))
+        nal_io.write_nal(base, nal_io.NAL(mu, G, ["mc", "delta_mc"]), frame="detector")
+        paths.append(base)
+    loaded = [nal_io.load_nal(p + ".npz") for p in paths]
+    nal_io.NALSet([loaded[0]])                            # alone: fine, nothing is being added
+    with pytest.raises(ValueError, match="chart"):
+        nal_io.NALSet(loaded)
+    for p in paths:                                       # ... and declaring one fixes it
+        nal_io.write_nal(p, nal_io.NAL(mu, G, ["mc", "delta_mc"]), chart="NAL:aligned",
+                         frame="detector")
+    nal_io.NALSet([nal_io.load_nal(p + ".npz") for p in paths])
 
 
 def test_set_accepts_matching_metadata_and_a_lone_artifact():
@@ -331,9 +374,11 @@ def test_set_accepts_matching_metadata_and_a_lone_artifact():
     # a single artifact is never checked: nothing is being added to it
     assert nal_io.NALSet([_nal({})]).coord_names == ["mc", "delta_mc"]
     # dict ordering is not a difference
-    nal_io.NALSet([_nal({"frame": "source", "cosmology": {"name": "Planck15", "h": 0.679},
+    nal_io.NALSet([_nal({"frame": "source", "chart": "NAL:aligned",
+                         "cosmology": {"name": "Planck15", "h": 0.679},
                          "d_prior": {"name": "p", "d_max": 1.0}}),
-                   _nal({"frame": "source", "cosmology": {"h": 0.679, "name": "Planck15"},
+                   _nal({"frame": "source", "chart": "NAL:aligned",
+                         "cosmology": {"h": 0.679, "name": "Planck15"},
                          "d_prior": {"d_max": 1.0, "name": "p"}}, seed=1)])
 
 

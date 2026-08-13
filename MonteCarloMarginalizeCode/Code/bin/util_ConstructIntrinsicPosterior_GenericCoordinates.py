@@ -771,16 +771,9 @@ if opts.supplementary_likelihood_factor_code and opts.supplementary_likelihood_f
       config.read(opts.supplementary_likelihood_factor_ini)
       supplemental_ln_likelihood_parsed_ini=config
 
-    # Prepare the plugin, telling it what coordinates we are using by name.  Called whether or not
-    # an ini was supplied (config=None then): a plugin configured entirely by environment still
-    # needs the basis, and without it the arrays it is handed are anonymous -- same count, same
-    # order, no error, wrong coordinates.
-    # coords MUST be low_level_coord_names, not coord_names: the sampler integrates over
-    # low_level_coord_names and so calls supplemental_ln_likelihood(*x) with one array per
-    # SAMPLING coordinate, in that order.  With --parameter-implied/--parameter-nofit the two
-    # lists differ, and handing over the fit basis would make the plugin label those arrays
-    # wrongly -- evaluating at the wrong coordinates without any error.
-    supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=low_level_coord_names)
+    # NOTE the plugin is NOT prepared here: low_level_coord_names is not final at this point (the
+    # tabular-EOS path appends 'ordering' to it further down).  See the preparation call just
+    # before the sampling loop below.
 
 
 
@@ -2604,6 +2597,25 @@ elif mcsampler_Portfolio_ok:
     if opts.sampler_method in mcsamplerPortfolio.known_pipelines: # access from plugins
         sampler = mcsamplerPortfolio.known_pipelines[opts.sampler_method]()
 
+
+###
+### Supplemental likelihood: prepare the plugin, now that the sampling basis is FINAL
+###
+# Deliberately here and not next to the import above.  low_level_coord_names is still being built
+# at that point -- the tabular-EOS branch appends 'ordering' to it -- and the plugin RECORDS the
+# basis it is handed, so a list snapshotted earlier is short by that coordinate while the sampler
+# still calls supplemental_ln_likelihood(*x) with one array per FINAL sampling coordinate.  Nothing
+# below this line changes the list, so this is the first point at which it can be declared.
+# Called whether or not an ini was supplied (config=None then): a plugin configured entirely by
+# environment still needs the basis, and without it the arrays it is handed are anonymous -- same
+# count, same order, no error, wrong coordinates.
+# coords MUST be low_level_coord_names, not coord_names: the sampler integrates over
+# low_level_coord_names and so calls supplemental_ln_likelihood(*x) with one array per SAMPLING
+# coordinate, in that order.  With --parameter-implied/--parameter-nofit the two lists differ, and
+# handing over the fit basis would make the plugin label those arrays wrongly -- evaluating at the
+# wrong coordinates without any error.
+if supplemental_ln_likelihood_prep:
+    supplemental_ln_likelihood_prep(config=supplemental_ln_likelihood_parsed_ini,coords=low_level_coord_names)
 
 ##
 ## Loop over param names

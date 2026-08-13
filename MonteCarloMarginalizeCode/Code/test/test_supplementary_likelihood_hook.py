@@ -194,3 +194,47 @@ def test_prepare_hook_is_told_the_sampling_basis(fname):
             "given the SAMPLING basis, since that is the order the plugin is called with"
             % (fname, ast.dump(node) if not isinstance(node, ast.Name) else node.id,
                sorted(sampled)))
+
+
+# List methods that change the contents in place.  `+=` on a list is an AugAssign whose target is a
+# Store of the same Name, so it is caught by the rebind check rather than this one.
+_LIST_MUTATORS = ("append", "extend", "insert", "remove", "pop", "clear", "sort", "reverse")
+
+
+@pytest.mark.parametrize("fname", DRIVERS)
+def test_prepare_hook_runs_after_the_sampling_basis_is_final(fname):
+    """Nothing may change the declared coordinate list after the prepare hook has been told it.
+
+    The plugin RECORDS the basis it is handed (nal_io copies it into module state); the sampler
+    then calls the plugin with one array per coordinate in the FINAL list.  CIP builds that list
+    in stages -- `--parameter-implied`/`--parameter-nofit` early, then `ordering` appended for a
+    tabular-EOS run much later -- so preparing next to the plugin import snapshots a list that is
+    one entry short of what the sampler supplies.  The plugin then either raises on the array
+    count (nal_io does) or, worse, mislabels every array after the missing one.
+
+    Checked by line number rather than by running the driver: these are top-level scripts, and the
+    ordering is a property of the file, not of any particular run's flags.
+    """
+    tree = _tree(fname)
+    calls = [c for c in ast.walk(tree)
+             if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+             and c.func.id == "supplemental_ln_likelihood_prep"]
+    assert calls, "%s never calls supplemental_ln_likelihood_prep" % fname
+    prepared_at = min(c.lineno for c in calls)
+    declared = {k.value.id for c in calls for k in c.keywords
+                if k.arg == "coords" and isinstance(k.value, ast.Name)}
+    assert declared, "%s never passes a named coordinate list as coords=" % fname
+    for name in sorted(declared):
+        rebound = [n.lineno for n in ast.walk(tree)
+                   if isinstance(n, ast.Name) and n.id == name
+                   and isinstance(n.ctx, ast.Store)]
+        mutated = [c.lineno for c in ast.walk(tree)
+                   if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                   and c.func.attr in _LIST_MUTATORS
+                   and isinstance(c.func.value, ast.Name) and c.func.value.id == name]
+        late = sorted(ln for ln in rebound + mutated if ln > prepared_at)
+        assert not late, (
+            "%s prepares the supplementary-likelihood plugin at line %d with coords=%s, but that "
+            "list is still changed afterwards at line(s) %s -- the plugin would be told a basis "
+            "that is not the one the sampler integrates over. Prepare after the last change."
+            % (fname, prepared_at, name, late))

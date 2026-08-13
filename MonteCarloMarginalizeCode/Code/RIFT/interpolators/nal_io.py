@@ -290,9 +290,14 @@ def check_set_compatible(nals):
     and only the physics is wrong.
 
     Fails closed.  An artifact that does not declare its `frame` cannot be SHOWN compatible with
-    another, so it is rejected rather than assumed; `cosmology` and `d_prior` must agree whenever
-    the frame is 'source' (there they define what the masses mean) or whenever any member of the
-    set declares them at all.  A single artifact is never checked: nothing is being added to it.
+    another, so it is rejected rather than assumed.  `chart` is required of EVERY member of a set
+    for the same reason: matching coordinate names in a matching frame still do not establish
+    matching coordinate CONVENTIONS -- which spin basis, which mass pairing, which angle
+    reference -- so a set in which nobody declares a chart is not a set that has been shown
+    compatible, it is one in which the question was never asked.  `cosmology` and `d_prior` must
+    agree whenever the frame is 'source' (there they define what the masses mean) or whenever any
+    member of the set declares them at all.  A single artifact is never checked: nothing is being
+    added to it.
     """
     nals = list(nals)
     if len(nals) < 2:
@@ -310,16 +315,20 @@ def check_set_compatible(nals):
                          "names denote different physical quantities" % sorted(set(frames)))
     for key in ("chart", "cosmology", "d_prior"):
         vals = [_canon(n.meta.get(key)) for n in nals]
-        declared = [v for v in vals if v is not None]
-        required = frames[0] == "source" and key in ("cosmology", "d_prior")
+        declared = [v for v in vals if v is not None and v != ""]
+        # `chart` is never optional in a set: "nobody declared one" is not evidence of agreement,
+        # and write_nal(chart=None) will happily produce a whole catalogue of such artifacts.
+        required = key == "chart" or (frames[0] == "source" and key in ("cosmology", "d_prior"))
         if not (declared or required):
             continue                                      # nobody claims it; nothing to reconcile
         if len(declared) != len(vals) or len(set(declared)) != 1:
             raise ValueError(
-                "nal_io: artifacts in a set must agree on %r before they may be added; got %d of "
-                "%d declaring it, %d distinct value(s). Artifacts that differ in %r are in "
-                "different charts even when their coordinate names match."
-                % (key, len(declared), len(vals), len(set(declared)), key))
+                "nal_io: artifacts in a set must agree on a non-empty %r before they may be "
+                "added; got %d of %d declaring it, %d distinct value(s). Artifacts that differ "
+                "in %r are in different charts even when their coordinate names match, and one "
+                "that does not declare it cannot be shown to agree. Record it at write time as "
+                "write_nal(..., %s=...)."
+                % (key, len(declared), len(vals), len(set(declared)), key, key))
 
 
 class NALSet(object):
@@ -433,6 +442,11 @@ def write_nal(base, nal, chart=None, frame="detector", cosmology=None, d_prior=N
 
     `parents` should be the source files the fit consumed (all.net / all_dslice.dat); their
     sha256 is recorded so an artifact can always be traced to the grid that produced it.
+
+    `chart` is optional here -- a lone artifact is self-consistent without one -- but an artifact
+    written without it cannot later be ADDED to another: `check_set_compatible` requires every
+    member of a set to declare the same non-empty chart.  Name it now if the artifact is destined
+    for a catalogue.
     """
     coord_names = list(nal.coord_names)
     check_frame_invariant(coord_names, frame, cosmology, d_prior)
