@@ -52,9 +52,15 @@ Ask these of every array and every count the change reads:
       underflowed to `-inf` is a real draw contributing a real zero. Filtering those out and
       then averaging divides by the wrong `n`.
 - [ ] **`sampler._rvs` may be the fair-draw EXPORT resample rather than the sample set — check
-      which.** Every sampler here (`mcsampler`, `mcsamplerGPU`, `mcsamplerEnsemble`,
-      `mcsamplerAdaptiveVolume`, `mcsamplerPortfolio`) rebinds `_rvs` **only** when all three
-      hold:
+      which.** Regenerate the list rather than trusting the one below, which has already been
+      wrong once by omission:
+
+          grep -l 'bFairdraw and not(n_extr is None)' mcsampler*.py   # who rebinds
+          grep -l '_warm_seed_reserve'                mcsampler*.py   # who keeps the draws
+
+      As of 2026-08-13 the first returns **all six** samplers — `mcsampler`, `mcsamplerGPU`,
+      `mcsamplerEnsemble`, `mcsamplerNFlow`, `mcsamplerAdaptiveVolume`, `mcsamplerPortfolio`.
+      Each rebinds `_rvs` **only** when all three hold:
 
           bFairdraw                          # kwargs['igrand_fairdraw_samples']
           and n_extr is not None             # kwargs['igrand_fairdraw_samples_max']
@@ -70,10 +76,11 @@ Ask these of every array and every count the change reads:
       **Do not infer the condition from the sampler class; find the caller's kwargs.**
 - [ ] **If you need the draws, is a pre-fair-draw record actually available for this sampler?**
       `_warm_seed_reserve` (snapshotted before the fair draw, carrying `n_retained`,
-      `n_finite` and the exact `ln_sum_w_finite`) exists on **`mcsamplerAdaptiveVolume` and
-      `mcsamplerPortfolio` only**. It is not a generic sampler facility; `mcsampler`,
-      `mcsamplerGPU` and `mcsamplerEnsemble` have no equivalent, so code that must work across
-      samplers needs its own fallback and should say which reading it used.
+      `n_finite` and the exact `ln_sum_w_finite`) is **not** a generic sampler facility. The
+      second grep above returns only **`mcsamplerAdaptiveVolume` and `mcsamplerPortfolio`**;
+      `mcsampler`, `mcsamplerGPU`, `mcsamplerEnsemble` and `mcsamplerNFlow` have no
+      equivalent. Code that must work across samplers needs its own fallback, and should
+      report which reading it used rather than leaving it inferable.
 - [ ] **Is the code path reachable at all?** `mcsamplerPortfolio` drives its members through
       `draw_simplified()`, never their `integrate_log()`, so a member never executes anything
       that lives there. Name the caller before assuming a branch runs.
