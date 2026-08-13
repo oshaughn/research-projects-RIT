@@ -637,6 +637,11 @@ class MCSampler(object):
         return_lnI = kwargs["return_lnI"] if "return_lnI" in kwargs else False
 
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
+        # The fair draw below REPLACES _rvs with an export resample; a consumer that then
+        # weights those rows applies w twice.  Record whether it actually FIRED -- the CLI
+        # flag is not the same predicate, since the draw is skipped when it would not
+        # shrink the record.  Reset per pass: samplers are reused across events.
+        self._rvs_is_fairdraw = False
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
         self.func = func
@@ -778,6 +783,7 @@ class MCSampler(object):
                    else:
                        self._rvs[key] = self._rvs[key][indx_list]
 
+               self._rvs_is_fairdraw = True   # _rvs is now an EXPORT resample, rows already ~ w
         dict_return = {}
         if dict_return_q:
             dict_return["integrator"] = integrator

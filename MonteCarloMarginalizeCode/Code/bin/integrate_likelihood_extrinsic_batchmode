@@ -377,7 +377,7 @@ integration_params.add_option("--sampler-sequential-warmstart",action='store_tru
 integration_params.add_option("--sampler-sequential-warmstart-cover-frac",type=float,default=0.5,help="Coverage floor for --sampler-sequential-warmstart: fraction of full-prior coverage mixed into the seed so the warm live volume always contains a cold start (a mis-matched proposal then only costs efficiency, never bias).  Default 0.5, the measured-safe floor (see --sampler-warmstart-cover-frac); 0.1 is under-covered.")
 integration_params.add_option("--sampler-sequential-warmstart-deltalnL",type=float,default=15.0,help="Keep previous-point samples within this lnL of the max as the warm seed for the next point.  Default 15.")
 integration_params.add_option("--sampler-l0-rescue-accept-truncated", action='store_true', default=False, help="Report the L0 rescue's warm pass even when it lands well below the full-support cold pass (see --sampler-l0-rescue-reject-dlnZ).  Default OFF: on that evidence the cold result is kept instead, since the warm pass is confined to the seeded peak and may be missing a mode.  The rescue itself still runs either way.")
-integration_params.add_option("--sampler-l0-rescue-reject-dlnZ", type=float, default=0.5, help="Evidence threshold (nats) for rejecting the L0 rescue's warm pass: reject when the full-support cold pass reports lnZ this much HIGHER, which indicates the seed missed mass.  Larger = more permissive.")
+integration_params.add_option("--sampler-l0-rescue-reject-dlnZ", type=float, default=3.0, help="Evidence threshold (nats) for rejecting the L0 rescue's warm pass: reject when the full-support cold pass reports lnZ this much HIGHER, which would indicate the seed missed mass.  Larger = more permissive.  DEFAULT RAISED 0.5 -> 3.0 ON MEASUREMENT (see test/expensive_before_merging/integrators/L0_REJECT_DLNZ_MEASUREMENT.md): across 160 known-lnZ passes the gate caught 0 of 55 genuinely truncated warm passes at EVERY threshold, while at 0.5 it binned 25% of GOOD portfolio warm passes.  0.5 was therefore strictly dominated -- it bought no detection and cost one good pass in four.  3.0 keeps a safety net for a genuinely large discrepancy at ~0% false-positive rate.  This gate is NOT a working truncation detector; do not rely on it as one.")
 integration_params.add_option("--sampler-l0-rescue-puff-scale", type='choice', choices=['fixed','auto'], default='auto', help="How wide to puff the L0 rescue's seed when it is rank-deficient in the adaptive dimensions.  'auto' (default) measures the posterior scale AND correlations from every finite lnL the collapsed pass already drew; 'fixed' uses --sampler-l0-rescue-puff-width-frac of each parameter's prior range, which is the historical behaviour and knows nothing about the posterior (which narrows as 1/rho).  'auto' falls back to 'fixed' when there are too few finite points to estimate a covariance.")
 integration_params.add_option("--sampler-l0-rescue-puff-width-frac", type=float, default=0.005, help="Isotropic puff width for the L0 rescue's rank-deficient seed, as a fraction of each parameter's prior range.  Used by --sampler-l0-rescue-puff-scale fixed, and as the 'auto' fallback.  Default 0.005 = the historical hardcoded 1/200.")
 integration_params.add_option("--sampler-l0-rescue-puff-factor", type=float, default=2.0, help="Multiply the L0 rescue's puff width by this factor.  Default 2 is the measured optimum on a known-lnZ 6-D target (mean lnZ error +0.08 nats, ESS 52); BOTH tails are wrong, so do not treat wide as free -- x0.5 truncates (-8.5 nats), x6 biases high (+3.0) and costs efficiency, x12 is a cold start in all but name and re-collapses (-30).")
@@ -2123,6 +2123,42 @@ def _rvs_len(rvs):
     return 0
 
 
+def _rvs_is_export_resample(sampler):
+    """True when integrate() replaced _rvs with the fair-draw EXPORT resample.
+
+    Set by the samplers at the rebind itself, so it means "the draw FIRED", which is not the
+    same predicate as `opts.fairdraw_extrinsic_output`: the draw is skipped when it would not
+    shrink the record (n_extr >= len(_rvs)), and then the rows are still the retained set with
+    real importance weights.  Keying off the CLI flag would flatten those, which is the same
+    class of error in the other direction.
+    """
+    return bool(getattr(sampler, '_rvs_is_fairdraw', False))
+
+
+def ln_weights_for_posterior(rvs, sampler, convert=None, use_lnL=None):
+    """The weights to use when treating an _rvs record as a POSTERIOR SAMPLE SET.
+
+    NOT the same question as `ln_weights_from_rvs`, which answers "what is the importance
+    weight of this record" and is always right about that.  The question here is "how should
+    these rows be weighted to represent the posterior", and the answer depends on whether the
+    fair draw already did it.
+
+    A fair-drawn record was resampled WITH REPLACEMENT proportional to w, so its rows are
+    already an equal-weight draw from the posterior.  Weighting them by w a second time
+    applies w^2 and over-concentrates the result -- measured at a 13% shift in the posterior
+    mean of a weight-correlated coordinate (verify_skew.py).  `_pool_replica_rvs` has guarded
+    against exactly this since the replica work, via `already_resampled`; the .dgrid exporter
+    and the extrinsic-proposal breadcrumb did not, and both fed science products.
+
+    So: uniform (zero log-weight) for a fair-drawn record, the derived importance weight
+    otherwise.  Returns a float array the length of the record.
+    """
+    if _rvs_is_export_resample(sampler):
+        return numpy.zeros(_rvs_len(rvs), dtype=float)
+    return numpy.asarray(ln_weights_from_rvs(rvs, convert=convert, use_lnL=use_lnL),
+                         dtype=float)
+
+
 def _pool_replica_rvs(rep_rvs, sampler, rep_lnZ=None, already_resampled=False, use_lnL=None):
     """Concatenate the replicas' samples into one correctly-weighted set.
 
@@ -2347,6 +2383,44 @@ def _lnZ_of_reserve_or_rvs(sampler, rvs, reserve=None):
         except Exception:
             pass
     return _lnZ_of_rvs(rvs, already_pooled=False), 'fairdraw'
+
+
+def _warm_seed_reserve_for(sampler):
+    """The retained-sample reserve a completed pass left behind, or None.
+
+    THE ONE LOOKUP FOR SEED CONSUMERS, because two of them need exactly this record and must
+    not drift: the L0 auto-rescue (which re-seeds a collapsed pass from its own peak) and the
+    --sampler-sequential-warmstart capture (which seeds the NEXT intrinsic point).  Both
+    otherwise fall back to sampler._rvs, which by then has been rebound to a fair-draw
+    subset of min(n_extr, 1.5*eff_samp, 1.5*neff) rows taken WITH REPLACEMENT -- and the
+    whole point of the reserve is that on the collapsed pass a warm start exists for, that
+    subset is a handful of rows several of which are the same point twice.
+
+    A PORTFOLIO keeps the reserve on the aggregate, not on its members, but a bare AV member
+    can be the one that has it; check the sampler first, then its realizations.
+
+    COLUMN ORDER MUST MATCH or the seed is scrambled: the reserve stores X in the column
+    order of the sampler that built it, and a seed handed to bootstrap_from_samples is read
+    positionally against params_ordered.  A mismatch is silent and produces a seed in the
+    wrong coordinates, so decline the reserve rather than use it.
+
+    NOT SHARED WITH `_lnZ_of_reserve_or_rvs` ABOVE, deliberately.  That one wants a different
+    record: it reads only lnL and the two prior columns, never X, so a column-order mismatch
+    is harmless to it and declining on one would throw away a perfectly good lnZ reading and
+    silently downgrade the gate to its fair-draw fallback.  Two lookups with two different
+    admissibility rules is correct; collapsing them would be the kind of false unification
+    that produces the next defect.  (`_lnZ_of_reserve_or_rvs` does not do the portfolio-member
+    fallback either -- worth a look, but that is a change to just-merged #79, not a rebase.)
+    """
+    _res = getattr(sampler, '_warm_seed_reserve', None)
+    if _res is None:
+        for _m in list(getattr(sampler, 'portfolio_realizations', []) or []):
+            _res = getattr(_m, '_warm_seed_reserve', None)
+            if _res is not None:
+                break
+    if _res is not None and list(_res.get('params_ordered', [])) != list(sampler.params_ordered):
+        return None
+    return _res
 
 
 def _warm_seed_geometry(sampler):
@@ -3319,14 +3393,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # is where "5 seed points of affine rank 2" came from.  The live set held a
             # thousand.  integrate_log now stashes a bounded copy of the retained points
             # before that overwrite; fall back to _rvs for a sampler that does not keep one.
-            _res_l0 = getattr(sampler, '_warm_seed_reserve', None)
-            if _res_l0 is None:
-                for _m in list(getattr(sampler, 'portfolio_realizations', []) or []):
-                    _res_l0 = getattr(_m, '_warm_seed_reserve', None)
-                    if _res_l0 is not None:
-                        break
-            if _res_l0 is not None and list(_res_l0.get('params_ordered', [])) != list(sampler.params_ordered):
-                _res_l0 = None   # column order must match, or the seed is scrambled
+            # Shared with the --sampler-sequential-warmstart capture below; see
+            # _warm_seed_reserve_for for the portfolio fallback and the column-order guard.
+            _res_l0 = _warm_seed_reserve_for(sampler)
             if _res_l0 is not None:
                 _cols = np.asarray(_res_l0['X'], dtype=float)
                 _lnv = np.asarray(_res_l0['lnL'], dtype=float).ravel()
@@ -3687,12 +3756,38 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
             # combined effective sample size of K independent runs, which is only true if they
             # agree; when they disagree -- the case these replicas exist to detect -- the pooled
             # Kish n_eff is smaller, and that disagreement is exactly what should show up here.
-            _neff_pooled = _kish_neff_of_rvs(sampler._rvs)
+            #
+            # ...but NOT the Kish n_eff OF THE POOLED RECORD when that record is the fair-draw
+            # export.  _pool_replica_rvs deliberately FLATTENS each block in that case (equal
+            # weights within a block, summing to Z_k/K), and the Kish n_eff of piecewise-constant
+            # weights is just the row count -- i.e. K*min(n_max, 1.5*eff_samp, 1.5*neff), the size
+            # of the EXPORT, which says nothing about how well the integral converged.  With
+            # --fairdraw-extrinsic-output-n-max at its default of 5 that reports n_eff = 5K.
+            #
+            # Do the same computation one level up, where the quantities are still meaningful:
+            # Kish over the BLOCKS, each carrying its own Z_k and its own n_eff,
+            #
+            #     neff_pooled = (sum_k Z_k)^2 / sum_k (Z_k^2 / neff_k)
+            #
+            # which has exactly the property the paragraph above asks for: it reduces to
+            # sum_k neff_k when the replicas agree, and falls below it when they disagree --
+            # the disagreement these replicas exist to detect.
+            if _rvs_is_export_resample(sampler):
+                _l_rel = numpy.asarray(_rep_lnZ, dtype=float) - float(numpy.max(_rep_lnZ))
+                _Zk = numpy.exp(_l_rel)
+                _nk = numpy.asarray(_rep_neff, dtype=float)
+                _ok = numpy.isfinite(_Zk) & numpy.isfinite(_nk) & (_nk > 0)
+                _neff_pooled = (float(numpy.sum(_Zk[_ok]) ** 2 / numpy.sum(_Zk[_ok] ** 2 / _nk[_ok]))
+                                if numpy.any(_ok) else None)
+                _neff_how = 'block Kish over replicas (the export is fair-drawn)'
+            else:
+                _neff_pooled = _kish_neff_of_rvs(sampler._rvs)
+                _neff_how = 'Kish over the pooled samples'
             neff = float(_neff_pooled) if _neff_pooled is not None else float(numpy.sum(_rep_neff))
             if _neff_pooled is not None:
-                print(" [mc error] pooled posterior: {} samples, Kish n_eff {:.1f} (sum over replicas was {:.1f})".format(
+                print(" [mc error] pooled posterior: {} samples, n_eff {:.1f} via {} (sum over replicas was {:.1f})".format(
                     len(numpy.atleast_1d(list(sampler._rvs.values())[0])) if sampler._rvs else 0,
-                    float(_neff_pooled), float(numpy.sum(_rep_neff))))
+                    float(_neff_pooled), _neff_how, float(numpy.sum(_rep_neff))))
             # keep the (res, var) pair consistent for any downstream reader
             if not(opts.internal_use_lnL):
                 res = numpy.exp(log_res); var = (sqrt_var_over_res*res)**2
@@ -3736,8 +3831,13 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
         # Use the ONE canonical derivation.  The inline copy that used to live here carried the
         # same linear-only assumption ln_weights_from_rvs was just fixed for, so a GMM run storing
         # lnL in 'integrand' fitted the handoff proposal to log(lnL)-flattened weights.
-        _lw = np.asarray(ln_weights_from_rvs(_rvs, convert=identity_convert,
-                                             use_lnL=rvs_integrand_is_lnL), dtype=float)
+        # POSTERIOR weights, not importance weights: under --fairdraw-extrinsic-output these
+        # rows are already a w-proportional draw, and fitting the GMM with w on top of that
+        # gives a proposal shaped like w^2 -- over-concentrated.  It is then handed to the NEXT
+        # iteration via --extrinsic-proposal-breadcrumb, so the truncation compounds across
+        # iterations rather than staying inside one run.
+        _lw = np.asarray(ln_weights_for_posterior(_rvs, sampler, convert=identity_convert,
+                                                  use_lnL=rvs_integrand_is_lnL), dtype=float)
         # extrinsic samples + bounds for the standard groups that this run actually sampled.
         _ext_params = [p for grp in _ehmod.STANDARD_GROUPS for p in grp]
         _ext_samples = {p: np.array(_rvs[p], dtype=float).reshape(-1) for p in _ext_params if p in _rvs}
@@ -3894,7 +3994,9 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           fname_output_dgrid = opts.output_file +"_"+str(indx_event)+"_" + ".dgrid"
           dL = np.array(sampler._rvs["distance"])
           rvs = sampler._rvs
-          ln_wts = ln_weights_from_rvs(rvs, use_lnL=rvs_integrand_is_lnL)
+          # POSTERIOR weights: a fair-drawn record is already an equal-weight posterior draw,
+          # and build_distance_grid weights the samples again to form the per-bin mass.
+          ln_wts = ln_weights_for_posterior(rvs, sampler, use_lnL=rvs_integrand_is_lnL)
           # Distance prior at each sample. Use the sampler's stored prior_pdf
           # callable; this matches whatever ILE actually integrated against
           # (volumetric, pseudo_cosmo, redshift, ...).
@@ -3976,12 +4078,29 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
           # .dgrid.
           rvs = sampler._rvs
           _rvs = lambda k: np.asarray(identity_convert(rvs[k]), float)  # cupy-safe column read
-          ln_w_full = ln_weights_from_rvs(rvs, convert=identity_convert, use_lnL=rvs_integrand_is_lnL)
+          ln_w_full = ln_weights_for_posterior(rvs, sampler, convert=identity_convert,
+                                               use_lnL=rvs_integrand_is_lnL)
           # Split K into core (reweight) and wing (fresh) slices.  --distance-slice-all-fresh
           # forces zero reweight core: EVERY slice is a fresh fixed-d integration.  Use it
           # when the main-loop n_eff is small -- the reweight core is then starved (the same
           # MC noise as the .dgrid fair-draw histogram), while each fresh slice is honest.
           all_fresh = bool(getattr(opts, "distance_slice_all_fresh", False))
+          # THE REWEIGHT CORE CANNOT RUN ON A FAIR-DRAWN RECORD.  It reuses the Omega samples
+          # as an importance sample at each slice distance, applying pi_Omega/q_Omega on top of
+          # rows that were already resampled proportional to the full weight -- so the
+          # prior/proposal ratio is counted twice, and N = len(rvs['distance']) is the resample
+          # size rather than the number of draws.  Unlike .dgrid this is not a single spurious
+          # factor that can be divided out: the correct estimator would need the pre-draw
+          # record, which by then is gone.
+          #
+          # The fresh path is exact and already supported, so use it rather than reporting a
+          # plausible wrong number -- every slice becomes an independent fixed-d integration.
+          # It costs more likelihood evaluations; say so, rather than changing cost silently.
+          if not all_fresh and _rvs_is_export_resample(sampler):
+              print("  [dslice] _rvs is the fair-draw export; forcing --distance-slice-all-fresh"
+                    " (the reweight core would double-count pi_Omega/q_Omega on resampled rows)."
+                    "  K fresh fixed-d integrations instead of a reweighted core.")
+              all_fresh = True
           if all_fresh:
             n_core, n_wing = 0, K
           else:
@@ -4365,14 +4484,66 @@ def analyze_event(P_list, indx_event, data_dict, psd_dict, fmax, opts,inv_spec_t
     _SEQ_WS_PENDING = None
     if getattr(opts, 'sampler_sequential_warmstart', False) and hasattr(sampler, 'bootstrap_from_samples'):
         try:
-            _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
-            if _lnkey is not None and all(p in sampler._rvs for p in sampler.params_ordered):
-                _lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel()
-                if _lnv.size >= 2 and np.any(np.isfinite(_lnv)):
-                    _cols = np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel()
-                                       for p in sampler.params_ordered]).T
-                    _keep = _lnv > (np.nanmax(_lnv) - opts.sampler_sequential_warmstart_deltalnL)
-                    _SEQ_WS_PENDING = _cols[_keep] if np.sum(_keep) >= 2 else (_cols if _cols.shape[0] >= 2 else None)
+            # SEED FROM THE RETAINED POINTS, AND JUDGE THE SEED BY RANK -- the same two rules
+            # the L0 auto-rescue was given (PR #78), for the same reasons, because this is the
+            # same construction one code path away.  Both were wrong here:
+            #
+            #   1. IT READ THE FAIR DRAW.  sampler._rvs has been rebound to
+            #      min(n_extr, 1.5*eff_samp, 1.5*neff) rows resampled WITH REPLACEMENT for
+            #      EXPORT.  --fairdraw-extrinsic-output is not an exotic setting: every
+            #      extrinsic stage built by create_event_parameter_pipeline_BasicIteration,
+            #      cepp_basic_htcondor and create_event_nr_pipeline_with_cip passes it
+            #      unconditionally.  So on the collapsed high-amplitude pass this feature is
+            #      most wanted for, the seed for the NEXT intrinsic point was a handful of
+            #      rows -- one, in the rho_net 146.8 logs -- several of them the same point
+            #      twice, while the live set held a thousand.
+            #
+            #   2. THE GUARD WAS A COUNT (`_lnv.size >= 2`, `np.sum(_keep) >= 2`), which is
+            #      exactly the rule build_warm_seed exists to replace: n points span at most
+            #      n-1 affine dimensions, so two rows drawn with replacement can be rank 0 in
+            #      6 and still pass.  The next point then warm-starts inside a degenerate
+            #      sliver and reports a healthy n_eff over truncated support -- the quiet
+            #      failure, not the loud one.
+            #
+            # Fall back to _rvs only for a sampler that keeps no reserve, so the feature
+            # degrades to its previous behaviour rather than to no seed at all.
+            _res_ws = _warm_seed_reserve_for(sampler)
+            if _res_ws is not None:
+                _cols = np.asarray(_res_ws['X'], dtype=float)
+                _lnv = np.asarray(_res_ws['lnL'], dtype=float).ravel()
+                _src_ws = 'retained'
+            else:
+                _lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)
+                _lnv = (np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel()
+                        if (_lnkey is not None and all(p in sampler._rvs for p in sampler.params_ordered))
+                        else np.array([]))
+                _cols = (np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel()
+                                    for p in sampler.params_ordered]).T
+                         if _lnv.size else np.zeros((0, len(sampler.params_ordered))))
+                _src_ws = 'fairdraw'
+            if _lnv.size >= 1 and np.any(np.isfinite(_lnv)):
+                # build_warm_seed applies the deltalnL window, the affine-rank test and the
+                # puff-to-full-rank.  Reuse the L0 rescue's puff knobs rather than adding a
+                # parallel set: it is the same geometry problem (a rank-deficient cloud about
+                # a known peak) and two independently-tuned widths would be one more pair to
+                # keep in step.
+                _ax_ws, _lo_ws, _hi_ws = _warm_seed_geometry(sampler)
+                _seed_ws, _info_ws = mcsamplerAdaptiveVolume.build_warm_seed(
+                    _cols, _lnv, _lo_ws, _hi_ws, _ax_ws,
+                    deltalnL=opts.sampler_sequential_warmstart_deltalnL,
+                    puff_scale=opts.sampler_l0_rescue_puff_scale,
+                    puff_width_frac=opts.sampler_l0_rescue_puff_width_frac,
+                    puff_factor=opts.sampler_l0_rescue_puff_factor)
+                _SEQ_WS_PENDING = _seed_ws if len(_seed_ws) >= 2 else None
+                if _info_ws['puffed']:
+                    print("  [seq warm-start] seed from {} source: {} point(s) had affine rank"
+                          " {}/{}: PUFFED to rank {}/{} with {} points".format(
+                              _src_ws, _info_ws['n_core'], _info_ws['rank_core'], _info_ws['dim'],
+                              _info_ws['rank_final'], _info_ws['dim'], _info_ws['n_puff']))
+                    if _info_ws['rank_final'] < _info_ws['dim']:
+                        print("  [seq warm-start] *** the puffed seed is STILL rank-deficient"
+                              " ({}/{}); the next point may be reported as collapsed.".format(
+                                  _info_ws['rank_final'], _info_ws['dim']))
         except Exception as _e_cap:
             print("  [seq warm-start] could not capture seed ({})".format(_e_cap))
 

@@ -447,6 +447,11 @@ class MCSampler(object):
         deltalnL = kwargs['igrand_threshold_deltalnL'] if 'igrand_threshold_deltalnL' in kwargs else float("Inf") # default is to return all
         deltaP    = kwargs["igrand_threshold_p"] if 'igrand_threshold_p' in kwargs else 0 # default is to omit 1e-7 of probability
         bFairdraw  = kwargs["igrand_fairdraw_samples"] if "igrand_fairdraw_samples" in kwargs else False
+        # The fair draw below REPLACES _rvs with an export resample; a consumer that then
+        # weights those rows applies w twice.  Record whether it actually FIRED -- the CLI
+        # flag is not the same predicate, since the draw is skipped when it would not
+        # shrink the record.  Reset per pass: samplers are reused across events.
+        self._rvs_is_fairdraw = False
         n_extr = kwargs["igrand_fairdraw_samples_max"] if "igrand_fairdraw_samples_max" in kwargs else None
 
         tripwire_fraction = kwargs["tripwire_fraction"] if "tripwire_fraction" in kwargs else 2  # make it impossible to trigger
@@ -792,6 +797,7 @@ class MCSampler(object):
                    else:
                        self._rvs[key] = self._rvs[key][indx_list]
 
+               self._rvs_is_fairdraw = True   # _rvs is now an EXPORT resample, rows already ~ w
         # Create extra dictionary to return things
         dict_return ={}
         if convergence_tests is not None:

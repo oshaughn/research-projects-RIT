@@ -360,7 +360,18 @@ jobs:
           python -m pytest -q \
             MonteCarloMarginalizeCode/Code/test/test_av_empty_live_volume.py \
             MonteCarloMarginalizeCode/Code/test/test_l0_rescue_seed.py \
+            MonteCarloMarginalizeCode/Code/test/test_seq_warmstart_seed.py \
+            MonteCarloMarginalizeCode/Code/test/test_fairdraw_double_weighting.py \
             MonteCarloMarginalizeCode/Code/test/test_portfolio_fairdraw_backend.py
+      - name: Audit _rvs consumers against the fair-draw rebind
+        # sampler._rvs is rebound to an EXPORT resample at the end of integrate_log, and five
+        # separate defects have come from a consumer reading it afterwards as though it were
+        # the sample set.  This does not assert that post-rebind reads are bugs -- most are
+        # legitimately per-row -- it asserts that every one of them carries a recorded human
+        # verdict, so a NEW or MOVED consumer fails the build instead of being found later by
+        # whoever happens to edit the surrounding code.
+        run: |
+          python MonteCarloMarginalizeCode/Code/test/expensive_before_merging/integrators/audit_rvs_fairdraw.py --check
       - name: Run test scripts
         run: |
           . .travis/test-coord.sh

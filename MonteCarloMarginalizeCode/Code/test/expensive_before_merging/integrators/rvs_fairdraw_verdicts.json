@@ -1,0 +1,617 @@
+{
+  "RIFT/integrators/mcsampler.py:integrate:ac2283de73": {
+    "source": "self._rvs[key] = self._rvs[key][indx_list]",
+    "verdict": "PER_ROW",
+    "why": "The rebind's own right-hand side: this IS the fair draw, gathering each key at the drawn indices. Read before the write it feeds."
+  },
+  "RIFT/integrators/mcsampler.py:integrate:dad2084a85": {
+    "source": "self._rvs[key] = self._rvs[key][:,indx_list]",
+    "verdict": "PER_ROW",
+    "why": "The rebind's own right-hand side: this IS the fair draw, gathering each key at the drawn indices. Read before the write it feeds."
+  },
+  "RIFT/integrators/mcsamplerAdaptiveVolume.py:integrate_log:34ee3992c4": {
+    "source": "if isinstance(self._rvs[name],xpy_default.ndarray):",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerAdaptiveVolume.py:integrate_log:8f476f15d1": {
+    "source": "for name in self._rvs:",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerAdaptiveVolume.py:integrate_log:c0e27aa48f": {
+    "source": "self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerEnsemble.py:integrate:ac2283de73": {
+    "source": "self._rvs[key] = self._rvs[key][indx_list]",
+    "verdict": "PER_ROW",
+    "why": "The rebind's own right-hand side: this IS the fair draw, gathering each key at the drawn indices. Read before the write it feeds."
+  },
+  "RIFT/integrators/mcsamplerEnsemble.py:integrate:dad2084a85": {
+    "source": "self._rvs[key] = self._rvs[key][:,indx_list]",
+    "verdict": "PER_ROW",
+    "why": "The rebind's own right-hand side: this IS the fair draw, gathering each key at the drawn indices. Read before the write it feeds."
+  },
+  "RIFT/integrators/mcsamplerGPU.py:integrate:2c1f0136f3": {
+    "source": "self._rvs[key] = identity_convert(self._rvs[key][indx_list])",
+    "verdict": "PER_ROW",
+    "why": "The rebind's own right-hand side: this IS the fair draw, gathering each key at the drawn indices. Read before the write it feeds."
+  },
+  "RIFT/integrators/mcsamplerGPU.py:integrate:34ee3992c4": {
+    "source": "if isinstance(self._rvs[name],xpy_default.ndarray):",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerGPU.py:integrate:8f476f15d1": {
+    "source": "for name in self._rvs:",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerGPU.py:integrate:c0e27aa48f": {
+    "source": "self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerGPU.py:integrate:cb15a6423d": {
+    "source": "self._rvs[key] = identity_convert(self._rvs[key][:,indx_list])",
+    "verdict": "PER_ROW",
+    "why": "The rebind's own right-hand side: this IS the fair draw, gathering each key at the drawn indices. Read before the write it feeds."
+  },
+  "RIFT/integrators/mcsamplerGPU.py:integrate_log:2c1f0136f3": {
+    "source": "self._rvs[key] = identity_convert(self._rvs[key][indx_list])",
+    "verdict": "PER_ROW",
+    "why": "The rebind's own right-hand side: this IS the fair draw, gathering each key at the drawn indices. Read before the write it feeds."
+  },
+  "RIFT/integrators/mcsamplerGPU.py:integrate_log:34ee3992c4": {
+    "source": "if isinstance(self._rvs[name],xpy_default.ndarray):",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerGPU.py:integrate_log:8f476f15d1": {
+    "source": "for name in self._rvs:",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerGPU.py:integrate_log:c0e27aa48f": {
+    "source": "self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerGPU.py:integrate_log:cb15a6423d": {
+    "source": "self._rvs[key] = identity_convert(self._rvs[key][:,indx_list])",
+    "verdict": "PER_ROW",
+    "why": "The rebind's own right-hand side: this IS the fair draw, gathering each key at the drawn indices. Read before the write it feeds."
+  },
+  "RIFT/integrators/mcsamplerNFlow.py:integrate_log:2c1f0136f3": {
+    "source": "self._rvs[key] = identity_convert(self._rvs[key][indx_list])",
+    "verdict": "PER_ROW",
+    "why": "The rebind's own right-hand side: this IS the fair draw, gathering each key at the drawn indices. Read before the write it feeds."
+  },
+  "RIFT/integrators/mcsamplerNFlow.py:integrate_log:34ee3992c4": {
+    "source": "if isinstance(self._rvs[name],xpy_default.ndarray):",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerNFlow.py:integrate_log:8f476f15d1": {
+    "source": "for name in self._rvs:",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerNFlow.py:integrate_log:c0e27aa48f": {
+    "source": "self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerNFlow.py:integrate_log:cb15a6423d": {
+    "source": "self._rvs[key] = identity_convert(self._rvs[key][:,indx_list])",
+    "verdict": "PER_ROW",
+    "why": "The rebind's own right-hand side: this IS the fair draw, gathering each key at the drawn indices. Read before the write it feeds."
+  },
+  "RIFT/integrators/mcsamplerPortfolio.py:integrate_log:34ee3992c4": {
+    "source": "if isinstance(self._rvs[name],xpy_default.ndarray):",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerPortfolio.py:integrate_log:8f476f15d1": {
+    "source": "for name in self._rvs:",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerPortfolio.py:integrate_log:c0e27aa48f": {
+    "source": "self._rvs[name] = identity_convert(self._rvs[name])   # this is trivial if xpy_default is numpy, and a conversion otherwise",
+    "verdict": "PER_ROW",
+    "why": "Element-wise dtype/backend conversion (cupy -> numpy) over whatever rows are present. Touches no population statistic; correct on any row set."
+  },
+  "RIFT/integrators/mcsamplerPortfolio.py:integrate_log:db92cab991": {
+    "source": "self._rvs['integrand'] = self._rvs['log_integrand'] # always integrating log function.  Match behavior of other routines",
+    "verdict": "PER_ROW",
+    "why": "Aliases one per-row column onto another so raw-field consumers find it. Row-for-row; unaffected by which rows survived."
+  },
+  "RIFT/misc/distance_slices.py:importance_reweight_slices:d948a54bfb": {
+    "source": "rvs = sampler._rvs",
+    "verdict": "PER_ROW",
+    "why": "Binds the record, or reads one COLUMN of it, for the distance exporters. The resample changes which rows are present, never the value a row carries, and the weighting decision is made separately by ln_weights_for_posterior (.dgrid) or by forcing the all-fresh path (.dslice). Correct on either row set."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:0a939664b9": {
+    "source": "samples = sampler._rvs",
+    "verdict": "BENIGN",
+    "why": "THE export itself. Under --fairdraw-extrinsic-output the fair draw is precisely what these rows are supposed to be, so the resample is the correct input here rather than a hazard."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:0d89fb8881": {
+    "source": "if \"distance\" not in sampler._rvs:",
+    "verdict": "PER_ROW",
+    "why": "Key-presence / column reference, not a population statistic."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:16e8b48c86": {
+    "source": "(sampler._rvs[\"phi_orb\"][indx_guess]/(2*numpy.pi)), \\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:1dbc4dbe43": {
+    "source": "sampler._rvs[\"right_ascension\"][indx_guess]/(2*numpy.pi) , \\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:29d2d2ebb6": {
+    "source": "P.dist = sampler._rvs[\"distance\"][indx_guess]*1e6*lal.PC_SI",
+    "verdict": "PER_ROW",
+    "why": "Binds the record, or reads one COLUMN of it, for the distance exporters. The resample changes which rows are present, never the value a row carries, and the weighting decision is made separately by ln_weights_for_posterior (.dgrid) or by forcing the all-fresh path (.dslice). Correct on either row set."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:31db586050": {
+    "source": "P.incl = sampler._rvs[\"inclination\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:45fa8d2146": {
+    "source": "sampler._rvs[\"psi\"][indx_guess]/numpy.pi,\\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:4dd03bebc6": {
+    "source": "P.phi = sampler._rvs[\"right_ascension\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:5933ec4fe3": {
+    "source": "samples[\"t_ref\"] = float(fiducial_epoch)*numpy.ones(len(sampler._rvs[\"psi\"]))",
+    "verdict": "PER_ROW",
+    "why": "Builds a constant t_ref column conformal with the exported rows. Uses the length only to match shape, and makes no claim about it."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:59fc582ac2": {
+    "source": "sampler._rvs[\"declination\"] = numpy.pi/2 - numpy.arccos(sampler._rvs[\"declination\"].astype(numpy.float64))",
+    "verdict": "PER_ROW",
+    "why": "In-place coordinate transform, row for row."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:6658553446": {
+    "source": "P.theta = sampler._rvs[\"declination\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:69aea9d541": {
+    "source": "sampler._rvs[\"inclination\"] = numpy.arccos(sampler._rvs[\"inclination\"].astype(numpy.float64))",
+    "verdict": "PER_ROW",
+    "why": "In-place coordinate transform, row for row."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:6c4b180497": {
+    "source": "(sampler._rvs[\"declination\"][indx_guess]/numpy.pi),  \\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:7226654481": {
+    "source": "indx_guess = numpy.argmax(sampler._rvs[\"integrand\"])   # start search near maximum-likelihood point. (WARNING: can be very close by)",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:7e145a8364": {
+    "source": "sampler._rvs[\"psi\"],",
+    "verdict": "PER_ROW",
+    "why": "Key-presence / column reference, not a population statistic."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:8a0be56ddc": {
+    "source": "sampler._rvs[\"distance\"][indx_guess]/dmax\\",
+    "verdict": "PER_ROW",
+    "why": "Binds the record, or reads one COLUMN of it, for the distance exporters. The resample changes which rows are present, never the value a row carries, and the weighting decision is made separately by ln_weights_for_posterior (.dgrid) or by forcing the all-fresh path (.dslice). Correct on either row set."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:9bbe221907": {
+    "source": "sampler._rvs[\"declination\"], sampler._rvs[\"right_ascension\"] = sampler._rvs[(\"declination\", \"right_ascension\")]",
+    "verdict": "PER_ROW",
+    "why": "In-place coordinate transform, row for row."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:9cc74af37f": {
+    "source": "sampler._rvs[\"inclination\"][indx_guess]/(numpy.pi),\\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:9dc941f7cf": {
+    "source": "P.psi = sampler._rvs[\"psi\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:dc8bf3e149": {
+    "source": "print( \" lnL at start :\", lnLstart, \" [note can be lower than peak because of time offset]: best reported by ILE (including weights) is \", numpy.log(numpy.max(sampler._rvs[\"integrand\"])))",
+    "verdict": "BENIGN",
+    "why": "Printed diagnostic of the best retained sample. Explicitly labelled as what ILE reports including weights; not an input to any result."
+  },
+  "bin/integrate_likelihood_extrinsic:<module>:e0bbb0348e": {
+    "source": "P.phiref = sampler._rvs[\"phi_orb\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:011d296b48": {
+    "source": "_rep_rvs = [sampler._rvs]",
+    "verdict": "PER_ROW",
+    "why": "Collects each replica's record for pooling. _pool_replica_rvs is told already_resampled=bool(opts.fairdraw_extrinsic_output) and forces flat within-block weights on that path, so the resampling is accounted for THERE rather than here."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:07f46c212f": {
+    "source": "_lnv = (np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel()",
+    "verdict": "BENIGN",
+    "why": "The DELIBERATE no-reserve fallback for a sampler that keeps none: reads _rvs so the feature degrades to its previous behaviour rather than to no seed at all. The rank hazard is still handled -- build_warm_seed puffs the result to full rank -- so what remains is only 'fewer points', which cannot be improved without a reserve."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:0ab512f38a": {
+    "source": "_warm_lnZ = _lnZ_of_rvs(sampler._rvs, already_pooled=False)",
+    "verdict": "BROKEN",
+    "why": "PR #79's CROSS-SOURCE FALLBACK: fires only when the cold and warm passes produced different reading sources (one had a reserve, the other did not), and then re-reads BOTH sides from the fair-draw record. That is self-consistent, which is what #79 claims for it, but it is not unbiased: the two passes sit at different n_eff, so the log(n/n_eff) artifact does not cancel and this branch is back in the regime measured at +3.48 nats / 100% rejection at the 0.5 default. A known, documented, BOUNDED residual -- not a defect anyone introduced. Closing it needs a retained-set reading on both sides, i.e. a reserve for the samplers that keep none. Follow-up, not a regression."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:1240e69c24": {
+    "source": "len(numpy.atleast_1d(list(sampler._rvs.values())[0])) if sampler._rvs else 0,",
+    "verdict": "FIXED",
+    "why": "Kish of the pooled record is only used when the export is NOT fair-drawn. When it is, _pool_replica_rvs has flattened each block, and the Kish of piecewise-constant weights is just the row count (5K at the default --fairdraw-extrinsic-output-n-max 5). The ILE now computes the same quantity one level up -- (sum Z_k)^2 / sum(Z_k^2/neff_k), Kish over the BLOCKS -- which reduces to sum(neff_k) when replicas agree and falls below it when they do not. The row count beside it is a deliberate report of the export size."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:1331dd70ea": {
+    "source": "len(np.asarray(sampler.identity_convert(sampler._rvs['log_integrand'])).ravel())",
+    "verdict": "BENIGN",
+    "why": "Reports how many rows the fair draw left, for the log line that contrasts it with the retained count. Reading the resample's size is the POINT here."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:16e8b48c86": {
+    "source": "(sampler._rvs[\"phi_orb\"][indx_guess]/(2*numpy.pi)), \\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:1dbc4dbe43": {
+    "source": "sampler._rvs[\"right_ascension\"][indx_guess]/(2*numpy.pi) , \\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:25d9742c4d": {
+    "source": "_rep_rvs.append(sampler._rvs)",
+    "verdict": "PER_ROW",
+    "why": "Collects each replica's record for pooling. _pool_replica_rvs is told already_resampled=bool(opts.fairdraw_extrinsic_output) and forces flat within-block weights on that path, so the resampling is accounted for THERE rather than here."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:29d2d2ebb6": {
+    "source": "P.dist = sampler._rvs[\"distance\"][indx_guess]*1e6*lal.PC_SI",
+    "verdict": "PER_ROW",
+    "why": "Binds the record, or reads one COLUMN of it, for the distance exporters. The resample changes which rows are present, never the value a row carries, and the weighting decision is made separately by ln_weights_for_posterior (.dgrid) or by forcing the all-fresh path (.dslice). Correct on either row set."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:31db586050": {
+    "source": "P.incl = sampler._rvs[\"inclination\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:32c64bcd73": {
+    "source": "_lnv = np.asarray(sampler.identity_convert(sampler._rvs[_lnkey]), dtype=float).ravel() if _lnkey else np.array([])",
+    "verdict": "BENIGN",
+    "why": "The DELIBERATE no-reserve fallback for a sampler that keeps none: reads _rvs so the feature degrades to its previous behaviour rather than to no seed at all. The rank hazard is still handled -- build_warm_seed puffs the result to full rank -- so what remains is only 'fewer points', which cannot be improved without a reserve."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:3600397a2b": {
+    "source": "if \"integrand\" in sampler._rvs:",
+    "verdict": "PER_ROW",
+    "why": "Key-presence / column reference, not a population statistic."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:36e58e97fb": {
+    "source": "if 'log_integrand' in sampler._rvs else '?'))",
+    "verdict": "PER_ROW",
+    "why": "Key-presence / column reference, not a population statistic."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:45fa8d2146": {
+    "source": "sampler._rvs[\"psi\"][indx_guess]/numpy.pi,\\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:4dd03bebc6": {
+    "source": "P.phi = sampler._rvs[\"right_ascension\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:65d3d3b519": {
+    "source": "_rvs = sampler._rvs",
+    "verdict": "PER_ROW",
+    "why": "Binds the record, or reads one COLUMN of it, for the distance exporters. The resample changes which rows are present, never the value a row carries, and the weighting decision is made separately by ln_weights_for_posterior (.dgrid) or by forcing the all-fresh path (.dslice). Correct on either row set."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:6658553446": {
+    "source": "P.theta = sampler._rvs[\"declination\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:675b92662a": {
+    "source": "if (_lnkey is not None and all(p in sampler._rvs for p in sampler.params_ordered))",
+    "verdict": "PER_ROW",
+    "why": "Key-presence / column reference, not a population statistic."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:6b4e7670c7": {
+    "source": "dL_samp = np.asarray(identity_convert(sampler._rvs[\"distance\"]), float)",
+    "verdict": "PER_ROW",
+    "why": "Binds the record, or reads one COLUMN of it, for the distance exporters. The resample changes which rows are present, never the value a row carries, and the weighting decision is made separately by ln_weights_for_posterior (.dgrid) or by forcing the all-fresh path (.dslice). Correct on either row set."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:6c4b180497": {
+    "source": "(sampler._rvs[\"declination\"][indx_guess]/numpy.pi),  \\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:7226654481": {
+    "source": "indx_guess = numpy.argmax(sampler._rvs[\"integrand\"])   # start search near maximum-likelihood point. (WARNING: can be very close by)",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:7a4e161eb0": {
+    "source": "_cold_rvs = dict(sampler._rvs)",
+    "verdict": "PER_ROW",
+    "why": "Snapshots the cold record so the reject path can restore it. A dict copy of whatever rows exist; makes no claim about their statistics."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:8a0be56ddc": {
+    "source": "sampler._rvs[\"distance\"][indx_guess]/dmax\\",
+    "verdict": "PER_ROW",
+    "why": "Binds the record, or reads one COLUMN of it, for the distance exporters. The resample changes which rows are present, never the value a row carries, and the weighting decision is made separately by ln_weights_for_posterior (.dgrid) or by forcing the all-fresh path (.dslice). Correct on either row set."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:9cc74af37f": {
+    "source": "sampler._rvs[\"inclination\"][indx_guess]/(numpy.pi),\\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:9dc941f7cf": {
+    "source": "P.psi = sampler._rvs[\"psi\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:a1d5088a59": {
+    "source": "indx_guess = numpy.argmax(sampler._rvs[\"log_integrand\"])",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:a6ea5209f8": {
+    "source": "_cols = (np.vstack([np.asarray(sampler.identity_convert(sampler._rvs[p]), dtype=float).ravel()",
+    "verdict": "BENIGN",
+    "why": "The DELIBERATE no-reserve fallback for a sampler that keeps none: reads _rvs so the feature degrades to its previous behaviour rather than to no seed at all. The rank hazard is still handled -- build_warm_seed puffs the result to full rank -- so what remains is only 'fewer points', which cannot be improved without a reserve."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:acdd1e28bd": {
+    "source": "_neff_pooled = _kish_neff_of_rvs(sampler._rvs)",
+    "verdict": "FIXED",
+    "why": "Kish of the pooled record is only used when the export is NOT fair-drawn. When it is, _pool_replica_rvs has flattened each block, and the Kish of piecewise-constant weights is just the row count (5K at the default --fairdraw-extrinsic-output-n-max 5). The ILE now computes the same quantity one level up -- (sum Z_k)^2 / sum(Z_k^2/neff_k), Kish over the BLOCKS -- which reduces to sum(neff_k) when replicas agree and falls below it when they do not. The row count beside it is a deliberate report of the export size."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:b8c45b4f30": {
+    "source": "samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!",
+    "verdict": "BENIGN",
+    "why": "THE export itself. Under --fairdraw-extrinsic-output the fair draw is precisely what these rows are supposed to be, so the resample is the correct input here rather than a hazard."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:c717be4455": {
+    "source": "dL = np.array(sampler._rvs[\"distance\"])",
+    "verdict": "PER_ROW",
+    "why": "Binds the record, or reads one COLUMN of it, for the distance exporters. The resample changes which rows are present, never the value a row carries, and the weighting decision is made separately by ln_weights_for_posterior (.dgrid) or by forcing the all-fresh path (.dslice). Correct on either row set."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:cfe2518e26": {
+    "source": "_lnkey = 'log_integrand' if 'log_integrand' in sampler._rvs else ('integrand' if 'integrand' in sampler._rvs else None)",
+    "verdict": "PER_ROW",
+    "why": "Key-presence / column reference, not a population statistic."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:d2514d9663": {
+    "source": "_warm_lnZ, _warm_src = _lnZ_of_reserve_or_rvs(sampler, sampler._rvs)",
+    "verdict": "FIXED",
+    "why": "PR #79, re-landed as #86. sampler._rvs is passed as the FALLBACK argument only: the helper prefers the retained reserve via lnZ_from_reserve, and the gate refuses to compare across sources (_cold_src != _warm_src forces BOTH back to the fair-draw reading, which is at least self-consistent). Measured before #79: two passes with identical true lnZ at n_eff 1.8 vs 53 produced a +3.48 nat gap and rejected the good warm pass 100% of the time at the 0.5 default."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:d948a54bfb": {
+    "source": "rvs = sampler._rvs",
+    "verdict": "PER_ROW",
+    "why": "Binds the record, or reads one COLUMN of it, for the distance exporters. The resample changes which rows are present, never the value a row carries, and the weighting decision is made separately by ln_weights_for_posterior (.dgrid) or by forcing the all-fresh path (.dslice). Correct on either row set."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:dc8bf3e149": {
+    "source": "print( \" lnL at start :\", lnLstart, \" [note can be lower than peak because of time offset]: best reported by ILE (including weights) is \", numpy.log(numpy.max(sampler._rvs[\"integrand\"])))",
+    "verdict": "BENIGN",
+    "why": "Printed diagnostic of the best retained sample. Explicitly labelled as what ILE reports including weights; not an input to any result."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode:analyze_event:e0bbb0348e": {
+    "source": "P.phiref = sampler._rvs[\"phi_orb\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:16e8b48c86": {
+    "source": "(sampler._rvs[\"phi_orb\"][indx_guess]/(2*numpy.pi)), \\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:1dbc4dbe43": {
+    "source": "sampler._rvs[\"right_ascension\"][indx_guess]/(2*numpy.pi) , \\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:29d2d2ebb6": {
+    "source": "P.dist = sampler._rvs[\"distance\"][indx_guess]*1e6*lal.PC_SI",
+    "verdict": "PER_ROW",
+    "why": "Binds the record, or reads one COLUMN of it, for the distance exporters. The resample changes which rows are present, never the value a row carries, and the weighting decision is made separately by ln_weights_for_posterior (.dgrid) or by forcing the all-fresh path (.dslice). Correct on either row set."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:31db586050": {
+    "source": "P.incl = sampler._rvs[\"inclination\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:3600397a2b": {
+    "source": "if \"integrand\" in sampler._rvs:",
+    "verdict": "PER_ROW",
+    "why": "Key-presence / column reference, not a population statistic."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:3a7fb52dae": {
+    "source": "for key in sampler._rvs.keys():",
+    "verdict": "BENIGN",
+    "why": "THE export itself. Under --fairdraw-extrinsic-output the fair draw is precisely what these rows are supposed to be, so the resample is the correct input here rather than a hazard."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:45fa8d2146": {
+    "source": "sampler._rvs[\"psi\"][indx_guess]/numpy.pi,\\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:4dd03bebc6": {
+    "source": "P.phi = sampler._rvs[\"right_ascension\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:6658553446": {
+    "source": "P.theta = sampler._rvs[\"declination\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:6c4b180497": {
+    "source": "(sampler._rvs[\"declination\"][indx_guess]/numpy.pi),  \\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:7226654481": {
+    "source": "indx_guess = numpy.argmax(sampler._rvs[\"integrand\"])   # start search near maximum-likelihood point. (WARNING: can be very close by)",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:8a0be56ddc": {
+    "source": "sampler._rvs[\"distance\"][indx_guess]/dmax\\",
+    "verdict": "PER_ROW",
+    "why": "Binds the record, or reads one COLUMN of it, for the distance exporters. The resample changes which rows are present, never the value a row carries, and the weighting decision is made separately by ln_weights_for_posterior (.dgrid) or by forcing the all-fresh path (.dslice). Correct on either row set."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:9cc74af37f": {
+    "source": "sampler._rvs[\"inclination\"][indx_guess]/(numpy.pi),\\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:9dc941f7cf": {
+    "source": "P.psi = sampler._rvs[\"psi\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:a1d5088a59": {
+    "source": "indx_guess = numpy.argmax(sampler._rvs[\"log_integrand\"])",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:b8c45b4f30": {
+    "source": "samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!",
+    "verdict": "BENIGN",
+    "why": "THE export itself. Under --fairdraw-extrinsic-output the fair draw is precisely what these rows are supposed to be, so the resample is the correct input here rather than a hazard."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:dc8bf3e149": {
+    "source": "print( \" lnL at start :\", lnLstart, \" [note can be lower than peak because of time offset]: best reported by ILE (including weights) is \", numpy.log(numpy.max(sampler._rvs[\"integrand\"])))",
+    "verdict": "BENIGN",
+    "why": "Printed diagnostic of the best retained sample. Explicitly labelled as what ILE reports including weights; not an input to any result."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event:e0bbb0348e": {
+    "source": "P.phiref = sampler._rvs[\"phi_orb\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:16e8b48c86": {
+    "source": "(sampler._rvs[\"phi_orb\"][indx_guess]/(2*numpy.pi)), \\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:1dbc4dbe43": {
+    "source": "sampler._rvs[\"right_ascension\"][indx_guess]/(2*numpy.pi) , \\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:29d2d2ebb6": {
+    "source": "P.dist = sampler._rvs[\"distance\"][indx_guess]*1e6*lal.PC_SI",
+    "verdict": "PER_ROW",
+    "why": "Binds the record, or reads one COLUMN of it, for the distance exporters. The resample changes which rows are present, never the value a row carries, and the weighting decision is made separately by ln_weights_for_posterior (.dgrid) or by forcing the all-fresh path (.dslice). Correct on either row set."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:31db586050": {
+    "source": "P.incl = sampler._rvs[\"inclination\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:3600397a2b": {
+    "source": "if \"integrand\" in sampler._rvs:",
+    "verdict": "PER_ROW",
+    "why": "Key-presence / column reference, not a population statistic."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:3a7fb52dae": {
+    "source": "for key in sampler._rvs.keys():",
+    "verdict": "BENIGN",
+    "why": "THE export itself. Under --fairdraw-extrinsic-output the fair draw is precisely what these rows are supposed to be, so the resample is the correct input here rather than a hazard."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:45fa8d2146": {
+    "source": "sampler._rvs[\"psi\"][indx_guess]/numpy.pi,\\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:4dd03bebc6": {
+    "source": "P.phi = sampler._rvs[\"right_ascension\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:6658553446": {
+    "source": "P.theta = sampler._rvs[\"declination\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:6c4b180497": {
+    "source": "(sampler._rvs[\"declination\"][indx_guess]/numpy.pi),  \\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:7226654481": {
+    "source": "indx_guess = numpy.argmax(sampler._rvs[\"integrand\"])   # start search near maximum-likelihood point. (WARNING: can be very close by)",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:8a0be56ddc": {
+    "source": "sampler._rvs[\"distance\"][indx_guess]/dmax\\",
+    "verdict": "PER_ROW",
+    "why": "Binds the record, or reads one COLUMN of it, for the distance exporters. The resample changes which rows are present, never the value a row carries, and the weighting decision is made separately by ln_weights_for_posterior (.dgrid) or by forcing the all-fresh path (.dslice). Correct on either row set."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:9cc74af37f": {
+    "source": "sampler._rvs[\"inclination\"][indx_guess]/(numpy.pi),\\",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:9dc941f7cf": {
+    "source": "P.psi = sampler._rvs[\"psi\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:a1d5088a59": {
+    "source": "indx_guess = numpy.argmax(sampler._rvs[\"log_integrand\"])",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:b8c45b4f30": {
+    "source": "samples = copy.deepcopy(sampler._rvs)  # deep copy: avoid modifying structures and  having side effect on integrator, which loops over keys Expensive!",
+    "verdict": "BENIGN",
+    "why": "THE export itself. Under --fairdraw-extrinsic-output the fair draw is precisely what these rows are supposed to be, so the resample is the correct input here rather than a hazard."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:dc8bf3e149": {
+    "source": "print( \" lnL at start :\", lnLstart, \" [note can be lower than peak because of time offset]: best reported by ILE (including weights) is \", numpy.log(numpy.max(sampler._rvs[\"integrand\"])))",
+    "verdict": "BENIGN",
+    "why": "Printed diagnostic of the best retained sample. Explicitly labelled as what ILE reports including weights; not an input to any result."
+  },
+  "bin/integrate_likelihood_extrinsic_batchmode_lisa:analyze_event_LISA:e0bbb0348e": {
+    "source": "P.phiref = sampler._rvs[\"phi_orb\"][indx_guess]",
+    "verdict": "BENIGN",
+    "why": "MAP-seed read: argmax over the record, then the SAME row's coordinates. The fair draw picks rows proportional to weight, so the retained argmax is a genuinely-drawn high-likelihood point; it seeds a local search and a printed diagnostic, and no downstream number is a statistic of it. Degraded (it may not be the global MAP), not wrong."
+  },
+  "bin/util_ConstructEOSPosterior.py:<module>:0a939664b9": {
+    "source": "samples = sampler._rvs",
+    "verdict": "NO_FAIRDRAW",
+    "why": "Verified by grep: neither util_ConstructIntrinsicPosterior_GenericCoordinates nor util_ConstructEOSPosterior passes igrand_fairdraw_samples, so integrate() never runs the rebind and _rvs is still the retained set. (The known CIP posterior-export defect was a different mechanism -- replace=False successive sampling, PR #44 lineage -- not this one.)"
+  },
+  "bin/util_ConstructEOSPosterior.py:<module>:2a70a911c5": {
+    "source": "weights_scaled = np.exp(dat_logL - lnLmax)*sampler._rvs[\"joint_prior\"]/sampler._rvs[\"joint_s_prior\"]",
+    "verdict": "NO_FAIRDRAW",
+    "why": "Verified by grep: neither util_ConstructIntrinsicPosterior_GenericCoordinates nor util_ConstructEOSPosterior passes igrand_fairdraw_samples, so integrate() never runs the rebind and _rvs is still the retained set. (The known CIP posterior-export defect was a different mechanism -- replace=False successive sampling, PR #44 lineage -- not this one.)"
+  },
+  "bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py:<module>:0a939664b9": {
+    "source": "samples = sampler._rvs",
+    "verdict": "NO_FAIRDRAW",
+    "why": "Verified by grep: neither util_ConstructIntrinsicPosterior_GenericCoordinates nor util_ConstructEOSPosterior passes igrand_fairdraw_samples, so integrate() never runs the rebind and _rvs is still the retained set. (The known CIP posterior-export defect was a different mechanism -- replace=False successive sampling, PR #44 lineage -- not this one.)"
+  },
+  "bin/util_ConstructIntrinsicPosterior_GenericCoordinates.py:<module>:2a70a911c5": {
+    "source": "weights_scaled = np.exp(dat_logL - lnLmax)*sampler._rvs[\"joint_prior\"]/sampler._rvs[\"joint_s_prior\"]",
+    "verdict": "NO_FAIRDRAW",
+    "why": "Verified by grep: neither util_ConstructIntrinsicPosterior_GenericCoordinates nor util_ConstructEOSPosterior passes igrand_fairdraw_samples, so integrate() never runs the rebind and _rvs is still the retained set. (The known CIP posterior-export defect was a different mechanism -- replace=False successive sampling, PR #44 lineage -- not this one.)"
+  }
+}
