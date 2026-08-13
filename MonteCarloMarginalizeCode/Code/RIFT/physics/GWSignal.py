@@ -162,7 +162,19 @@ def hlmoft(P, Lmax=2,approx_string=None,no_trust_align_method=None,internal_phas
             .value
         )
         for mode in hlmT:
-            hlmT[mode].data.data = distance_rescaling*hlmT[mode].data.data
+            # NOTE THE SIGN.  gwsignal's TEOBResumSDALI modes are MINUS the
+            # polarization convention, not plus.  Getting this wrong is not
+            # visible as a bad fit: a global sign on h is exactly
+            # psi -> psi + pi/2, so it silently displaces the polarization
+            # angle by a quarter turn and leaves every other parameter, and
+            # the peak likelihood, looking fine.
+            #
+            # Separately, and NOT corrected here: TEOB's modes also do not
+            # want the exp(i m phi_shift) applied above, which leaves RIFT's
+            # reported `phase` for this approximant offset by pi/2 from the
+            # polarization path.  That is a phase-convention difference, not
+            # a sign error, and it is unchanged by this fix.
+            hlmT[mode].data.data = -distance_rescaling*hlmT[mode].data.data
             
     return hlmT
 
