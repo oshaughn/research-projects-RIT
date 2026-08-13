@@ -630,6 +630,107 @@ def test_extra_may_not_overwrite_validated_metadata(tmp_path):
     assert meta["frame"] == "detector" and meta["pipeline_note"] == "synthetic"
 
 
+def _hand_written(tmp_path, meta, name="ev", coord_names=("mc", "delta_mc", "u_d")):
+    """An artifact assembled by hand, exactly as a foreign exporter produces one.
+
+    Deliberately does NOT go through write_nal: the whole point of the consumer-side check is that
+    most artifacts a run loads were never near this module's writer.
+    """
+    mu, G = _make(d=len(coord_names), seed=17)
+    base = str(tmp_path / name)
+    np.savez(base + ".npz", theta_star=mu, gamma=G)
+    full = {"coord_names": list(coord_names), "lnL_peak": 0.0, "chart": "NAL:aligned"}
+    full.update(meta)
+    json.dump(full, open(base + ".meta.json", "w"))
+    return base
+
+
+def test_loaded_artifact_frame_invariant_is_enforced_on_the_consumer_side(tmp_path):
+    """The invariant write_nal enforces must also hold for artifacts it did not write.
+
+    A source-frame artifact still carrying the distance coordinate, or one declaring source-frame
+    masses with no cosmology and no distance prior, has integrated the mass-redshift degeneracy
+    against a prior nobody recorded.  Loaded, it evaluates perfectly happily: right dimension,
+    right names, wrong masses, no error anywhere downstream.
+    """
+    base = _hand_written(tmp_path, {"frame": "source", "cosmology": {"name": "Planck15"},
+                                    "d_prior": {"name": "cosmo_sourceframe"}}, name="carries_ud")
+    with pytest.raises(ValueError, match="u_d"):
+        nal_io.load_nal(base + ".npz")
+
+    base = _hand_written(tmp_path, {"frame": "source"}, name="no_cosmo",
+                         coord_names=("mc", "delta_mc"))
+    with pytest.raises(ValueError, match="cosmology"):
+        nal_io.load_nal(base + ".npz")
+
+    base = _hand_written(tmp_path, {"frame": "sourceframe"}, name="bad_frame",
+                         coord_names=("mc", "delta_mc"))
+    with pytest.raises(ValueError, match="frame"):
+        nal_io.load_nal(base + ".npz")
+
+    # ... and a consistent one loads, with the file named on the object for later error messages
+    base = _hand_written(tmp_path, {"frame": "detector"}, name="ok")
+    n = nal_io.load_nal(base + ".npz")
+    assert n.source == base and n.meta["frame"] == "detector"
+
+
+def test_undeclared_frame_loads_but_never_reaches_an_evaluation(tmp_path, monkeypatch):
+    """The shipped O3/O4 catalogue declares no frame at all; it must stay loadable, not usable.
+
+    Loading is how such an artifact gets inspected and rewritten with its frame recorded, so the
+    load-time check does not reject it.  Every path that would EVALUATE it does: the plugin entry
+    point, and check_artifact_frame_invariant itself when asked to fail closed.
+    """
+    base = _hand_written(tmp_path, {}, coord_names=("mc", "delta_mc"))   # no 'frame' key at all
+    n = nal_io.load_nal(base + ".npz")                    # loads: nothing has been evaluated yet
+    assert n.meta.get("frame") is None
+
+    with pytest.raises(ValueError, match="no 'frame'"):
+        nal_io.check_artifact_frame_invariant(n, require_frame=True)
+
+    monkeypatch.setenv("RIFT_NAL_ARTIFACTS", base + ".npz")
+    _declare_run(monkeypatch, frame="detector")
+    nal_io._STATE.update(set=None, coords=None, renormalize=False, offset=0.0)
+    with pytest.raises(ValueError, match="frame"):
+        nal_io.prepare_nal_lnL(config=None, coords=["mc", "delta_mc"])
+
+
+def test_offset_restores_the_absolute_likelihood_and_evidence(tmp_path, monkeypatch):
+    """nal_lnL(x) + nal_lnL_offset() is the artifacts' TRUE lnL -- what the drivers must report.
+
+    The centring keeps the drivers' exponentiation in range, and cancels in the posterior; it does
+    not cancel in an absolute lnL or an evidence.  Adding the offset back must recover the
+    uncentred value exactly, in both renormalize modes -- the offset tracks whichever constant was
+    actually removed, so a driver that adds it back needs to know nothing about the plugin's mode.
+    """
+    mu = np.array([30.0, 0.3])
+    loud = 3386.0
+    base = str(tmp_path / "ev")
+    np.savez(base + ".npz", theta_star=mu, gamma=np.diag([1.0, 4.0]),
+             bounds=np.array([[25.0, 35.0], [0.0, 1.0]]))
+    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": loud, "frame": "detector",
+               "chart": "NAL:aligned"}, open(base + ".meta.json", "w"))
+    monkeypatch.setenv("RIFT_NAL_ARTIFACTS", base + ".npz")
+    _declare_run(monkeypatch)
+    X = [np.array([30.0, 30.2, 29.5]), np.array([0.3, 0.35, 0.2])]
+    theta = np.stack(X, 1)
+
+    for renormalize in (False, True):
+        nal_io._STATE.update(set=None, coords=None, renormalize=renormalize, offset=0.0)
+        nal_io.prepare_nal_lnL(config=None, coords=["mc", "delta_mc"])
+        centred = nal_io.nal_lnL(*X)
+        want = nal_io._STATE["set"].lnL(theta, renormalize=renormalize)
+        assert np.all(centred <= 0.0)                     # exp() stays in range for the driver
+        assert np.allclose(centred + nal_io.nal_lnL_offset(), want, atol=1e-9)
+        # the constant is large enough to matter: reporting the centred value would put the
+        # evidence out by thousands of nat, not by a rounding error
+        assert nal_io.nal_lnL_offset() > 3000.0
+
+    # before preparation the offset is a harmless zero, so a driver may query it unconditionally
+    nal_io._STATE.update(set=None, coords=None, renormalize=False, offset=0.0)
+    assert nal_io.nal_lnL_offset() == 0.0
+
+
 def test_gwalk_offset_conversion_and_scale_max(tmp_path):
     """offset = lnL_peak + D/2 ln2pi - 1/2 ln|Gamma|, and scale_max must clear gwalk's 500 cap."""
     h5py = pytest.importorskip("h5py")

@@ -196,6 +196,128 @@ def test_prepare_hook_is_told_the_sampling_basis(fname):
                sorted(sampled)))
 
 
+def _adds(node, *names):
+    """True if `node` is a sum (at any depth) that includes every one of `names` as a bare Name."""
+    if not isinstance(node, ast.BinOp) or not isinstance(node.op, ast.Add):
+        return False
+    present = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
+    return set(names) <= present
+
+
+@pytest.mark.parametrize("fname", DRIVERS)
+def test_supplementary_offset_hook_is_queried(fname):
+    """The driver must look for the plugin's `<function>_offset` companion.
+
+    A plugin whose contribution is large has to return a CENTRED lnL: the default path here is
+    `likelihood_function(*x) * np.exp(supplemental(*x))`, and float64 exp overflows past ~709 --
+    which a single loud-event quadratic (lnL_peak ~ SNR^2/2) exceeds on its own.  The plugin
+    therefore reports the constant it removed, by the same naming convention as prepare_<function>,
+    and the driver must ask for it; without that the constant is unrecoverable downstream.
+    """
+    tree = _tree(fname)
+    built = [c for c in ast.walk(tree)
+             if isinstance(c, ast.BinOp) and isinstance(c.op, ast.Add)
+             and any(isinstance(n, ast.Constant) and n.value == "_offset" for n in ast.walk(c))]
+    assert built, ("%s never builds the '<function>_offset' hook name, so a plugin that centres "
+                   "its contribution has no way to report the constant it removed" % fname)
+    called = [c for c in ast.walk(tree)
+              if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+              and c.func.id == "supplemental_ln_likelihood_offset_fn"]
+    assert called, "%s resolves the offset hook but never calls it" % fname
+
+
+@pytest.mark.parametrize("fname", DRIVERS)
+def test_reported_evidence_restores_the_supplementary_offset(fname):
+    """Absolute evidence outputs must carry `ln_integrand_value + supplemental_..._offset`.
+
+    The centring is a constant multiplicative factor on the integrand.  It divides out of the
+    posterior -- which is why the sampler may have it -- but NOT out of an evidence: `integral_result.dat`
+    is read as an absolute lnZ and differenced against other runs, so reporting the centred value
+    makes every such odds ratio wrong by exp(offset), thousands of nat for a loud event, with
+    nothing anomalous to see in the file.
+    """
+    tree = _tree(fname)
+    absolute = [n for n in ast.walk(tree) if isinstance(n, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "ln_integrand_value_absolute"
+                        for t in n.targets)]
+    assert absolute, ("%s never forms an absolute evidence; the value it writes is whatever the "
+                      "sampler returned, including any constant the plugin subtracted" % fname)
+    assert all(_adds(a.value, "ln_integrand_value", "supplemental_ln_likelihood_offset")
+               for a in absolute), (
+        "%s defines ln_integrand_value_absolute without adding "
+        "supplemental_ln_likelihood_offset to ln_integrand_value" % fname)
+
+    # ... and nothing may WRITE the centred value.  Restoring the constant in one output and not
+    # another is the harder bug to see: the files disagree by a constant and each looks plausible.
+    for c in ast.walk(tree):
+        if not isinstance(c, ast.Call):
+            continue
+        writes = (isinstance(c.func, ast.Attribute)
+                  and c.func.attr in ("savetxt", "write"))
+        if not writes:
+            continue
+        bare = [n for n in ast.walk(c) if isinstance(n, ast.Name)
+                and n.id == "ln_integrand_value"]
+        assert not bare, (
+            "%s line %d writes the centred ln_integrand_value; absolute lnL/evidence outputs must "
+            "use ln_integrand_value_absolute" % (fname, c.lineno))
+
+
+def test_cip_reweighted_evidence_is_on_the_same_scale():
+    """`<integral>_withpriorchange.dat` is documented to agree with `integral_result.dat`.
+
+    It is built from lnLmax of the CENTRED integrand, so restoring the offset in one file and not
+    the other would turn that agreement -- the only cross-check the driver ships on its own
+    evidence -- into a fixed disagreement of exactly the offset, in a file whose stated purpose is
+    to be compared.
+    """
+    fname = "util_ConstructIntrinsicPosterior_GenericCoordinates.py"
+    tree = _tree(fname)
+    assigns = [n for n in ast.walk(tree) if isinstance(n, ast.Assign)
+               and any(isinstance(t, ast.Name) and t.id == "log_res_reweighted"
+                       for t in n.targets)]
+    assert assigns, "%s no longer computes log_res_reweighted" % fname
+    for a in assigns:
+        assert any(isinstance(x, ast.Name) and x.id == "supplemental_ln_likelihood_offset"
+                   for x in ast.walk(a.value)), (
+            "%s line %d computes the reweighted evidence without restoring the supplementary "
+            "offset, so it disagrees with integral_result.dat by that constant" % (fname, a.lineno))
+
+
+def test_cip_exported_lnL_columns_are_absolute():
+    """CIP's per-sample lnL exports are read as absolute lnL, so they carry the offset too.
+
+    `<samples>_lnL.dat`, the hyperpipeline grid's lnL column and best_point_by_lnL_value.dat all
+    come from `lnL_list`, and each is consumed as a lnL on the same scale as the fit's own -- the
+    next iteration's grid, the best-point record.  The correction is applied once, where the list
+    becomes an array, so it cannot be applied to some consumers and not others; this checks that it
+    happens before anything reads the list.
+    """
+    fname = "util_ConstructIntrinsicPosterior_GenericCoordinates.py"
+    tree = _tree(fname)
+    corrected = [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Assign)
+                 and any(isinstance(t, ast.Name) and t.id == "lnL_list" for t in n.targets)
+                 and any(isinstance(x, ast.Name)
+                         and x.id == "supplemental_ln_likelihood_offset"
+                         for x in ast.walk(n.value))]
+    assert len(corrected) == 1, (
+        "%s must restore the supplementary-likelihood offset on lnL_list exactly once (found %d "
+        "site(s)); more than one would double-count it, none leaves the exported lnL columns "
+        "centred" % (fname, len(corrected)))
+    reads = [c.lineno for c in ast.walk(tree) if isinstance(c, ast.Call)
+             for n in ast.walk(c) if isinstance(n, ast.Name) and n.id == "lnL_list"
+             and isinstance(n.ctx, ast.Load)]
+    early = sorted(ln for ln in reads if ln < corrected[0])
+    # appends while the list is being built are Calls too -- they are attribute calls ON the list
+    early = [ln for ln in early
+             if not any(isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)
+                        and isinstance(c.func.value, ast.Name) and c.func.value.id == "lnL_list"
+                        and c.lineno == ln for c in ast.walk(tree))]
+    assert not early, (
+        "%s reads lnL_list at line(s) %s, before the offset is restored at line %d -- those "
+        "consumers would get the centred values" % (fname, early, corrected[0]))
+
+
 # List methods that change the contents in place.  `+=` on a list is an AugAssign whose target is a
 # Store of the same Name, so it is caught by the rebind check rather than this one.
 _LIST_MUTATORS = ("append", "extend", "insert", "remove", "pop", "clear", "sort", "reverse")

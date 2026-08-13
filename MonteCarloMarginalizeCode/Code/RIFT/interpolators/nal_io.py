@@ -62,8 +62,12 @@ so it is never positive.  Both drivers' default path evaluates
 ~709: a real loud-event artifact (lnL_peak ~ SNR^2/2, e.g. 3386 for SNR ~ 82) would silently become
 inf there, and the drivers' own `lnL_shift` does not reach this separate exponentiation.  The
 subtracted constant is a fixed multiplicative factor on the likelihood: it cancels in any posterior
-and rescales the reported evidence by exactly that factor.  It is reported at preparation and
-available afterwards as `nal_lnL_offset()`.
+but it does NOT cancel in an absolute lnL or an evidence, which is what `integral_result.dat` and
+the `_lnL.dat` sidecar are read as -- an odds ratio against a run without this factor would be
+wrong by exp(offset).  It is reported at preparation and exposed as `nal_lnL_offset()`, following
+the same `<function>_...` naming convention as the `prepare_<function>` hook; both drivers look for
+that function and ADD the constant back into every absolute likelihood and evidence they write, so
+the centring stays inside the sampler where it is needed.
 
 Environment: pure numpy; h5py only if the gwalk view is used.
 """
@@ -88,7 +92,8 @@ def _rng(seed):
 
 __all__ = ["NAL", "NALSet", "load_nal", "load_nal_dir", "write_nal",
            "nal_lnL", "nal_lnL_offset", "prepare_nal_lnL", "write_gwalk_view",
-           "check_frame_invariant", "check_set_compatible", "check_sampler_compatible",
+           "check_frame_invariant", "check_artifact_frame_invariant",
+           "check_set_compatible", "check_sampler_compatible",
            "SCHEMA_VERSION"]
 
 SCHEMA_VERSION = 2
@@ -163,6 +168,7 @@ class NAL(object):
         self.lnL_peak = float(lnL_peak)
         self.bounds = None if bounds is None else np.asarray(bounds, float)
         self.meta = dict(meta or {})
+        self.source = None                                # set by load_nal(); for error messages
         self._log_mass_cache = None                       # (settings, value); see log_mass()
         d = len(self.mu)
         if self.gamma.shape != (d, d):
@@ -442,9 +448,14 @@ def load_nal(path):
         raise KeyError("nal_io: %s.meta.json must declare coord_names -- a NAL without a named "
                        "chart is not interpretable" % base)
     g = d["gamma"] if "gamma" in d else np.linalg.inv(d["cov"])
-    return NAL(d["theta_star"], g, names,
-               lnL_peak=float(meta.get("lnL_peak", 0.0)),
-               bounds=d["bounds"] if "bounds" in d else None, meta=meta)
+    out = NAL(d["theta_star"], g, names,
+              lnL_peak=float(meta.get("lnL_peak", 0.0)),
+              bounds=d["bounds"] if "bounds" in d else None, meta=meta)
+    out.source = base
+    # Enforce the frame invariant on the CONSUMER side too: most artifacts a run loads were not
+    # written by write_nal(), so a check that only runs in the writer never sees them.
+    check_artifact_frame_invariant(out, where=base)
+    return out
 
 
 def load_nal_dir(pattern):
@@ -511,6 +522,45 @@ def check_frame_invariant(coord_names, frame, cosmology=None, d_prior=None):
         if not d_prior:
             raise ValueError("nal_io: frame='source' requires the distance prior that was "
                              "integrated out (name and range)")
+
+
+def check_artifact_frame_invariant(nal, where=None, require_frame=False):
+    """Apply the frame invariant to an artifact this module did not write.
+
+    `write_nal` enforces `check_frame_invariant` at WRITE time, but nothing a consumer is handed
+    has necessarily been through it.  Artifacts arrive from exporters that predate this module --
+    the shipped O3/O4 NAL catalogue records no frame at all, only names/labels/centers/sigs/covs --
+    and from fitting scripts that assemble the npz and the meta.json themselves.  Such an artifact
+    can perfectly well declare `frame='source'` while still carrying `u_d`, or declare it with no
+    cosmology and no distance prior: a distance-marginalised quadratic whose mass-redshift
+    degeneracy was integrated against a prior nobody recorded, which no consumer can undo and none
+    can detect from the numbers.  A check that only runs in the writer is a check the artifacts
+    that matter never meet, so it is re-run on LOAD against the artifact's own recorded metadata.
+
+    An artifact declaring no frame at all is left to `check_set_compatible` /
+    `check_sampler_compatible`, which reject it with a message naming the comparison that cannot be
+    made.  `require_frame=True` makes it an error here instead, so the plugin entry point fails
+    closed whatever the order of the checks around it.
+    """
+    meta = nal.meta or {}
+    frame = meta.get("frame")
+    where = where or getattr(nal, "source", None) or "<in memory>"
+    if not frame:
+        if require_frame:
+            raise ValueError(
+                "nal_io: artifact %s declares no 'frame', so its own consistency cannot be "
+                "established: whether its masses are detector- or source-frame decides whether "
+                "carrying a distance coordinate is normal or means the distance has already been "
+                "integrated out against an unrecorded prior. Rewrite it with write_nal(), which "
+                "records the frame and checks the invariant." % where)
+        return
+    try:
+        check_frame_invariant(nal.coord_names, frame, meta.get("cosmology"), meta.get("d_prior"))
+    except ValueError as exc:
+        raise ValueError(
+            "nal_io: artifact %s fails the frame invariant on its own recorded metadata (%s). It "
+            "was not written by write_nal(), or was edited afterwards; the run cannot interpret "
+            "it and no downstream step can detect the error from the numbers alone." % (where, exc))
 
 
 def write_nal(base, nal, chart=None, frame="detector", cosmology=None, d_prior=None,
@@ -658,6 +708,13 @@ def prepare_nal_lnL(config=None, coords=None):
         part = part.strip()
         nals += load_nal_dir(part) if any(c in part for c in "*?[") else [load_nal(part)]
     check_sampler_compatible(nals, (frame or "").strip(), (chart or "").strip())
+    # Every artifact must ALSO be self-consistent, not merely consistent with the run: agreeing
+    # with a declared frame says nothing about whether the artifact's own chart and metadata are
+    # compatible with that frame.  load_nal() already enforces this for a declared frame; repeated
+    # here with require_frame=True so the entry point fails closed regardless of check order, and
+    # for NALs assembled in memory rather than loaded from disk.
+    for n in nals:
+        check_artifact_frame_invariant(n, require_frame=True)
     _STATE["set"] = NALSet(nals)
     if coords is not None:
         _STATE["coords"] = list(coords)
@@ -673,10 +730,16 @@ def prepare_nal_lnL(config=None, coords=None):
 
 
 def nal_lnL_offset():
-    """The constant `nal_lnL` subtracts (sum of the artifacts' peak lnL).
+    """The constant `nal_lnL` subtracts (sum of the artifacts' peak lnL, less the truncation mass
+    when `renormalize` is on -- i.e. exactly the constant that was removed, whichever mode is in
+    force).
 
-    A fixed multiplicative factor on the likelihood: it cancels in any posterior and rescales the
-    reported evidence by exactly exp(offset).  Exposed so that scale can be restored downstream.
+    A fixed multiplicative factor on the likelihood.  It cancels in any posterior, but NOT in an
+    absolute lnL or an evidence: reporting the centred value makes `integral_result.dat` low by
+    this amount and any odds ratio against a run without the factor wrong by exp(offset).  Both
+    drivers query `<supplementary-likelihood-factor-function>_offset`, which is this function for
+    the `nal_lnL` entry point, and add it back to the absolute quantities they write.  Zero before
+    `prepare_nal_lnL` has run, so a driver may call it unconditionally.
     """
     return _STATE["offset"]
 
