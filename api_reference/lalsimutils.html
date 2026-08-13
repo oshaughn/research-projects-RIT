@@ -736,7 +736,7 @@ spin_convention == radiation:</p>
 <dt class="sig sig-object py" id="RIFT.lalsimutils.Yagi13_fit_barlamdel">
 <span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">Yagi13_fit_barlamdel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">barlam2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ell</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.Yagi13_fit_barlamdel" title="Link to this definition"></a></dt>
 <dd><p>Yagi 2013 fits for multipolar
-$bar{lambda}_ell$ = 2 <a href="#id5"><span class="problematic" id="id6">k_</span></a>ell/(C^{2ell+1} (2ell-1)!!)$
+$bar{lambda}_ell$ = 2 <a href="#id7"><span class="problematic" id="id8">k_</span></a>ell/(C^{2ell+1} (2ell-1)!!)$
 Eq.(10),(61); Tab.I; Fig.8 <a class="reference external" href="http://arxiv.org/abs/1311.0872">http://arxiv.org/abs/1311.0872</a></p>
 </dd></dl>
 
@@ -744,7 +744,7 @@ Eq.(10),(61); Tab.I; Fig.8 <a class="reference external" href="http://arxiv.org/
 <dt class="sig sig-object py" id="RIFT.lalsimutils.Yagi13_fitcoefs">
 <span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">Yagi13_fitcoefs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ell</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.Yagi13_fitcoefs" title="Link to this definition"></a></dt>
 <dd><p>Coefficients of Yagi 2013 fits for multipolar
-$bar{lambda}_ell = 2 <a href="#id7"><span class="problematic" id="id8">k_</span></a>ell/(C^{2ell+1} (2ell-1)!!)$
+$bar{lambda}_ell = 2 <a href="#id9"><span class="problematic" id="id10">k_</span></a>ell/(C^{2ell+1} (2ell-1)!!)$
 Tab.I (NS) <a class="reference external" href="http://arxiv.org/abs/1311.0872">http://arxiv.org/abs/1311.0872</a></p>
 </dd></dl>
 
@@ -878,11 +878,23 @@ Output:estimated duration (in s) based on Newtonian inspiral from P.fmin to infi
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.lalsimutils.evaluate_fvals">
-<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">evaluate_fvals</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lal_2sided_fseries</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.evaluate_fvals" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">RIFT.lalsimutils.</span></span><span class="sig-name descname"><span class="pre">evaluate_fvals</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lal_2sided_fseries</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lal_convention</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.lalsimutils.evaluate_fvals" title="Link to this definition"></a></dt>
 <dd><p>Associates frequencies with a 2sided lal complex array.  Compare with ‘self.longweights’ code
 Done by HAND in PrecessingOrbitModesOfFrequency
 Manually <em>reverses</em> convention re sign of omega used in lal!</p>
 <dl>
+<dt>lal_convention=False (default): RIFT’s own two-sided packing (arrays produced by</dt><dd><p>DataFourier/complex_hoff): even length, REVERSED, f[k] = deltaF*(npts/2 - k).
+WARNING: for odd-length arrays this assigns f on a grid offset by deltaF/2 –
+it is only correct for the even-length RIFT packing.</p>
+</dd>
+<dt>lal_convention=True: the packing of two-sided series returned directly by LAL</dt><dd><p>generators (e.g. SimInspiralChooseFDModes): ASCENDING [-fNyq, …, 0, …, +fNyq]
+with DC at index npts//2 (odd length TDlen+1; even length after truncation keeps
+DC at npts//2).  f[k] = deltaF*(k - npts//2), exact for both parities of npts.
+Use this - not the default - on ChooseFDModes output: the default’s reversal +
+half-bin offset shifts any <a href="#id5"><span class="problematic" id="id6">|f|</span></a>-symmetric window by one bin between (l,m) and
+(l,-m) modes (which live at opposite signs of f), breaking the conjugate-pair
+identity h_{l,-m}(f) = (-1)^l conj(h_{lm}(-f)) at the percent level.</p>
+</dd>
 <dt>Notes:</dt><dd><ol class="loweralpha">
 <li><p>XXXFrequencySeries  have an f0 and a deltaF, and <em>logically</em> they should run from f0….f0+N*df</p></li>
 <li><dl class="simple">

@@ -354,6 +354,15 @@ Remember:   pdf, cdf_inv refer to the <em>sampling</em> prior, so I need to mult
 </dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsampler.clip_angle_limits">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">clip_angle_limits</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lo</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.clip_angle_limits" title="Link to this definition"></a></dt>
+<dd><p>Clip an angular range [lo,hi] (radians) to the physical domain of <cite>kind</cite>
+(‘declination’ -&gt; [-pi/2,pi/2], ‘inclination’ -&gt; [0,pi]).</p>
+<p>Raises ValueError if the requested range is empty/inverted, or if it does
+not overlap the physical domain.  Returns (lo, hi) as floats with lo &lt; hi.</p>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler.convergence_test_MostSignificantPoint">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">convergence_test_MostSignificantPoint</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pcut</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rvs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.convergence_test_MostSignificantPoint" title="Link to this definition"></a></dt>
 <dd></dd></dl>
@@ -377,6 +386,22 @@ Remember:   pdf, cdf_inv refer to the <em>sampling</em> prior, so I need to mult
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler.cos_samp_vector">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">cos_samp_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.cos_samp_vector" title="Link to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsampler.cosine_sampler_limits">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">cosine_sampler_limits</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lo</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.cosine_sampler_limits" title="Link to this definition"></a></dt>
+<dd><p>Map an angular range [lo,hi] (radians) into the coordinate actually sampled
+by RIFT’s ‘cosine’ sky/orientation samplers.</p>
+<dl class="simple">
+<dt>kind=’declination’: sampled variable is z = sin(dec); sin is increasing, so</dt><dd><p>the limit order is preserved:  [lo,hi] -&gt; [sin(lo), sin(hi)].</p>
+</dd>
+<dt>kind=’inclination’: sampled variable is z = cos(iota); cos is DECREASING, so</dt><dd><p>the limit order SWAPS:         [lo,hi] -&gt; [cos(hi), cos(lo)].</p>
+</dd>
+</dl>
+<p>The range is clipped to the physical angular domain first, and the result is
+clipped to the sampler domain [-1,1].  Raises ValueError on an empty or
+inverted request.  Returns (z_lo, z_hi) with z_lo &lt; z_hi.</p>
+</dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler.dec_samp">
@@ -412,6 +437,21 @@ Remember:   pdf, cdf_inv refer to the <em>sampling</em> prior, so I need to mult
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler.gauss_samp_withfloor">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">gauss_samp_withfloor</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mu</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">std</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">myfloor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.gauss_samp_withfloor" title="Link to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsampler.infer_array_module">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">infer_array_module</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xpy</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.infer_array_module" title="Link to this definition"></a></dt>
+<dd><p>Return the array module (numpy, cupy, …) that should be used to operate on <cite>x</cite>.</p>
+<p>The truncated samplers below are handed to whichever backend the run selected:
+mcsampler and mcsamplerAdaptiveVolume call them with host (numpy) arrays, while
+mcsamplerGPU.draw_simplified() calls <cite>self.pdf[param](samples)</cite> / <cite>self.cdf_inv[param](p)</cite>
+with a SINGLE positional argument holding a cupy array.  Defaulting to numpy would then
+hit <cite>numpy.asarray(cupy_array)</cite>, which raises, so the backend is inferred from the
+argument instead of assumed.  An explicit <cite>xpy=</cite> always wins.</p>
+<p>The lookup is by the array type’s top-level module, taken from <cite>sys.modules</cite> (a cupy
+array cannot exist unless cupy is already imported), so this file keeps its numpy-only
+import list and works for any duck-typed backend exposing the numpy API.</p>
+</dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler.inv_uniform_cdf">
@@ -461,6 +501,38 @@ Remember:   pdf, cdf_inv refer to the <em>sampling</em> prior, so I need to mult
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler.quadratic_samp">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">quadratic_samp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rmax</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.quadratic_samp" title="Link to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsampler.ret_cos_samp_cdf_inv_vector">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">ret_cos_samp_cdf_inv_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">incl_lo</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">incl_hi</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.ret_cos_samp_cdf_inv_vector" title="Link to this definition"></a></dt>
+<dd><p>Inverse CDF (p in [0,1] -&gt; inclination) for uniform-in-cos(iota)
+truncated to [incl_lo, incl_hi].  Monotonically increasing in p: p=0 gives
+incl_lo (which is arccos of the UPPER cosine limit – note the swap).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsampler.ret_cos_samp_vector">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">ret_cos_samp_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">incl_lo</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">incl_hi</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.ret_cos_samp_vector" title="Link to this definition"></a></dt>
+<dd><p>Sampling pdf in INCLINATION for a uniform-in-cos(iota) draw truncated to
+[incl_lo, incl_hi].  Normalized to unity over that box.  Reduces to
+cos_samp_vector for the full range.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsampler.ret_dec_samp_cdf_inv_vector">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">ret_dec_samp_cdf_inv_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dec_lo</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dec_hi</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.ret_dec_samp_cdf_inv_vector" title="Link to this definition"></a></dt>
+<dd><p>Inverse CDF (p in [0,1] -&gt; declination) for uniform-in-sin(dec) truncated
+to [dec_lo, dec_hi].  Monotonically increasing in p.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsampler.ret_dec_samp_vector">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsampler.</span></span><span class="sig-name descname"><span class="pre">ret_dec_samp_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dec_lo</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dec_hi</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsampler.ret_dec_samp_vector" title="Link to this definition"></a></dt>
+<dd><p>Sampling pdf in DECLINATION for a uniform-in-sin(dec) draw truncated to
+[dec_lo, dec_hi].  Normalized to unity over that box (the samplers that use
+an explicit cdf_inv do not renormalize the pdf themselves).  Reduces to
+dec_samp_vector for the full range.</p>
+</dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsampler.ret_uniform_samp_vector_alt">
@@ -515,6 +587,17 @@ Remember:   pdf, cdf_inv refer to the <em>sampling</em> prior, so I need to mult
 </section>
 <section id="module-RIFT.integrators.mcsamplerAdaptiveVolume">
 <span id="mc-sampler-with-adaptive-volume"></span><h2>MC Sampler with Adaptive Volume<a class="headerlink" href="#module-RIFT.integrators.mcsamplerAdaptiveVolume" title="Link to this heading"></a></h2>
+<dl class="py exception">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.LiveVolumeCollapse">
+<em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">LiveVolumeCollapse</span></span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.LiveVolumeCollapse" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Exception</span></code></p>
+<p>The adaptive-volume live set is empty (or carries no usable information).</p>
+<p>Raised INSTEAD of the bare numpy/cupy “zero-size array to reduction operation
+… which has no identity” that the empty-live-volume path used to produce, so
+callers and logs can tell a degenerate contraction apart from a waveform
+generation failure.  See the collapse discussion in get_likelihood_threshold.</p>
+</dd></dl>
+
 <dl class="py class">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">MCSampler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_chunk</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">400000</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler" title="Link to this definition"></a></dt>
@@ -646,8 +729,16 @@ tempering_exp – Exponent to raise the weights of the 1-D marginalized histogra
 temper_log – Adapt in min(ln L, 10^(-5))^tempering_exp
 tempering_adapt – Gradually evolve the tempering_exp based on previous history.
 floor_level – <em>total probability</em> of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
-n_adapt – number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
-convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
+n_adapt – IGNORED as an adaptation schedule by this sampler; accepted only for API</p>
+<blockquote>
+<div><p>compatibility with mcsampler/mcsamplerGPU, where it does gate update_sampling_prior.
+AV has no update_sampling_prior: its volume adaptation is intrinsic to the algorithm
+and runs every cycle regardless of this value. (Verified: output is bit-identical for
+n_adapt in {10,100,1000}.) The ONLY thing it still does here is participate in the
+save_intg gate, so n_adapt=0 can still suppress the _rvs cache. Do not reach for this
+expecting an “adapt then freeze” control – there isn’t one.</p>
+</div></blockquote>
+<p>convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
 Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to “pin” it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.</p>
 </dd></dl>
 
@@ -667,8 +758,16 @@ tempering_exp – Exponent to raise the weights of the 1-D marginalized histogra
 temper_log – Adapt in min(ln L, 10^(-5))^tempering_exp
 tempering_adapt – Gradually evolve the tempering_exp based on previous history.
 floor_level – <em>total probability</em> of a uniform distribution, averaged with the weighted sampled distribution, to generate a new sampled distribution
-n_adapt – number of chunks over which to allow the pdf to adapt. Default is zero, which will turn off adaptive sampling regardless of other settings
-convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
+n_adapt – IGNORED as an adaptation schedule by this sampler; accepted only for API</p>
+<blockquote>
+<div><p>compatibility with mcsampler/mcsamplerGPU, where it does gate update_sampling_prior.
+AV has no update_sampling_prior: its volume adaptation is intrinsic to the algorithm
+and runs every cycle regardless of this value. (Verified: output is bit-identical for
+n_adapt in {10,100,1000}.) The ONLY thing it still does here is participate in the
+save_intg gate, so n_adapt=0 can still suppress the _rvs cache. Do not reach for this
+expecting an “adapt then freeze” control – there isn’t one.</p>
+</div></blockquote>
+<p>convergence_tests - dictionary of function pointers, each accepting self._rvs and self.params as arguments. CURRENTLY ONLY USED FOR REPORTING
 Pinning a value: By specifying a kwarg with the same of an existing parameter, it is possible to “pin” it. The sample draws will always be that value, and the sampling prior will use a delta function at that value.</p>
 </dd></dl>
 
@@ -755,12 +854,55 @@ VARAHA should only be trained on its own samples, not others!</p>
 </dl>
 </dd></dl>
 
+<dl class="py method">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.warm_seed_axes">
+<span class="sig-name descname"><span class="pre">warm_seed_axes</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.MCSampler.warm_seed_axes" title="Link to this definition"></a></dt>
+<dd><p>Column indices a warm seed must span: the ADAPTIVE axes (all of them when
+nothing is adaptive, since then the grid is one bin per dim and the seed’s only
+job is to be well-defined).  Exposed so a caller building a seed – the ILE’s L0
+rescue – can ask the sampler which dimensions its seed will be judged on instead
+of guessing.  A portfolio has no such axes of its own; ask a member.</p>
+</dd></dl>
+
 </dd></dl>
 
 <dl class="py exception">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.NanOrInf">
 <em class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">NanOrInf</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.NanOrInf" title="Link to this definition"></a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">Exception</span></code></p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.build_warm_seed">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">build_warm_seed</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">points</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnL</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">box_lo</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">box_hi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">axes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deltalnL</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">15.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">puff_width_frac</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.005</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">puff_scale</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'auto'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">puff_factor</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_puff</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.build_warm_seed" title="Link to this definition"></a></dt>
+<dd><p>Build the L0 rescue’s warm seed from a pass’s own samples -&gt; (seed, info).</p>
+<p><cite>points</cite> (n, ndim) and <cite>lnL</cite> (n,) are the completed pass’s draws.  The seed is the
+points within <cite>deltalnL</cite> of the peak, PUFFED to full rank if they do not span <cite>axes</cite>.</p>
+<p>RANK, NOT COUNT, is the guard.  The rule this replaces was <cite>len(seed) &lt; 2</cite>, and a count
+cannot see the failure: measured on zero-noise injections, a 5-point seed at rho_net
+102.8 had affine rank 2-4 of 6 and a 2-point seed at rho_net 146.8 had rank 0 of 6.
+Both passed the count test, and both then warm-started a live volume that had collapsed
+onto a degenerate subspace (V ~ 3e-06 and ~9e-36 against a healthy ~1e-08), which
+reports a fine n_eff while lnZ is a lower bound.  n points span at most n-1 affine
+dimensions, so the rank test subsumes the count it replaces.</p>
+<p>AUGMENT, DO NOT REPLACE.  The handful of real points are the only direct evidence of
+where the peak is and how wide it is, so they are kept and the puff is added alongside
+them.  This can only help: the grid is built from the union’s extent, so a real point
+lying outside the puff widens the seeded volume to include it, and VARAHA can only
+contract afterwards – whereas replacing them throws that information away and pins the
+support to a guessed width about a single point.</p>
+<dl class="simple">
+<dt><cite>puff_scale</cite>:</dt><dd><dl class="simple">
+<dt>‘fixed’  – isotropic, <cite>puff_width_frac</cite> of each parameter’s prior range (the</dt><dd><p>historical behaviour; <cite>puff_width_frac</cite> = 1/200 reproduces it exactly).</p>
+</dd>
+<dt>‘auto’   – the measured posterior scale and correlations from every finite lnL the</dt><dd><p>pass drew (warm_seed_scale_from_finite_points), falling back to ‘fixed’
+when there are too few finite points to estimate one.</p>
+</dd>
+</dl>
+</dd>
+</dl>
+<p><cite>puff_factor</cite> multiplies the resulting width (variance scales as its square).  2 is the
+measured optimum and both tails are wrong – see warm_seed_scale_from_finite_points.</p>
 </dd></dl>
 
 <dl class="py function">
@@ -784,6 +926,99 @@ discard_prob: threshold on CDF to throw away an entire bin.  Should be very smal
 <dd></dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.live_volume_collapse_verdict">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">live_volume_collapse_verdict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">n_live</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ndim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ess</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">khat</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_empty_cycles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_live_collapses</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_warm_seed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_warm_seed_rank</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_warm_seed_dim</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.live_volume_collapse_verdict" title="Link to this definition"></a></dt>
+<dd><p>Has the adaptive-volume live set degenerated?  -&gt; (collapsed, [reasons])</p>
+<p>A degenerate contraction must be REPORTED rather than silently exported: the run
+still returns a lnZ and a sample cloud, but both describe a single mode and the
+cloud is not a fair posterior draw.</p>
+<p>Thresholds, against the separation measured on zero-noise injections at a fixed
+intrinsic point (rho_net 51 -&gt; 147):</p>
+<blockquote>
+<div><blockquote>
+<div><p>healthy    ESS 16.8-20.2,  k-hat 1.03-1.50   (rho 51.4, converges cold)
+collapsed  ESS 1.0-1.7,    k-hat 21-202      (rho 103-147)</p>
+</div></blockquote>
+<ul class="simple">
+<li><p>n_live &lt;= ndim – a live set no larger than the dimension cannot span the
+space, let alone describe a posterior in it.  Geometric, not tuned.</p></li>
+<li><p>ESS &lt; 2 – fewer than two effective samples IS one sample.</p></li>
+<li><p>ESS &lt; 5 with k-hat &gt; 10 – near-degenerate AND a pathological weight tail.</p></li>
+</ul>
+</div></blockquote>
+<p>The gap between the regimes is an order of magnitude wide, so these sit far from
+both sides of it.  k-hat is deliberately NOT a gate on its own: it exceeds its
+nominal 0.70 “unresolved tail” threshold even in the healthy runs on this problem,
+and it is not always computable once the live set is tiny.</p>
+<p>A WARM start fails the OTHER way, and none of the rules above see it: seeded from too
+few points the grid contracts onto a sliver of the support, the integrand is then flat
+across it, and the pass terminates in one cycle looking excellent – large n_live, ESS
+~ n, small k-hat – while lnZ is short by the mass outside the sliver.  Measured on 12
+rho_net=146.8 rescue replicates: the eleven seeded from 2000 puffed points warm-started
+at V = 7.5e-9 to 1.5e-8 (351-684 live bins) and returned ln(Z/Lmax) = -27.0 to -30.6;
+the one seeded from 2 points warm-started at V = 9.2e-36 (13 bins) and returned -80.7,
+i.e. ~50 nats low, with eff_samp 9789 of 10010 samples.  So:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p>n_warm_seed_rank &lt; n_warm_seed_dim – the seed cloud’s AFFINE RANK (rank of the
+mean-centred points, per-axis scaled by the box) is below the dimension it must
+span, so it lies in a lower-dimensional subspace and cannot define a volume there.</p></li>
+</ul>
+</div></blockquote>
+<p>RANK, not row count, is the invariant.  Rows are neither necessary nor sufficient:
+thousands of duplicated or collinear points span the same degenerate subspace two
+points do and fail identically, while d+1 affinely independent points are exactly
+enough to define a volume in d dimensions and must NOT be flagged.  Rank subsumes the
+count anyway, since n points span at most n-1 affine dimensions.</p>
+<p>n_warm_seed* are None on a cold pass -&gt; the rule is skipped.  If rank is unavailable
+(a grid restored by load_state from a run that predates it) we fall back to the count,
+at the correct simplex boundary: fewer than dim+1 points, i.e. n &lt;= dim.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.make_warm_seed_reserve">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">make_warm_seed_reserve</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">X</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnL</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params_ordered</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_max</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_joint_prior</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">log_joint_s_prior</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rng</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.make_warm_seed_reserve" title="Link to this definition"></a></dt>
+<dd><p>A bounded copy of the points a pass RETAINED, for a later warm start -&gt; dict.</p>
+<p>THE ONE BUILDER, because every sampler that can be L0-rescued needs the identical
+record and they reach this point by different routes: mcsamplerAdaptiveVolume from its
+own accumulated draws, mcsamplerPortfolio from its aggregated _rvs (it drives members
+through draw_simplified(), never their integrate_log(), so a member never builds one).</p>
+<p>WHY IT HAS TO BE TAKEN EARLY.  Both samplers then prune _rvs and fair-draw it down to
+~1.5*n_eff rows resampled WITH REPLACEMENT – a resample built for EXPORT.  Anything
+that reads _rvs afterwards and treats it as the sample set sees, on the collapsed pass
+a rescue exists for, a handful of rows several of which are the same point twice.</p>
+<p>STRATIFY BY FINITE-NESS BEFORE BOUNDING, or the bound destroys exactly what it is
+keeping.  AV arrives here with only retained (finite) rows, but the PORTFOLIO’s _rvs
+holds EVERY draw – and on the collapsed pass this exists for, essentially all of them
+are -inf.  A uniform subsample over all rows then keeps the finite ones in proportion,
+which is to say almost none: measured, 10 finite rows among 1,000,000 at a 20,000 cap
+survived as <strong>2</strong> (the forced peak, plus one lucky draw).  build_warm_seed would then
+see a rank-0 core, warm_seed_scale_from_finite_points would decline for want of points,
+and the puff would fall back to the fixed prior fraction – the very truncation
+(0.8-8.3 nats, with a healthy-looking ESS) this whole change exists to remove.</p>
+<p>So the non-finite rows are dropped outright.  They are ballast for every consumer: the
+seed core is <cite>lnL &gt; max - deltalnL</cite>, the scale estimator filters to finite, and
+_lnZ_of_rvs filters to finite before it averages – so dropping them here leaves that
+lnZ bit-identical while making the cap mean what it says.</p>
+<p>NO SECOND STRATUM, deliberately.  Once the finite rows are the population, the cap only
+binds on a run with &gt;n_max FINITE samples – a healthy one, where the peak window is
+proportionally represented anyway (measured: a 20,001-row reserve out of 4e6 gave a
+239-point seed core).  Adding a top-lnL stratum on top of that would buy nothing there
+and would bias both the covariance estimate and any lnZ taken from the reserve, because
+neither is a uniform sample of the level set any more.  The one deliberate exception is
+the PEAK row, appended unconditionally because the seed is defined relative to it and a
+subsample can drop it; at one row in n_max its effect on either estimate is negligible.</p>
+<p>ISOLATED RNG.  This reserve is built unconditionally – including when
+–sampler-warmstart-retry-neff is unset and nothing will ever read it – so drawing the
+subsample from the global numpy stream would advance it before the fair draw, before the
+exported posterior, and before every later event and replica.  An opt-in rescue that is
+switched OFF must not change a seeded run’s output.  Default to a private, deterministic
+generator so the reserve is itself reproducible and costs the caller nothing.</p>
+<p>The two prior components ride along when given, so a consumer can rebuild the importance
+weight – and therefore lnZ – from the retained set rather than from the fair draw.</p>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.profile">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">profile</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.profile" title="Link to this definition"></a></dt>
 <dd></dd></dl>
@@ -794,9 +1029,79 @@ discard_prob: threshold on CDF to throw away an entire bin.  Should be very smal
 <dd></dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.seed_affine_rank">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">seed_affine_rank</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">box_lo</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">box_hi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">axes</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-09</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.seed_affine_rank" title="Link to this definition"></a></dt>
+<dd><p>Affine rank of a warm-seed cloud over <cite>axes</cite>, i.e. the dimension of the subspace
+the seed actually spans -&gt; (rank, n_in_box).</p>
+<p>THE ONE PLACE this is defined, because two callers must agree exactly: the grid
+builder records it for the collapse diagnostic, and the ILE’s L0 rescue tests it to
+decide whether the seed needs puffing.  A rescue that puffed on a rank the diagnostic
+then measured differently would either puff a healthy seed or ship a flagged one.</p>
+<dl class="simple">
+<dt>Measured the way _build_grid_from_points must see it:</dt><dd><ul class="simple">
+<li><p>IN-BOX ROWS ONLY.  The grid only ever spans the box, so out-of-box rows describe
+nothing it will build – and left in they inflate the rank, so a seed that is
+degenerate where it matters could be recorded full-rank.</p></li>
+<li><p>mean-centred (AFFINE rank: n points span at most n-1 affine dimensions, so this
+subsumes the row-count test that used to stand in for it), and</p></li>
+<li><p>per-axis scaled by the box, so the tolerance is unit-free – a distance in Mpc and
+an angle in radians must not get different tolerances.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.set_xpy_to_numpy">
 <span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">set_xpy_to_numpy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.set_xpy_to_numpy" title="Link to this definition"></a></dt>
 <dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="RIFT.integrators.mcsamplerAdaptiveVolume.warm_seed_scale_from_finite_points">
+<span class="sig-prename descclassname"><span class="pre">RIFT.integrators.mcsamplerAdaptiveVolume.</span></span><span class="sig-name descname"><span class="pre">warm_seed_scale_from_finite_points</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">points</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lnL</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">box_lo</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">box_hi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">axes</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eig_lo</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1e-05</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">eig_hi</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.5</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#RIFT.integrators.mcsamplerAdaptiveVolume.warm_seed_scale_from_finite_points" title="Link to this definition"></a></dt>
+<dd><p>Estimate the POSTERIOR scale (a box-scaled covariance over <cite>axes</cite>) from the finite
+log-likelihoods a collapsed pass already drew -&gt; cov, or None if it cannot be measured.</p>
+<p>Why this exists.  The L0 rescue’s fallback puff used a hardcoded 1/200 of each
+parameter’s prior range, which is a property of the PRIOR and knows nothing about the
+posterior – but the posterior narrows as 1/rho, so one fixed fraction cannot be right
+across the amplitude range, and a puff narrower than the posterior truncates real mass
+(VARAHA’s live volume only ever contracts, so the seed is a ceiling on the support).</p>
+<p>The information needed is already in hand and was being thrown away.  A cold pass at
+high amplitude draws (near enough) uniformly from the prior box, and returns a finite
+lnL only inside the region where exp() has not underflowed – i.e. the level set
+lnL &gt; lnL_max - D.  For a locally Gaussian peak that level set is the ellipsoid
+u^T A u &lt; 2D (u box-scaled about the peak), and points uniform in an ellipsoid have
+covariance (2D/(d+2)) A^{-1}.  So the posterior covariance A^{-1} is recovered as</p>
+<blockquote>
+<div><p>cov_post  =  cov(finite points) * (d + 2) / (2 D),     D = lnL_max - min(finite lnL)</p>
+</div></blockquote>
+<p>which is one sample covariance, no fit and nothing to fail to converge.  It also
+delivers the CORRELATIONS – sky position, time and distance are strongly correlated at
+high amplitude, and an isotropic puff wastes almost all of its points off the ridge.</p>
+<p>Deliberately approximate – the draws are only uniform-in-prior until AV starts
+contracting, and the peak is only locally Gaussian.  Measured against a known lnZ on a
+correlated 6-D peak with the same 745-nat underflow (sigma recovered / true, per axis,
+6 replicates): 1.01 - 1.23.  So it is good to ~20%, which is what matters, because the
+error that was being made is a factor of ~5-10.</p>
+<p>NEITHER DIRECTION IS FREE, so do not treat “wide is safe” as a licence.  Too narrow
+silently truncates: on that same target a puff at the historical 1/200 of the prior
+range came in 0.8 - 8.3 nats below the truth, with a healthy-looking ESS.  Too wide is
+not merely inefficient, which is what the surrounding code used to assume.  Scanning a
+multiplier on this estimate, mean (worst) lnZ error over 6 replicates, mean ESS:</p>
+<blockquote>
+<div><p>x0.5   -8.52 (-19.0) nats, ESS 71      truncated
+x1     -1.61  (-3.5) nats, ESS 53
+x2     +0.08  (-0.2) nats, ESS 52      &lt;– the default
+x3     +1.13  (+0.6) nats, ESS 26
+x6     +3.03  (-1.6) nats, ESS 10      biased HIGH, and efficiency is going
+x12   -29.99 (-71.9) nats, ESS  1      a cold start in all but name: re-collapses</p>
+</div></blockquote>
+<p>Both tails are wrong, and the useful range is under a decade wide, so inflate by a small
+factor and not by an order of magnitude.</p>
+<p>Eigenvalues are floored/capped in box-scaled units (<cite>eig_lo</cite>, <cite>eig_hi</cite> are standard
+deviations as a fraction of the box) so no direction can come back degenerate – a
+zero-width direction would re-create the rank deficiency this is being used to repair.</p>
+</dd></dl>
 
 </section>
 <section id="module-RIFT.integrators.mcsamplerEnsemble">
