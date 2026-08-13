@@ -727,6 +727,16 @@ class MCSampler(object):
 
         # Store sample history on the host so downstream (CPU) consumers --
         # weights, CDFs, posterior plots -- work regardless of backend.
+        # A sampler can be reused across log- and linear-space integrations.
+        # Remove mode-specific results from the previous run before exporting
+        # this one so convergence checks cannot consume stale log weights.
+        for key in (
+            'log_integrand',
+            'log_joint_prior',
+            'log_joint_s_prior',
+            'log_weights',
+        ):
+            self._rvs.pop(key, None)
         index = 0
         for param in args:
             self._rvs[param] = self.identity_convert(sample_array[:,index])

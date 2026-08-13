@@ -37,6 +37,7 @@ fi
 # coordinate-transform + prior-mass identities, so they belong with the integrator gate
 # rather than with the end-to-end run tests.
 python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py
+python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_mcsampler_ensemble_log_contract.py
 
 python MonteCarloMarginalizeCode/Code/test/test_mcsamplerEnsemble_extended.py --as-test --n-max 100000
 

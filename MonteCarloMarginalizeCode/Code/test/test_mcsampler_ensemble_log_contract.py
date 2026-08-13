@@ -68,6 +68,61 @@ def test_integrate_log_exports_consistent_log_sample_fields():
     )
 
 
+def test_linear_integration_clears_log_fields_when_sampler_is_reused():
+    sampler = mcsamplerEnsemble.MCSampler()
+    sampler.add_parameter(
+        "x",
+        pdf=lambda x: np.ones_like(x) / 2.0,
+        prior_pdf=lambda x: np.ones_like(x) / 2.0,
+        left_limit=-1.0,
+        right_limit=1.0,
+        adaptive_sampling=True,
+    )
+    integration_options = {
+        "n": 100,
+        "nmax": 100,
+        "neff": 1,
+        "min_iter": 1,
+        "max_iter": 1,
+        "correlate_all_dims": True,
+        "n_comp": 1,
+    }
+
+    sampler.integrate_log(
+        lambda x: -0.5 * np.asarray(x) ** 2,
+        "x",
+        **integration_options,
+    )
+    assert "log_weights" in sampler._rvs
+
+    sampler.integrate(
+        lambda x: np.exp(-0.5 * np.asarray(x) ** 2),
+        "x",
+        **integration_options,
+    )
+
+    log_fields = {
+        "log_integrand",
+        "log_joint_prior",
+        "log_joint_s_prior",
+        "log_weights",
+    }
+    assert log_fields.isdisjoint(sampler._rvs)
+
+    weights = (
+        sampler._rvs["integrand"]
+        * sampler._rvs["joint_prior"]
+        / sampler._rvs["joint_s_prior"]
+    )
+    expected_fraction = np.max(weights) / np.sum(weights)
+    assert mcsamplerEnsemble.convergence_test_MostSignificantPoint(
+        expected_fraction + 1e-12, sampler._rvs, None
+    )
+    assert not mcsamplerEnsemble.convergence_test_MostSignificantPoint(
+        expected_fraction - 1e-12, sampler._rvs, None
+    )
+
+
 def test_normal_subintegrals_accept_log_weights(monkeypatch):
     # Eight equal-mass chunks at a scale where conversion to linear weights
     # would underflow.  Stub only the normality statistic; the test exercises
