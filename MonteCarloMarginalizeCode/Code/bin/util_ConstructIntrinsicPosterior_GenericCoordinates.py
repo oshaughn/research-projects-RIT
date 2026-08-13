@@ -909,7 +909,12 @@ def eccentricity_prior(x):
     return np.ones(x.shape) / (ECC_MAX-ECC_MIN) # uniform over the interval [0.0, ECC_MAX]
 
 def log_eccentricity_prior(x):
-    return np.ones(x.shape) / (x*np.ln(ECC_MAX-ECC_MIN)) # log uniform over the interval [0.0, ECC_MAX]
+    # Density in e for a distribution uniform in ln(e) on [ECC_MIN, ECC_MAX].
+    # Was np.ln (does not exist in numpy, so --eccentricity-prior log_uniform raised
+    # AttributeError as soon as the prior was evaluated) with a (ECC_MAX-ECC_MIN)
+    # normalization, which is the uniform prior's normalization, not this one's:
+    # \int_ECC_MIN^ECC_MAX dx/(x*C) = 1  =>  C = ln(ECC_MAX/ECC_MIN).
+    return np.ones(x.shape) / (x*np.log(ECC_MAX/ECC_MIN)) # log uniform over the interval [ECC_MIN, ECC_MAX]
 
 def uniform_eccentricity_ln_prior(x):
     return np.ones(x.shape) / ((np.log(ECC_MAX/ECC_MIN))) # log uniform over the interval [ECC_MIN, ECC_MAX]; if ECC_MIN=0.0, auto corrects to ECC_MIN=0.001

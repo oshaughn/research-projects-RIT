@@ -148,6 +148,15 @@ development tree is rift_O4d.
     (the flat-mode no-op master is preserved); ILE honours --srate-resample-time-marginalization instead of
     always doubling, and recovers the requested export rate EXACTLY rather than an integer multiple; Virgo
     calibration correction convention fixed; multi-GPU ILE fan-out with a multi-container example in one ini.
+  - CIP eccentricity priors: ``--eccentricity-prior log_uniform`` (ingested from rift_O4c
+    0.0.17.12, rapidpe-rift/rift!54) called ``np.ln``, which does not exist in numpy, so the
+    option raised AttributeError as soon as the prior was evaluated; its normalization was also
+    the uniform prior's, ``ln(ECC_MAX-ECC_MIN)``, where a density uniform in ln(e) needs
+    ``ln(ECC_MAX/ECC_MIN)`` (negative for the shipped 0.001/0.4 defaults).  Both fixed, and the
+    CIP prior densities get their first test suite: test_cip_priors.py extracts the shipped
+    ``def`` blocks from CIP with ast rather than transcribing them, then checks that all 38
+    priors evaluate finite and non-negative and that the 19 claiming a normalized density
+    integrate to 1 against their stated measure.  Also fixed on rift_O4c (PR #174).
   - ILE portfolio driver: a portfolio the driver cannot build now FAILS instead of silently
     integrating with a different sampler.  ``--sampler-method portfolio`` no longer carries a
     dead ok-flag test that fell through to the plain mcsampler.MCSampler; the terminal
