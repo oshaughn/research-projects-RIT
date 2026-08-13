@@ -47,6 +47,24 @@ realisable parameters.  Two consequences that are easy to get wrong and are hand
     broken fit, and `mu` must never be read as "the measured value".  Nothing here rejects an
     artifact on that basis.
 
+THE RUN'S OWN CHART.  Artifact metadata cannot say what the SAMPLER is walking in, and the
+coordinate names do not distinguish it: 'mc' and 'delta_mc' are spelt identically in a
+detector-frame and a source-frame chart.  Comparing artifacts with each other (`check_set_compatible`)
+therefore does not protect a run, and a single artifact is not compared with anything at all.  The
+run must declare its own frame and chart -- `[nal] sampler_frame` / `sampler_chart`, or
+RIFT_NAL_SAMPLER_FRAME / RIFT_NAL_SAMPLER_CHART -- and they are checked against EVERY artifact,
+including a lone one (see `check_sampler_compatible`).  No conversion is attempted: mapping between
+frames needs a redshift per sample, which the plugin is never handed.
+
+SCALE OF THE CONTRIBUTION.  `nal_lnL` returns the artifacts' lnL with their summed peak SUBTRACTED,
+so it is never positive.  Both drivers' default path evaluates
+`likelihood_function(*x) * np.exp(supplemental_ln_likelihood(*x))`, and float64 exp overflows above
+~709: a real loud-event artifact (lnL_peak ~ SNR^2/2, e.g. 3386 for SNR ~ 82) would silently become
+inf there, and the drivers' own `lnL_shift` does not reach this separate exponentiation.  The
+subtracted constant is a fixed multiplicative factor on the likelihood: it cancels in any posterior
+and rescales the reported evidence by exactly that factor.  It is reported at preparation and
+available afterwards as `nal_lnL_offset()`.
+
 Environment: pure numpy; h5py only if the gwalk view is used.
 """
 import glob as _glob
@@ -69,8 +87,9 @@ def _rng(seed):
 
 
 __all__ = ["NAL", "NALSet", "load_nal", "load_nal_dir", "write_nal",
-           "nal_lnL", "prepare_nal_lnL", "write_gwalk_view", "check_frame_invariant",
-           "check_set_compatible", "SCHEMA_VERSION"]
+           "nal_lnL", "nal_lnL_offset", "prepare_nal_lnL", "write_gwalk_view",
+           "check_frame_invariant", "check_set_compatible", "check_sampler_compatible",
+           "SCHEMA_VERSION"]
 
 SCHEMA_VERSION = 2
 
@@ -87,6 +106,18 @@ _CORR_TOL = 1e-8
 #   delta_mc (:587-590)  eta = (1 - delta^2)/4, i.e. delta = sqrt(1-4 eta)
 KNOWN_COORDS = ("mc", "eta", "delta_mc", "xi", "chiMinus",
                 "s1z", "s2z", "s1x_bar", "s1y_bar", "s2x_bar", "s2y_bar", "u_d", "dist")
+
+# Names that carry the luminosity distance.  BOTH of them: `_derive` treats u_d = 1/dist as
+# interchangeable, so a chart carrying `dist` says exactly as much about the distance as one
+# carrying `u_d`, and the frame invariant must recognise either.
+_DISTANCE_COORDS = ("u_d", "dist")
+
+# Metadata keys `write_nal` owns -- either validated here (frame/cosmology/d_prior, through
+# check_frame_invariant) or derived from the artifact itself.  `extra` may not overwrite them: the
+# value that was checked and the value that is recorded must be the same value.
+_RESERVED_META_KEYS = ("schema", "method", "chart", "coord_names", "frame", "cosmology", "d_prior",
+                       "lnL_peak", "lnL_ref", "symmetry", "unconstrained_dirs", "parents",
+                       "run_id", "git_sha", "validation")
 
 
 def _derive(name, have):
@@ -331,6 +362,49 @@ def check_set_compatible(nals):
                 % (key, len(declared), len(vals), len(set(declared)), key, key))
 
 
+def check_sampler_compatible(nals, frame, chart):
+    """Refuse to evaluate artifacts against a run whose chart is not DECLARED to match them.
+
+    `check_set_compatible` only compares artifacts with each other, and it is skipped entirely for
+    a single artifact -- nothing is being added to it.  Neither fact says anything about the
+    SAMPLER: `coords` carries names alone, and 'mc'/'delta_mc' are spelt identically whether the
+    run walks in detector-frame or source-frame masses.  A source-frame NAL evaluated at
+    detector-frame samples (or the reverse) has the right array count, the right names and no
+    error -- only a wrong answer, biased by the redshift of the event.
+
+    Conversion is not an option here: it needs a redshift per sample, which the plugin is never
+    handed.  So the run declares its frame and its chart and they are compared, and every artifact
+    must state its own.  Fails closed in both directions -- undeclared on either side is a
+    mismatch, not a pass.
+    """
+    nals = list(nals)
+    if not frame:
+        raise ValueError(
+            "nal_io: the run's sampling frame is undeclared, so these artifacts cannot be shown "
+            "to be in the chart the sampler is walking in -- detector- and source-frame masses "
+            "wear identical coordinate names, and no dimension or name check can tell them "
+            "apart. Declare it as [nal] sampler_frame = detector|source in the ini, or "
+            "RIFT_NAL_SAMPLER_FRAME.")
+    if frame not in ("detector", "source"):
+        raise ValueError("nal_io: sampler_frame must be 'detector' or 'source', got %r" % (frame,))
+    if not chart:
+        raise ValueError(
+            "nal_io: the run's sampling chart is undeclared. Matching coordinate names in a "
+            "matching frame still do not establish matching coordinate CONVENTIONS -- which spin "
+            "basis, which mass pairing, which angle reference. Declare it as [nal] sampler_chart "
+            "in the ini, or RIFT_NAL_SAMPLER_CHART, naming the same chart the artifacts do.")
+    for key, want in (("frame", frame), ("chart", chart)):
+        got = sorted({(n.meta.get(key) or "<undeclared>") for n in nals
+                      if n.meta.get(key) != want})
+        if got:
+            raise ValueError(
+                "nal_io: artifact %s %s does not match the run's declared %s %r. The artifacts "
+                "would be evaluated at coordinates that mean something else in the chart they "
+                "were fitted in, silently: the array count and the coordinate names are "
+                "identical either way. Use artifacts built for this run's chart, or correct the "
+                "declaration." % (key, got, key, want))
+
+
 class NALSet(object):
     """A catalogue of NALs, summed.  Each event contributes additively in lnL."""
 
@@ -409,25 +483,29 @@ def check_frame_invariant(coord_names, frame, cosmology=None, d_prior=None):
     the mass-redshift degeneracy against one particular distance prior, and nothing downstream can
     undo that or even detect it.  So:
 
-      * u_d present  =>  frame must be 'detector' (distance has not been marginalised yet)
-      * frame source =>  u_d must be absent, AND the cosmology and the distance prior that was
-                         integrated must both be recorded, since the source-frame masses are
-                         meaningless without them.
+      * a distance coordinate present  =>  frame must be 'detector' (distance has not been
+                         marginalised yet).  BOTH spellings count: `_derive` makes u_d and dist
+                         interchangeable, so a chart carrying `dist` is exactly as
+                         distance-carrying as one carrying `u_d`.
+      * frame source =>  no distance coordinate at all, AND the cosmology and the distance prior
+                         that was integrated must both be recorded, since the source-frame masses
+                         are meaningless without them.
 
     Raises ValueError rather than warning: an artifact that cannot state its own frame honestly
     should not be written at all.  (The shipped O3/O4 NAL catalogue records none of this -- its
     npz carries only names/labels/centers/sigs/covs/ess/method/kl -- so a consumer cannot tell
     which cosmology produced it.)
     """
-    has_ud = "u_d" in coord_names
+    dist_coords = [c for c in coord_names if c in _DISTANCE_COORDS]
     if frame not in ("detector", "source"):
         raise ValueError("nal_io: frame must be 'detector' or 'source', got %r" % (frame,))
-    if has_ud and frame != "detector":
-        raise ValueError("nal_io: chart carries u_d, so masses are detector-frame; got frame=%r"
-                         % (frame,))
+    if dist_coords and frame != "detector":
+        raise ValueError("nal_io: chart carries %s, so masses are detector-frame; got frame=%r"
+                         % (dist_coords, frame))
     if frame == "source":
-        if has_ud:
-            raise ValueError("nal_io: frame='source' must not also carry u_d")
+        if dist_coords:
+            raise ValueError("nal_io: frame='source' must not also carry a distance coordinate "
+                             "(%s)" % dist_coords)
         if not cosmology:
             raise ValueError("nal_io: frame='source' requires a declared cosmology")
         if not d_prior:
@@ -447,9 +525,23 @@ def write_nal(base, nal, chart=None, frame="detector", cosmology=None, d_prior=N
     written without it cannot later be ADDED to another: `check_set_compatible` requires every
     member of a set to declare the same non-empty chart.  Name it now if the artifact is destined
     for a catalogue.
+
+    `extra` may only ADD metadata.  It is applied after the frame invariant has been checked, so
+    allowing it to overwrite a validated key would let frame='detector' pass the check while
+    frame='source' is what gets recorded -- an artifact claiming source-frame masses with no
+    cosmology, no distance prior, possibly carrying u_d.  Collisions raise, before any file is
+    written.
     """
     coord_names = list(nal.coord_names)
     check_frame_invariant(coord_names, frame, cosmology, d_prior)
+    clash = sorted(set(extra or ()) & set(_RESERVED_META_KEYS))
+    if clash:
+        raise ValueError(
+            "nal_io: extra=%s would overwrite metadata this writer validates or derives. Those "
+            "keys are checked BEFORE extra is applied, so overwriting them records something "
+            "that was never validated -- notably a frame whose cosmology, distance prior and "
+            "distance coordinate went unchecked. Pass them as the named arguments instead "
+            "(write_nal(..., frame=..., cosmology=...)), or rename the extra key." % clash)
     bounds = nal.bounds
     if bounds is None:
         sd = np.sqrt(np.diag(nal.cov()))
@@ -509,7 +601,18 @@ def write_gwalk_view(path, nal, label, scale_max=None):
 
 
 # ----------------------------------------------------------------- RIFT plugin hook entry points
-_STATE = {"set": None, "coords": None, "renormalize": False}
+_STATE = {"set": None, "coords": None, "renormalize": False, "offset": 0.0}
+
+
+def _peak_offset(nals, renormalize):
+    """Largest value the summed contribution can take: sum of the per-artifact peaks.
+
+    Each term is at most its own peak, so subtracting this makes `nal_lnL` non-positive
+    everywhere and `np.exp` of it safe.  With `renormalize` the per-artifact peak is
+    lnL_peak - log_mass (log_mass <= 0, so the peak RISES); computing it here also fails early and
+    fills the cache rather than surprising the sampler on its first call.
+    """
+    return float(sum(n.lnL_peak - (n.log_mass() if renormalize else 0.0) for n in nals))
 
 
 def prepare_nal_lnL(config=None, coords=None):
@@ -518,14 +621,23 @@ def prepare_nal_lnL(config=None, coords=None):
     ini section:
         [nal]
         artifacts = /path/to/*.npz      ; glob, or a comma-separated list
+        sampler_frame = detector        ; REQUIRED: the frame the RUN samples in
+        sampler_chart = NAL:aligned     ; REQUIRED: the chart the RUN samples in
         renormalize = false             ; per-event constant, cancels in a hyper-posterior
         sampler_coords = mc,eta         ; only needed when the driver cannot pass coords=
-    Falls back to the environment variables RIFT_NAL_ARTIFACTS and RIFT_NAL_SAMPLER_COORDS when no
-    ini is supplied, so the plugin also works on RIFT versions predating the prepare-hook fix.
-    `coords` from the driver always wins: it is the authoritative sampling basis.
+    Falls back to the environment variables RIFT_NAL_ARTIFACTS, RIFT_NAL_SAMPLER_FRAME,
+    RIFT_NAL_SAMPLER_CHART and RIFT_NAL_SAMPLER_COORDS when no ini is supplied, so the plugin also
+    works on RIFT versions predating the prepare-hook fix.  `coords` from the driver always wins:
+    it is the authoritative sampling basis.
+
+    The frame and chart of the RUN cannot be read off the artifacts or the coordinate names, and
+    the driver does not pass them, so they must be declared and are then checked against every
+    artifact -- including a single one, which no set check ever examines.
     """
     pat = os.environ.get("RIFT_NAL_ARTIFACTS")
     declared = os.environ.get("RIFT_NAL_SAMPLER_COORDS")
+    frame = os.environ.get("RIFT_NAL_SAMPLER_FRAME")
+    chart = os.environ.get("RIFT_NAL_SAMPLER_CHART")
     if config is not None and config.has_section("nal"):
         if config.has_option("nal", "artifacts"):
             pat = config.get("nal", "artifacts")
@@ -534,6 +646,10 @@ def prepare_nal_lnL(config=None, coords=None):
                 in ("1", "true", "yes")
         if config.has_option("nal", "sampler_coords"):
             declared = config.get("nal", "sampler_coords")
+        if config.has_option("nal", "sampler_frame"):
+            frame = config.get("nal", "sampler_frame")
+        if config.has_option("nal", "sampler_chart"):
+            chart = config.get("nal", "sampler_chart")
     if not pat:
         raise ValueError("nal_io: no artifacts configured -- set [nal] artifacts in the ini or "
                          "the RIFT_NAL_ARTIFACTS environment variable")
@@ -541,6 +657,7 @@ def prepare_nal_lnL(config=None, coords=None):
     for part in pat.split(","):
         part = part.strip()
         nals += load_nal_dir(part) if any(c in part for c in "*?[") else [load_nal(part)]
+    check_sampler_compatible(nals, (frame or "").strip(), (chart or "").strip())
     _STATE["set"] = NALSet(nals)
     if coords is not None:
         _STATE["coords"] = list(coords)
@@ -548,8 +665,20 @@ def prepare_nal_lnL(config=None, coords=None):
         _STATE["coords"] = [s.strip() for s in declared.split(",") if s.strip()]
     else:
         _STATE["coords"] = None
-    print("nal_io: loaded %d NAL artifact(s), chart %s; sampler coords %s"
-          % (len(nals), _STATE["set"].coord_names, _STATE["coords"]))
+    _STATE["offset"] = _peak_offset(nals, _STATE["renormalize"])
+    print("nal_io: loaded %d NAL artifact(s), chart %s (run frame %s, chart %s); sampler coords "
+          "%s; contribution centred by %.6g"
+          % (len(nals), _STATE["set"].coord_names, frame, chart, _STATE["coords"],
+             _STATE["offset"]))
+
+
+def nal_lnL_offset():
+    """The constant `nal_lnL` subtracts (sum of the artifacts' peak lnL).
+
+    A fixed multiplicative factor on the likelihood: it cancels in any posterior and rescales the
+    reported evidence by exactly exp(offset).  Exposed so that scale can be restored downstream.
+    """
+    return _STATE["offset"]
 
 
 def nal_lnL(*x):
@@ -557,6 +686,13 @@ def nal_lnL(*x):
 
     Matches the calling convention in util_ConstructIntrinsicPosterior_GenericCoordinates.py:2952
     and util_ConstructEOSPosterior.py:946 (`log_likelihood_function(*x) + supplemental(*x)`).
+
+    CENTRED: the artifacts' summed peak (`nal_lnL_offset()`) is subtracted, so the return value is
+    never positive.  The drivers' DEFAULT path is not the log one above but
+    `likelihood_function(*x) * np.exp(supplemental(*x))`, where float64 overflows past ~709 and a
+    perfectly valid loud-event artifact (lnL_peak ~ SNR^2/2) would return inf for every sample;
+    the drivers' lnL_shift rescales their own fit, not this separate exponentiation.  The
+    subtracted constant multiplies the likelihood by exp(-offset) and so cancels in any posterior.
     """
     if _STATE["set"] is None:
         prepare_nal_lnL(config=None, coords=None)         # legacy: environment-only configuration
@@ -579,4 +715,4 @@ def nal_lnL(*x):
                          % (len(arrs), names, len(names)))
     have = dict(zip(names, arrs))
     theta = np.stack([_derive(k, have) for k in S.coord_names], 1)
-    return S.lnL(theta, renormalize=_STATE["renormalize"])
+    return S.lnL(theta, renormalize=_STATE["renormalize"]) - _STATE["offset"]

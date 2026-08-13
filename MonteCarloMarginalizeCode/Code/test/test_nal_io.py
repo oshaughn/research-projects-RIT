@@ -30,6 +30,12 @@ def _make(d=4, seed=0):
     return mu, G
 
 
+def _declare_run(monkeypatch, frame="detector", chart="NAL:aligned"):
+    """Declare the frame and chart the RUN samples in, as an ini-less deployment would."""
+    monkeypatch.setenv("RIFT_NAL_SAMPLER_FRAME", frame)
+    monkeypatch.setenv("RIFT_NAL_SAMPLER_CHART", chart)
+
+
 def test_lnL_matches_the_quadratic_form():
     mu, G = _make()
     n = nal_io.NAL(mu, G, ["mc", "delta_mc", "xi", "chiMinus"], lnL_peak=7.5)
@@ -160,10 +166,13 @@ def test_plugin_hook_contract(tmp_path, monkeypatch):
         json.dump({"coord_names": names, "lnL_peak": 1.0, "chart": "NAL:aligned",
                    "frame": "detector"}, open(base + ".meta.json", "w"))
     monkeypatch.setenv("RIFT_NAL_ARTIFACTS", str(tmp_path / "*.npz"))
-    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    _declare_run(monkeypatch)
+    nal_io._STATE.update(set=None, coords=None, renormalize=False, offset=0.0)
     nal_io.prepare_nal_lnL(config=None, coords=names)
     out = nal_io.nal_lnL(np.array([mu[0]]), np.array([mu[1]]))
-    assert np.isclose(out[0], 2.0)                       # 1.0 per event, summed
+    # 1.0 per event, summed -- then centred by the summed peak, so the peak sits at 0
+    assert np.isclose(nal_io.nal_lnL_offset(), 2.0)
+    assert np.isclose(out[0], 0.0)
 
 
 def test_plugin_derives_delta_mc_from_eta(tmp_path, monkeypatch):
@@ -172,10 +181,11 @@ def test_plugin_derives_delta_mc_from_eta(tmp_path, monkeypatch):
     G = np.diag([1.0, 4.0])
     base = str(tmp_path / "ev")
     np.savez(base + ".npz", theta_star=mu, gamma=G)
-    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0},
-              open(base + ".meta.json", "w"))
+    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0, "frame": "detector",
+               "chart": "NAL:aligned"}, open(base + ".meta.json", "w"))
     monkeypatch.setenv("RIFT_NAL_ARTIFACTS", base + ".npz")
-    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    _declare_run(monkeypatch)
+    nal_io._STATE.update(set=None, coords=None, renormalize=False, offset=0.0)
     nal_io.prepare_nal_lnL(config=None, coords=["mc", "eta"])
     eta = 0.25 * (1 - 0.3 ** 2)
     out = nal_io.nal_lnL(np.array([30.0]), np.array([eta]))
@@ -186,10 +196,11 @@ def test_unbuildable_coordinate_raises_named_error(tmp_path, monkeypatch):
     mu, G = _make(d=2, seed=2)
     base = str(tmp_path / "ev")
     np.savez(base + ".npz", theta_star=mu, gamma=G)
-    json.dump({"coord_names": ["mc", "s1x_bar"], "lnL_peak": 0.0},
-              open(base + ".meta.json", "w"))
+    json.dump({"coord_names": ["mc", "s1x_bar"], "lnL_peak": 0.0, "frame": "detector",
+               "chart": "NAL:aligned"}, open(base + ".meta.json", "w"))
     monkeypatch.setenv("RIFT_NAL_ARTIFACTS", base + ".npz")
-    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    _declare_run(monkeypatch)
+    nal_io._STATE.update(set=None, coords=None, renormalize=False, offset=0.0)
     nal_io.prepare_nal_lnL(config=None, coords=["mc", "eta"])
     with pytest.raises(KeyError, match="s1x_bar"):
         nal_io.nal_lnL(np.array([30.0]), np.array([0.2]))
@@ -209,18 +220,19 @@ def test_wrong_basis_from_the_driver_would_evaluate_at_the_wrong_point(tmp_path,
     G = np.diag([1.0, 4.0])
     base = str(tmp_path / "ev")
     np.savez(base + ".npz", theta_star=mu, gamma=G)
-    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0},
-              open(base + ".meta.json", "w"))
+    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0, "frame": "detector",
+               "chart": "NAL:aligned"}, open(base + ".meta.json", "w"))
     monkeypatch.setenv("RIFT_NAL_ARTIFACTS", base + ".npz")
+    _declare_run(monkeypatch)
 
     mc, eta, s1z = 30.0, 0.25 * (1 - 0.3 ** 2), -0.4     # delta_mc = 0.3 exactly
     x = [np.array([mc]), np.array([eta]), np.array([s1z])]
 
-    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    nal_io._STATE.update(set=None, coords=None, renormalize=False, offset=0.0)
     nal_io.prepare_nal_lnL(config=None, coords=["mc", "eta", "s1z"])          # sampling basis
     assert np.isclose(nal_io.nal_lnL(*x)[0], 0.0, atol=1e-10)
 
-    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    nal_io._STATE.update(set=None, coords=None, renormalize=False, offset=0.0)
     nal_io.prepare_nal_lnL(config=None, coords=["mc", "eta", "delta_mc"])     # fit basis: WRONG
     wrong = nal_io.nal_lnL(*x)[0]
     # s1z has been read as delta_mc: lnL = -1/2 * 4 * (s1z - 0.3)^2
@@ -237,19 +249,20 @@ def test_environment_only_configuration_will_not_guess_the_basis(tmp_path, monke
     mu = np.array([30.0, 0.3])
     base = str(tmp_path / "ev")
     np.savez(base + ".npz", theta_star=mu, gamma=np.diag([1.0, 4.0]))
-    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0, "frame": "detector"},
-              open(base + ".meta.json", "w"))
+    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0, "frame": "detector",
+               "chart": "NAL:aligned"}, open(base + ".meta.json", "w"))
     monkeypatch.setenv("RIFT_NAL_ARTIFACTS", base + ".npz")
     monkeypatch.delenv("RIFT_NAL_SAMPLER_COORDS", raising=False)
+    _declare_run(monkeypatch)
 
-    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    nal_io._STATE.update(set=None, coords=None, renormalize=False, offset=0.0)
     eta = 0.25 * (1 - 0.3 ** 2)
     with pytest.raises(ValueError, match="sampling basis is unknown"):
         nal_io.nal_lnL(np.array([30.0]), np.array([eta]))
 
     # declaring the basis explicitly is the supported way out, and it then converts eta -> delta_mc
     monkeypatch.setenv("RIFT_NAL_SAMPLER_COORDS", "mc, eta")
-    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    nal_io._STATE.update(set=None, coords=None, renormalize=False, offset=0.0)
     out = nal_io.nal_lnL(np.array([30.0]), np.array([eta]))
     assert np.isclose(out[0], 0.0, atol=1e-10)           # lands on the peak, not off it
 
@@ -259,11 +272,12 @@ def test_driver_coords_override_the_environment_declaration(tmp_path, monkeypatc
     mu = np.array([30.0, 0.3])
     base = str(tmp_path / "ev")
     np.savez(base + ".npz", theta_star=mu, gamma=np.diag([1.0, 4.0]))
-    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0, "frame": "detector"},
-              open(base + ".meta.json", "w"))
+    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0, "frame": "detector",
+               "chart": "NAL:aligned"}, open(base + ".meta.json", "w"))
     monkeypatch.setenv("RIFT_NAL_ARTIFACTS", base + ".npz")
     monkeypatch.setenv("RIFT_NAL_SAMPLER_COORDS", "mc,delta_mc")
-    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    _declare_run(monkeypatch)
+    nal_io._STATE.update(set=None, coords=None, renormalize=False, offset=0.0)
     nal_io.prepare_nal_lnL(config=None, coords=["mc", "eta"])
     assert nal_io._STATE["coords"] == ["mc", "eta"]
 
@@ -272,10 +286,11 @@ def test_wrong_number_of_arrays_is_rejected(tmp_path, monkeypatch):
     mu = np.array([30.0, 0.3])
     base = str(tmp_path / "ev")
     np.savez(base + ".npz", theta_star=mu, gamma=np.diag([1.0, 4.0]))
-    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0},
-              open(base + ".meta.json", "w"))
+    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0, "frame": "detector",
+               "chart": "NAL:aligned"}, open(base + ".meta.json", "w"))
     monkeypatch.setenv("RIFT_NAL_ARTIFACTS", base + ".npz")
-    nal_io._STATE.update(set=None, coords=None, renormalize=False)
+    _declare_run(monkeypatch)
+    nal_io._STATE.update(set=None, coords=None, renormalize=False, offset=0.0)
     nal_io.prepare_nal_lnL(config=None, coords=["mc", "eta"])
     with pytest.raises(ValueError, match="sampling basis"):
         nal_io.nal_lnL(np.array([30.0]))
@@ -380,6 +395,82 @@ def test_set_accepts_matching_metadata_and_a_lone_artifact():
                    _nal({"frame": "source", "chart": "NAL:aligned",
                          "cosmology": {"h": 0.679, "name": "Planck15"},
                          "d_prior": {"d_max": 1.0, "name": "p"}}, seed=1)])
+
+
+# --------------------------------------------------------- the artifacts vs the RUN's own chart
+
+def test_sampler_check_rejects_an_undeclared_or_mismatched_run_frame():
+    """The set check compares artifacts with each other; it says nothing about the sampler."""
+    ok = {"frame": "detector", "chart": "NAL:aligned"}
+    with pytest.raises(ValueError, match="sampling frame is undeclared"):
+        nal_io.check_sampler_compatible([_nal(ok)], "", "NAL:aligned")
+    with pytest.raises(ValueError, match="frame"):
+        nal_io.check_sampler_compatible([_nal(ok)], "source", "NAL:aligned")
+    with pytest.raises(ValueError, match="sampler_frame"):
+        nal_io.check_sampler_compatible([_nal(ok)], "geocenter", "NAL:aligned")
+    nal_io.check_sampler_compatible([_nal(ok)], "detector", "NAL:aligned")
+
+
+def test_sampler_check_rejects_an_undeclared_or_mismatched_run_chart():
+    ok = {"frame": "detector", "chart": "NAL:aligned"}
+    with pytest.raises(ValueError, match="sampling chart is undeclared"):
+        nal_io.check_sampler_compatible([_nal(ok)], "detector", "")
+    with pytest.raises(ValueError, match="chart"):
+        nal_io.check_sampler_compatible([_nal(ok)], "detector", "NAL:precessing")
+    with pytest.raises(ValueError, match="chart"):        # artifact declares nothing
+        nal_io.check_sampler_compatible([_nal({"frame": "detector"})], "detector", "NAL:aligned")
+
+
+def test_a_lone_source_frame_artifact_is_still_checked_against_the_run(tmp_path, monkeypatch):
+    """The hole the set check cannot cover: one artifact is never compared with anything.
+
+    Source- and detector-frame charts wear the same coordinate names, so a source-frame NAL fed
+    the driver's default detector-frame samples raises nothing on names or array count.
+    """
+    mu = np.array([30.0, 0.3])
+    base = str(tmp_path / "ev")
+    np.savez(base + ".npz", theta_star=mu, gamma=np.diag([1.0, 4.0]))
+    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0, "frame": "source",
+               "chart": "NAL:aligned", "cosmology": {"name": "Planck15"},
+               "d_prior": {"name": "cosmo_sourceframe"}}, open(base + ".meta.json", "w"))
+    monkeypatch.setenv("RIFT_NAL_ARTIFACTS", base + ".npz")
+    _declare_run(monkeypatch, frame="detector")           # the driver's default basis
+    nal_io._STATE.update(set=None, coords=None, renormalize=False, offset=0.0)
+    with pytest.raises(ValueError, match="frame"):
+        nal_io.prepare_nal_lnL(config=None, coords=["mc", "delta_mc"])
+    # declaring the run honestly is what makes it usable
+    _declare_run(monkeypatch, frame="source")
+    nal_io.prepare_nal_lnL(config=None, coords=["mc", "delta_mc"])
+    assert np.isclose(nal_io.nal_lnL(np.array([30.0]), np.array([0.3]))[0], 0.0, atol=1e-10)
+
+
+def test_contribution_is_centred_so_the_drivers_exponentiation_cannot_overflow(tmp_path,
+                                                                               monkeypatch):
+    """Both drivers' DEFAULT path is likelihood_function(*x) * np.exp(supplemental(*x)).
+
+    float64 exp overflows above ~709, so a loud but perfectly valid artifact (lnL_peak ~ SNR^2/2)
+    would contribute inf for every sample.  The contribution is centred by the summed peak; the
+    constant is recoverable from nal_lnL_offset().
+    """
+    mu = np.array([30.0, 0.3])
+    loud = 3386.0                                        # a real SNR~82 event's lnL_peak
+    base = str(tmp_path / "ev")
+    np.savez(base + ".npz", theta_star=mu, gamma=np.diag([1.0, 4.0]))
+    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": loud, "frame": "detector",
+               "chart": "NAL:aligned"}, open(base + ".meta.json", "w"))
+    monkeypatch.setenv("RIFT_NAL_ARTIFACTS", base + ".npz")
+    _declare_run(monkeypatch)
+    nal_io._STATE.update(set=None, coords=None, renormalize=False, offset=0.0)
+    nal_io.prepare_nal_lnL(config=None, coords=["mc", "delta_mc"])
+
+    X = [np.array([30.0, 30.2, 29.5]), np.array([0.3, 0.35, 0.2])]
+    out = nal_io.nal_lnL(*X)
+    assert np.isclose(nal_io.nal_lnL_offset(), loud)
+    assert np.all(out <= 0.0)                            # never positive, so exp never overflows
+    assert np.all(np.isfinite(np.exp(out)))
+    # SHAPE is untouched: only a constant has moved
+    assert np.allclose(out - out[0], [0.0, -0.5 * (0.2 ** 2 + 4 * 0.05 ** 2),
+                                      -0.5 * (0.5 ** 2 + 4 * 0.1 ** 2)])
 
 
 # ------------------------------------------------------------------------ bounded marginalization
@@ -490,6 +581,53 @@ def test_write_refuses_undeclared_source_frame(tmp_path):
     with pytest.raises(ValueError):
         nal_io.write_nal(str(tmp_path / "bad"), n, frame="source")
     assert not os.path.exists(str(tmp_path / "bad.npz"))
+
+
+def test_frame_invariant_rejects_source_frame_carrying_dist(tmp_path):
+    """`dist` is a distance coordinate exactly as much as `u_d` is -- _derive interconverts them.
+
+    Checking only 'u_d' let write_nal emit the artifact this invariant exists to forbid: masses
+    declared source-frame, a distance prior recorded as already integrated out, and the distance
+    still sitting in the chart.
+    """
+    with pytest.raises(ValueError, match="dist"):
+        nal_io.check_frame_invariant(["mc", "delta_mc", "dist"], "source",
+                                     cosmology={"name": "Planck15"},
+                                     d_prior={"name": "cosmo_sourceframe"})
+    # detector-frame is where a distance coordinate belongs, under either spelling
+    nal_io.check_frame_invariant(["mc", "delta_mc", "dist"], "detector")
+    # ... and the writer must refuse it too, without leaving a file behind
+    mu, G = _make(d=3, seed=12)
+    n = nal_io.NAL(mu, G, ["mc", "delta_mc", "dist"])
+    with pytest.raises(ValueError, match="dist"):
+        nal_io.write_nal(str(tmp_path / "bad"), n, chart="NAL:aligned", frame="source",
+                         cosmology={"name": "Planck15"},
+                         d_prior={"name": "cosmo_sourceframe"})
+    assert not os.path.exists(str(tmp_path / "bad.npz"))
+    assert not os.path.exists(str(tmp_path / "bad.meta.json"))
+
+
+def test_extra_may_not_overwrite_validated_metadata(tmp_path):
+    """`extra` is applied after check_frame_invariant, so it must not reach the checked keys.
+
+    Otherwise frame='detector' is what gets validated and frame='source' is what gets recorded:
+    a source-frame artifact with no cosmology, no distance prior, and a distance coordinate.
+    """
+    mu, G = _make(d=3, seed=13)
+    n = nal_io.NAL(mu, G, ["mc", "delta_mc", "u_d"])
+    base = str(tmp_path / "ev")
+    with pytest.raises(ValueError, match="frame"):
+        nal_io.write_nal(base, n, chart="NAL:aligned", frame="detector",
+                         extra={"frame": "source"})
+    assert not os.path.exists(base + ".npz")             # rejected before anything is written
+    with pytest.raises(ValueError, match="cosmology"):
+        nal_io.write_nal(base, n, chart="NAL:aligned", frame="detector",
+                         extra={"cosmology": {"name": "Planck15"}})
+    # extra that only ADDS is still honoured
+    nal_io.write_nal(base, n, chart="NAL:aligned", frame="detector",
+                     extra={"pipeline_note": "synthetic"})
+    meta = json.load(open(base + ".meta.json"))
+    assert meta["frame"] == "detector" and meta["pipeline_note"] == "synthetic"
 
 
 def test_gwalk_offset_conversion_and_scale_max(tmp_path):
