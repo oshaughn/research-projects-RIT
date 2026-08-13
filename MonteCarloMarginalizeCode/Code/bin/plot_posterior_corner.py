@@ -254,7 +254,7 @@ parser.add_argument("--matplotlib-block-defaults",action="store_true",help="Reli
 parser.add_argument("--no-mod-psi",action="store_true",help="Default is to take psi mod pi. If present, does not do this")
 parser.add_argument("--downselect-parameter",action='append', help='Name of parameter to be used to eliminate grid points ')
 parser.add_argument("--downselect-parameter-range",action='append',type=str)
-parser.add_argument("--disable-special-ranges", action='store_true')
+parser.add_argument("--disable-special-ranges", action='store_true', help="Disable the default special parameter ranges. If not specified, the default ranges are used.")
 # ---- User-supplied coordinate-convert plugin (additive; the hardcoded RIFT
 #      conversion path is untouched).  When --supplementary-coordinate-code is
 #      omitted these flags are a no-op and plotting behaves byte-identically
