@@ -148,6 +148,11 @@ development tree is rift_O4d.
     (the flat-mode no-op master is preserved); ILE honours --srate-resample-time-marginalization instead of
     always doubling, and recovers the requested export rate EXACTLY rather than an integer multiple; Virgo
     calibration correction convention fixed; multi-GPU ILE fan-out with a multi-container example in one ini.
+  - asimov: the RIFT bootstrap source can be named explicitly (``scheduler: bootstrap file:``), bypassing
+    the dependency scan, with ``{event}``/``{analysis}`` substitution and single-match globbing; the
+    PESummary analysis label is auto-derived and an ambiguous or raw-bilby metafile now fails loudly
+    instead of silently bootstrapping from whichever label sorted first.  Ingested from rift_O4c 0.0.17.11
+    (rapidpe-rift/rift!53).
   - containers, docs, CI: container survey/warmup tooling (containers/survey_scan) with GPU-inventory
     profiles and tests; container canaries fixed after setuptools 84; an upstream dependency-compatibility
     check run on both GitLab and GitHub CI; new docs for distance-grid workflows, the demo catalog, the
@@ -164,13 +169,24 @@ development tree is rift_O4d.
     certify correctness; k-hat does not catch confidently-wrong runs from support mismatch; the L0 'doubles
     landed fraction' claim and the cap24 lnZ-bias claim are retracted).
 
+0.0.17.11
+---------
+MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/53  , so user can specify the bootstrap file in asimov yaml
+
+0.0.17.10
+------------
+MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/51 , https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
+so output sampling rate is precisely what is requested
+
 0.0.17.9
 ------------
 development tree is rift_O4c_staging -> rift_O4c; draft MR notes at
 https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/49
    - (rc0) write_bilby_pickle: shutil.copyfile threw error if cache file already existed (copy into same file error) in
      code that protected against duplicate IFO entries.
-
+   - (rc1) V calibration convention sign (rapidpe-rift/rift!50); multi-container capability; multi-GPU 'fanout' capability
+release is rc1
+     
 
 0.0.17.8
 ------------

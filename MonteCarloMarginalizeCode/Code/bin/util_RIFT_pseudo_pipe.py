@@ -602,6 +602,13 @@ parser.add_argument("--internal-mitigate-fd-J-frame",default="L_frame",help="L_f
 parser.add_argument("--internal-force-puff-iterations", default=4, type=int, help="Number of iterations to be puffed")
 opts=  parser.parse_args()
 
+# Multi-GPU ILE fan-out: --ile-gpu-fanout funnels through RIFT_ILE_GPU_FANOUT, which
+# create_event_parameter_pipeline_BasicIteration (run via os.system, inheriting this
+# environment) and dag_utils read at DAG-build time to size request_GPUs/CPUs and bake
+# the value into ile_pre.sh.  A CLI value wins over any inherited environment value.
+if opts.ile_gpu_fanout is not None:
+    os.environ['RIFT_ILE_GPU_FANOUT'] = str(opts.ile_gpu_fanout)
+
 config_stored=None; config_dict=None
 ile_condor_commands = None
 if (opts.use_ini):
