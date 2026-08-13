@@ -37,6 +37,7 @@ fi
 # coordinate-transform + prior-mass identities, so they belong with the integrator gate
 # rather than with the end-to-end run tests.
 python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_limit_cosine_samplers.py
+python -m pytest -q MonteCarloMarginalizeCode/Code/test/test_mcsampler_ensemble_log_contract.py
 
 # Supplementary-likelihood plugin hook: the NAL reader/evaluator (pure numpy, no data) and the
 # static guard on the drivers' prepare-hook wiring, which is what makes the plugin receive the
