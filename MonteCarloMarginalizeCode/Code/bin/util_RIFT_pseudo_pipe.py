@@ -493,6 +493,7 @@ parser.add_argument("--ile-force-gpu",action='store_true')
 parser.add_argument("--ile-gpu-fanout",default=None,help="Multi-GPU ILE fan-out: split each ILE batch's intrinsic-grid range across N GPUs on the node (one shard per GPU).  Integer N (also requests N GPUs+CPUs) or 'auto' (split across whatever GPUs are visible at runtime).  Baked into the generated ile_pre.sh, so it needs no runtime environment.  Equivalent to setting RIFT_ILE_GPU_FANOUT.  Requires --ile-force-gpu.")
 parser.add_argument("--fake-data-cache",type=str)
 parser.add_argument("--spin-magnitude-prior",default='default',type=str,help="options are default [uniform mag for precessing, zprior for aligned], volumetric, uniform_mag_prec, uniform_mag_aligned, zprior_aligned")
+parser.add_argument("--eccentricity-prior",default='uniform',type=str,help="options are uniform in e ('uniform') and uniform in log(e) ('log_uniform')")
 parser.add_argument("--force-lambda-max",default=None,type=float,help="Provide this value to override the value of lambda-max provided") 
 parser.add_argument("--force-lambda-small-max",default=None,type=float,help="Provide this value to override the value of lambda-small-max provided") 
 parser.add_argument("--force-lambda-no-linear-init",action='store_true',help="Disables use of priors focused towards small lambda for initial iterations. Designed for PP plot tests with wide/uniform priors.")
@@ -1617,6 +1618,7 @@ for indx in np.arange(len(instructions_cip)):
     if opts.internal_cip_tripwire:
         line += " --tripwire-fraction {} ".format(opts.internal_cip_tripwire)
     line += prior_args_lookup[opts.spin_magnitude_prior]
+
     if opts.cip_internal_use_eta_in_sampler:
         line = line.replace('parameter delta_mc','parameter eta')
     if opts.cip_fit_method == 'quadratic' or opts.cip_fit_method == 'polynomial':
@@ -1698,6 +1700,7 @@ for indx in np.arange(len(instructions_cip)):
 
     if opts.fit_save_gp:
         line += " --fit-save-gp my_gp "  # fiducial filename, stored in each iteration
+    line += " --eccentricity-prior {}".format(opts.eccentricity_prior)
     if opts.assume_eccentric:
         if opts.use_meanPerAno:
             line += " --parameter meanPerAno --use-meanPerAno "
