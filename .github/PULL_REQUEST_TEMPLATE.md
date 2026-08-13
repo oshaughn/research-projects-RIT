@@ -18,11 +18,11 @@ MonteCarloMarginalizeCode/Code/RIFT/integrators/REVIEW_CHECKLIST.md
 - [ ] New/changed tests are **named in `.github/workflows/ci.yml`** (a test file existing does
       not mean CI runs it — grep the workflow)
 - [ ] Tests assert the precondition they are about, so they cannot pass vacuously
-- [ ] **Read `git show` (the diff, not just `--stat`)** and confirmed every hunk is mine.
-      `--stat` gives filenames and line counts, which catches an unexpected *file* but not an
-      unrelated edit inside a file I also touched — the case that actually occurs on these
-      shared checkouts, where `git add -A` has twice swept another branch's uncommitted work
-      into a commit. Use `--stat` for the file list, the diff for the contents.
+- [ ] **Read the diff — `git show HEAD` — and confirmed every hunk is mine.** These checkouts
+      are shared between concurrent sessions and `git add -A` has twice swept another branch's
+      uncommitted work into a commit. `--stat` does not answer this: it is blind to an
+      unrelated edit inside a file you also changed, which is exactly what happened both
+      times. (See `RIFT/integrators/REVIEW_CHECKLIST.md` §1.)
 - [ ] Any changed default is justified by a measurement, and the previous behaviour is still
       reachable by flag
 

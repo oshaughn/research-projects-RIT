@@ -37,9 +37,19 @@ Every one of those returns a plausible-looking number when it is wrong. None of 
 - [ ] **Does a test assert the precondition it is about?** For a degenerate-regime fix, a test
       that silently runs in the healthy regime passes vacuously. Open with the assertion —
       e.g. `assert r['n_finite'] < r['n_retained'], 'this target did not underflow'`.
-- [ ] **Does the diff contain only your hunks?** `git show --stat` before pushing. Several
-      checkouts here are shared between concurrent sessions, and `git add -A` has twice swept
-      another branch's uncommitted work into an unrelated commit.
+- [ ] **Does the diff contain only your hunks?** Read the diff — `git show HEAD` — before
+      pushing, or `git diff --cached` before committing. Several checkouts here are shared
+      between concurrent sessions, and `git add -A` has twice swept another branch's
+      uncommitted work into a commit here.
+
+      **`--stat` does not answer this question and is not a cheaper way to.** It reports
+      filenames and line counts, so it catches an unexpected *file* while being blind to an
+      unrelated edit *inside a file you also changed* — which is the case that actually
+      occurred, both times, because the swept-in work was in `mcsamplerPortfolio.py` and the
+      commit legitimately touched `mcsamplerPortfolio.py`. `--stat` showed one expected
+      filename and a slightly larger line count. Nor is it a useful companion: `git show`
+      already names every file in its diff headers, so running `--stat` first adds a step and
+      an opportunity to stop early.
 - [ ] **If a default changed, is the previous behaviour still reachable by flag?** and is the
       new default's justification a measurement, not a preference?
 
