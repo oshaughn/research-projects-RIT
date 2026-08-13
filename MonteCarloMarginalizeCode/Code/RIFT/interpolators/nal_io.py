@@ -103,6 +103,9 @@ SCHEMA_VERSION = 2
 _UNBOUNDED_SIGMA = 5.0
 # Correlation below this counts as none: the truncation factor is then a constant, not theta-dependent.
 _CORR_TOL = 1e-8
+# An eigenvalue of gamma at or below this fraction of the largest one counts as zero (see
+# NAL._check_positive_definite).  Relative, so it is invariant under a rescaling of lnL.
+_PD_RTOL = 1e-12
 
 # Charts this module knows how to build from RIFT's native parameters.  Definitions are taken from
 # RIFT/lalsimutils.py, NOT from any design document:
@@ -177,6 +180,56 @@ class NAL(object):
         if len(self.coord_names) != d:
             raise ValueError("nal_io: %d coord_names for %d-dimensional NAL"
                              % (len(self.coord_names), d))
+        self._check_positive_definite()
+
+    def _check_positive_definite(self):
+        """`gamma` must be finite and positive definite, or this is not a peaked likelihood.
+
+        Not a formality.  A negative eigenvalue makes lnL INCREASE away from mu along that
+        direction: the object is a saddle, `lnL_peak` is not the peak, and `_peak_offset` -- which
+        the plugin relies on to keep the drivers' `np.exp(supplemental)` in range -- is no longer an
+        upper bound on anything, so the overflow protection silently stops protecting.  Nothing
+        downstream can notice: the arithmetic is finite and the array shapes are right.  A fitter
+        that has not converged, or one that fitted a boundary-railed direction badly, produces
+        exactly this, so it is a realistic input rather than a hypothetical one.
+
+        SINGULAR IS ALSO REJECTED, explicitly.  `cov()` -- hence `marginal`, `log_mass`,
+        `write_gwalk_view` and the truncation machinery -- needs Gamma^-1, and a numerically
+        singular Gamma inverts to garbage rather than to an error.  A genuinely unconstrained
+        direction is a real thing, but it is not representable as a normalizable likelihood without
+        bounds; it belongs in the artifact's `unconstrained_dirs` metadata, with the direction
+        removed from the chart.
+
+        The threshold is RELATIVE to the largest eigenvalue, so it is invariant under an overall
+        rescaling of lnL and does not depend on the units of the chart.  It is set far above the
+        ~1e-16 relative error of a symmetric eigendecomposition and far below the conditioning of
+        any usable fit, so it separates "zero" from "small" without rejecting the honestly
+        ill-conditioned mass/spin blocks these fits produce.
+        """
+        if not np.all(np.isfinite(self.gamma)):
+            raise ValueError("nal_io: gamma contains non-finite entries -- an unconverged or "
+                             "failed fit, not a likelihood")
+        if not np.all(np.isfinite(self.mu)):
+            raise ValueError("nal_io: mu contains non-finite entries")
+        w = np.linalg.eigvalsh(self.gamma)
+        scale = float(np.max(np.abs(w))) if len(w) else 0.0
+        if scale <= 0.0:
+            raise ValueError("nal_io: gamma is identically zero -- no likelihood is defined")
+        if w[0] < -_PD_RTOL * scale:
+            raise ValueError(
+                "nal_io: gamma is not positive definite (eigenvalues %s): lnL would INCREASE away "
+                "from mu along the negative direction, so this is a saddle and lnL_peak is not the "
+                "peak. The plugin's overflow guard subtracts a bound built from lnL_peak, which "
+                "such an artifact does not respect. Refit, or drop the unconverged direction."
+                % np.array2string(w, precision=4))
+        if w[0] <= _PD_RTOL * scale:
+            raise ValueError(
+                "nal_io: gamma is numerically singular (eigenvalues %s, smallest is %.3g of the "
+                "largest): it has an unconstrained direction, and Gamma^-1 -- needed by cov(), "
+                "marginal(), log_mass() and the gwalk view -- would be numerically meaningless "
+                "rather than an error. A flat direction is not a normalizable likelihood: remove it "
+                "from the chart and record it in the artifact's 'unconstrained_dirs', or bound it "
+                "and refit." % (np.array2string(w, precision=4), w[0] / scale))
 
     @property
     def ndim(self):
@@ -185,13 +238,30 @@ class NAL(object):
     def cov(self):
         return np.linalg.inv(self.gamma)
 
-    def marginal(self, keep, ignore_truncation=False):
+    def marginal(self, keep, ignore_truncation=False, shape_only=False):
         """Marginal NAL over a subset of coordinates, by name or index.
 
         Uses Sigma = Gamma^-1 and takes the SUB-BLOCK -- equivalently the Schur complement
         Gamma_AA - Gamma_AB Gamma_BB^-1 Gamma_BA.  This is the MARGINAL.  Taking `Gamma_AA`
         instead would give the CONDITIONAL (nuisance held fixed), which is systematically too
         narrow; they are easy to confuse and are not the same object.
+
+        ABSOLUTE SCALE.  Marginalising is an INTEGRAL, so it changes the peak as well as the
+        shape, and the module promises absolute lnL elsewhere -- so the constant is computed, not
+        dropped:
+
+            lnL_peak_marg = lnL_peak + (k/2) ln(2 pi) - 1/2 ln det Gamma_BB  [+ ln P(B in bounds)]
+
+        for the k dropped coordinates, where Gamma_BB is the DROPPED sub-block of Gamma (the
+        conditional precision, not a sub-block of Sigma).  Dropping one independent unit-variance
+        coordinate therefore raises the peak by 0.5 ln(2 pi) = 0.919, not by nothing: a marginal
+        that kept `lnL_peak` would be low by that much per coordinate, and the error compounds --
+        it is a factor 1e3 after 15 coordinates, applied to a quantity read as an evidence.
+        The bracketed term is the enclosed mass of the dropped block, present only when its bounds
+        bite; under the conditions this method allows (below) it is a constant, and it is evaluated
+        by the same controlled Monte Carlo as `log_mass`, so it can RAISE if it is too small to
+        resolve.  `shape_only=True` restores the projection-with-the-original-peak behaviour, for a
+        caller who wants the shape and will supply the normalisation themselves.
 
         TRUNCATION.  That identity is the UNTRUNCATED marginal.  Integrating out a coordinate that
         is genuinely truncated multiplies the result by the mass of that coordinate's CONDITIONAL
@@ -203,8 +273,9 @@ class NAL(object):
         REJECTED rather than silently approximated.  Two situations are provably safe and are
         allowed: a dropped coordinate whose bounds lie at least 5 marginal sigma from mu on both
         sides (factor 1 to ~1e-6), or one uncorrelated with every retained coordinate (factor
-        constant, so only lnL_peak moves -- which `renormalize` accounts for).  Pass
-        `ignore_truncation=True` to take the untruncated marginal anyway.
+        constant, so only lnL_peak moves -- which the integration constant above accounts for).
+        Pass `ignore_truncation=True` to take the untruncated marginal anyway; the constant is then
+        the untruncated one, since that is what was asked for.
         """
         idx = [self.coord_names.index(k) if isinstance(k, str) else int(k) for k in keep]
         drop = [i for i in range(self.ndim) if i not in idx]
@@ -213,8 +284,49 @@ class NAL(object):
             self._reject_theta_dependent_truncation(idx, drop, Sigma)
         S = Sigma[np.ix_(idx, idx)]
         b = None if self.bounds is None else self.bounds[idx]
+        peak = self.lnL_peak
+        if drop and not shape_only:
+            peak = peak + self._marginalization_constant(idx, drop, Sigma, ignore_truncation)
         return NAL(self.mu[idx], np.linalg.inv(S), [self.coord_names[i] for i in idx],
-                   lnL_peak=self.lnL_peak, bounds=b, meta=self.meta)
+                   lnL_peak=peak, bounds=b, meta=self.meta)
+
+    def _marginalization_constant(self, keep_idx, drop_idx, Sigma, ignore_truncation):
+        """ln of the factor picked up by integrating exp(lnL) over the dropped coordinates.
+
+        Completing the square in the joint quadratic gives
+
+            int exp(-1/2 d^T Gamma d) d(theta_B)
+                = (2 pi)^(k/2) |Gamma_BB|^(-1/2) exp(-1/2 d_A^T (Gamma/Gamma_BB) d_A)
+
+        -- the Schur complement in the exponent (the shape `marginal` already returns) and a
+        constant in front.  Gamma_BB is the sub-block of GAMMA, not of Sigma: it is the precision
+        of B CONDITIONED on A, which is what completing the square produces.
+
+        With bounds, the integral over the box multiplies this by P(theta_B in B_B | theta_A).
+        `_reject_theta_dependent_truncation` has already established that this probability does not
+        depend on theta_A -- every dropped coordinate is either effectively unbounded or
+        uncorrelated with everything retained -- so it may be evaluated once, at theta_A = mu_A,
+        where theta_B ~ N(mu_B, Gamma_BB^-1).  It is skipped entirely when no dropped bound bites,
+        which is both the common case and the one where the Monte Carlo would be a waste (the
+        answer is 1 to ~1e-6 per side by the 5-sigma criterion that let it through).
+        """
+        k = len(drop_idx)
+        G_BB = self.gamma[np.ix_(drop_idx, drop_idx)]
+        sign, logdet = np.linalg.slogdet(G_BB)
+        if sign <= 0:                                     # unreachable for a positive-definite
+            raise ValueError("nal_io: dropped block of gamma is not positive definite")
+        const = 0.5 * k * np.log(2 * np.pi) - 0.5 * logdet
+        if self.bounds is None or ignore_truncation:
+            return const
+        sd = np.sqrt(np.diag(Sigma))
+        bites = [j for j in drop_idx
+                 if (self.mu[j] - self.bounds[j][0]) < _UNBOUNDED_SIGMA * sd[j]
+                 or (self.bounds[j][1] - self.mu[j]) < _UNBOUNDED_SIGMA * sd[j]]
+        if not bites:
+            return const
+        block = NAL(self.mu[drop_idx], G_BB, [self.coord_names[j] for j in drop_idx],
+                    bounds=self.bounds[drop_idx])
+        return const + block.log_mass()
 
     def _reject_theta_dependent_truncation(self, keep_idx, drop_idx, Sigma):
         """Raise unless every dropped coordinate is effectively unbounded or uncorrelated."""

@@ -473,6 +473,63 @@ def test_contribution_is_centred_so_the_drivers_exponentiation_cannot_overflow(t
                                       -0.5 * (0.5 ** 2 + 4 * 0.1 ** 2)])
 
 
+# ------------------------------------------------------------------- validity of the fit itself
+
+def test_indefinite_gamma_is_rejected():
+    """A negative eigenvalue is a saddle, and it breaks the plugin's overflow guard.
+
+    lnL then INCREASES away from mu along that direction, so lnL_peak is not the peak and the
+    constant `_peak_offset` subtracts is no longer an upper bound on the contribution -- which is
+    the entire mechanism keeping the drivers' np.exp(supplemental) finite.  Demonstrated here
+    rather than asserted: the quadratic form really does exceed its nominal peak.
+    """
+    G = np.array([[1.0, 0.0], [0.0, -1.0]])
+    off_peak = 5.0 - 0.5 * np.array([0.0, 3.0]) @ G @ np.array([0.0, 3.0])
+    assert off_peak > 5.0                                # 9.5 nat ABOVE the declared peak
+    with pytest.raises(ValueError, match="positive definite"):
+        nal_io.NAL(np.zeros(2), G, ["mc", "delta_mc"], lnL_peak=5.0)
+
+
+def test_singular_gamma_is_rejected_explicitly():
+    """A flat direction is not a normalizable likelihood, and Gamma^-1 would be garbage, not an error."""
+    G = np.array([[1.0, 0.0], [0.0, 0.0]])
+    with pytest.raises(ValueError, match="singular"):
+        nal_io.NAL(np.zeros(2), G, ["mc", "delta_mc"])
+    # numerically singular counts too: inverting this loses every significant digit
+    G = np.diag([1.0, 1e-15])
+    with pytest.raises(ValueError, match="singular"):
+        nal_io.NAL(np.zeros(2), G, ["mc", "delta_mc"])
+
+
+def test_non_finite_fit_is_rejected():
+    with pytest.raises(ValueError, match="non-finite"):
+        nal_io.NAL(np.zeros(2), np.array([[1.0, np.nan], [np.nan, 1.0]]), ["mc", "delta_mc"])
+    with pytest.raises(ValueError, match="non-finite"):
+        nal_io.NAL([np.inf, 0.0], np.eye(2), ["mc", "delta_mc"])
+
+
+def test_ill_conditioned_but_valid_fit_is_accepted():
+    """The check must not reject the fits this module exists for.
+
+    Mass and spin curvatures differ by many orders of magnitude in a real chart -- a condition
+    number of 1e8 is ordinary, not a defect -- so the threshold is relative and tight.
+    """
+    n = nal_io.NAL(np.zeros(2), np.diag([1e6, 1e-2]), ["mc", "xi"])
+    assert np.allclose(n.cov(), np.diag([1e-6, 1e2]))
+    # and it is invariant under an overall rescaling of lnL, which changes no eigenvalue RATIO
+    nal_io.NAL(np.zeros(2), np.diag([1e6, 1e-2]) * 1e-9, ["mc", "xi"])
+
+
+def test_invalid_gamma_is_caught_when_an_artifact_is_LOADED(tmp_path):
+    """The check has to hold on the consumer side: the artifact was fitted somewhere else."""
+    base = str(tmp_path / "bad")
+    np.savez(base + ".npz", theta_star=np.zeros(2), gamma=np.diag([1.0, -1.0]))
+    json.dump({"coord_names": ["mc", "delta_mc"], "lnL_peak": 0.0, "frame": "detector",
+               "chart": "NAL:aligned"}, open(base + ".meta.json", "w"))
+    with pytest.raises(ValueError, match="positive definite"):
+        nal_io.load_nal(base + ".npz")
+
+
 # ------------------------------------------------------------------------ bounded marginalization
 
 def _correlated(rho=0.9, d=2):
@@ -513,6 +570,57 @@ def test_marginal_allowed_when_the_dropped_coordinate_is_uncorrelated():
                    bounds=np.stack([mu - 0.1, mu + 0.1], 1))
     m = n.marginal(["mc"])
     assert np.allclose(m.gamma, [[1.0]])
+
+
+def test_marginal_peak_matches_brute_force_integration():
+    """The marginal is an INTEGRAL: check it against one, at several points.
+
+    Compares the returned marginal's absolute lnL with log of the numerically integrated joint
+    likelihood over the dropped coordinate.  This pins the constant AND the shape at once; keeping
+    the original lnL_peak fails it by 0.0885 nat here, uniformly in x.
+    """
+    C = np.array([[1.0, 0.9], [0.9, 1.0]])
+    n = nal_io.NAL(np.zeros(2), np.linalg.inv(C), ["mc", "delta_mc"], lnL_peak=4.0)
+    m = n.marginal(["mc"])
+    y = np.linspace(-14.0, 14.0, 280001)                 # dy = 1e-4, ~14 sigma each way
+    for x in (0.0, 0.4, -1.1):
+        grid = np.stack([np.full_like(y, x), y], 1)
+        want = np.log(np.sum(np.exp(n.lnL(grid))) * (y[1] - y[0]))
+        assert np.isclose(m.lnL(np.array([[x]]))[0], want, atol=1e-6)
+    # and the shape-only projection is exactly the old behaviour, for a caller who normalises
+    assert np.isclose(n.marginal(["mc"], shape_only=True).lnL_peak, 4.0)
+
+
+def test_marginal_constant_for_one_independent_standard_normal():
+    """The textbook case: dropping one independent unit-variance coordinate adds 0.5 ln(2 pi)."""
+    n = nal_io.NAL(np.zeros(3), np.eye(3), ["mc", "delta_mc", "xi"], lnL_peak=2.0)
+    assert np.isclose(n.marginal(["mc", "delta_mc"]).lnL_peak, 2.0 + 0.5 * np.log(2 * np.pi))
+    assert np.isclose(n.marginal(["mc"]).lnL_peak, 2.0 + np.log(2 * np.pi))
+    # the constant uses Gamma_BB -- the CONDITIONAL precision of the dropped block, a sub-block of
+    # Gamma -- not a sub-block of Sigma.  They differ as soon as anything is correlated.
+    C = np.array([[1.0, 0.9], [0.9, 1.0]])
+    n2 = nal_io.NAL(np.zeros(2), np.linalg.inv(C), ["mc", "delta_mc"])
+    gamma_bb = np.linalg.inv(C)[1, 1]
+    assert np.isclose(n2.marginal(["mc"]).lnL_peak,
+                      0.5 * np.log(2 * np.pi) - 0.5 * np.log(gamma_bb))
+    assert not np.isclose(gamma_bb, 1.0 / C[1, 1])       # the two candidates really do differ
+
+
+def test_marginal_constant_includes_the_enclosed_mass_of_a_bounded_nuisance():
+    """A bounded (but uncorrelated) dropped coordinate contributes its enclosed mass as well.
+
+    Allowed because the factor is constant -- but constant is not the same as absent, and here it
+    is 0.38 nat.  Checked against the analytic 1-D normal mass.
+    """
+    from scipy.stats import norm
+    mu = np.zeros(2)
+    bounds = np.array([[-50.0, 50.0], [-1.0, 1.0]])      # retained wide open, nuisance at 1 sigma
+    n = nal_io.NAL(mu, np.eye(2), ["mc", "delta_mc"], bounds=bounds)
+    want = 0.5 * np.log(2 * np.pi) + np.log(norm.cdf(1.0) - norm.cdf(-1.0))
+    assert abs(n.marginal(["mc"]).lnL_peak - want) < 0.02   # MC mass, 1% relative by default
+    # ignore_truncation asks for the untruncated object, so it gets the untruncated constant
+    assert np.isclose(n.marginal(["mc"], ignore_truncation=True).lnL_peak,
+                      0.5 * np.log(2 * np.pi))
 
 
 def test_unbounded_marginal_is_unaffected():
