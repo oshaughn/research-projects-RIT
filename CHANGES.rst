@@ -1,3 +1,7 @@
+0.0.17.12
+---------
+MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/54  , for eccentricity prior (log-uniform)
+
 0.0.17.11
 ---------
 MR https://git.ligo.org/rapidpe-rift/rift/-/merge_requests/53  , so user can specify the bootstrap file in asimov yaml
