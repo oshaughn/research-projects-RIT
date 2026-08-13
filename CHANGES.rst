@@ -64,7 +64,7 @@ development tree is rift_O4d.
   - ILE 'fanout' submission can use multiple GPUs on one host (RIFT_ILE_GPU_FANOUT)
   - Qlm interpolated in factored_likelihood...NoLoop (option)
 
-** (unreleased; development since rc1)
+** (rc2)
   Development tree is rift_O4d, staged on oshaughnessy-junior/rift_O4d.  The per-feature detail, review
   history, and measurements live in fork PRs #19-#84 of oshaughnessy-junior/research-projects-RIT; the
   grouping below is by subsystem, not by merge order.  Every item is default-off or behavior-preserving
